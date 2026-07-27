@@ -1,20 +1,23 @@
 # Design elements for specs
 
-A spec is read in plain markdown far more often than as a rendered page — in a PR diff, in the task UI, in an editor, by an agent with a fresh checkout. The rendered report is a one-shot approval surface; the markdown is what gets read twenty times during implementation.
+Two surfaces, two readers, and the elements below serve both — for different reasons.
 
-So the design work goes in the markdown. Anything that lives only in the HTML evaporates.
+The **page** is where a human agrees to the change: read a handful of times over one session, then never again. The **markdown** is what an agent reads twenty times during implementation — in a PR diff, in the task UI, in an editor, from a fresh checkout with no page anywhere.
 
-## Every element earns its place by doing one of five jobs
+**Anything that lives only on the page evaporates.** The page is not in the repo and does not outlive the sandbox, so every element it carries has to have a counterpart in the spec once the spec is written.
+
+## Every element earns its place by doing one of four jobs
 
 | Job | The problem it solves | Element |
 |---|---|---|
-| **Locate** | "Where am I, and what kind of thing is this?" | Fixed heading order · the `---` under the lede · deep links |
+| **Locate** | "Where am I, and what kind of thing is this?" | Fixed heading order · deep links |
 | **Chunk** | A wall of text has no handholds — you can't enter or leave it | Tables · one instruction per line · short sections |
 | **Signal state** | The reader can't hold what's settled, shipped, or blocked | Status line · progress bar · graph node colours · task lists |
 | **Show shape** | Relationships prose can't carry | Mermaid graphs · before/after trees |
-| **Hide** | The surface must stay capped while the substance stays present | `<details>` blocks |
 
-If an element does none of the five, it is decoration. Cut it. Decoration is not neutral — it competes for the same attention the real signals need.
+If an element does none of the four, it is decoration. Cut it. Decoration is not neutral — it competes for the same attention the real signals need.
+
+There used to be a fifth — **hide**, via `<details>` — and it is gone from the markdown. It existed to cap a human's scroll while keeping the substance in the file. The human reads the page now, and hiding content from an agent buys nothing while costing it a section it has to know to open.
 
 ## No section is prose-only
 
@@ -73,23 +76,6 @@ Ticket names only — no acceptance criteria, no file paths. If the graph needs 
 
 Where Mermaid isn't rendered, it degrades to a fenced block that still reads top-to-bottom. Don't let that stop you using it.
 
-### `<details>` for the long tail
-
-This is "cap the surface, never the substance" as a widget. The content stays in the file, in full, and the scroll stays short:
-
-```md
-<details>
-<summary><b>Maintainer stories</b> — 24 more, grouped by concern</summary>
-
-…the full list…
-
-</details>
-```
-
-Use it for: user-story groups past the first, prior art for tests, the full reasoning behind a rejected option, migration step-by-steps. Never for anything in the lede — the lede is what the reader is guaranteed to see, so it cannot be behind a click.
-
-Always put the count in the summary. "24 more" tells the reader whether to open it; "more details" doesn't.
-
 ### Callouts, rationed
 
 GitHub alert syntax, and only for things that would genuinely surprise:
@@ -101,9 +87,9 @@ GitHub alert syntax, and only for things that would genuinely surprise:
 
 One or two per spec. Used for emphasis, they stop meaning anything; used for surprise, they're the only element that reliably interrupts a skim.
 
-### Deep links from lede to detail
+### Deep links from the decision table to its reasoning
 
-Every decision row links to its `###` section. Every mention of another spec links to the file. This is what makes "one click down a level" true rather than aspirational — without it, the capped lede is just a lossy summary.
+Every decision row links to its `###` section. Every mention of another spec links to the file. The table is an index, and an index without links is a list — this is what lets an agent land on the paragraph that answers its question instead of the file that contains it.
 
 ### Before/after as trees
 
@@ -125,7 +111,8 @@ Fine to draw them stacked rather than side by side when the paths are long.
 Each of these looks like design and spends attention without returning any:
 
 - **Emoji as decoration.** A status glyph in a fixed column is a signal; a rocket in a heading is noise.
-- **Bold as emphasis-spray.** Bold is reserved for the lede's field labels. Once a third of a paragraph is bold, none of it is.
+- **Bold as emphasis-spray.** Bold is reserved for field labels and the leading term of a rule. Once a third of a paragraph is bold, none of it is.
+- **`<details>`, and every other cap.** Truncated lists, "…and 12 more", collapsed sections. Nothing skims the spec markdown, and each of these costs an agent a section it has to know to open.
 - **Bullets nested past two levels.** Three levels means the structure belongs in a table.
 - **Tables past four columns.** They wrap in every narrow view and stop being scannable.
 - **Screenshots.** They go stale silently and can't be diffed.

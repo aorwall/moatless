@@ -1,17 +1,19 @@
-# Grilling toward a lede
+# Grilling toward an agreed page
 
-Base discipline: the `/grilling` skill — one question at a time, wait for each answer, look facts up rather than asking, don't act until the user confirms you've reached shared understanding. This file adds the layer that binds it to the lede.
+Base discipline: the `/grilling` skill — one question at a time, wait for each answer, look facts up rather than asking, don't act until the user confirms you've reached shared understanding. This file adds the layer that binds it to the page.
 
-## Bound the interview to the lede's slots
+There is no spec file yet. `specs/<slug>.md` is written after the user approves, in one pass — while the interview is running, the page is the only record of it.
+
+## Bound the interview to the page's sections
 
 Open-ended grilling is where attention dies: the user can't see how many questions are left, so every answer feels like it might not be the last, and the session ends by exhaustion rather than by agreement.
 
-The lede has a fixed number of slots. Bind the question set to them and the interview gets a visible end.
+The page has a fixed number of sections. Bind the question set to them and the interview gets a visible end.
 
-| Lede slot | What it asks |
+| Page section | What it asks |
 |---|---|
-| *(none — `## Today`)* | "Is this what we're both looking at?" The understanding batch, below. Asked before any slot gets filled. |
-| **After this ships** | "What can someone do afterward that they can't today?" Ask this first of the slots, once. Everything else hangs off the answer. |
+| *(the research)* | "Is this what we're both looking at?" The understanding batch, below. Asked before anything else gets filled. |
+| **What we're building** | "What can someone do afterward that they can't today?" Ask this first, once. Everything else hangs off the answer. |
 | **In scope / Out of scope** | One question per contested edge — not per bullet. Uncontested bullets you write yourself. |
 | **Decisions** | One question per decision that is genuinely open. This is the bulk of the interview. |
 | **Open questions** | Never asked. This is where questions you *can't* resolve get parked. |
@@ -26,16 +28,16 @@ Before any slot gets filled, spend **1–3 questions** establishing that you and
 
 Two questions, at most three:
 
-**1. Does `## Today` match your model?** Link the section — don't paste it — and name the one or two findings that will actually move the spec:
+**1. Does the research match your model?** Link the page — don't paste it — and name the one or two findings that will actually move the spec:
 
-> `## Today` is written: [spec](…#today). Two things worth flagging before we start.
+> The research is up: [page](…). Two things worth flagging before we start.
 >
 > - There are **two** delivery paths and only one runs; the dead one is where the second vocabulary comes from.
 > - Nothing persists a skill, so a skill has no id to hang anything off.
 >
 > Does that match how you thought it worked, or is something missing?
 
-The point is not approval of the section. It is finding the place where their model and the code disagree, because that gap will otherwise surface as a rejected decision five questions later. **A "no, actually…" here is the cheapest correction in the whole workflow.**
+The point is not approval of the research. It is finding the place where their model and the code disagree, because that gap will otherwise surface as a rejected decision five questions later. **A "no, actually…" here is the cheapest correction in the whole workflow.**
 
 **2. Do the terms mean the same thing to both of us?** Check the affected area's vocabulary against `CONTEXT.md` before asking anything phrased in it. Three cases, one line each:
 
@@ -49,11 +51,11 @@ Cap the list at the terms the spec will actually use. This is not a glossary aud
 
 **When the change *is* a rename, this batch is not optional.** A spec that aligns terminology while the glossary stays silent on those terms has no anchor to align to, and every decision below it is a preference rather than a consequence.
 
-Skip the batch when the user wrote the code themselves, or when `## Today` fit in five lines. Say you're skipping it and why.
+Skip the batch when the user wrote the code themselves, or when the research fit in five lines. Say you're skipping it and why.
 
 ## Run one batch at a time
 
-The slots also set the order: understanding, then scope, then decisions — never alternate. Attention here runs deep and narrow; being pulled out of a subject costs far more than being asked one more question inside it, so an interview that hops between scope and seams and rollout is expensive in a way its question count doesn't show.
+The sections also set the order: understanding, then scope, then decisions — never alternate. Attention here runs deep and narrow; being pulled out of a subject costs far more than being asked one more question inside it, so an interview that hops between scope and seams and rollout is expensive in a way its question count doesn't show.
 
 Open each batch by naming it and its size:
 
@@ -92,25 +94,24 @@ Four things are doing work in that block, and each maps to a fact about how this
 
 The loop:
 
-1. Answer lands → write it into `specs/<slug>.md`.
-2. Re-render the page **only if the answer made it wrong**.
+1. Answer lands → **record it on the page.** One `Edit` adding a row, before anything else.
+2. **Redraw** a section only if the answer made what is already there wrong.
 3. Ask the next question.
 
-The three surfaces divide cleanly, and the user only ever reads two of them:
+Only two surfaces exist during the interview, and the user reads both:
 
 | | Carries | Never carries |
 |---|---|---|
 | **The chat message** | The question, its ranked options, the progress line | Background the page already holds |
-| **The page** | `## Today`, settled answers, what is still open | The question being asked |
-| **`specs/<slug>.md`** | The same content, written for the implementing agent | Anything the user is asked to read |
+| **The page** | The research, every settled answer, what is still open | The question being asked |
 
-**Never link the markdown to the user.** It is the agent's copy. A human sent a markdown file gets the version whose diagrams render as code blocks — see `/html-report`.
+`specs/<slug>.md` is the third surface and it does not exist yet. Writing it now would create a second place for an answer to live, and the two disagree within a few questions. It gets written once, after approval — see the sequence in [SKILL.md](SKILL.md).
+
+**Recording and redrawing are different operations, and only one of them is optional.** Recording is not: the page is the only record, so an answer not written to it exists nowhere, and a closed session loses it. Redrawing is a judgement, and the test is "wrong", not "out of date" — an answer that contradicts something already drawn earns one; an answer that fills a section the page already shows as open does not, because that page is incomplete and incomplete costs nothing. A scope answer that invalidates part of the research always earns one, since research nobody has retracted reads as still true.
 
 The question is short because the page is one click away. When a question needs current behaviour to make sense, **name the one fact that decides it and point at the page** — don't re-explain the mechanism inside the question. Pasting three paragraphs of background above a decision means the reader spends their attention on the background and reaches the options with none left.
 
-**Step 2 is a judgement, and the test is "wrong", not "out of date".** An answer that contradicts something already drawn earns a re-render. An answer that fills a slot the page already shows as open does not — that page is incomplete, and incomplete costs nothing. A scope answer that invalidates part of `## Today` always earns one, because research nobody has retracted reads as still true.
-
-Never let an answer live only in the chat. File first: a restarted sandbox or a closed session then costs nothing, and the interview can stop after any question and resume from the markdown.
+**Never link a markdown file to the user.** A human sent markdown gets the version whose diagrams render as code blocks — see `/html-report`.
 
 ## Look it up; only ask decisions
 
@@ -121,13 +122,13 @@ If the answer is a fact — what the code does today, which crate owns a type, w
 A question that surfaces mid-interview is the work happening, not clutter — but it doesn't get asked here.
 
 - **You can answer it** → answer it, fold the result into the current question, say nothing about the detour.
-- **It needs the user but isn't blocking** → write it into the lede's **Open questions** and move on. It gets surfaced once, in the artifact, where it survives the session.
+- **It needs the user but isn't blocking** → write it into the page's **Open questions** and move on. It gets surfaced once, where the user will see it before approving.
 - **It blocks the current question** → it *becomes* the current question. Ask it instead, not as well.
 
 Never stack two questions in one turn unless the user asked for the whole batch. Two unrequested questions means they pick which to answer, and picking is where work stalls — a batch they opted into is a different thing, because the choosing already happened.
 
-## Stop when every slot is filled or parked
+## Stop when every section is filled or parked
 
-Then write the lede and show it. That artifact *is* the shared-understanding check `/grilling` asks for — an agreement you can both point at beats an agreement you both remember.
+Then show the page and ask for a yes. That page *is* the shared-understanding check `/grilling` asks for — an agreement you can both point at beats an agreement you both remember. Only after the yes does `specs/<slug>.md` get written.
 
 Record any decision that is hard to reverse, surprising without context, and the result of a real trade-off as an ADR while it's fresh (`/domain-modeling`). Sharpen fuzzy terms into `CONTEXT.md` the moment they're settled — don't batch them to the end.

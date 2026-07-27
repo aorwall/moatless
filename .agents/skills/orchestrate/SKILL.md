@@ -10,43 +10,47 @@ Drive a feature from idea to merged PRs: clarify → spec → review → tickets
 
 This skill spawns child Moatless tasks to implement work in parallel. Each child creates a PR and reports back; you run code review on each and advance blocked tickets as their dependencies land.
 
-Three artifacts are produced along the way, each with a distinct audience:
+Three artifacts are produced along the way, each with a distinct audience, and they do not all exist at once:
 
-1. **Spec markdown** — `specs/<feature-slug>.md` in the repo — the source of truth; inlined into every child's spawn message.
-2. **Ticket markdown files** — `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md` — one per ticket; each becomes the body of its child's spawn message.
-3. **HTML page** — `/opt/moatless/workspace/scratchpad/<feature-slug>.html`. One file at one URL, first rendered when `## Today` lands and live until the breakdown is agreed. It is the only artifact the user is pointed at: the research, then the lede as it fills, then per-ticket cards once the breakdown exists. Re-rendered when an answer made it wrong, not on a cadence. It never carries the question being asked — that is the chat's job.
+1. **HTML page** — `/opt/moatless/workspace/scratchpad/<feature-slug>.html`. One file at one URL, first rendered when the research lands and live until the breakdown is agreed. While that is happening it is **the only document**: the only thing the user is pointed at, and the only record of what has been settled. Every answer is recorded on it before the next question goes out; it is redrawn only when an answer made something already on it wrong. It never carries the question being asked — that is the chat's job.
+2. **Spec markdown** — `specs/<feature-slug>.md` in the repo. Written **once, after the plan and the breakdown are both agreed**, complete and uncapped, for the child agents. Inlined into every child's spawn message.
+3. **Ticket markdown files** — `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md` — one per ticket; each becomes the body of its child's spawn message.
+
+Nothing is drafted in `specs/` while the user is still deciding. A half-written spec is a second place for an answer to live, and the two disagree within a few questions.
 
 ---
 
 ## Phase 1 — Alignment
 
-Run the `/writing-specs` skill and follow its sequence. **Map today first:** read the affected code and write `## Today` into `specs/<feature-slug>.md` before asking anything — at feature size this is what stops the interview turning into an explanation session, because every later question can point at it instead of carrying its own background.
+Run the `/writing-specs` skill and follow its sequence. **Research first:** read the affected code, work out how it behaves today, and render the page from it before asking anything — at feature size this is what stops the interview turning into an explanation session, because every later question can point at the page instead of carrying its own background. Give the URL once.
 
-Then follow its grill: open with the understanding batch (does `## Today` match their model, and do the terms agree with `CONTEXT.md`), then scope, then decisions. One question per turn, each carrying your recommended answer and 2–4 ranked alternatives, each restating position and settled state. Name each batch and its size as it opens, and offer the whole batch at once the first time — a feature-sized interview is long enough that the shape should be the user's choice, not the skill's. Look codebase facts up rather than asking. Record load-bearing decisions as ADRs in `docs/adr/` as they land, and sharpen terms into `CONTEXT.md` as they settle.
+Then follow its grill: open with the understanding batch (does the research match their model, and do the terms agree with `CONTEXT.md`), then scope, then decisions. One question per turn, each carrying your recommended answer and 2–4 ranked alternatives, each restating position and settled state. Name each batch and its size as it opens, and offer the whole batch at once the first time — a feature-sized interview is long enough that the shape should be the user's choice, not the skill's. Look codebase facts up rather than asking. Record load-bearing decisions as ADRs in `docs/adr/` as they land, and sharpen terms into `CONTEXT.md` as they settle.
 
-Write each answer into `specs/<feature-slug>.md` as it lands, and link the **page** — never the markdown, which is the child tasks' copy. Re-render only when an answer made the page wrong. The question stays in chat.
+Record each answer on the page as it lands — one `Edit`, before the next question — and redraw only when an answer made something already on it wrong. Nothing goes into `specs/` yet. The question stays in chat.
 
-Stop when every lede slot is filled or explicitly parked into Open questions.
-
----
-
-## Phase 2 — Spec
-
-Without re-interviewing, synthesize the conversation into a spec. `## Today` is already written and already agreed; use the domain glossary (`CONTEXT.md`) and existing ADRs throughout.
-
-Sketch the testing seams (fewest possible; prefer the highest seam). Confirm them with the user before writing.
-
-Write the spec to **`specs/<feature-slug>.md`** in the repo, in the shape `/writing-specs` defines. Follow its sequence: **write the lede first and stop for review**, then fill the detail once the decision table is agreed. Draft the ticket breakdown before the lede is final — its Work graph is part of what the user approves.
-
-Bring the page up to date — the four sections from `/writing-specs`'s HTML-REPORT reference, above the research it already carries. It renders the lede, not the spec: the markdown is the source of truth on disk and the child tasks read it, the page is what makes the decision reachable in two minutes.
-
-Paste the decision table into the message alongside the URL, so the choice is reachable without opening anything. Approval happens here — the detail is written for the child tasks that implement from it, so don't ask the user to read it back. **Wait for their approval before continuing.** If they want changes, update the spec file, revise the draft breakdown, and re-render. Iterate until they approve both the plan and the breakdown.
+Stop when every section of the page is filled or explicitly parked into Open questions.
 
 ---
 
-## Phase 3 — Tickets
+## Phase 2 — Agreement
 
-The user has approved the spec and the proposed breakdown. Formalize it: write one file per ticket to **`/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md`**, numbered from `01` in dependency order.
+Still no spec file. Everything the user is agreeing to lives on the page.
+
+Sketch the testing seams (fewest possible; prefer the highest seam). Confirm them with the user, and record the answer on the page.
+
+Draft the ticket breakdown now, before asking for approval — the work graph is part of what the user approves, and a plan agreed without it gets re-opened as soon as the shape of the work becomes visible.
+
+Paste the decision table into the message alongside the URL, so the choice is reachable without opening anything. **Wait for approval before continuing.** If they want changes, update the page and revise the draft breakdown. Iterate until they approve both the plan and the breakdown.
+
+---
+
+## Phase 3 — Spec and tickets
+
+The user has approved the plan and the proposed breakdown. Now the markdown gets written, in this order.
+
+**First, the spec.** Write **`specs/<feature-slug>.md`** in one pass, in the shape `/writing-specs` defines — fixed heading order, nothing capped, every decision carrying the alternatives it beat. Use the domain glossary (`CONTEXT.md`) and existing ADRs throughout. This file is the child tasks' only view of the feature: the page is not in the repo, they cannot read it, and anything agreed there and not written here is lost.
+
+**Then the tickets.** One file per ticket to **`/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md`**, numbered from `01` in dependency order.
 
 <ticket-template>
 # <NN> — <Ticket title>
@@ -75,7 +79,7 @@ ready-for-agent
 
 In each ticket's Spec reference section, note that the full spec is included in the child's spawn message — children cannot read the orchestrator's files (see Phase 4).
 
-Present the breakdown as a numbered list (title / blocked-by / what it delivers). Ask whether granularity is right and whether edges are correct. Iterate until approved. Once approved, update the spec's lede Work graph to match, then re-render the page with per-ticket cards below the standard sections, so the user-facing page matches the final plan.
+Present the breakdown as a numbered list (title / blocked-by / what it delivers). Ask whether granularity is right and whether edges are correct. Iterate until approved. Once approved, update the spec's `## Ticket breakdown` graph to match, then redraw the page with per-ticket cards below its existing sections, so the page the user has open matches the final plan.
 
 ---
 

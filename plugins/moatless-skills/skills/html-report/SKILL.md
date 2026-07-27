@@ -18,7 +18,7 @@ Render the deliverable as a single self-contained HTML file. Tailwind and Mermai
 
 The rule is about the reader, not the file type. `/to-tickets` writes markdown that child agents consume — that is correct and stays. A document a person is asked to read is HTML, whatever else also exists.
 
-Where both exist — a spec has an HTML page and a markdown record — they are not one document in two skins. They are written differently because they are read differently, and **the markdown is still written first**: that is what stops an answer existing only in an uncommitted file.
+Where both exist — a spec has an HTML page and a markdown record — they are not one document in two skins, and they need not exist at the same time. **While a human is still deciding, the page is the only document**, because a second copy in markdown is a second place for an answer to live and the two disagree quickly. The markdown is written once agreement is reached, and it must then be self-contained: the page is not in the repo and does not outlive the sandbox.
 
 ## Mechanics
 
@@ -50,8 +50,8 @@ Give the URL once. Don't re-paste it on every update — the tab is already open
 | Linking | `file=` | `fileView=` |
 |---|---|---|
 | A generated page | `scratchpad%2F<slug>.html` | `preview` |
-| A spec or doc | `moatless%2Fspecs%2F<slug>.md` | `preview` — rendered, not raw |
 | Source you're citing | `moatless%2Fbackend%2Fsrc%2F...` | `code` |
+| A committed markdown file | `moatless%2Fspecs%2F<slug>.md` | `preview` — but not as the thing they read; see the audience rule above |
 
 Prefer a link over a paste whenever the file is long enough that quoting it would bury the message.
 
@@ -124,7 +124,7 @@ Everything above is the shared base: where the file goes, how it's served, how i
 
 | Skill | Its page | Layer |
 |---|---|---|
-| `/writing-specs` | One page, live from the end of research to approval | [HTML-REPORT.md](../writing-specs/HTML-REPORT.md) |
+| `/writing-specs` | One page, the only document from research to approval | [HTML-REPORT.md](../writing-specs/HTML-REPORT.md) |
 | `/explaining-code` | An explanation of how existing code works | [HTML-REPORT.md](../explaining-code/HTML-REPORT.md) |
 
 If you are producing one of those, read its layer — it fixes the section order and the caps, which is most of what makes the page useful. For anything else, this file is enough on its own.
