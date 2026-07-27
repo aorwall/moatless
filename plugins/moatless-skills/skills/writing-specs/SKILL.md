@@ -13,11 +13,9 @@ description: Take a change from research to an agreed spec — research and deci
 4. **Get the plan approved, on the page.** Paste the decision table into the message so the choice is reachable without opening anything.
 5. **Write `specs/<slug>.md`, once** — complete and uncapped. It is for the agent that implements.
 
-Nothing goes into `specs/` before step 5. A half-written spec is a second place for an answer to live, and two places disagree within about three questions.
+Nothing goes into `specs/` before step 5.
 
-**There is no ticket step.** Work that needs a breakdown goes through `/orchestrate`, which runs `/to-tickets` once the spec exists.
-
-**Recording and redrawing are different, and only one is a judgement call.** Recording is not optional: an answer lands, it goes on the page before the next question goes out — one `Edit` adding a row, because the page is the only record and an answer left in chat survives exactly as long as the session. Redrawing rewrites a section an answer made *wrong*, and the test is "wrong", not "out of date": a section the page already shows as open is incomplete, and incomplete costs nothing.
+**Recording and redrawing are different, and only one is a judgement call.** Recording is not optional: an answer lands, it goes on the page before the next question goes out — one `Edit` adding a row. Redrawing rewrites a section an answer made *wrong*, and the test is "wrong", not "out of date" — a section the page already shows as open is incomplete, and incomplete costs nothing.
 
 Everything else in this skill is *how* to do one of those steps:
 
@@ -32,11 +30,11 @@ Everything else in this skill is *how* to do one of those steps:
 ## The two surfaces
 
 - **The page** — `scratchpad/<slug>.html`. The only document the user ever works against, from step 2 to step 4. It carries the lede, the research, and every answer as it arrives.
-- **The markdown** — `specs/<slug>.md`. Written at step 5, for the agent that implements, for `/code-review`'s spec axis, and for whoever asks "why is it like this" in six months.
+- **The markdown** — `specs/<slug>.md`. Written at step 5, for the agent that implements and for `/code-review`'s spec axis.
 
-**The page is capped by attention; the markdown is capped by nothing.** One screen is what gets approved. The implementing agent gets everything — flat, complete, anchored — because nothing is skimming it.
+**The page is capped by attention; the markdown is capped by nothing.** One screen is what gets approved; the implementing agent gets everything.
 
-**Design against flatness, not against length.** A dense decision table gets read; a screen of uniform paragraphs does not, at any length. Every section carries a table, list, diagram or code block — a section that would be pure prose is either wrong or too long.
+**Design against flatness, not against length.** Every section carries a table, list, diagram or code block — a section that would be pure prose is either wrong or too long.
 
 Neighbours that are not this:
 
@@ -47,23 +45,19 @@ Neighbours that are not this:
 
 A spec proposes a change to something. **Work out what that something does now, before asking anything about changing it.**
 
-Two things go wrong without it. The user gets asked to choose between options whose consequences depend on current behaviour they are being told about *inside the question*, so the explanation and the decision compete for the same attention. And the facts scroll away: a table of current behaviour posted in chat is gone by question five, so the same ground gets covered twice.
-
 Use the `/explaining-code` shape and its caps — the state slice first, then a trace of ≤ 7 hops with `file:line` at each. Two rules keep it from turning into a doc:
 
 - **Only what the change touches.** A component the change won't affect doesn't appear. This is scoped by the diff you expect, not by the subsystem it lands in.
-- **Say what is dead.** Paths that exist and never run are the most valuable thing here — they decide scope, and nobody finds them from the outside.
+- **Say what is dead.** Paths that exist and never run decide scope, and nobody finds them from the outside.
 
-This is why the page exists so early. Research is the part with shape in it, and it is written once, so it costs exactly one render. It is also what lets the questions stay short: each one names the fact that decides it and points at the page, instead of carrying its own background.
+The research goes on the page, not into chat. Each question then names the one fact that decides it and points at the page, instead of carrying its own background.
 
 ## Growing the planned solution
 
-Step 3 is where a spec becomes a specification rather than a list of choices, and it is the step that fails quietly. An interview that only asks ranked decisions produces a decision table and nothing else — five technology picks, no description of what gets built.
-
-Three things keep it from going thin:
+An interview that only asks ranked decisions produces a decision table and nothing else — five technology picks, no description of what gets built. Three things keep step 3 from going thin:
 
 - **`## Planned solution` accumulates.** Every answer adds to it, not only to the decision table. If an answer changed nothing there, ask what it actually settled.
-- **Ask about the seams.** Which seams the change is tested at, why the highest available one, and what prior art exists. Nothing else in the workflow asks this, and it is otherwise written from assumptions after approval.
+- **Ask about the seams.** Which seams the change is tested at, why the highest available one, and what prior art exists.
 - **Ask about behaviour, using `/grilling`'s selection shape.** "Here are the eighteen chains that exist — which survive, which are dropped, what's missing?" is a question the ranked-pick format cannot express.
 
 **The stopping test is sufficiency, not slot-filling:** could someone build this without asking you anything? A page where every section has content but no statement of what the thing does is not finished.
@@ -92,14 +86,14 @@ Written at step 5, in one pass, with no interview left to run. Every heading, in
 
 ### Rules for the spec
 
-1. **It is written once, at step 5.** There is no draft state and no ideation state — those happened on the page. `approved` is the first status the file can carry.
-2. **Nothing is capped.** No line budget, no five-item lists, no `<details>`. Every one of those bounds a human's reading, and no human is reading this. An agent reads the file whole or greps it; a collapsed section and a truncated list both cost it.
+1. **It is written once, at step 5**, after the page is approved. `approved` is the first status the file can carry.
+2. **Nothing is capped.** No line budget, no five-item lists, no `<details>`. An agent reads the file whole or greps it; a collapsed section and a truncated list both cost it.
 3. **It is self-contained.** The page is not in the repo and does not outlive the sandbox. Anything agreed there and not written here is gone — the research, the rejected alternatives, and the reasoning behind each one.
-4. **Every decision carries what it cost.** The rejected alternatives are the most valuable content in the file: they are what stops the decision being re-litigated in six months. Never drop one for space.
-5. **Status and Open questions are edited in place** every session that touches the spec. A stale status is worse than none: the reader can no longer trust any line in the file.
+4. **Every decision carries what it cost.** Never drop a rejected alternative for space.
+5. **Status and Open questions are edited in place** every session that touches the spec.
 6. **No preamble.** The first heading after the title is `## Current solution`. Not "Background", not "Motivation", not "This document describes".
 
-Two sections carry most of the weight. **Current solution** is the research, transcribed — written now, but describing the code as it was when the interview started. **Behaviour** covers every actor; past seven stories in a group, use a table rather than cutting any, because completeness is the whole point here.
+**Current solution** is the research, transcribed — written now, but describing the code as it was when the interview started. **Behaviour** covers every actor; past seven stories in a group, use a table rather than cutting any.
 
 For **Seams and testing**, use the `/codebase-design` vocabulary exactly: module, interface, depth, seam, adapter, leverage, locality.
 
@@ -109,14 +103,14 @@ Where the repo has a `specs/AGENTS.md`, its rules apply to every spec, not only 
 
 Two more:
 
-- **Literal language.** No idiom, no figurative phrasing. "Circle back" and "get the ball rolling" force the reader to translate before they can act.
+- **Literal language.** No idiom, no figurative phrasing — no "circle back", no "get the ball rolling".
 - **One instruction per line.** A sentence with two "and then"s is two lines.
 
 Use the domain vocabulary in `CONTEXT.md` throughout, and respect existing ADRs — a spec that contradicts one must say so and argue for reopening it, in the Decisions table.
 
 ## What the user can change
 
-Say these are adjustable the first time each one bites, once, in one line — a workflow nobody knows they can bend gets abandoned instead of tuned.
+Say these are adjustable the first time each one bites, once, in one line.
 
 | Knob | Default | Say it when |
 |---|---|---|

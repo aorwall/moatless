@@ -20,7 +20,7 @@ Work from whatever is already in the conversation context. If the user passes a 
 
 If you have not already explored the codebase, do so to understand the current state of the code. Ticket titles and descriptions should use the project's domain glossary vocabulary, and respect ADRs in the area you're touching.
 
-Look for opportunities to prefactor the code to make the implementation easier. "Make the change easy, then make the easy change."
+Look for opportunities to prefactor the code to make the implementation easier.
 
 ### 3. Draft vertical slices
 
@@ -47,7 +47,7 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 - **Blocked by**: which other tickets (if any) must complete first
 - **What it delivers**: the end-to-end behaviour this ticket makes work
 
-**Ask it as one selection question, not three.** The breakdown is a numbered list of real things, so "which of these are wrong" is the whole question — see `/grilling`'s second question shape.
+**Ask it as one selection question** — `/grilling`'s second question shape.
 
 > Which of these need changing — merged, split, or a wrong blocking edge? "All fine" if none.
 

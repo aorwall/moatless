@@ -26,7 +26,7 @@ Run **`/writing-specs`** and follow its workflow to the written spec, then **`/t
 
 Three things differ at feature size:
 
-1. **The spec is the child tasks' only view.** They run in fresh sandboxes and cannot read the page, the ticket files, or anything else you have. Whatever is agreed on the page and not written into `specs/<feature-slug>.md` is lost — so completeness there is load-bearing, not stylistic.
+1. **The spec is the child tasks' only view.** They run in fresh sandboxes and cannot read the page, the ticket files, or anything else you have. Whatever is agreed on the page and not written into `specs/<feature-slug>.md` is lost.
 2. **Write ticket files to `/opt/moatless/workspace/plans/<feature-slug>/<NN>-<slug>.md`**, numbered from `01` in dependency order — that is this skill's tracker. Each ticket's Spec reference notes that the full spec is inlined into its spawn message, because children cannot read the orchestrator's files (see Phase 2).
 3. **Once the breakdown is approved, redraw the page with per-ticket cards** below its existing sections, so the page the user has open matches what is about to be spawned.
 
