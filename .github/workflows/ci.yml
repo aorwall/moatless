@@ -144,7 +144,7 @@ jobs:
           cargo test -p claude-agent-sdk
           cargo test -p moatless-events
 
-  # ── Build backend binary ──
+  # ── Build backend binary + dump its OpenAPI spec ──
   build-backend:
     name: Build backend
     needs: detect-changes
@@ -174,36 +174,21 @@ jobs:
       - name: Build backend (ci profile)
         run: cargo build -p moatless-vibe-backend --profile ci
 
+      # Dumped here rather than in a job of its own: the binary links GLIBC 2.36
+      # and the arc-runner image is Ubuntu 22.04 (2.35), so running it anywhere
+      # else costs a second bookworm container plus a 20 MB artifact round trip.
+      # This container already has both the binary and the right GLIBC.
+      - name: Generate OpenAPI spec
+        run: target/ci/moatless-vibe-backend --dump-openapi > openapi-specs.json
+
+      # Still an artifact: build-backend-image consumes the binary and
+      # generate-ts-client the spec, and both run outside this container.
       - name: Upload backend binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: backend-binary
           path: target/ci/moatless-vibe-backend
           retention-days: 1
-
-  # ── Generate OpenAPI spec from compiled binary ──
-  generate-spec:
-    name: Generate OpenAPI spec
-    needs: [detect-changes, build-backend]
-    if: >-
-      always() &&
-      needs.build-backend.result == 'success'
-    runs-on: staging-runners
-    # Runs inside bookworm because it *executes* the backend binary, which
-    # build-backend links against GLIBC 2.36. The arc-runner image is Ubuntu
-    # 22.04 (GLIBC 2.35), so --dump-openapi would fail on the bare runner.
-    container:
-      image: debian:bookworm-slim
-    steps:
-      - name: Download backend binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: backend-binary
-
-      - name: Generate spec
-        run: |
-          chmod +x ./moatless-vibe-backend
-          ./moatless-vibe-backend --dump-openapi > openapi-specs.json
 
       - name: Upload OpenAPI spec
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -215,10 +200,10 @@ jobs:
   # ── Generate TypeScript API client from spec ──
   generate-ts-client:
     name: Generate TS client
-    needs: [detect-changes, generate-spec]
+    needs: [detect-changes, build-backend]
     if: >-
       always() &&
-      needs.generate-spec.result == 'success'
+      needs.build-backend.result == 'success'
     runs-on: staging-runners
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -292,10 +277,16 @@ jobs:
       - name: Ratchet script unit tests
         run: bun run test:scripts
 
-  # ── Build & type-check frontend (needs generated client if Rust changed) ──
+  # ── Build & type-check frontend, then publish its image on main ──
+  #
+  # The image build lives here rather than in a job of its own so the dist it
+  # needs is simply on disk. Splitting them meant a 5 MB frontend-dist artifact
+  # round trip plus a second runner and checkout, and the two can't be merged
+  # the other way round: the image job only runs on main pushes, while the
+  # type-check and build have to run on every PR.
   build-frontend:
     name: Build frontend
-    needs: [detect-changes, generate-ts-client]
+    needs: [detect-changes, lint-frontend, generate-ts-client]
     if: >-
       always() &&
       needs.generate-ts-client.result != 'failure' &&
@@ -307,6 +298,14 @@ jobs:
         github.event_name == 'workflow_dispatch'
       )
     runs-on: staging-runners-large
+    env:
+      # Gate for the publish steps below — the old build-frontend-image `if`,
+      # verbatim. lint-frontend is in `needs` only to be readable here; it never
+      # delays this job, which already waits on the longer build-backend chain.
+      PUBLISH_IMAGE: >-
+        ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
+        (needs.detect-changes.outputs.docker-frontend == 'true' || github.event_name == 'workflow_dispatch') &&
+        (needs.lint-frontend.result == 'success' || needs.lint-frontend.result == 'skipped') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -327,50 +326,29 @@ jobs:
       - name: Type check
         run: bun run type:check
 
+      # Leaves the bundle at apps/frontend/dist, which is exactly where
+      # docker/Dockerfile.app expects it — no artifact hop needed.
       - name: Build frontend
         run: bun run build
 
-      - name: Upload frontend dist
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: frontend-dist
-          path: apps/frontend/dist
-          retention-days: 1
-
-  # ── Docker image builds (push to main + manual dispatch, conditional on changed files) ──
-  build-frontend-image:
-    name: Build & push frontend image
-    needs: [detect-changes, lint-frontend, build-frontend]
-    if: >-
-      always() &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
-      (needs.detect-changes.outputs.docker-frontend == 'true' || github.event_name == 'workflow_dispatch') &&
-      (needs.lint-frontend.result == 'success' || needs.lint-frontend.result == 'skipped') &&
-      needs.build-frontend.result == 'success'
-    runs-on: staging-runners-large
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Download frontend dist
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: frontend-dist
-          path: apps/frontend/dist
-
       - name: Compute short SHA
+        if: env.PUBLISH_IMAGE == 'true'
         id: sha
         run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
+        if: env.PUBLISH_IMAGE == 'true'
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Login to Docker Hub
+        if: env.PUBLISH_IMAGE == 'true'
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push frontend image
+        if: env.PUBLISH_IMAGE == 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
@@ -383,6 +361,11 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
+  # ── Backend image (push to main + manual dispatch, conditional on changed files) ──
+  #
+  # Not folded into build-backend the way the frontend image is: that job runs
+  # inside a rust:bookworm container, which has no route to the DinD sidecar's
+  # daemon, so buildx can't run there. Hence the backend-binary artifact.
   build-backend-image:
     name: Build & push backend image
     needs: [detect-changes, build-backend]
@@ -435,7 +418,7 @@ jobs:
   # ── Publish dev Helm chart (push to main + manual dispatch) ──
   publish-helm-dev:
     name: Publish dev Helm chart
-    needs: [detect-changes, build-frontend-image, build-backend-image]
+    needs: [detect-changes, build-frontend, build-backend-image]
     if: >-
       always() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
@@ -443,7 +426,7 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         needs.detect-changes.outputs.helm == 'true' ||
-        needs.build-frontend-image.result == 'success' ||
+        (needs.build-frontend.result == 'success' && needs.detect-changes.outputs.docker-frontend == 'true') ||
         needs.build-backend-image.result == 'success'
       )
     runs-on: staging-runners
