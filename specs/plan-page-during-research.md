@@ -1,8 +1,14 @@
 # The page shows the research, not the answers
 
-> **Status:** discussion
-> **Updated:** 2026-07-26
+> **Status:** in progress · decisions 1, 2 and 4 shipped; 3 outstanding
+> **Updated:** 2026-07-27
 > **Vocabulary:** CONTEXT.md · **Decisions:** —
+
+> **Why part-shipped:** a live run kept linking the markdown to the user
+> (`f11ab889`), because the skill still told it to. Decisions 1, 2 and 4 were
+> implemented to stop that. **Decision 3 — dropping the markdown lede — is not
+> done**: it rewrites every rule in `writing-specs`, and it is not what the
+> defect was about.
 
 ## Lede
 

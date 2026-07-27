@@ -88,27 +88,29 @@ Four things are doing work in that block, and each maps to a fact about how this
 3. **Ranked alternatives, not one path.** For a decision, the alternatives *are* the thing the user has to hold — collapsing to a single option doesn't reduce load, it hides the choice. 2–4 options, one line of trade-off each, recommendation first.
 4. **The "you decide" escape.** A decision the user can't make is where the session dies. Let them hand it back, then record what you chose in the decision row, so it stays visible and reversible instead of silently becoming fact.
 
-## Two surfaces: the question in chat, the detail in the file
+## Two surfaces: the question in chat, everything else on the page
 
-The loop is short on purpose:
+The loop:
 
 1. Answer lands → write it into `specs/<slug>.md`.
-2. Ask the next question.
+2. Re-render the page **only if the answer made it wrong**.
+3. Ask the next question.
 
-**Nothing is rendered between those two steps.** A page that has to be rebuilt after every answer puts a build step where the next question should be, and the user is left waiting on a tab they aren't looking at — they are looking at the chat, because that is where the question is.
-
-So the two surfaces divide cleanly:
+The three surfaces divide cleanly, and the user only ever reads two of them:
 
 | | Carries | Never carries |
 |---|---|---|
-| **The chat message** | The question, its ranked options, the progress line | Background the file already holds |
-| **`specs/<slug>.md`** | `## Today`, every settled answer, everything parked | The current question |
+| **The chat message** | The question, its ranked options, the progress line | Background the page already holds |
+| **The page** | `## Today`, settled answers, what is still open | The question being asked |
+| **`specs/<slug>.md`** | The same content, written for the implementing agent | Anything the user is asked to read |
 
-The question is short because the file is one click away. When a question needs current behaviour to make sense, **link the section and name the one fact that decides it** — don't re-explain the mechanism inside the question. Pasting three paragraphs of background above a decision means the reader spends their attention on the background and arrives at the options with none left.
+**Never link the markdown to the user.** It is the agent's copy. A human sent a markdown file gets the version whose diagrams render as code blocks — see `/html-report`.
+
+The question is short because the page is one click away. When a question needs current behaviour to make sense, **name the one fact that decides it and point at the page** — don't re-explain the mechanism inside the question. Pasting three paragraphs of background above a decision means the reader spends their attention on the background and reaches the options with none left.
+
+**Step 2 is a judgement, and the test is "wrong", not "out of date".** An answer that contradicts something already drawn earns a re-render. An answer that fills a slot the page already shows as open does not — that page is incomplete, and incomplete costs nothing. A scope answer that invalidates part of `## Today` always earns one, because research nobody has retracted reads as still true.
 
 Never let an answer live only in the chat. File first: a restarted sandbox or a closed session then costs nothing, and the interview can stop after any question and resume from the markdown.
-
-The rendered page comes once, at approval — see [HTML-REPORT.md](HTML-REPORT.md).
 
 ## Look it up; only ask decisions
 

@@ -1,32 +1,37 @@
-# The spec review page
+# The spec page
 
-One page, rendered once, at approval. Its whole job is to make a yes-or-no reachable in two minutes.
+One page at one URL, live from the end of research to approval. It is the only thing the user is pointed at; the markdown is the implementing agent's copy.
 
 **Read [`/html-report`](../html-report/SKILL.md) first** — it owns where the file goes, the preview URL, the Write-tool rule, the scaffold and the style baseline. This file adds only what is specific to a spec.
 
-Naming: `scratchpad/<slug>-review.html`, using the **stable** rule from that skill, so a re-render after a change keeps the same tab alive.
+Naming: `scratchpad/<slug>.html`, using the **stable** rule from that skill, so a re-render keeps the same tab alive. Give the URL once, when `## Today` lands.
 
 ```
-<origin>/tasks/<task-id>?file=scratchpad%2F<slug>-review.html&fileView=preview
+<origin>/tasks/<task-id>?file=scratchpad%2F<slug>.html&fileView=preview
 ```
 
-**Link the spec file beside it, every time** — the page is a projection, the markdown is the artifact, and the reader should be one click from the thing that gets reviewed with the code:
+**Never link the markdown alongside it.** It is written for the implementing agent, and it is the copy whose diagrams don't draw.
 
-```
-<origin>/tasks/<task-id>?file=moatless%2Fspecs%2F<slug>.md&fileView=preview
-```
+## When it renders
 
-## Not during the interview
+**First:** as soon as `## Today` is written, before the first question. Research is the part with shape in it — state diagrams, traces, comparison tables — and it is written once, so it costs exactly one render.
 
-No page is rendered while questions are being asked. The question lives in the chat message and everything else lives in `specs/<slug>.md` — see [GRILLING.md](GRILLING.md).
+**After that: only when an answer made the page wrong.** Not on a cadence.
 
-This used to be a live board that re-rendered after every answer, and the cost landed in the wrong place: several tool calls between the user answering and the next question arriving, spent updating a tab they weren't looking at. The chat progress line already reports position and settled state, and the file already holds the detail, so the board was paying latency for work two cheaper surfaces were doing anyway.
+| An answer… | Re-render? |
+|---|---|
+| Contradicts something already drawn | **Yes** — the page now asserts something false |
+| Changes scope, so part of `## Today` no longer applies | **Yes** — wrong by omission |
+| Fills a slot the page already shows as open | No — incomplete, not wrong |
+| Adds detail under a heading already rendered | No |
 
-Skip the page at approval too when the lede pasted into the message is enough — it usually is for a spec with three decisions. Say you're skipping it, once.
+The distinction is *wrong* versus *incomplete*. A visibly unfinished page costs nothing; a page asserting something since overturned costs a decision.
+
+This replaced a board that re-rendered after **every answer**, which put three or four tool calls between the user answering and the next question. That cost came from rendering the *question* — a question one turn stale is a page that is wrong by definition, so it forced a render every turn. Keeping questions in chat is what makes the rule above affordable.
 
 ## What the page renders
 
-The **lede**, never the spec. The spec file is the source of truth and it is complete; this page exists so a decision can be reached without opening it. If a section needs more than 5–6 lines, condense it — the reader can open the file.
+Everything the user needs while planning, and nothing they are being asked right now.
 
 **1. What we're building** — one paragraph, plain language, no jargon. What will exist afterward that doesn't today?
 
@@ -36,9 +41,11 @@ The **lede**, never the spec. The spec file is the source of truth and it is com
 
 **4. Work breakdown** — the Mermaid dependency graph, node colours by state, the same `classDef` set as the markdown (see [DESIGN.md](DESIGN.md)). The only technical detail on the page, and the user's chance to reshape the plan before work starts.
 
-Footer: the spec's path, its status line, and the one next action.
+Footer: the status line and the one next action. Not the markdown's path — that is the agent's copy.
 
-**`## Today` does not go on this page.** By approval it has done its job — it was the interview's reference, and what is being approved is the decisions. Link it, don't re-render it. A page that opens with how the system currently works buries the choices under material the reader has already been through.
+**`## Today` is rendered here, not linked.** It is the page's first content and the reason the page exists this early: state diagrams, traces and comparison tables are exactly what the markdown preview cannot draw. Put it after "what we're building" and before the decisions — the reader needs the shape before the choices, and by approval it is what they check the decisions against.
+
+Order on the page: what we're building → scope → **the research** → decisions → open questions → work. The first two slots are empty for most of the interview and that is fine; empty is incomplete, and incomplete is not misleading.
 
 ## Style notes on top of `/html-report`
 

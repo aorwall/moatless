@@ -35,7 +35,7 @@ Use the `/explaining-code` shape and its caps — the state slice first, then a 
 - **Only what the change touches.** A component the change won't affect doesn't appear. This section is scoped by the diff you expect, not by the subsystem it lands in.
 - **Say what is dead.** Paths that exist and never run are the most valuable thing here — they decide scope, and nobody finds them from the outside.
 
-While the interview is running this is the only complete section in the file, so **it is what you link to, and what questions point at instead of restating.**
+While the interview is running this is the only complete section, and it is the page's first content — **render it, and let questions point at it instead of restating it.** The user reads the page; the markdown is the implementing agent's copy.
 
 ## The lede
 
@@ -97,7 +97,7 @@ Fixed heading order, so a reader who has read one spec can navigate every spec. 
 ## Ticket breakdown
 ```
 
-- **Today** — the exception to everything in this section: written *before* the interview, not after approval, and the one part the user reads while being grilled. Everything below it is written after the lede is agreed.
+- **Today** — the exception to everything in this section: written *before* the interview, not after approval, and the one part rendered to the page while the user is being grilled. Everything below it is written after the lede is agreed.
 - **Problem / Solution** — from the perspective of whoever feels it. Name the user-visible risk, not the code smell.
 - **Decisions** — the rejected alternatives are the most valuable content in the file: they are what stops the decision being re-litigated in six months. Never delete one to save space; push it down the page.
 - **Behaviour** — group user stories by actor and cap each group at 7. Past that, use a table. A flat list of thirty stories is a list nobody reads; the same thirty grouped and tabled is one screen. Cover every actor — completeness lives here, brevity lives in the lede.
@@ -117,7 +117,9 @@ These are also what keeps the page from going flat. Cutting an element to "keep 
 
 Full catalogue, the state-coloured `classDef` block, and the ban list: [DESIGN.md](DESIGN.md).
 
-For the rendered page, `/html-report` supplies the mechanics and [HTML-REPORT.md](HTML-REPORT.md) the spec layer. There is **one page and it appears once**, at approval: the review page. Nothing is rendered during the interview — the questions are the chat's job and the detail is the file's, and a page that has to be re-rendered between every question puts a build step between the user's answer and the next question. The page renders the lede, never the spec, and it is a projection: write to the markdown first, render second, so nothing exists only there.
+For the rendered page, `/html-report` supplies the mechanics and [HTML-REPORT.md](HTML-REPORT.md) the spec layer. There is **one page at one URL**, first rendered when `## Today` lands and live until approval. It is what the user is ever pointed at; the markdown is what the implementing agent reads. Write to the markdown first, render second, so nothing exists only on the page.
+
+**The page never carries the question being asked.** That is what keeps it cheap: a question one turn stale makes the page wrong, so rendering questions would force a re-render every single turn. Questions are asked and answered in chat. *Open* questions — parked, nobody being asked — are state, and they belong on the page.
 
 ## Writing style
 
@@ -134,8 +136,8 @@ Use the domain vocabulary in `CONTEXT.md` throughout, and respect existing ADRs 
 
 Each step ends on a checkable criterion, so you can stop cleanly at any of them.
 
-1. **Map today.** Read the code, then write `## Today` into `specs/<slug>.md` — the affected area only, in the `/explaining-code` shape. No questions yet.
-   *Done when:* the file exists with a complete `## Today` and an empty lede skeleton above it.
+1. **Map today.** Read the code, then write `## Today` into `specs/<slug>.md` — the affected area only, in the `/explaining-code` shape. Render the page from it before asking anything: research is the part with diagrams in it, and it is written once, so it costs one render.
+   *Done when:* the file has a complete `## Today`, the page exists, and its URL has been given.
 2. **Grill.** Interview the user toward the lede's slots — **read [GRILLING.md](GRILLING.md) before asking the first question.** The six rules that change the outcome:
    - **Open on shared understanding.** The first batch presents `## Today` and settles the vocabulary against `CONTEXT.md`. Decisions phrased in terms the two of you don't hold identically get re-litigated later.
    - **One question per turn**, never two. Two questions means the user picks which to answer, and picking is where work stalls.
@@ -146,10 +148,10 @@ Each step ends on a checkable criterion, so you can stop cleanly at any of them.
 
    Bind the questions to the lede's slots so the interview has a visible end, and say the estimated count up front. Park anything you can't resolve into Open questions rather than chasing it. ADRs and `CONTEXT.md` entries land inline as decisions crystallize (`/domain-modeling`).
 
-   **The interview happens in chat, against the spec file.** Write each answer into `specs/<slug>.md` as it lands — the lede is built during the interview, not reconstructed after it — and link the file rather than restating what's already in it. No page is rendered yet; the question lives in the message and the detail lives in the file.
+   **The interview happens in chat, against the page.** Write each answer into `specs/<slug>.md` as it lands — the lede is built during the interview, not reconstructed after it — then link the **page**, never the markdown. `/html-report` states why: a human sent a markdown file gets the one version whose diagrams don't draw.
    *Done when:* every lede slot is filled or explicitly parked.
-3. **Approve at the lede.** ≤ 40 lines, nothing below the `---` but `## Today`. Paste it into the message *and* link the file — `<origin>/tasks/<task-id>?file=moatless%2Fspecs%2F<slug>.md&fileView=preview` — then wait. This is where a **review page** earns its place, if anywhere does (see [HTML-REPORT.md](HTML-REPORT.md)): one decision, one screen, once. Before you show it, check that nothing needed to say yes is waiting to be written below.
-   *Done when:* the user agrees with every row of the decision table. Approving 40 lines takes two minutes; approving 500 never happens.
+3. **Approve at the page.** The same page, carrying the settled decisions with what each one cost. Paste the decision table into the message so the choice is reachable without opening anything, link the page, and wait. Before you show it, check that nothing needed to say yes is still unwritten.
+   *Done when:* the user agrees with every row of the decision table. Approving one screen takes two minutes; approving 500 lines never happens.
 4. **Fill the detail, after approval.** Expand below `## Today` without re-interviewing. It is written for the implementer, so don't send the user back through it; the lede changes only if a decision changes.
    *Done when:* every lede decision row has a `###` section under `## Decisions`.
 5. **Tickets.** Run `/to-tickets`, then paste the dependency graph into the lede.
@@ -167,6 +169,6 @@ Say these are adjustable the first time each one bites, once, in one line — a 
 |---|---|---|
 | Questions per turn | one | opening the first batch — "one at a time, or the whole batch at once?" |
 | The understanding batch | on | opening it — it's skippable if they wrote the code |
-| The review page | on | reaching approval — the lede in the message may be all they want |
+| The page | on, from research onward | giving the URL |
 | Detail depth | full | the spec is small enough that the lede plus tickets would do |
 | Where it stops | the lede | the user wants tickets in the same sitting |

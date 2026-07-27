@@ -7,6 +7,19 @@ description: Render an analysis or review as a single self-contained, editorial 
 
 Render the deliverable as a single self-contained HTML file. Tailwind and Mermaid both come from CDNs. Mermaid handles graph-shaped diagrams reliably; hand-built divs and inline SVG handle the more editorial visuals. Mix the two — don't lean on Mermaid for everything, it'll start to look generic.
 
+## The format follows the audience
+
+| Reader | Format | Written for |
+|---|---|---|
+| **A human** | HTML | Being looked at — shape, colour, spatial layout, diagrams that draw |
+| **An agent** | Markdown | Being located in — completeness, explicit structure, stable anchors |
+
+**Never hand a human a markdown file to read.** The task UI's markdown preview is `react-markdown` plus GFM and a syntax highlighter: tables render, and a ` ```mermaid ` block renders as a *syntax-highlighted code block*. Linking someone a document whose diagrams don't draw sends them the one version that can't show them the thing you drew.
+
+The rule is about the reader, not the file type. `/to-tickets` writes markdown that child agents consume — that is correct and stays. A document a person is asked to read is HTML, whatever else also exists.
+
+Where both exist — a spec has an HTML page and a markdown record — they are not one document in two skins. They are written differently because they are read differently, and **the markdown is still written first**: that is what stops an answer existing only in an uncommitted file.
+
 ## Mechanics
 
 Write the file to `/opt/moatless/workspace/scratchpad/`, creating the directory if missing. It sits beside the repo checkout rather than inside it, so generated pages never land in a diff.
@@ -111,7 +124,7 @@ Everything above is the shared base: where the file goes, how it's served, how i
 
 | Skill | Its page | Layer |
 |---|---|---|
-| `/writing-specs` | A review page at approval — nothing during the interview | [HTML-REPORT.md](../writing-specs/HTML-REPORT.md) |
+| `/writing-specs` | One page, live from the end of research to approval | [HTML-REPORT.md](../writing-specs/HTML-REPORT.md) |
 | `/explaining-code` | An explanation of how existing code works | [HTML-REPORT.md](../explaining-code/HTML-REPORT.md) |
 
 If you are producing one of those, read its layer — it fixes the section order and the caps, which is most of what makes the page useful. For anything else, this file is enough on its own.
