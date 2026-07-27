@@ -5,7 +5,7 @@ description: Shape a user-facing turn so it can be acted on — the ask or the v
 
 # Writing Messages
 
-The reader has ADHD. Working memory is the constraint, not patience: **nothing in a message should need to be retained to answer it.**
+Working memory is the constraint, not patience: **nothing in a message should need to be retained to answer it.**
 
 ## Classify the turn first
 
