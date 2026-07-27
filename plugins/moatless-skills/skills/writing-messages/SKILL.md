@@ -36,23 +36,6 @@ Two roles earn a place. Nothing else does.
 - **More than about four facts survive? The question is too big.** Split it. Don't trim the message to compensate — trimming keeps the useless fact and shortens the useful one.
 - **Over ~150 words, re-run the strike test.** A tripwire, not a cap. Never satisfy it by cutting adjectives.
 
-A question-turn, whole:
-
-```md
-**Where does the retry policy live — inside the harness, or in the coordinator?**
-
-1. **Coordinator** — one policy for every harness; harness only classifies errors ← recommended
-2. **Harness** — each CLI retries its own way; risks two divergent policies
-3. **Both** — harness retries transport, coordinator retries semantics; more moving parts
-
-Two `moat send` callers already retry at the transport layer, so option 2 would make three
-policies, not two.
-
-Page: [adapter-retry.html]() — the trace and the decision table.
-
-*Decisions 2 of 4. Settled: in-process seam, no new crate. Or say "you decide".*
-```
-
 When the answer is "which of these real things survive" rather than "pick one", show the set — see `/grilling` for that shape. The five-item cap below does not apply to it.
 
 ## The answer-turn
