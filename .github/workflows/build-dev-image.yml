@@ -49,18 +49,14 @@ concurrency:
 jobs:
   publish-sandbox-dev:
     name: Build & push moatless-dev
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      # The image bakes a full release cargo target dir + crate registry, which
-      # overruns the ~14 GB free on a stock ubuntu-latest runner. Reclaim the
-      # preinstalled toolchains we don't use before building.
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
-          df -h /
-
+      # No "free disk space" step: that was a workaround for the ~14 GB free on
+      # a stock ubuntu-latest runner, which this multi-GB image build overran.
+      # staging-runners-large builds against the DinD sidecar's own storage on
+      # the soap-build nodepool, and has no `sudo` to reclaim with anyway.
       - name: Compute image refs
         id: refs
         env:

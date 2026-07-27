@@ -23,7 +23,7 @@ env:
 jobs:
   # ── Shared setup: determine version + commit SHA ─────────────
   version:
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha_tag: ${{ steps.version.outputs.sha_tag }}
@@ -49,6 +49,9 @@ jobs:
     # Fork (soaplabs/moatless-vibe) publishes to ECR via cd-ecr.yml on
     # fp-v* tags, not Docker Hub. Gate keeps this job upstream-only.
     if: github.repository_owner == 'aorwall'
+    # Stays GitHub-hosted: the gate above means this only ever runs under
+    # aorwall, where the soaplabs staging-runners-large pool doesn't exist —
+    # a job targeting it there would queue forever.
     runs-on: ubuntu-latest
     steps:
       - name: Login to Docker Hub
@@ -92,6 +95,7 @@ jobs:
     needs: [version, retag-images]
     # Fork-side: publish-helm runs in cd-ecr.yml against ECR.
     if: github.repository_owner == 'aorwall'
+    # Stays GitHub-hosted for the same reason as retag-images above.
     runs-on: ubuntu-latest
     permissions:
       contents: write

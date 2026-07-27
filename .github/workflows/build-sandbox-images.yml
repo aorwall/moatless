@@ -43,7 +43,7 @@ jobs:
   # ── Detect which areas of code changed (push only) ──
   detect-changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     # Runs on any repo's push. Images publish to the REGISTRY_ORG Docker Hub
     # namespace (defaults to aorwall), so pushing requires the DOCKERHUB_*
     # secrets to be present with access to that org.
@@ -99,6 +99,10 @@ jobs:
         github.event_name == 'pull_request' ||
         github.event_name == 'workflow_dispatch'
       )
+    # Stays GitHub-hosted: `container:` jobs can't run on staging-runners-large.
+    # The ARC scale set has no dind-externals volume, so the JS-action runtime
+    # bind-mounted into the job container is empty and every `uses:` step dies
+    # on /__e/node20/bin/node.
     runs-on: ubuntu-latest
     container:
       image: rust:1.97-bookworm
@@ -183,7 +187,7 @@ jobs:
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') &&
       (needs.detect-changes.outputs.binaries == 'true' || needs.detect-changes.outputs.tools == 'true' || github.event_name == 'workflow_dispatch') &&
       needs.build-binaries.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -243,7 +247,7 @@ jobs:
         needs.detect-changes.outputs.base == 'true' ||
         github.event_name == 'workflow_dispatch'
       )
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -300,7 +304,7 @@ jobs:
       needs.build-binaries.result == 'success' &&
       (needs.build-tools-image.result == 'success' || needs.build-tools-image.result == 'skipped') &&
       (needs.build-sandbox-base.result == 'success' || needs.build-sandbox-base.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -365,7 +369,7 @@ jobs:
         github.event_name == 'workflow_dispatch'
       ) &&
       (needs.build-tools-image.result == 'success' || needs.build-tools-image.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: staging-runners-large
     strategy:
       matrix:
         java-version: [21, 25]
