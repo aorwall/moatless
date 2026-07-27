@@ -35,7 +35,7 @@
 //! - **Single-repo, repo-relative** (the previous format: the primary repo tarred
 //!   at the archive root with a top-level `.git`, meant to extract onto
 //!   `repo_dir`): [`restore_on_start`] detects it and extracts onto `repo_dir`
-//!   exactly as before. The next periodic upload rewrites it in the new
+//!   exactly as before. The next upload rewrites it in the new
 //!   multi-repo, workspace-relative shape, so it self-heals.
 //!
 //! Unlike the transcript sync, the workspace tar can be large, so it is *not*
@@ -64,7 +64,7 @@ const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Per-transfer HTTP timeout for the direct-to-S3 PUT/GET. Generous enough for a
 /// large tar on a slow in-cluster link, but bounded so a stuck transfer can't
-/// wedge the periodic loop.
+/// wedge the upload path.
 const HTTP_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Restore a full snapshot from S3 *before* the clone, returning whether the
