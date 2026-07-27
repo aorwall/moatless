@@ -26,6 +26,7 @@ use crate::config::Config;
 use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
+use crate::init::workspace_sync;
 
 use super::claude::process_claude_message;
 use super::codex::{handle_codex_stream_error, process_codex_message};
@@ -585,6 +586,10 @@ pub(super) async fn agent_loop(
                                 }
                             }
                         }
+                        if retry_candidate.is_some() && retry_state.is_none() {
+                            workspace_sync::upload_after_turn(&config, backend_client.as_ref())
+                                .await;
+                        }
                     }
                     Some(ActiveMessage::Claude(Err(error))) => {
                         if matches!(error, claude_agent_sdk::SdkError::Cancelled) {
@@ -631,6 +636,8 @@ pub(super) async fn agent_loop(
                                         "reason": "stream_error",
                                     }),
                                 )
+                                .await;
+                            workspace_sync::upload_after_turn(&config, backend_client.as_ref())
                                 .await;
                         }
                     }
@@ -682,6 +689,10 @@ pub(super) async fn agent_loop(
                                 &events,
                             ).await;
                         }
+                        if was_terminal && retry_state.is_none() {
+                            workspace_sync::upload_after_turn(&config, backend_client.as_ref())
+                                .await;
+                        }
                     }
                     Some(ActiveMessage::Codex(Err(error))) => {
                         let mut ctx = TurnContext {
@@ -719,6 +730,10 @@ pub(super) async fn agent_loop(
                             &agent_state,
                             &events,
                         ).await;
+                        if retry_state.is_none() {
+                            workspace_sync::upload_after_turn(&config, backend_client.as_ref())
+                                .await;
+                        }
                     }
                     None => {
                         debug!("Session transport closed");

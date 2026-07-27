@@ -88,9 +88,8 @@ Modeled on `transcript_sync.rs`:
 - **download-on-start** — during Phase-1 init, *after* `git clone`, *before* `Ready`: fetch and
   overlay the S3 tar (agent edits/uncommitted changes) on top of the fresh clone. Clone still skips
   if `.git` exists.
-- **periodic** — tokio loop, `WORKSPACE_SYNC_INTERVAL_SECS` (default 60), re-mints presigned URLs.
-- **after-turn** — trigger a sync when the agent goes idle, bounding data-loss-on-eviction to the
-  in-flight turn only.
+- **after-turn** — trigger a sync when the agent reaches a terminal turn boundary, bounding
+  data-loss-on-eviction to the in-flight turn only.
 - **flush-on-shutdown** — on SIGTERM, flush within the 30 s drain grace (bounded timeout like the
   transcript flush's 12 s).
 - **consistency** — build the tar while the agent is idle (after-turn) or from a `git stash create`
@@ -120,7 +119,7 @@ by `storage_backend` plus a sync-size/failure panel.
 - **Phase 0 — Comparison metrics.** Add `storage_backend` label + provision/ready/restart
   histograms. Low-risk, benefits the existing `ebs` path immediately.
 - **Phase 1 — Config + pod routing.** Recognize `storage_mode: "s3"`; route to emptyDir workspace
-  (reuse ephemeral path); inject `WORKSPACE_SYNC_ENABLED` / `WORKSPACE_SYNC_INTERVAL_SECS` env.
+  (reuse ephemeral path); inject `WORKSPACE_SYNC_ENABLED` env.
 - **Phase 2 — Presign transport.** `WORKSPACE_S3_PREFIX` config (default `"workspaces"`, same
   bucket); `presign_put`/`presign_get` in `file_storage/s3.rs`; `GetWorkspaceSyncUrls` gRPC RPC
   (JWT-`task_id`-scoped); delete workspace archive on `cleanup()` alongside the transcript delete.

@@ -244,29 +244,8 @@ pub async fn run_init(state: SandboxState, registrar: Registrar) {
         );
     }
 
-    // Spawn the periodic workspace uploader for the `s3` storage backend. Every
-    // interval it tars the git working tree and PUTs it directly to S3 via a
-    // backend-minted presigned URL, so the working tree survives the node-local
-    // emptyDir across stop/start. `WORKSPACE_SYNC_INTERVAL_SECS=0` disables the
-    // loop; sync-on-shutdown still flushes the final delta.
-    //
-    // Liveness, same rationale as the transcript loop: for the `s3` backend this
-    // is the only thing keeping the working tree off a node-local emptyDir.
-    if state.config.workspace_sync_enabled {
-        if let Some(interval) = workspace_sync::read_interval_from_env() {
-            let workspace_state = state.clone();
-            let workspace_cancel = state.lifecycle_cancel.clone();
-            registrar.supervise(
-                "workspace-sync",
-                Criticality::Liveness,
-                tokio::spawn(workspace_sync::run_workspace_sync(
-                    workspace_state,
-                    workspace_cancel,
-                    interval,
-                )),
-            );
-        }
-    }
+    // Workspace S3 sync is driven by agent turn completion, with a bounded
+    // shutdown flush below. There is intentionally no periodic uploader.
 
     // Watch ~/.codex/auth.json for rotations. Codex rewrites this file every
     // time it refreshes its OAuth token; the watcher pushes the rotated blob

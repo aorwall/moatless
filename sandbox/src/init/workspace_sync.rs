@@ -51,13 +51,11 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use crate::backend_client::BackendClient;
+use crate::config::Config;
 use crate::state::SandboxState;
-
-/// Default periodic-sync interval when `WORKSPACE_SYNC_INTERVAL_SECS` is unset.
-const DEFAULT_INTERVAL_SECS: u64 = 60;
 
 /// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
 /// period (shared with the transcript flush) — a stuck upload must never block
@@ -68,20 +66,6 @@ const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
 /// large tar on a slow in-cluster link, but bounded so a stuck transfer can't
 /// wedge the periodic loop.
 const HTTP_TIMEOUT: Duration = Duration::from_mins(5);
-
-/// Read the periodic sync interval from `WORKSPACE_SYNC_INTERVAL_SECS`
-/// (default 60s). Returns `None` when set to `0`, which disables the periodic
-/// loop (download-on-start and sync-on-shutdown still run).
-pub fn read_interval_from_env() -> Option<Duration> {
-    match std::env::var("WORKSPACE_SYNC_INTERVAL_SECS") {
-        Ok(v) => match v.parse::<u64>() {
-            Ok(0) => None,
-            Ok(secs) => Some(Duration::from_secs(secs)),
-            Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
-        },
-        Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
-    }
-}
 
 /// Restore a full snapshot from S3 *before* the clone, returning whether the
 /// caller should skip cloning the primary repo.
@@ -264,15 +248,30 @@ pub async fn download_on_start(state: &SandboxState) {
 /// presigned URL. No-op when there's nothing to sync. Best-effort: failures
 /// (including a disabled feature) are logged, never propagated.
 pub async fn upload(state: &SandboxState) {
-    let task_id = &state.config.task_id;
-    let workspace_dir = PathBuf::from(&state.config.workspace_dir);
+    upload_from_config(&state.config, state.backend_client.as_ref()).await;
+}
+
+/// Upload the workspace when an agent turn reaches a terminal boundary.
+///
+/// The `s3` storage backend no longer runs a periodic uploader; this hook is the
+/// normal durability point between turns. Startup restore and shutdown flush
+/// stay separate.
+pub async fn upload_after_turn(config: &Config, backend_client: &dyn BackendClient) {
+    if config.workspace_sync_enabled {
+        upload_from_config(config, backend_client).await;
+    }
+}
+
+async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient) {
+    let task_id = &config.task_id;
+    let workspace_dir = PathBuf::from(&config.workspace_dir);
 
     let Some(tar) = build_tar(workspace_dir).await else {
         debug!(task_id = %task_id, "No workspace files to upload");
         return;
     };
 
-    let urls = match state.backend_client.get_workspace_sync_urls(task_id).await {
+    let urls = match backend_client.get_workspace_sync_urls(task_id).await {
         Ok(u) => u,
         Err(e) if is_feature_disabled(&e) => {
             debug!(task_id = %task_id, "Workspace sync unavailable (backend S3 not configured); skipping upload");
@@ -296,8 +295,7 @@ pub async fn upload(state: &SandboxState) {
             false
         }
     };
-    state
-        .backend_client
+    backend_client
         .report_workspace_sync(
             task_id,
             "upload",
@@ -321,32 +319,6 @@ pub async fn flush_on_shutdown(state: &SandboxState) {
         info!("Shutdown: flushed workspace to S3");
     } else {
         warn!("Shutdown: workspace flush timed out, continuing");
-    }
-}
-
-/// Periodically upload the workspace until cancelled. Mirrors the transcript
-/// sync: `tokio::select!` on the lifecycle token and a fixed interval.
-pub async fn run_workspace_sync(
-    state: SandboxState,
-    cancel: CancellationToken,
-    interval: Duration,
-) {
-    info!(
-        task_id = %state.config.task_id,
-        interval_secs = interval.as_secs(),
-        "Workspace sync started"
-    );
-
-    loop {
-        tokio::select! {
-            () = cancel.cancelled() => {
-                info!(task_id = %state.config.task_id, "Workspace sync shutting down");
-                return;
-            }
-            () = tokio::time::sleep(interval) => {
-                upload(&state).await;
-            }
-        }
     }
 }
 
@@ -705,29 +677,6 @@ mod tests {
             .args(&args)
             .output()
             .unwrap();
-    }
-
-    #[test]
-    fn read_interval_defaults_and_disables() {
-        std::env::remove_var("WORKSPACE_SYNC_INTERVAL_SECS");
-        assert_eq!(
-            read_interval_from_env(),
-            Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
-        );
-
-        std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "0");
-        assert_eq!(read_interval_from_env(), None);
-
-        std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "30");
-        assert_eq!(read_interval_from_env(), Some(Duration::from_secs(30)));
-
-        std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "garbage");
-        assert_eq!(
-            read_interval_from_env(),
-            Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
-        );
-
-        std::env::remove_var("WORKSPACE_SYNC_INTERVAL_SECS");
     }
 
     #[test]

@@ -718,8 +718,8 @@ fn build_sandbox_container(
 
     // Workspace storage backend. The `s3` backend runs on a node-local emptyDir
     // (no PVC) and syncs the git working tree to S3 via presigned URLs — flag the
-    // sandbox so it starts its workspace-sync loop and restores on boot. `ebs`,
-    // `node`, and `ephemeral` leave this unset (loop stays off).
+    // sandbox so it syncs after terminal agent turns and restores on boot. `ebs`,
+    // `node`, and `ephemeral` leave this unset.
     if super::storage::StorageBackend::from_plan(plan, &config.sandbox.default_storage_mode)
         .syncs_sandbox()
     {

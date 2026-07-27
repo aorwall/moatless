@@ -56,6 +56,7 @@ use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
 use crate::init::credentials::filter_agent_credentials;
+use crate::init::workspace_sync;
 
 use super::agent_state::AgentState;
 use super::background_watch_job::BackgroundWatchJob;
@@ -798,6 +799,11 @@ impl CoordinatorService {
                                     self.agent_state.set_idle().await;
                                     // Arm any self-scheduled jobs the completed Turn requested.
                                     self.arm_scheduled_jobs(&task_id).await;
+                                    workspace_sync::upload_after_turn(
+                                        &self.config,
+                                        self.backend_client.as_ref(),
+                                    )
+                                    .await;
                                 }
                                 Outcome::Cancelled => {
                                     self.retry_attempt = 0;
@@ -830,6 +836,11 @@ impl CoordinatorService {
                                         let _ = ack.send(());
                                     }
                                     self.stopping = false;
+                                    workspace_sync::upload_after_turn(
+                                        &self.config,
+                                        self.backend_client.as_ref(),
+                                    )
+                                    .await;
                                 }
                                 Outcome::Failed(err) => {
                                     // A failed Turn arms no wakeup (matches the legacy
@@ -886,6 +897,11 @@ impl CoordinatorService {
                                         self.retry_attempt = 0;
                                         self.consecutive_errors += 1;
                                         self.agent_state.set_error(err.diagnostic.clone()).await;
+                                        workspace_sync::upload_after_turn(
+                                            &self.config,
+                                            self.backend_client.as_ref(),
+                                        )
+                                        .await;
                                     }
                                 }
                             }
