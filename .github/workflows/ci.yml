@@ -181,21 +181,23 @@ jobs:
       - name: Generate OpenAPI spec
         run: target/ci/moatless-vibe-backend --dump-openapi > openapi-specs.json
 
-      # Still an artifact: build-backend-image consumes the binary and
-      # generate-ts-client the spec, and both run outside this container.
-      - name: Upload backend binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      # Handed to build-backend-image and generate-ts-client, which run outside
+      # this container, via the Actions cache rather than artifacts: the org's
+      # artifact storage is over quota and `CreateArtifact` hard-fails, while
+      # cache is a separate per-repo pool that evicts LRU instead. Keyed on the
+      # commit so a run reads back exactly what it wrote, and every consumer
+      # sets fail-on-cache-miss so a miss is loud rather than a stale build.
+      - name: Cache backend binary for downstream jobs
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: backend-binary
           path: target/ci/moatless-vibe-backend
-          retention-days: 1
+          key: backend-binary-${{ github.sha }}
 
-      - name: Upload OpenAPI spec
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - name: Cache OpenAPI spec for downstream jobs
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: openapi-spec
           path: openapi-specs.json
-          retention-days: 1
+          key: openapi-spec-${{ github.sha }}
 
   # ── Generate TypeScript API client from spec ──
   generate-ts-client:
@@ -216,22 +218,25 @@ jobs:
       - name: Install JS dependencies
         run: bun install
 
-      - name: Download OpenAPI spec
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      # After checkout — it runs `git clean -ffdx`, which would wipe the
+      # restored file if the order were reversed.
+      - name: Restore OpenAPI spec
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: openapi-spec
+          path: openapi-specs.json
+          key: openapi-spec-${{ github.sha }}
+          fail-on-cache-miss: true
 
       - name: Generate TypeScript API client
         run: cd packages/api-client && bun run generate:client
 
-      - name: Upload generated client
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - name: Cache generated client for build-frontend
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: generated-client
           path: |
             openapi-specs.json
             packages/api-client/src/
-          retention-days: 1
+          key: generated-client-${{ github.sha }}
 
   # ── Lint frontend (no deps, runs immediately) ──
   lint-frontend:
@@ -317,11 +322,15 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Download generated client
+      - name: Restore generated client
         if: needs.generate-ts-client.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: generated-client
+          path: |
+            openapi-specs.json
+            packages/api-client/src/
+          key: generated-client-${{ github.sha }}
+          fail-on-cache-miss: true
 
       - name: Type check
         run: bun run type:check
@@ -378,14 +387,20 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Download backend binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Restore backend binary
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: backend-binary
-          path: /tmp/backend-binary
+          path: target/ci/moatless-vibe-backend
+          key: backend-binary-${{ github.sha }}
+          fail-on-cache-miss: true
 
+      # Isolated into its own directory because it is passed to buildx as a
+      # named build context, which takes a directory, not a file.
       - name: Prepare binary
-        run: chmod +x /tmp/backend-binary/moatless-vibe-backend
+        run: |
+          mkdir -p /tmp/backend-binary
+          cp target/ci/moatless-vibe-backend /tmp/backend-binary/
+          chmod +x /tmp/backend-binary/moatless-vibe-backend
 
       - name: Compute short SHA
         id: sha
