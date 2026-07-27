@@ -15,7 +15,7 @@ description: Take a change from research to an agreed spec — research and deci
 
 Nothing goes into `specs/` before step 5. A half-written spec is a second place for an answer to live, and two places disagree within about three questions.
 
-**There is no ticket step.** A breakdown is worth its own approval round only when something spawns work per ticket — which is `/orchestrate`, and it runs `/to-tickets` itself after the spec exists. A change that fits one context window doesn't get split, and being told to draw a graph for it produces horizontal slices that `/to-tickets`' own rules forbid.
+**There is no ticket step.** Work that needs a breakdown goes through `/orchestrate`, which runs `/to-tickets` once the spec exists.
 
 **Recording and redrawing are different, and only one is a judgement call.** Recording is not optional: an answer lands, it goes on the page before the next question goes out — one `Edit` adding a row, because the page is the only record and an answer left in chat survives exactly as long as the session. Redrawing rewrites a section an answer made *wrong*, and the test is "wrong", not "out of date": a section the page already shows as open is incomplete, and incomplete costs nothing.
 

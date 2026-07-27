@@ -47,7 +47,7 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 - **Blocked by**: which other tickets (if any) must complete first
 - **What it delivers**: the end-to-end behaviour this ticket makes work
 
-**Ask it as one selection question, not three.** The breakdown is a numbered list of real things, so "which of these are wrong" is the whole question — see `/grilling`'s second question shape. Asking granularity, edges and merge-or-split separately makes the user answer the same question three times, and `/writing-messages` caps a turn at one ask.
+**Ask it as one selection question, not three.** The breakdown is a numbered list of real things, so "which of these are wrong" is the whole question — see `/grilling`'s second question shape.
 
 > Which of these need changing — merged, split, or a wrong blocking edge? "All fine" if none.
 
@@ -66,7 +66,7 @@ Work the **frontier**: any ticket whose blockers are all done. For a purely line
 
 Do NOT close or modify any parent issue.
 
-If a spec exists for this work, write the graph into its `## Ticket breakdown` after this approval — not before — so the spec and the tracker never disagree about what is left. `/writing-specs` no longer runs this skill itself; `/orchestrate` does, once the spec is written.
+If a spec exists for this work, write the graph into its `## Ticket breakdown` after this approval — not before — so the spec and the tracker never disagree about what is left.
 
 <local-ticket-template>
 

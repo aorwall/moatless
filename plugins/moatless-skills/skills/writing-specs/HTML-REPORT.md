@@ -18,11 +18,11 @@ The page is `scratchpad/<slug>.html`, one file at one URL. `/writing-specs` says
 
 **4. Open questions** — parked, nobody being asked. State the user needs to see before approving.
 
-**5. Work** — the Mermaid dependency graph from `/to-tickets`, node colours by state, the `classDef` set from [DESIGN.md](DESIGN.md). **Only when a breakdown is being made** — most changes never get one, and for those the section is left out rather than left empty.
+**5. Work** — the Mermaid dependency graph from `/to-tickets`, node colours by state, the `classDef` set from [DESIGN.md](DESIGN.md). **Only when a breakdown is being made** — otherwise omit the section rather than leave it empty.
 
 Footer: the status line. Nothing else — no path to a spec file, because there isn't one until the page is approved.
 
-Section 3 is empty for most of the interview and that is fine. **Leave it visible, with a "not settled yet" placeholder** — what is still open is information, and a section that silently isn't there reads as one nobody thought of. That argument only holds for a section that will be filled; a Work section on a change nobody is breaking down is a slot inviting noise, so it is omitted instead.
+Section 3 is empty for most of the interview and that is fine. **Leave it visible, with a "not settled yet" placeholder** — what is still open is information, and a section that silently isn't there reads as one nobody thought of.
 
 ## Style, on top of `/html-report`
 
