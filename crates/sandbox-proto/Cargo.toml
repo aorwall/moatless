@@ -17,3 +17,6 @@ moatless-events = { path = "../events" }
 
 [build-dependencies]
 tonic-prost-build = "0.14"
+# Ships prebuilt protoc binaries so the codegen above needs no system
+# protobuf-compiler. See the note in build.rs.
+protoc-bin-vendored = "3"
