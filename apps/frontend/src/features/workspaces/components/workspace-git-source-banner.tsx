@@ -1,5 +1,5 @@
 import type { WorkspaceResponse } from '@moatless/api-client'
-import { GitBranch, Loader2, PencilLine, RotateCcw } from 'lucide-react'
+import { GitBranch, Loader2, PencilLine, RotateCcw, Trash2 } from 'lucide-react'
 import { useRepository } from '@/features/repositories/hooks/use-repositories'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
@@ -38,6 +38,40 @@ export function WorkspaceGitSourceBanner({
   const origin = `${sourceRepo?.name ?? sourceRepositoryId}/${
     workspace.sourceConfigPath ?? '.moatless/workspaces.json'
   }`
+
+  if (workspace.deleted) {
+    return (
+      <Alert>
+        <Trash2 className="h-4 w-4" />
+        <AlertTitle>Deleted override — not synced from Git</AlertTitle>
+        <AlertDescription className="flex flex-col items-start gap-3">
+          <span>
+            This workspace came from {origin} and was deleted here. Git sync will not recreate it
+            while this tombstone exists; restore it from Git to add it back.
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onReset}
+            disabled={isResetting}
+          >
+            {isResetting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Restoring...
+              </>
+            ) : (
+              <>
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Restore from Git
+              </>
+            )}
+          </Button>
+        </AlertDescription>
+      </Alert>
+    )
+  }
 
   if (workspace.syncedFromGit) {
     return (

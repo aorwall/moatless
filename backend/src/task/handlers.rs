@@ -54,13 +54,19 @@ pub async fn create_task(
     // is given, the single-repo path is unchanged and the shadow workspace is
     // derived downstream. At least one of the two is required.
     let workspace = match req.workspace_id.as_deref() {
-        Some(workspace_id) => Some(
-            state
+        Some(workspace_id) => {
+            let workspace = state
                 .workspaces
                 .find_by_id(workspace_id, &scope_ctx)
                 .await?
-                .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?,
-        ),
+                .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
+            if workspace.deleted == Some(true) {
+                return Err(TaskError::BadRequest(format!(
+                    "Workspace {workspace_id} has been deleted; restore it from Git before creating tasks"
+                )));
+            }
+            Some(workspace)
+        }
         None => None,
     };
 

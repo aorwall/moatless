@@ -1,5 +1,5 @@
 import type { WorkspaceResponse } from '@moatless/api-client'
-import { Boxes, FileStack, FolderGit2, GitBranch, Layers, PencilLine } from 'lucide-react'
+import { Boxes, FileStack, FolderGit2, GitBranch, Layers, PencilLine, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useWorkspacesList } from '@/features/workspaces/hooks/use-workspaces'
 import { ListDetailSidebar } from '@/lib/components/ui/list-detail-sidebar'
@@ -11,6 +11,9 @@ const sortByName = (a: WorkspaceResponse, b: WorkspaceResponse) =>
 
 // Leading icon reflects the workspace's derived kind.
 function getWorkspaceIcon(ws: WorkspaceResponse) {
+  if (ws.deleted) {
+    return <Trash2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+  }
   if (ws.kind === 'multi') {
     return <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
   }
@@ -21,6 +24,9 @@ function getWorkspaceIcon(ws: WorkspaceResponse) {
 }
 
 function getSecondary(ws: WorkspaceResponse): string {
+  if (ws.deleted) {
+    return 'Deleted Git override'
+  }
   const count = ws.repos.length
   return count === 1 ? '1 repository' : `${count} repositories`
 }

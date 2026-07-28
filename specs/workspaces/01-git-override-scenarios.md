@@ -14,7 +14,7 @@ See [00-design.md](./00-design.md) for the design overview.
 │   │   ├── WS-05: The automatic sync leaves an override alone
 │   │   ├── WS-06: Resetting takes the configuration from git again
 │   │   └── WS-07: Syncing the repository reclaims every override
-│   └── WS-08: Deleting an overridden workspace lets git declare it again
+│   └── WS-08: Deleting a git-origin workspace creates a tombstone
 
 ## Standalone
 ├── WS-20: Resetting a workspace that was never in git is rejected
@@ -117,17 +117,19 @@ The explicit repository sync is authoritative: it takes back every override belo
 
 ---
 
-### WS-08: Deleting an overridden workspace lets git declare it again
+### WS-08: Deleting a git-origin workspace creates a tombstone
 
-Deleting an override deletes the override, not the entry in git — a later sync brings the workspace back.
+Deleting a git-origin workspace keeps a tombstone with its provenance. This prevents automatic or repository-wide sync from recreating the same source key without an explicit per-workspace reset.
 
 * **Given** WS-01 has completed
-  * **And** the user has overridden the workspace and then deleted it
 
-* **When** the user syncs the repository's configuration
+* **When** the user deletes the workspace
 
-* **Then** the workspace exists again with the configuration the repository declares
-  * **And** it is shown as synced from git
+* **Then** the workspace is soft-deleted
+  * **And** it is shown as an overridden git-origin workspace in admin
+  * **And** its source repository, config path, and source key are preserved
+  * **And** later automatic or repository-wide sync does not recreate it
+  * **And** resetting this workspace to Git restores it from the committed config
 
 ---
 

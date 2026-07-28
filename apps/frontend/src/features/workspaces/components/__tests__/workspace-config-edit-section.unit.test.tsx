@@ -58,7 +58,7 @@ beforeEach(() => {
 })
 
 describe('WorkspaceConfigEditSection (git-synced)', () => {
-  it('shows the read-only alert and hides mutating controls', () => {
+  it('shows the read-only alert and hides editing controls', () => {
     currentWorkspace = gitSourced()
 
     render(<WorkspaceConfigEditSection workspaceId="ws-1" />)
@@ -67,9 +67,9 @@ describe('WorkspaceConfigEditSection (git-synced)', () => {
     expect(screen.getByText('Synced from Git')).toBeInTheDocument()
     expect(screen.getByText(/acme-api\/\.moatless\/workspaces\.json/)).toBeInTheDocument()
 
-    // Save and Delete are unreachable.
+    // Editing is unreachable, but deleting creates a restorable tombstone.
     expect(screen.queryByRole('button', { name: /save changes/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /delete workspace/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /delete workspace/i })).toBeInTheDocument()
 
     // The name input renders the value but is disabled.
     expect(screen.getByDisplayValue('Synced Workspace')).toBeDisabled()
@@ -116,11 +116,32 @@ describe('WorkspaceConfigEditSection (git-synced)', () => {
     expect(deleteMutate).toHaveBeenCalledWith('ws-1', expect.anything())
     expect(onDeleted).toHaveBeenCalled()
   })
+
+  it('deletes a git-origin workspace without navigating away', async () => {
+    currentWorkspace = gitSourced()
+    const onDeleted = vi.fn()
+    deleteMutate.mockImplementationOnce((_workspaceId, options) => {
+      options.onSuccess()
+    })
+    const user = userEvent.setup()
+
+    render(<WorkspaceConfigEditSection workspaceId="ws-1" onDeleted={onDeleted} />)
+    await user.click(screen.getByRole('button', { name: /delete workspace/i }))
+    await user.click(screen.getByRole('button', { name: /^delete$/i }))
+
+    expect(deleteMutate).toHaveBeenCalledWith('ws-1', expect.anything())
+    expect(onDeleted).not.toHaveBeenCalled()
+  })
 })
 
 describe('WorkspaceConfigEditSection (overridden)', () => {
-  const overridden = () =>
-    gitSourced({ name: 'Overridden Workspace', source: 'manual', syncedFromGit: false })
+  const overridden = (overrides: Partial<WorkspaceResponse> = {}) =>
+    gitSourced({
+      name: 'Overridden Workspace',
+      source: 'manual',
+      syncedFromGit: false,
+      ...overrides,
+    })
 
   it('is editable and warns that resetting replaces the local changes', () => {
     currentWorkspace = overridden()
@@ -153,5 +174,25 @@ describe('WorkspaceConfigEditSection (overridden)', () => {
 
     expect(screen.queryByRole('button', { name: /reset to git/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /override to edit/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a deleted git-origin workspace as a restorable tombstone', async () => {
+    currentWorkspace = overridden({
+      deleted: true,
+      name: 'Deleted Workspace',
+    })
+    const user = userEvent.setup()
+
+    render(<WorkspaceConfigEditSection workspaceId="ws-1" />)
+
+    expect(screen.getByText('Deleted override — not synced from Git')).toBeInTheDocument()
+    expect(screen.getByText(/Git sync will not recreate it/i)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Deleted Workspace')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /delete workspace/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /save changes/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /restore from git/i }))
+
+    expect(resetGitMutate).toHaveBeenCalledWith('ws-1', expect.anything())
   })
 })

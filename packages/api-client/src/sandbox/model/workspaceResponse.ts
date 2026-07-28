@@ -16,6 +16,10 @@ export interface WorkspaceResponse {
   createdAt?: string | null;
   /** @nullable */
   createdBy?: string | null;
+  /** Soft-deleted workspaces are normally hidden. Git-origin tombstones remain
+visible in admin so users can restore them from git without automatic
+sync recreating them behind their back. */
+  deleted?: boolean;
   /** @nullable */
   description?: string | null;
   /** @nullable */

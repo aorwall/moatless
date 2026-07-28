@@ -43,10 +43,7 @@ async fn insert_and_find_by_id(pool: PgPool) {
     repo.insert_workspace(&ws).await.unwrap();
 
     // Owner sees their user-scoped workspace.
-    let found = repo
-        .find_by_id("ws-1", &scope_ctx("user-1"))
-        .await
-        .unwrap();
+    let found = repo.find_by_id("ws-1", &scope_ctx("user-1")).await.unwrap();
     assert!(found.is_some());
     let found = found.unwrap();
     assert_eq!(found.id, "ws-1");
@@ -55,21 +52,21 @@ async fn insert_and_find_by_id(pool: PgPool) {
 
     // A different user cannot read another user's user-scoped workspace
     // (out-of-scope reads are indistinguishable from missing → None).
-    let hidden = repo
-        .find_by_id("ws-1", &scope_ctx("user-2"))
-        .await
-        .unwrap();
+    let hidden = repo.find_by_id("ws-1", &scope_ctx("user-2")).await.unwrap();
     assert!(hidden.is_none());
 }
 
 #[sqlx::test]
-async fn find_by_id_scoped_hides_soft_deleted(pool: PgPool) {
+async fn find_by_id_scoped_hides_plain_soft_deleted(pool: PgPool) {
     let repo = PgWorkspaceRepository(pool.clone());
     repo.insert_workspace(&make_workspace_row("ws-del", "user-1"))
         .await
         .unwrap();
 
-    assert!(repo.soft_delete("ws-del", &scope_ctx("user-1")).await.unwrap());
+    assert!(repo
+        .soft_delete("ws-del", &scope_ctx("user-1"))
+        .await
+        .unwrap());
 
     // Soft-deleted rows are filtered out even for the owner.
     let found = repo
@@ -77,6 +74,41 @@ async fn find_by_id_scoped_hides_soft_deleted(pool: PgPool) {
         .await
         .unwrap();
     assert!(found.is_none());
+}
+
+#[sqlx::test]
+async fn find_and_list_keep_git_origin_tombstones_visible(pool: PgPool) {
+    let repo = PgWorkspaceRepository(pool.clone());
+    let mut ws = make_workspace_row("ws-git-del", "user-1");
+    ws.source = "git".to_string();
+    ws.source_repository_id = Some("repo-1".to_string());
+    ws.source_key = Some("api".to_string());
+    ws.source_config_path = Some(".moatless/workspaces.json".to_string());
+    repo.insert_workspace(&ws).await.unwrap();
+
+    assert!(repo
+        .soft_delete_git_origin("ws-git-del", &scope_ctx("user-1"))
+        .await
+        .unwrap());
+
+    let found = repo
+        .find_by_id("ws-git-del", &scope_ctx("user-1"))
+        .await
+        .unwrap()
+        .expect("git-origin tombstone should stay addressable");
+    assert_eq!(found.source, "manual");
+    assert_eq!(found.deleted, Some(true));
+    assert_eq!(found.source_repository_id.as_deref(), Some("repo-1"));
+    assert_eq!(found.source_key.as_deref(), Some("api"));
+
+    let ids: Vec<String> = repo
+        .list(&scope_ctx("user-1"))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|workspace| workspace.id)
+        .collect();
+    assert_eq!(ids, vec!["ws-git-del".to_string()]);
 }
 
 #[sqlx::test]
@@ -124,7 +156,10 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
         description: Some(Some("a description".to_string())),
         ..Default::default()
     };
-    assert!(repo.update("ws-u", &patch, &scope_ctx("user-1")).await.unwrap());
+    assert!(repo
+        .update("ws-u", &patch, &scope_ctx("user-1"))
+        .await
+        .unwrap());
 
     let found = repo
         .find_by_id("ws-u", &scope_ctx("user-1"))

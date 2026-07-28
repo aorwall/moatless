@@ -2,7 +2,7 @@
 //!
 //! Spec IDs: WS-01 (read-only), WS-02/03/04 (override), WS-20/21 (reset guards).
 //!
-//! The reclaim paths (WS-06/07/08) need a reachable repository that actually
+//! The reclaim paths (WS-06/07) need a reachable repository that actually
 //! declares the workspace, so they are not covered here — the sync fetches the
 //! config over the provider API. What is covered is everything that decides
 //! whether an override survives: the read-only guard, that overriding keeps the
@@ -38,10 +38,8 @@ async fn workspace_git_override_chain() {
 
     // A repo whose remote does not exist, so the reset's re-sync cannot reach
     // a config file — exactly the WS-21 situation.
-    let mut repo_req = create_repo_request(
-        &format!("ws-override-{suffix}"),
-        RepositoryKind::Template,
-    );
+    let mut repo_req =
+        create_repo_request(&format!("ws-override-{suffix}"), RepositoryKind::Template);
     repo_req.remote_url = Some(format!(
         "https://github.com/aorwall/ws-override-{suffix}.git"
     ));
@@ -93,8 +91,26 @@ async fn workspace_git_override_chain() {
         .await
         .unwrap_err();
     assert_eq!(status_of(&err), 409);
-    let err = client.api().delete_workspace(&ws_id).await.unwrap_err();
-    assert_eq!(status_of(&err), 409);
+    let deleted_from_git = client.api().delete_workspace(&ws_id).await;
+    assert!(
+        deleted_from_git.is_ok(),
+        "git-origin deletion should create a restorable tombstone"
+    );
+
+    let tombstone = client.api().get_workspace(&ws_id).await.unwrap();
+    assert_eq!(tombstone.source, "manual");
+    assert!(!tombstone.synced_from_git);
+    assert!(tombstone.deleted);
+    assert_eq!(
+        tombstone.source_repository_id.as_deref(),
+        Some(repo_id.as_str())
+    );
+    assert_eq!(tombstone.source_key.as_deref(), Some("api"));
+
+    // Restore the row to git-synced for the rest of the override chain.
+    exec_psql(&format!(
+        "UPDATE workspaces SET source = 'git', deleted = false WHERE id = '{ws_id}'"
+    ));
 
     // WS-02: overriding with an empty patch takes ownership, changing nothing.
     let overridden = client
@@ -111,7 +127,10 @@ async fn workspace_git_override_chain() {
     );
 
     // WS-03: the origin survives, which is what makes a reset possible.
-    assert_eq!(overridden.source_repository_id.as_deref(), Some(repo_id.as_str()));
+    assert_eq!(
+        overridden.source_repository_id.as_deref(),
+        Some(repo_id.as_str())
+    );
     assert_eq!(overridden.source_key.as_deref(), Some("api"));
     assert_eq!(
         overridden.source_config_path.as_deref(),
@@ -133,8 +152,20 @@ async fn workspace_git_override_chain() {
     assert!(!reset.resynced);
     assert!(reset.error.is_some(), "a failed reset must say why");
     assert_eq!(reset.workspace.source, "manual");
-    assert_eq!(reset.workspace.docker_image.as_deref(), Some("acme/edited:1"));
+    assert_eq!(
+        reset.workspace.docker_image.as_deref(),
+        Some("acme/edited:1")
+    );
 
-    // An overridden workspace is deletable again (WS-08's precondition).
+    // WS-08: deleting a git-origin override keeps a tombstone so sync cannot
+    // recreate the same source key without an explicit per-workspace reset.
     client.api().delete_workspace(&ws_id).await.unwrap();
+    let tombstone = client.api().get_workspace(&ws_id).await.unwrap();
+    assert_eq!(tombstone.source, "manual");
+    assert!(tombstone.deleted);
+    assert_eq!(
+        tombstone.source_repository_id.as_deref(),
+        Some(repo_id.as_str())
+    );
+    assert_eq!(tombstone.source_key.as_deref(), Some("api"));
 }

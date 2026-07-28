@@ -180,6 +180,11 @@ pub struct WorkspaceResponse {
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: Option<String>,
+    /// Soft-deleted workspaces are normally hidden. Git-origin tombstones remain
+    /// visible in admin so users can restore them from git without automatic
+    /// sync recreating them behind their back.
+    #[serde(default)]
+    pub deleted: bool,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub repos: Vec<WorkspaceRepoResponse>,

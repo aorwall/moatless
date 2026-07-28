@@ -156,7 +156,7 @@ export function CreateCodeTask({
   // Auto-select first workspace when none is selected
   useEffect(() => {
     if (!workspaceId && workspaces && workspaces.length > 0) {
-      const firstWorkspace = workspaces[0]
+      const firstWorkspace = workspaces.find((workspace) => !workspace.deleted)
       if (firstWorkspace) {
         onWorkspaceChange(firstWorkspace.id)
       }

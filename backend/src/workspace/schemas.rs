@@ -50,6 +50,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
         scope: w.scope,
         owner_user_id: w.owner_user_id,
         created_by: w.created_by,
+        deleted: w.deleted.unwrap_or(false),
         created_at: w.created_at.map(|t| t.to_rfc3339()),
         updated_at: w.updated_at.map(|t| t.to_rfc3339()),
         repos: repos.into_iter().map(Into::into).collect(),

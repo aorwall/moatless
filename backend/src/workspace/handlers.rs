@@ -34,10 +34,7 @@ fn to_json<T: Serialize>(value: Option<T>) -> Option<serde_json::Value> {
 /// keyed on the source repo) and the write API refuses to edit or delete a
 /// git-sourced workspace.
 fn reset_source(ws: &Workspace) -> Result<(&str, &str), WorkspaceError> {
-    match (
-        ws.source_repository_id.as_deref(),
-        ws.source_key.as_deref(),
-    ) {
+    match (ws.source_repository_id.as_deref(), ws.source_key.as_deref()) {
         (Some(repository_id), Some(source_key)) => Ok((repository_id, source_key)),
         _ => Err(WorkspaceError::BadRequest(
             "Workspace was not synced from Git; there is no config to reset to".to_string(),
@@ -49,6 +46,11 @@ fn reset_source(ws: &Workspace) -> Result<(&str, &str), WorkspaceError> {
 /// it. The sync service writes through the DAO directly, so it bypasses this
 /// guard by design.
 fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
+    if ws.deleted == Some(true) {
+        return Err(WorkspaceError::Conflict(
+            "Workspace has been deleted; reset it from Git before editing it".to_string(),
+        ));
+    }
     if ws.source == "git" {
         return Err(WorkspaceError::Conflict(
             "Workspace is synced from Git and is read-only; edit .moatless/workspaces.json to change it".to_string(),
@@ -345,9 +347,17 @@ pub async fn delete_workspace(
         .find_by_id(&workspace_id, &ctx)
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
-    ensure_workspace_mutable(&existing)?;
 
-    if !state.workspaces.soft_delete(&workspace_id, &ctx).await? {
+    let deleted = if existing.source_repository_id.is_some() && existing.source_key.is_some() {
+        state
+            .workspaces
+            .soft_delete_git_origin(&workspace_id, &ctx)
+            .await?
+    } else {
+        ensure_workspace_mutable(&existing)?;
+        state.workspaces.soft_delete(&workspace_id, &ctx).await?
+    };
+    if !deleted {
         return Err(WorkspaceError::NotFound(workspace_id));
     }
     Ok(StatusCode::NO_CONTENT)
@@ -375,11 +385,16 @@ pub async fn override_workspace(
     Json(req): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
     let ctx = auth.scope_context();
-    state
+    let existing = state
         .workspaces
         .find_by_id(&workspace_id, &ctx)
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
+    if existing.deleted == Some(true) {
+        return Err(WorkspaceError::Conflict(
+            "Workspace has been deleted; reset it from Git before overriding it".to_string(),
+        ));
+    }
     // Intentionally skipping `ensure_workspace_mutable` — this endpoint is the
     // explicit way to take ownership of a git-synced workspace. The DAO
     // control_filter ensures only the owner/admin can do this.
@@ -733,6 +748,15 @@ mod tests {
     #[test]
     fn manual_workspace_is_mutable() {
         assert!(ensure_workspace_mutable(&workspace_with_source("manual")).is_ok());
+    }
+
+    #[test]
+    fn deleted_workspace_is_not_mutable() {
+        let mut workspace = workspace_with_source("manual");
+        workspace.deleted = Some(true);
+
+        let err = ensure_workspace_mutable(&workspace).unwrap_err();
+        assert!(matches!(err, WorkspaceError::Conflict(_)));
     }
 
     #[test]

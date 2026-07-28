@@ -17,8 +17,9 @@
 //! it to `source = 'manual'` while keeping its provenance columns, so the
 //! automatic sync on task start leaves it alone. [`SyncForce`] decides whether a
 //! given sync respects that — only the explicit, user-initiated syncs
-//! (`sync-config`, per-workspace `reset-git`) reclaim an override, replacing the
-//! local edits with the committed config.
+//! (`sync-config`, per-workspace `reset-git`) reclaim an active override,
+//! replacing the local edits with the committed config. A deleted override is a
+//! tombstone and is only restored by resetting that specific workspace.
 
 use std::collections::HashSet;
 
@@ -27,7 +28,6 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use crate::extractors::AuthUser;
-use moatless_backend_core::scope::ScopeContext;
 use crate::repository::access::{access_error_for, resolve_repository_github_token};
 use crate::repository::config_reader::{
     fetch_provider_file, verify_repository_access, AccessStatus,
@@ -41,6 +41,7 @@ use crate::state::AppState;
 use crate::workspace::dao::{ensure_shadow_workspace, WorkspacePatch};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
+use moatless_backend_core::scope::ScopeContext;
 
 // =============================================================================
 // `.moatless/` file schemas
@@ -481,18 +482,16 @@ fn run_config_from_moatless_config(
 }
 
 /// What to do with an existing `source = 'manual'` row that a git-declared
-/// workspace maps onto: `None` leaves the override in place, `Some(outcome)`
-/// writes git's config over it.
-///
-/// A soft-deleted override never blocks its git entry — deleting a workspace
-/// discards the override, and an entry git still declares comes back as git.
+/// workspace maps onto: `None` leaves the override/tombstone in place,
+/// `Some(outcome)` writes git's config over it.
 fn reclaim_override(
     workspace_id: &str,
     deleted: Option<bool>,
     force: &SyncForce,
 ) -> Option<UpsertOutcome> {
     if deleted == Some(true) {
-        return Some(UpsertOutcome::Created);
+        return matches!(force, SyncForce::Only(id) if id == workspace_id)
+            .then_some(UpsertOutcome::Reclaimed);
     }
     force
         .reclaims(workspace_id)
@@ -621,7 +620,10 @@ async fn upsert_git_workspace(
         source_key: Some(Some(desired.source_key.clone())),
         source_config_path: Some(Some(desired.source_config_path.clone())),
     };
-    state.workspaces.update(&workspace_id, &patch, &sys_ctx).await?;
+    state
+        .workspaces
+        .update(&workspace_id, &patch, &sys_ctx)
+        .await?;
 
     // Replace placements (delete-all + re-insert non-primary, then elect one
     // primary) so the partial unique index never sees two primaries mid-write.
@@ -661,7 +663,10 @@ async fn upsert_git_workspace(
             .set_primary(&workspace_id, &target, &sys_ctx)
             .await?;
     }
-    state.workspaces.refresh_kind(&workspace_id, &sys_ctx).await?;
+    state
+        .workspaces
+        .refresh_kind(&workspace_id, &sys_ctx)
+        .await?;
 
     if matches!(outcome, UpsertOutcome::Reclaimed) {
         info!(
@@ -753,7 +758,11 @@ async fn resolve_or_create_repo(
         Ok(()) => Ok(id),
         Err(error) if is_remote_url_conflict(&error) => state
             .repositories
-            .find_by_normalized_remote_url(&key, source_repo.scope, source_repo.owner_user_id.clone())
+            .find_by_normalized_remote_url(
+                &key,
+                source_repo.scope,
+                source_repo.owner_user_id.clone(),
+            )
             .await?
             .map(|existing| existing.id)
             .ok_or_else(|| RepositoryError::Db(error)),
@@ -773,7 +782,11 @@ async fn stamp_access(state: &AppState, repository_id: &str, status: AccessStatu
     // itself created or resolved.
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    if let Err(e) = state.repositories.update(repository_id, &patch, &sys_ctx).await {
+    if let Err(e) = state
+        .repositories
+        .update(repository_id, &patch, &sys_ctx)
+        .await
+    {
         warn!(%repository_id, error = %e, "Failed to stamp repository access_status");
     }
 }
@@ -861,7 +874,7 @@ mod tests {
     }
 
     #[test]
-    fn overrides_survive_only_while_the_workspace_lives() {
+    fn overrides_and_deleted_tombstones_block_automatic_sync() {
         // Live override: kept by the automatic sync, reclaimed by an explicit one.
         assert!(reclaim_override("ws_1", Some(false), &SyncForce::RespectOverrides).is_none());
         assert!(matches!(
@@ -869,12 +882,19 @@ mod tests {
             Some(UpsertOutcome::Reclaimed)
         ));
 
-        // Deleted override: the row is reused rather than left to block its
-        // still-declared source_key forever, even on an automatic sync.
+        // Deleted override: a tombstone blocks automatic and repo-wide sync, so
+        // a git entry is not recreated unless this exact workspace is reset.
+        assert!(reclaim_override("ws_1", Some(true), &SyncForce::RespectOverrides).is_none());
+        assert!(reclaim_override("ws_1", Some(true), &SyncForce::All).is_none());
+
+        let only_this = SyncForce::Only("ws_1".to_string());
         assert!(matches!(
-            reclaim_override("ws_1", Some(true), &SyncForce::RespectOverrides),
-            Some(UpsertOutcome::Created)
+            reclaim_override("ws_1", Some(true), &only_this),
+            Some(UpsertOutcome::Reclaimed)
         ));
+
+        let only_other = SyncForce::Only("ws_2".to_string());
+        assert!(reclaim_override("ws_1", Some(true), &only_other).is_none());
     }
 
     #[test]

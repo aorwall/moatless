@@ -16187,6 +16187,10 @@
               "null"
             ]
           },
+          "deleted": {
+            "type": "boolean",
+            "description": "Soft-deleted workspaces are normally hidden. Git-origin tombstones remain\nvisible in admin so users can restore them from git without automatic\nsync recreating them behind their back."
+          },
           "description": {
             "type": [
               "string",

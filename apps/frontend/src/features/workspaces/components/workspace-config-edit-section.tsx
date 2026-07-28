@@ -96,7 +96,7 @@ export function WorkspaceConfigEditSection({
   const hasChanges = Object.keys(userModifications).length > 0
 
   const handleSave = () => {
-    if (!hasChanges) {
+    if (!hasChanges || workspace?.deleted) {
       return
     }
     // Empty strings signal field removal (sent as null).
@@ -162,9 +162,17 @@ export function WorkspaceConfigEditSection({
   const handleDelete = () => {
     deleteWorkspace.mutate(workspaceId, {
       onSuccess: () => {
-        toast.success('Workspace deleted successfully')
+        const staysVisibleAsTombstone = !!workspace?.sourceRepositoryId
+        toast.success('Workspace deleted successfully', {
+          description: staysVisibleAsTombstone
+            ? 'It will stay as a deleted Git override until restored from Git.'
+            : undefined,
+        })
+        setUserModifications({})
         setShowDeleteDialog(false)
-        onDeleted?.()
+        if (!staysVisibleAsTombstone) {
+          onDeleted?.()
+        }
       },
       onError: (err) => {
         toast.error('Failed to delete workspace', { description: getErrorMessage(err) })
@@ -183,9 +191,12 @@ export function WorkspaceConfigEditSection({
     )
   }
 
-  // Git-synced workspaces are defined in git and read-only until overridden;
-  // the write API 409s until then.
-  const isGitSynced = workspace.syncedFromGit ?? false
+  // Git-synced workspaces are read-only until overridden. Deleted git-origin
+  // workspaces are tombstones: visible in admin, restorable from Git, but not
+  // editable until restored.
+  const isDeleted = workspace.deleted ?? false
+  const isGitSynced = !isDeleted && (workspace.syncedFromGit ?? false)
+  const readOnly = isGitSynced || isDeleted
 
   return (
     <ConfigurationSection>
@@ -211,7 +222,7 @@ export function WorkspaceConfigEditSection({
           <ConfigurationInput
             value={formData.name || ''}
             onChange={(e) => updateField('name', e.target.value)}
-            disabled={isGitSynced}
+            disabled={readOnly}
           />
         </ConfigurationItem>
 
@@ -220,7 +231,7 @@ export function WorkspaceConfigEditSection({
             value={formData.description || ''}
             onChange={(e) => updateField('description', e.target.value)}
             rows={3}
-            disabled={isGitSynced}
+            disabled={readOnly}
           />
         </ConfigurationItem>
       </ConfigurationGroup>
@@ -228,20 +239,20 @@ export function WorkspaceConfigEditSection({
       <WorkspaceReposPanel
         workspaceId={workspaceId}
         placements={workspace.repos}
-        readOnly={isGitSynced}
+        readOnly={readOnly}
       />
 
-      <CodeExecutionGroup formData={formData} onUpdateField={updateField} disabled={isGitSynced} />
+      <CodeExecutionGroup formData={formData} onUpdateField={updateField} disabled={readOnly} />
 
-      <ServersGroup formData={formData} onUpdateField={updateField} disabled={isGitSynced} />
+      <ServersGroup formData={formData} onUpdateField={updateField} disabled={readOnly} />
 
       <AgentConfigurationGroup
         formData={formData}
         onUpdateField={updateField}
-        disabled={isGitSynced}
+        disabled={readOnly}
       />
 
-      {!isGitSynced && (
+      {!isDeleted && (
         <div className="flex justify-between gap-3 border-t pt-6">
           <Button
             type="button"
@@ -261,28 +272,35 @@ export function WorkspaceConfigEditSection({
               </>
             )}
           </Button>
-          <div className="flex gap-3">
-            <Button type="button" variant="outline" onClick={handleDiscard} disabled={!hasChanges}>
-              Discard Changes
-            </Button>
-            <Button
-              type="button"
-              onClick={handleSave}
-              disabled={!hasChanges || updateWorkspace.isPending}
-            >
-              {updateWorkspace.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Changes
-                </>
-              )}
-            </Button>
-          </div>
+          {!isGitSynced && (
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleDiscard}
+                disabled={!hasChanges}
+              >
+                Discard Changes
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={!hasChanges || updateWorkspace.isPending}
+              >
+                {updateWorkspace.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -291,7 +309,9 @@ export function WorkspaceConfigEditSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{workspace.name}"? This action cannot be undone.
+              {workspace.sourceRepositoryId
+                ? `Delete "${workspace.name}" here? Git sync will not recreate it while the deleted override exists. You can restore it from Git later.`
+                : `Are you sure you want to delete "${workspace.name}"? This action cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

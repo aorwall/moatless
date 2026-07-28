@@ -7,6 +7,9 @@ use super::models::{Workspace, WorkspaceRepo};
 use crate::db::DbPool;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
+const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR \
+    (deleted = true AND source = 'manual' AND source_repository_id IS NOT NULL AND source_key IS NOT NULL))";
+
 /// Patch struct for partial workspace updates. Outer `Option` = "field present
 /// in the patch"; inner `Option` = the nullable column value.
 #[derive(Default)]
@@ -35,15 +38,17 @@ pub struct WorkspacePatch {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait WorkspaceRepository: Send + Sync {
-    /// Fetch a single non-deleted workspace by id, filtered by the caller's ACL
-    /// scope. Returns `None` when the row is missing or outside the scope.
+    /// Fetch a single active workspace, or a deleted git-origin tombstone, by
+    /// id, filtered by the caller's ACL scope. Returns `None` when the row is
+    /// missing, outside the scope, or a plain deleted manual workspace.
     async fn find_by_id(
         &self,
         id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Workspace>, sqlx::Error>;
 
-    /// List non-deleted workspaces visible to the caller, ordered by name.
+    /// List active workspaces plus git-origin tombstones visible to the caller,
+    /// ordered by name.
     async fn list(&self, ctx: &ScopeContext) -> Result<Vec<Workspace>, sqlx::Error>;
 
     /// List a workspace's repo placements, primary first then by `position`.
@@ -79,12 +84,16 @@ pub trait WorkspaceRepository: Send + Sync {
     /// already deleted, missing, or caller cannot control the row.
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
 
-    /// Insert a workspace_repo placement, gated on caller controlling the workspace.
-    async fn add_repo(
+    /// Soft-delete a git-origin workspace as a manual tombstone. The provenance
+    /// key remains occupied so automatic and repo-wide syncs do not recreate it.
+    async fn soft_delete_git_origin(
         &self,
-        row: &WorkspaceRepo,
+        id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
+
+    /// Insert a workspace_repo placement, gated on caller controlling the workspace.
+    async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
 
     /// Remove a placement from a workspace, gated on caller controlling the workspace.
     /// Returns `false` when not found or caller cannot control the workspace.
@@ -107,11 +116,8 @@ pub trait WorkspaceRepository: Send + Sync {
 
     /// Recompute and persist the derived `kind` (`blank`/`single`/`multi`) from
     /// the current placement count.
-    async fn refresh_kind(
-        &self,
-        workspace_id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<(), sqlx::Error>;
+    async fn refresh_kind(&self, workspace_id: &str, ctx: &ScopeContext)
+        -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`WorkspaceRepository`].
@@ -128,7 +134,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         let sql = format!(
             "SELECT * FROM workspaces \
              WHERE id = $1 \
-             AND (deleted IS NULL OR deleted = false) \
+             AND {ACTIVE_OR_GIT_TOMBSTONE} \
              AND {}",
             access.sql()
         );
@@ -209,7 +215,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         let access = ctx.access_filter(ScopedEntity::Resource, "", 1);
         let sql = format!(
             "SELECT * FROM workspaces \
-             WHERE (deleted IS NULL OR deleted = false) \
+             WHERE {ACTIVE_OR_GIT_TOMBSTONE} \
              AND {} \
              ORDER BY name ASC",
             access.sql()
@@ -342,11 +348,33 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn add_repo(
+    async fn soft_delete_git_origin(
         &self,
-        row: &WorkspaceRepo,
+        id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
+        let control = ctx.control_filter("", 3);
+        let sql = format!(
+            "UPDATE workspaces \
+             SET deleted = true, source = 'manual', updated_at = $2 \
+             WHERE id = $1 \
+               AND (deleted IS NULL OR deleted = false) \
+               AND source_repository_id IS NOT NULL \
+               AND source_key IS NOT NULL \
+               AND {}",
+            control.sql()
+        );
+        let result = sqlx::query(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(chrono::Utc::now())
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .execute(&self.0)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         // Gate on caller controlling the workspace via EXISTS subquery.
         let control = ctx.control_filter("w.", 8);
         let sql = format!(

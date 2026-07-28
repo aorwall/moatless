@@ -17,8 +17,10 @@ export function useWorkspaceSelector(
 ) {
   const { data, isLoading, error, isError } = useWorkspacesList({ enabled })
 
+  const availableWorkspaces = data?.filter((ws) => !ws.deleted) ?? []
+
   const items =
-    data?.map((ws) => ({
+    availableWorkspaces.map((ws) => ({
       id: ws.id,
       label: ws.name,
     })) || []
@@ -34,7 +36,7 @@ export function useWorkspaceSelector(
     onChange?.(newValue)
   }
 
-  const selectedWorkspace = data?.find((ws) => ws.id === currentValue)
+  const selectedWorkspace = availableWorkspaces.find((ws) => ws.id === currentValue)
 
   return {
     value: currentValue,
