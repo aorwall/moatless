@@ -706,29 +706,18 @@ mod tests {
 
     #[test]
     fn env_status_roundtrip() {
-        assert_eq!(
-            sandbox_status_to_pod_phase(&SandboxStatus::Ready),
-            PodPhase::Running
-        );
-        assert_eq!(
-            sandbox_status_to_pod_phase(&SandboxStatus::Initializing),
-            PodPhase::Pending
-        );
-        assert_eq!(
-            sandbox_status_to_pod_phase(&SandboxStatus::Stopped),
-            PodPhase::Stopped
-        );
-        assert_eq!(
-            sandbox_status_to_pod_phase(&SandboxStatus::Error),
-            PodPhase::Failed
-        );
-        assert_eq!(
-            sandbox_status_to_pod_phase(&SandboxStatus::NotCreated),
-            PodPhase::NotFound
-        );
-        assert_eq!(
-            sandbox_status_to_pod_phase(&SandboxStatus::Removing),
-            PodPhase::Terminating
-        );
+        let cases = [
+            (SandboxStatus::NotCreated, PodPhase::NotFound),
+            (SandboxStatus::Initializing, PodPhase::Pending),
+            (SandboxStatus::Ready, PodPhase::Running),
+            (SandboxStatus::Stopped, PodPhase::Stopped),
+            (SandboxStatus::Removing, PodPhase::Terminating),
+            (SandboxStatus::Removed, PodPhase::NotFound),
+            (SandboxStatus::Error, PodPhase::Failed),
+        ];
+
+        for (status, expected) in cases {
+            assert_eq!(sandbox_status_to_pod_phase(&status), expected, "{status:?}");
+        }
     }
 }

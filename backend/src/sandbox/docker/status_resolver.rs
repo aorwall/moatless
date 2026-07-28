@@ -34,6 +34,46 @@ impl AgentStatusSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DockerContainerState {
+    Created,
+    Running,
+    Restarting,
+    Paused,
+    Exited,
+    Dead,
+    Removing,
+}
+
+impl DockerContainerState {
+    fn sandbox_status(self) -> SandboxStatus {
+        match self {
+            Self::Running => SandboxStatus::Ready,
+            Self::Created | Self::Restarting => SandboxStatus::Initializing,
+            Self::Paused | Self::Exited => SandboxStatus::Stopped,
+            Self::Dead => SandboxStatus::Error,
+            Self::Removing => SandboxStatus::Removing,
+        }
+    }
+}
+
+impl TryFrom<&str> for DockerContainerState {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "created" => Ok(Self::Created),
+            "running" => Ok(Self::Running),
+            "restarting" => Ok(Self::Restarting),
+            "paused" => Ok(Self::Paused),
+            "exited" => Ok(Self::Exited),
+            "dead" => Ok(Self::Dead),
+            "removing" => Ok(Self::Removing),
+            other => Err(format!("unknown Docker container state: {other}")),
+        }
+    }
+}
+
 /// Read-only domain service for resolving sandbox status from Docker.
 pub struct DockerStatusResolver {
     client: DockerClient,
@@ -202,14 +242,8 @@ impl DockerStatusResolver {
                     .map(std::string::ToString::to_string)
                     .unwrap_or_default();
 
-                let sandbox_status = match status_str.as_str() {
-                    "running" => SandboxStatus::Ready,
-                    "created" | "restarting" => SandboxStatus::Initializing,
-                    "paused" | "exited" => SandboxStatus::Stopped,
-                    "dead" => SandboxStatus::Error,
-                    "removing" => SandboxStatus::Removing,
-                    _ => SandboxStatus::Error,
-                };
+                let sandbox_status = DockerContainerState::try_from(status_str.as_str())
+                    .map_or(SandboxStatus::Error, DockerContainerState::sandbox_status);
 
                 (sandbox_status, None)
             }
@@ -445,5 +479,29 @@ mod tests {
             generate_server_container_name("task-123", "preview"),
             "moatless-server-task-123-preview"
         );
+    }
+
+    #[test]
+    fn docker_container_state_projects_to_sandbox_status() {
+        let cases = [
+            ("created", SandboxStatus::Initializing),
+            ("running", SandboxStatus::Ready),
+            ("restarting", SandboxStatus::Initializing),
+            ("paused", SandboxStatus::Stopped),
+            ("exited", SandboxStatus::Stopped),
+            ("dead", SandboxStatus::Error),
+            ("removing", SandboxStatus::Removing),
+        ];
+
+        for (state, expected) in cases {
+            let state = DockerContainerState::try_from(state).unwrap();
+            assert_eq!(state.sandbox_status(), expected, "{state:?}");
+        }
+    }
+
+    #[test]
+    fn docker_container_state_rejects_unknown_values() {
+        assert!(DockerContainerState::try_from("").is_err());
+        assert!(DockerContainerState::try_from("unknown").is_err());
     }
 }

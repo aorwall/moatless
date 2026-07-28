@@ -9,6 +9,7 @@
 use std::fmt;
 
 use chrono::{DateTime, Utc};
+use moatless_events::SandboxStatus;
 
 /// The five caller-facing lifecycle operations.
 ///
@@ -126,6 +127,16 @@ impl ObservedStatus {
             Self::Starting => "starting",
             Self::Stopped => "stopped",
             Self::Removed => "removed",
+        }
+    }
+
+    /// Project the operation outcome into the public Sandbox display/API state.
+    pub fn sandbox_status(self) -> SandboxStatus {
+        match self {
+            Self::Ready => SandboxStatus::Ready,
+            Self::Starting => SandboxStatus::Initializing,
+            Self::Stopped => SandboxStatus::Stopped,
+            Self::Removed => SandboxStatus::Removed,
         }
     }
 }

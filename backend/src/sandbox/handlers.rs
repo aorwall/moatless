@@ -13,7 +13,7 @@ use serde::Deserialize;
 use tracing::{error, info, warn};
 
 use super::error::SandboxError;
-use super::lifecycle::{ArchiveRetention, Lifecycle, ObservedStatus};
+use super::lifecycle::{ArchiveRetention, Lifecycle};
 use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
@@ -53,7 +53,7 @@ pub async fn provision_handler(
     let outcome = require_lifecycle(&state)?.start(&task_id).await?;
     info!(task_id = %task_id, "Provision (start) succeeded");
     Ok(Json(ProvisionResponse {
-        status: observed_to_sandbox_status(outcome.observed),
+        status: outcome.observed.sandbox_status(),
     }))
 }
 
@@ -249,7 +249,7 @@ pub async fn redeploy_handler(
     let outcome = require_lifecycle(&state)?.redeploy(&task_id).await?;
     info!(task_id = %task_id, "Redeploy succeeded");
     Ok(Json(ProvisionResponse {
-        status: observed_to_sandbox_status(outcome.observed),
+        status: outcome.observed.sandbox_status(),
     }))
 }
 
@@ -780,17 +780,6 @@ async fn resolve_desired_state(
     task_id: &str,
 ) -> Result<SandboxDesiredState, SandboxError> {
     Ok(require_lifecycle(state)?.desired_state(task_id).await?)
-}
-
-/// The `ProvisionResponse.status` a lifecycle outcome reports.
-fn observed_to_sandbox_status(observed: ObservedStatus) -> moatless_events::SandboxStatus {
-    use moatless_events::SandboxStatus;
-    match observed {
-        ObservedStatus::Ready => SandboxStatus::Ready,
-        ObservedStatus::Starting => SandboxStatus::Initializing,
-        ObservedStatus::Stopped => SandboxStatus::Stopped,
-        ObservedStatus::Removed => SandboxStatus::Removed,
-    }
 }
 
 #[cfg(test)]

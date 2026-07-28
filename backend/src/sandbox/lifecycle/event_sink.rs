@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_events::{SandboxEventPayload, SandboxStatus, ServerEventPayload, ServerSubType};
+use moatless_events::{SandboxEventPayload, ServerEventPayload, ServerSubType};
 
 use crate::events::EventPublisher;
 
@@ -91,7 +91,7 @@ impl LifecycleEventSink for OutboxEventSink {
                             &format!("sandbox:{task_id}:{generation}:degradation:{index}"),
                             task_id,
                             "sandbox",
-                            observed_status(observed).as_str(),
+                            observed.sandbox_status().as_str(),
                             None,
                             None,
                             payload,
@@ -148,32 +148,24 @@ impl LifecycleEventSink for OutboxEventSink {
     }
 }
 
-fn observed_status(observed: ObservedStatus) -> SandboxStatus {
-    match observed {
-        ObservedStatus::Ready => SandboxStatus::Ready,
-        ObservedStatus::Starting => SandboxStatus::Initializing,
-        ObservedStatus::Stopped => SandboxStatus::Stopped,
-        ObservedStatus::Removed => SandboxStatus::Removed,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moatless_events::SandboxStatus;
 
     #[test]
     fn degradation_status_tracks_the_runtime_observation() {
-        assert_eq!(observed_status(ObservedStatus::Ready), SandboxStatus::Ready);
+        assert_eq!(ObservedStatus::Ready.sandbox_status(), SandboxStatus::Ready);
         assert_eq!(
-            observed_status(ObservedStatus::Starting),
+            ObservedStatus::Starting.sandbox_status(),
             SandboxStatus::Initializing
         );
         assert_eq!(
-            observed_status(ObservedStatus::Stopped),
+            ObservedStatus::Stopped.sandbox_status(),
             SandboxStatus::Stopped
         );
         assert_eq!(
-            observed_status(ObservedStatus::Removed),
+            ObservedStatus::Removed.sandbox_status(),
             SandboxStatus::Removed
         );
     }

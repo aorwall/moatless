@@ -12,10 +12,11 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["serde"] }
 utoipa = { version = "5", features = ["axum_extras", "uuid"], optional = true }
 sqlx = { version = "0.9", features = ["postgres"], optional = true }
+moatless-events = { path = "../events" }
 
 [lints]
 workspace = true
 
 [features]
-openapi = ["utoipa"]
+openapi = ["utoipa", "moatless-events/openapi"]
 database = ["sqlx"]

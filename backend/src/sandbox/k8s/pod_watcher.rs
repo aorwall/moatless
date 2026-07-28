@@ -2283,25 +2283,74 @@ fn should_skip_duplicate_publish(
     HIGH_FREQUENCY_LIFECYCLE_SUB_TYPES.contains(&sub_type) && last_published == Some(status)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LifecycleSandboxSubType {
+    PodDeleted,
+    PodEvicted,
+    PodFailed,
+    ContainerOomKilled,
+    ContainerTerminated,
+    ContainerCrashLoop,
+    PodReady,
+    PodSucceeded,
+    SandboxCompleted,
+    ContainerRestarted,
+    PodRecovering,
+    PodScheduled,
+    NodeReclaimed,
+}
+
+impl LifecycleSandboxSubType {
+    fn sandbox_status(self) -> SandboxStatus {
+        match self {
+            Self::PodDeleted => SandboxStatus::NotCreated,
+            Self::PodEvicted | Self::PodFailed => SandboxStatus::Error,
+            // Container-level crashes stay Initializing — K8s will restart them.
+            // Only pod-level failures (evicted, failed) are truly dead.
+            Self::ContainerOomKilled | Self::ContainerTerminated | Self::ContainerCrashLoop => {
+                SandboxStatus::Initializing
+            }
+            Self::PodReady => SandboxStatus::Ready,
+            Self::PodSucceeded | Self::SandboxCompleted => SandboxStatus::Stopped,
+            // Node reclaim is an involuntary reschedule, not a failure — treat it as
+            // recovering (Initializing), never Error, so it doesn't read as a crash.
+            Self::ContainerRestarted
+            | Self::PodRecovering
+            | Self::PodScheduled
+            | Self::NodeReclaimed => SandboxStatus::Initializing,
+        }
+    }
+}
+
+impl TryFrom<&str> for LifecycleSandboxSubType {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "pod_deleted" => Ok(Self::PodDeleted),
+            "pod_evicted" => Ok(Self::PodEvicted),
+            "pod_failed" => Ok(Self::PodFailed),
+            "container_oom_killed" => Ok(Self::ContainerOomKilled),
+            "container_terminated" => Ok(Self::ContainerTerminated),
+            "container_crash_loop" => Ok(Self::ContainerCrashLoop),
+            "pod_ready" => Ok(Self::PodReady),
+            "pod_succeeded" => Ok(Self::PodSucceeded),
+            "sandbox_completed" => Ok(Self::SandboxCompleted),
+            "container_restarted" => Ok(Self::ContainerRestarted),
+            "pod_recovering" => Ok(Self::PodRecovering),
+            "pod_scheduled" => Ok(Self::PodScheduled),
+            "node_reclaimed" => Ok(Self::NodeReclaimed),
+            other => Err(format!("unknown lifecycle sandbox sub_type: {other}")),
+        }
+    }
+}
+
 /// Map a lifecycle event sub_type to the corresponding SandboxStatus.
 fn lifecycle_sub_type_to_sandbox_status(sub_type: &str) -> SandboxStatus {
-    match sub_type {
-        "pod_deleted" => SandboxStatus::NotCreated,
-        "pod_evicted" | "pod_failed" => SandboxStatus::Error,
-        // Container-level crashes stay Initializing — K8s will restart them.
-        // Only pod-level failures (evicted, failed) are truly dead.
-        "container_oom_killed" | "container_terminated" | "container_crash_loop" => {
-            SandboxStatus::Initializing
-        }
-        "pod_ready" => SandboxStatus::Ready,
-        "pod_succeeded" | "sandbox_completed" => SandboxStatus::Stopped,
-        // Node reclaim is an involuntary reschedule, not a failure — treat it as
-        // recovering (Initializing), never Error, so it doesn't read as a crash.
-        "container_restarted" | "pod_recovering" | "pod_scheduled" | "node_reclaimed" => {
-            SandboxStatus::Initializing
-        }
-        _ => SandboxStatus::Error,
-    }
+    LifecycleSandboxSubType::try_from(sub_type).map_or(
+        SandboxStatus::Error,
+        LifecycleSandboxSubType::sandbox_status,
+    )
 }
 
 /// Generate a human-readable message for a server container event.
@@ -2829,6 +2878,41 @@ mod tests {
         assert_eq!(
             lifecycle_sub_type_to_sandbox_status("pod_scheduled"),
             SandboxStatus::Initializing
+        );
+    }
+
+    #[test]
+    fn lifecycle_sub_type_projects_to_sandbox_status() {
+        let cases = [
+            ("pod_deleted", SandboxStatus::NotCreated),
+            ("pod_evicted", SandboxStatus::Error),
+            ("pod_failed", SandboxStatus::Error),
+            ("container_oom_killed", SandboxStatus::Initializing),
+            ("container_terminated", SandboxStatus::Initializing),
+            ("container_crash_loop", SandboxStatus::Initializing),
+            ("pod_ready", SandboxStatus::Ready),
+            ("pod_succeeded", SandboxStatus::Stopped),
+            ("sandbox_completed", SandboxStatus::Stopped),
+            ("container_restarted", SandboxStatus::Initializing),
+            ("pod_recovering", SandboxStatus::Initializing),
+            ("pod_scheduled", SandboxStatus::Initializing),
+            ("node_reclaimed", SandboxStatus::Initializing),
+        ];
+
+        for (sub_type, expected) in cases {
+            assert_eq!(
+                lifecycle_sub_type_to_sandbox_status(sub_type),
+                expected,
+                "{sub_type}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_lifecycle_sub_type_projects_to_error() {
+        assert_eq!(
+            lifecycle_sub_type_to_sandbox_status("unknown"),
+            SandboxStatus::Error
         );
     }
 

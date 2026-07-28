@@ -3105,6 +3105,7 @@ name = "moatless-api-schemas"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "moatless-events",
  "serde",
  "serde_json",
  "sqlx",

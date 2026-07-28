@@ -101,39 +101,7 @@ pub fn sanitize_mount_name(name: &str) -> Option<String> {
 // Sandbox model types (shared between schemas and backend)
 // =============================================================================
 
-/// Observed Sandbox lifecycle status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum SandboxStatus {
-    NotCreated,
-    Initializing,
-    Ready,
-    Stopped,
-    Removing,
-    Removed,
-    Error,
-}
-
-impl SandboxStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::NotCreated => "not_created",
-            Self::Initializing => "initializing",
-            Self::Ready => "ready",
-            Self::Stopped => "stopped",
-            Self::Removing => "removing",
-            Self::Removed => "removed",
-            Self::Error => "error",
-        }
-    }
-}
-
-impl std::fmt::Display for SandboxStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+pub use moatless_events::SandboxStatus;
 
 /// Observed Agent lifecycle status for a ready Sandbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

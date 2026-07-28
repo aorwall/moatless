@@ -70,7 +70,7 @@ impl StatusResolver {
     ) -> SandboxStatusFullResponse {
         let (phase, resolver_error, current_sandbox_image) =
             self.resolve_pod_phase_and_error(task_id).await;
-        let sandbox_status = phase.to_sandbox_status();
+        let sandbox_status = phase.sandbox_status();
         let is_running = phase == PodPhase::Running;
 
         if is_running {
@@ -256,7 +256,7 @@ impl StatusResolver {
         connector: &dyn SandboxConnector,
     ) -> LiveStatus {
         let (phase, resolver_error, _) = self.resolve_pod_phase_and_error(task_id).await;
-        let sandbox_status = phase.to_sandbox_status();
+        let sandbox_status = phase.sandbox_status();
         let agent_status = if sandbox_status == SandboxStatus::Ready {
             self.fetch_agent_status(task_id, connector).await.status
         } else {

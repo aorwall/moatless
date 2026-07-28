@@ -195,7 +195,7 @@ impl std::fmt::Display for ServerStatus {
 }
 
 /// Pod phase as returned by K8s API
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PodPhase {
     Pending,
     Running,
@@ -222,8 +222,8 @@ impl PodPhase {
         }
     }
 
-    /// Map to unified sandbox status
-    pub fn to_sandbox_status(&self) -> SandboxStatus {
+    /// Project this K8s runtime phase into the public Sandbox display/API state.
+    pub fn sandbox_status(self) -> SandboxStatus {
         match self {
             PodPhase::Pending => SandboxStatus::Initializing,
             PodPhase::Running => SandboxStatus::Ready,
@@ -707,49 +707,25 @@ mod tests {
     }
 
     // =========================================================================
-    // PodPhase::to_sandbox_status()
+    // PodPhase::sandbox_status()
     // =========================================================================
 
     #[test]
-    fn pod_phase_pending_maps_to_initializing() {
-        assert_eq!(
-            PodPhase::Pending.to_sandbox_status(),
-            SandboxStatus::Initializing
-        );
-    }
+    fn pod_phase_projects_to_sandbox_status() {
+        let cases = [
+            (PodPhase::Pending, SandboxStatus::Initializing),
+            (PodPhase::Running, SandboxStatus::Ready),
+            (PodPhase::Succeeded, SandboxStatus::Stopped),
+            (PodPhase::Failed, SandboxStatus::Error),
+            (PodPhase::Unknown, SandboxStatus::Error),
+            (PodPhase::Terminating, SandboxStatus::Removing),
+            (PodPhase::NotFound, SandboxStatus::NotCreated),
+            (PodPhase::Stopped, SandboxStatus::Stopped),
+        ];
 
-    #[test]
-    fn pod_phase_running_maps_to_ready() {
-        assert_eq!(PodPhase::Running.to_sandbox_status(), SandboxStatus::Ready);
-    }
-
-    #[test]
-    fn pod_phase_stopped_maps_to_stopped() {
-        assert_eq!(
-            PodPhase::Stopped.to_sandbox_status(),
-            SandboxStatus::Stopped
-        );
-    }
-
-    #[test]
-    fn pod_phase_not_found_maps_to_not_created() {
-        assert_eq!(
-            PodPhase::NotFound.to_sandbox_status(),
-            SandboxStatus::NotCreated
-        );
-    }
-
-    #[test]
-    fn pod_phase_failed_maps_to_error() {
-        assert_eq!(PodPhase::Failed.to_sandbox_status(), SandboxStatus::Error);
-    }
-
-    #[test]
-    fn pod_phase_terminating_maps_to_removing() {
-        assert_eq!(
-            PodPhase::Terminating.to_sandbox_status(),
-            SandboxStatus::Removing
-        );
+        for (phase, expected) in cases {
+            assert_eq!(phase.sandbox_status(), expected, "{phase:?}");
+        }
     }
 
     // =========================================================================
