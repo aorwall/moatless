@@ -7,11 +7,12 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, InboundMessage, LoopContext, RoutingMode, SubscriptionMatch,
-    TaskBinding,
+    AdapterConnection, Audience, BindingContext, InboundMessage, LoopContext, RoutingMode,
+    SubscriptionMatch, TaskBinding,
 };
 use crate::bindings::dao::PgTaskBindingRepository;
-use crate::bindings::metrics::record_inbound;
+use crate::bindings::metrics::{inbound_reason, record_inbound};
+use crate::bindings::recipients::{resolve_recipients, EventProvenance};
 use crate::loops::firing::inbound;
 use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
@@ -95,7 +96,7 @@ pub async fn resolve_chat_provider_event(
             provider,
             scope_value, "No provider connection matched incoming event"
         );
-        record_inbound(provider, "ignored", "no_connection", "", "");
+        record_inbound(provider, "ignored", inbound_reason::NO_CONNECTION, "", "");
         return Ok(None);
     };
 
@@ -105,7 +106,13 @@ pub async fn resolve_chat_provider_event(
         .await?
         .or(rule_repo.find_subscription_wildcard(provider).await?);
     let Some(rule) = rule else {
-        record_inbound(provider, "ignored", "no_rule_match", "", &connection.id);
+        record_inbound(
+            provider,
+            "ignored",
+            inbound_reason::NO_RULE_MATCH,
+            "",
+            &connection.id,
+        );
         return Ok(None);
     };
 
@@ -120,7 +127,7 @@ pub async fn resolve_chat_provider_event(
         record_inbound(
             provider,
             "ignored",
-            "wrong_connection",
+            inbound_reason::WRONG_CONNECTION,
             &rule.id,
             &connection.id,
         );
@@ -146,7 +153,7 @@ pub async fn route_inbound_message(
         record_inbound(
             provider_label,
             "ignored",
-            "inactive_rule",
+            inbound_reason::INACTIVE_RULE,
             &rule.id,
             &connection.id,
         );
@@ -282,26 +289,74 @@ pub async fn route_inbound_message(
         }
     }
 
+    let parent_author_task_id = parent_author_task_id(state, provider_label, &msg.audience).await?;
+
+    // The single place the delivery decision is made. Membership is by binding
+    // id so a task bound twice to the same subject is judged once per binding,
+    // exactly as the loop below walks it.
+    let recipient_ids: std::collections::HashSet<String> = resolve_recipients(
+        &msg.audience,
+        &bindings,
+        EventProvenance {
+            author_task_id: origin_task_id.as_deref(),
+            parent_author_task_id: parent_author_task_id.as_deref(),
+        },
+    )
+    .into_iter()
+    .map(|binding| binding.id.clone())
+    .collect();
+
     let mut delivered_task_id = None;
     let receipts = crate::loops::firing::receipts::PgEventReceiptRepository(state.db.clone());
     for binding in bindings {
-        if should_filter_self_echo(&binding, &msg.user_id)
-            || origin_task_id.as_deref() == Some(binding.task_id.as_str())
+        // Two ways to be passed over, and only one of them means this task
+        // already has the event.
+        //
+        // It wrote the event: either provenance names it, or it posted under
+        // the binding's configured filter identity. The identity filter stays
+        // out of the resolver — it is the one place routing may look at *who*
+        // posted, and the resolver is deliberately never given an identity.
+        // Either way the task holds the event, so the skip is accounted for.
+        if origin_task_id.as_deref() == Some(binding.task_id.as_str())
+            || should_filter_self_echo(&binding, &msg.user_id)
         {
             debug!(
                 task_id = %binding.task_id,
                 subject_key,
                 provider = provider_label,
-                "Skipping self-echo/originating binding"
+                "Skipping binding: the task authored this event"
             );
             record_inbound(
                 provider_label,
                 "ignored",
-                "self_echo",
+                inbound_reason::SELF_ECHO,
                 &rule.id,
                 &connection.id,
             );
             delivered_task_id = Some(binding.task_id.clone());
+            continue;
+        }
+
+        // The audience named someone else. This deliberately does *not* mark
+        // the event as delivered: nothing holds it on this binding's account,
+        // and `delivered_task_id` is the whole of the empty-result signal once
+        // the GitHub PR router's own ledger is gone. Marking here would make a
+        // review that reached no task report as a successful delivery, which is
+        // precisely the fault the signal exists to catch.
+        if !recipient_ids.contains(&binding.id) {
+            debug!(
+                task_id = %binding.task_id,
+                subject_key,
+                provider = provider_label,
+                "Skipping binding: not in this event's audience"
+            );
+            record_inbound(
+                provider_label,
+                "ignored",
+                inbound_reason::NOT_IN_AUDIENCE,
+                &rule.id,
+                &connection.id,
+            );
             continue;
         }
 
@@ -325,7 +380,7 @@ pub async fn route_inbound_message(
                 record_inbound(
                     provider_label,
                     "ignored",
-                    "duplicate_receipt",
+                    inbound_reason::DUPLICATE_RECEIPT,
                     &rule.id,
                     &connection.id,
                 );
@@ -338,9 +393,9 @@ pub async fn route_inbound_message(
         match deliver_to_binding(state, rule, &binding, &msg, provider_label, this_is_new).await {
             Ok(()) => {
                 let reason = if this_is_new {
-                    "new_task"
+                    inbound_reason::NEW_TASK
                 } else {
-                    "existing_task"
+                    inbound_reason::EXISTING_TASK
                 };
                 record_inbound(provider_label, "success", reason, &rule.id, &connection.id);
             }
@@ -348,7 +403,7 @@ pub async fn route_inbound_message(
                 record_inbound(
                     provider_label,
                     "error",
-                    "deliver_failed",
+                    inbound_reason::DELIVER_FAILED,
                     &rule.id,
                     &connection.id,
                 );
@@ -359,6 +414,33 @@ pub async fn route_inbound_message(
     }
 
     delivered_task_id.ok_or_else(|| AdapterError::ConfigNotFound(rule.id.clone()))
+}
+
+/// The task that authored the parent event an [`Audience::ParentAuthor`] names,
+/// or `None` for every other audience and for a parent no task authored.
+///
+/// This lookup sits above [`resolve_recipients`] because the resolver performs
+/// no input or output of its own — see [`crate::bindings::recipients`]. An
+/// audience that names no parent asks nothing of the database. It is `pub`
+/// because an adapter that still walks its own delivery loop resolves the same
+/// parent for the same resolver; the rule is written once here rather than once
+/// per adapter.
+pub async fn parent_author_task_id(
+    state: &AppState,
+    provider_label: &str,
+    audience: &Audience,
+) -> Result<Option<String>, AdapterError> {
+    let Audience::ParentAuthor {
+        parent_external_event_id: Some(parent_id),
+    } = audience
+    else {
+        return Ok(None);
+    };
+    let candidates = external_id_aliases(state, provider_label, parent_id);
+    Ok(state
+        .messages
+        .find_task_id_by_any_external_event_id(&candidates)
+        .await?)
 }
 
 pub fn external_id_aliases(
@@ -569,6 +651,7 @@ mod tests {
     fn shared_adapter_files_do_not_own_adapter_subject_or_external_id_builders() {
         let shared_files = [
             ("runtime.rs", include_str!("runtime.rs")),
+            ("recipients.rs", include_str!("recipients.rs")),
             (
                 "../loops/firing/listen.rs",
                 include_str!("../loops/firing/listen.rs"),

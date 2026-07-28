@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{BindingContext, InboundMessage, LoopContext, OutboundReply};
+use crate::adapters::models::{
+    Audience, BindingContext, InboundMessage, LoopContext, OutboundReply,
+};
 use crate::adapters::{Adapter, AdapterKind};
 use crate::db::DbPool;
 
@@ -108,6 +110,9 @@ impl WebhookAdapter {
             provider_context: serde_json::json!({}),
             external_event_id: None,
             source_task_id: None,
+            // A webhook payload carries no audience distinction: every event
+            // goes to every task bound to the source, as it always has.
+            audience: Audience::Everyone,
         })
     }
 }

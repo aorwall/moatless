@@ -27,7 +27,7 @@ use tracing::warn;
 
 use crate::adapters::common::{ensure_task_access, resolve_connection};
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::AdapterConnection;
+use crate::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
 use crate::adapters::AdapterKind;
 use crate::bindings::runtime::upsert_binding;
 use crate::extractors::AuthUser;
@@ -36,10 +36,6 @@ use moatless_backend_core::scope::ScopeContext;
 
 use super::agent_api::{LinearAgentApi, LookupKind};
 use super::SUBJECT_KIND_ISSUE;
-
-/// Origin recorded on `task_bindings.origin` for bindings created by these
-/// CLI-driven endpoints. Distinct from the inbound-webhook `ingress`.
-const ORIGIN_TASK_OWNED: &str = "task_owned";
 
 const LINEAR_PROVIDER: &str = "linear";
 
@@ -869,7 +865,9 @@ async fn create_issue_binding(
         SUBJECT_KIND_ISSUE,
         &issue_uuid,
         destination_config,
-        ORIGIN_TASK_OWNED,
+        // The task filed this issue, so its binding is a producer one — that is
+        // what makes it hear replies inside threads on its own issue.
+        TASK_OWNED_BINDING_ORIGIN,
         None,
     )
     .await

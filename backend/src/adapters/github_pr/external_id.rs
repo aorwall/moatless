@@ -31,6 +31,26 @@ pub fn pr_synchronize(pr_number: u64, sha: &str) -> String {
     pr_event("synchronize", pr_number, Some(sha))
 }
 
+/// The head sha carried by a `github:pr:synchronize:<pr_number>:<sha>` id, or
+/// `None` for any other event. The push claim is keyed on the commit, so this
+/// is how an inbound sync notification is reduced to something it can be
+/// matched against.
+pub fn synchronize_sha(external_id: &str) -> Option<&str> {
+    let rest = external_id.strip_prefix("github:pr:synchronize:")?;
+    let (_pr_number, sha) = rest.split_once(':')?;
+    (!sha.is_empty()).then_some(sha)
+}
+
+/// `github:commit:<sha>` — a commit a task pushed.
+///
+/// Not a webhook identifier: a push produces no event of its own, and the
+/// `pull_request.synchronize` notification it triggers is keyed on the pull
+/// request, whose number this path deliberately never looks up. It tags the
+/// assistant row so the chat renders the push's source chip.
+pub fn pushed_commit(sha: &str) -> String {
+    format!("github:commit:{sha}")
+}
+
 /// `github:cr:<id>` - check_run completion.
 pub fn check_run(id: u64) -> String {
     format!("github:cr:{id}")
@@ -113,6 +133,28 @@ mod tests {
         assert_eq!(
             pr_synchronize(42, "7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"),
             "github:pr:synchronize:42:7fc06122f3aa1b4ed6cdee04b40dabf01dadbeef"
+        );
+    }
+
+    #[test]
+    fn synchronize_sha_reads_the_head_commit() {
+        assert_eq!(
+            synchronize_sha("github:pr:synchronize:42:7fc0612abc"),
+            Some("7fc0612abc")
+        );
+        // Only sync events carry a commit to match a push claim against.
+        assert!(synchronize_sha("github:pr:synchronize:42").is_none());
+        assert!(synchronize_sha("github:pr:opened:42").is_none());
+        assert!(synchronize_sha("github:ic:42").is_none());
+        assert!(synchronize_sha("").is_none());
+    }
+
+    #[test]
+    fn pushed_commit_format() {
+        assert_eq!(pushed_commit("7fc0612"), "github:commit:7fc0612");
+        assert_eq!(
+            aliases("github:commit:7fc0612"),
+            vec!["github:commit:7fc0612".to_string()]
         );
     }
 

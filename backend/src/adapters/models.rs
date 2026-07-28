@@ -5,11 +5,28 @@ use serde::{Deserialize, Serialize};
 
 use moatless_backend_core::scope::Scope;
 
-/// Persisted `task_bindings.origin` value for bindings created from inbound
-/// provider events. The stored value remains `ingress` for existing database
-/// rows and API compatibility.
+/// Every `task_bindings.origin` value the system writes, and the whole of the
+/// role taxonomy: the direction in which the task and the external subject met.
+///
+/// [`ADAPTER_EVENT_BINDING_ORIGIN`] is the responder direction — the subject
+/// existed first and a loop spawned a task from it, so this is the one origin
+/// the router writes from an inbound event. **Every other origin is a producer**
+/// by direction: the task existed first and reached out. Routing decides the
+/// role by negating the responder rather than matching a list of producers
+/// (`crate::bindings::recipients`), so a fourth origin added here is classified
+/// correctly the day it is written rather than the day someone remembers to
+/// update a match. That is not hypothetical: `task_owned` lived as a private
+/// string inside the Linear API routes, and the recipient resolver — written
+/// against the two constants that were declared — read every Linear producer as
+/// a responder.
+///
+/// The stored values remain what they always were, for existing database rows
+/// and API compatibility.
 pub const ADAPTER_EVENT_BINDING_ORIGIN: &str = "ingress";
+/// Producer: the task replied into a subject, or was connected to one.
 pub const CONNECTED_THREAD_BINDING_ORIGIN: &str = "connected_thread";
+/// Producer: a CLI-driven endpoint filed the subject on the task's behalf.
+pub const TASK_OWNED_BINDING_ORIGIN: &str = "task_owned";
 
 // =============================================================================
 // Provider contexts
@@ -312,6 +329,50 @@ pub struct InboundMessage {
     /// this to skip delivery back to the authoring task while still fanning out
     /// to other bindings on the same subject.
     pub source_task_id: Option<String>,
+    /// Who this event is for. See [`Audience`].
+    ///
+    /// `#[serde(default)]` because the payload outlives the process that
+    /// admitted it: during a rolling deploy the new build executes records the
+    /// old build wrote, and those carry no audience. The default is
+    /// [`Audience::Everyone`], which is what routing did before this field
+    /// existed.
+    #[serde(default)]
+    pub audience: Audience,
+}
+
+/// Who an inbound event is for, as stated by the adapter that parsed it.
+///
+/// Classification stays with the adapter because only the adapter knows its own
+/// event shapes — it is a match over values the adapter already owns. Turning
+/// an audience into the bindings that receive the event is the router's job,
+/// through [`crate::bindings::recipients::resolve_recipients`]. An adapter with
+/// no audience distinction to make states [`Audience::Everyone`] for every
+/// event, which is what it already does.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Audience {
+    /// Every active binding on the subject.
+    #[default]
+    Everyone,
+    /// The task that produced the subject, falling back to every active binding
+    /// when no producing task is bound — so a signal about the subject's health
+    /// still reaches *some* task rather than vanishing.
+    SubjectProducer,
+    /// The task that authored the named parent event, plus the task that
+    /// produced the subject — falling back to every active binding when neither
+    /// is bound, on the same grounds as [`Audience::SubjectProducer`]: a thread
+    /// scoped to nobody is not a reason to deliver to nobody. A task spawned
+    /// from the subject hears only the threads it started; the producer must
+    /// address every thread on its own work, so it receives replies inside all
+    /// of them.
+    ParentAuthor {
+        /// Identifier of the event being replied to, in the same namespace as
+        /// [`InboundMessage::external_event_id`]. `None` when the event starts
+        /// its own thread and so names no parent — nobody authored a parent,
+        /// leaving the producer as the only recipient, or the whole subject
+        /// where no producer is bound either.
+        parent_external_event_id: Option<String>,
+    },
 }
 
 /// Resolved file attachment for outbound adapter messages.

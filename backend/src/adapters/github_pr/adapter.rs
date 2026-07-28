@@ -9,8 +9,8 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
-    SubscriptionMatch, TaskBinding,
+    AdapterConnection, Audience, BindingContext, ExternalStatus, InboundMessage, LoopContext,
+    OutboundReply, SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::{Adapter, AdapterKind, BindingDestination};
 use crate::auth::credentials::resolve_user_github_token;
@@ -853,6 +853,9 @@ impl GithubPrAdapter {
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::pr_event(action, pr_number, None)),
             source_task_id: None,
+            // A pull request opening is the subject itself appearing: every
+            // task bound to it hears about it.
+            audience: Audience::Everyone,
         })))
     }
 
@@ -927,6 +930,7 @@ impl GithubPrAdapter {
                 sync_sha,
             )),
             source_task_id: None,
+            audience: Audience::Everyone,
         })))
     }
 
@@ -992,6 +996,9 @@ impl GithubPrAdapter {
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::issue_comment(comment_id)),
             source_task_id,
+            // A comment on the pull request itself replies to no thread, so it
+            // is everyone's to read.
+            audience: Audience::Everyone,
         })))
     }
 
@@ -1081,6 +1088,14 @@ impl GithubPrAdapter {
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::review_comment(comment_id)),
             source_task_id,
+            // An inline review comment belongs to its thread. A reply names the
+            // comment it answers, and the task that wrote that comment is who
+            // it is for — alongside the task whose work is under review. A
+            // comment that starts a thread names no parent, so no reviewer is
+            // its audience.
+            audience: Audience::ParentAuthor {
+                parent_external_event_id: in_reply_to_id.map(super::external_id::review_comment),
+            },
         })))
     }
 
@@ -1174,6 +1189,7 @@ impl GithubPrAdapter {
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::review(review_id)),
             source_task_id: None,
+            audience: Audience::Everyone,
         })))
     }
 
@@ -1302,6 +1318,8 @@ impl GithubPrAdapter {
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::check_run(check_run_id)),
             source_task_id: None,
+            // Whether the pull request builds is its author's concern.
+            audience: Audience::SubjectProducer,
         })))
     }
 
@@ -1392,6 +1410,7 @@ impl GithubPrAdapter {
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::check_suite(check_suite_id)),
             source_task_id: None,
+            audience: Audience::SubjectProducer,
         })))
     }
 
@@ -1910,6 +1929,9 @@ pub(super) async fn check_pr_merge_conflict(
         provider_context: serde_json::json!({}),
         external_event_id: Some(super::external_id::merge_conflict(pr_number, &pr.head.sha)),
         source_task_id: None,
+        // Whether the pull request still merges cleanly is its author's
+        // concern.
+        audience: Audience::SubjectProducer,
     };
 
     super::runtime::record_merge_state_and_notify(
@@ -2126,6 +2148,7 @@ pub(super) async fn check_post_merge_ci(
         provider_context: serde_json::json!({}),
         external_event_id: Some(super::external_id::workflow_run(run.run_id)),
         source_task_id: None,
+        audience: Audience::SubjectProducer,
     };
 
     super::runtime::deliver_post_merge_ci(state, connection, rule_for_parse, &subject_key, &notice)

@@ -192,9 +192,30 @@ A user comments on a Linear issue or replies inside a Linear comment thread.
 We route the comment if the issue already has an active
 `linear_agent_session` binding (a task spawned from a Linear agent session) or
 an active `linear_issue` binding (a task connected directly to the issue).
-When the comment is a threaded reply, Linear includes `parentId`; Moatless maps
-that parent comment id back through `task_messages.external_event_id` and
-delivers the reply only to the task that authored the parent comment.
+Who receives it is decided by the shared recipient resolver
+(`bindings::recipients::resolve_recipients`), not by this adapter. The adapter
+states the comment's **audience** and the resolver turns that into recipients:
+
+| Comment | Audience | Recipients |
+|---|---|---|
+| ordinary issue-level comment (no `parentId`) | everyone on the subject | every active binding on the issue |
+| threaded reply (`parentId` present) | a named parent's author | the task that authored the parent comment, plus the task that produced the issue — every active binding when neither is bound |
+
+For a threaded reply Moatless maps `parentId` back through
+`task_messages.external_event_id` to the task that wrote it. A task that
+produced the issue — it filed the issue or commented into it, so its binding is
+not an `ingress` one — receives replies inside every thread on its own work,
+because it is the task that has to address them. Other tasks bound to the same
+issue hear only the threads they started. Most Linear issues are worked by a
+task the agent-session path spawned and have no producer at all, in which case a
+reply reaches the parent comment's author alone.
+
+Where a reply names nobody at all — a thread no task wrote, on an issue no task
+produced — the resolver falls back to every active binding, so a conversation
+between two humans under a loop-spawned task still reaches it. A comment
+resolves to no recipient only where every task the audience named wrote it: a
+task replying inside its own thread wakes nobody else, and no other empty set is
+reachable.
 
 ```mermaid
 sequenceDiagram
@@ -202,6 +223,7 @@ sequenceDiagram
     participant Linear
     participant Runtime as agent_runtime::handle_comment_created
     participant BindingRepo as PgTaskBindingRepository
+    participant Resolver as bindings::recipients::resolve_recipients
     participant API as LinearAgentApi
     participant MsgFlow as message::send::send_message_flow
 
@@ -214,10 +236,11 @@ sequenceDiagram
     end
     Runtime->>BindingRepo: find_active_by_destination_field(<br/>"linear", "linear_agent_session", "issue_id", issue_id)
     Runtime->>BindingRepo: find_active_by_destination_field(<br/>"linear", "linear_issue", "issue_id", issue_id)
-    alt no active listener binding
+    Runtime->>Resolver: resolve_recipients(audience, bindings, provenance)
+    alt no recipient
         Runtime-->>Linear: 200 (no Moatless task listening for this issue/thread)
     end
-    loop for each bound task
+    loop for each recipient
         Runtime->>API: agentActivityCreate(session, thought "Reading new comment…", ephemeral)
         Runtime->>MsgFlow: send_message_flow(task, comment.body, external_event_id=linear:comment:{id})
     end
@@ -225,9 +248,10 @@ sequenceDiagram
 
 The self-echo guard recovers the originating task from the `Moatless task:`
 footer on outbound comments and from the persisted `linear:comment:<id>`
-external event id. That skips the task that authored the comment while still
-allowing other listeners on the same issue to receive ordinary issue-level
-comments.
+external event id. The footer is the resolver's provenance input, so the task
+that authored the comment is passed over while other listeners on the same issue
+still receive it; the recorded event id catches the same echo again downstream in
+`send_message_flow`.
 
 ## Inbound: `Issue.update` (State Transition)
 

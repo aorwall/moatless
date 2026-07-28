@@ -5,8 +5,8 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::inbound_work::{admit_inbound_message, InboundWorkPayload};
 use crate::adapters::models::{
-    AccessDecision, AdapterConnection, BindingContext, InboundMessage, LoopContext, NewThreadInfo,
-    OutboundReply, SubscriptionMatch, TaskBinding,
+    AccessDecision, AdapterConnection, Audience, BindingContext, InboundMessage, LoopContext,
+    NewThreadInfo, OutboundReply, SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::{Adapter, AdapterKind, BindingDestination};
 use crate::db::DbPool;
@@ -272,6 +272,9 @@ impl TelegramAdapter {
             provider_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::message(message_id)),
             source_task_id: None,
+            // Telegram makes no audience distinction: every event goes to every
+            // task bound to the chat or topic, as it always has.
+            audience: Audience::Everyone,
         })))
     }
 }

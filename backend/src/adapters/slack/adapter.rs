@@ -10,7 +10,7 @@ use crate::adapters::models::{AccessDecision, MessageTrigger};
 use crate::adapters::models::{
     AdapterConnection, BindingContext, LoopContext, SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::models::{InboundMessage, NewThreadInfo, OutboundReply};
+use crate::adapters::models::{Audience, InboundMessage, NewThreadInfo, OutboundReply};
 use crate::adapters::{Adapter, AdapterKind, BindingDestination, DestinationPostResult};
 use crate::db::DbPool;
 
@@ -659,6 +659,9 @@ impl SlackAdapter {
             }),
             external_event_id: Some(super::external_id::message_ts(ts)),
             source_task_id: None,
+            // Slack makes no audience distinction: every event goes to every
+            // task bound to the channel or thread, as it always has.
+            audience: Audience::Everyone,
         })))
     }
 }

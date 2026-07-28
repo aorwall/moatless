@@ -22,6 +22,10 @@ pub(crate) const ADAPTER_WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
 /// module doc's cardinality note.
 pub(crate) const ADAPTER_API_TOTAL: &str = "moatless_adapter_api_total";
 
+/// Outcome of claiming the event a Task's own shell command created. Low
+/// cardinality: adapter × shape × outcome × reason, all fixed vocabularies.
+pub(crate) const ADAPTER_SHELL_CLAIM_TOTAL: &str = "moatless_adapter_shell_claim_total";
+
 /// Register adapter metric descriptions with the Prometheus recorder.
 ///
 /// Call once at startup after the recorder is installed.
@@ -33,6 +37,10 @@ pub fn describe_adapter_metrics() {
     metrics::describe_counter!(
         ADAPTER_API_TOTAL,
         "Outbound adapter API call outcomes (success | auth_error | error) by adapter and outcome"
+    );
+    metrics::describe_counter!(
+        ADAPTER_SHELL_CLAIM_TOTAL,
+        "Shell-reconciliation claim outcomes (claimed | unclaimed) by adapter, posting shape, and reason"
     );
 }
 
@@ -75,6 +83,30 @@ pub(crate) fn record_api_call(adapter: &'static str, outcome: &'static str) {
         ADAPTER_API_TOTAL,
         "adapter" => adapter,
         "outcome" => outcome,
+    )
+    .increment(1);
+}
+
+/// Record one shell-reconciliation claim outcome.
+///
+/// `shape` names the posting shape the command was recognised as (e.g.
+/// `"pr_create"`, `"api_review_comment"`). `outcome` is `"claimed"` when the
+/// Task's own event was recorded as its own, `"unclaimed"` when the claim was
+/// abandoned — an abandoned claim means the event comes back to the Task as an
+/// echo, so the counter is the only warning an operator gets. `reason` is a
+/// fixed-vocabulary label; pass `""` when not applicable.
+pub(crate) fn record_shell_claim(
+    adapter: &'static str,
+    shape: &'static str,
+    outcome: &'static str,
+    reason: &'static str,
+) {
+    metrics::counter!(
+        ADAPTER_SHELL_CLAIM_TOTAL,
+        "adapter" => adapter,
+        "shape" => shape,
+        "outcome" => outcome,
+        "reason" => reason,
     )
     .increment(1);
 }

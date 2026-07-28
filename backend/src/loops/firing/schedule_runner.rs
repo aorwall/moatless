@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::adapters::common::next_fire_at;
-use crate::adapters::models::{InboundMessage, LoopContext, LoopSpawnConfig, Schedule};
+use crate::adapters::models::{Audience, InboundMessage, LoopContext, LoopSpawnConfig, Schedule};
 use crate::adapters::AdapterKind;
 use crate::leader::LeaderGuard;
 use crate::loops::firing::metrics::record_job;
@@ -123,6 +123,7 @@ async fn execute_job(
         provider_context: serde_json::json!({"scheduled_job_id": job.id}),
         external_event_id: Some(format!("scheduled:{}:{}", job.id, Utc::now().timestamp())),
         source_task_id: None,
+        audience: Audience::Everyone,
     };
 
     let mut is_new_task = false;

@@ -221,6 +221,7 @@ pub(crate) async fn admit_inbound_message(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
 
     fn payload() -> InboundWorkPayload {
@@ -243,6 +244,7 @@ mod tests {
                 provider_context: serde_json::json!({ "is_bot_mentioned": true }),
                 external_event_id: Some("slack:ts:1700000000.000100".into()),
                 source_task_id: None,
+                audience: Audience::Everyone,
             },
         }
     }

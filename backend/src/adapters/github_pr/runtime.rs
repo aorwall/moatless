@@ -8,11 +8,13 @@ use tracing::{debug, info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, InboundMessage, SubscriptionMatch, TaskBinding,
+    AdapterConnection, Audience, InboundMessage, SubscriptionMatch, TaskBinding,
     ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
 };
 use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingRepository;
+use crate::bindings::metrics::{inbound_reason, record_inbound};
+use crate::bindings::recently_sent::RecentlySent;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
@@ -121,6 +123,258 @@ pub fn connection_only_rule(
     }
 }
 
+/// Why the router passed a binding over.
+///
+/// Each value is the `reason` label this router writes to the shared inbound
+/// counter, so one query answers "why did events stop reaching tasks" across
+/// every adapter. Two of the skips are the shared router's own and take their
+/// word from [`inbound_reason`] rather than restating it; the three GitHub PR
+/// alone performs are named here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SkipReason {
+    /// Provenance named this binding's task as the author of the event.
+    /// The same skip the shared router makes, under the same word.
+    OriginatingTask,
+    /// The binding's task claimed the commit this `synchronize` event carries.
+    /// A push returns no event identifier, so the task claims the commit it
+    /// wrote and the notification is matched back against it. No shared
+    /// equivalent.
+    ClaimedPushedCommit,
+    /// A reviewer binding, and the review comment is not a reply inside a
+    /// thread that reviewer started. No shared equivalent.
+    NotOwnThread,
+    /// The sender resolves to the bound task's owner. No shared equivalent.
+    OwnerIdentity,
+    /// A PR-health signal (CI, merge conflict) while the PR author's task is
+    /// bound to receive it. No shared equivalent.
+    AuthorOnlySignal,
+    /// This binding already received this event. The same skip the shared
+    /// router makes, under the same word.
+    DuplicateReceipt,
+}
+
+impl SkipReason {
+    /// The `reason` metric label, and the word the failure log uses.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::OriginatingTask => inbound_reason::SELF_ECHO,
+            Self::ClaimedPushedCommit => "claimed_pushed_commit",
+            Self::NotOwnThread => "not_own_thread",
+            Self::OwnerIdentity => "owner_identity",
+            Self::AuthorOnlySignal => "author_only_signal",
+            Self::DuplicateReceipt => inbound_reason::DUPLICATE_RECEIPT,
+        }
+    }
+
+    /// Whether this skip means the event was *accounted for* rather than lost.
+    ///
+    /// A task that authored the event, or that already received it, has the
+    /// event — passing its binding over is the correct outcome, not a silent
+    /// drop, so it must not make the fan-out fail. This is the same judgement
+    /// the shared router makes when it marks a self-echo / duplicate-receipt
+    /// skip as delivered (`bindings/runtime.rs`). The other three mean this
+    /// binding's task never saw the event.
+    fn accounts_for_event(self) -> bool {
+        matches!(
+            self,
+            Self::OriginatingTask | Self::ClaimedPushedCommit | Self::DuplicateReceipt
+        )
+    }
+}
+
+/// What the guard ladder needs to know about the inbound event.
+///
+/// Resolved once, before the fan-out, so the ladder itself reads nothing.
+struct EventFacts<'a> {
+    /// The task provenance named as the author of this event, if any.
+    origin_task_id: Option<&'a str>,
+    /// The event is an inline review comment (`github:rc:`).
+    is_review_comment: bool,
+    /// The task that authored the comment this one replies to, if any.
+    review_comment_reply_owner: Option<&'a str>,
+    /// The event is a synthetic CI signal, which the owner-identity guard is
+    /// exempt from.
+    ci_self_echo_exempt: bool,
+}
+
+/// What the guard ladder needs to know about one binding.
+struct BindingFacts<'a> {
+    task_id: &'a str,
+    origin: &'a str,
+    /// This binding's task claimed the commit a `synchronize` event carries.
+    claimed_pushed_commit: bool,
+    /// The sender resolves to this binding's task owner. `false` when the task
+    /// could not be read — the ladder fails open, as it always has.
+    authored_by_task_owner: bool,
+}
+
+/// The guard ladder, as a decision over facts already in hand.
+///
+/// Which bindings it skips is unchanged from the loop it was lifted out of;
+/// what it adds is a name for each skip that the caller can meter and log. The
+/// rungs are ordered cheapest-first, and the caller relies on that: only a
+/// binding the first two rungs let through costs the database read that decides
+/// the third.
+fn skip_reason(event: &EventFacts<'_>, binding: &BindingFacts<'_>) -> Option<SkipReason> {
+    // (1) Marker / external_event_id resolved this binding's task as the author.
+    if event.origin_task_id == Some(binding.task_id) {
+        return Some(SkipReason::OriginatingTask);
+    }
+
+    // (1a) Push claim: `git push` returns no event identifier, so the task
+    // claims the commit it wrote (see `shell_reconcile::handle_git_push`) and
+    // the `pull_request.synchronize` notification is matched back against it.
+    // Delivering a push echo is worse than delivering a comment echo — it wakes
+    // a stopped sandbox and starts paid work.
+    if binding.claimed_pushed_commit {
+        return Some(SkipReason::ClaimedPushedCommit);
+    }
+
+    // (2) Reviewer thread-scoping: an `ingress` binding only receives a review
+    // comment that is a reply within a thread it started.
+    if binding.origin == ORIGIN_ADAPTER_EVENT
+        && event.is_review_comment
+        && event.review_comment_reply_owner != Some(binding.task_id)
+    {
+        return Some(SkipReason::NotOwnThread);
+    }
+
+    // (3) Owner identity: catches out-of-band agent comments that leave no
+    // marker and no recorded external_event_id.
+    if !event.ci_self_echo_exempt && binding.authored_by_task_owner {
+        return Some(SkipReason::OwnerIdentity);
+    }
+
+    None
+}
+
+/// What the fan-out did with every binding on one subject.
+///
+/// The router used to `debug!` each pass-over and return `Ok(())` whether it
+/// delivered to three tasks or to none, so a dropped event and a delivered one
+/// were indistinguishable from outside. The ledger records each outcome on the
+/// counter every other adapter already uses, and turns "a subject with active
+/// bindings that reached nobody" into a failure naming the subject and every
+/// reason.
+struct DeliveryLedger<'a> {
+    subject_key: &'a str,
+    /// The provider's id for the event being routed. Carried so a pass-over
+    /// line names the event it dropped — on the duplicate-receipt skip the id
+    /// *is* what you need to find the earlier delivery.
+    external_event_id: &'a str,
+    trigger_id: &'a str,
+    connection_id: &'a str,
+    /// The event reached a task, or a skip accounted for it (see
+    /// [`SkipReason::accounts_for_event`]).
+    accounted_for: bool,
+    /// `(task_id, reason)` per passed-over binding, for the failure log.
+    skips: Vec<(String, &'static str)>,
+}
+
+impl<'a> DeliveryLedger<'a> {
+    fn new(
+        subject_key: &'a str,
+        external_event_id: Option<&'a str>,
+        rule: Option<&'a SubscriptionMatch>,
+        connection: &'a AdapterConnection,
+    ) -> Self {
+        Self {
+            subject_key,
+            external_event_id: external_event_id.unwrap_or_default(),
+            trigger_id: rule.map_or("", |r| r.id.as_str()),
+            connection_id: connection.id.as_str(),
+            accounted_for: false,
+            skips: Vec::new(),
+        }
+    }
+
+    fn skipped(&mut self, task_id: &str, reason: SkipReason) {
+        debug!(
+            task_id,
+            subject_key = %self.subject_key,
+            external_event_id = %self.external_event_id,
+            reason = reason.as_str(),
+            "Passing over GitHub PR binding"
+        );
+        record_inbound(
+            ADAPTER_LABEL,
+            "ignored",
+            reason.as_str(),
+            self.trigger_id,
+            self.connection_id,
+        );
+        self.accounted_for |= reason.accounts_for_event();
+        self.skips.push((task_id.to_string(), reason.as_str()));
+    }
+
+    fn delivered(&mut self, is_new_task: bool) {
+        let reason = if is_new_task {
+            inbound_reason::NEW_TASK
+        } else {
+            inbound_reason::EXISTING_TASK
+        };
+        record_inbound(
+            ADAPTER_LABEL,
+            "success",
+            reason,
+            self.trigger_id,
+            self.connection_id,
+        );
+        self.accounted_for = true;
+    }
+
+    fn delivery_failed(&self) {
+        record_inbound(
+            ADAPTER_LABEL,
+            "error",
+            inbound_reason::DELIVER_FAILED,
+            self.trigger_id,
+            self.connection_id,
+        );
+    }
+
+    /// Close the fan-out. `active_bindings` is how many active bindings the
+    /// subject carried when the walk began.
+    ///
+    /// A subject with none is not a failure — nothing is bound, so nothing is
+    /// expected of it. An empty result *despite* active bindings is, because
+    /// something was expected and no task got it.
+    fn finish(self, active_bindings: usize) -> Result<(), AdapterError> {
+        if self.accounted_for || active_bindings == 0 {
+            return Ok(());
+        }
+
+        let passed_over = self
+            .skips
+            .iter()
+            .map(|(task_id, reason)| format!("{task_id}={reason}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        warn!(
+            subject_key = %self.subject_key,
+            external_event_id = %self.external_event_id,
+            active_bindings,
+            passed_over = %passed_over,
+            "GitHub PR event reached no task: every binding on the subject was passed over"
+        );
+        record_inbound(
+            ADAPTER_LABEL,
+            "error",
+            "no_recipients",
+            self.trigger_id,
+            self.connection_id,
+        );
+        // Permanent by classification (`adapters/work`): the same event walking
+        // the same bindings is passed over the same way, so retrying only burns
+        // the budget. The record lands in `failed` carrying this message, which
+        // is the point — the event is not lost quietly.
+        Err(AdapterError::NotFound(format!(
+            "no task binding on {} could receive this GitHub PR event ({} passed over: {passed_over})",
+            self.subject_key, active_bindings,
+        )))
+    }
+}
+
 /// Route an inbound GitHub PR message to one or more tasks via bindings.
 pub async fn route_inbound_message(
     state: &AppState,
@@ -134,6 +388,13 @@ pub async fn route_inbound_message(
                 rule_id = %rule.id,
                 source_matcher = %rule.source_matcher,
                 "Ignoring GitHub PR message: task trigger inactive"
+            );
+            record_inbound(
+                ADAPTER_LABEL,
+                "ignored",
+                inbound_reason::INACTIVE_RULE,
+                &rule.id,
+                &connection.id,
             );
             return Ok(());
         }
@@ -264,70 +525,58 @@ pub async fn route_inbound_message(
         None
     };
 
+    let event_facts = EventFacts {
+        origin_task_id: origin_task_id.as_deref(),
+        is_review_comment: msg
+            .external_event_id
+            .as_deref()
+            .is_some_and(is_review_comment),
+        review_comment_reply_owner: review_comment_reply_owner.as_deref(),
+        ci_self_echo_exempt,
+    };
+
+    // How many bindings the subject carried when the walk began. An empty
+    // result is a failure only against a non-zero count (see
+    // `DeliveryLedger::finish`).
+    let active_bindings = bindings.len();
+    let mut ledger = DeliveryLedger::new(
+        &subject_key,
+        msg.external_event_id.as_deref(),
+        rule,
+        connection,
+    );
+
     let mut delivery_targets: Vec<(TaskBinding, bool)> = Vec::new();
     for binding in bindings {
-        // (1) Cheap check: marker / external_event_id resolved the origin task id.
-        if origin_task_id.as_deref() == Some(binding.task_id.as_str()) {
-            debug!(
-                task_id = %binding.task_id,
-                subject_key = %subject_key,
-                "Skipping GitHub event for originating task"
-            );
-            continue;
+        // The ladder's third rung is the only one that needs a database read,
+        // so run it first assuming no owner match: a binding the cheap rungs
+        // already skip never costs a task fetch, exactly as before. The first
+        // two rungs ignore `authored_by_task_owner`, so the second call can
+        // only differ on the third.
+        let mut facts = BindingFacts {
+            task_id: &binding.task_id,
+            origin: &binding.origin,
+            claimed_pushed_commit: claimed_pushed_commit(
+                &state.recently_sent,
+                &binding.task_id,
+                msg.external_event_id.as_deref(),
+            ),
+            authored_by_task_owner: false,
+        };
+        let mut reason = skip_reason(&event_facts, &facts);
+        if reason.is_none() {
+            // Catches out-of-band agent comments (e.g. `gh pr comment`
+            // bypassing `moat reply`, which leaves no marker and no recorded
+            // external_event_id). Per-binding DB fetch; typical PRs have 1-2
+            // bindings.
+            facts.authored_by_task_owner =
+                sender_owns_task(state, &binding.task_id, &msg.user_id).await;
+            reason = skip_reason(&event_facts, &facts);
         }
 
-        // (1b) Reviewer thread-scoping: an `ingress` binding only receives a
-        // review comment that is a reply within a thread it started.
-        if binding.origin == ORIGIN_ADAPTER_EVENT
-            && msg
-                .external_event_id
-                .as_deref()
-                .is_some_and(is_review_comment)
-            && review_comment_reply_owner.as_deref() != Some(binding.task_id.as_str())
-        {
-            debug!(
-                task_id = %binding.task_id,
-                subject_key = %subject_key,
-                "Skipping review comment for reviewer: not a reply to its own thread"
-            );
+        if let Some(reason) = reason {
+            ledger.skipped(&binding.task_id, reason);
             continue;
-        }
-
-        // (2) Owner-identity check: catches out-of-band agent comments
-        // (e.g. `gh pr comment` bypassing `moat reply`, which leaves no marker
-        // and no recorded external_event_id). Per-binding DB fetch; typical
-        // PRs have 1-2 bindings. Skipped for CI notifications (see above).
-        #[allow(clippy::disallowed_methods)]
-        // reason: GitHub PR webhook routing has no caller identity
-        let sys = ScopeContext::system();
-        match state.tasks.find_by_id(&binding.task_id, &sys).await {
-            Ok(Some(task))
-                if !ci_self_echo_exempt
-                    && is_authored_by_task_owner(
-                        &msg.user_id,
-                        task.created_by.as_deref(),
-                        task.owner_user_id.as_deref(),
-                    ) =>
-            {
-                debug!(
-                    task_id = %binding.task_id,
-                    user_id = %msg.user_id,
-                    subject_key = %subject_key,
-                    "Skipping GitHub event: sender matches task owner (self-echo)"
-                );
-                continue;
-            }
-            // Task gone (Ok(None)) or owner mismatch — deliver. A missing task
-            // will surface more clearly inside send_message_flow.
-            Ok(_) => {}
-            // Fail-open: a DB blip must not silently drop a legitimate event.
-            Err(e) => {
-                warn!(
-                    task_id = %binding.task_id,
-                    error = %e,
-                    "Failed to fetch task for self-echo check; delivering anyway"
-                );
-            }
         }
 
         delivery_targets.push((binding, false));
@@ -444,7 +693,13 @@ pub async fn route_inbound_message(
         let has_author = delivery_targets
             .iter()
             .any(|(b, _)| b.origin == ORIGIN_CONNECTED_THREAD);
-        delivery_targets.retain(|(b, _)| author_only_target(&b.origin, has_author));
+        delivery_targets.retain(|(b, _)| {
+            let keep = author_only_target(&b.origin, has_author);
+            if !keep {
+                ledger.skipped(&b.task_id, SkipReason::AuthorOnlySignal);
+            }
+            keep
+        });
     }
 
     let receipts = crate::loops::firing::receipts::PgEventReceiptRepository(state.db.clone());
@@ -460,19 +715,21 @@ pub async fn route_inbound_message(
                 )
                 .await?;
             if !is_first_delivery {
-                debug!(
-                    task_id = %binding.task_id,
-                    external_event_id,
-                    "Skipping duplicate GitHub event receipt"
-                );
+                ledger.skipped(&binding.task_id, SkipReason::DuplicateReceipt);
                 continue;
             }
         }
 
-        deliver_to_binding(state, rule, connection, &binding, &msg, is_new_task, true).await?;
+        match deliver_to_binding(state, rule, connection, &binding, &msg, is_new_task, true).await {
+            Ok(()) => ledger.delivered(is_new_task),
+            Err(e) => {
+                ledger.delivery_failed();
+                return Err(e);
+            }
+        }
     }
 
-    Ok(())
+    ledger.finish(active_bindings)
 }
 
 /// Persist a PR's mergeable state onto its bindings and, on an open PR
@@ -830,6 +1087,7 @@ async fn build_close_inbound_message(
         provider_context: serde_json::json!({}),
         external_event_id: Some(super::external_id::pr_event("closed", info.pr_number, None)),
         source_task_id: None,
+        audience: Audience::Everyone,
     }
 }
 
@@ -1054,6 +1312,34 @@ pub(crate) fn is_authored_by_task_owner(
     created_by == Some(user_id) || owner_user_id == Some(user_id)
 }
 
+/// Whether the event's sender resolves to the owner of `task_id`.
+///
+/// Fails open: a task that is gone, or a database blip, answers `false` so a
+/// legitimate event is never dropped on a lookup failure.
+async fn sender_owns_task(state: &AppState, task_id: &str, user_id: &str) -> bool {
+    #[allow(clippy::disallowed_methods)]
+    // reason: GitHub PR webhook routing has no caller identity
+    let sys = ScopeContext::system();
+    match state.tasks.find_by_id(task_id, &sys).await {
+        Ok(Some(task)) => is_authored_by_task_owner(
+            user_id,
+            task.created_by.as_deref(),
+            task.owner_user_id.as_deref(),
+        ),
+        // Task gone — deliver. A missing task surfaces more clearly inside
+        // `send_message_flow`.
+        Ok(None) => false,
+        Err(e) => {
+            warn!(
+                task_id,
+                error = %e,
+                "Failed to fetch task for self-echo check; delivering anyway"
+            );
+            false
+        }
+    }
+}
+
 /// Returns `true` for CI-status notifications — `check_run` (`github:cr:`),
 /// `check_suite` (`github:cs:`), and post-merge `workflow_run` (`github:wfrun:`).
 /// These are synthetic provider signals, never authored by a task agent, so the
@@ -1096,6 +1382,23 @@ pub(crate) fn author_only_target(origin: &str, has_author_binding: bool) -> bool
 /// [`route_inbound_message`]).
 pub(crate) fn is_review_comment(external_event_id: &str) -> bool {
     external_event_id.starts_with("github:rc:")
+}
+
+/// Whether `task_id` already claimed the commit this event carries.
+///
+/// Only a `pull_request.synchronize` notification carries one; everything else
+/// answers `false`. The webhook names the head commit in full while the claim
+/// recorded from `git push` output is abbreviated, so [`RecentlySent`] matches
+/// the two on their leading characters.
+fn claimed_pushed_commit(
+    recently_sent: &RecentlySent,
+    task_id: &str,
+    external_event_id: Option<&str>,
+) -> bool {
+    let Some(sha) = external_event_id.and_then(super::external_id::synchronize_sha) else {
+        return false;
+    };
+    recently_sent.contains_commit(task_id, sha)
 }
 
 #[cfg(test)]
@@ -1221,6 +1524,435 @@ mod tests {
         }
     }
 
+    /// The guard ladder as a composition, which is where the fault was: every
+    /// rung below is individually correct, and a review comment still reached
+    /// nobody because of what two of them add up to.
+    mod skip_ladder {
+        use super::super::{skip_reason, BindingFacts, EventFacts, SkipReason};
+        use crate::adapters::models::{
+            ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
+        };
+
+        /// An inline review comment that starts a new thread, carrying no
+        /// provenance at all — the shape that lost the review.
+        fn unprovenanced_review_comment() -> EventFacts<'static> {
+            EventFacts {
+                origin_task_id: None,
+                is_review_comment: true,
+                review_comment_reply_owner: None,
+                ci_self_echo_exempt: false,
+            }
+        }
+
+        fn producer(task_id: &str) -> BindingFacts<'_> {
+            BindingFacts {
+                task_id,
+                origin: CONNECTED_THREAD_BINDING_ORIGIN,
+                claimed_pushed_commit: false,
+                authored_by_task_owner: false,
+            }
+        }
+
+        fn responder(task_id: &str) -> BindingFacts<'_> {
+            BindingFacts {
+                task_id,
+                origin: ADAPTER_EVENT_BINDING_ORIGIN,
+                claimed_pushed_commit: false,
+                authored_by_task_owner: false,
+            }
+        }
+
+        #[test]
+        fn the_task_provenance_names_as_author_is_a_self_echo() {
+            let event = EventFacts {
+                origin_task_id: Some("task-author"),
+                is_review_comment: false,
+                review_comment_reply_owner: None,
+                ci_self_echo_exempt: false,
+            };
+            assert_eq!(
+                skip_reason(&event, &producer("task-author")),
+                Some(SkipReason::OriginatingTask)
+            );
+            assert_eq!(skip_reason(&event, &producer("task-other")), None);
+        }
+
+        /// A push carries no event identifier to match on, so the claim is the
+        /// only thing that names the task that wrote it. The rung sits above
+        /// thread scoping: a producer is exempt from every later rung, and
+        /// without this one its own push comes straight back to it.
+        #[test]
+        fn a_task_does_not_receive_back_the_commit_it_pushed() {
+            let event = EventFacts {
+                origin_task_id: None,
+                is_review_comment: false,
+                review_comment_reply_owner: None,
+                ci_self_echo_exempt: false,
+            };
+            let mut pusher = producer("task-author");
+            assert_eq!(
+                skip_reason(&event, &pusher),
+                None,
+                "an unclaimed push is somebody else's and must arrive"
+            );
+
+            pusher.claimed_pushed_commit = true;
+            assert_eq!(
+                skip_reason(&event, &pusher),
+                Some(SkipReason::ClaimedPushedCommit)
+            );
+            assert!(
+                SkipReason::ClaimedPushedCommit.accounts_for_event(),
+                "the task wrote the push, so reaching nobody else is not a loss"
+            );
+        }
+
+        #[test]
+        fn a_responder_only_receives_replies_inside_its_own_thread() {
+            let mut event = unprovenanced_review_comment();
+            assert_eq!(
+                skip_reason(&event, &responder("task-reviewer")),
+                Some(SkipReason::NotOwnThread),
+                "a comment that starts a thread belongs to no reviewer"
+            );
+
+            event.review_comment_reply_owner = Some("task-reviewer");
+            assert_eq!(skip_reason(&event, &responder("task-reviewer")), None);
+            assert_eq!(
+                skip_reason(&event, &responder("task-other-reviewer")),
+                Some(SkipReason::NotOwnThread)
+            );
+        }
+
+        #[test]
+        fn thread_scoping_does_not_apply_to_the_producer() {
+            let event = unprovenanced_review_comment();
+            assert_eq!(skip_reason(&event, &producer("task-author")), None);
+        }
+
+        #[test]
+        fn a_sender_who_owns_the_bound_task_skips_it() {
+            let event = unprovenanced_review_comment();
+            let owned = BindingFacts {
+                claimed_pushed_commit: false,
+                authored_by_task_owner: true,
+                ..producer("task-author")
+            };
+            assert_eq!(
+                skip_reason(&event, &owned),
+                Some(SkipReason::OwnerIdentity),
+                "the guard is a property of who posted, not of what posted it"
+            );
+        }
+
+        #[test]
+        fn a_ci_notification_is_exempt_from_the_owner_guard() {
+            let event = EventFacts {
+                origin_task_id: None,
+                is_review_comment: false,
+                review_comment_reply_owner: None,
+                ci_self_echo_exempt: true,
+            };
+            let owned = BindingFacts {
+                claimed_pushed_commit: false,
+                authored_by_task_owner: true,
+                ..producer("task-author")
+            };
+            assert_eq!(skip_reason(&event, &owned), None);
+        }
+    }
+
+    /// The empty fan-out. These are the tests the router did not have: what the
+    /// rungs above compose into, and what the router does when they compose
+    /// into nothing.
+    mod empty_fan_out {
+        use super::super::{skip_reason, BindingFacts, DeliveryLedger, EventFacts, SkipReason};
+        use crate::adapters::models::{
+            AdapterConnection, ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
+        };
+        use crate::adapters::work::AdapterWorkFailure;
+        use crate::bindings::metrics::inbound_reason;
+        use crate::bindings::metrics::test_support::{captured_inbound, InboundSample};
+        use chrono::Utc;
+        use moatless_backend_core::scope::Scope;
+
+        const SUBJECT: &str = "acme/widget#7";
+        const EVENT_ID: &str = "github:rc:99";
+
+        fn connection() -> AdapterConnection {
+            let now = Utc::now();
+            AdapterConnection {
+                id: "pc_org".to_string(),
+                provider: "github".to_string(),
+                connection_kind: "org_webhook".to_string(),
+                scope_value: "acme".to_string(),
+                credential_ref: None,
+                webhook_secret: None,
+                transport_config: serde_json::json!({}),
+                created_by: "u_owner".to_string(),
+                scope: Scope::User,
+                owner_user_id: Some("u_owner".to_string()),
+                created_at: now,
+                updated_at: now,
+            }
+        }
+
+        fn ledger(connection: &AdapterConnection) -> DeliveryLedger<'_> {
+            DeliveryLedger::new(SUBJECT, Some(EVENT_ID), None, connection)
+        }
+
+        fn reasons(samples: &[InboundSample]) -> Vec<(String, String)> {
+            samples
+                .iter()
+                .map(|s| (s.outcome.clone(), s.reason.clone()))
+                .collect()
+        }
+
+        /// The exact shape the ticket names: no provenance, and the sender
+        /// resolves to the owner of the only bound task. It used to end in
+        /// `Ok(())`.
+        #[test]
+        fn an_owner_identity_skip_on_the_only_binding_is_a_failure() {
+            let event = EventFacts {
+                origin_task_id: None,
+                is_review_comment: true,
+                review_comment_reply_owner: None,
+                ci_self_echo_exempt: false,
+            };
+            let only = BindingFacts {
+                task_id: "task-author",
+                origin: CONNECTED_THREAD_BINDING_ORIGIN,
+                claimed_pushed_commit: false,
+                authored_by_task_owner: true,
+            };
+
+            let connection = connection();
+            let mut result = Ok(());
+            let samples = captured_inbound(|| {
+                let mut ledger = ledger(&connection);
+                let reason = skip_reason(&event, &only).expect("the guard skips it");
+                assert_eq!(reason, SkipReason::OwnerIdentity);
+                ledger.skipped(only.task_id, reason);
+                result = ledger.finish(1);
+            });
+
+            let error = result.expect_err("an event that reached nobody is not a success");
+            assert!(error.to_string().contains(SUBJECT), "{error}");
+            assert!(error.to_string().contains("owner_identity"), "{error}");
+            assert!(error.to_string().contains("task-author"), "{error}");
+
+            let mut recorded = reasons(&samples);
+            recorded.sort();
+            assert_eq!(
+                recorded,
+                vec![
+                    ("error".to_string(), "no_recipients".to_string()),
+                    ("ignored".to_string(), "owner_identity".to_string()),
+                ]
+            );
+        }
+
+        /// The seven-hop loss from the spec, end to end over the ladder: the
+        /// reviewer's binding goes to thread-scoping, the author's to the owner
+        /// guard, and between them the review reaches no task at all.
+        #[test]
+        fn the_review_that_reached_nobody_fails_and_names_every_reason() {
+            let event = EventFacts {
+                origin_task_id: None,
+                is_review_comment: true,
+                review_comment_reply_owner: None,
+                ci_self_echo_exempt: false,
+            };
+            let bindings = [
+                BindingFacts {
+                    task_id: "task-reviewer",
+                    origin: ADAPTER_EVENT_BINDING_ORIGIN,
+                    claimed_pushed_commit: false,
+                    authored_by_task_owner: false,
+                },
+                BindingFacts {
+                    task_id: "task-author",
+                    origin: CONNECTED_THREAD_BINDING_ORIGIN,
+                    claimed_pushed_commit: false,
+                    authored_by_task_owner: true,
+                },
+            ];
+
+            let connection = connection();
+            let mut result = Ok(());
+            let samples = captured_inbound(|| {
+                let mut ledger = ledger(&connection);
+                for binding in &bindings {
+                    let reason = skip_reason(&event, binding).expect("both are passed over");
+                    ledger.skipped(binding.task_id, reason);
+                }
+                result = ledger.finish(bindings.len());
+            });
+
+            let error = result.expect_err("the review reached nobody");
+            let rendered = error.to_string();
+            assert!(
+                rendered.contains("task-reviewer=not_own_thread"),
+                "{rendered}"
+            );
+            assert!(
+                rendered.contains("task-author=owner_identity"),
+                "{rendered}"
+            );
+
+            let mut recorded = reasons(&samples);
+            recorded.sort();
+            assert_eq!(
+                recorded,
+                vec![
+                    ("error".to_string(), "no_recipients".to_string()),
+                    ("ignored".to_string(), "not_own_thread".to_string()),
+                    ("ignored".to_string(), "owner_identity".to_string()),
+                ]
+            );
+            assert!(
+                samples
+                    .iter()
+                    .all(|s| s.provider == "github_pr" && s.count == 1),
+                "{samples:?}"
+            );
+        }
+
+        /// A subject nothing is bound to expects nothing, so an empty result is
+        /// not a fault. Without this the router would fail every event on a PR
+        /// whose tasks have all closed.
+        #[test]
+        fn a_subject_with_no_active_bindings_is_not_a_failure() {
+            let connection = connection();
+            assert!(ledger(&connection).finish(0).is_ok());
+        }
+
+        /// The skips that mean the event already reached its task. The shared
+        /// router draws the same line — it marks them delivered. The push claim
+        /// is GitHub PR's own, but it says the same thing: the task wrote it.
+        #[test]
+        fn a_skip_that_accounts_for_the_event_is_recorded_but_is_not_a_failure() {
+            for reason in [
+                SkipReason::OriginatingTask,
+                SkipReason::DuplicateReceipt,
+                SkipReason::ClaimedPushedCommit,
+            ] {
+                let connection = connection();
+                let mut outcome = Err(());
+                let samples = captured_inbound(|| {
+                    let mut ledger = ledger(&connection);
+                    ledger.skipped("task-author", reason);
+                    outcome = ledger.finish(1).map_err(|_| ());
+                });
+
+                assert!(outcome.is_ok(), "{reason:?} means the task has the event");
+                assert_eq!(
+                    reasons(&samples),
+                    vec![("ignored".to_string(), reason.as_str().to_string())],
+                    "a pass-over nobody can see is the fault this counter removes"
+                );
+            }
+        }
+
+        #[test]
+        fn a_delivered_event_is_not_a_failure() {
+            let connection = connection();
+            let samples = captured_inbound(|| {
+                let mut ledger = ledger(&connection);
+                ledger.skipped("task-reviewer", SkipReason::NotOwnThread);
+                ledger.delivered(false);
+                assert!(ledger.finish(2).is_ok());
+            });
+            assert_eq!(
+                reasons(&samples)
+                    .into_iter()
+                    .filter(|(outcome, _)| outcome == "success")
+                    .collect::<Vec<_>>(),
+                vec![("success".to_string(), "existing_task".to_string())]
+            );
+        }
+
+        /// The trigger and connection are what an operator filters the counter
+        /// by, so a skip that loses them is a skip nobody can attribute.
+        #[test]
+        fn every_outcome_carries_its_connection() {
+            let connection = connection();
+            let samples = captured_inbound(|| {
+                let mut ledger = ledger(&connection);
+                ledger.skipped("task-author", SkipReason::OwnerIdentity);
+                let _ = ledger.finish(1);
+            });
+            assert!(
+                samples.iter().all(|s| s.connection_id == "pc_org"),
+                "{samples:?}"
+            );
+        }
+
+        /// An event that reached nobody reaches nobody again on the next
+        /// attempt, so the record must go terminal rather than spend its budget
+        /// proving it — and it must carry the cause, or the failure is as quiet
+        /// as the `Ok(())` it replaced.
+        #[test]
+        fn the_empty_result_failure_is_permanent_and_keeps_its_cause() {
+            let connection = connection();
+            let mut ledger = ledger(&connection);
+            ledger.skipped("task-author", SkipReason::OwnerIdentity);
+            let error = ledger.finish(1).expect_err("reached nobody");
+
+            let failure = AdapterWorkFailure::from(error);
+            assert!(matches!(failure, AdapterWorkFailure::Permanent(_)));
+            let cause = std::error::Error::source(&failure).expect("the cause is retained");
+            assert!(cause.to_string().contains(SUBJECT), "{cause}");
+        }
+
+        /// Reuse the shared router's word where the skip is the same one, and
+        /// coin a word only where it is not.
+        ///
+        /// The first half is the compiler's job — `as_str` returns the consts
+        /// themselves. What is left to assert is the second half: a reason this
+        /// adapter coined must not shadow a shared one with a different
+        /// meaning, which no type can catch.
+        #[test]
+        fn a_coined_reason_does_not_shadow_a_shared_one() {
+            for reason in [SkipReason::OriginatingTask, SkipReason::DuplicateReceipt] {
+                assert!(
+                    inbound_reason::ALL.contains(&reason.as_str()),
+                    "{reason:?} is the shared router's skip and must keep its word"
+                );
+            }
+            for reason in [
+                SkipReason::NotOwnThread,
+                SkipReason::OwnerIdentity,
+                SkipReason::AuthorOnlySignal,
+                SkipReason::ClaimedPushedCommit,
+            ] {
+                assert!(
+                    !inbound_reason::ALL.contains(&reason.as_str()),
+                    "{reason:?} is GitHub PR's own skip but reuses a shared reason for it"
+                );
+            }
+        }
+
+        /// A reason that renders as the empty string is a reason nobody can
+        /// query for, and two reasons that render alike are one reason.
+        #[test]
+        fn every_reason_is_a_distinct_non_empty_label() {
+            let all = [
+                SkipReason::OriginatingTask,
+                SkipReason::NotOwnThread,
+                SkipReason::OwnerIdentity,
+                SkipReason::AuthorOnlySignal,
+                SkipReason::DuplicateReceipt,
+                SkipReason::ClaimedPushedCommit,
+            ];
+            let mut labels = all.iter().map(|r| r.as_str()).collect::<Vec<_>>();
+            labels.sort_unstable();
+            labels.dedup();
+            assert_eq!(labels.len(), all.len());
+            assert!(labels.iter().all(|l| !l.is_empty()));
+        }
+    }
+
     mod origin_routing {
         use super::super::{author_only_target, is_author_only_signal, is_review_comment};
         use crate::adapters::github_pr::external_id;
@@ -1267,6 +1999,75 @@ mod tests {
             assert!(!is_review_comment(&external_id::issue_comment(7)));
             assert!(!is_review_comment(&external_id::review(7)));
             assert!(!is_review_comment(""));
+        }
+    }
+
+    mod push_claim {
+        use super::super::claimed_pushed_commit;
+        use crate::adapters::github_pr::external_id;
+        use crate::bindings::recently_sent::RecentlySent;
+
+        const FULL_SHA: &str = "7fc0612a1b2c3d4e5f60718293a4b5c6d7e8f901";
+
+        #[test]
+        fn sync_event_for_a_claimed_commit_is_the_tasks_own_push() {
+            let recently_sent = RecentlySent::new();
+            // What `git push` printed — abbreviated.
+            recently_sent.note_commit("task-1", "7fc0612");
+            // What the webhook carries — full length.
+            let sync = external_id::pr_synchronize(42, FULL_SHA);
+            assert!(claimed_pushed_commit(
+                &recently_sent,
+                "task-1",
+                Some(&sync)
+            ));
+        }
+
+        #[test]
+        fn another_tasks_push_and_another_commit_are_delivered() {
+            let recently_sent = RecentlySent::new();
+            recently_sent.note_commit("task-1", "7fc0612");
+            let sync = external_id::pr_synchronize(42, FULL_SHA);
+            assert!(!claimed_pushed_commit(
+                &recently_sent,
+                "task-2",
+                Some(&sync)
+            ));
+
+            let other = external_id::pr_synchronize(42, "deadbee1a1b2c3d4e5f60718293a4b5c6d7e8f90");
+            assert!(!claimed_pushed_commit(
+                &recently_sent,
+                "task-1",
+                Some(&other)
+            ));
+        }
+
+        #[test]
+        fn degenerate_claim_never_matches_a_sync_event() {
+            let recently_sent = RecentlySent::new();
+            recently_sent.note_commit("task-1", "");
+            recently_sent.note_commit("task-1", "7fc");
+            let sync = external_id::pr_synchronize(42, FULL_SHA);
+            assert!(!claimed_pushed_commit(
+                &recently_sent,
+                "task-1",
+                Some(&sync)
+            ));
+        }
+
+        #[test]
+        fn only_sync_events_carry_a_commit_to_match() {
+            let recently_sent = RecentlySent::new();
+            recently_sent.note_commit("task-1", "7fc0612");
+            for id in [
+                external_id::pr_opened(42),
+                external_id::issue_comment(7),
+                external_id::review_comment(7),
+                String::new(),
+            ] {
+                assert!(!claimed_pushed_commit(&recently_sent, "task-1", Some(&id)));
+            }
+            assert!(!claimed_pushed_commit(&recently_sent, "task-1", None));
         }
     }
 }

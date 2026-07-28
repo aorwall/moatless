@@ -395,6 +395,7 @@ pub(super) fn log_admission(
 
 #[cfg(test)]
 mod tests {
+    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
 
     use super::*;
@@ -422,6 +423,7 @@ mod tests {
             provider_context: serde_json::json!({}),
             external_event_id: Some("github:pr:opened:42".to_string()),
             source_task_id: None,
+            audience: Audience::Everyone,
         }
     }
 

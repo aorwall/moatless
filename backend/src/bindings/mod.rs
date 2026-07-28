@@ -6,6 +6,7 @@ pub mod handlers;
 pub mod metrics;
 pub mod outbound;
 pub mod recently_sent;
+pub mod recipients;
 pub mod reply;
 pub mod runtime;
 pub mod schemas;
