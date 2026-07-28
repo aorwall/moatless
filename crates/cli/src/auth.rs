@@ -88,26 +88,17 @@ enum ProbedAuthMode {
 /// Fails closed to the browser flow: an older server without `/auth/mode`
 /// returns 404, and OAuth is the only thing it can do.
 async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
-    let Ok(client) = reqwest::Client::builder()
+    let Ok(http) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
     else {
         return ProbedAuthMode::OAuth;
     };
 
-    let Ok(resp) = client.get(format!("{url}/api/v1/auth/mode")).send().await else {
-        return ProbedAuthMode::OAuth;
-    };
-    if !resp.status().is_success() {
-        return ProbedAuthMode::OAuth;
-    }
-
-    #[derive(serde::Deserialize)]
-    struct ModeBody {
-        mode: String,
-    }
-    match resp.json::<ModeBody>().await {
-        Ok(body) if body.mode == "password" => ProbedAuthMode::Password,
+    match moatless_api_client::ApiClient::new(url, http).auth_mode().await {
+        Ok(resp) if resp.mode == moatless_api_schemas::auth::AuthMode::Password => {
+            ProbedAuthMode::Password
+        }
         _ => ProbedAuthMode::OAuth,
     }
 }

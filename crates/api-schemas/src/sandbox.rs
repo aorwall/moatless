@@ -338,25 +338,6 @@ pub struct SandboxStatusFullResponse {
     pub runtime_events: Option<Vec<RuntimeEvent>>,
 }
 
-/// Request body for file search in sandbox.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub struct SearchFilesRequest {
-    pub query: String,
-    pub limit: Option<u32>,
-}
-
-/// Single file search result from sandbox.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct FileSearchResult {
-    pub path: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_type: Option<String>,
-}
-
 /// Server status response proxied from sandbox pod.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

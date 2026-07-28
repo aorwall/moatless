@@ -183,14 +183,6 @@ impl ApiClient {
         self.post("/api/v1/auth/api-keys", req).await
     }
 
-    /// POST /api/v1/auth/password/login
-    pub async fn password_login(
-        &self,
-        req: &moatless_api_schemas::auth::PasswordLoginRequest,
-    ) -> Result<moatless_api_schemas::auth::SessionResponse, ApiError> {
-        self.post("/api/v1/auth/password/login", req).await
-    }
-
     /// GET /api/v1/auth/mode
     pub async fn auth_mode(
         &self,
@@ -504,19 +496,6 @@ impl ApiClient {
     ) -> Result<moatless_api_schemas::sandbox::SearchByNameResponse, ApiError> {
         self.post(
             &format!("/api/sandbox/v1/tasks/{task_id}/files/search-by-name"),
-            req,
-        )
-        .await
-    }
-
-    /// POST /api/sandbox/v1/tasks/{task_id}/search-files
-    pub async fn search_files(
-        &self,
-        task_id: &str,
-        req: &moatless_api_schemas::sandbox::SearchFilesRequest,
-    ) -> Result<Vec<moatless_api_schemas::sandbox::FileSearchResult>, ApiError> {
-        self.post(
-            &format!("/api/sandbox/v1/tasks/{task_id}/search-files"),
             req,
         )
         .await
@@ -836,6 +815,11 @@ impl ApiClient {
         self.get(&format!("/api/v1/loops/{id}/tasks{qs}")).await
     }
 
+    // The `*_trigger*` methods below have no `moat` command behind them: they
+    // exist so `crates/integration-tests` can assert the deprecated
+    // `/api/v1/triggers` alias still serves the same handlers as `/api/v1/loops`.
+    // Remove them only together with the alias itself.
+
     /// GET /api/v1/triggers — deprecated alias of [`Self::list_loops`].
     pub async fn list_triggers(
         &self,
@@ -888,6 +872,7 @@ impl ApiClient {
             .unwrap_or_default();
         self.get(&format!("/api/v1/triggers/{id}/tasks{qs}")).await
     }
+
 
     /// GET /api/v1/tasks/{task_id}/bindings
     pub async fn list_task_bindings(
