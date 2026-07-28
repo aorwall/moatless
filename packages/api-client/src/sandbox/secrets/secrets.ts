@@ -29,8 +29,6 @@ import type {
   ListSecretsParams,
   PatchSecretRequest,
   PutSecretRequest,
-  ResolveSecretsRequest,
-  ResolveSecretsResponse,
   SecretMetadataResponse,
   SecretMutationResponse,
   ValidateSecretsRequest,
@@ -49,90 +47,7 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
 
-export type resolveTaskSecretsResponse200 = {
-  data: ResolveSecretsResponse
-  status: 200
-}
-
-export type resolveTaskSecretsResponse403 = {
-  data: ErrorBody
-  status: 403
-}
-    
-export type resolveTaskSecretsResponseSuccess = (resolveTaskSecretsResponse200) & {
-  headers: Headers;
-};
-export type resolveTaskSecretsResponseError = (resolveTaskSecretsResponse403) & {
-  headers: Headers;
-};
-
-export type resolveTaskSecretsResponse = (resolveTaskSecretsResponseSuccess | resolveTaskSecretsResponseError)
-
-export const getResolveTaskSecretsUrl = () => {
-
-
-  
-
-  return `/api/v1/internal/secrets/resolve`
-}
-
-export const resolveTaskSecrets = async (resolveSecretsRequest: ResolveSecretsRequest, options?: RequestInit): Promise<resolveTaskSecretsResponse> => {
-  
-  return customInstance<resolveTaskSecretsResponse>(getResolveTaskSecretsUrl(),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      resolveSecretsRequest,)
-  }
-);}
-
-
-
-
-export const getResolveTaskSecretsMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveTaskSecrets>>, TError,{data: ResolveSecretsRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof resolveTaskSecrets>>, TError,{data: ResolveSecretsRequest}, TContext> => {
-
-const mutationKey = ['resolveTaskSecrets'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveTaskSecrets>>, {data: ResolveSecretsRequest}> = (props) => {
-          const {data} = props ?? {};
-
-          return  resolveTaskSecrets(data,requestOptions)
-        }
-
-
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ResolveTaskSecretsMutationResult = NonNullable<Awaited<ReturnType<typeof resolveTaskSecrets>>>
-    export type ResolveTaskSecretsMutationBody = ResolveSecretsRequest
-    export type ResolveTaskSecretsMutationError = ErrorType<ErrorBody>
-
-    export const useResolveTaskSecrets = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveTaskSecrets>>, TError,{data: ResolveSecretsRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof resolveTaskSecrets>>,
-        TError,
-        {data: ResolveSecretsRequest},
-        TContext
-      > => {
-      return useMutation(getResolveTaskSecretsMutationOptions(options), queryClient);
-    }
-    export type listSecretsResponse200 = {
+export type listSecretsResponse200 = {
   data: SecretMetadataResponse[]
   status: 200
 }

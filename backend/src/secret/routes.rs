@@ -18,7 +18,6 @@ use crate::state::AppState;
         handlers::patch_secret,
         handlers::delete_secret,
         handlers::validate_secrets,
-        handlers::resolve_task_secrets,
     ),
     components(schemas(
         moatless_api_schemas::enums::Scope,
@@ -29,8 +28,6 @@ use crate::state::AppState;
         super::schemas::PatchSecretRequest,
         super::schemas::ValidateSecretsRequest,
         super::schemas::ValidateSecretsResponse,
-        super::schemas::ResolveSecretsRequest,
-        super::schemas::ResolveSecretsResponse,
         super::schemas::SecretMutationResponse,
     ))
 )]
@@ -46,7 +43,6 @@ pub fn secret_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi
         ))
         .routes(routes!(handlers::put_secret))
         .routes(routes!(handlers::validate_secrets))
-        .routes(routes!(handlers::resolve_task_secrets))
         .with_state(state)
         .split_for_parts();
 

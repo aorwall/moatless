@@ -2611,46 +2611,6 @@
         }
       }
     },
-    "/api/v1/internal/secrets/resolve": {
-      "post": {
-        "tags": [
-          "secrets"
-        ],
-        "operationId": "resolve_task_secrets",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResolveSecretsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Resolved task-scoped credentials",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResolveSecretsResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/linear/graphql": {
       "post": {
         "tags": [
@@ -4162,7 +4122,7 @@
           "skills"
         ],
         "summary": "List all skills discovered for a repository.",
-        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus skills from every linked plugin, deduplicated by name\n(workspace shadows plugin, first plugin wins on plugin-vs-plugin clash).",
+        "description": "Returns skills from the workspace repo's own `.claude/skills/` directory\nplus the plugin skills the caller's own activation records turn on,\ndeduplicated by name (workspace shadows plugin, first plugin wins on\nplugin-vs-plugin clash).\n\nThe plugin half is per-caller: this is the same list that will be delivered\ninto that caller's sandbox, so two people can see different skills for the\nsame repository.",
         "operationId": "list_repository_skills",
         "parameters": [
           {
@@ -12280,34 +12240,6 @@
           },
           "workspace": {
             "$ref": "#/components/schemas/WorkspaceResponse"
-          }
-        }
-      },
-      "ResolveSecretsRequest": {
-        "type": "object",
-        "required": [
-          "taskId"
-        ],
-        "properties": {
-          "taskId": {
-            "type": "string"
-          }
-        }
-      },
-      "ResolveSecretsResponse": {
-        "type": "object",
-        "required": [
-          "credentials"
-        ],
-        "properties": {
-          "credentials": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
           }
         }
       },

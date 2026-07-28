@@ -39,8 +39,13 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
  * Returns skills from the workspace repo's own `.claude/skills/` directory
-plus skills from every linked plugin, deduplicated by name
-(workspace shadows plugin, first plugin wins on plugin-vs-plugin clash).
+plus the plugin skills the caller's own activation records turn on,
+deduplicated by name (workspace shadows plugin, first plugin wins on
+plugin-vs-plugin clash).
+
+The plugin half is per-caller: this is the same list that will be delivered
+into that caller's sandbox, so two people can see different skills for the
+same repository.
  * @summary List all skills discovered for a repository.
  */
 export type listRepositorySkillsResponse200 = {

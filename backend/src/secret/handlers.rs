@@ -9,9 +9,8 @@ use crate::state::AppState;
 
 use super::error::SecretError;
 use super::schemas::{
-    ListSecretsQuery, PatchSecretRequest, PutSecretRequest, ResolveSecretsRequest,
-    ResolveSecretsResponse, SecretMetadataResponse, SecretMutationResponse, ValidateSecretsRequest,
-    ValidateSecretsResponse,
+    ListSecretsQuery, PatchSecretRequest, PutSecretRequest, SecretMetadataResponse,
+    SecretMutationResponse, ValidateSecretsRequest, ValidateSecretsResponse,
 };
 
 #[utoipa::path(
@@ -145,44 +144,4 @@ pub async fn validate_secrets(
         .validate_required(&auth.scope_context(), req)
         .await?;
     Ok(Json(resp))
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/internal/secrets/resolve",
-    tag = "secrets",
-    request_body = ResolveSecretsRequest,
-    responses(
-        (status = 200, description = "Resolved task-scoped credentials", body = ResolveSecretsResponse),
-        (status = 403, description = "Forbidden", body = crate::error::ErrorBody)
-    )
-)]
-pub async fn resolve_task_secrets(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    Json(req): Json<ResolveSecretsRequest>,
-) -> Result<Json<ResolveSecretsResponse>, SecretError> {
-    if auth.role.as_deref() != Some("admin") {
-        return Err(SecretError::Forbidden(
-            "internal secret resolution requires admin access".to_string(),
-        ));
-    }
-
-    // reason: admin-gated internal endpoint; task lookup is system-wide by design
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
-    let task = state
-        .tasks
-        .find_by_id(&req.task_id, &sys_ctx)
-        .await?
-        .ok_or_else(|| SecretError::BadRequest(format!("task not found: {}", req.task_id)))?;
-    let credentials = state
-        .secrets
-        .resolve_accessible_plaintext(
-            task.created_by
-                .as_deref()
-                .unwrap_or(&auth.user_id.to_string()),
-        )
-        .await?;
-    Ok(Json(ResolveSecretsResponse { credentials }))
 }

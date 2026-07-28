@@ -1,7 +1,5 @@
 //! Secret API request and response DTOs.
 
-use std::collections::HashMap;
-
 #[cfg(test)]
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -112,18 +110,6 @@ pub struct ValidateSecretsRequest {
 pub struct ValidateSecretsResponse {
     pub present: Vec<String>,
     pub missing: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ResolveSecretsRequest {
-    pub task_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ResolveSecretsResponse {
-    pub credentials: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
