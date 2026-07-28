@@ -51,6 +51,8 @@ vi.mock('@/features/repositories/hooks/use-repositories', () => ({
 }))
 
 beforeEach(() => {
+  updateMutate.mockReset()
+  deleteMutate.mockReset()
   overrideMutate.mockReset()
   resetGitMutate.mockReset()
 })
@@ -97,6 +99,22 @@ describe('WorkspaceConfigEditSection (git-synced)', () => {
     expect(screen.getByRole('button', { name: /save changes/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /delete workspace/i })).toBeInTheDocument()
     expect(screen.getByDisplayValue('Manual Workspace')).not.toBeDisabled()
+  })
+
+  it('deletes a manual workspace after confirmation', async () => {
+    currentWorkspace = workspace({ name: 'Manual Workspace', source: 'manual' })
+    const onDeleted = vi.fn()
+    deleteMutate.mockImplementationOnce((_workspaceId, options) => {
+      options.onSuccess()
+    })
+    const user = userEvent.setup()
+
+    render(<WorkspaceConfigEditSection workspaceId="ws-1" onDeleted={onDeleted} />)
+    await user.click(screen.getByRole('button', { name: /delete workspace/i }))
+    await user.click(screen.getByRole('button', { name: /^delete$/i }))
+
+    expect(deleteMutate).toHaveBeenCalledWith('ws-1', expect.anything())
+    expect(onDeleted).toHaveBeenCalled()
   })
 })
 
