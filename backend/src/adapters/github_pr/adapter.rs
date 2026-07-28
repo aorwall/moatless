@@ -1881,7 +1881,7 @@ pub(super) async fn check_pr_merge_conflict(
 
     // Resolve the acting user the same way CI notifications do: the triggering
     // sender if mapped, else the rule's effective user. Used both to mint the
-    // API token and as the message author (so the same self-echo rules apply).
+    // API token and as the message author.
     let user_id = resolve_user_or_fallback(sender_login, rule_for_parse, &state.db).await;
     let token = adapter
         .resolve_token_for_user(&user_id, Some(owner))
@@ -1908,10 +1908,9 @@ pub(super) async fn check_pr_merge_conflict(
 
     // Persist the mergeable state onto every binding, and — only on an open PR
     // transitioning *into* conflict — deliver a one-shot conflict notification.
-    // Delivery goes through `deliver_to_binding` (not `route_inbound_message`),
-    // which does not apply the owner self-echo filter: the alert is a synthetic
-    // provider notification, not the task's own echo, so it must reach the task
-    // even though the author resolves to the task owner.
+    // Delivery is the ordinary route: the alert names its audience (the task
+    // whose pull request stopped merging) and reaches it on that, not on who
+    // GitHub says the sender is.
     let pr_is_open = pr.state.eq_ignore_ascii_case("open");
     let conflict_msg = InboundMessage {
         provider: AdapterKind::GithubPr,
@@ -3421,5 +3420,156 @@ mod tests {
             _ => panic!("expected Message"),
         };
         assert_eq!(msg.source_task_id.as_deref(), Some("task-B"));
+    }
+
+    /// The audience each event states is the whole of what this adapter tells
+    /// the router about who an event is for. It is the seam: above it the
+    /// adapter knows GitHub's event shapes, below it the router knows bindings,
+    /// and neither needs the other's vocabulary. These pin the classification
+    /// so a shape cannot quietly change hands.
+    mod audience {
+        use super::*;
+
+        fn adapter() -> GithubPrAdapter {
+            GithubPrAdapter::new(
+                None,
+                None,
+                "https://app.example.com".to_string(),
+                fake_db_pool(),
+                fake_provider_tokens(),
+                None,
+                None,
+                fake_github_apps(),
+            )
+        }
+
+        async fn audience_of(
+            event_type: &str,
+            payload: &serde_json::Value,
+        ) -> Option<crate::adapters::models::Audience> {
+            let provider = adapter();
+            let mut rule = fake_rule();
+            rule.source_matcher = "soaplabs/repo".to_string();
+            let db = fake_db_pool();
+            let ctx = EventContext {
+                rule: &rule,
+                owner: "soaplabs",
+                repo: "repo",
+                sender_login: "alice",
+                db: &db,
+            };
+            let result = match event_type {
+                "issue_comment" => provider.handle_issue_comment_event(payload, &ctx).await,
+                "pull_request_review_comment" => {
+                    provider.handle_review_comment_event(payload, &ctx).await
+                }
+                "pull_request_review" => provider.handle_review_event(payload, &ctx).await,
+                "check_run" => provider.handle_check_run_event(payload, &ctx).await,
+                other => panic!("unhandled event type {other}"),
+            }
+            .expect("the event parses");
+            match result {
+                GithubPrWebhookResult::Message(msg) => Some(msg.audience),
+                _ => None,
+            }
+        }
+
+        fn review_comment(in_reply_to_id: Option<u64>) -> serde_json::Value {
+            serde_json::json!({
+                "action": "created",
+                "pull_request": { "number": 42 },
+                "comment": {
+                    "id": 999_u64,
+                    "body": "This early-returns on an empty slice.",
+                    "path": "src/foo.rs",
+                    "html_url": "https://github.com/soaplabs/repo/pull/42#discussion_r999",
+                    "in_reply_to_id": in_reply_to_id,
+                }
+            })
+        }
+
+        /// The event that was lost: an inline comment starting its own thread.
+        /// It names no parent, so no responder is its audience — and the
+        /// producing task is left as the recipient, whoever posted it.
+        #[tokio::test]
+        async fn an_inline_comment_starting_a_thread_names_no_parent() {
+            assert_eq!(
+                audience_of("pull_request_review_comment", &review_comment(None)).await,
+                Some(Audience::ParentAuthor {
+                    parent_external_event_id: None
+                })
+            );
+        }
+
+        /// A reply names the comment it answers, so the task that wrote that
+        /// comment receives it — alongside the producer, by the resolver's rule.
+        #[tokio::test]
+        async fn a_reply_inside_a_thread_names_the_comment_it_answers() {
+            assert_eq!(
+                audience_of("pull_request_review_comment", &review_comment(Some(555))).await,
+                Some(Audience::ParentAuthor {
+                    parent_external_event_id: Some(super::super::super::external_id::review_comment(
+                        555
+                    ))
+                })
+            );
+        }
+
+        /// A review submission is about the pull request as a whole, not about
+        /// one thread, so every task bound to it hears the verdict.
+        #[tokio::test]
+        async fn a_review_submission_is_for_everyone_bound() {
+            let payload = serde_json::json!({
+                "action": "submitted",
+                "pull_request": { "number": 42 },
+                "review": {
+                    "id": 77_u64,
+                    "state": "changes_requested",
+                    "body": "Two things.",
+                }
+            });
+            assert_eq!(
+                audience_of("pull_request_review", &payload).await,
+                Some(Audience::Everyone)
+            );
+        }
+
+        #[tokio::test]
+        async fn a_comment_on_the_pull_request_itself_is_for_everyone_bound() {
+            let payload = serde_json::json!({
+                "action": "created",
+                "issue": {
+                    "number": 42,
+                    "pull_request": { "url": "https://api.github.com/repos/soaplabs/repo/pulls/42" }
+                },
+                "comment": { "id": 123_u64, "body": "Rebased." }
+            });
+            assert_eq!(
+                audience_of("issue_comment", &payload).await,
+                Some(Audience::Everyone)
+            );
+        }
+
+        /// A build result belongs to whoever produced the pull request. It used
+        /// to need an exemption from the owner-identity guard to arrive at all;
+        /// stating the audience is what replaces it.
+        #[tokio::test]
+        async fn a_build_result_is_for_the_pull_requests_producer() {
+            let payload = serde_json::json!({
+                "action": "completed",
+                "check_run": {
+                    "id": 31_u64,
+                    "name": "CI",
+                    "conclusion": "failure",
+                    "html_url": "https://github.com/soaplabs/repo/runs/31",
+                    "pull_requests": [{ "number": 42 }],
+                    "output": { "summary": "1 test failed" },
+                }
+            });
+            assert_eq!(
+                audience_of("check_run", &payload).await,
+                Some(Audience::SubjectProducer)
+            );
+        }
     }
 }

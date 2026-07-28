@@ -161,15 +161,21 @@ pub async fn route_inbound_message(
     }
 
     let binding_repo = PgTaskBindingRepository(state.db.clone());
-    let origin_task_id = match msg.external_event_id.as_deref() {
-        Some(ext_id) => {
-            let candidates = external_id_aliases(state, provider_label, ext_id);
-            state
-                .messages
-                .find_task_id_by_any_external_event_id(&candidates)
-                .await?
-        }
-        None => None,
+    // Provenance: the task an adapter recovered from the event's own body (the
+    // `Moatless task:` footer), else the task an already-recorded event
+    // identifier names. Never an identity.
+    let origin_task_id = match msg.source_task_id.clone() {
+        Some(task_id) => Some(task_id),
+        None => match msg.external_event_id.as_deref() {
+            Some(ext_id) => {
+                let candidates = external_id_aliases(state, provider_label, ext_id);
+                state
+                    .messages
+                    .find_task_id_by_any_external_event_id(&candidates)
+                    .await?
+            }
+            None => None,
+        },
     };
 
     let mut bindings = binding_repo
@@ -226,7 +232,7 @@ pub async fn route_inbound_message(
         }
     }
 
-    let mut is_new_task = false;
+    let mut new_task_binding_id = None;
     if should_create_binding_task(state, rule, &bindings).await? {
         // The earliest binding for this subject (if any) belongs to the task
         // that originated it — typically a `connected_thread` binding placed
@@ -270,8 +276,8 @@ pub async fn route_inbound_message(
                     None,
                 )
                 .await?;
+                new_task_binding_id = Some(sub.id.clone());
                 bindings.push(sub);
-                is_new_task = true;
                 info!(task_id = %task_id, rule_id = %rule.id, provider = provider_label, "Created task from provider event");
             }
             // Permanent failure (e.g. a bad GitHub token). The service already
@@ -289,6 +295,82 @@ pub async fn route_inbound_message(
         }
     }
 
+    fan_out(
+        state,
+        connection,
+        rule,
+        &msg,
+        Fanout {
+            provider_label,
+            binding_provider: provider_label,
+            subject_kind,
+            subject_key,
+            bindings,
+            author_task_id: origin_task_id.as_deref(),
+            new_task_binding_id: new_task_binding_id.as_deref(),
+        },
+    )
+    .await
+}
+
+/// One event, the bindings on its subject, and what routing already knows about
+/// who wrote it.
+///
+/// Assembling the set is the caller's job because it is the one part of routing
+/// that is not shared: a chat adapter spawns a task for a subject nothing is
+/// bound to, the GitHub PR adapter spawns one only when a pull request opens.
+/// Deciding who among them receives the event is not — that is [`fan_out`].
+pub struct Fanout<'a> {
+    /// The adapter label the event is delivered and metered under: the value
+    /// `task_messages.external_adapter` carries, and the key the adapter
+    /// registry answers to for external-id aliases.
+    pub provider_label: &'a str,
+    /// The provider key the subject's delivery receipts are stored under — the
+    /// same key its bindings are. Equal to `provider_label` for every adapter
+    /// whose registry name is also its binding provider; GitHub PR binds under
+    /// `github` and delivers as `github_pr`.
+    pub binding_provider: &'a str,
+    pub subject_kind: &'a str,
+    pub subject_key: &'a str,
+    /// The active bindings on the subject, walked in this order.
+    pub bindings: Vec<TaskBinding>,
+    /// The task provenance names as the author of the event — a footer, a claim
+    /// the task recorded when it acted, or an event identifier already recorded
+    /// against it. Never an identity: a task is passed over only where it can
+    /// be *named* as the author of what arrived.
+    pub author_task_id: Option<&'a str>,
+    /// The binding whose task this very event created, if any. Its delivery
+    /// does not wake a sandbox that task creation is already provisioning.
+    pub new_task_binding_id: Option<&'a str>,
+}
+
+/// Deliver one event to the bindings on its subject that should receive it.
+///
+/// The single place the delivery decision is made, for every adapter. It
+/// resolves the audience through [`resolve_recipients`], records why each
+/// binding it passes over was passed over, checks the redelivery receipt, and
+/// fails loudly when a subject that had bindings ends up with no recipient at
+/// all.
+///
+/// Returns the last task delivered to — or accounted for, where a skip means
+/// the task already holds the event.
+pub async fn fan_out(
+    state: &AppState,
+    connection: &AdapterConnection,
+    rule: &SubscriptionMatch,
+    msg: &InboundMessage,
+    subject: Fanout<'_>,
+) -> Result<String, AdapterError> {
+    let Fanout {
+        provider_label,
+        binding_provider,
+        subject_kind,
+        subject_key,
+        bindings,
+        author_task_id,
+        new_task_binding_id,
+    } = subject;
+
     let parent_author_task_id = parent_author_task_id(state, provider_label, &msg.audience).await?;
 
     // The single place the delivery decision is made. Membership is by binding
@@ -298,7 +380,7 @@ pub async fn route_inbound_message(
         &msg.audience,
         &bindings,
         EventProvenance {
-            author_task_id: origin_task_id.as_deref(),
+            author_task_id,
             parent_author_task_id: parent_author_task_id.as_deref(),
         },
     )
@@ -306,6 +388,12 @@ pub async fn route_inbound_message(
     .map(|binding| binding.id.clone())
     .collect();
 
+    // How many bindings the subject carried when the walk began, and why each
+    // one that got nothing got nothing. A subject with no bindings expects
+    // nothing of this event; one whose every binding was passed over expected
+    // something and no task got it.
+    let active_bindings = bindings.len();
+    let mut passed_over: Vec<(String, &'static str)> = Vec::new();
     let mut delivered_task_id = None;
     let receipts = crate::loops::firing::receipts::PgEventReceiptRepository(state.db.clone());
     for binding in bindings {
@@ -317,7 +405,7 @@ pub async fn route_inbound_message(
         // out of the resolver — it is the one place routing may look at *who*
         // posted, and the resolver is deliberately never given an identity.
         // Either way the task holds the event, so the skip is accounted for.
-        if origin_task_id.as_deref() == Some(binding.task_id.as_str())
+        if author_task_id == Some(binding.task_id.as_str())
             || should_filter_self_echo(&binding, &msg.user_id)
         {
             debug!(
@@ -334,6 +422,7 @@ pub async fn route_inbound_message(
                 &connection.id,
             );
             delivered_task_id = Some(binding.task_id.clone());
+            passed_over.push((binding.task_id, inbound_reason::SELF_ECHO));
             continue;
         }
 
@@ -357,13 +446,14 @@ pub async fn route_inbound_message(
                 &rule.id,
                 &connection.id,
             );
+            passed_over.push((binding.task_id, inbound_reason::NOT_IN_AUDIENCE));
             continue;
         }
 
         if let Some(external_event_id) = msg.external_event_id.as_deref() {
             let is_first_delivery = receipts
                 .record_once(
-                    provider_label,
+                    binding_provider,
                     external_event_id,
                     subject_kind,
                     subject_key,
@@ -385,12 +475,13 @@ pub async fn route_inbound_message(
                     &connection.id,
                 );
                 delivered_task_id = Some(binding.task_id.clone());
+                passed_over.push((binding.task_id, inbound_reason::DUPLICATE_RECEIPT));
                 continue;
             }
         }
 
-        let this_is_new = is_new_task && binding.origin == ORIGIN_ADAPTER_EVENT;
-        match deliver_to_binding(state, rule, &binding, &msg, provider_label, this_is_new).await {
+        let this_is_new = new_task_binding_id == Some(binding.id.as_str());
+        match deliver_to_binding(state, rule, &binding, msg, provider_label, this_is_new).await {
             Ok(()) => {
                 let reason = if this_is_new {
                     inbound_reason::NEW_TASK
@@ -410,10 +501,51 @@ pub async fn route_inbound_message(
                 return Err(e);
             }
         }
-        delivered_task_id = Some(binding.task_id.clone());
+        delivered_task_id = Some(binding.task_id);
     }
 
-    delivered_task_id.ok_or_else(|| AdapterError::ConfigNotFound(rule.id.clone()))
+    if let Some(task_id) = delivered_task_id {
+        return Ok(task_id);
+    }
+
+    // Nothing was bound to the subject, so nothing was expected of this event.
+    // The word stays what it has always been for this case — the caller decides
+    // whether a subject with nothing on it is a failure of its own.
+    if passed_over.is_empty() {
+        return Err(AdapterError::ConfigNotFound(rule.id.clone()));
+    }
+
+    // Something *was* expected and no task got it. This used to be a `debug!`
+    // and a bare `Ok(())` on the GitHub PR path, which is how a real review
+    // reached nobody and looked exactly like a quiet day.
+    let reasons = passed_over
+        .iter()
+        .map(|(task_id, reason)| format!("{task_id}={reason}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    warn!(
+        subject_key,
+        external_event_id = msg.external_event_id.as_deref().unwrap_or_default(),
+        provider = provider_label,
+        active_bindings,
+        passed_over = %reasons,
+        "Event reached no task: every binding on the subject was passed over"
+    );
+    record_inbound(
+        provider_label,
+        "error",
+        inbound_reason::NO_RECIPIENTS,
+        &rule.id,
+        &connection.id,
+    );
+    // Permanent by classification (`adapters/work`): the same event walking the
+    // same bindings is passed over the same way, so retrying only burns the
+    // budget. The record lands in `failed` carrying this message, which is the
+    // point — the event is not lost quietly.
+    Err(AdapterError::NotFound(format!(
+        "no task binding on {subject_key} could receive this {provider_label} event \
+         ({active_bindings} passed over: {reasons})"
+    )))
 }
 
 /// The task that authored the parent event an [`Audience::ParentAuthor`] names,
@@ -611,7 +743,15 @@ async fn deliver_to_binding(
         msg.external_event_id.as_deref(),
         Some(provider_label),
         Some(&binding.subject_key),
-        config.source_name.as_deref(),
+        // The source's own name where the trigger carries one, else the matcher
+        // that identified it — a repository full name, a channel id. A label a
+        // reader recognises beats no label at all.
+        Some(
+            config
+                .source_name
+                .as_deref()
+                .unwrap_or(config.source_id.as_str()),
+        ),
         None,
         false,
         Some(msg.user_id.as_str()),

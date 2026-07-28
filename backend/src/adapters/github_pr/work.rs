@@ -308,7 +308,7 @@ struct CloseHandler(AppState);
 impl AdapterWorkHandler for CloseHandler {
     async fn execute(&self, work: &AdapterWork) -> Result<(), AdapterWorkFailure> {
         let payload: CloseWork = parse(work)?;
-        let (connection, trigger) = payload.context.resolve(&self.0).await?;
+        let (_connection, trigger) = payload.context.resolve(&self.0).await?;
         // Auto-close only ever applied to trigger-created tasks. A trigger
         // deleted between admission and execution leaves nothing to close.
         let Some(trigger) = trigger else {
@@ -319,7 +319,7 @@ impl AdapterWorkHandler for CloseHandler {
             );
             return Ok(());
         };
-        super::runtime::close_tasks_for_pr(&self.0, &connection, &trigger, &payload.close)
+        super::runtime::close_tasks_for_pr(&self.0, &trigger, &payload.close)
             .await
             .map_err(AdapterWorkFailure::from)
     }

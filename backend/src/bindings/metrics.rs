@@ -22,11 +22,9 @@ pub fn describe_binding_metrics() {
 
 /// The `reason` labels the shared router emits on [`BINDING_INBOUND_TOTAL`].
 ///
-/// A reason is a word an operator queries by, so two routers describing the
-/// same outcome have to use the same word. Naming them here is what makes that
-/// a compile-time fact rather than a convention: an adapter with its own
-/// delivery loop reaches for the const, and [`ALL`] lets it assert that the
-/// reasons it coins for itself are not quietly shadowing one of these.
+/// A reason is a word an operator queries by, and there is one router writing
+/// them, so one query answers "why did events stop reaching tasks" across every
+/// adapter.
 ///
 /// The other distinction the names carry is whether the event is *accounted
 /// for* by the skip. A task that wrote the event, or that has already received
@@ -49,30 +47,15 @@ pub(crate) mod inbound_reason {
     pub(crate) const DUPLICATE_RECEIPT: &str = "duplicate_receipt";
     /// The audience named someone else, so this binding holds nothing.
     pub(crate) const NOT_IN_AUDIENCE: &str = "not_in_audience";
+    /// Every binding on a subject that had some was passed over, so the event
+    /// reached no task at all. The one outcome that is nobody's correct answer.
+    pub(crate) const NO_RECIPIENTS: &str = "no_recipients";
     /// Delivered to a task the event itself created.
     pub(crate) const NEW_TASK: &str = "new_task";
     /// Delivered to a task that was already bound.
     pub(crate) const EXISTING_TASK: &str = "existing_task";
     /// Handing the message to the task message flow failed.
     pub(crate) const DELIVER_FAILED: &str = "deliver_failed";
-
-    /// Every reason above, so a router that coins its own can assert it is not
-    /// reusing one of these for a different meaning. Nothing at runtime needs
-    /// the list — reuse is a compile-time fact, and only its absence has to be
-    /// checked.
-    #[cfg(test)]
-    pub(crate) const ALL: &[&str] = &[
-        NO_CONNECTION,
-        NO_RULE_MATCH,
-        WRONG_CONNECTION,
-        INACTIVE_RULE,
-        SELF_ECHO,
-        DUPLICATE_RECEIPT,
-        NOT_IN_AUDIENCE,
-        NEW_TASK,
-        EXISTING_TASK,
-        DELIVER_FAILED,
-    ];
 }
 
 /// Record one inbound routing outcome.
