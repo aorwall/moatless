@@ -1,0 +1,3 @@
+interface:
+  display_name: "Explaining Code"
+  short_description: "Trace how existing code works"
