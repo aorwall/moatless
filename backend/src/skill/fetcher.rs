@@ -181,13 +181,23 @@ impl SkillFetcher for GitHubSkillFetcher {
             SkillLayout::Workspace => {
                 let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
                 for prefix in WORKSPACE_SKILL_PREFIXES {
-                    if let Some(files) = self
-                        .fetch_skills_at_prefix(&owner, &repo, prefix, token, remote_url)
-                        .await?
+                    match self
+                        .fetch_skills_at_prefix(&owner, &repo, prefix, token, remote_url, true)
+                        .await
                     {
-                        groups.push(files);
-                    } else {
-                        debug!(remote_url, prefix, "No skills directory on remote");
+                        Ok(Some(files)) => groups.push(files),
+                        Ok(None) => {
+                            debug!(remote_url, prefix, "No skills directory on remote");
+                        }
+                        Err(err) if can_skip_skill_fetch_error(&err) => {
+                            warn!(
+                                git_url = %remote_url,
+                                skills_prefix = %prefix,
+                                error = %err,
+                                "Skipping unreadable workspace skills directory"
+                            );
+                        }
+                        Err(err) => return Err(err),
                     }
                 }
                 Ok(dedup_by_dir_name(groups))
@@ -199,7 +209,7 @@ impl SkillFetcher for GitHubSkillFetcher {
                 let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
                 for prefix in prefixes {
                     if let Some(files) = self
-                        .fetch_skills_at_prefix(&owner, &repo, &prefix, token, remote_url)
+                        .fetch_skills_at_prefix(&owner, &repo, &prefix, token, remote_url, false)
                         .await?
                     {
                         groups.push(files);
@@ -256,6 +266,7 @@ impl GitHubSkillFetcher {
         skills_prefix: &str,
         token: Option<&str>,
         remote_url: &str,
+        skip_unreadable_entries: bool,
     ) -> Result<Option<Vec<FetchedSkillFile>>, SkillError> {
         let list_url =
             format!("https://api.github.com/repos/{owner}/{repo}/contents/{skills_prefix}");
@@ -282,8 +293,9 @@ impl GitHubSkillFetcher {
                 let token = token.map(str::to_string);
                 let skills_prefix = skills_prefix.to_string();
                 async move {
+                    let is_symlink = entry.entry_type == "symlink";
                     let dir_name = entry.name;
-                    let dir_path = if entry.entry_type == "symlink" {
+                    let dir_path = if is_symlink {
                         match resolve_symlink_dir(
                             &client,
                             &owner,
@@ -293,10 +305,25 @@ impl GitHubSkillFetcher {
                             token.as_deref(),
                             &remote_url,
                         )
-                        .await?
+                        .await
                         {
-                            Some(path) => path,
-                            None => return Ok(None),
+                            Ok(Some(path)) => path,
+                            Ok(None) => return Ok(None),
+                            Err(err)
+                                if should_skip_skill_entry_fetch_error(
+                                    &err,
+                                    skip_unreadable_entries,
+                                ) =>
+                            {
+                                debug!(
+                                    git_url = %remote_url,
+                                    dir_name = %dir_name,
+                                    error = %err,
+                                    "Skipping unreadable symlinked skill directory"
+                                );
+                                return Ok(None);
+                            }
+                            Err(err) => return Err(err),
                         }
                     } else {
                         format!("{skills_prefix}/{dir_name}")
@@ -305,7 +332,35 @@ impl GitHubSkillFetcher {
                         "https://api.github.com/repos/{owner}/{repo}/contents/{dir_path}/SKILL.md"
                     );
                     let content =
-                        fetch_github_raw(&client, &file_url, token.as_deref(), &remote_url).await?;
+                        match fetch_github_raw(&client, &file_url, token.as_deref(), &remote_url)
+                            .await
+                        {
+                            Ok(content) => content,
+                            Err(err)
+                                if should_skip_skill_entry_fetch_error(
+                                    &err,
+                                    skip_unreadable_entries,
+                                ) =>
+                            {
+                                if is_symlink {
+                                    debug!(
+                                        git_url = %remote_url,
+                                        dir_name = %dir_name,
+                                        error = %err,
+                                        "Skipping unreadable symlinked skill file"
+                                    );
+                                } else {
+                                    warn!(
+                                        git_url = %remote_url,
+                                        dir_name = %dir_name,
+                                        error = %err,
+                                        "Skipping unreadable skill file"
+                                    );
+                                }
+                                return Ok(None);
+                            }
+                            Err(err) => return Err(err),
+                        };
                     Ok::<Option<FetchedSkillFile>, SkillError>(
                         content.map(|content| FetchedSkillFile { dir_name, content }),
                     )
@@ -315,6 +370,14 @@ impl GitHubSkillFetcher {
         let results: Vec<Option<FetchedSkillFile>> = try_join_all(fetches).await?;
         Ok(Some(results.into_iter().flatten().collect()))
     }
+}
+
+fn can_skip_skill_fetch_error(err: &SkillError) -> bool {
+    matches!(err, SkillError::Fetch { .. })
+}
+
+fn should_skip_skill_entry_fetch_error(err: &SkillError, skip_unreadable_entries: bool) -> bool {
+    skip_unreadable_entries && can_skip_skill_fetch_error(err)
 }
 
 /// Merge skill-file groups in priority order, keeping the first occurrence of
@@ -764,6 +827,29 @@ mod tests {
             }
             other => panic!("expected UnsupportedProvider, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn only_workspace_best_effort_reads_skip_fetch_errors() {
+        let malformed_response = SkillError::Fetch {
+            git_url: "https://github.com/x/y".to_string(),
+            message: "failed to decode GitHub JSON response".to_string(),
+        };
+        assert!(can_skip_skill_fetch_error(&malformed_response));
+        assert!(should_skip_skill_entry_fetch_error(
+            &malformed_response,
+            true
+        ));
+        assert!(!should_skip_skill_entry_fetch_error(
+            &malformed_response,
+            false
+        ));
+
+        let auth_required = SkillError::AuthRequired {
+            git_url: "https://github.com/x/y".to_string(),
+        };
+        assert!(!can_skip_skill_fetch_error(&auth_required));
+        assert!(!should_skip_skill_entry_fetch_error(&auth_required, true));
     }
 
     #[test]
