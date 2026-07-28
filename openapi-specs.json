@@ -14596,6 +14596,20 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Workspace the task runs in. `None` for tasks created before workspaces\nexisted, or whose repository has no explicit workspace placement."
+          },
+          "workspaceName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display name for `workspace_id`, resolved alongside `repository_name`.\n`None` when there is no workspace or the row could not be read."
           }
         }
       },

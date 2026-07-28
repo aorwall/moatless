@@ -65,6 +65,20 @@ pub enum TaskAction {
         /// Model for the chosen harness, e.g. `haiku` or `gpt-5.4-mini`
         #[arg(long)]
         model: Option<String>,
+        /// Skip preview servers. Defaults to true for CLI-created tasks —
+        /// there is no browser here to view them. Pass `--headless false` for
+        /// a task you intend to open in the UI.
+        // `num_args`/`default_missing_value` are what make the value optional:
+        // a plain `bool` field is a set-true flag in clap, which would leave no
+        // way to turn an on-by-default option off.
+        #[arg(
+            long,
+            value_name = "BOOL",
+            num_args = 0..=1,
+            default_value_t = true,
+            default_missing_value = "true"
+        )]
+        headless: bool,
     },
     /// List child tasks
     Children {
@@ -159,6 +173,16 @@ pub enum ServerAction {
         /// Environment variable to remove; repeatable
         #[arg(long = "unset")]
         unset: Vec<String>,
+        /// Port the server listens on. Cannot be changed live — it is wired
+        /// into the Service and IngressRoute at provision time, so the server
+        /// rejects this with guidance to redeploy instead.
+        #[arg(long)]
+        port: Option<u16>,
+        /// Container image for the server. Cannot be changed live — the image
+        /// is the container's identity, so the server rejects this with
+        /// guidance to redeploy instead.
+        #[arg(long)]
+        docker_image: Option<String>,
         /// Apply without restarting (takes effect on the next restart)
         #[arg(long)]
         no_restart: bool,
@@ -250,6 +274,7 @@ pub async fn run(
             mode,
             agent_type,
             model,
+            headless,
         } => {
             let parent_task_id = if no_parent {
                 None
@@ -280,7 +305,7 @@ pub async fn run(
                 description: None,
                 file_ids: Vec::new(),
                 model,
-                headless: None,
+                headless: Some(headless),
             };
             let created = client.api().create_task(&req).await?;
             if json {
@@ -509,9 +534,16 @@ async fn run_server_action(
             start_command,
             env,
             unset,
+            port,
+            docker_image,
             no_restart,
         } => {
-            if start_command.is_empty() && env.is_empty() && unset.is_empty() {
+            if start_command.is_empty()
+                && env.is_empty()
+                && unset.is_empty()
+                && port.is_none()
+                && docker_image.is_none()
+            {
                 return Err(ClientError::Api {
                     status: 400,
                     body: "Nothing to set. Pass --start-command, --env KEY=VALUE, or --unset KEY."
@@ -531,8 +563,8 @@ async fn run_server_action(
                 env: (!parsed_env.is_empty()).then_some(parsed_env),
                 unset_env: (!unset.is_empty()).then_some(unset),
                 restart: !no_restart,
-                port: None,
-                docker_image: None,
+                port,
+                docker_image,
             };
             let resp = client.api().update_server_config(task_id, &server, &req).await?;
             print_server_config(&resp, json);
@@ -614,7 +646,18 @@ fn parse_task_status(s: &str) -> Option<TaskStatus> {
 
 fn format_task_list(list: &ListTasksResponse) {
     let rows: Vec<Vec<String>> = list.items.iter().map(format_task_row).collect();
-    output::print_table(&["TASK_ID", "SHORT", "STATUS", "TITLE", "REPO"], &rows);
+    output::print_table(
+        &[
+            "TASK_ID",
+            "SHORT",
+            "STATUS",
+            "TITLE",
+            "REPO",
+            "WORKSPACE",
+            "CREATED_BY",
+        ],
+        &rows,
+    );
 }
 
 fn format_task_row(t: &TaskResponse) -> Vec<String> {
@@ -624,7 +667,20 @@ fn format_task_row(t: &TaskResponse) -> Vec<String> {
         t.status.to_string(),
         t.title.chars().take(50).collect(),
         t.repository_name.as_deref().unwrap_or("-").to_string(),
+        label(t.workspace_name.as_deref(), t.workspace_id.as_deref()).to_string(),
+        label(
+            t.created_by_display_name.as_deref(),
+            t.created_by.as_deref(),
+        )
+        .to_string(),
     ]
+}
+
+/// Label a foreign key for display: its resolved name, else the raw id, else
+/// `-`. Falling back to the id matters — a task that *has* a workspace whose
+/// name failed to resolve must not render identically to one that has none.
+fn label<'a>(name: Option<&'a str>, id: Option<&'a str>) -> &'a str {
+    name.or(id).unwrap_or("-")
 }
 
 /// True if `task_id` names the sandbox this command is running inside.
@@ -751,7 +807,18 @@ fn format_task_detail(t: &TaskResponse) {
     println!("Title:   {}", t.title);
     println!("Status:  {}", t.status);
     println!("Repo:    {}", t.repository_name.as_deref().unwrap_or("-"));
+    println!(
+        "Workspace: {}",
+        label(t.workspace_name.as_deref(), t.workspace_id.as_deref())
+    );
     println!("Branch:  {}", t.branch.as_deref().unwrap_or("-"));
+    println!(
+        "Creator: {}",
+        label(
+            t.created_by_display_name.as_deref(),
+            t.created_by.as_deref()
+        )
+    );
     println!("Created: {}", t.created_at);
     println!("Cost:    ${:.4}", t.total_cost_usd);
     println!("Parent:  {}", t.parent_task_id.as_deref().unwrap_or("none"));
@@ -1187,7 +1254,16 @@ fn format_file_tree(resp: &serde_json::Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_task_id;
+    use super::{label, looks_like_task_id};
+
+    #[test]
+    fn label_prefers_name_then_id_then_dash() {
+        assert_eq!(label(Some("acme-ws"), Some("ws_1")), "acme-ws");
+        // Name lookup failed but the task does have a workspace — showing the
+        // id keeps that distinguishable from having none.
+        assert_eq!(label(None, Some("ws_1")), "ws_1");
+        assert_eq!(label(None, None), "-");
+    }
 
     #[test]
     fn recognizes_full_uuid_task_id() {

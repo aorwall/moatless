@@ -92,4 +92,16 @@ occurred for this many minutes. `0` means "never reap". */
   /** @nullable */
   vibe?: boolean | null;
   visibility: Visibility;
+  /**
+   * Workspace the task runs in. `None` for tasks created before workspaces
+existed, or whose repository has no explicit workspace placement.
+   * @nullable
+   */
+  workspaceId?: string | null;
+  /**
+   * Display name for `workspace_id`, resolved alongside `repository_name`.
+`None` when there is no workspace or the row could not be read.
+   * @nullable
+   */
+  workspaceName?: string | null;
 }

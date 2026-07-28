@@ -51,6 +51,13 @@ pub trait WorkspaceRepository: Send + Sync {
     /// ordered by name.
     async fn list(&self, ctx: &ScopeContext) -> Result<Vec<Workspace>, sqlx::Error>;
 
+    /// Resolve `(id, name)` for several workspaces in one query. Used to label
+    /// rows that already reference a workspace by id, so it is deliberately not
+    /// scope-filtered — the caller has already been authorized for the owning
+    /// row. Missing or soft-deleted ids are simply absent from the result.
+    async fn find_names_by_ids(&self, ids: &[String])
+        -> Result<Vec<(String, String)>, sqlx::Error>;
+
     /// List a workspace's repo placements, primary first then by `position`.
     async fn find_repos(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepo>, sqlx::Error>;
 
@@ -225,6 +232,21 @@ impl WorkspaceRepository for PgWorkspaceRepository {
             .bind(&ctx.user_id)
             .fetch_all(&self.0)
             .await
+    }
+
+    async fn find_names_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, String)>, sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT id, name FROM workspaces WHERE id = ANY($1) AND (deleted IS NULL OR deleted = false)",
+        )
+        .bind(ids)
+        .fetch_all(&self.0)
+        .await
     }
 
     async fn find_repos_for_workspaces(

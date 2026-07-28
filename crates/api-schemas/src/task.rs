@@ -181,6 +181,12 @@ pub struct TaskResponse {
     pub agent_type: AgentType,
     pub repository_id: String,
     pub repository_name: Option<String>,
+    /// Workspace the task runs in. `None` for tasks created before workspaces
+    /// existed, or whose repository has no explicit workspace placement.
+    pub workspace_id: Option<String>,
+    /// Display name for `workspace_id`, resolved alongside `repository_name`.
+    /// `None` when there is no workspace or the row could not be read.
+    pub workspace_name: Option<String>,
     pub branch: Option<String>,
     pub created_at: String,
     pub last_message_at: String,

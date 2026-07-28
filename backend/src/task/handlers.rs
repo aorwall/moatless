@@ -221,8 +221,7 @@ pub async fn create_task(
                             &task,
                             &SandboxIntentView::default(),
                             Vec::new(),
-                            None,
-                            None,
+                            ResolvedNames::default(),
                             Vec::new(),
                             Vec::new(),
                         );
@@ -340,6 +339,15 @@ pub async fn list_tasks(
         .collect();
     let repo_names = resolve_repo_names_batch(&state, &repo_ids).await;
 
+    // Batch resolve workspace names for the tasks that have a workspace.
+    let workspace_ids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r.workspace_id.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    let workspace_names = resolve_workspace_names_batch(&state, &workspace_ids).await;
+
     // Batch resolve outgoing relations for tasks (single query instead of N+1).
     let all_relations = load_outgoing_relations_batch(&state, &task_ids).await;
 
@@ -392,6 +400,11 @@ pub async fn list_tasks(
                 .cloned();
 
             let repo_name = repo_names.get(&row.repository_id).cloned();
+            let workspace_name = row
+                .workspace_id
+                .as_ref()
+                .and_then(|wid| workspace_names.get(wid))
+                .cloned();
 
             let bindings: Vec<TaskBindingSummary> = all_bindings
                 .iter()
@@ -420,8 +433,11 @@ pub async fn list_tasks(
                 row,
                 &sandbox,
                 tags,
-                display_name,
-                repo_name,
+                ResolvedNames {
+                    creator: display_name,
+                    repository: repo_name,
+                    workspace: workspace_name,
+                },
                 bindings,
                 relations,
             );
@@ -1399,6 +1415,23 @@ async fn enrich_task(
         .await?
         .map(|r| r.name);
 
+    // Same reasoning as `repo_name` above — labelling the workspace the caller
+    // already has access to via the task.
+    let workspace_name = match &row.workspace_id {
+        Some(wid) => state
+            .workspaces
+            .find_names_by_ids(std::slice::from_ref(wid))
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, workspace_id = %wid, "Failed to resolve workspace name");
+                Vec::new()
+            })
+            .into_iter()
+            .next()
+            .map(|(_, name)| name),
+        None => None,
+    };
+
     let display_name = if let Some(ref uid) = row.created_by {
         resolve_single_user_display_name(state, uid).await
     } else {
@@ -1438,8 +1471,11 @@ async fn enrich_task(
         row,
         &sandbox,
         tag_responses,
-        display_name,
-        repo_name,
+        ResolvedNames {
+            creator: display_name,
+            repository: repo_name,
+            workspace: workspace_name,
+        },
         bindings,
         relations,
     );
@@ -1481,12 +1517,21 @@ async fn enrich_task(
 /// and outgoing relations. `parent_task_id` is derived from the first
 /// `created_by` relation in `relations` for backward compatibility with
 /// clients that pre-date the relations field.
+/// Display names resolved for the foreign keys on a task row, so the response
+/// can label them without the client re-querying. Each is `None` when the
+/// referenced row is absent or its lookup failed; clients fall back to the id.
+#[derive(Default)]
+struct ResolvedNames {
+    creator: Option<String>,
+    repository: Option<String>,
+    workspace: Option<String>,
+}
+
 fn build_task_response(
     row: &Task,
     sandbox: &SandboxIntentView,
     tags: Vec<TagResponse>,
-    display_name: Option<String>,
-    repo_name: Option<String>,
+    names: ResolvedNames,
     bindings: Vec<TaskBindingSummary>,
     relations: Vec<TaskRelationDto>,
 ) -> TaskResponse {
@@ -1506,7 +1551,9 @@ fn build_task_response(
         status: row.status,
         agent_type: row.agent_type.clone(),
         repository_id: row.repository_id.clone(),
-        repository_name: repo_name,
+        repository_name: names.repository,
+        workspace_id: row.workspace_id.clone(),
+        workspace_name: names.workspace,
         branch: row.branch.clone(),
         created_at: row.created_at.clone(),
         last_message_at: row.last_message_at.clone(),
@@ -1515,7 +1562,7 @@ fn build_task_response(
         template_id: row.template_id.clone(),
         vibe: row.vibe,
         created_by: row.created_by.clone(),
-        created_by_display_name: display_name,
+        created_by_display_name: names.creator,
         visibility: row.visibility,
         scope: row.scope,
         owner_user_id: row.owner_user_id.clone(),
@@ -1672,6 +1719,23 @@ async fn resolve_task_bindings(state: &AppState, task_id: &str) -> Vec<TaskBindi
         ));
     }
     summaries
+}
+
+/// Resolve workspace names for multiple workspace IDs in a single batch query.
+async fn resolve_workspace_names_batch(
+    state: &AppState,
+    workspace_ids: &[String],
+) -> std::collections::HashMap<String, String> {
+    if workspace_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    match state.workspaces.find_names_by_ids(workspace_ids).await {
+        Ok(pairs) => pairs.into_iter().collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to batch resolve workspace names");
+            std::collections::HashMap::new()
+        }
+    }
 }
 
 /// Resolve repository names for multiple repo IDs in a single batch query.
