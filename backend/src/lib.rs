@@ -49,6 +49,7 @@ pub mod task;
 pub mod task_event;
 pub mod task_turn;
 pub mod team;
+pub mod ui_rpc;
 pub mod workspace;
 
 #[cfg(test)]

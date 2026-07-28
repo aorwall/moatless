@@ -25,7 +25,7 @@ use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::supervisor::{Criticality, Supervisor};
 use moatless_vibe_backend::{
     adapters, feedback, file_storage, loops, message, plugin, provider_settings, repository,
-    secret, skill, tag, task, task_event, team, workspace,
+    secret, skill, tag, task, task_event, team, ui_rpc, workspace,
 };
 
 /// How long shutdown waits for supervised tasks to finish before giving up and
@@ -412,6 +412,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         router = router.merge(moatless_vibe_backend::sse::routes::task_events_router(
             app_state.clone(),
         ));
+        if let Some(ui_rpc_router) =
+            ui_rpc::router_from_env(config.auth.session_cookie_name.clone())?
+        {
+            router = router.merge(ui_rpc_router);
+        }
         info!("Domain routes registered");
 
         // Readiness probe — reports Redis connectivity and the root

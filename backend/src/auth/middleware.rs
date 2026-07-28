@@ -70,7 +70,8 @@ fn is_exempt(path: &str) -> bool {
     // Public endpoints
     matches!(
         path,
-        "/api/v1/feature-flags"
+        "/.well-known/t3/environment"
+            | "/api/v1/feature-flags"
             | "/api/v1/adapters"
             | "/health"
             | "/healthz"
@@ -230,6 +231,14 @@ mod tests {
         assert!(!is_exempt("/api/sandbox/v1/tasks/abc/status"));
         assert!(!is_exempt("/api/sandbox/v1/tasks/abc/stop"));
         assert!(!is_exempt("/api/sandbox/v1/tasks/abc/files/read"));
+    }
+
+    #[test]
+    fn only_t3_discovery_is_public() {
+        assert!(is_exempt("/.well-known/t3/environment"));
+        assert!(!is_exempt("/api/auth/session"));
+        assert!(!is_exempt("/api/orchestration/shell"));
+        assert!(!is_exempt("/ws"));
     }
 
     #[test]

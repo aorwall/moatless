@@ -330,10 +330,58 @@ _Note_: `Team` is **not** a scope — teams are an org/entity concept and grant 
 resource access (removed in the access-scope redesign, ADR 0006).
 _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify that.
 
+**Follow**:
+A user's durable interest in a Task (`task_follows`), acquired by creating it,
+writing to it, or asking explicitly, and dropped by asking. It is what a personal
+sidebar listing is built from, in both the Moatless UI and T3 Code.
+_Note_: a Follow **narrows** a listing and never widens one — it grants no access.
+Scope still applies underneath, because a Follow outlives the access that produced
+it: a Task can be made private or change hands long after someone wrote to it.
+_Avoid_: treating admin as exempt. An admin's sidebar is what they Follow, like
+everyone else's; admin bypasses Scope, not Follow.
+
 **Command**:
 A named slash-command preset (`/command`) that seeds a Task or Turn.
 _Avoid_: bare "command" for a Codex shell command or the `moat` CLI — qualify
 those as "shell command" / "CLI command".
+
+### T3 Code — always qualified
+
+T3 Code is a separate client (`soaplabs/t3code`) being adapted to run against this
+backend through the UI RPC surface. Its vocabulary overlaps ours imperfectly, so
+these terms are **only** used with the "T3" qualifier. Full mapping:
+[docs/t3-code-domain-mapping.md](./docs/t3-code-domain-mapping.md).
+
+**T3 Thread**:
+A single agent conversation in T3 Code — the direct equivalent of our **Task**.
+Say "Task" for anything on this side of the wire.
+_Avoid_: bare "thread" for a conversation — in this codebase a thread is a channel
+thread (`channel_threads`, `external_thread_id`, `slack_thread`), and the
+collision is live in the adapter subsystem.
+
+**T3 Project**:
+A single filesystem path (one `workspace_root`) that T3 Code runs threads against.
+Mapped to our **Workspace** (`projectId ↔ workspaces.id`) because a Task already
+references a `workspace_id` — but it is not a synonym: a T3 Project composes no
+repositories and carries no run-config. Note that T3 treats its `workspaceRoot` as
+an identity, unique across active projects, so the adapter synthesizes one per
+Workspace rather than reporting the sandbox workspace directory.
+_Avoid_: treating T3 Project and Workspace as synonyms, or renaming either to the
+other before T3 Code can compose repositories.
+
+**T3 Environment**:
+One connected T3 Code server, as seen by a T3 client. Assigned client-side; no
+server table records it. T3 Code federates over *machines a person owns*, where we
+federate over *access scope* — the two are different axes, not two spellings of
+multi-tenancy. The adapter presents this backend as exactly one T3 Environment.
+_Avoid_: reading it as our deployment environment, or as a Sandbox.
+
+**UI RPC** (also **T3 compatibility surface**):
+The opt-in `backend/src/ui_rpc` module that serves T3 Code's contract (discovery,
+session bootstrap, `/api/orchestration/shell`, and the `/ws` Effect-RPC envelopes)
+from Moatless rows. An anti-corruption layer: T3 names appear on the wire, Moatless
+names everywhere behind it.
+_Avoid_: leaking T3 vocabulary past this module.
 
 ### Words that are never standalone terms
 

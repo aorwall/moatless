@@ -13,6 +13,11 @@ This guide covers deploying Moatless Vibe using Docker Compose with PostgreSQL, 
 
 ## Quick Start
 
+To run the current Rust backend behind the T3 Code web app, use the dedicated
+[T3 Code local-development runbook](../docs/runbooks/t3-code-local-development.md).
+It uses an additive Compose overlay and leaves this published-image workflow
+unchanged.
+
 ### Prerequisites
 
 - Docker 20.10+ and Docker Compose v2+ installed
