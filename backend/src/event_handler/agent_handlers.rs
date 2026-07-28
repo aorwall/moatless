@@ -633,29 +633,7 @@ async fn notify_parent_task_of_child_terminal(
     };
 
     let message = match outcome {
-        ChildTerminalOutcome::Completed => {
-            let summary = match state
-                .messages
-                .get_last_assistant_message(&event.task_id)
-                .await
-            {
-                Ok(Some(msg)) => collect_assistant_text(&msg.message_content),
-                Ok(None) => String::new(),
-                Err(e) => {
-                    tracing::warn!(
-                        task_id = %event.task_id,
-                        error = %e,
-                        "Failed to load child task assistant summary for parent notification"
-                    );
-                    String::new()
-                }
-            };
-            if summary.trim().is_empty() {
-                format!("Child task `{}` completed.", event.task_id)
-            } else {
-                format!("Child task `{}` completed.\n\n{}", event.task_id, summary)
-            }
-        }
+        ChildTerminalOutcome::Completed => format!("Child task `{}` completed.", event.task_id),
         ChildTerminalOutcome::Errored(error_msg) => {
             format!(
                 "Child task `{}` errored.\n\nError: {}",

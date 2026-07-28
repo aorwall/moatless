@@ -20,14 +20,19 @@ use moatless_vibe_backend::event_handler::agent_handlers::{
     handle_agent_completed, handle_agent_error, handle_agent_stopped,
 };
 use moatless_vibe_backend::event_handler::models::AgentEvent;
+use moatless_vibe_backend::message::dao as message_dao;
+use moatless_vibe_backend::message::models::{MessageRole, MessageType};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::task::dao::{
     self as task_dao, PgTaskRepository, TaskPatch, TaskRepository,
 };
 use moatless_vibe_backend::task::models::TaskStatus;
+use moatless_vibe_backend::task::relations::{
+    PgTaskRelationRepository, TaskRelation, TaskRelationRepository, TaskRelationType,
+};
 use sqlx::PgPool;
 
-use common::{make_repository_row, make_task_row, test_app_state, user_scope};
+use common::{make_message_row, make_repository_row, make_task_row, test_app_state, user_scope};
 
 /// Seed a repo + task with the given status and return an `AppState`.
 async fn seed_with_status(pool: &PgPool, task_id: &str, status: TaskStatus) {
@@ -50,12 +55,49 @@ async fn seed_with_status(pool: &PgPool, task_id: &str, status: TaskStatus) {
     }
 }
 
+async fn seed_task_pair_with_created_by(pool: &PgPool, parent_task_id: &str, child_task_id: &str) {
+    let repo = make_repository_row("repo-1", "user-1");
+    repository_dao::insert(pool, &repo).await.unwrap();
+    task_dao::insert_task(pool, &make_task_row(parent_task_id, "user-1"))
+        .await
+        .unwrap();
+    task_dao::insert_task(pool, &make_task_row(child_task_id, "user-1"))
+        .await
+        .unwrap();
+
+    let relation = TaskRelation::new(
+        child_task_id,
+        parent_task_id,
+        TaskRelationType::CreatedBy,
+        serde_json::json!({}),
+    );
+    PgTaskRelationRepository(pool.clone())
+        .insert(&relation)
+        .await
+        .unwrap();
+}
+
 async fn status_of(pool: &PgPool, task_id: &str) -> TaskStatus {
     task_dao::find_by_id(pool, task_id, &user_scope("user-1"))
         .await
         .unwrap()
         .expect("task present")
         .status
+}
+
+async fn visible_parent_texts(pool: &PgPool, parent_task_id: &str) -> Vec<String> {
+    let (messages, _, blocks) = message_dao::get_all(pool, parent_task_id).await.unwrap();
+    let user_ids: std::collections::HashSet<i32> = messages
+        .iter()
+        .filter(|m| m.message_type == MessageType::User)
+        .map(|m| m.id)
+        .collect();
+
+    blocks
+        .into_iter()
+        .filter(|b| user_ids.contains(&b.task_message_id) && b.show_in_ui)
+        .filter_map(|b| b.text_content)
+        .collect()
 }
 
 fn terminal_event(
@@ -189,6 +231,65 @@ async fn completed_reopens_an_open_task(pool: PgPool) {
     handle_agent_completed(&state, &event).await;
 
     assert_eq!(status_of(&pool, "task-o").await, TaskStatus::Open);
+}
+
+#[sqlx::test]
+async fn completed_child_notifies_parent_without_result_body(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    let mut assistant = make_message_row("task-child", "child-assistant-1");
+    assistant.message_type = MessageType::Assistant;
+    assistant.message_role = MessageRole::Assistant;
+    assistant.message_content = serde_json::json!([
+        { "type": "text", "text": "full child result that should stay out of parent" }
+    ]);
+    message_dao::append(&pool, &assistant, &[], &[])
+        .await
+        .unwrap();
+
+    let state = test_app_state(pool.clone());
+    let event = terminal_event(
+        "evt-child-completed",
+        "task-child",
+        "completed",
+        serde_json::json!({ "is_error": false }),
+    );
+    handle_agent_completed(&state, &event).await;
+
+    let texts = visible_parent_texts(&pool, "task-parent").await;
+    assert!(
+        texts
+            .iter()
+            .any(|text| text == "Child task `task-child` completed."),
+        "parent should receive a concise child completion notice: {texts:?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .all(|text| !text.contains("full child result that should stay out of parent")),
+        "parent notification must not include the child's full assistant result: {texts:?}"
+    );
+}
+
+#[sqlx::test]
+async fn errored_child_notifies_parent_with_error_message(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    let state = test_app_state(pool.clone());
+
+    let event = terminal_event(
+        "evt-child-error",
+        "task-child",
+        "error",
+        serde_json::json!({ "error": "sandbox exploded" }),
+    );
+    handle_agent_error(&state, &event).await;
+
+    let texts = visible_parent_texts(&pool, "task-parent").await;
+    assert!(
+        texts
+            .iter()
+            .any(|text| text == "Child task `task-child` errored.\n\nError: sandbox exploded"),
+        "parent should receive the child error detail: {texts:?}"
+    );
 }
 
 // =========================================================================
