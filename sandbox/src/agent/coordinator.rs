@@ -1172,7 +1172,10 @@ impl CoordinatorService {
         // Background-completion watch: subprocess mode only, and never while a
         // retry is pending (the Turn is not truly done). `arm` reads `/proc`, so
         // it runs on a blocking thread.
-        if !self.config.use_tmux && self.retry_at.is_none() {
+        if !self.config.use_tmux
+            && self.config.background_job_monitoring_enabled
+            && self.retry_at.is_none()
+        {
             let sandbox_pid = std::process::id();
             let armed = tokio::task::spawn_blocking(move || BackgroundWatchJob::arm(sandbox_pid))
                 .await

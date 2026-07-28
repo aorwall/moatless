@@ -585,6 +585,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         plugins: vec![],
         frontend_url: None,
         use_tmux: false,
+        background_job_monitoring_enabled: false,
         default_model: None,
         default_codex_model: None,
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,

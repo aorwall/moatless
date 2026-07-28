@@ -226,6 +226,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
         default_model: None,
         default_codex_model: None,
         use_tmux,
+        background_job_monitoring_enabled: false,
         home_dir: home.display().to_string(),
         codex_home_dir: home.join(".codex").display().to_string(),
         // Deliberately OUTSIDE `home/.claude` to mirror the cluster, where

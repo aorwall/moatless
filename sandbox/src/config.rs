@@ -163,6 +163,10 @@ pub struct Config {
     pub default_codex_model: Option<String>,
     /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: SANDBOX_USE_TMUX).
     pub use_tmux: bool,
+    /// Enable sandbox-local background job monitoring that wakes the agent when
+    /// detached subprocess-mode jobs finish (env:
+    /// `SANDBOX_BACKGROUND_JOB_MONITORING_ENABLED`). Defaults off.
+    pub background_job_monitoring_enabled: bool,
     /// Permission mode for the Claude CLI in normal (non-plan) mode (env:
     /// `SANDBOX_PERMISSION_MODE`). Defaults to `bypassPermissions` so network
     /// tools like WebSearch/WebFetch aren't denied (they are not auto-approved
@@ -345,6 +349,14 @@ fn resolve_agent_type_env() -> Option<String> {
     Some(raw.to_string())
 }
 
+fn env_flag_value_enabled(value: &str) -> bool {
+    value == "1" || value.eq_ignore_ascii_case("true")
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    env::var(name).is_ok_and(|v| env_flag_value_enabled(&v))
+}
+
 impl Config {
     /// Load configuration from environment variables.
     pub fn from_env() -> Self {
@@ -432,14 +444,15 @@ impl Config {
             frontend_url: env::var("FRONTEND_URL").ok(),
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
             default_codex_model: env::var("DEFAULT_CODEX_MODEL").ok(),
-            use_tmux: env::var("SANDBOX_USE_TMUX")
-                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            use_tmux: env_flag_enabled("SANDBOX_USE_TMUX"),
+            background_job_monitoring_enabled: env_flag_enabled(
+                "SANDBOX_BACKGROUND_JOB_MONITORING_ENABLED",
+            ),
             permission_mode: env::var("SANDBOX_PERMISSION_MODE")
                 .ok()
                 .and_then(|v| parse_permission_mode(&v))
                 .unwrap_or(PermissionMode::BypassPermissions),
-            workspace_sync_enabled: env::var("WORKSPACE_SYNC_ENABLED")
-                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            workspace_sync_enabled: env_flag_enabled("WORKSPACE_SYNC_ENABLED"),
 
             home_dir,
             codex_home_dir,
@@ -572,6 +585,7 @@ pub(crate) mod test_support {
             default_model: None,
             default_codex_model: None,
             use_tmux: false,
+            background_job_monitoring_enabled: false,
             permission_mode: PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             home_dir: "/tmp/home".to_string(),
@@ -644,8 +658,8 @@ fn parse_repo_config() -> ParsedRepoConfig {
 mod tests {
     use super::test_support::minimal_config;
     use super::{
-        is_safe_mount_name, parse_permission_mode, parse_repo_checkouts, primary_checkout,
-        InitialAuthTokenSource, PermissionMode,
+        env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
+        primary_checkout, InitialAuthTokenSource, PermissionMode,
     };
 
     /// Point both persisted-token dirs at empty temp dirs so resolution falls
@@ -656,6 +670,16 @@ mod tests {
         config.workspace_dir = tmp.path().display().to_string();
         config.data_dir = tmp.path().display().to_string();
         (config, tmp)
+    }
+
+    #[test]
+    fn env_flag_value_enabled_accepts_only_truthy_values() {
+        assert!(env_flag_value_enabled("true"));
+        assert!(env_flag_value_enabled("TRUE"));
+        assert!(env_flag_value_enabled("1"));
+        assert!(!env_flag_value_enabled(""));
+        assert!(!env_flag_value_enabled("false"));
+        assert!(!env_flag_value_enabled("0"));
     }
 
     #[test]

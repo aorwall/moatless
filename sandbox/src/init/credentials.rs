@@ -516,6 +516,7 @@ mod tests {
             servers: Vec::new(),
             frontend_url: None,
             use_tmux: false,
+            background_job_monitoring_enabled: false,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             default_model: None,

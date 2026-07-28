@@ -550,6 +550,7 @@ pub(super) async fn agent_loop(
                             let turn_failed = matches!(result, ResultMessage::Error(_))
                                 || matches!(result, ResultMessage::Success(s) if s.is_error);
                             if !config.use_tmux
+                                && config.background_job_monitoring_enabled
                                 && handle.is_none()
                                 && retry_state.is_none()
                                 && !turn_failed
