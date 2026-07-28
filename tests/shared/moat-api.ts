@@ -295,7 +295,7 @@ export class MoatApi {
    */
   async createVibeTask(
     config: (CreateVibeTaskRequest | { workspaceId: string; name?: string; message?: string }) & {
-      /** Harness to run under. Omitted means the backend's default. */
+      /** Harness to run under. Omitted uses the test suite's standard agent. */
       agentType?: string
       model?: string
       /** `edit` or `plan`. Omitted means the backend's default. */
@@ -310,7 +310,7 @@ export class MoatApi {
       args.push('--repo', config.templateId)
     }
     if (config.message) args.push('--message', config.message)
-    if (config.agentType) args.push('--agent-type', config.agentType)
+    args.push('--agent-type', config.agentType ?? 'claude-code')
     if (config.model) args.push('--model', config.model)
     if (config.agentMode) args.push('--mode', config.agentMode)
     const created = await this.moat.json<CreatedTask>(args)
@@ -320,6 +320,7 @@ export class MoatApi {
   /** Create a task and report the status, for assertions on rejection. */
   async createVibeTaskRaw(config: {
     repositoryId: string
+    agentType?: string
     message?: string
     name?: string
   }): Promise<RawResponse> {

@@ -14,6 +14,17 @@ pub struct AgentType(pub String);
 
 impl AgentType {
     pub const CLAUDE_CODE: &str = "claude-code";
+    pub const CLAUDE_CODE_TUI: &str = "claude-code-tui";
+    pub const CLAUDE_CODE_CLI: &str = "claude-code-cli";
+    pub const CLAUDE_CODE_FABLE: &str = "claude-code-fable";
+    pub const CODEX: &str = "codex";
+    pub const SUPPORTED: &'static [&'static str] = &[
+        Self::CLAUDE_CODE,
+        Self::CLAUDE_CODE_TUI,
+        Self::CLAUDE_CODE_CLI,
+        Self::CLAUDE_CODE_FABLE,
+        Self::CODEX,
+    ];
 
     pub fn as_str(&self) -> &str {
         &self.0

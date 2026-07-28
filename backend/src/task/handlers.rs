@@ -13,6 +13,7 @@ use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
 use super::relations::{CreatedByParent, TaskRelationType};
 use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create};
+use crate::agent::catalog;
 use crate::extractors::AuthUser;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::shared_models::AgentType;
@@ -47,6 +48,7 @@ pub async fn create_task(
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
     let scope_ctx = auth.scope_context();
+    let agent_type = validate_agent_type(req.agent_type)?;
 
     // A task accepts `repository_id` and/or `workspace_id`. When a workspace is
     // supplied it drives the task's repositories (workspace wins): the effective
@@ -106,10 +108,6 @@ pub async fn create_task(
     }
 
     let is_template = repo.kind == RepositoryKind::Template;
-
-    let agent_type = req
-        .agent_type
-        .unwrap_or_else(|| AgentType(AgentType::CLAUDE_CODE.into()));
 
     // Resolve scope for the new task. Repositories are always user- or
     // global-scoped now; tasks always inherit User scope owned by the creator.
@@ -1656,6 +1654,28 @@ fn validate_task_name(name: &str) -> Result<(), TaskError> {
         ));
     }
     Ok(())
+}
+
+fn validate_agent_type(agent_type: Option<AgentType>) -> Result<AgentType, TaskError> {
+    let Some(agent_type) = agent_type else {
+        return Err(agent_type_error("agentType is required"));
+    };
+    if catalog::find(agent_type.as_str()).is_none() {
+        return Err(agent_type_error(&format!(
+            "unknown agentType `{}`",
+            agent_type.as_str()
+        )));
+    }
+    Ok(agent_type)
+}
+
+fn agent_type_error(reason: &str) -> TaskError {
+    let options = catalog::catalog()
+        .iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>()
+        .join(", ");
+    TaskError::BadRequest(format!("{reason}. Available options: {options}"))
 }
 
 /// Resolve display names for multiple user IDs in a single batch query.

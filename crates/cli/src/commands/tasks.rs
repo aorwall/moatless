@@ -60,8 +60,12 @@ pub enum TaskAction {
         mode: Option<String>,
         /// Harness to run the task with, e.g. `claude-code` or `codex`
         /// (see `moat api GET /api/v1/agents`)
-        #[arg(long)]
-        agent_type: Option<String>,
+        #[arg(
+            long,
+            required = true,
+            value_parser = clap::builder::PossibleValuesParser::new(AgentType::SUPPORTED)
+        )]
+        agent_type: String,
         /// Model for the chosen harness, e.g. `haiku` or `gpt-5.4-mini`
         #[arg(long)]
         model: Option<String>,
@@ -300,7 +304,7 @@ pub async fn run(
                 branch,
                 parent_task_id,
                 agent_mode: mode.map(AgentMode),
-                agent_type: agent_type.map(AgentType),
+                agent_type: Some(AgentType(agent_type)),
                 contexts: Vec::new(),
                 description: None,
                 file_ids: Vec::new(),
