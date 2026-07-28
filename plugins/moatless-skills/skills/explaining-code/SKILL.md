@@ -28,7 +28,7 @@ Answer the smaller ones at their own size. A pointer question deserves a pointer
 
 Explanation tuned for a novice actively degrades comprehension for someone who already knows the area — they have to reconcile your scaffolding against their own model. Prior knowledge is also the only lever that changes the intrinsic difficulty of the material, because it lets whole clusters collapse into one chunk.
 
-So ask, once, in one line:
+So ask, once, in one line — a ranked pick, per `/writing-messages`:
 
 > From the top, or do you already have the harness/coordinator split and want me to start at the signal boundary?
 

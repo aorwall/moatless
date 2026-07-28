@@ -10,7 +10,7 @@ description: Take a change from research to an agreed spec — research and deci
 1. **Research the current state**, and ask until you and the user see the same thing. Read the code; ask the understanding questions; settle the vocabulary against `CONTEXT.md`.
 2. **Render the page.** Its first content is that shared understanding, as `## Current solution`. Give the URL once.
 3. **Research and grill toward what to build**, growing `## Planned solution` as you go. This phase mixes reading code, asking the user, and writing the page — the seams are one of the questions. Update the lede and the decision table at the top whenever an answer changes them.
-4. **Get the plan approved, on the page.** Paste the decision table into the message so the choice is reachable without opening anything.
+4. **Get the plan approved, on the page.** Paste the decision table into the message so the choice is reachable without opening anything. This is an approval turn, not a ranked pick — see `/writing-messages`.
 5. **Write `specs/<slug>.md`, once** — complete and uncapped. It is for the agent that implements.
 
 Nothing goes into `specs/` before step 5.

@@ -10,26 +10,11 @@ Interview the user relentlessly about every aspect of this until you reach a sha
 Four rules, always:
 
 - **One question per turn**, and wait for the answer. Two questions means the user picks which to answer, and picking is where work stalls.
-- **Every question carries your recommended answer.** Reacting to a proposal is cheap; answering a blank prompt is not.
 - **Look facts up; only ask decisions.** If it can be found in the filesystem or with a tool, find it.
+- **A "you decide" escape on every decision.** Let the user hand a decision back, then record what you chose so it stays visible and reversible. Approval is theirs alone and takes no escape.
 - **Don't act until the user confirms** you have reached shared understanding.
 
-**`/writing-messages` owns the shape of the turn** — where the ask sits, how the options are formatted so they render, what earns a place in the message and what goes on the page instead. This skill owns *which question to ask*. Read both.
-
-Two things this skill adds to that shape:
-
-- **A "you decide" escape on every question.** Let the user hand a decision back, then record what you chose so it stays visible and reversible.
-- **The progress line names what is already settled**, not just the position.
-
-## Two question shapes, and the second one is easy to miss
-
-**A ranked pick** — 2–4 options, recommendation first, laid out as `/writing-messages` describes. Right when the answer is genuinely one option out of a few: which language, where the seam sits, build it now or later.
-
-**A selection from a set** — right when the answer is "which of these real things survive, and where does each go". Show the set: every item, one line each, with what you'd do with it. Then ask which survive.
-
-**If you are about to bundle a list of real things into 2–4 combinations, you want the second shape.** The user will regroup in ways you didn't offer. "Which of these four tiers run in CI" beats "db+sandbox / all / db only / sandbox+agent". "Here are the eight things only this file says, keep or move" beats "keep it / trim it / delete it".
-
-The tell: you find yourself writing an option that means "some of them".
+**Run `/writing-messages` for every turn you send.** It owns the two question shapes, what earns a place in the message, and what goes on the page instead. This skill owns *which* question to ask, in what order, and when to stop.
 
 ## Reach shared understanding before deciding anything
 

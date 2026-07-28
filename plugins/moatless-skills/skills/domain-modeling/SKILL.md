@@ -27,6 +27,8 @@ Create files lazily — only when you have something to write. If no `CONTEXT.md
 
 ## During the session
 
+Every question below is a ranked pick between two readings of a term. Send it per `/writing-messages` — the ask first, the readings as a real numbered list, your recommendation marked.
+
 ### Challenge against the glossary
 
 When the user uses a term that conflicts with the existing language in `CONTEXT.md`, call it out immediately. "Your glossary defines 'cancellation' as X, but you seem to mean Y — which is it?"

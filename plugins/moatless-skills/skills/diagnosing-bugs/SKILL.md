@@ -44,7 +44,7 @@ The goal is not a clean repro but a **higher reproduction rate**. Loop the trigg
 
 ### When you genuinely cannot build a loop
 
-Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a captured artifact (HAR file, log dump, core dump, screen recording with timestamps), or (c) permission to add temporary production instrumentation. Do **not** proceed to hypothesise without a loop.
+Stop and say so explicitly. List what you tried, then ask for one of: access to whatever environment reproduces it, a captured artifact (HAR file, log dump, core dump, screen recording with timestamps), or permission to add temporary production instrumentation. That is a ranked pick — send it per `/writing-messages`, since lettered options in prose collapse in the renderer. Do **not** proceed to hypothesise without a loop.
 
 ### Completion criterion — a tight loop that goes red
 

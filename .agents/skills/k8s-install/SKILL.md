@@ -40,7 +40,7 @@ Reads the cluster and reports `checks[]` plus a derived `cluster_type` (`aks`, `
 
 - Every `check.ok == true` → green light, continue.
 - `check.ok == false` → surface the `check.hint` verbatim and ask the user to fix or let the skill help. Never proceed past a failed tooling check (kubectl/helm missing).
-- Provider detection drives Step 2. If `generic`, ask the user whether they know which cloud they are on so defaults can be picked correctly.
+- Provider detection drives Step 2. If `generic`, ask which cloud they are on so defaults can be picked correctly — a ranked pick, per `/writing-messages`.
 
 Common failures and the right response:
 
