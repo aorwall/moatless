@@ -378,14 +378,18 @@ async fn list_unclosed_active_turns_filters_by_age_and_status(pool: PgPool) {
     let recent = Utc::now();
 
     // Directly seed task_turns with controlled started_at / status.
-    let seed = |task_id: &'static str, status: &'static str, started_at: chrono::DateTime<Utc>| {
+    let seed = |task_id: &'static str,
+                turn_number: i32,
+                status: &'static str,
+                started_at: chrono::DateTime<Utc>| {
         let pool = pool.clone();
         async move {
             sqlx::query(
                 r#"INSERT INTO task_turns (task_id, turn_number, status, agent_type, started_at)
-                   VALUES ($1, 1, $2, 'claude-code', $3)"#,
+                   VALUES ($1, $2, $3, 'claude-code', $4)"#,
             )
             .bind(task_id)
+            .bind(turn_number)
             .bind(status)
             .bind(started_at)
             .execute(&pool)
@@ -393,10 +397,12 @@ async fn list_unclosed_active_turns_filters_by_age_and_status(pool: PgPool) {
             .unwrap();
         }
     };
-    seed("old-active", "active", old).await;
-    seed("old-interrupted", "interrupted", old).await;
-    seed("old-completed", "completed", old).await;
-    seed("recent-active", "active", recent).await;
+    seed("old-active", 1, "active", old).await;
+    seed("old-interrupted", 1, "interrupted", old).await;
+    seed("old-completed", 1, "completed", old).await;
+    seed("recent-active", 1, "active", recent).await;
+    seed("stale-active", 1, "active", old).await;
+    seed("stale-active", 2, "completed", recent).await;
 
     let repo = PgTaskTurnRepository(pool.clone());
     let cutoff = Utc::now() - Duration::minutes(5);

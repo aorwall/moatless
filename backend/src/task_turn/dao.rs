@@ -272,10 +272,22 @@ impl TaskTurnRepository for PgTaskTurnRepository {
         older_than: DateTime<Utc>,
     ) -> Result<Vec<UnclosedTurn>, sqlx::Error> {
         let rows: Vec<(String, i32, Option<String>)> = sqlx::query_as(
-            r#"SELECT task_id, turn_number, agent_type
-               FROM task_turns
-               WHERE status IN ('active', 'interrupted')
-                 AND started_at < $1"#,
+            r#"SELECT tt.task_id, tt.turn_number, tt.agent_type
+               FROM task_turns tt
+               WHERE tt.status IN ('active', 'interrupted')
+                 AND tt.started_at < $1
+                 AND tt.turn_number = GREATEST(
+                   COALESCE((
+                     SELECT MAX(later_tt.turn_number)
+                     FROM task_turns later_tt
+                     WHERE later_tt.task_id = tt.task_id
+                   ), 0),
+                   COALESCE((
+                     SELECT MAX(m.turn_number)
+                     FROM task_messages m
+                     WHERE m.task_id = tt.task_id
+                   ), 0)
+                 )"#,
         )
         .bind(older_than)
         .fetch_all(&self.0)
