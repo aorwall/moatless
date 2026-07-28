@@ -12,6 +12,7 @@ pub mod naming;
 pub mod node_archive;
 pub mod owner_ref;
 pub mod pod_builder;
+mod pod_observation_policy;
 pub mod pod_reader;
 pub mod pod_status;
 pub mod pod_watcher;

@@ -32,16 +32,20 @@ use moatless_backend_core::scope::ScopeContext;
 use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
+use super::pod_observation_policy::{
+    ObservationContext, PodObservationPolicy, should_emit_scheduling_blocked,
+    should_emit_startup_slow, should_gc_failed_pod,
+};
 use super::pod_status::{
-    extract_container_observed_statuses, is_sandbox_container_ready,
-    DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
+    DEFAULT_SERVER_READINESS_TIMEOUT_SECS, extract_container_observed_statuses,
+    is_sandbox_container_ready,
 };
 use crate::events::EventPublisher;
-use crate::sandbox::lifecycle::classify::ObservedTransition;
-use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
-use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use crate::sandbox::lifecycle::Lifecycle;
 use crate::sandbox::lifecycle::OperationGeneration;
+use crate::sandbox::lifecycle::classify::ObservedTransition;
+use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
+use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use crate::task::dao::{TaskPatch, TaskRepository};
 use crate::task::models::SandboxStopReason;
 use crate::task_event::dao::TaskEventRepository;
@@ -72,102 +76,102 @@ struct WatcherDeps {
 
 /// Pod-Pending duration after which the watcher emits `scheduling_blocked`,
 /// surfacing an otherwise-silent unschedulable window (no node, quota, etc.).
-const SCHEDULING_BLOCKED_THRESHOLD_SECS: i64 = 60;
+pub(super) const SCHEDULING_BLOCKED_THRESHOLD_SECS: i64 = 60;
 
 /// Time a scheduled pod may sit with its sandbox container not yet running
 /// before the watcher emits `startup_slow` — makes a long volume-attach or
 /// image-pull window (e.g. EBS RWO Multi-Attach) a first-class event.
-const STARTUP_SLOW_THRESHOLD_SECS: i64 = 120;
+pub(super) const STARTUP_SLOW_THRESHOLD_SECS: i64 = 120;
 
 /// Exit code used by the sandbox to signal a permanent init failure (sysexits EX_CONFIG).
 const PERMANENT_FAILURE_EXIT_CODE: i32 = 78;
 
 /// Observed state of a server container, used for transition detection.
 #[derive(Debug, Clone, PartialEq)]
-struct ServerContainerState {
-    name: String,
-    status: String,
-    error: Option<String>,
-    detail: Option<String>,
-    terminated_reason: Option<String>,
-    exit_code: Option<i32>,
-    memory_limit: Option<String>,
-    running_since: Option<chrono::DateTime<chrono::Utc>>,
+pub(super) struct ServerContainerState {
+    pub(super) name: String,
+    pub(super) status: String,
+    pub(super) error: Option<String>,
+    pub(super) detail: Option<String>,
+    pub(super) terminated_reason: Option<String>,
+    pub(super) exit_code: Option<i32>,
+    pub(super) memory_limit: Option<String>,
+    pub(super) running_since: Option<chrono::DateTime<chrono::Utc>>,
     /// Restart count of this server container (used for crash-loop auto-disable).
-    restart_count: i32,
+    pub(super) restart_count: i32,
 }
 
 /// Observed state for a single pod, used for transition detection.
 #[derive(Debug, Clone)]
-struct PodObservedState {
-    task_id: String,
-    operation_generation: Option<OperationGeneration>,
-    phase: String,
+pub(super) struct PodObservedState {
+    pub(super) task_id: String,
+    pub(super) operation_generation: Option<OperationGeneration>,
+    pub(super) phase: String,
     /// Restart count of the **sandbox** container specifically.
-    restart_count: i32,
-    terminated_reason: Option<String>,
-    waiting_reason: Option<String>,
-    ready: bool,
-    pod_name: String,
+    pub(super) restart_count: i32,
+    pub(super) terminated_reason: Option<String>,
+    pub(super) waiting_reason: Option<String>,
+    pub(super) ready: bool,
+    pub(super) pod_name: String,
     /// Exit code from the sandbox container's *current* terminated state.
-    exit_code: Option<i32>,
+    pub(super) exit_code: Option<i32>,
     /// Exit code from the sandbox container's *last* terminated state — survives a
     /// K8s restart so a crash that's already been restarted into Running isn't lost.
-    last_exit_code: Option<i32>,
+    pub(super) last_exit_code: Option<i32>,
     /// Termination reason from the sandbox container's *last* terminated state.
-    last_terminated_reason: Option<String>,
+    pub(super) last_terminated_reason: Option<String>,
     /// Termination message or waiting message from the sandbox container.
-    failure_detail: Option<String>,
+    pub(super) failure_detail: Option<String>,
     /// Server container snapshots (excludes sandbox container).
-    server_containers: Vec<ServerContainerState>,
+    pub(super) server_containers: Vec<ServerContainerState>,
     /// Whether a fatal event has already been published for this pod.
     /// Suppresses repeated fatal events during CrashLoopBackOff.
-    fatal_published: bool,
+    pub(super) fatal_published: bool,
     /// Server names already auto-disabled during this pod's lifecycle. Fire-once
     /// guard so the watcher doesn't repeatedly redeploy while the old pod is
     /// still reporting the crash-looping container. Cleared naturally when a new
     /// pod replaces this map entry. A server enters the guard on a successful
     /// redeploy or after `MAX_AUTO_DISABLE_ATTEMPTS` failed redeploys.
-    auto_disabled_servers: HashSet<String>,
+    pub(super) auto_disabled_servers: HashSet<String>,
     /// Per-server count of failed auto-disable redeploys, so a permanently
     /// failing redeploy stops retrying instead of looping every watch event.
-    auto_disable_attempts: HashMap<String, u32>,
+    pub(super) auto_disable_attempts: HashMap<String, u32>,
     /// Whether the `moatless_sandbox_startup_seconds` histogram has already been
     /// recorded for this pod. Carried over so a pod that goes Ready→NotReady→
     /// Ready (e.g. after a container restart) is only timed on its *first* ready,
     /// keeping startup latency from being inflated by re-readies.
-    startup_recorded: bool,
+    pub(super) startup_recorded: bool,
     /// Node the pod is scheduled on (`pod.spec.node_name`), once bound. `None`
     /// while the pod is still `Pending` and unscheduled.
-    node_name: Option<String>,
+    pub(super) node_name: Option<String>,
     /// Why the pod was disrupted, derived from the `DisruptionTarget` pod
     /// condition reason, falling back to `pod.status.reason`.
-    disruption_reason: Option<String>,
+    pub(super) disruption_reason: Option<String>,
     /// Raw pod-level `status.reason`. Kubelet resource evictions (emptyDir
     /// sizeLimit, node pressure) set exactly `"Evicted"` here — the container
     /// states never carry it, so this is the only reliable eviction signal.
-    pod_status_reason: Option<String>,
+    pub(super) pod_status_reason: Option<String>,
     /// Pod-level `status.message` — for evictions this holds the actionable
     /// cause (e.g. `Usage of EmptyDir volume "docker-storage" exceeds the
     /// limit "10Gi"`).
-    pod_status_message: Option<String>,
+    pub(super) pod_status_message: Option<String>,
     /// Pod `creationTimestamp` as epoch milliseconds, used to derive
     /// `pending_seconds` on the Pending→scheduled edge.
-    created_at_ms: Option<i64>,
+    pub(super) created_at_ms: Option<i64>,
     /// Fire-once guard: a `scheduling_blocked` event has been emitted for this
     /// pod's stuck-Pending window. Carried over so the threshold sweep emits at
     /// most one blocked event per pod.
-    scheduling_blocked_published: bool,
+    pub(super) scheduling_blocked_published: bool,
     /// Fire-once guard: a `startup_slow` event has been emitted for this pod's
     /// slow-container-start window (e.g. long volume attach).
-    startup_slow_published: bool,
+    pub(super) startup_slow_published: bool,
     /// Epoch ms when this pod was first observed in the terminal `Failed`
     /// phase. K8s never garbage-collects Failed pods (e.g. evicted for
     /// exceeding an emptyDir sizeLimit), so the sweep deletes them once this
     /// is older than the GC grace period.
-    failed_since_ms: Option<i64>,
+    pub(super) failed_since_ms: Option<i64>,
     /// Fire-once guard: a GC delete has been issued for this Failed pod.
-    gc_requested: bool,
+    pub(super) gc_requested: bool,
     /// An auto-stop (scale Deployment to 0) has been decided for this pod — via
     /// the crash-restart threshold crossing or the exit-78 fast-fail — but not
     /// yet confirmed by a successful `scale_deployment` call. Set when the
@@ -175,25 +179,25 @@ struct PodObservedState {
     /// every subsequent watcher event and in the periodic sweep. Without this, a
     /// failed scale is lost: `restart_count` stays `>= threshold` so the "new
     /// crossing" edge never re-fires and the pod crash-loops forever.
-    auto_stop_pending: bool,
+    pub(super) auto_stop_pending: bool,
     /// Sandbox status most recently published from this pod's lifecycle
     /// transitions, carried across Apply events. Used to suppress consecutive
     /// identical publishes from the high-frequency container sub_types
     /// (restart/crash-loop/terminated), which otherwise fire once per K8s
     /// watch Apply while a container flaps. Watcher restart resets this —
     /// acceptable (one extra event per pod after failover).
-    last_published_sandbox_status: Option<SandboxStatus>,
+    pub(super) last_published_sandbox_status: Option<SandboxStatus>,
 }
 
 impl PodObservedState {
     /// Best-known sandbox-container exit code: the current terminated state if
     /// present, otherwise the last terminated state (which survives a restart).
-    fn effective_exit_code(&self) -> Option<i32> {
+    pub(super) fn effective_exit_code(&self) -> Option<i32> {
         self.exit_code.or(self.last_exit_code)
     }
 
     /// Best-known sandbox-container termination reason (current, else last).
-    fn effective_terminated_reason(&self) -> Option<String> {
+    pub(super) fn effective_terminated_reason(&self) -> Option<String> {
         self.terminated_reason
             .clone()
             .or_else(|| self.last_terminated_reason.clone())
@@ -464,14 +468,21 @@ async fn process_watcher_event(
                 }
             }
 
-            // Detect intra-pod transitions (same pod, state changed)
-            let transitions = detect_transitions(prev_state, &new_state);
+            // Carried across Apply events so a flapping container (one watch
+            // event per restart) publishes each status once, not once per Apply.
+            new_state.last_published_sandbox_status =
+                prev_state.and_then(|p| p.last_published_sandbox_status);
 
-            // Detect server container transitions
-            let server_transitions = detect_server_transitions(prev_state, &new_state);
+            let initial_plan = PodObservationPolicy::evaluate(
+                prev_state,
+                &new_state,
+                ObservationContext::default(),
+            );
 
             // Publish server container events as typed `server` events
-            for (server_sub_type, server_name, _status) in &server_transitions {
+            for transition in &initial_plan.server_transitions {
+                let server_sub_type = transition.sub_type;
+                let server_name = &transition.server_name;
                 let sc = new_state.server_containers.iter().find(|s| {
                     let n = s.name.strip_suffix("-server").unwrap_or(&s.name);
                     n == server_name
@@ -481,7 +492,8 @@ async fn process_watcher_event(
                     task_id = %task_id,
                     pod_name = %pod_name,
                     server = %server_name,
-                    event = ?server_sub_type,
+                    event = ?transition.sub_type,
+                    status = %transition.status,
                     error = ?sc.and_then(|s| s.error.as_deref()),
                     detail = ?sc.and_then(|s| s.detail.as_deref()),
                     "Server container status changed"
@@ -490,10 +502,10 @@ async fn process_watcher_event(
                 event_publisher
                     .publish_server_event(
                         &task_id,
-                        *server_sub_type,
+                        server_sub_type,
                         &ServerEventPayload {
                             server_name: server_name.clone(),
-                            status: *server_sub_type,
+                            status: server_sub_type,
                             message: format_server_message(sc),
                         },
                     )
@@ -504,14 +516,7 @@ async fn process_watcher_event(
             // When the idle reaper or user explicitly stops a sandbox, the pod
             // terminates with exit code 137 (SIGKILL) which would otherwise be
             // misinterpreted as a crash.
-            let has_error_transition = transitions.iter().any(|(sub_type, _)| {
-                matches!(
-                    lifecycle_sub_type_to_sandbox_status(sub_type),
-                    SandboxStatus::Error
-                )
-            });
-
-            let is_intentional_stop = if has_error_transition {
+            let is_intentional_stop = if initial_plan.has_error_transition {
                 match deployment::get_deployment_replicas(k8s, &task_id).await {
                     Ok((desired, _)) => desired == 0,
                     Err(e) => {
@@ -522,16 +527,27 @@ async fn process_watcher_event(
             } else {
                 false
             };
+            let plan = if is_intentional_stop {
+                PodObservationPolicy::evaluate(
+                    prev_state,
+                    &new_state,
+                    ObservationContext {
+                        intentional_stop: true,
+                    },
+                )
+            } else {
+                initial_plan
+            };
 
             // If sandbox entered an error state AND this is NOT an intentional stop,
             // force all servers to Failed (pod crash kills server containers too).
-            if has_error_transition && !is_intentional_stop {
+            if plan.has_error_transition && !is_intentional_stop {
                 for sc in &new_state.server_containers {
                     let server_name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-                    // Skip servers already reported as failed by detect_server_transitions
-                    let already_failed = server_transitions
-                        .iter()
-                        .any(|(st, name, _)| name == server_name && *st == ServerSubType::Failed);
+                    // Skip servers already reported as failed by the policy plan.
+                    let already_failed = plan.server_transitions.iter().any(|t| {
+                        t.server_name == server_name && t.sub_type == ServerSubType::Failed
+                    });
                     if already_failed {
                         continue;
                     }
@@ -558,25 +574,12 @@ async fn process_watcher_event(
                 }
             }
 
-            // Carried across Apply events so a flapping container (one watch
-            // event per restart) publishes each status once, not once per Apply.
-            new_state.last_published_sandbox_status =
-                prev_state.and_then(|p| p.last_published_sandbox_status);
+            for transition in &plan.sandbox_transitions {
+                let sub_type = &transition.sub_type;
+                let error_msg = &transition.error;
+                let sandbox_status = transition.status;
 
-            for (sub_type, error_msg) in &transitions {
-                // For intentional stops, downgrade error-level transitions to Stopped
-                let sandbox_status = if is_intentional_stop
-                    && matches!(
-                        lifecycle_sub_type_to_sandbox_status(sub_type),
-                        SandboxStatus::Error
-                    ) {
-                    SandboxStatus::Stopped
-                } else {
-                    lifecycle_sub_type_to_sandbox_status(sub_type)
-                };
-
-                let is_error_event = matches!(sandbox_status, SandboxStatus::Error);
-                if is_error_event && !is_intentional_stop {
+                if transition.is_error_event && !is_intentional_stop {
                     // A non-intentional error-level termination is a real failure.
                     // Count it (labelled for OOM-vs-crash slicing) and log at warn!
                     // so it surfaces in alerting, not buried in info noise.
@@ -618,11 +621,7 @@ async fn process_watcher_event(
 
                 // Metrics and logs above still record every detected edge —
                 // only the event publish is deduplicated.
-                if should_skip_duplicate_publish(
-                    sub_type,
-                    sandbox_status,
-                    new_state.last_published_sandbox_status,
-                ) {
+                if transition.skip_duplicate_publish {
                     debug!(
                         task_id = %task_id,
                         pod_name = %pod_name,
@@ -634,11 +633,11 @@ async fn process_watcher_event(
                 }
 
                 let mut event_generation = new_state.operation_generation;
-                if let Some(transition) = lifecycle_observed_transition(sandbox_status, sub_type) {
+                if let Some(observed_transition) = transition.lifecycle_observation {
                     let decision = classify_observation(
                         deps.lifecycle.as_ref(),
                         &task_id,
-                        transition,
+                        observed_transition,
                         new_state.operation_generation,
                     )
                     .await;
@@ -727,10 +726,14 @@ async fn process_watcher_event(
                     .or_else(|| Some(k8s_openapi::jiff::Timestamp::now().as_millisecond()));
                 new_state.gc_requested = prev_state.is_some_and(|p| p.gc_requested);
             }
-            if transitions.iter().any(|(sub, _)| sub == "pod_ready") {
+            if plan
+                .sandbox_transitions
+                .iter()
+                .any(|transition| transition.sub_type == "pod_ready")
+            {
                 new_state.fatal_published = false;
                 // Time pod-creation → first Ready once per pod.
-                if !new_state.startup_recorded {
+                if plan.should_record_startup {
                     record_sandbox_startup(pod);
                     new_state.startup_recorded = true;
                 }
@@ -741,14 +744,11 @@ async fn process_watcher_event(
             // Container-level crashes (OOM, terminated, crash loop) are not fatal
             // because K8s will restart them. The auto-stop threshold handles
             // persistent crash loops separately.
-            let has_fatal = transitions
-                .iter()
-                .any(|(sub_type, _)| matches!(sub_type.as_str(), "pod_failed" | "pod_evicted"));
-
-            if has_fatal && !is_intentional_stop && !new_state.fatal_published {
-                let error_msg = transitions
+            if plan.has_fatal_transition && !is_intentional_stop && !new_state.fatal_published {
+                let error_msg = plan
+                    .sandbox_transitions
                     .iter()
-                    .find_map(|(_, err)| err.as_ref())
+                    .find_map(|transition| transition.error.as_ref())
                     .cloned()
                     .unwrap_or_else(|| "Sandbox terminated unexpectedly".to_string());
 
@@ -831,9 +831,10 @@ async fn process_watcher_event(
             // Immediate fail for permanent init errors.
             // Exit code 78 signals the sandbox detected an unrecoverable failure
             // (repo not found, auth error, etc.) — no point retrying.
-            let has_terminated = transitions
+            let has_terminated = plan
+                .sandbox_transitions
                 .iter()
-                .any(|(sub, _)| sub == "container_terminated");
+                .any(|transition| transition.sub_type == "container_terminated");
             if has_terminated
                 && !is_intentional_stop
                 && new_state.exit_code == Some(PERMANENT_FAILURE_EXIT_CODE)
@@ -980,10 +981,7 @@ async fn process_watcher_event(
             // desires 0. When it still desires a replica, leave it untouched and
             // let K8s reschedule. A genuine exit-0 restart loop is still caught
             // by the restart-count auto-stop above.
-            let has_completed = transitions
-                .iter()
-                .any(|(sub, _)| sub == "sandbox_completed");
-            if has_completed {
+            if plan.has_completed_transition {
                 let desired_zero = match deployment::get_deployment_replicas(k8s, &task_id).await {
                     Ok((desired, _)) => desired == 0,
                     Err(e) => {
@@ -1464,25 +1462,6 @@ fn extract_task_id(pod: &Pod) -> Option<String> {
         .cloned()
 }
 
-fn lifecycle_observed_transition(
-    status: SandboxStatus,
-    lifecycle_event: &str,
-) -> Option<ObservedTransition> {
-    if lifecycle_event == CONTAINER_OOM_KILLED {
-        return Some(ObservedTransition::OomKilled);
-    }
-    if lifecycle_event == POD_EVICTED {
-        return Some(ObservedTransition::Evicted);
-    }
-    match status {
-        SandboxStatus::Ready => Some(ObservedTransition::Ready),
-        SandboxStatus::Stopped => Some(ObservedTransition::CleanStop),
-        SandboxStatus::Removed => Some(ObservedTransition::Deleted),
-        SandboxStatus::Error => Some(ObservedTransition::Crash),
-        _ => None,
-    }
-}
-
 /// Build the observed state from a pod's current status.
 /// Record sandbox startup latency (pod creation → first sandbox-container Ready)
 /// into the `moatless_sandbox_startup_seconds` histogram.
@@ -1503,7 +1482,11 @@ fn record_sandbox_startup(pod: &Pod) {
     metrics::histogram!("moatless_sandbox_startup_seconds").record(elapsed_ms as f64 / 1000.0);
 }
 
-fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodObservedState {
+pub(super) fn extract_pod_observed_state(
+    pod: &Pod,
+    pod_name: &str,
+    task_id: &str,
+) -> PodObservedState {
     let status = pod.status.as_ref();
 
     let phase = status
@@ -1672,278 +1655,6 @@ fn extract_pod_observed_state(pod: &Pod, pod_name: &str, task_id: &str) -> PodOb
     }
 }
 
-/// Whether an eviction's kubelet `status.message` names a graceful
-/// node-shutdown or drain cause rather than resource pressure.
-///
-/// Resource-pressure evictions (emptyDir sizeLimit exceeded, node disk/memory
-/// pressure) recur until the cause is fixed and wipe ephemeral data, so they
-/// surface as a fatal `pod_evicted` even when the container drained cleanly.
-/// Graceful node-shutdown / drain evictions instead name a shutdown/drain
-/// cause; K8s reschedules them and #268 keeps them silent on clean exit.
-///
-/// An absent message is treated as resource pressure (returns `false`): a bare
-/// pod-level `status.reason == "Evicted"` is only ever set by the kubelet under
-/// resource pressure, so it should be surfaced.
-/// Whether a disruption reason — from either the pod-level `status.reason` or
-/// the `DisruptionTarget` condition — means the pod's *node* went away rather
-/// than the container itself failing.
-///
-/// Covers the involuntary node-removal family: pod-GC of a pod orphaned by a
-/// deleted node (`DeletionByPodGC`), the node controller losing/shutting down a
-/// node (`NodeLost` / `NodeShutdown` / `Terminated`), and a NoExecute taint
-/// draining the node during a spot reclaim or autoscaler consolidation
-/// (`DeletionByTaintManager`). K8s reschedules all of these onto a new node, so
-/// they are a routine restart (`node_reclaimed`), never a fatal error.
-///
-/// Deliberately excludes `PreemptionByScheduler` (a higher-priority pod bumping
-/// this one — a scheduling decision, not a node loss) and `TerminationByKubelet`
-/// (node resource pressure — handled by the eviction path so recurring evictions
-/// still surface).
-fn is_node_removal_reason(reason: &str) -> bool {
-    matches!(
-        reason,
-        "DeletionByPodGC" | "NodeLost" | "NodeShutdown" | "Terminated" | "DeletionByTaintManager"
-    )
-}
-
-fn eviction_is_node_lifecycle(message: Option<&str>) -> bool {
-    let Some(msg) = message else {
-        return false;
-    };
-    let m = msg.to_ascii_lowercase();
-    m.contains("node shutdown")
-        || m.contains("shutting down")
-        || m.contains("terminated in response to")
-        || m.contains("drain")
-}
-
-/// Detect lifecycle transitions between previous and current pod state.
-///
-/// Returns a list of `(sub_type, optional_error_message)` pairs.
-fn detect_transitions(
-    prev: Option<&PodObservedState>,
-    current: &PodObservedState,
-) -> Vec<(String, Option<String>)> {
-    let mut events = Vec::new();
-
-    // Check for OOMKilled
-    if current.terminated_reason.as_deref() == Some("OOMKilled") {
-        let prev_reason = prev.and_then(|p| p.terminated_reason.as_deref());
-        if prev_reason != Some("OOMKilled") {
-            events.push((
-                "container_oom_killed".to_string(),
-                Some("Container was OOMKilled".to_string()),
-            ));
-        }
-    }
-
-    // Check for non-zero exit (non-OOM termination)
-    if let Some(ref reason) = current.terminated_reason {
-        if reason != "OOMKilled" && reason != "Completed" {
-            let prev_reason = prev.and_then(|p| p.terminated_reason.as_deref());
-            if prev_reason != Some(reason) {
-                events.push((
-                    "container_terminated".to_string(),
-                    Some(format!("Container terminated: {reason}")),
-                ));
-            }
-        }
-    }
-
-    // Detect clean sandbox exit (Completed with exit code 0).
-    // Instead of silently ignoring it, emit a transition so we can
-    // scale the deployment to 0 and prevent CrashLoopBackOff.
-    if current.terminated_reason.as_deref() == Some("Completed") && current.exit_code == Some(0) {
-        let prev_reason = prev.and_then(|p| p.terminated_reason.as_deref());
-        if prev_reason != Some("Completed") {
-            events.push(("sandbox_completed".to_string(), None));
-        }
-    }
-
-    // Check for CrashLoopBackOff
-    if current.waiting_reason.as_deref() == Some("CrashLoopBackOff") {
-        let prev_reason = prev.and_then(|p| p.waiting_reason.as_deref());
-        if prev_reason != Some("CrashLoopBackOff") {
-            events.push((
-                "container_crash_loop".to_string(),
-                Some("Container is in CrashLoopBackOff".to_string()),
-            ));
-        }
-    }
-
-    // Check for restart count increase
-    if let Some(prev) = prev {
-        if current.restart_count > prev.restart_count {
-            events.push((
-                "container_restarted".to_string(),
-                Some(format!(
-                    "Container restarted (count: {} -> {})",
-                    prev.restart_count, current.restart_count
-                )),
-            ));
-        }
-    }
-
-    // Check for pod phase transitions to terminal states
-    let prev_phase = prev.map_or("Unknown", |p| p.phase.as_str());
-    if current.phase != prev_phase {
-        match current.phase.as_str() {
-            "Failed" => {
-                // A pod reaches Failed phase three very different ways:
-                //   * Real failure — the container crashed, was OOM-killed, or
-                //     exited non-zero. Worth a fatal error.
-                //   * Graceful node shutdown / drain — the kubelet fails the pod
-                //     as its node is drained/reclaimed, but the sandbox caught
-                //     SIGTERM, drained, and the container exited 0 ("Completed").
-                //     This is an involuntary eviction K8s will reschedule, NOT a
-                //     sandbox error. The clean stop is already reported via
-                //     `sandbox_completed`, so raising a fatal error here would be
-                //     a scary false alarm for a routine reschedule (see #268).
-                //   * Kubelet *resource* eviction — the pod exceeded an emptyDir
-                //     sizeLimit (e.g. the dind `docker-storage` cap) or the node
-                //     hit disk/memory pressure. The kubelet sets the pod-level
-                //     `status.reason` to exactly "Evicted" and carries the cause
-                //     in `status.message`. These wipe the pod's ephemeral data
-                //     and recur until the cause is fixed, so they must surface
-                //     even when the sandbox drained cleanly — which previously
-                //     made them silently look like an idle stop.
-                let clean_exit = current.terminated_reason.as_deref() == Some("Completed")
-                    && current.exit_code == Some(0);
-                let is_evicted = current.pod_status_reason.as_deref() == Some("Evicted")
-                    || current
-                        .terminated_reason
-                        .as_deref()
-                        .is_some_and(|r| r.contains("Evict"));
-                // A resource-pressure eviction outranks the clean-exit branch; a
-                // node-lifecycle (shutdown/drain) eviction keeps #268's silence
-                // on clean exit. Distinguish by the kubelet cause in
-                // `status.message`.
-                let resource_pressure_eviction = is_evicted
-                    && !eviction_is_node_lifecycle(current.pod_status_message.as_deref());
-
-                // Involuntary node removal — the node object was deleted (spot
-                // reclaim, autoscaler consolidation) and the pod-GC controller
-                // failed the pod with `DeletionByPodGC`, or the node controller
-                // marked it `NodeLost`/`NodeShutdown`/`Terminated`, or a NoExecute
-                // taint drained it (`DeletionByTaintManager`). The Deployment
-                // reschedules onto a new node, so a fatal `pod_failed` here is a
-                // false alarm for a routine reschedule — the same class as #268's
-                // graceful drain, but on the hard node-removal path where the pod
-                // never drained cleanly (so the `clean_exit` branch above misses
-                // it).
-                //
-                // Match on BOTH the pod-level `status.reason` and the structured
-                // `DisruptionTarget` condition (carried in `disruption_reason`):
-                // the reason often lands on the condition first while
-                // `status.reason` is still empty on the watch event that observes
-                // the Failed edge, which previously slipped through here as a
-                // scary fatal `pod_failed`.
-                let is_node_removal = current
-                    .pod_status_reason
-                    .as_deref()
-                    .is_some_and(is_node_removal_reason)
-                    || current
-                        .disruption_reason
-                        .as_deref()
-                        .is_some_and(is_node_removal_reason);
-
-                let evicted_message = || {
-                    current.pod_status_message.as_deref().map_or_else(
-                        || "Pod was evicted".to_string(),
-                        |m| format!("Pod evicted: {}", m.trim()),
-                    )
-                };
-
-                if resource_pressure_eviction {
-                    // Surface even on clean exit — the cause recurs until fixed.
-                    events.push(("pod_evicted".to_string(), Some(evicted_message())));
-                } else if is_node_removal {
-                    // Involuntary node removal that K8s auto-reschedules. This is
-                    // NOT a fatal failure, but it IS the root cause of the restart
-                    // the user sees — so surface it explicitly as `node_reclaimed`
-                    // (a recovering-tone event, not an error) instead of staying
-                    // silent. The node name and disruption reason ride on every
-                    // sandbox event payload, so the UI can name the exact cause.
-                    events.push(("node_reclaimed".to_string(), None));
-                } else if clean_exit {
-                    // Graceful node-shutdown/drain eviction, or a clean idle
-                    // stop — emit nothing. `sandbox_completed` covers the stop
-                    // and the Deployment reschedules the pod; no fatal event.
-                } else if is_evicted {
-                    // A node-lifecycle eviction that did NOT drain cleanly —
-                    // still surface it so the user sees the pod went away.
-                    events.push(("pod_evicted".to_string(), Some(evicted_message())));
-                } else {
-                    events.push((
-                        "pod_failed".to_string(),
-                        Some("Pod entered Failed phase".to_string()),
-                    ));
-                }
-            }
-            "Succeeded" => {
-                events.push(("pod_succeeded".to_string(), None));
-            }
-            _ => {}
-        }
-    }
-
-    // Check for pod becoming ready (not-ready → ready)
-    if current.ready {
-        let was_ready = prev.is_some_and(|p| p.ready);
-        if !was_ready {
-            events.push(("pod_ready".to_string(), None));
-        }
-    }
-
-    // Pending → scheduled edge: the pod just got bound to a node. Only emit on a
-    // real transition (a previously-observed pod that had no node), so we don't
-    // retroactively fire for pods first seen already-scheduled.
-    if let Some(prev) = prev {
-        if prev.node_name.is_none() && current.node_name.is_some() {
-            events.push(("pod_scheduled".to_string(), None));
-        }
-    }
-
-    events
-}
-
-/// Detect server container status transitions.
-///
-/// Returns a list of `(ServerSubType, server_name, status)` tuples for changed servers.
-fn detect_server_transitions(
-    prev: Option<&PodObservedState>,
-    current: &PodObservedState,
-) -> Vec<(ServerSubType, String, String)> {
-    let mut events = Vec::new();
-
-    let prev_servers: HashMap<&str, &str> = prev
-        .map(|p| {
-            p.server_containers
-                .iter()
-                .map(|sc| (sc.name.as_str(), sc.status.as_str()))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    for sc in &current.server_containers {
-        let server_name = sc.name.strip_suffix("-server").unwrap_or(&sc.name);
-        let prev_status = prev_servers.get(sc.name.as_str()).copied();
-
-        if prev_status != Some(sc.status.as_str()) {
-            let sub_type = match sc.status.as_str() {
-                "starting" => ServerSubType::Starting,
-                "started" => ServerSubType::Started,
-                "failed" => ServerSubType::Failed,
-                "stopped" => ServerSubType::Stopped,
-                _ => continue,
-            };
-            events.push((sub_type, server_name.to_string(), sc.status.clone()));
-        }
-    }
-
-    events
-}
-
 /// Fetch the last N lines of the sandbox container's logs.
 /// Returns `None` if logs can't be fetched (best-effort, never fails).
 async fn fetch_sandbox_logs(k8s: &K8sClient, pod_name: &str, tail_lines: i64) -> Option<String> {
@@ -2063,28 +1774,6 @@ async fn emit_turn_interrupted_if_active(
         .await;
 }
 
-/// Whether a pod qualifies for a `scheduling_blocked` event: still Pending and
-/// unscheduled (no node) past the threshold, and not already reported. Pure so
-/// the threshold logic is unit-testable without a K8s client.
-fn should_emit_scheduling_blocked(state: &PodObservedState, age_secs: i64) -> bool {
-    !state.scheduling_blocked_published
-        && state.phase == "Pending"
-        && state.node_name.is_none()
-        && age_secs >= SCHEDULING_BLOCKED_THRESHOLD_SECS
-}
-
-/// Whether a pod qualifies for a `startup_slow` event: scheduled onto a node but
-/// its sandbox container still isn't ready long after creation, and the pod
-/// hasn't reached a terminal phase. Pure for unit-testing.
-fn should_emit_startup_slow(state: &PodObservedState, age_secs: i64) -> bool {
-    !state.startup_slow_published
-        && state.node_name.is_some()
-        && !state.ready
-        && state.phase != "Failed"
-        && state.phase != "Succeeded"
-        && age_secs >= STARTUP_SLOW_THRESHOLD_SECS
-}
-
 /// Periodic sweep over tracked pods that emits the threshold-driven visibility
 /// events — `scheduling_blocked` (pod stuck Pending) and `startup_slow` (pod
 /// scheduled but its sandbox container not yet running). Runs on the watcher's
@@ -2170,17 +1859,7 @@ async fn sweep_pending_pods(
 /// Long enough for post-mortem inspection (`kubectl logs --previous`, pod
 /// describe), short enough that corpses don't accumulate — K8s itself never
 /// removes Failed pods until the cluster-wide terminated-pod GC threshold.
-const FAILED_POD_GC_GRACE_MS: i64 = 15 * 60 * 1000;
-
-/// True when a tracked pod is a Failed corpse past the GC grace period that
-/// hasn't been deleted yet.
-fn should_gc_failed_pod(state: &PodObservedState, now_ms: i64) -> bool {
-    state.phase == "Failed"
-        && !state.gc_requested
-        && state
-            .failed_since_ms
-            .is_some_and(|since| now_ms - since >= FAILED_POD_GC_GRACE_MS)
-}
+pub(super) const FAILED_POD_GC_GRACE_MS: i64 = 15 * 60 * 1000;
 
 /// Delete pods stuck in the terminal `Failed` phase past the grace period.
 ///
@@ -2259,100 +1938,6 @@ async fn retry_pending_auto_stops(
     }
 }
 
-/// Lifecycle sub_types that can fire on every K8s watch Apply while a
-/// container flaps (CrashLoopBackOff): one publish per restart cycle otherwise
-/// floods history with identical `initializing` events. Genuine transitions
-/// (`pod_ready`, `pod_failed`, `pod_evicted`, `pod_recovering`,
-/// `pod_scheduled`, `container_oom_killed`, ...) always publish.
-const HIGH_FREQUENCY_LIFECYCLE_SUB_TYPES: &[&str] = &[
-    "container_restarted",
-    "container_crash_loop",
-    "container_terminated",
-];
-const CONTAINER_OOM_KILLED: &str = "container_oom_killed";
-const POD_EVICTED: &str = "pod_evicted";
-
-/// Whether a lifecycle publish should be suppressed: high-frequency container
-/// sub_type AND the sandbox status it maps to matches the last one published
-/// for this pod.
-fn should_skip_duplicate_publish(
-    sub_type: &str,
-    status: SandboxStatus,
-    last_published: Option<SandboxStatus>,
-) -> bool {
-    HIGH_FREQUENCY_LIFECYCLE_SUB_TYPES.contains(&sub_type) && last_published == Some(status)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LifecycleSandboxSubType {
-    PodDeleted,
-    PodEvicted,
-    PodFailed,
-    ContainerOomKilled,
-    ContainerTerminated,
-    ContainerCrashLoop,
-    PodReady,
-    PodSucceeded,
-    SandboxCompleted,
-    ContainerRestarted,
-    PodRecovering,
-    PodScheduled,
-    NodeReclaimed,
-}
-
-impl LifecycleSandboxSubType {
-    fn sandbox_status(self) -> SandboxStatus {
-        match self {
-            Self::PodDeleted => SandboxStatus::NotCreated,
-            Self::PodEvicted | Self::PodFailed => SandboxStatus::Error,
-            // Container-level crashes stay Initializing — K8s will restart them.
-            // Only pod-level failures (evicted, failed) are truly dead.
-            Self::ContainerOomKilled | Self::ContainerTerminated | Self::ContainerCrashLoop => {
-                SandboxStatus::Initializing
-            }
-            Self::PodReady => SandboxStatus::Ready,
-            Self::PodSucceeded | Self::SandboxCompleted => SandboxStatus::Stopped,
-            // Node reclaim is an involuntary reschedule, not a failure — treat it as
-            // recovering (Initializing), never Error, so it doesn't read as a crash.
-            Self::ContainerRestarted
-            | Self::PodRecovering
-            | Self::PodScheduled
-            | Self::NodeReclaimed => SandboxStatus::Initializing,
-        }
-    }
-}
-
-impl TryFrom<&str> for LifecycleSandboxSubType {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "pod_deleted" => Ok(Self::PodDeleted),
-            "pod_evicted" => Ok(Self::PodEvicted),
-            "pod_failed" => Ok(Self::PodFailed),
-            "container_oom_killed" => Ok(Self::ContainerOomKilled),
-            "container_terminated" => Ok(Self::ContainerTerminated),
-            "container_crash_loop" => Ok(Self::ContainerCrashLoop),
-            "pod_ready" => Ok(Self::PodReady),
-            "pod_succeeded" => Ok(Self::PodSucceeded),
-            "sandbox_completed" => Ok(Self::SandboxCompleted),
-            "container_restarted" => Ok(Self::ContainerRestarted),
-            "pod_recovering" => Ok(Self::PodRecovering),
-            "pod_scheduled" => Ok(Self::PodScheduled),
-            "node_reclaimed" => Ok(Self::NodeReclaimed),
-            other => Err(format!("unknown lifecycle sandbox sub_type: {other}")),
-        }
-    }
-}
-
-/// Map a lifecycle event sub_type to the corresponding SandboxStatus.
-fn lifecycle_sub_type_to_sandbox_status(sub_type: &str) -> SandboxStatus {
-    LifecycleSandboxSubType::try_from(sub_type).map_or(
-        SandboxStatus::Error,
-        LifecycleSandboxSubType::sandbox_status,
-    )
-}
-
 /// Generate a human-readable message for a server container event.
 ///
 /// Since `server_name` and `status` are separate fields, this returns only
@@ -2414,234 +1999,8 @@ fn format_sandbox_lifecycle_message(lifecycle_event: &str, error: Option<&str>) 
 mod tests {
     use super::*;
     use crate::sandbox::k8s::pod_status::test_helpers::{
-        pod_with_phase_and_containers, running_container, terminated_container, waiting_container,
+        pod_with_phase_and_containers, running_container, terminated_container,
     };
-
-    /// A Failed corpse past the grace period is GC'd exactly once; live pods,
-    /// fresh failures, and already-GC'd entries are left alone.
-    #[test]
-    fn should_gc_failed_pod_requires_terminal_phase_grace_and_no_prior_gc() {
-        let pod = pod_with_phase_and_containers(
-            "Failed",
-            vec![terminated_container("sandbox", "Error", 137)],
-        );
-        let mut state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        let now_ms = 1_000_000 + FAILED_POD_GC_GRACE_MS;
-
-        // No failed_since recorded yet — not eligible.
-        assert!(!should_gc_failed_pod(&state, now_ms));
-
-        // Failed long enough — eligible.
-        state.failed_since_ms = Some(1_000_000);
-        assert!(should_gc_failed_pod(&state, now_ms));
-
-        // Within the grace period — not yet.
-        assert!(!should_gc_failed_pod(&state, now_ms - 1));
-
-        // Delete already issued — never again.
-        state.gc_requested = true;
-        assert!(!should_gc_failed_pod(&state, now_ms));
-
-        // Non-terminal phase — never, regardless of timestamps.
-        state.gc_requested = false;
-        state.phase = "Running".to_string();
-        assert!(!should_gc_failed_pod(&state, now_ms));
-    }
-
-    /// Graceful node shutdown fails the pod while the sandbox container exits
-    /// 0/Completed. That is a routine eviction K8s will reschedule, so it must
-    /// NOT surface a fatal `pod_failed`/`pod_evicted` — the stop is reported via
-    /// `sandbox_completed` instead.
-    #[test]
-    fn failed_phase_with_clean_exit_is_not_fatal() {
-        let pod = pod_with_phase_and_containers(
-            "Failed",
-            vec![terminated_container("sandbox", "Completed", 0)],
-        );
-        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions
-            .iter()
-            .map(|(s, _)| s.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(
-            !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
-            "clean-exit Failed pod must not raise a fatal event: {subs:?}"
-        );
-        assert!(
-            subs.contains(&"sandbox_completed"),
-            "clean stop should still be reported via sandbox_completed: {subs:?}"
-        );
-    }
-
-    /// A pod that fails with a real crash (non-zero exit) still raises
-    /// `pod_failed` so the user sees the fatal error.
-    #[test]
-    fn failed_phase_with_crash_still_fatal() {
-        let pod = pod_with_phase_and_containers(
-            "Failed",
-            vec![terminated_container("sandbox", "Error", 1)],
-        );
-        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions
-            .iter()
-            .map(|(s, _)| s.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(
-            subs.contains(&"pod_failed"),
-            "a real crash must raise pod_failed: {subs:?}"
-        );
-    }
-
-    /// A kubelet *resource* eviction (pod `status.reason == "Evicted"`, e.g.
-    /// emptyDir sizeLimit exceeded) must surface `pod_evicted` with the
-    /// actionable `status.message` — even when the sandbox drained cleanly
-    /// (exit 0), which previously (pre-#269) made the eviction silently look
-    /// like a stop under #268's clean-exit-wins ordering.
-    #[test]
-    fn kubelet_eviction_surfaces_even_on_clean_exit() {
-        let mut pod = pod_with_phase_and_containers(
-            "Failed",
-            vec![terminated_container("sandbox", "Completed", 0)],
-        );
-        let status = pod.status.as_mut().expect("test pod has status");
-        status.reason = Some("Evicted".to_string());
-        status.message =
-            Some("Usage of EmptyDir volume \"docker-storage\" exceeds the limit \"10Gi\". ".into());
-
-        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        let transitions = detect_transitions(None, &state);
-
-        let evicted = transitions
-            .iter()
-            .find(|(s, _)| s == "pod_evicted")
-            .expect("eviction must raise pod_evicted");
-        let message = evicted.1.as_deref().unwrap_or_default();
-        assert!(
-            message.contains("docker-storage") && message.contains("10Gi"),
-            "pod_evicted must carry the kubelet's eviction cause, got: {message}"
-        );
-    }
-
-    /// A graceful node-shutdown / drain eviction (pod `status.reason ==
-    /// "Evicted"` but a node-lifecycle `status.message`) that drained cleanly
-    /// stays SILENT — #268's intent, preserved by classifying the cause. K8s
-    /// reschedules it and `sandbox_completed` already reports the clean stop.
-    #[test]
-    fn node_shutdown_eviction_on_clean_exit_stays_silent() {
-        let mut pod = pod_with_phase_and_containers(
-            "Failed",
-            vec![terminated_container("sandbox", "Completed", 0)],
-        );
-        let status = pod.status.as_mut().expect("test pod has status");
-        status.reason = Some("Evicted".to_string());
-        status.message = Some("The node was low on resource: node is shutting down.".into());
-
-        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions
-            .iter()
-            .map(|(s, _)| s.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(
-            !subs.contains(&"pod_evicted") && !subs.contains(&"pod_failed"),
-            "a clean-exit node-shutdown eviction must stay silent: {subs:?}"
-        );
-        assert!(
-            subs.contains(&"sandbox_completed"),
-            "the clean stop is still reported via sandbox_completed: {subs:?}"
-        );
-    }
-
-    /// An involuntary node removal — the node object is deleted (spot reclaim /
-    /// autoscaler consolidation) and the pod-GC controller fails the pod with
-    /// `status.reason == "DeletionByPodGC"`, hard-killing the container (no clean
-    /// exit). K8s reschedules onto a new node, so this must NOT raise a fatal
-    /// `pod_failed`/`pod_evicted`; instead it surfaces the root cause as a
-    /// recovering-tone `node_reclaimed` event.
-    #[test]
-    fn deletion_by_pod_gc_is_node_reclaimed_not_fatal() {
-        let mut pod = pod_with_phase_and_containers(
-            "Failed",
-            vec![terminated_container("sandbox", "Error", 137)],
-        );
-        let status = pod.status.as_mut().expect("test pod has status");
-        status.reason = Some("DeletionByPodGC".to_string());
-        status.message = Some("PodGC: node no longer exists".into());
-
-        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions
-            .iter()
-            .map(|(s, _)| s.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(
-            !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
-            "a node-removal (DeletionByPodGC) reschedule must not raise a fatal event: {subs:?}"
-        );
-        assert!(
-            subs.contains(&"node_reclaimed"),
-            "node removal must surface the root cause as node_reclaimed: {subs:?}"
-        );
-        // node_reclaimed is a recovering reschedule, never an Error status.
-        assert!(
-            !matches!(
-                lifecycle_sub_type_to_sandbox_status("node_reclaimed"),
-                SandboxStatus::Error
-            ),
-            "node_reclaimed must not map to an Error sandbox status"
-        );
-    }
-
-    /// The real spot-reclaim shape that previously slipped through as a fatal:
-    /// the node-removal reason arrives on the structured `DisruptionTarget`
-    /// condition while the pod-level `status.reason` is still empty on the watch
-    /// event that first observes the Failed edge. Classification must consult the
-    /// condition (`disruption_reason`), not just `status.reason`, so this is a
-    /// `node_reclaimed` reschedule and NOT a fatal `pod_failed`.
-    #[test]
-    fn node_removal_via_disruption_condition_is_not_fatal() {
-        use k8s_openapi::api::core::v1::PodCondition;
-
-        let mut pod = pod_with_phase_and_containers(
-            "Failed",
-            vec![terminated_container("sandbox", "Error", 137)],
-        );
-        let status = pod.status.as_mut().expect("test pod has status");
-        // status.reason intentionally left unset — the cause is only on the
-        // DisruptionTarget condition (a NoExecute-taint drain / spot reclaim).
-        status.conditions = Some(vec![PodCondition {
-            type_: "DisruptionTarget".to_string(),
-            reason: Some("DeletionByTaintManager".to_string()),
-            ..Default::default()
-        }]);
-
-        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        assert!(
-            state.pod_status_reason.is_none(),
-            "precondition: status.reason must be empty so only the condition carries the cause"
-        );
-
-        let transitions = detect_transitions(None, &state);
-        let subs: Vec<&str> = transitions
-            .iter()
-            .map(|(s, _)| s.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(
-            !subs.contains(&"pod_failed") && !subs.contains(&"pod_evicted"),
-            "a condition-sourced node removal must not raise a fatal event: {subs:?}"
-        );
-        assert!(
-            subs.contains(&"node_reclaimed"),
-            "condition-sourced node removal must surface node_reclaimed: {subs:?}"
-        );
-    }
 
     /// A terminated sandbox container exposes its exit code + K8s reason so the
     /// fatal/termination payloads can distinguish OOM (137) from a crash (1).
@@ -2704,31 +2063,6 @@ mod tests {
         assert_eq!(
             state.effective_terminated_reason().as_deref(),
             Some("OOMKilled")
-        );
-    }
-
-    /// A crash-looping non-default server must NOT keep the watcher from
-    /// observing the sandbox as ready and emitting `pod_ready`.
-    #[test]
-    fn ready_tracks_sandbox_container_not_pod_condition() {
-        let pod = pod_with_phase_and_containers(
-            "Running",
-            vec![
-                running_container("sandbox", true, true),
-                waiting_container("storybook-server", "CrashLoopBackOff"),
-            ],
-        );
-
-        let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
-        assert!(
-            state.ready,
-            "sandbox ready should make observed state ready despite crash-looping server"
-        );
-
-        let transitions = detect_transitions(None, &state);
-        assert!(
-            transitions.iter().any(|(sub, _)| sub == "pod_ready"),
-            "expected pod_ready transition, got: {transitions:?}"
         );
     }
 
@@ -2843,87 +2177,6 @@ mod tests {
         assert!(state.node_name.is_none());
     }
 
-    /// A pod that binds to a node (Pending→scheduled edge) emits `pod_scheduled`,
-    /// but only on a real transition — never for a pod first seen already bound.
-    #[test]
-    fn detect_emits_pod_scheduled_on_binding() {
-        let mut pending = extract_pod_observed_state(
-            &pod_with_phase_and_containers("Pending", vec![]),
-            "pod-1",
-            "task-1",
-        );
-        pending.node_name = None;
-
-        let mut scheduled = pending.clone();
-        scheduled.node_name = Some("ip-10-0-1-42".to_string());
-
-        let transitions = detect_transitions(Some(&pending), &scheduled);
-        assert!(
-            transitions.iter().any(|(sub, _)| sub == "pod_scheduled"),
-            "expected pod_scheduled, got: {transitions:?}"
-        );
-
-        // First observation already-scheduled (prev = None) must NOT fire it.
-        let first_seen = detect_transitions(None, &scheduled);
-        assert!(
-            !first_seen.iter().any(|(sub, _)| sub == "pod_scheduled"),
-            "pod_scheduled should not fire retroactively, got: {first_seen:?}"
-        );
-    }
-
-    /// `pod_scheduled` maps to an Initializing (progress) status, not the
-    /// default Error arm — otherwise it would trip the intentional-stop check.
-    #[test]
-    fn pod_scheduled_is_initializing_not_error() {
-        assert_eq!(
-            lifecycle_sub_type_to_sandbox_status("pod_scheduled"),
-            SandboxStatus::Initializing
-        );
-    }
-
-    #[test]
-    fn lifecycle_sub_type_projects_to_sandbox_status() {
-        let cases = [
-            ("pod_deleted", SandboxStatus::NotCreated),
-            ("pod_evicted", SandboxStatus::Error),
-            ("pod_failed", SandboxStatus::Error),
-            ("container_oom_killed", SandboxStatus::Initializing),
-            ("container_terminated", SandboxStatus::Initializing),
-            ("container_crash_loop", SandboxStatus::Initializing),
-            ("pod_ready", SandboxStatus::Ready),
-            ("pod_succeeded", SandboxStatus::Stopped),
-            ("sandbox_completed", SandboxStatus::Stopped),
-            ("container_restarted", SandboxStatus::Initializing),
-            ("pod_recovering", SandboxStatus::Initializing),
-            ("pod_scheduled", SandboxStatus::Initializing),
-            ("node_reclaimed", SandboxStatus::Initializing),
-        ];
-
-        for (sub_type, expected) in cases {
-            assert_eq!(
-                lifecycle_sub_type_to_sandbox_status(sub_type),
-                expected,
-                "{sub_type}"
-            );
-        }
-    }
-
-    #[test]
-    fn unknown_lifecycle_sub_type_projects_to_error() {
-        assert_eq!(
-            lifecycle_sub_type_to_sandbox_status("unknown"),
-            SandboxStatus::Error
-        );
-    }
-
-    fn base_state(phase: &str) -> PodObservedState {
-        extract_pod_observed_state(
-            &pod_with_phase_and_containers(phase, vec![]),
-            "pod-1",
-            "task-1",
-        )
-    }
-
     #[test]
     fn pod_observation_carries_operation_generation() {
         let mut pod = Pod::default();
@@ -2933,163 +2186,5 @@ mod tests {
         )]));
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
         assert_eq!(state.operation_generation, Some(OperationGeneration(12)));
-    }
-
-    #[test]
-    fn watcher_maps_runtime_failures_to_unsuppressible_transitions() {
-        assert_eq!(
-            lifecycle_observed_transition(SandboxStatus::Stopped, "pod_deleted"),
-            Some(ObservedTransition::CleanStop)
-        );
-        assert_eq!(
-            lifecycle_observed_transition(SandboxStatus::Removed, "pod_deleted"),
-            Some(ObservedTransition::Deleted)
-        );
-        assert_eq!(
-            lifecycle_observed_transition(SandboxStatus::Error, CONTAINER_OOM_KILLED),
-            Some(ObservedTransition::OomKilled)
-        );
-        assert_eq!(
-            lifecycle_observed_transition(SandboxStatus::Error, POD_EVICTED),
-            Some(ObservedTransition::Evicted)
-        );
-        assert_eq!(
-            lifecycle_observed_transition(SandboxStatus::Error, "container_crashed"),
-            Some(ObservedTransition::Crash)
-        );
-    }
-
-    /// A pod stuck Pending+unscheduled past the threshold trips
-    /// `scheduling_blocked` exactly once — not before the threshold, not once
-    /// scheduled, and not after it's already been reported.
-    #[test]
-    fn scheduling_blocked_predicate() {
-        let mut s = base_state("Pending");
-        s.node_name = None;
-
-        assert!(!should_emit_scheduling_blocked(
-            &s,
-            SCHEDULING_BLOCKED_THRESHOLD_SECS - 1
-        ));
-        assert!(should_emit_scheduling_blocked(
-            &s,
-            SCHEDULING_BLOCKED_THRESHOLD_SECS
-        ));
-
-        // Once scheduled (node assigned) it no longer qualifies.
-        let mut scheduled = s.clone();
-        scheduled.node_name = Some("ip-10-0-1-42".to_string());
-        assert!(!should_emit_scheduling_blocked(
-            &scheduled,
-            SCHEDULING_BLOCKED_THRESHOLD_SECS + 300
-        ));
-
-        // Fire-once guard.
-        s.scheduling_blocked_published = true;
-        assert!(!should_emit_scheduling_blocked(
-            &s,
-            SCHEDULING_BLOCKED_THRESHOLD_SECS + 300
-        ));
-    }
-
-    /// A scheduled-but-not-ready pod trips `startup_slow` past the threshold, but
-    /// not while ready, nor once it has reached a terminal phase, nor twice.
-    #[test]
-    fn startup_slow_predicate() {
-        let mut s = base_state("Running");
-        s.node_name = Some("ip-10-0-1-42".to_string());
-        s.ready = false;
-
-        assert!(!should_emit_startup_slow(
-            &s,
-            STARTUP_SLOW_THRESHOLD_SECS - 1
-        ));
-        assert!(should_emit_startup_slow(&s, STARTUP_SLOW_THRESHOLD_SECS));
-
-        // Ready pods don't qualify.
-        let mut ready = s.clone();
-        ready.ready = true;
-        assert!(!should_emit_startup_slow(
-            &ready,
-            STARTUP_SLOW_THRESHOLD_SECS + 300
-        ));
-
-        // Terminal phases don't qualify (the fatal path handles those).
-        let mut failed = s.clone();
-        failed.phase = "Failed".to_string();
-        assert!(!should_emit_startup_slow(
-            &failed,
-            STARTUP_SLOW_THRESHOLD_SECS + 300
-        ));
-
-        // Unscheduled pods are scheduling_blocked's job, not startup_slow's.
-        let mut unscheduled = s.clone();
-        unscheduled.node_name = None;
-        assert!(!should_emit_startup_slow(
-            &unscheduled,
-            STARTUP_SLOW_THRESHOLD_SECS + 300
-        ));
-
-        // Fire-once guard.
-        s.startup_slow_published = true;
-        assert!(!should_emit_startup_slow(
-            &s,
-            STARTUP_SLOW_THRESHOLD_SECS + 300
-        ));
-    }
-
-    /// High-frequency container sub_types are suppressed only when they would
-    /// repeat the last-published sandbox status; genuine transitions always
-    /// publish regardless of the last-published status.
-    #[test]
-    fn duplicate_publish_suppression() {
-        // A flapping container re-reporting Initializing is suppressed.
-        assert!(should_skip_duplicate_publish(
-            "container_restarted",
-            SandboxStatus::Initializing,
-            Some(SandboxStatus::Initializing)
-        ));
-        assert!(should_skip_duplicate_publish(
-            "container_crash_loop",
-            SandboxStatus::Initializing,
-            Some(SandboxStatus::Initializing)
-        ));
-        assert!(should_skip_duplicate_publish(
-            "container_terminated",
-            SandboxStatus::Initializing,
-            Some(SandboxStatus::Initializing)
-        ));
-
-        // A status change publishes even for high-frequency sub_types.
-        assert!(!should_skip_duplicate_publish(
-            "container_restarted",
-            SandboxStatus::Initializing,
-            Some(SandboxStatus::Ready)
-        ));
-
-        // First publish for a pod (nothing published yet) goes through.
-        assert!(!should_skip_duplicate_publish(
-            "container_restarted",
-            SandboxStatus::Initializing,
-            None
-        ));
-
-        // Genuine transitions are never suppressed, even when repeated.
-        assert!(!should_skip_duplicate_publish(
-            "pod_ready",
-            SandboxStatus::Ready,
-            Some(SandboxStatus::Ready)
-        ));
-        assert!(!should_skip_duplicate_publish(
-            "pod_evicted",
-            SandboxStatus::Error,
-            Some(SandboxStatus::Error)
-        ));
-        // OOM kills stay loud — each one carries a fresh exit code payload.
-        assert!(!should_skip_duplicate_publish(
-            "container_oom_killed",
-            SandboxStatus::Initializing,
-            Some(SandboxStatus::Initializing)
-        ));
     }
 }
