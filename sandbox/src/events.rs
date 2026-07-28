@@ -10,7 +10,7 @@
 
 use moatless_events::{AgentSubType, EventType, TaskSubType, TaskTurnSubType};
 use sandbox_proto::PublishEventRequest;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::outbox::EventOutbox;
 
@@ -56,6 +56,13 @@ impl GrpcEventPublisher {
     pub fn enqueue(&self, mut req: PublishEventRequest) {
         if req.event_id.is_empty() {
             req.event_id = uuid::Uuid::new_v4().to_string();
+        }
+        if sanitize_payload_json_nuls(&mut req.payload_json) {
+            warn!(
+                task_id = %req.task_id,
+                sub_type = %req.sub_type,
+                "Sanitized NUL bytes from event payload before publishing"
+            );
         }
         self.outbox.enqueue(req);
     }
@@ -150,7 +157,7 @@ impl GrpcEventPublisher {
             "Enqueueing event for delivery"
         );
 
-        self.outbox.enqueue(PublishEventRequest {
+        self.enqueue(PublishEventRequest {
             task_id: task_id.to_string(),
             event_type: proto_event_type as i32,
             sub_type: sub_type.to_string(),
@@ -159,5 +166,207 @@ impl GrpcEventPublisher {
             sequence: 0,
             run_id: self.run_id.clone().unwrap_or_default(),
         });
+    }
+}
+
+fn sanitize_payload_json_nuls(payload_json: &mut String) -> bool {
+    if !payload_json.contains('\0') && !payload_json.contains("\\u0000") {
+        return false;
+    }
+
+    let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(payload_json) else {
+        return false;
+    };
+    if !sanitize_value_nuls(&mut payload) {
+        return false;
+    }
+
+    match serde_json::to_string(&payload) {
+        Ok(sanitized) => {
+            *payload_json = sanitized;
+            true
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to reserialize sanitized event payload");
+            false
+        }
+    }
+}
+
+fn sanitize_value_nuls(value: &mut serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(s) => {
+            if s.contains('\0') {
+                *s = s.replace('\0', "\\0");
+                true
+            } else {
+                false
+            }
+        }
+        serde_json::Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= sanitize_value_nuls(item);
+            }
+            changed
+        }
+        serde_json::Value::Object(map) => {
+            let mut changed = false;
+            for item in map.values_mut() {
+                changed |= sanitize_value_nuls(item);
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::sync::{Arc, Mutex};
+
+    use sandbox_proto::{
+        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
+    };
+    use tokio_util::sync::CancellationToken;
+    use tonic::Status;
+
+    use crate::backend_client::BackendClient;
+
+    #[derive(Default)]
+    struct CapturingBackend {
+        received: Mutex<Vec<PublishEventRequest>>,
+    }
+
+    #[async_trait::async_trait]
+    impl BackendClient for CapturingBackend {
+        async fn publish_event(&self, req: PublishEventRequest) -> Result<(), Status> {
+            self.received.lock().expect("lock").push(req);
+            Ok(())
+        }
+
+        async fn get_pending_messages(
+            &self,
+            _task_id: &str,
+        ) -> Result<Vec<PendingMessage>, Status> {
+            Err(Status::unimplemented("not used"))
+        }
+
+        async fn acknowledge_messages(
+            &self,
+            _task_id: &str,
+            _message_uuids: Vec<String>,
+            _session_id: &str,
+            _run_id: &str,
+        ) -> Result<(), Status> {
+            Err(Status::unimplemented("not used"))
+        }
+
+        async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
+            Err(Status::unimplemented("not used"))
+        }
+
+        async fn update_credential(
+            &self,
+            _task_id: &str,
+            _key: &str,
+            _value: &str,
+        ) -> Result<(), Status> {
+            Err(Status::unimplemented("not used"))
+        }
+
+        async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
+            Err(Status::unimplemented("not used"))
+        }
+
+        async fn download_upload(
+            &self,
+            _task_id: &str,
+            _file_id: &str,
+        ) -> Result<DownloadUploadResponse, Status> {
+            Err(Status::unimplemented("not used"))
+        }
+
+        async fn recover_interrupted_run(
+            &self,
+            _task_id: &str,
+        ) -> Result<Option<InterruptedTurn>, Status> {
+            Err(Status::unimplemented("not used"))
+        }
+
+        async fn upload_transcript(
+            &self,
+            _task_id: &str,
+            _tar_data: Vec<u8>,
+        ) -> Result<(), Status> {
+            Err(Status::unimplemented("not used"))
+        }
+
+        async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, Status> {
+            Err(Status::unimplemented("not used"))
+        }
+    }
+
+    #[test]
+    fn sanitize_payload_json_nuls_rewrites_nested_string_values() {
+        let mut payload = serde_json::json!({
+            "text": "before\0after",
+            "items": ["x\0y"],
+            "literal": "\\u0000"
+        })
+        .to_string();
+
+        assert!(sanitize_payload_json_nuls(&mut payload));
+
+        let parsed: serde_json::Value = serde_json::from_str(&payload).expect("sanitized JSON");
+        assert_eq!(parsed["text"], "before\\0after");
+        assert_eq!(parsed["items"][0], "x\\0y");
+        assert_eq!(parsed["literal"], "\\u0000");
+    }
+
+    #[test]
+    fn sanitize_payload_json_nuls_leaves_malformed_payloads_unchanged() {
+        let mut payload = r#"{"text":"before\u0000after""#.to_string();
+        let original = payload.clone();
+
+        assert!(!sanitize_payload_json_nuls(&mut payload));
+        assert_eq!(payload, original);
+    }
+
+    #[tokio::test]
+    async fn typed_publish_agent_event_sanitizes_payload_before_outbox_delivery() {
+        let backend = Arc::new(CapturingBackend::default());
+        let cancel = CancellationToken::new();
+        let (outbox, _drainer) = EventOutbox::spawn(
+            Arc::clone(&backend) as Arc<dyn BackendClient>,
+            "task-1".to_string(),
+            cancel.clone(),
+        );
+        let publisher = GrpcEventPublisher::new(outbox);
+
+        publisher
+            .publish_agent_event(
+                "task-1",
+                AgentSubType::Message,
+                serde_json::json!({ "text": "before\0after" }),
+            )
+            .await;
+
+        for _ in 0..20 {
+            if !backend.received.lock().expect("lock").is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        let received = backend.received.lock().expect("lock");
+        let req = received.first().expect("event delivered");
+        let payload: serde_json::Value =
+            serde_json::from_str(&req.payload_json).expect("payload JSON");
+        assert_eq!(payload["text"], "before\\0after");
+
+        cancel.cancel();
     }
 }

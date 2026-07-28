@@ -10,8 +10,8 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
 
 use async_trait::async_trait;
 use sandbox_proto::{GetCredentialsResponse, InterruptedTurn, PendingMessage, PublishEventRequest};
@@ -100,6 +100,10 @@ impl MockBackend {
             .insert(sub_type.to_string(), code);
     }
 
+    fn reject_sub_type_as_durable_admission_failure(&self, sub_type: &str) {
+        self.reject_sub_type_with(sub_type, Code::Unavailable);
+    }
+
     fn attempt_count(&self) -> usize {
         self.attempts.lock().expect("lock").len()
     }
@@ -126,6 +130,9 @@ impl BackendClient for MockBackend {
             .get(&req.sub_type)
             .copied();
         if let Some(code) = rejection {
+            if code == Code::Unavailable {
+                return Err(Status::unavailable(DURABLE_ADMISSION_RETRY_MESSAGE));
+            }
             return Err(Status::new(code, "mock backend refuses this event"));
         }
         if self.stalled.load(Ordering::SeqCst) {
@@ -226,18 +233,21 @@ fn overflow_drops_oldest_non_lifecycle_keeps_lifecycle() {
     let mut buf = EventBuffer::new(3, usize::MAX);
 
     // Fill: two non-lifecycle, one lifecycle.
-    assert!(buf
-        .push(QueuedEvent::new(agent_event("message")))
-        .evicted
-        .is_empty());
-    assert!(buf
-        .push(QueuedEvent::new(task_turn_event("active")))
-        .evicted
-        .is_empty());
-    assert!(buf
-        .push(QueuedEvent::new(agent_event("message")))
-        .evicted
-        .is_empty());
+    assert!(
+        buf.push(QueuedEvent::new(agent_event("message")))
+            .evicted
+            .is_empty()
+    );
+    assert!(
+        buf.push(QueuedEvent::new(task_turn_event("active")))
+            .evicted
+            .is_empty()
+    );
+    assert!(
+        buf.push(QueuedEvent::new(agent_event("message")))
+            .evicted
+            .is_empty()
+    );
     assert_eq!(buf.len(), 3);
 
     // Over cap: oldest non-lifecycle (index 0) is evicted, not the taskTurn.
@@ -258,14 +268,16 @@ fn overflow_drops_oldest_non_lifecycle_keeps_lifecycle() {
 fn lifecycle_saturation_refuses_the_newest_and_holds_the_cap() {
     let mut buf = EventBuffer::new(2, usize::MAX);
 
-    assert!(buf
-        .push(QueuedEvent::new(task_turn_event("active")))
-        .rejected
-        .is_none());
-    assert!(buf
-        .push(QueuedEvent::new(agent_event("completed")))
-        .rejected
-        .is_none());
+    assert!(
+        buf.push(QueuedEvent::new(task_turn_event("active")))
+            .rejected
+            .is_none()
+    );
+    assert!(
+        buf.push(QueuedEvent::new(agent_event("completed")))
+            .rejected
+            .is_none()
+    );
     assert_eq!(buf.len(), 2);
 
     // Nothing evictable is left, so the class is capped by refusing the newest
@@ -573,11 +585,13 @@ async fn a_terminal_rejection_is_dropped_and_the_stream_continues() {
     let metrics = outbox.metrics();
     assert_eq!(metrics.dropped_terminal, 1);
     assert_eq!(metrics.retried, 0, "a terminal rejection is never retried");
-    assert!(!received
-        .lock()
-        .expect("lock")
-        .iter()
-        .any(|r| r.sub_type == "poison"));
+    assert!(
+        !received
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|r| r.sub_type == "poison")
+    );
 
     // The gap is announced, not silently swallowed.
     wait_until(|| {
@@ -621,11 +635,13 @@ async fn an_over_limit_payload_is_dropped_rather_than_retried_forever() {
     let metrics = outbox.metrics();
     assert_eq!(metrics.dropped_terminal, 1);
     assert_eq!(metrics.retried, 0, "an over-limit payload is never retried");
-    assert!(!received
-        .lock()
-        .expect("lock")
-        .iter()
-        .any(|r| r.sub_type == "oversized"));
+    assert!(
+        !received
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|r| r.sub_type == "oversized")
+    );
 
     cancel.cancel();
 }
@@ -653,6 +669,66 @@ async fn resource_exhausted_is_retried_not_dropped() {
         "a throttled event is held for retry, not dropped"
     );
     assert!(received.lock().expect("lock").is_empty());
+
+    cancel.cancel();
+}
+
+/// The production failure mode: the backend accepts the gRPC request but cannot
+/// commit the full `agent.message` payload to its durable ingress path, so it
+/// returns the redacted durable-admission `UNAVAILABLE` status. Retrying briefly
+/// is correct for a transient database blip; retrying forever wedges every later
+/// event behind one poisoned message.
+#[tokio::test(start_paused = true)]
+async fn repeated_durable_admission_failures_are_dropped_rather_than_wedging_the_stream() {
+    let (backend, received) = MockBackend::new(0);
+    backend.reject_sub_type_as_durable_admission_failure("poison");
+    let cancel = CancellationToken::new();
+    let (outbox, _drainer) = EventOutbox::spawn(
+        Arc::clone(&backend) as Arc<dyn BackendClient>,
+        "task-1".to_string(),
+        cancel.clone(),
+    );
+
+    outbox.enqueue(agent_event("poison"));
+    outbox.enqueue(agent_event("after"));
+
+    tokio::task::yield_now().await;
+    for _ in 0..(MAX_DURABLE_ADMISSION_RETRIES + 2) {
+        tokio::time::advance(MAX_BACKOFF).await;
+        tokio::task::yield_now().await;
+        if backend.received_sub_types().contains(&"after".to_string()) {
+            break;
+        }
+    }
+    wait_until(|| backend.received_sub_types().contains(&"after".to_string())).await;
+
+    let metrics = outbox.metrics();
+    assert_eq!(metrics.dropped_terminal, 1);
+    assert_eq!(
+        metrics.retried,
+        u64::from(MAX_DURABLE_ADMISSION_RETRIES - 1),
+        "the poison event gets a bounded retry budget before being dropped"
+    );
+    assert!(
+        !received
+            .lock()
+            .expect("lock")
+            .iter()
+            .any(|r| r.sub_type == "poison")
+    );
+
+    wait_until(|| {
+        backend
+            .received_sub_types()
+            .contains(&EVENTS_DROPPED_SUB_TYPE.to_string())
+    })
+    .await;
+    let got = received.lock().expect("lock");
+    let marker = got
+        .iter()
+        .find(|r| r.sub_type == EVENTS_DROPPED_SUB_TYPE)
+        .expect("marker present");
+    assert!(marker.payload_json.contains("backend_rejected"));
 
     cancel.cancel();
 }

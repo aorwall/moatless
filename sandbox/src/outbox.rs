@@ -123,6 +123,11 @@ pub const MAX_QUEUE_BYTES: usize = 32 * 1024 * 1024;
 const BASE_BACKOFF: Duration = Duration::from_millis(500);
 /// Ceiling on the exponential backoff between retries.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
+/// Backend admission failures that repeat this many times for the exact same
+/// event are treated as poison rather than allowed to wedge the whole stream.
+const MAX_DURABLE_ADMISSION_RETRIES: u32 = 12;
+const DURABLE_ADMISSION_RETRY_MESSAGE: &str =
+    "event not durably admitted; retry with the same event_id";
 
 /// `sub_type` of the synthetic marker emitted after a drop.
 pub const EVENTS_DROPPED_SUB_TYPE: &str = "events_dropped";
@@ -892,6 +897,11 @@ impl Drainer {
     ///   default. An `agent.message` carrying a large tool result can cross it,
     ///   and the payload is fixed by the time it reaches here — re-encoding the
     ///   same bytes produces the identical rejection every time.
+    /// - repeated durable-admission `UNAVAILABLE` — the backend deliberately
+    ///   redacts commit failures behind one retryable status. A short outage
+    ///   should converge, but the same event failing through the whole retry
+    ///   budget is more likely poison content than recoverable downtime. Drop it
+    ///   with a marker so later messages can still reach the task.
     ///
     /// `RESOURCE_EXHAUSTED` is deliberately *not* terminal: it is the standard
     /// code for quota and rate limiting, which is exactly what backoff is for.
@@ -907,10 +917,21 @@ impl Drainer {
                 Err(status)
                     if matches!(status.code(), Code::InvalidArgument | Code::OutOfRange) =>
                 {
-                    return Delivery::Rejected(status)
+                    return Delivery::Rejected(status);
                 }
                 Err(status) => {
                     attempt += 1;
+                    if is_repeated_durable_admission_failure(&status, attempt) {
+                        error!(
+                            task_id = %req.task_id,
+                            event_id = %req.event_id,
+                            sub_type = %req.sub_type,
+                            attempt,
+                            error = %status,
+                            "backend durable admission kept failing; dropping event and moving on"
+                        );
+                        return Delivery::Rejected(status);
+                    }
                     self.shared.counters.retried.fetch_add(1, Ordering::SeqCst);
                     let backoff = backoff_for(attempt);
                     warn!(
@@ -949,6 +970,12 @@ impl Drainer {
             run_id: String::new(),
         }
     }
+}
+
+fn is_repeated_durable_admission_failure(status: &Status, attempt: u32) -> bool {
+    status.code() == Code::Unavailable
+        && status.message() == DURABLE_ADMISSION_RETRY_MESSAGE
+        && attempt >= MAX_DURABLE_ADMISSION_RETRIES
 }
 
 #[cfg(test)]
