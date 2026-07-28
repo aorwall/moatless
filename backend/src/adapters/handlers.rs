@@ -111,6 +111,33 @@ pub async fn create_adapter_connection(
 }
 
 #[utoipa::path(
+    delete,
+    path = "/api/v1/adapters/connections/{id}",
+    tag = "adapters",
+    params(("id" = String, Path, description = "Adapter connection id")),
+    responses(
+        (status = 204, description = "Adapter connection deleted"),
+        (status = 404, description = "Connection not found", body = crate::error::ErrorBody),
+    )
+)]
+pub async fn delete_adapter_connection(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<axum::http::StatusCode, AdapterError> {
+    let ctx = auth.scope_context();
+    // The repository applies the control filter, so a connection the caller
+    // cannot control deletes nothing and reads back as not found — the same
+    // answer they would get for one that never existed.
+    if state.adapter_connections.delete(&id, &ctx).await? == 0 {
+        return Err(AdapterError::NotFound(format!(
+            "Adapter connection not found: {id}"
+        )));
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
     post,
     path = "/api/v1/adapters/send",
     tag = "adapters",

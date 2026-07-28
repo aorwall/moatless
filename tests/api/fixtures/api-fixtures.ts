@@ -1,113 +1,58 @@
 /**
- * Playwright Test Fixtures for API-only E2E Tests.
+ * Fixtures for the API suite.
  *
- * Provides reusable fixtures:
- * - api: Fetch-based API client connected to the backend
- * - sse: SSE NDJSON event collector
+ * Two fixtures, and both come from the profile rather than from the
+ * environment directly:
  *
- * Usage:
- *   import { test, expect } from "../fixtures/api-fixtures";
+ * - `api` — domain verbs, spoken through the compiled `moat` binary.
+ * - `events` — a live event stream, collected from the CLI.
  *
- *   test("my test", async ({ api, sse }) => {
- *     const task = await api.createVibeTask({ ... });
- *   });
+ * Which environment those talk to, and what it is capable of, is `profile.ts`'s
+ * business. Nothing here reads a URL or a credential of its own.
  */
 
-import { test as base, expect } from "@playwright/test";
-import { ApiClient } from "../../shared/api-client";
-import { SSEEventCollector } from "../../shared/sse-collector";
-
-// =============================================================================
-// Fixture Types
-// =============================================================================
+import { test as base } from '@playwright/test'
+import { EventStream } from '../../shared/event-stream'
+import { createDriver, type Moat } from '../../shared/moat'
+import { MoatApi } from '../../shared/moat-api'
+import { describeProfile, profile } from '../../shared/profile'
 
 interface TestFixtures {
-	/** Fetch-based API client connected to the backend */
-	api: ApiClient;
-
-	/** SSE NDJSON event collector (auto-connects, auto-stops) */
-	sse: SSEEventCollector;
+  /** Domain verbs against the environment under test. */
+  api: MoatApi
+  /** Live events, started before the test and stopped after it. */
+  events: EventStream
 }
 
-// =============================================================================
-// Configuration
-// =============================================================================
-
-export function getBaseURL(): string {
-	return process.env.DOCKER_COMPOSE_URL || `http://localhost:${process.env.BACKEND_PORT || "8080"}`;
+interface WorkerFixtures {
+  /** The driver, built once per worker — a login costs a round trip. */
+  driver: Moat
 }
 
-/** Bootstrap admin credentials, matching docker-compose.ci.yml. */
-export function getAdminCredentials(): { username: string; password: string } {
-	return {
-		username: process.env.ADMIN_USERNAME || "admin",
-		password: process.env.ADMIN_PASSWORD || "ci-admin-password-1234",
-	};
-}
+export const test = base.extend<TestFixtures, WorkerFixtures>({
+  driver: [
+    async ({}, use) => {
+      const driver = await createDriver()
+      await use(driver)
+    },
+    { scope: 'worker' },
+  ],
 
-/**
- * The admin session cookie, resolved once per worker.
- *
- * argon2 verification costs ~100ms, so this is cached rather than re-logged-in
- * for every test.
- */
-let adminCookiePromise: Promise<string> | null = null;
+  api: async ({ driver }, use) => {
+    const api = new MoatApi(driver)
+    if (!(await api.isHealthy())) {
+      throw new Error(`Backend is not healthy at ${profile().baseUrl} (${describeProfile()}).`)
+    }
+    await use(api)
+  },
 
-export function getAdminCookie(baseURL: string): Promise<string> {
-	if (!adminCookiePromise) {
-		const { username, password } = getAdminCredentials();
-		adminCookiePromise = new ApiClient(baseURL).loginCookie(username, password);
-	}
-	return adminCookiePromise;
-}
+  events: async ({ driver }, use) => {
+    const stream = new EventStream(driver)
+    await use(stream)
+    stream.stop()
+  },
+})
 
-// =============================================================================
-// Test Extension
-// =============================================================================
-
-export const test = base.extend<TestFixtures>({
-	/**
-	 * API Client Fixture
-	 *
-	 * Provides a type-safe API client connected to the backend.
-	 * Validates that the backend is healthy before providing the client.
-	 */
-	api: async ({}, use) => {
-		const anonymous = new ApiClient(getBaseURL());
-
-		const healthy = await anonymous.isHealthy();
-		if (!healthy) {
-			throw new Error(
-				"Backend not healthy. Make sure to start the environment with: cd docker-compose && ./dev-docker.sh",
-			);
-		}
-
-		// Every API route requires authentication; the default client is admin.
-		await use(anonymous.withSessionCookie(await getAdminCookie(getBaseURL())));
-	},
-
-	/**
-	 * SSE Event Collector Fixture
-	 *
-	 * Automatically connects to the NDJSON event stream before each test
-	 * and stops collection after the test completes.
-	 */
-	sse: async ({}, use) => {
-		const collector = new SSEEventCollector({
-			debug: !!process.env.DEBUG_SSE,
-			headers: { Cookie: await getAdminCookie(getBaseURL()) },
-		});
-		await collector.start(`${getBaseURL()}/api/v1/events/stream`);
-
-		const error = collector.getError();
-		if (error) {
-			throw new Error(`Failed to connect to SSE stream: ${error.message}`);
-		}
-
-		await use(collector);
-
-		collector.stop();
-	},
-});
-
-export { expect };
+// A spec imports its whole vocabulary from here.
+export { expect } from '@playwright/test'
+export { describeProfile, profile } from '../../shared/profile'

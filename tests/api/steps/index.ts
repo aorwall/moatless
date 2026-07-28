@@ -1,78 +1,40 @@
 /**
  * Step library barrel export.
  *
+ * A step earns its place by composing — a call plus the wait that makes it
+ * meaningful, a default a chain should not have to repeat, or a projection of a
+ * response. A single call to the API is not a step: chains make those through
+ * the `api` fixture, where the reader can see exactly which endpoint ran.
+ *
  * Usage:
  *   import { createTaskWithMessage, waitForSandboxReady } from "../steps";
  */
 
-// Task steps (TASK-01 through TASK-11)
+// Agent turns
 export {
-	clearTaskTags,
-	closeTask,
-	createTaskWithInvalidRepository,
-	createTaskWithMessage,
-	createTaskWithoutMessage,
-	deleteTask,
-	getTask,
-	listTasks,
-	sendMessageToClosedTask,
-	setTaskTags,
-	updateTaskMetadata,
-	updateVisibility,
-} from "./task.steps";
-
-// Sandbox steps (SANDBOX-01 through SANDBOX-06)
+  getQueuedMessages,
+  pendingToolUseId,
+  waitForAgentTurnComplete,
+  waitForPendingToolCall,
+} from './agent.steps'
+// Triggers and inbound messages
 export {
-	cleanupSandbox,
-	provisionSandbox,
-	restartSandbox,
-	startSandbox,
-	stopSandbox,
-	waitForSandboxReady,
-} from "./sandbox.steps";
-
-// Server steps (SERVER-01 through SERVER-02)
+  createWebhookTriggerFixture,
+  createWebhookTriggerFixtureWithRouting,
+  sendWebhookMessage,
+} from './integrations.steps'
+// Repository creation
+export { createRepository } from './repository.steps'
+// Sandbox lifecycle — each returns once the transition it triggered has landed
 export {
-	fetchServerUrl,
-	waitForPreviewServer,
-	waitForServerFailed,
-} from "./server.steps";
-
-// Agent steps (AGENT-01 through AGENT-05)
-export {
-	getQueuedMessages,
-	getTaskMessages,
-	sendFollowUpMessage,
-	stopAgent,
-	waitForAgentTurnComplete,
-} from "./agent.steps";
-
-// File steps (FILE-01 through FILE-06)
-export {
-	findFileWithExpectedContent,
-	getFileTree,
-	listFiles,
-	readFile,
-	searchFilesByName,
-	writeFile,
-} from "./file.steps";
-
-// Repository steps (REPO-01 through REPO-14)
-export {
-	createRepository,
-	createRepositoryRaw,
-	createRepositoryWithMissingFields,
-	deleteRepository,
-	getRepository,
-	getNonExistentRepository,
-	listRepositories,
-	updateRepository,
-	updateRepositoryRaw,
-} from "./repository.steps";
-
-// Integration steps (INT-01 through INT-54)
-export {
-	createWebhookTriggerFixture,
-	createWebhookTriggerFixtureWithRouting,
-	sendWebhookMessage,
-} from "./integrations.steps";
+  cleanupSandbox,
+  provisionSandbox,
+  restartSandbox,
+  startSandbox,
+  stopSandbox,
+  waitForSandboxReady,
+} from './sandbox.steps'
+// Servers
+export { fetchServerUrl } from './server.steps'
+// Task creation
+export { createTaskWithMessage, createTaskWithoutMessage } from './task.steps'

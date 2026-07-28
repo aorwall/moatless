@@ -8,6 +8,8 @@ See [00-design.md](./00-design.md) for the design overview.
 
 ## Chain 1: A workspace with several repos
 ├── WS-30: A multi-repo workspace checks out every repo
+│   ├── WS-30.1: Every placement is checked out under its mount name
+│   ├── WS-30.2: Each mount is a real checkout, not an empty directory
 │   ├── WS-31: The primary repo stays the repo-scoped target
 │   └── WS-32: A repo added to the workspace is checked out on the next start
 
@@ -24,10 +26,30 @@ holds — not just the primary one.
 
 * **Given** a workspace with two repository placements, each with its own mount name
 
+* **When** the workspace is created
+
+* **Then** both placements are stored
+  * **And** the workspace reads as multi-repo
+
+---
+
+### WS-30.1: Every placement is checked out under its mount name
+
+* **Given** WS-30 has completed
+
 * **When** creating a task against that workspace and waiting for its sandbox to be ready
 
 * **Then** the workspace directory contains a directory for each placement, named by its mount name
-  * **And** each directory is a checkout of that placement's repository
+
+---
+
+### WS-30.2: Each mount is a real checkout, not an empty directory
+
+* **Given** WS-30.1 has completed
+
+* **When** reading a file the repository contains from each mount
+
+* **Then** each read returns content
 
 ---
 

@@ -96,6 +96,9 @@ pub enum LoopsAction {
         rule: CreateRuleArgs,
         #[arg(long)]
         name: Option<String>,
+        /// Create it paused, so it fires only once you activate it
+        #[arg(long)]
+        active: Option<bool>,
     },
     /// Update loop base, rule, or source fields
     ///
@@ -294,11 +297,12 @@ pub async fn run_loops(
             message_template,
             rule,
             name,
+            active,
         } => {
             let req = CreateLoopRequest {
                 name,
                 kind: LoopKind::Schedule,
-                active: None,
+                active,
                 scope: None,
                 config: create_rule(rule)?,
                 source: CreateLoopSource::Schedule(CreateSchedule {

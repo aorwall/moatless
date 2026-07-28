@@ -67,12 +67,12 @@ duplicates exist (rename the **fork** migration file + entry — never upstream)
 Confirm `idx` is dense and contiguous from 0.
 
 ```bash
-# After resolving, dry-run migrations to confirm checksums:
-task test:compose:db
+# After resolving, start the stack to run the migrations and confirm checksums:
+docker-compose/dev-docker.sh --no-logs
 ```
 
-If the test run reports a checksum mismatch, a migration file was edited
-post-merge — undo the edit. **Never modify a migration that has shipped.**
+If the backend reports a checksum mismatch on startup, a migration file was
+edited post-merge — undo the edit. **Never modify a migration that has shipped.**
 
 #### Workflow files (`.github/workflows/*.yml`)
 

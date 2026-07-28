@@ -1169,6 +1169,40 @@
         }
       }
     },
+    "/api/v1/adapters/connections/{id}": {
+      "delete": {
+        "tags": [
+          "adapters"
+        ],
+        "operationId": "delete_adapter_connection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Adapter connection id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Adapter connection deleted"
+          },
+          "404": {
+            "description": "Connection not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/adapters/github/webhook": {
       "post": {
         "tags": [

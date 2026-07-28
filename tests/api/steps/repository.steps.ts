@@ -1,118 +1,34 @@
 /**
- * Repository step functions (REPO-01 through REPO-14).
+ * Repository creation step.
  *
- * Each function performs an action and returns a result.
- * Tests add assertions; preconditions skip them.
+ * Applies the defaults a chain does not care about (a remote GitHub repository)
+ * and returns the id alongside the response. Every other repository call a chain
+ * makes against `api` directly.
  */
 
-import type {
-	ApiClient,
-	CreateRepositoryRequest,
-	RepositoryResponse,
-	UpdateRepositoryRequest,
-} from "../../shared/api-client";
+import type { MoatApi } from '../../shared/moat-api'
+import type { RepositoryResponse } from '../../shared/types'
 
 // =============================================================================
 // REPO-01: Create repository from GitHub URL
 // =============================================================================
 
 export async function createRepository(
-	api: ApiClient,
-	config: {
-		name: string;
-		remoteUrl: string;
-		kind?: "remote" | "template" | "git";
-		provider?: "github" | "gitlab" | "gitness";
-		description?: string;
-	},
+  api: MoatApi,
+  config: {
+    name: string
+    remoteUrl: string
+    kind?: 'remote' | 'template' | 'git'
+    provider?: 'github' | 'gitlab' | 'gitness'
+    description?: string
+  },
 ): Promise<{ repositoryId: string; repository: RepositoryResponse }> {
-	const repository = await api.createRepository({
-		name: config.name,
-		kind: config.kind ?? "remote",
-		remoteUrl: config.remoteUrl,
-		provider: config.provider ?? "github",
-		description: config.description,
-	});
-	return { repositoryId: repository.id, repository };
-}
-
-export async function createRepositoryRaw(
-	api: ApiClient,
-	config: CreateRepositoryRequest,
-): Promise<Response> {
-	return api.createRepositoryRaw(config);
-}
-
-// =============================================================================
-// REPO-02: Get repository by ID
-// =============================================================================
-
-export async function getRepository(
-	api: ApiClient,
-	repositoryId: string,
-): Promise<RepositoryResponse> {
-	return api.getRepository(repositoryId);
-}
-
-// =============================================================================
-// REPO-03: Update repository metadata
-// =============================================================================
-
-export async function updateRepository(
-	api: ApiClient,
-	repositoryId: string,
-	data: UpdateRepositoryRequest,
-): Promise<RepositoryResponse> {
-	return api.updateRepository(repositoryId, data);
-}
-
-export async function updateRepositoryRaw(
-	api: ApiClient,
-	repositoryId: string,
-	data: UpdateRepositoryRequest,
-): Promise<Response> {
-	return api.updateRepositoryRaw(repositoryId, data);
-}
-
-// =============================================================================
-// REPO-04: List repositories
-// =============================================================================
-
-export async function listRepositories(
-	api: ApiClient,
-): Promise<RepositoryResponse[]> {
-	return api.listRepositories();
-}
-
-// =============================================================================
-// REPO-05: Delete repository
-// =============================================================================
-
-export async function deleteRepository(
-	api: ApiClient,
-	repositoryId: string,
-): Promise<Response> {
-	return api.deleteRepositoryRaw(repositoryId);
-}
-
-// =============================================================================
-// REPO-06: Create repository with missing required fields (error case)
-// =============================================================================
-
-export async function createRepositoryWithMissingFields(
-	api: ApiClient,
-): Promise<Response> {
-	// Send empty body — backend requires at least `name`
-	return api.createRepositoryRaw({} as CreateRepositoryRequest);
-}
-
-// =============================================================================
-// REPO-07: Get non-existent repository (error case)
-// =============================================================================
-
-export async function getNonExistentRepository(
-	api: ApiClient,
-	fakeId: string,
-): Promise<Response> {
-	return api.getRepositoryRaw(fakeId);
+  const repository = await api.createRepository({
+    name: config.name,
+    kind: config.kind ?? 'remote',
+    remoteUrl: config.remoteUrl,
+    provider: config.provider ?? 'github',
+    description: config.description,
+  })
+  return { repositoryId: repository.id, repository }
 }

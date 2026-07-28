@@ -1,34 +1,33 @@
 name: E2E (manual)
 
 # End-to-end suites are expensive (live Claude/Codex/OpenAI calls, full Docker
-# stack) and need secrets, so they stay OFF automatic CI — matching the
-# `#[ignore]` gating in the crates. Trigger this manually (Actions → E2E → Run
-# workflow) or on a schedule via the fork's own automation.
+# stack) and need secrets, so they stay OFF automatic CI. Trigger this manually
+# (Actions → E2E → Run workflow) or on a schedule via the fork's own automation.
+#
+# The API/UI suites in `tests/` are the E2E suite. What a run covers is decided
+# by the `docker` profile's capabilities, not by a tier flag: a test the
+# environment cannot run skips with the capability named. Against the cluster
+# the same suite runs under the `k8s` profile — from a sandbox, not from here,
+# because only a sandbox has a login for it (see the e2e-testing skill).
 #
 # Required repo secrets (set the ones you need for the parts you enable):
-#   CLAUDE_CODE_OAUTH_TOKEN | ANTHROPIC_API_KEY  — agent tier + claude-sdk
-#   OPENAI_API_KEY                               — codex-sdk
+#   CLAUDE_CODE_OAUTH_TOKEN | ANTHROPIC_API_KEY  — agent-tier chains + claude-sdk
+#   OPENAI_API_KEY | CODEX_AUTH_JSON             — Codex chains + codex-sdk
 #   E2E_GITHUB_PAT                               — repo-clone / Playwright api suite
 #
 # Runner: the playwright suite runs on staging-runners-large (its
 # playwright-runner.sh needs only `docker`, which the DinD sidecar provides).
-# The other five jobs are the last ubuntu-latest holdouts in this repo: each
-# shells out to a host Rust toolchain — test-runner.sh requires `cargo`,
-# test-docker.sh requires `cargo-zigbuild` and ziglang. The arc-runner image
-# ships none of that, so a `runs-on` change alone would break them. Fixing that
-# means baking rust + cargo-zigbuild + ziglang into
-# soap-platform-ci/docker/arc-runner (or the e2e-runner image).
+# The other three jobs are the last ubuntu-latest holdouts in this repo: each
+# shells out to a host Rust toolchain — test-docker.sh requires `cargo-zigbuild`
+# and ziglang. The arc-runner image ships none of that, so a `runs-on` change
+# alone would break them. Fixing that means baking rust + cargo-zigbuild +
+# ziglang into soap-platform-ci/docker/arc-runner (or the e2e-runner image).
 
 on:
   workflow_dispatch:
     inputs:
-      integration_tier:
-        description: 'Rust integration-tests tier (crates/integration-tests)'
-        type: choice
-        default: 'db'
-        options: ['none', 'db', 'sandbox', 'agent', 'all']
       playwright_suite:
-        description: 'Playwright suite (tests/api, tests/ui)'
+        description: 'E2E suite (tests/api, tests/ui)'
         type: choice
         default: 'api'
         options: ['none', 'api', 'ui', 'all']
@@ -40,34 +39,13 @@ on:
         description: 'Run moatless-sandbox Claude transport E2E in Docker (subprocess + tmux)'
         type: boolean
         default: false
-      run_sandbox_replacement:
-        description: 'Run Claude + Codex Session continuity across Sandbox replacement'
-        type: boolean
-        default: false
       run_codex_sdk:
         description: 'Run the Codex CLI E2E in Docker (codex exec, sandbox base image)'
         type: boolean
         default: false
 
 jobs:
-  # ── Rust integration-tests crate against the full Docker stack ──
-  integration-tests:
-    name: Integration tests (${{ inputs.integration_tier }})
-    if: inputs.integration_tier != 'none'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Run integration tests in Docker
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-          GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
-          SECRETS_ENCRYPTION_KEY: ${{ secrets.SECRETS_ENCRYPTION_KEY }}
-        run: docker-compose/test-runner.sh --tier "${{ inputs.integration_tier }}"
-
-  # ── Playwright API / UI suites against the full Docker stack ──
+  # ── The E2E suite against the full Docker stack ──
   playwright:
     name: Playwright (${{ inputs.playwright_suite }})
     if: inputs.playwright_suite != 'none'
@@ -79,6 +57,10 @@ jobs:
           GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Session continuity across sandbox replacement runs one chain per
+          # harness, and the Codex one needs its own credentials.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           SECRETS_ENCRYPTION_KEY: ${{ secrets.SECRETS_ENCRYPTION_KEY }}
         run: docker-compose/playwright-runner.sh --suite "${{ inputs.playwright_suite }}"
       - name: Upload Playwright report
@@ -124,27 +106,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: ./crates/claude-agent-sdk/scripts/test-docker.sh sandbox-transport
 
-  sandbox-replacement:
-    name: Sandbox replacement (Claude + Codex E2E)
-    if: inputs.run_sandbox_replacement
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install test toolchains
-        run: |
-          rustup target add x86_64-unknown-linux-gnu
-          cargo install --locked cargo-zigbuild
-          pipx install ziglang || pip3 install ziglang
-      - name: Run Sandbox replacement E2E
-        env:
-          SANDBOX_REPLACEMENT_E2E: '1'
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-          GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
-          SECRETS_ENCRYPTION_KEY: ${{ secrets.SECRETS_ENCRYPTION_KEY }}
-        run: docker-compose/test-runner.sh --tier agent --test sandbox_replacement_ordering
+  # Session continuity across sandbox replacement is a chain of the api suite
+  # (tests/api/specs/sandbox-replacement-ordering.spec.ts) and runs with it.
 
   # ── Codex CLI E2E in Docker ──
   # Runs the production `codex exec` path (sandbox/tests/agent_transport_e2e.rs::

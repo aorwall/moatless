@@ -50,6 +50,16 @@ For related scenarios, see:
 │   └── AGENT-03.2: User approves, agent executes
 ```
 
+### Standalone
+
+```
+├── AGENT-07: Answering the agent's question resumes the same turn
+├── AGENT-08: Subagent messages name the tool call that spawned them
+└── AGENT-09: A replaced sandbox resumes the session before answering
+    ├── AGENT-09.1: … under Claude
+    └── AGENT-09.2: … under Codex
+```
+
 ---
 
 ## Chain 1: Agent Execution & Multi-Turn
@@ -367,3 +377,56 @@ After approval, the agent proceeds to implement the plan.
 * **When** the user approves the plan (or the agent has already completed)
 
 * **Then** at least one turn completion event has been emitted
+
+---
+
+## Standalone
+
+### AGENT-07: Answering the agent's question resumes the same turn
+
+An agent that needs a decision pauses and asks. The answer has to reach the paused conversation, so that the agent carries on from where it stopped instead of starting over or waiting forever.
+
+* **Given** a task whose message asks the agent to put a question to the user
+  * **And** the sandbox is ready
+
+* **When** the agent pauses to ask its question
+  * **And** the user answers it
+
+* **Then** the agent resumes and finishes the turn
+  * **And** the answer is part of the conversation
+
+If the agent finishes without asking — which the model is free to do — the scenario asserts only that the turn completed.
+
+---
+
+### AGENT-08: Subagent messages name the tool call that spawned them
+
+Work an agent delegates to a subagent has to be attributable, so the conversation can show it under the step that started it rather than mixed into the main thread.
+
+* **Given** a task whose message asks the agent to delegate work to a subagent
+  * **And** the sandbox is ready
+
+* **When** the agent's turn completes
+
+* **Then** the delegating step has a transcript of the subagent's work
+  * **And** none of that work appears in the main conversation, which shows the delegating step alone
+
+If the agent does not delegate — which the model is free to do — the scenario is skipped rather than passing without having checked anything.
+
+---
+
+### AGENT-09: A replaced sandbox resumes the session before answering
+
+A message sent while the sandbox is down is kept, and a replacement sandbox is started to answer it. The replacement must restore the conversation before it accepts that message — otherwise the agent answers with no memory of what came before.
+
+Run once per harness (AGENT-09.1 Claude, AGENT-09.2 Codex): each restores its session its own way, and only output the harness actually produced proves it ran.
+
+* **Given** a task whose first turn has completed
+  * **And** the user has stopped the sandbox
+
+* **When** the user sends a message while nothing is running to receive it
+  * **And** a replacement sandbox is provisioned to answer it
+
+* **Then** the agent continues the same conversation it had before
+  * **And** the waiting message is answered exactly once, against that conversation
+  * **And** the reply comes from the harness the task was created with

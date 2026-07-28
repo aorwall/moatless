@@ -215,7 +215,7 @@ kubectl get networkpolicy -n vibe
 
 1. **Reproduce** the bug in Docker Compose
 2. **Write a failing spec** in the appropriate `specs/` file
-3. **Write the test** in `tests/api/chains/`
+3. **Write the test** in `tests/api/specs/`
 4. **Fix the code**
 5. **Verify the test passes**: `task test:api:single -- <chain>`
 6. **Deploy and verify** on moatless.dev

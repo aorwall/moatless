@@ -71,21 +71,21 @@ Consult `references/spec-writing.md` for the full format guide (ID conventions, 
 
 ### Test Files
 
-Location: `tests/api/chains/` — Playwright API tests implementing spec scenarios.
+Location: `tests/api/specs/` — Playwright API tests implementing spec scenarios.
 
 | Spec Concept | Test Implementation |
 |--------------|-------------------|
 | Chain | `test.describe.serial` block |
 | Scenario ID | Test name: `test("TASK-01: ...")` |
 | Given | `ChainContext` state from parent test |
-| When | Step function in `tests/api/steps/` |
+| When | `api.*` for one call, a step from `tests/api/steps/` when it composes |
 | Then | Assertions on step results |
 
 ### Mapping Convention
 
-Specs live per domain as `specs/<domain>/NN-*.md` (e.g. `specs/tasks/01-task-scenarios.md`, `specs/sandbox/02-file-scenarios.md`; `00-design.md` holds the domain design). A scenario's home domain names its test chain: `tests/api/chains/<domain>-*.spec.ts`. Rust API/CLI integration tests live in `crates/integration-tests/` (the per-PR gate — see the e2e-testing skill).
+Specs live per domain as `specs/<domain>/NN-*.md` (e.g. `specs/tasks/01-task-scenarios.md`, `specs/sandbox/02-file-scenarios.md`; `00-design.md` holds the domain design). A scenario's home domain names its test chain: `tests/api/specs/<domain>-*.spec.ts` — one suite, run against Docker Compose or the cluster by profile (see the e2e-testing skill).
 
-When adding a new scenario: add the spec entry first, then implement the step function, then add the test.
+When adding a new scenario: add the spec entry first, then add the test — a step only when the action composes more than one call.
 
 ## Phase 3: Build & Test in Docker
 

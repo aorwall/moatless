@@ -12,8 +12,11 @@
  * - CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY for agent tests
  *
  * Run:
- *   cd tests/sandbox-docker
- *   bun test sandbox-docker-grpc.integration
+ *   task test:sandbox:docker
+ *
+ * This project stands on its own — its own deps, its own vitest config — because
+ * it is the only suite that talks to a sandbox container directly instead of
+ * through the backend. Every test self-skips when Docker or the image is absent.
  */
 import * as grpc from '@grpc/grpc-js'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -28,8 +31,8 @@ import {
   stopDockerSandbox,
 } from './helpers/docker-sandbox'
 import {
-  type GrpcSandboxClient,
   createGrpcSandboxClient,
+  type GrpcSandboxClient,
   waitForGrpcReady,
 } from './helpers/grpc-sandbox-client'
 
@@ -46,7 +49,7 @@ describe.skipIf(!canRunTests)('Sandbox Docker gRPC Integration', () => {
     await startDockerSandbox(ctx)
     grpcClient = createGrpcSandboxClient(ctx.grpcPort)
     // HTTP health passed in startDockerSandbox; verify gRPC is also ready
-    await waitForGrpcReady(grpcClient, 30000)
+    await waitForGrpcReady(grpcClient, 30_000)
   }, 120_000)
 
   afterAll(async () => {
@@ -205,18 +208,13 @@ describe.skipIf(!canRunTests)('Sandbox Docker gRPC Integration', () => {
       const fileExists = await waitForFile(`${ctx.tempDir}/hello-from-grpc.txt`, 120_000)
       expect(fileExists).toBe(true)
 
-      const fileContent = dockerExec(
-        ctx.containerName,
-        `cat ${ctx.tempDir}/hello-from-grpc.txt`,
-      )
+      const fileContent = dockerExec(ctx.containerName, `cat ${ctx.tempDir}/hello-from-grpc.txt`)
       expect(fileContent).toContain('Hello from gRPC agent test')
     }, 180_000)
 
     it('should return ALREADY_EXISTS if agent is started twice', async () => {
       // Start agent
-      const content = [
-        { text: { text: 'Create a file called second.txt with content "second"' } },
-      ]
+      const content = [{ text: { text: 'Create a file called second.txt with content "second"' } }]
       await grpcClient.executeAgent(content)
 
       // Immediately try to start another — should fail

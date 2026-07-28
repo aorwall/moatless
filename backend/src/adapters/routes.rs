@@ -22,6 +22,7 @@ use crate::state::AppState;
         handlers::list_adapters,
         handlers::list_adapter_connections,
         handlers::create_adapter_connection,
+        handlers::delete_adapter_connection,
         handlers::adapter_send,
         handlers::send_user_dm,
         bindings::handlers::list_task_bindings,
@@ -57,6 +58,7 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
             handlers::list_adapter_connections,
             handlers::create_adapter_connection
         ))
+        .routes(routes!(handlers::delete_adapter_connection))
         .routes(routes!(handlers::adapter_send))
         .routes(routes!(handlers::send_user_dm))
         .routes(routes!(

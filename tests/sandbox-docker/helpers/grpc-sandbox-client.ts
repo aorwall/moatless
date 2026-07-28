@@ -1,7 +1,7 @@
-import * as grpc from '@grpc/grpc-js'
-import * as protoLoader from '@grpc/proto-loader'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import * as grpc from '@grpc/grpc-js'
+import * as protoLoader from '@grpc/proto-loader'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROTO_PATH = path.resolve(
@@ -122,7 +122,7 @@ export function createGrpcSandboxClient(grpcPort: number): GrpcSandboxClient {
  */
 export async function waitForGrpcReady(
   grpcClient: GrpcSandboxClient,
-  timeoutMs = 30000,
+  timeoutMs = 30_000,
 ): Promise<void> {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {

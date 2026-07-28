@@ -31,7 +31,9 @@ Chain 2: Task Scope Inheritance
 ├── AUTH-23: Create task under a user-scoped repository
 │   ├── AUTH-23.1: Task is user-scoped and owned by its creator
 │   ├── AUTH-23.2: Owner can see the task in listings
-│   └── AUTH-23.3: Another user cannot see the task
+│   ├── AUTH-23.3: Another user cannot see the task
+│   ├── AUTH-23.4: Public visibility grants read to another user
+│   └── AUTH-23.5: Public visibility does not grant control
 
 Chain 3: Admin Bypass
 ├── AUTH-24: Admin can see all scoped resources
@@ -41,7 +43,8 @@ Chain 3: Admin Bypass
 Standalone
 ├── AUTH-25: Listing repositories filters by scope
 ├── AUTH-26: Listing tasks filters by scope
-└── AUTH-27: Global GitHub installation binding is admin-only
+├── AUTH-27: Global GitHub installation binding is admin-only
+└── AUTH-28: Racing local-user creation answers conflict
 ```
 
 ---
@@ -173,6 +176,29 @@ Verifies that a different user cannot see the owner's user-scoped task.
 * **When** a different user lists tasks
 
 * **Then** the listing does not include the task
+  * **And** fetching it by id reads as not found
+
+### AUTH-23.4: Public visibility grants read to another user
+
+A task whose visibility is `public` is readable by any authenticated user, even
+though its scope still names one owner.
+
+* **Given** AUTH-23.3 has completed
+
+* **When** the owner sets the task's visibility to public
+
+* **Then** a different user can fetch it by id
+
+### AUTH-23.5: Public visibility does not grant control
+
+Public is a read grant, not a control grant: the owner is still the only
+non-admin who can act on the task.
+
+* **Given** AUTH-23.4 has completed
+
+* **When** a different user tries to delete the task
+
+* **Then** the system refuses
 
 ---
 
@@ -245,3 +271,17 @@ Only administrators may inspect or mutate the Global GitHub App installation bin
 * **Then** the system denies the request
   * **And** an admin may read both interfaces
   * **And** an unknown App key is rejected before persistence
+
+### AUTH-28: Racing local-user creation answers conflict
+
+Two sign-ups for the same login at the same instant are a conflict the platform
+expects, not a server fault. The unique constraint decides which one wins; the
+losers must be turned away as a conflict rather than surfacing as an internal
+error.
+
+* **Given** several simultaneous requests to create a local user with one login
+
+* **When** they are submitted concurrently
+
+* **Then** exactly one of them creates the user
+  * **And** every other request is refused as a conflict

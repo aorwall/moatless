@@ -5,44 +5,56 @@
  * Tests add assertions; preconditions skip them.
  */
 
-import type {
-	ApiClient,
-	WorkspaceStatusFullResponse,
-} from "../../shared/api-client";
-import { waitForWorkspaceReady, waitForWorkspaceStatus } from "../../shared/wait-helpers";
+import type { MoatApi } from '../../shared/moat-api'
+import { profile } from '../../shared/profile'
+import type { SandboxStatusFullResponse } from '../../shared/types'
+import { waitForWorkspaceReady, waitForWorkspaceStatus } from '../../shared/wait-helpers'
+
+/**
+ * How long a sandbox has to make each transition.
+ *
+ * Read from the profile rather than fixed: a pod that has to schedule, pull and
+ * mount takes several times as long as a container that is already local, and a
+ * ceiling set for the fast environment fails the slow one for no reason.
+ */
+function sandboxBudget(): number {
+  return profile().timeouts.sandboxReady
+}
+
+function teardownBudget(): number {
+  return profile().timeouts.sandboxTeardown
+}
 
 // =============================================================================
 // SANDBOX-01: Wait for sandbox ready
 // =============================================================================
 
 export async function waitForSandboxReady(
-	api: ApiClient,
-	taskId: string,
-	timeoutMs = 180000,
-): Promise<{ ready: boolean; status: WorkspaceStatusFullResponse | null }> {
-	const ready = await waitForWorkspaceReady(api, taskId, { timeout: timeoutMs });
-	if (!ready) {
-		return { ready: false, status: null };
-	}
+  api: MoatApi,
+  taskId: string,
+  timeoutMs = sandboxBudget(),
+): Promise<{ ready: boolean; status: SandboxStatusFullResponse | null }> {
+  const ready = await waitForWorkspaceReady(api, taskId, { timeout: timeoutMs })
+  if (!ready) {
+    return { ready: false, status: null }
+  }
 
-	// Stability check: wait briefly and re-verify to catch transient ready
-	// states during crash loops (sandbox.ready → sandbox.error cycling)
-	await new Promise((resolve) => setTimeout(resolve, 3000));
-	const status = await api.getWorkspaceStatus(taskId);
+  // Stability check: wait briefly and re-verify to catch transient ready
+  // states during crash loops (sandbox.ready → sandbox.error cycling)
+  await new Promise((resolve) => setTimeout(resolve, 3000))
+  const status = await api.getWorkspaceStatus(taskId)
 
-	if (status.environmentStatus !== "ready") {
-		console.log(
-			`[waitForSandboxReady] Sandbox was briefly ready but reverted to ${status.environmentStatus}`,
-		);
-		if (status.environmentError) {
-			console.log(
-				`[waitForSandboxReady] Error: ${status.environmentError}`,
-			);
-		}
-		return { ready: false, status };
-	}
+  if (status.sandboxStatus !== 'ready') {
+    console.log(
+      `[waitForSandboxReady] Sandbox was briefly ready but reverted to ${status.sandboxStatus}`,
+    )
+    if (status.sandboxError) {
+      console.log(`[waitForSandboxReady] Error: ${status.sandboxError}`)
+    }
+    return { ready: false, status }
+  }
 
-	return { ready: true, status };
+  return { ready: true, status }
 }
 
 // =============================================================================
@@ -50,12 +62,12 @@ export async function waitForSandboxReady(
 // =============================================================================
 
 export async function provisionSandbox(
-	api: ApiClient,
-	taskId: string,
-): Promise<{ result: unknown; status: WorkspaceStatusFullResponse }> {
-	const result = await api.provisionSandbox(taskId);
-	const status = await api.getWorkspaceStatus(taskId);
-	return { result, status };
+  api: MoatApi,
+  taskId: string,
+): Promise<{ result: unknown; status: SandboxStatusFullResponse }> {
+  const result = await api.provisionSandbox(taskId)
+  const status = await api.getWorkspaceStatus(taskId)
+  return { result, status }
 }
 
 // =============================================================================
@@ -63,12 +75,12 @@ export async function provisionSandbox(
 // =============================================================================
 
 export async function stopSandbox(
-	api: ApiClient,
-	taskId: string,
-	waitTimeoutMs = 60000,
-): Promise<WorkspaceStatusFullResponse | null> {
-	await api.stopSandbox(taskId);
-	return waitForWorkspaceStatus(api, taskId, "stopped", { timeout: waitTimeoutMs });
+  api: MoatApi,
+  taskId: string,
+  waitTimeoutMs = teardownBudget(),
+): Promise<SandboxStatusFullResponse | null> {
+  await api.stopSandbox(taskId)
+  return waitForWorkspaceStatus(api, taskId, 'stopped', { timeout: waitTimeoutMs })
 }
 
 // =============================================================================
@@ -76,19 +88,19 @@ export async function stopSandbox(
 // =============================================================================
 
 export async function startSandbox(
-	api: ApiClient,
-	taskId: string,
-	waitTimeoutMs = 180000,
-): Promise<{ ready: boolean; status: WorkspaceStatusFullResponse | null }> {
-	await api.startSandbox(taskId);
-	const ready = await waitForWorkspaceReady(api, taskId, { timeout: waitTimeoutMs });
+  api: MoatApi,
+  taskId: string,
+  waitTimeoutMs = sandboxBudget(),
+): Promise<{ ready: boolean; status: SandboxStatusFullResponse | null }> {
+  await api.startSandbox(taskId)
+  const ready = await waitForWorkspaceReady(api, taskId, { timeout: waitTimeoutMs })
 
-	let status: WorkspaceStatusFullResponse | null = null;
-	if (ready) {
-		status = await api.getWorkspaceStatus(taskId);
-	}
+  let status: SandboxStatusFullResponse | null = null
+  if (ready) {
+    status = await api.getWorkspaceStatus(taskId)
+  }
 
-	return { ready, status };
+  return { ready, status }
 }
 
 // =============================================================================
@@ -96,19 +108,19 @@ export async function startSandbox(
 // =============================================================================
 
 export async function restartSandbox(
-	api: ApiClient,
-	taskId: string,
-	waitTimeoutMs = 180000,
-): Promise<{ ready: boolean; status: WorkspaceStatusFullResponse | null }> {
-	await api.restartSandbox(taskId);
-	const ready = await waitForWorkspaceReady(api, taskId, { timeout: waitTimeoutMs });
+  api: MoatApi,
+  taskId: string,
+  waitTimeoutMs = sandboxBudget(),
+): Promise<{ ready: boolean; status: SandboxStatusFullResponse | null }> {
+  await api.restartSandbox(taskId)
+  const ready = await waitForWorkspaceReady(api, taskId, { timeout: waitTimeoutMs })
 
-	let status: WorkspaceStatusFullResponse | null = null;
-	if (ready) {
-		status = await api.getWorkspaceStatus(taskId);
-	}
+  let status: SandboxStatusFullResponse | null = null
+  if (ready) {
+    status = await api.getWorkspaceStatus(taskId)
+  }
 
-	return { ready, status };
+  return { ready, status }
 }
 
 // =============================================================================
@@ -116,10 +128,10 @@ export async function restartSandbox(
 // =============================================================================
 
 export async function cleanupSandbox(
-	api: ApiClient,
-	taskId: string,
-	waitTimeoutMs = 60000,
-): Promise<WorkspaceStatusFullResponse | null> {
-	await api.cleanupSandbox(taskId);
-	return waitForWorkspaceStatus(api, taskId, "not_created", { timeout: waitTimeoutMs });
+  api: MoatApi,
+  taskId: string,
+  waitTimeoutMs = teardownBudget(),
+): Promise<SandboxStatusFullResponse | null> {
+  await api.cleanupSandbox(taskId)
+  return waitForWorkspaceStatus(api, taskId, 'not_created', { timeout: waitTimeoutMs })
 }

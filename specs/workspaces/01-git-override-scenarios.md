@@ -17,6 +17,7 @@ See [00-design.md](./00-design.md) for the design overview.
 │   └── WS-08: Deleting a git-origin workspace creates a tombstone
 
 ## Standalone
+├── WS-09: Creating a task after git sync re-elected the primary still works
 ├── WS-20: Resetting a workspace that was never in git is rejected
 └── WS-21: Resetting a workspace git no longer declares leaves it overridden
 
@@ -158,3 +159,21 @@ A reset only takes effect when the repository still declares the workspace, so a
 
 * **Then** the system reports that the reset did not take effect and why
   * **And** the workspace stays overridden with its local edits intact
+
+---
+
+### WS-09: Creating a task after git sync re-elected the primary still works
+
+A repository's shadow workspace is written by two paths. Creating a task
+inserts the repository placement under a deterministic id; git sync deletes
+every placement and re-elects the primary under a random one. Once sync has
+run, the deterministic id is gone, so the next task create must not add a
+second primary.
+
+* **Given** a repository whose shadow workspace was created by a first task
+
+* **When** git sync has replaced the placement with a re-elected primary
+  * **And** the user creates a second task for the repository
+
+* **Then** the task is created
+  * **And** the workspace still has exactly one primary placement

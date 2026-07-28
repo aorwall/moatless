@@ -11,7 +11,7 @@ use moatless_api_schemas::sandbox::{
     ServerStatusResponse,
     UpdateServerConfigRequest,
 };
-use moatless_api_schemas::shared::AgentMode;
+use moatless_api_schemas::shared::{AgentMode, AgentType};
 use moatless_api_schemas::task::{
     CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse, UpdateTaskMetadataRequest,
     UpdateTaskTtlRequest,
@@ -29,6 +29,9 @@ pub enum TaskAction {
         status: Option<String>,
         #[arg(long, default_value = "50")]
         limit: i64,
+        /// Skip this many tasks, for walking past the first page
+        #[arg(long)]
+        offset: Option<i64>,
     },
     /// Get task details
     Get { task_id: String },
@@ -55,6 +58,13 @@ pub enum TaskAction {
         /// Agent mode: "edit" or "plan"
         #[arg(long)]
         mode: Option<String>,
+        /// Harness to run the task with, e.g. `claude-code` or `codex`
+        /// (see `moat api GET /api/v1/agents`)
+        #[arg(long)]
+        agent_type: Option<String>,
+        /// Model for the chosen harness, e.g. `haiku` or `gpt-5.4-mini`
+        #[arg(long)]
+        model: Option<String>,
     },
     /// List child tasks
     Children {
@@ -197,11 +207,15 @@ pub async fn run(
     config: &Config,
 ) -> Result<(), ClientError> {
     match action {
-        TaskAction::List { status, limit } => {
+        TaskAction::List {
+            status,
+            limit,
+            offset,
+        } => {
             let task_status = status.as_deref().and_then(parse_task_status);
             let query = ListTasksQuery {
                 limit: Some(limit),
-                offset: None,
+                offset,
                 status: task_status,
                 repository_id: None,
                 created_by: None,
@@ -234,6 +248,8 @@ pub async fn run(
             message,
             branch,
             mode,
+            agent_type,
+            model,
         } => {
             let parent_task_id = if no_parent {
                 None
@@ -259,11 +275,11 @@ pub async fn run(
                 branch,
                 parent_task_id,
                 agent_mode: mode.map(AgentMode),
-                agent_type: None,
+                agent_type: agent_type.map(AgentType),
                 contexts: Vec::new(),
                 description: None,
                 file_ids: Vec::new(),
-                model: None,
+                model,
                 headless: None,
             };
             let created = client.api().create_task(&req).await?;
@@ -380,24 +396,24 @@ pub async fn run(
             }
         }
         TaskAction::Restart { task_id } => {
-            if config.is_sandbox() {
+            let task_id = resolve_task_id(client, &task_id).await?;
+            if is_own_sandbox(config, &task_id) {
                 return Err(ClientError::Api {
                     status: 400,
                     body: "Cannot restart the entire sandbox from within it. Use `moat tasks logs $TASK_ID --server <name>` to diagnose server issues.".to_string(),
                 });
             }
-            let task_id = resolve_task_id(client, &task_id).await?;
             client.api().restart_sandbox(&task_id).await?;
             println!("Sandbox for {task_id} restarted.");
         }
         TaskAction::Redeploy { task_id } => {
-            if config.is_sandbox() {
+            let task_id = resolve_task_id(client, &task_id).await?;
+            if is_own_sandbox(config, &task_id) {
                 return Err(ClientError::Api {
                     status: 400,
                     body: "Cannot redeploy the sandbox from within it.".to_string(),
                 });
             }
-            let task_id = resolve_task_id(client, &task_id).await?;
             let resp = client.api().redeploy_sandbox(&task_id).await?;
             println!(
                 "Sandbox for {task_id} redeployed (status: {:?}).",
@@ -609,6 +625,16 @@ fn format_task_row(t: &TaskResponse) -> Vec<String> {
         t.title.chars().take(50).collect(),
         t.repository_name.as_deref().unwrap_or("-").to_string(),
     ]
+}
+
+/// True if `task_id` names the sandbox this command is running inside.
+///
+/// Restarting or redeploying that one takes the process issuing the request
+/// down with it. Any other task is somebody else's sandbox and is fair game —
+/// a test suite running inside a sandbox drives other tasks through their whole
+/// lifecycle, restart included.
+fn is_own_sandbox(config: &Config, task_id: &str) -> bool {
+    config.task_id() == Some(task_id)
 }
 
 /// True if `s` looks like a full task_id (UUID: 36 chars with 4 hyphens).

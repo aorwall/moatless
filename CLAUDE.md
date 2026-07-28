@@ -24,11 +24,15 @@ cargo test -p moatless-vibe-backend         # or moatless-sandbox, claude-agent-
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
 ```
 
-### Integration & E2E (Taskfile + Docker; details: e2e-testing skill)
+### E2E (one suite, two profiles; details: e2e-testing skill)
+`tests/api` drives the product through the `moat` CLI, so the same chains run
+against either environment. `E2E_PROFILE` picks which — `docker` or `k8s` — and
+a test the profile cannot run skips with the missing capability named.
 ```bash
-task test:compose:db         # tiers: db | sandbox (SANDBOX_E2E=1) | agent (CLAUDE_SDK_E2E=1) | all
-task test:compose -- --test <file> [--skip-build --tier <t>] [--keep-running]
-task test:compose:e2e [-- --suite ui]       # Playwright; needs GITHUB_PAT
+task test:compose:e2e [-- --suite api|ui|all]   # docker profile, whole stack; needs GITHUB_PAT
+E2E_PROFILE=docker bun run test:e2e             # against a stack already up
+E2E_PROFILE=k8s    bun run test:e2e             # the cluster — from inside a sandbox
+E2E_PROFILE=k8s    bun tests/sweep.ts --dry-run # what a killed run left on the cluster
 ```
 
 ### Build / deploy / release

@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Full-stack Playwright E2E runner (companion to test-runner.sh, which runs the
-# Rust integration-tests crate). Brings up the docker-compose stack and runs the
-# Playwright suites in tests/api / tests/ui inside the e2e container.
+# Full-stack Playwright E2E runner. Brings up the docker-compose stack and runs
+# the E2E suites in tests/api / tests/ui inside the e2e container, under the
+# `docker` profile.
 #
 #   build backend (+ frontend for ui/all) → start postgres/redis/backend[/frontend]
 #   → wait for /health → docker compose run e2e → tear down
@@ -43,7 +43,7 @@ Examples:
   $(basename "$0")                                   # API suite (fastest, no browser)
   $(basename "$0") --suite ui                        # Browser suite (builds frontend)
   $(basename "$0") --suite all --skip-build          # Both suites, reuse images
-  $(basename "$0") --suite api -- tests/api/chains/task-crud.spec.ts   # single chain
+  $(basename "$0") --suite api -- tests/api/specs/task-crud.spec.ts   # single chain
 EOF
   exit 0
 }

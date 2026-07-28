@@ -26,6 +26,24 @@ pub enum EventAction {
         #[arg(long, short = 'f')]
         follow: bool,
     },
+    /// Stream live events as newline-delimited JSON, one object per line.
+    ///
+    /// Unlike `list --follow`, this prints no history and no decoration, so it
+    /// can be piped into anything that reads NDJSON. Runs until interrupted.
+    ///
+    /// Example:
+    ///   moat events stream --task abc123 --types sandbox,agent
+    Stream {
+        /// Only events for this task. Omit for every task the caller can see.
+        #[arg(long)]
+        task: Option<String>,
+        /// Comma-separated event type filter (e.g. sandbox,server,agent)
+        #[arg(long)]
+        types: Option<String>,
+        /// Include the stream's keep-alive pings, which are filtered by default.
+        #[arg(long)]
+        include_pings: bool,
+    },
 }
 
 pub async fn run(client: &MoatClient, action: EventAction, json: bool) -> Result<(), ClientError> {
@@ -74,6 +92,72 @@ pub async fn run(client: &MoatClient, action: EventAction, json: bool) -> Result
             if follow {
                 follow_events(client, &task_id, types.as_deref(), errors, json).await?;
             }
+        }
+        EventAction::Stream {
+            task,
+            types,
+            include_pings,
+        } => {
+            stream_events(client, task.as_deref(), types.as_deref(), include_pings).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Stream events as NDJSON — one compact JSON object per line, nothing else on
+/// stdout, so the output is consumable by a program rather than a reader.
+async fn stream_events(
+    client: &MoatClient,
+    task_id: Option<&str>,
+    types: Option<&str>,
+    include_pings: bool,
+) -> Result<(), ClientError> {
+    let mut path = "/api/v1/events/stream".to_string();
+    if let Some(t) = types {
+        let _ = write!(path, "?types={t}");
+    }
+
+    let resp = client.raw_get_stream(&path).await?;
+    let mut stream = resp.bytes_stream();
+    let mut buf = String::new();
+
+    loop {
+        tokio::select! {
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(bytes)) => {
+                        buf.push_str(&String::from_utf8_lossy(&bytes));
+                        while let Some(pos) = buf.find('\n') {
+                            let line: String = buf.drain(..=pos).collect();
+                            let line = line.trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+                                continue;
+                            };
+                            if !include_pings
+                                && event.get("type").and_then(|v| v.as_str()) == Some("ping")
+                            {
+                                continue;
+                            }
+                            if let Some(wanted) = task_id {
+                                // The stream is global; a task filter is applied here.
+                                if event.get("taskId").and_then(|v| v.as_str()) != Some(wanted) {
+                                    continue;
+                                }
+                            }
+                            println!("{}", serde_json::to_string(&event).unwrap_or_default());
+                        }
+                    }
+                    Some(Err(e)) => {
+                        eprintln!("Stream error: {e}");
+                        break;
+                    }
+                    None => break,
+                }
+            }
+            _ = tokio::signal::ctrl_c() => break,
         }
     }
     Ok(())

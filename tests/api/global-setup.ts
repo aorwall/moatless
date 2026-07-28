@@ -1,45 +1,51 @@
 /**
- * Global setup for API E2E tests.
+ * Global setup for the API E2E suite.
  *
  * Runs once before all test files:
- * 1. Validates GITHUB_PAT is present (fail-fast)
- * 2. Validates gh CLI is available and authenticated
- * 3. Truncates all DB tables for a clean slate
+ * 1. Announces the environment under test and what it cannot do
+ * 2. Checks the fixture the profile names is actually there
+ * 3. Resets the database, where the profile says that is allowed
+ *
+ * Nothing here fails a run for a missing optional credential. A test that needs
+ * one skips with the reason named, so a partial environment produces a partial
+ * run rather than no run at all. A missing *fixture* is different: it is not
+ * optional, and every chain would fail on it in turn.
  */
 
-import { execSync } from "node:child_process";
-import { resetDatabase } from "./helpers/db-reset";
+import { createDriver } from '../shared/moat'
+import { MoatApi } from '../shared/moat-api'
+import { describeProfile, profile } from '../shared/profile'
+import { runPrefix } from '../shared/run-scope'
+import { resetDatabase } from './helpers/db-reset'
 
 export default async function globalSetup(): Promise<void> {
-	console.log("\n[global-setup] Starting API E2E test setup...\n");
+  const active = profile()
 
-	// 1. Validate GITHUB_PAT
-	if (!process.env.GITHUB_PAT) {
-		throw new Error(
-			"[global-setup] GITHUB_PAT environment variable is required.\n" +
-			"  Set it to a GitHub Personal Access Token with repo scope.\n" +
-			"  Usage: GITHUB_PAT=ghp_xxx bun run test:api",
-		);
-	}
+  // Mint the run prefix here and publish it, so every worker — and the
+  // teardown, which is a separate process — names the same run. Workers
+  // inherit this environment when Playwright forks them, which happens after
+  // global setup returns.
+  process.env.E2E_RUN_PREFIX = runPrefix()
 
-	// 2. Validate gh CLI is available and authenticated
-	try {
-		const user = execSync("gh api user --jq .login", {
-			encoding: "utf-8",
-			env: { ...process.env, GH_TOKEN: process.env.GITHUB_PAT },
-			timeout: 15_000,
-		}).trim();
-		console.log(`[global-setup] GitHub CLI authenticated as: ${user}`);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		throw new Error(
-			`[global-setup] GitHub CLI validation failed: ${message}\n` +
-			"  Make sure 'gh' is installed and GITHUB_PAT is valid.",
-		);
-	}
+  console.log(`\n[global-setup] Testing ${describeProfile(active)}`)
+  console.log(`[global-setup] Run prefix: ${process.env.E2E_RUN_PREFIX}\n`)
 
-	// 3. Reset database
-	await resetDatabase();
+  // A profile that names a fixture by id is pointing at something the run does
+  // not create. Checking it once here turns "every chain failed" into one line
+  // naming the identifier and the variable that overrides it.
+  if (active.fixture.repositoryId) {
+    const api = new MoatApi(await createDriver(active))
+    const repo = await api.ensureTemplateRepository()
+    console.log(`[global-setup] Fixture repository: ${repo.name} (${repo.id})`)
+  }
 
-	console.log("[global-setup] Setup complete.\n");
+  if (active.capabilities.resetDatabase) {
+    await resetDatabase()
+  } else {
+    console.log(
+      `[global-setup] Profile '${active.name}' shares its database with real work — not resetting it.`,
+    )
+  }
+
+  console.log('[global-setup] Setup complete.\n')
 }

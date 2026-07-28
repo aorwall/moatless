@@ -34,12 +34,6 @@ Two sandbox images are available for task execution in Kubernetes:
 ./docker/build-sandbox.sh --platform linux/amd64 --push
 ```
 
-### Test Runner (for K8s integration tests)
-
-```bash
-./docker/build-test-runner.sh
-```
-
 ## Build Options
 
 All build scripts support:

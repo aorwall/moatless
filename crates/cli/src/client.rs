@@ -46,8 +46,20 @@ pub struct MoatClient {
     base_url: String,
     auth_mode: ClientAuthMode,
     verbose: bool,
+    /// How long to wait for a response before giving up.
+    http_timeout: std::time::Duration,
     /// Typed API client.
     typed_client: ApiClient,
+}
+
+/// Long enough for a person at a terminal, short enough to notice a hang.
+/// Endpoints that provision a sandbox before answering need `--timeout`.
+const DEFAULT_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A response whose status is part of the answer, not an error to raise.
+pub struct RawResponse {
+    pub status: u16,
+    pub body: serde_json::Value,
 }
 
 /// Internal auth mode for the client.
@@ -86,12 +98,13 @@ impl MoatClient {
 
     fn from_auth_mode(base_url: &str, auth_mode: ClientAuthMode) -> Self {
         let base_url = base_url.trim_end_matches('/').to_string();
-        let http = Self::build_http_client(&auth_mode);
+        let http = Self::build_http_client(&auth_mode, DEFAULT_HTTP_TIMEOUT);
         let typed_client = ApiClient::new(&base_url, http);
         Self {
             base_url,
             auth_mode,
             verbose: false,
+            http_timeout: DEFAULT_HTTP_TIMEOUT,
             typed_client,
         }
     }
@@ -109,6 +122,7 @@ impl MoatClient {
             base_url,
             auth_mode: ClientAuthMode::ApiKey(String::new()),
             verbose: false,
+            http_timeout: DEFAULT_HTTP_TIMEOUT,
             typed_client,
         })
     }
@@ -128,19 +142,34 @@ impl MoatClient {
         };
 
         let base_url = config.api_url.trim_end_matches('/').to_string();
-        let http = Self::build_http_client(&auth_mode);
+        let http = Self::build_http_client(&auth_mode, DEFAULT_HTTP_TIMEOUT);
         let typed_client = ApiClient::new(&base_url, http);
 
         Self {
             base_url,
             auth_mode,
             verbose,
+            http_timeout: DEFAULT_HTTP_TIMEOUT,
             typed_client,
         }
     }
 
+    /// Wait longer than the default for every request this client makes.
+    ///
+    /// Some endpoints do real work before they answer — closing a task removes
+    /// its sandbox, and sending a message to a stopped one provisions the
+    /// replacement — and against a remote cluster that outruns the default.
+    pub fn set_http_timeout(&mut self, timeout: std::time::Duration) {
+        self.http_timeout = timeout;
+        let http = Self::build_http_client(&self.auth_mode, timeout);
+        self.typed_client = ApiClient::new(&self.base_url, http);
+    }
+
     /// Build a `reqwest::Client` with default auth headers baked in.
-    fn build_http_client(auth_mode: &ClientAuthMode) -> reqwest::Client {
+    fn build_http_client(
+        auth_mode: &ClientAuthMode,
+        timeout: std::time::Duration,
+    ) -> reqwest::Client {
         let mut default_headers = HeaderMap::new();
 
         match auth_mode {
@@ -177,7 +206,7 @@ impl MoatClient {
         }
 
         reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(timeout)
             .default_headers(default_headers)
             .build()
             .unwrap_or_default()
@@ -191,7 +220,7 @@ impl MoatClient {
         {
             *session_token = Some(token);
             // Rebuild HTTP client and typed client with new session cookie.
-            let http = Self::build_http_client(&self.auth_mode);
+            let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
             self.typed_client = ApiClient::new(&self.base_url, http);
         }
     }
@@ -212,7 +241,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("GET {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode);
+        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
         let resp = http.get(&url).send().await?;
         self.handle_response(resp).await
     }
@@ -223,7 +252,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("GET {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode);
+        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
         let resp = http.get(url).send().await?;
         let status = resp.status().as_u16();
         if status == 401 {
@@ -248,7 +277,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("POST {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode);
+        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
         let resp = http.post(&url).json(body).send().await?;
         self.handle_response(resp).await
     }
@@ -263,7 +292,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("PUT {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode);
+        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
         let resp = http.put(&url).json(body).send().await?;
         self.handle_response(resp).await
     }
@@ -278,7 +307,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("PATCH {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode);
+        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
         let resp = http.patch(&url).json(body).send().await?;
         self.handle_response(resp).await
     }
@@ -289,9 +318,57 @@ impl MoatClient {
         if self.verbose {
             eprintln!("DELETE {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode);
+        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
         let resp = http.delete(&url).send().await?;
         self.handle_response(resp).await
+    }
+
+    /// Make an arbitrary request and report the status alongside the body,
+    /// without treating a rejection as an error.
+    ///
+    /// Every other raw helper collapses a 4xx into `ClientError`, which is right
+    /// for a person at a terminal and wrong for a caller whose question *is*
+    /// "how was this rejected" — an E2E assertion, or a script branching on the
+    /// status. Nothing here is retried and nothing is interpreted.
+    pub async fn raw_request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        headers: &[(String, String)],
+    ) -> Result<RawResponse, ClientError> {
+        let url = if path.starts_with("http://") || path.starts_with("https://") {
+            path.to_string()
+        } else {
+            format!("{}{path}", self.base_url)
+        };
+        let verb = reqwest::Method::from_bytes(method.to_uppercase().as_bytes())
+            .map_err(|_| ClientError::Api {
+                status: 400,
+                body: format!("Unsupported HTTP method '{method}'"),
+            })?;
+        if self.verbose {
+            eprintln!("{verb} {url}");
+        }
+
+        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+        let mut request = http.request(verb, &url);
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+
+        let resp = request.send().await?;
+        let status = resp.status().as_u16();
+        let text = resp.text().await?;
+        let body = if text.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text))
+        };
+        Ok(RawResponse { status, body })
     }
 
     async fn handle_response(

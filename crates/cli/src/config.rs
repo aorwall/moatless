@@ -48,7 +48,7 @@ impl Config {
             })
             .unwrap_or_else(|| "https://moatless.dev".to_string());
 
-        let auth_mode = if let Ok(token) = std::env::var("USER_AUTH_TOKEN") {
+        let auth_mode = if let Some(token) = sandbox_token() {
             let task_id = std::env::var("TASK_ID").ok();
             AuthMode::Sandbox {
                 user_auth_token: token,
@@ -102,6 +102,17 @@ impl Config {
     pub fn host(&self) -> String {
         host_from_url(&self.api_url)
     }
+}
+
+/// The sandbox token, when one is actually present.
+///
+/// An env var set to the empty string is not a credential — it is how a caller
+/// says "make this request without one", which the E2E suite relies on to
+/// assert that a route rejects anonymous callers.
+pub fn sandbox_token() -> Option<String> {
+    std::env::var("USER_AUTH_TOKEN")
+        .ok()
+        .filter(|token| !token.trim().is_empty())
 }
 
 /// Extract host (with port if non-standard) from a URL.

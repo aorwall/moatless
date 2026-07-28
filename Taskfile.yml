@@ -343,12 +343,21 @@ tasks:
   test:api:single:
     desc: Run a single API E2E test file (e.g. task -- task-crud)
     cmds:
-      - npx playwright test --config tests/api/playwright.config.ts tests/api/chains/{{.CLI_ARGS}}.spec.ts
+      - npx playwright test --config tests/api/playwright.config.ts tests/api/specs/{{.CLI_ARGS}}.spec.ts
 
   test:ui:
     desc: Run UI E2E tests (Playwright, Chromium)
     cmds:
       - npx playwright test --config tests/ui/playwright.config.ts {{.CLI_ARGS}}
+
+  # The sandbox's gRPC surface, exercised directly in a container rather than
+  # through the backend. Self-skipping when Docker or the image is absent.
+  test:sandbox:docker:
+    desc: Run the sandbox gRPC integration tests against a Docker container
+    dir: tests/sandbox-docker
+    cmds:
+      - bun install
+      - bun run test
 
   # ── Docker Compose (local development) ──────────────────────────
 
@@ -420,30 +429,10 @@ tasks:
         docker compose -f docker-compose/docker-compose.yml
         ps
 
-  # ── Docker Compose Integration Tests ──────────────────────────
-
-  test:compose:
-    desc: Build images, start compose, run integration tests, tear down
-    cmds:
-      - docker-compose/test-runner.sh {{.CLI_ARGS}}
-
-  test:compose:db:
-    desc: Run DB-tier integration tests (no sandbox build, fastest)
-    cmds:
-      - docker-compose/test-runner.sh --tier db
-
-  test:compose:sandbox:
-    desc: Run sandbox-tier integration tests
-    cmds:
-      - docker-compose/test-runner.sh --tier sandbox
-
-  test:compose:all:
-    desc: Run all integration test tiers
-    cmds:
-      - docker-compose/test-runner.sh --tier all
+  # ── E2E suite against Docker Compose ──────────────────────────
 
   test:compose:e2e:
-    desc: Run Playwright E2E suite in Docker (suite via -- --suite api|ui|all)
+    desc: Run the E2E suite in Docker (suite via -- --suite api|ui|all)
     cmds:
       - docker-compose/playwright-runner.sh {{.CLI_ARGS}}
 

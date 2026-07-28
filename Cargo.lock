@@ -3147,23 +3147,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "moatless-integration-tests"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "futures-util",
- "moatless-api-client",
- "moatless-api-schemas",
- "moatless-cli",
- "pretty_assertions",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "moatless-sandbox"
 version = "0.1.0"
 dependencies = [

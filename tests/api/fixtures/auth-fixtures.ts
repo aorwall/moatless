@@ -1,71 +1,93 @@
 /**
- * Multi-user test fixtures for access control tests.
+ * Multi-user fixtures for access control tests.
  *
- * Each user is created through the admin API and logged in with a real
- * password, exactly as a browser would — there is no header-trust path.
+ * Each user is created through the admin API and given an API key of their own,
+ * so a request from `alice` is authenticated as alice and nothing else — there
+ * is no header-trust path.
  *
- * The fixtures are worker-scoped: argon2 verification costs ~100ms per login,
- * so paying it once per worker rather than once per test keeps the suite fast.
+ * Only a profile that can seed users has these fixtures. Elsewhere the deployed
+ * auth provider owns identity, so a chain that needs a second person skips with
+ * the capability named — `requiresSeededUsers()` is how it says so.
+ *
+ * The fixtures are worker-scoped: creating a user and minting a key costs a
+ * couple of round trips, so paying it once per worker rather than once per test
+ * keeps the suite fast.
  *
  * Usage:
- *   import { test, expect } from "../fixtures/auth-fixtures";
+ *   import { test, expect, requiresSeededUsers } from "../fixtures/auth-fixtures";
  *
- *   test("my test", async ({ alice, bob, carol }) => {
- *     const team = await alice.createTeam({ name: "Eng", slug: "eng" });
+ *   test.describe("Chain: ...", () => {
+ *     requiresSeededUsers();
+ *
+ *     test("my test", async ({ alice }) => {
+ *       const team = await alice.createTeam({ name: "Eng", slug: "eng" });
+ *     });
  *   });
  */
 
-import type { ApiClient } from "../../shared/api-client";
-import { getAdminCookie, getBaseURL, test as apiTest } from "./api-fixtures";
-import { ApiClient as ApiClientImpl } from "../../shared/api-client";
+import { test as base } from '@playwright/test'
+import { type Moat, mintApiKey } from '../../shared/moat'
+import { MoatApi } from '../../shared/moat-api'
+import { missingCapability, profile } from '../../shared/profile'
+import { test as apiTest } from './api-fixtures'
 
 /** Password every fixture user is created with. */
-export const TEST_PASSWORD = "integration-test-password";
+export const TEST_PASSWORD = 'integration-test-password'
 
 /**
- * Create `login` (idempotent) and return a client authenticated as them.
+ * Skip the enclosing describe unless the profile can create users.
  *
- * Exported so tests that mutate team membership can re-login afterwards: team
- * ids are baked into the session JWT at login and never re-resolved per
- * request, so a client minted before `addTeamMember` carries no teams.
+ * Call it at describe scope. The reason names the capability, so a skipped run
+ * reads as "this environment cannot do that" rather than as a mystery.
+ */
+export function requiresSeededUsers(): void {
+  const reason = missingCapability('seedUsers')
+  base.skip(reason !== null, reason ?? '')
+}
+
+/**
+ * Create `login` (idempotent) and return an API authenticated as them.
+ *
+ * Exported so tests that mutate team membership can re-authenticate afterwards:
+ * a key carries the group it was minted with, so one minted before
+ * `addTeamMember` does not see the new team.
  */
 export async function loginAs(
-	login: string,
-	role: "user" | "admin" = "user",
-): Promise<ApiClient> {
-	const baseURL = getBaseURL();
-	const admin = new ApiClientImpl(baseURL).withSessionCookie(
-		await getAdminCookie(baseURL),
-	);
-	await admin.ensureUser(login, TEST_PASSWORD, role);
-	return new ApiClientImpl(baseURL).asUser(login, TEST_PASSWORD);
+  driver: Moat,
+  login: string,
+  role: 'user' | 'admin' = 'user',
+): Promise<MoatApi> {
+  await new MoatApi(driver).ensureUser(login, TEST_PASSWORD, role)
+  const key = await mintApiKey(profile().baseUrl, login, TEST_PASSWORD)
+  return new MoatApi(driver.withApiKey(key))
 }
 
 /** No test-scoped fixtures — alice/bob/carol are all worker-scoped. */
-interface NoTestFixtures {}
+// biome-ignore lint/complexity/noBannedTypes: Playwright's extend needs an empty object type here
+type NoTestFixtures = {}
 
 export const test = apiTest.extend<
-	NoTestFixtures,
-	{ alice: ApiClient; bob: ApiClient; carol: ApiClient }
+  NoTestFixtures,
+  { alice: MoatApi; bob: MoatApi; carol: MoatApi }
 >({
-	alice: [
-		async ({}, use) => {
-			await use(await loginAs("alice"));
-		},
-		{ scope: "worker" },
-	],
-	bob: [
-		async ({}, use) => {
-			await use(await loginAs("bob"));
-		},
-		{ scope: "worker" },
-	],
-	carol: [
-		async ({}, use) => {
-			await use(await loginAs("carol", "admin"));
-		},
-		{ scope: "worker" },
-	],
-});
+  alice: [
+    async ({ driver }, use) => {
+      await use(await loginAs(driver, 'alice'))
+    },
+    { scope: 'worker' },
+  ],
+  bob: [
+    async ({ driver }, use) => {
+      await use(await loginAs(driver, 'bob'))
+    },
+    { scope: 'worker' },
+  ],
+  carol: [
+    async ({ driver }, use) => {
+      await use(await loginAs(driver, 'carol', 'admin'))
+    },
+    { scope: 'worker' },
+  ],
+})
 
-export { expect } from "@playwright/test";
+export { expect } from '@playwright/test'

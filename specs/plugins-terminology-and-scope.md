@@ -286,10 +286,9 @@ Depth is what to watch: the sync routine should present a narrow interface — *
 its current version* — over a wide amount of machinery. Resist letting callers reach past it for the
 snapshot, the probe or the parser separately, because that is what would make the two callers drift.
 
-Prior art for the integration tier is `crates/integration-tests/tests/plugin_repos_e2e.rs`; it is
-being rewritten rather than extended, since the endpoints it exercises are going away. The Playwright
-chain in `tests/api/chains/plugin-repos-e2e.spec.ts` is in the same position. Both should come back
-covering registration, global activation, personal override, and delivery.
+Prior art for the integration tier is the chain in `tests/api/specs/plugins-e2e.spec.ts`; it is
+being rewritten rather than extended, since the endpoints it exercises are going away. It should come
+back covering registration, global activation, personal override, and delivery.
 
 The existing scope policy in `crates/backend-core/src/scope.rs` is **not** being reused here —
 decision 3 keeps plugins visible to everyone, so there is no access filtering to apply. Administrator

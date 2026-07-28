@@ -112,9 +112,9 @@ Error cases and scenarios that don't depend on chain state go in a **Standalone*
 
 | Spec | Test File |
 |------|-----------|
-| `specs/task-crud.md` | `tests/api/chains/task-crud.spec.ts` |
-| `specs/sandbox-operations.md` | `tests/api/chains/sandbox-lifecycle.spec.ts` |
-| `specs/agent-execution.md` | `tests/api/chains/agent-execution-flow.spec.ts` + `agent-plan-mode.spec.ts` + `agent-stop-recovery.spec.ts` |
+| `specs/task-crud.md` | `tests/api/specs/task-crud.spec.ts` |
+| `specs/sandbox-operations.md` | `tests/api/specs/sandbox-lifecycle.spec.ts` |
+| `specs/agent-execution.md` | `tests/api/specs/agent-execution-flow.spec.ts` + `agent-plan-mode.spec.ts` + `agent-stop-recovery.spec.ts` |
 
 ### Test Structure
 
@@ -158,7 +158,7 @@ export async function createTaskWithMessage(
 1. **Choose the domain prefix** and find the next available ID number
 2. **Add to the spec file**: overview tree + scenario heading with Given/When/Then
 3. **Create/update step function** in `tests/api/steps/{domain}.steps.ts`
-4. **Add test** in the appropriate chain file in `tests/api/chains/`
+4. **Add test** in the appropriate chain file in `tests/api/specs/`
 5. **Run tests** to verify: `task test:api:single -- {chain-name}`
 
 ## Concept Glossary

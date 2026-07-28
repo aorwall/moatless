@@ -352,6 +352,88 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getCreateAdapterConnectionMutationOptions(options), queryClient);
     }
+    export type deleteAdapterConnectionResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteAdapterConnectionResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type deleteAdapterConnectionResponseSuccess = (deleteAdapterConnectionResponse204) & {
+  headers: Headers;
+};
+export type deleteAdapterConnectionResponseError = (deleteAdapterConnectionResponse404) & {
+  headers: Headers;
+};
+
+export type deleteAdapterConnectionResponse = (deleteAdapterConnectionResponseSuccess | deleteAdapterConnectionResponseError)
+
+export const getDeleteAdapterConnectionUrl = (id: string,) => {
+
+
+  
+
+  return `/api/v1/adapters/connections/${id}`
+}
+
+export const deleteAdapterConnection = async (id: string, options?: RequestInit): Promise<deleteAdapterConnectionResponse> => {
+  
+  return customInstance<deleteAdapterConnectionResponse>(getDeleteAdapterConnectionUrl(id),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteAdapterConnectionMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdapterConnection>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteAdapterConnection>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['deleteAdapterConnection'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteAdapterConnection>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteAdapterConnection(id,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteAdapterConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAdapterConnection>>>
+    
+    export type DeleteAdapterConnectionMutationError = ErrorType<ErrorBody>
+
+    export const useDeleteAdapterConnection = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdapterConnection>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteAdapterConnection>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getDeleteAdapterConnectionMutationOptions(options), queryClient);
+    }
     export type githubWebhookResponse200 = {
   data: void
   status: 200

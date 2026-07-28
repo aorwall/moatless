@@ -13,6 +13,7 @@ This spec defines all testable scenarios for task management: creation, retrieva
 │   ├── TASK-01.1: Task appears in listing
 │   ├── TASK-01.2: Task creation event emitted
 │   ├── TASK-03: Get task by ID
+│   │   └── TASK-03.1: Whether the sandbox is running is asked for separately
 │   ├── TASK-04: Update task metadata
 │   ├── TASK-05: Set task tags
 │   │   └── TASK-05.1: Clear tags
@@ -34,7 +35,18 @@ This spec defines all testable scenarios for task management: creation, retrieva
 
 ```
 ├── TASK-10: Create task with invalid repository
-└── TASK-11: Send message to closed task
+├── TASK-11: Send message to closed task
+├── TASK-12: Send a follow-up message and read the conversation back
+├── TASK-13: A task with no external connection reports none
+└── TASK-14: Connections are readable by whoever can read the task
+```
+
+### Standalone: Feedback
+
+```
+├── TASK-20: Feedback at task, message and tool-call level
+├── TASK-21: A tool call named without its message is rejected
+└── TASK-22: Preview-failure feedback carries its metadata
 ```
 
 ---
@@ -94,6 +106,23 @@ A task can be retrieved by its ID with full details.
 
 * **Then** the response contains the task with the correct ID
   * **And** the response includes the status, repository, and creation date
+
+---
+
+### TASK-03.1: Whether the sandbox is running is asked for separately
+
+A task is a durable record; whether its sandbox is up right now is not. Reading a task must not answer the second question, or a stale listing would look like a live one.
+
+* **Given** TASK-01 has completed
+
+* **When** the user retrieves the task, on its own and in a listing
+
+* **Then** neither answer says anything about the sandbox or the agent running right now
+
+* **And when** the user asks for the task's live status
+
+* **Then** that answer reports the sandbox, the agent, and any sandbox failure — and nothing else
+  * **And** the fuller status report adds the running servers to those three
 
 ---
 
@@ -257,3 +286,91 @@ Sending a message to a closed task is rejected — a closed task is terminal and
 * **Then** the system rejects the message with a conflict error (409)
   * **And** no message is persisted on the task
   * **And** the task remains closed
+
+---
+
+### TASK-12: Send a follow-up message and read the conversation back
+
+A task's conversation accumulates: a message sent after creation joins the
+initial one, and the listing returns them.
+
+* **Given** a task exists, created with an initial message
+
+* **When** the user sends a second message to the task
+
+* **Then** the task's message listing is not empty
+
+---
+
+### TASK-13: A task with no external connection reports none
+
+The per-task connections endpoint answers for a task nothing is wired to.
+
+* **Given** a freshly created task with no adapter binding
+
+* **When** the user reads the task's connections
+
+* **Then** the list is empty
+
+---
+
+### TASK-14: Connections are readable by whoever can read the task
+
+The connections endpoint is scope-checked like reading the task itself, not
+admin-gated: the owner reads it, and a user who cannot see the task gets a 404
+rather than a 403 — an invisible task is *not found*.
+
+* **Given** a user-scoped repository holding a task owned by one user
+
+* **When** that user reads the task's connections
+
+* **Then** the list is returned
+
+* **When** a user who cannot see the task reads its connections
+
+* **Then** the system answers 404
+
+---
+
+## Standalone: Feedback
+
+Feedback is filed against a task and optionally narrowed to one message or one
+tool call within it. These scenarios are independent.
+
+---
+
+### TASK-20: Feedback at task, message and tool-call level
+
+The three surfaces are stored distinctly and all belong to the task.
+
+* **Given** a task exists
+
+* **When** the user files task-level, message-level and tool-call-level feedback
+
+* **Then** each response carries the surface it was filed under
+  * **And** each is attributed to the user rather than the agent
+  * **And** the task's feedback listing returns all three
+
+---
+
+### TASK-21: A tool call named without its message is rejected
+
+A tool call has no identity outside the message that contains it.
+
+* **Given** a task exists
+
+* **When** the user files tool-call feedback naming a tool call but no message
+
+* **Then** the system rejects the request
+
+---
+
+### TASK-22: Preview-failure feedback carries its metadata
+
+Preview failures are reported with the diagnostic detail that explains them.
+
+* **Given** a task exists
+
+* **When** the user files preview-failure feedback with error metadata
+
+* **Then** the stored feedback carries the surface and the metadata unchanged

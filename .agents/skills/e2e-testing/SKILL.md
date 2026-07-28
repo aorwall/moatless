@@ -1,325 +1,244 @@
 ---
 name: e2e-testing
-description: Run and write E2E tests for Moatless Vibe. Covers Rust integration tests (crates/integration-tests/ — API/CLI, tiered by db/sandbox/agent) and Playwright api/ui tests (tests/ — browser + API against Docker Compose). Use when running tests, writing new tests, setting up the test environment, or debugging test failures.
+description: Run and write the Moatless Vibe E2E suite (tests/api chains + tests/ui browser specs). One suite, two profiles — docker and k8s — driven through the moat CLI. Use when running tests, writing new chains, setting up the test environment, sweeping leftovers, or debugging failures.
 ---
 
 # E2E Testing
 
 ## Overview
 
-Two suites cover E2E testing, both against Docker Compose (the per-PR gate) at
-`http://localhost:8080`:
+There is **one** E2E suite, in `tests/`, and it runs against **two** environments:
 
-| Suite | Location | Runner | What it tests |
-|-------|----------|--------|---------------|
-| **Rust integration tests** | `crates/integration-tests/` | `cargo test` | Backend API via HTTP (MoatClient/reqwest) |
-| **Playwright api/ui tests** | `tests/api/`, `tests/ui/` | `bun run test:e2e` | API chains + browser UI workflows |
+| Profile | Environment | Auth | Fixture repository |
+|---------|-------------|------|--------------------|
+| `docker` | local Docker Compose at `http://localhost:8080` | password login, seeded users | cloned from a template URL |
+| `k8s` | the deployed cluster, from **inside a sandbox** | the sandbox's own login (ambient) | the pre-existing Moatable repo |
 
-Auth against Docker Compose is an admin cookie / seeded users.
+Every call the suite makes goes through the compiled `moat` binary, so the tests
+exercise the client people actually run — and the same chain works in both
+environments without branching on which one it is in.
 
-For operating or debugging a live k8s cluster by hand, see the
-`kubernetes-testing` skill.
+`E2E_PROFILE` selects the profile. Unset, a process carrying a sandbox login is
+a `k8s` run and anything else is `docker`. The resolved profile is printed at the
+top of every run; it is never left implicit.
 
----
-
-## Rust Integration Tests
-
-### Test Tiers
-
-Tests are organized into three tiers with environment variable gates:
-
-The tier of a test = its gate. Files with **no `#[ignore]`** are the **db** tier
-(run by default). Gated tests carry `#[ignore]` and self-skip when their env gate
-is missing; they only run with `-- --ignored`. To derive the current membership,
-grep the test files for the gate env var — the lists below are representative,
-not exhaustive.
-
-| Tier | Env Gate | `cargo test` flags | Representative tests |
-|------|----------|-------------------|----------------------|
-| **db** | None | `-- --nocapture` | task_crud, task_errors, repo_crud, messages, auth_verify, auth_teams, auth_access, integrations_config, integrations_errors, integrations_github_pr_reply, trigger_routing, trigger_recent_tasks, task_connections, shadow_workspace_primary, feedback |
-| **sandbox** | `SANDBOX_E2E=1` | `-- --ignored --nocapture` | sandbox_lifecycle, sandbox_errors, file_operations |
-| **agent** | `CLAUDE_SDK_E2E=1` | `-- --ignored --nocapture` | agent_execution_flow, agent_plan_mode, agent_stop_recovery, agent_ask_user_question, message_acknowledgment, subagent_tool_tracking, plugin_repos_e2e |
-
-Single-test mode (`--test <name>`) passes `--include-ignored` automatically — every gated test self-skips when its env gate is missing.
-
-**Special gated tests** (also `#[ignore]` + self-skip):
-
-| Test | Env Gate | Extra backend env | What it covers |
-|------|----------|-------------------|----------------|
-| `github_proxy`, `provider_settings`, `setup_requirements` | `GITHUB_PROXY_E2E=1` | `GITHUB_API_BASE_URL=http://host.docker.internal:18092`, `GITHUB_CHANNEL_TOKEN=<any>` | `moat gh` typed proxy against an in-process mock GitHub (`src/mock_github.rs`) — PR create + comments, task binding, `Moatless task:` footer, default-branch fallback; provider-token + setup flows |
-| `webhook_callback` | `CHANNEL_CALLBACK_E2E=1` | `CALLBACK_HOST=host.docker.internal` (test-side) | Outbound webhook callbacks to an in-process server |
-
-```bash
-# moat gh proxy E2E (mock GitHub on host port 18092):
-GITHUB_PROXY_E2E=1 \
-GITHUB_API_BASE_URL=http://host.docker.internal:18092 \
-GITHUB_CHANNEL_TOKEN=mock-token \
-  docker-compose/test-runner.sh --test github_proxy
-```
-
-### Shared Utilities (`crates/integration-tests/src/`)
-
-**`lib.rs`** — Core helpers:
-- `test_client()` — Unauthenticated `MoatClient` (reads `MOATLESS_API_URL`, defaults to `http://localhost:8080`)
-- `client_as_user(login, role)` — Client authenticated via password-login session cookie (server assigns the id, returned on `TestUser.id`)
-- `client_as_user_with_teams(login, role, team_ids)` — Same, with team membership
-- `seed_test_users()` — Seeds alice, bob, carol via password login
-- `ensure_template_repo(client)` — Creates/finds template repo (`hello-world-ui.git`)
-- `reset_database()` — Truncates all application tables via `docker exec moatless-postgres psql`
-
-**`sandbox_helpers.rs`** — Polling helpers (2s intervals):
-- `wait_for_sandbox_ready(client, task_id, timeout)` — Polls until `environment_status == "ready"` with stability re-check
-- `wait_for_agent_idle(client, task_id, timeout)` — Polls until `agent_state == "idle"`
-- `wait_for_files_available(client, task_id, timeout)` — Polls until workspace has files
-- `wait_for_sandbox_error(client, task_id, timeout)` — Polls for error state
-
-**`callback_server.rs`** — In-process HTTP server for webhook callback testing:
-- `CallbackServer::start()` — Binds ephemeral port, captures POST bodies as JSON
-- `wait_for_callback(timeout)` — Waits for a webhook to arrive
-
-**`raw_api.rs`** — Raw reqwest helpers for endpoints not in the generated API client (error cases, webhook sending, auth verify with custom headers).
-
-### Running Rust Integration Tests
-
-**Automated (recommended)** — builds images, starts compose, runs tests, tears down:
-
-```bash
-# DB-tier only (fastest, no sandbox build)
-docker-compose/test-runner.sh --tier db
-
-# Sandbox-tier (builds sandbox images)
-docker-compose/test-runner.sh --tier sandbox
-
-# Agent-tier (requires Claude credentials)
-CLAUDE_CODE_OAUTH_TOKEN=... docker-compose/test-runner.sh --tier agent
-
-# All tiers
-CLAUDE_CODE_OAUTH_TOKEN=... docker-compose/test-runner.sh --tier all
-
-# Single test file
-docker-compose/test-runner.sh --test task_crud
-
-# Skip build, keep running for debugging
-docker-compose/test-runner.sh --skip-build --keep-running --tier db
-```
-
-**Via Taskfile:**
-
-```bash
-task test:compose:db       # DB tier
-task test:compose:sandbox  # Sandbox tier
-task test:compose:all      # All tiers
-task test:compose -- --test task_crud --keep-running  # Custom flags
-```
-
-**Manual** (when backend is already running):
-
-```bash
-# DB-tier tests
-MOATLESS_API_URL=http://localhost:8080 cargo test -p moatless-integration-tests -- --nocapture
-
-# Sandbox tests
-SANDBOX_E2E=1 MOATLESS_API_URL=http://localhost:8080 cargo test -p moatless-integration-tests -- --ignored --nocapture
-
-# Single test
-cargo test -p moatless-integration-tests --test task_crud -- --nocapture
-```
-
-### Writing a New Rust Integration Test
-
-1. Create `crates/integration-tests/tests/<name>.rs`
-2. Use the shared helpers:
-
-```rust
-use integration_tests::{test_client, seed_test_users, reset_database};
-
-#[tokio::test]
-async fn my_test() {
-    reset_database();
-    seed_test_users().await;
-
-    let client = test_client();
-    // ... test API calls via client.api()
-}
-```
-
-3. For sandbox/agent tests, add `#[ignore]` and document the env gate:
-
-```rust
-#[tokio::test]
-#[ignore] // Requires SANDBOX_E2E=1
-async fn my_sandbox_test() {
-    // Use sandbox_helpers for polling
-    use integration_tests::sandbox_helpers;
-    // ...
-}
-```
+For operating or debugging a live cluster by hand, see the `kubernetes-testing`
+skill. For the plan this suite came out of, see
+`specs/one-e2e-suite-against-k8s.md`.
 
 ---
 
-## Playwright UI E2E Tests
+## Capabilities, not tiers
 
-### Structure
+A test that cannot run in an environment **skips there, with the reason named**.
+It is never deleted, and it never fails for the wrong reason. What an
+environment can do is declared in `tests/shared/profile.ts`:
 
-```
-tests/ui/
-  playwright.config.ts       # Config: Chromium, 180s timeout, 2 workers
-  specs/
-    smoke.spec.ts            # App loads, endpoints accessible
-    task-creation.spec.ts    # Create task via API, verify in UI
-    navigation.spec.ts       # Route navigation, direct URL access
-  fixtures/
-    ui-fixtures.ts           # Custom fixtures: api, testRepoId
-tests/shared/
-  api-client.ts              # Type-safe API client (fetch-based, ~100 methods)
-  wait-helpers.ts            # Polling helpers (workspace ready, agent idle)
-  sse-collector.ts           # NDJSON event stream collector
-```
+| Capability | Means | `docker` | `k8s` |
+|---|---|---|---|
+| `seedUsers` | create users and log in as them | yes | no — the deployed auth provider has no local users |
+| `resetDatabase` | truncate between runs | yes | no — the database is shared with real work |
+| `directDatabase` | read/write Postgres directly | yes | no — no database route from a sandbox |
+| `inboundCallbacks` | the backend can reach a server the test process opens | yes | no |
+| `agentCredentials` | agent-tier chains can run | when a key is set | yes |
+| `githubRepositories` | create and delete real repositories on GitHub | when `GITHUB_PAT` is set | when `GITHUB_PAT` is set |
+| `localImages` | run an image built here and pushed nowhere | yes | no — the cluster pulls from a registry |
 
-### Configuration
-
-- **Browser:** Chromium only
-- **Test timeout:** 180s
-- **Expect timeout:** 15s
-- **Workers:** 2 (CI: 1)
-- **Base URL:** `DOCKER_COMPOSE_URL` or `http://localhost:${BACKEND_PORT:-8080}`
-- **Artifacts:** Screenshots on failure, videos retained on failure, traces on first retry
-
-### Custom Fixtures
-
-The `ui-fixtures.ts` provides:
-
-- **`api`** — `ApiClient` instance pointed at the backend. Performs a health check on setup (throws if backend is down).
-- **`testRepoId`** — Template repository ID. Auto-creates one if none exists.
-
-Usage in tests:
+In a spec:
 
 ```typescript
-import { test, expect } from "../fixtures/ui-fixtures";
+import { missingCapability } from '../../shared/profile'
 
-test("my test", async ({ page, api, testRepoId }) => {
-  const task = await api.createVibeTask({
-    templateId: testRepoId,
-    name: "Test Task",
-    message: "Do something",
-  });
-
-  await page.goto(`/tasks/${task.taskId}`);
-  await page.waitForLoadState("networkidle");
-  await expect(page.locator("#root")).toBeVisible();
-
-  // Cleanup
-  await api.stopTask(task.taskId);
-  await api.deleteTask(task.taskId);
-});
+const reason = missingCapability('seedUsers')
+test.skip(reason !== null, reason ?? '')
 ```
 
-### Running Playwright UI Tests
+The run summary groups skips by reason and prints them under **Did not run**, so
+a tier that silently stopped executing cannot hide inside a skip count.
 
-Requires the backend to be running (via Docker Compose or `dev-docker.sh`).
+---
+
+## Running it
+
+### Against Docker Compose
+
+Whole stack, built and torn down for you (this is the per-PR gate):
 
 ```bash
-# API suite (chains) — note: test:e2e targets tests/api, not the UI
-bun run test:e2e
-
-# UI suite (browser)
-bun run test:e2e:ui
-
-# Via Taskfile
-task test:ui
+task test:compose:e2e                       # api suite
+task test:compose:e2e -- --suite ui         # browser suite (builds the frontend)
+task test:compose:e2e -- --suite all --skip-build --keep-running
+task test:compose:e2e -- --suite api -- tests/api/specs/task-crud.spec.ts   # one chain
 ```
 
-### Writing a New Playwright Test
+`GITHUB_PAT` gives the run the `githubRepositories` capability; without it the
+tests that create real repositories on GitHub skip, and the header line at the
+top of the run says so. `ADMIN_PASSWORD` defaults to the CI overlay's value.
 
-1. Create `tests/ui/specs/<name>.spec.ts`
-2. Import from fixtures:
+Against a stack that is already running:
+
+```bash
+bun run test:e2e                            # tests/api
+bun run test:e2e:ui                         # tests/ui
+bunx playwright test --config tests/api/playwright.config.ts tests/api/specs/task-crud.spec.ts
+```
+
+Always pass `--config`. Without it Playwright uses its own defaults — a 30s
+timeout and no global setup — and the run fails in ways the suite did not mean.
+Do not pass `--reporter` either: it replaces the config's reporters, and the run
+summary is the part worth reading.
+
+### Against the cluster
+
+Run it **from inside a sandbox**, which is the only place with a login for the
+deployed environment:
+
+```bash
+E2E_PROFILE=k8s bun run test:e2e
+```
+
+If it fails with an unknown `moat api` subcommand, the `moat` on PATH is older
+than the suite's driver. Build the one in the checkout and point at it:
+
+```bash
+cargo build -p moatless-cli --bin moat
+MOAT_BIN="$PWD/target/debug/moat" E2E_PROFILE=k8s bun run test:e2e
+```
+
+A cluster run takes about ten minutes at the default three workers; most of that
+is real pods scheduling and pulling. Nightly, `.moatless/loops/e2e-nightly/LOOP.md`
+does exactly this on a schedule.
+
+---
+
+## Run isolation and sweeping
+
+The cluster database is shared and long-lived — there is no truncate to fall
+back on. So every resource a test creates is named through `scopedName()` with
+the run's own prefix (`tests/shared/run-scope.ts`):
+
+```
+e2e-mfz3k1p-a4f9-Task Filter Repo
+└─┬─┘└──┬──┘└─┬─┘
+  │     │     └── random, so two runs starting the same millisecond differ
+  │     └──────── start time, base 36
+  └────────────── the family every run shares
+```
+
+The prefix carries the start time, so anything can decide what is stale from the
+name alone. Teardown sweeps the run's own prefix. For runs that were killed
+before teardown — an open task keeps a sandbox pod alive — sweep by hand:
+
+```bash
+E2E_PROFILE=k8s bun tests/sweep.ts --dry-run       # say what would go
+E2E_PROFILE=k8s bun tests/sweep.ts --older-than 3h # default is 3h
+```
+
+Only resources whose name says a run created them are ever touched.
+
+---
+
+## Layout
+
+```
+tests/
+  shared/
+    profile.ts        # the two profiles: URLs, auth, fixtures, timeouts, capabilities
+    moat.ts           # the driver — spawns the `moat` binary; json/text/raw/stream
+    moat-api.ts       # domain verbs on top of the driver
+    run-scope.ts      # the run prefix, scopedName / scopedSlug
+    sweep.ts          # removing what a run left behind
+    event-stream.ts   # SSE collected through the CLI
+  api/
+    playwright.config.ts
+    global-setup.ts / global-teardown.ts
+    specs/*.spec.ts   # the tests — a serial chain, or standalone cases
+    steps/            # actions that compose (createTask, waitForSandboxReady, …)
+    helpers/          # progress(), discardTask(), the GitHub and DB helpers
+    fixtures/         # `api`, `events`, and the auth fixtures (alice/bob)
+    context/          # ChainContext, chainEvents() — what one test hands the next
+    reporters/        # the run summary
+  ui/specs/*.spec.ts  # browser workflows
+  sweep.ts            # the standalone sweeper
+```
+
+A chain is a `test.describe` with `test.describe.configure({ mode: "serial" })`:
+each test is one step, and a step that fails stops the chain rather than
+cascading misleading failures. Separate chains run in parallel. About half the
+files in `specs/` are chains; the rest are standalone cases that set up and tear
+down their own state, which is why the directory is not called `chains/`.
+
+---
+
+## Writing a chain
+
+1. **Find the scenario.** Coverage is specified in `specs/<domain>/NN-*.md`, and
+   each scenario has a permanent id (`TASK-05`, `SANDBOX-03.2`, `AGENT-09.1`).
+   Ids are never reused. A test's title is its id and the scenario's sentence.
+2. **Put it in the chain that owns the domain** —
+   `tests/api/specs/<domain>-*.spec.ts`.
+3. **Speak through the fixtures**, not through raw HTTP — `api` for a single
+   call, a step from `../steps` when the action composes:
 
 ```typescript
-import { test, expect } from "../fixtures/ui-fixtures";
+import { expect, test } from '../fixtures/api-fixtures'
+import { budget } from '../../shared/profile'
+import { createTaskWithMessage, waitForSandboxReady } from '../steps'
 
-test.describe("Feature Name", () => {
-  test("scenario description", async ({ page, api, testRepoId }) => {
-    // Setup via API (faster than UI interaction)
-    // Navigate with page.goto()
-    // Assert with expect()
-    // Cleanup via API
-  });
-});
+test.describe('Chain: My Feature', () => {
+  test.describe.configure({ mode: 'serial' })
+
+  test('FEAT-01: The thing happens', async ({ api }, testInfo) => {
+    testInfo.setTimeout(budget('sandboxReady'))
+
+    const { taskId } = await createTaskWithMessage(api, ctx.repositoryId!, 'do the thing')
+    const { ready } = await waitForSandboxReady(api, taskId)
+    expect(ready, 'the sandbox never became ready').toBe(true)
+  })
+})
 ```
+
+Rules that keep the suite worth running:
+
+- **Every assertion carries a message saying what is wrong**, not what was
+  compared. The run summary prints that sentence as the failure; `expect(a).toBe(b)`
+  reports nothing anyone can act on.
+- **An assertion that cannot fail is worse than none.** Asserting a value equals
+  itself, or that a list "has entries" when a fresh environment has them anyway,
+  reads as coverage and is not.
+- **Timeouts come from the profile**, never from a constant — a pod takes
+  several times as long as a local container. A test states which transitions it
+  waits on and lets `budget("sandboxReady", "agentIdle")` do the arithmetic; the
+  waits themselves already default to the profile's ceiling.
+- **Name every resource through `scopedName`/`scopedSlug`**, or the sweep cannot
+  clean it up.
+- **Guard on a capability, don't branch on the profile name.**
+- **Call `api` directly for a single request.** A step exists to compose — a
+  call plus the wait that makes it meaningful, a default, a projection. A
+  wrapper that only reorders arguments hides which endpoint ran.
+- **Narrate with `progress()`**, which labels the line with the test that
+  emitted it. Three chains interleave their output.
 
 ---
 
-## Environment Setup
+## Debugging
 
-### Docker Compose Test Runner (recommended)
+- The run summary at the end names the profile, the run prefix, the counts, each
+  failure with its assertion, and every skip with its reason.
+- HTML report: `test-results/api/` (`npx playwright show-report test-results/api`).
+  JSON: `test-results/api/results.json`.
+- `[global-setup]` lines at the top say which environment was resolved and which
+  fixture repository was found; the header line names every capability the
+  profile lacks, which is why a group of tests will skip.
+- Docker stack logs: `docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-compose.ci.yml logs backend`.
+- Cluster: `moat tasks logs <task-id> --server <name>`, and `moat tasks diagnose <task-id>`.
 
-`docker-compose/test-runner.sh` handles the full lifecycle:
+**Common causes**
 
-1. Builds backend Docker image (and sandbox images if needed)
-2. Stops existing containers, removes volumes
-3. Starts `postgres`, `redis`, `backend` with CI overlay (auth disabled)
-4. Polls `/health` until ready (60s max)
-5. Resets database (truncates all tables)
-6. Runs tests, captures output to `test-logs/`
-7. Captures compose logs
-8. Tears down (unless `--keep-running`)
-
-**Flags:**
-
-| Flag | Description |
-|------|-------------|
-| `--tier <db\|sandbox\|agent\|all>` | Test tier (default: `db`) |
-| `--test <name>` | Single test file |
-| `--skip-build` | Reuse existing Docker images |
-| `--keep-running` | Don't tear down (for debugging) |
-| `--verbose` | Set `RUST_LOG=debug` on backend |
-
-**Environment variables:**
-
-| Variable | Required for | Default |
-|----------|-------------|---------|
-| `TASK_TOKEN_SECRET` | All | Auto-generated |
-| `DATA_DIR` | All | `$HOME/.moatless/data` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | agent tier | - |
-| `ANTHROPIC_API_KEY` | agent tier | - |
-| `GITHUB_PAT` | repo clone tests | - |
-
-### Manual Setup
-
-```bash
-# Start backend + dependencies
-./docker-compose/dev-docker.sh --no-logs
-
-# Then run tests separately:
-cargo test -p moatless-integration-tests -- --nocapture    # Rust tests
-bun run test:e2e                                   # Playwright tests
-```
-
-### After `--keep-running`
-
-```bash
-# Inspect logs
-docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-compose.ci.yml logs backend
-
-# Tear down manually
-docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-compose.ci.yml down --remove-orphans
-```
-
----
-
-## Debugging Test Failures
-
-**Rust tests:**
-- Check `test-logs/test-<tier>-<timestamp>.log` for test output
-- Check `test-logs/compose-<timestamp>.log` for backend logs
-- Use `--keep-running` + `--verbose` to inspect live
-
-**Playwright tests:**
-- HTML report: `test-results/ui/`
-- Screenshots captured on failure
-
-**Common issues:**
-- Backend not healthy: check `docker compose logs backend`
-- Tests can't connect: verify `MOATLESS_API_URL` is set correctly
-- Sandbox tests fail: ensure sandbox image is built (`docker/build-sandbox.sh --local`)
-- Agent tests fail: check `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is set
+| Symptom | Cause |
+|---|---|
+| "Backend is not healthy" on every chain | wrong `E2E_PROFILE`, or a `moat` older than the suite's driver — set `MOAT_BIN` |
+| "Fixture repository … is missing" | `E2E_REPOSITORY_ID` points at something that is not there |
+| a whole tier skipped | the profile lacks the capability — read the **Did not run** group |
+| a chain times out at 30s | `--config` was not passed |
+| leftovers on the cluster | a run was killed before teardown — `bun tests/sweep.ts` |

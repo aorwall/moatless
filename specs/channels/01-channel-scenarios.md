@@ -2,6 +2,8 @@
 
 This spec defines testable scenarios for channel integrations: trigger management, webhook inbound routing with multiple routing modes, outbound webhook callbacks, and error cases. These scenarios use the generic webhook provider to validate the shared channel pipeline.
 
+The E2E suite names these scenarios `INT-nn` rather than `CHAN-nn`, one number to one number — `CHAN-11` is `INT-11`. The suite predates the rename and has not been renumbered.
+
 ---
 
 ## Overview
@@ -15,6 +17,34 @@ This spec defines testable scenarios for channel integrations: trigger managemen
 │   ├── CHAN-04: Deactivate task trigger
 │   └── CHAN-05: Delete task trigger
 │       └── CHAN-05.1: Trigger removed from listing
+```
+
+### Chain 1b: Schedule Loop CRUD
+```
+├── CHAN-07: Create a schedule loop
+│   ├── CHAN-07.1: Schedule loop appears in the schedule listing
+│   ├── CHAN-07.2: Updating the cron expression moves the next firing
+│   └── CHAN-07.3: Delete the schedule loop
+```
+
+### Standalone: Path alias
+```
+└── CHAN-06: The loops path and its triggers alias answer identically
+```
+
+### Standalone: Loop Recent Tasks
+```
+├── CHAN-45: A schedule loop's tasks are listed, with no binding
+└── CHAN-46: A subscription loop's tasks are listed with their binding
+```
+
+### Standalone: Task Reply Routing
+```
+├── CHAN-40: Replying to a task with no binding answers 404
+├── CHAN-41: Replying to a task with one binding sends to it
+├── CHAN-42: Replying to a task with several bindings answers 400 and lists them
+├── CHAN-43: Naming the binding explicitly sends to it
+└── CHAN-44: Naming a binding that does not exist answers 404
 ```
 
 ### Chain 2: Webhook Inbound (by_subject routing without thread_id)
@@ -41,6 +71,7 @@ This spec defines testable scenarios for channel integrations: trigger managemen
 │   ├── CHAN-31: New thread_id creates task
 │   ├── CHAN-32: Reply in same thread routes to same task
 │   └── CHAN-33: Different thread_id creates new task
+├── CHAN-34: A reply after close starts a new task
 ```
 
 ### Chain 5: Webhook Outbound Callback
@@ -460,3 +491,270 @@ These scenarios are independent and test specific error conditions.
 * **When** a message is sent without a text field
 
 * **Then** the system returns a validation error
+
+---
+
+## Chain 1b: Schedule Loop CRUD
+
+A loop fired by a cron expression it carries, rather than by an inbound adapter
+event. Same resource, same endpoint, different source.
+
+---
+
+### CHAN-07: Create a schedule loop
+
+A schedule loop is stored with its cron expression, timezone and message
+template, and the server computes when it will next fire.
+
+* **Given** a repository exists
+
+* **When** the user creates a schedule loop with a cron expression and a message template
+
+* **Then** the loop is of kind schedule, carrying the repository, task name and prompt it was given
+  * **And** its source carries the cron expression, timezone and message template unchanged
+  * **And** it has never fired
+  * **And** its next firing is in the future
+
+---
+
+### CHAN-07.1: Schedule loop appears in the schedule listing
+
+* **Given** CHAN-07 has completed
+
+* **When** the user lists loops of kind schedule
+
+* **Then** the created loop appears
+
+---
+
+### CHAN-07.2: Updating the cron expression moves the next firing
+
+The next firing is derived, not stored input — changing the expression
+recomputes it.
+
+* **Given** CHAN-07 has completed
+
+* **When** the user updates the loop's cron expression, timezone and message template
+
+* **Then** the source carries the new values
+  * **And** the next firing is recomputed to a time after the update
+
+---
+
+### CHAN-07.3: Delete the schedule loop
+
+* **Given** CHAN-07 has completed
+
+* **When** the user deletes the loop
+
+* **Then** it no longer appears in the schedule listing
+
+---
+
+## Standalone: Path alias
+
+---
+
+### CHAN-06: The loops path and its triggers alias answer identically
+
+`/api/v1/loops` is the documented path; `/api/v1/triggers` is the older name
+kept working for existing clients. They are the same handlers, so the same
+operation must answer identically on either.
+
+* **Given** a subscription loop exists
+
+* **When** the loop is read by id through both paths
+
+* **Then** the two responses are identical
+
+* **When** loops are listed through both paths with the same filters
+
+* **Then** the created loop appears in both
+  * **And** the two listings are identical
+
+---
+
+## Standalone: Task Reply Routing
+
+A reply has to go somewhere, and where is decided by the task's bindings — a
+binding records which external subject (a webhook thread, a pull request, a
+Slack thread) a task answers into. These scenarios are independent.
+
+---
+
+### CHAN-40: Replying to a task with no binding answers 404
+
+* **Given** a task with no binding of any kind
+
+* **When** the user replies to the task
+
+* **Then** the system answers 404
+  * **And** the error says the task has no bindings
+
+---
+
+### CHAN-41: Replying to a task with one binding sends to it
+
+An inbound message creates both the task and the binding it answers into, so
+one destination needs no choosing.
+
+* **Given** a webhook subscription loop exists
+  * **And** an inbound message on it created a task
+
+* **When** the user replies to that task without naming a binding
+
+* **Then** exactly one destination is sent to
+  * **And** no provider error is reported
+  * **And** the reported target is the binding
+
+---
+
+### CHAN-42: Replying to a task with several bindings answers 400 and lists them
+
+With more than one destination the system refuses to guess, and the refusal
+carries what a caller needs to choose.
+
+* **Given** a task carrying two bindings
+
+* **When** the user replies to the task without naming one
+
+* **Then** the system answers 400
+  * **And** both candidate targets are listed
+  * **And** each carries the flag that would select it
+
+---
+
+### CHAN-43: Naming the binding explicitly sends to it
+
+* **Given** a task carrying a binding
+
+* **When** the user replies naming that binding
+
+* **Then** exactly one destination is sent to
+
+---
+
+### CHAN-44: Naming a binding that does not exist answers 404
+
+* **Given** a task exists
+
+* **When** the user replies naming a binding id that does not exist
+
+* **Then** the system answers 404
+
+---
+
+## Standalone: Loop Recent Tasks
+
+The tasks a loop produced are listed from the task's own loop id, not from a
+binding. A schedule loop never creates a binding, so a listing driven by
+bindings would report that a loop firing every night has produced nothing.
+
+---
+
+### CHAN-45: A schedule loop's tasks are listed, with no binding
+
+* **Given** a schedule loop with a task attributed to it
+
+* **When** the user lists the loop's recent tasks
+
+* **Then** the task is listed
+  * **And** it carries no binding
+
+---
+
+### CHAN-46: A subscription loop's tasks are listed with their binding
+
+* **Given** a webhook subscription loop
+  * **And** an inbound message on it created a task
+
+* **When** the user lists the loop's recent tasks
+
+* **Then** the created task is listed
+  * **And** it carries the binding the inbound message created
+
+---
+
+## Standalone: The GitHub Proxy
+
+The platform posts to GitHub on a task's behalf rather than letting the caller
+do it directly. That is what lets the message carry the task's identity, bind
+the task to what it replied to, and be recognised later as the platform's own
+comment rather than a new inbound event.
+
+---
+
+### CHAN-70: Opening a pull request for a task that does not exist is refused
+
+Access to the task is settled before anything is sent to GitHub, so a bad task reference never reaches the outside world.
+
+* **Given** no task with the given identifier
+
+* **When** the user opens a pull request on that task's behalf
+
+* **Then** the system reports that the task was not found
+
+---
+
+### CHAN-71: Commenting for a task that does not exist is refused
+
+* **Given** no task with the given identifier
+
+* **When** the user comments on that task's behalf
+
+* **Then** the system reports that the task was not found
+
+---
+
+### CHAN-72: Replying for a task that does not exist is refused
+
+* **Given** no task with the given identifier
+
+* **When** the user replies to a review comment on that task's behalf
+
+* **Then** the system reports that the task was not found
+
+---
+
+### CHAN-73: Opening a pull request with no usable GitHub credentials fails
+
+Having no credentials and having credentials GitHub rejects are the same situation from the user's side: the request could not be completed with GitHub.
+
+* **Given** the platform has no usable credentials for the target repository
+
+* **When** the user opens a pull request
+
+* **Then** the system reports that the request could not be completed upstream
+
+---
+
+### CHAN-74: A pull request, a comment and a reply all bind the one task
+
+Everything the platform sends about one pull request belongs to one conversation, so a later reply on any of it comes back to the same task.
+
+* **Given** a task, and a repository the platform holds credentials for
+
+* **When** the user opens a pull request for the task without naming a base branch
+  * **And** comments on it
+  * **And** replies to a review comment on it
+
+* **Then** the pull request is opened against the repository's default branch
+  * **And** its description keeps what the user wrote and gains a link back to the task
+  * **And** the task is bound to that pull request
+  * **And** the comment and the reply leave it bound to the same one, exactly once
+
+---
+
+### CHAN-34: A reply after close starts a new task
+
+Closing a task is final. A later reply in the same thread starts a new one — routing it back would reopen work the user has finished with, and would leave a message on a task nobody is watching.
+
+* **Given** a webhook task trigger routing by subject
+  * **And** an inbound message in a thread created a task
+  * **And** the user closed that task
+
+* **When** another message arrives in the same thread
+
+* **Then** a new task is created for it
+  * **And** the closed task stays closed
+  * **And** nothing is added to the closed task's conversation

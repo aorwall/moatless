@@ -28,6 +28,12 @@ struct GlobalOpts {
     /// Show HTTP request details for debugging
     #[arg(long, global = true)]
     verbose: bool,
+
+    /// Seconds to wait for a response, overriding the 30-second default.
+    /// Raise it for commands whose endpoint provisions or removes a sandbox
+    /// before it answers.
+    #[arg(long, global = true)]
+    timeout: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +90,8 @@ enum SharedCommands {
         #[command(subcommand)]
         action: Box<commands::adapters::BindingAction>,
     },
+    /// Make a raw API request and report the status alongside the body
+    Api(commands::api::ApiArgs),
     /// Task event history
     Events {
         #[command(subcommand)]
@@ -234,7 +242,7 @@ enum StandaloneCommands {
 
 #[tokio::main]
 async fn main() {
-    let is_sandbox = std::env::var("USER_AUTH_TOKEN").is_ok();
+    let is_sandbox = moatless_cli::config::sandbox_token().is_some();
 
     let result = if is_sandbox {
         let cli = SandboxCli::parse();
@@ -257,6 +265,9 @@ async fn main() {
 async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = Config::from_env();
     let mut moat = MoatClient::new(&cfg, cli.opts.verbose);
+    if let Some(seconds) = cli.opts.timeout {
+        moat.set_http_timeout(std::time::Duration::from_secs(seconds));
+    }
 
     let needs_auth = !is_status_command_sandbox(&cli.command);
     if needs_auth {
@@ -321,11 +332,15 @@ async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> 
 async fn run_standalone(cli: StandaloneCli) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = Config::from_env();
     let mut moat = MoatClient::new(&cfg, cli.opts.verbose);
+    if let Some(seconds) = cli.opts.timeout {
+        moat.set_http_timeout(std::time::Duration::from_secs(seconds));
+    }
 
     let needs_auth = !matches!(
         &cli.command,
         StandaloneCommands::Login { .. } | StandaloneCommands::Logout
-    ) && !is_status_command_standalone(&cli.command);
+    ) && !is_status_command_standalone(&cli.command)
+        && !is_raw_api_command(&cli.command);
     if needs_auth {
         auth::ensure_auth(&mut moat, &cfg).await?;
     }
@@ -393,6 +408,9 @@ async fn run_shared(
         }
         SharedCommands::Bindings { action } => {
             commands::adapters::run_bindings(moat, *action, json).await?;
+        }
+        SharedCommands::Api(args) => {
+            commands::api::run(moat, args).await?;
         }
         SharedCommands::Events { action } => {
             commands::events::run(moat, action, json).await?;
@@ -473,5 +491,15 @@ fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
                     | SharedCommands::K8s { .. }
                     | SharedCommands::Docker { .. }
             )
+    )
+}
+
+/// `moat api` reports whatever the server answers, including a rejection, so it
+/// must not be stopped by the pre-flight auth check — being turned away is a
+/// result it is expected to print.
+fn is_raw_api_command(cmd: &StandaloneCommands) -> bool {
+    matches!(
+        cmd,
+        StandaloneCommands::Shared(c) if matches!(**c, SharedCommands::Api(_))
     )
 }

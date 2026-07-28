@@ -10,12 +10,9 @@
     "ignoreUnknown": false,
     "includes": [
       "apps/frontend/src/**",
-      "apps/backend/**/*.ts",
-      "apps/backend/**/*.js",
-      "!apps/backend/dist",
-      "apps/sandbox/src/**",
-      "!apps/sandbox/dist",
-      "packages/*/src/**"
+      "packages/*/src/**",
+      "tests/**/*.ts",
+      "!tests/**/node_modules"
     ]
   },
   "formatter": {
@@ -373,23 +370,14 @@
       }
     },
     {
-      "includes": ["apps/backend/src/services/**/*.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useImportType": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": [
         "**/*.test.ts",
         "**/*.test.tsx",
         "**/__tests__/**/*",
         "**/test-utils/**/*",
         "**/test/helpers/**/*",
-        "**/test/mocks/**/*"
+        "**/test/mocks/**/*",
+        "tests/**/*.ts"
       ],
       "linter": {
         "rules": {
@@ -411,6 +399,20 @@
           },
           "performance": {
             "noDelete": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["tests/**/*.ts"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noEmptyPattern": "off"
+          },
+          "suspicious": {
+            "noEmptyBlockStatements": "off",
+            "noUndeclaredEnvVars": "off"
           }
         }
       }

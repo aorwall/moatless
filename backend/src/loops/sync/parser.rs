@@ -197,6 +197,67 @@ mod tests {
         assert_eq!(loop_.frontmatter.on, "github_pr");
     }
 
+    /// Every `LOOP.md` this repository commits, parsed by the code the backend
+    /// runs on it.
+    ///
+    /// A committed loop that does not parse is not an error anybody sees: sync
+    /// logs a warning and moves on, and the loop simply never fires. This is
+    /// where that shows up instead.
+    #[test]
+    fn the_repositorys_own_loops_parse() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.moatless/loops");
+        let mut found = Vec::new();
+
+        for entry in std::fs::read_dir(&root).expect("the repository has a .moatless/loops") {
+            let dir = entry.expect("readable directory entry").path();
+            let file = dir.join("LOOP.md");
+            if !file.is_file() {
+                continue;
+            }
+            let name = dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("loop directory name")
+                .to_string();
+            let content = std::fs::read_to_string(&file).expect("readable LOOP.md");
+            let parsed = parse_loop(&content, &name)
+                .unwrap_or_else(|| panic!("{name}/LOOP.md does not parse — the loop never syncs"));
+            assert!(
+                !parsed.prompt_body.trim().is_empty(),
+                "{name}/LOOP.md has no body, so the agent it spawns is told nothing"
+            );
+            found.push((name, parsed));
+        }
+
+        assert!(!found.is_empty(), "no loops found under {}", root.display());
+
+        for (name, parsed) in &found {
+            if parsed.frontmatter.on.trim() != "schedule" {
+                continue;
+            }
+            let expression = parsed
+                .frontmatter
+                .schedule
+                .as_ref()
+                .and_then(|s| s.cron.as_deref())
+                .unwrap_or_else(|| panic!("{name}: a schedule loop without schedule.cron is skipped by sync"));
+            let schedule: cron::Schedule = expression
+                .parse()
+                .unwrap_or_else(|e| panic!("{name}: cron '{expression}' is invalid: {e}"));
+            let mut fires = schedule.upcoming(chrono::Utc);
+            let first = fires.next().expect("a cron with a future fire time");
+            let second = fires.next().expect("a cron that fires more than once");
+            // Each fire spawns a task that provisions a sandbox and runs a suite
+            // for half an hour. A schedule that repeats faster than the work
+            // takes is how a cluster fills with tasks nobody asked for.
+            assert!(
+                second - first >= chrono::Duration::hours(1),
+                "{name}: cron '{expression}' fires every {} — too often for a loop that spawns a task each time",
+                second - first
+            );
+        }
+    }
+
     #[test]
     fn empty_body_is_allowed() {
         let content = "---\non: github_pr\n---\n";

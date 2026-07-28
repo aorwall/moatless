@@ -257,7 +257,7 @@ Suggested helper commands:
 
 ```bash
 rg "use crate::" backend/src --glob '*.rs'
-rg "moatless_vibe_backend::" backend/tests crates/integration-tests --glob '*.rs'
+rg "moatless_vibe_backend::" backend/tests --glob '*.rs'
 cargo tree -p moatless-vibe-backend --edges normal
 ```
 

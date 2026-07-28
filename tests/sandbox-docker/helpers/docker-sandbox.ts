@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process'
-import net from 'node:net'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -146,7 +146,7 @@ export async function startDockerSandbox(
   execSync(`docker start ${containerName}`, { stdio: 'ignore' })
 
   // Wait for HTTP health check (gRPC starts in parallel and will be ready too)
-  await waitForContainerHealth(hostPort, 60000)
+  await waitForContainerHealth(hostPort, 60_000)
 }
 
 /**
@@ -156,7 +156,7 @@ export async function stopDockerSandbox(ctx: DockerSandboxContext): Promise<void
   const { containerName, rootDir } = ctx
 
   try {
-    execSync(`docker stop ${containerName}`, { stdio: 'ignore', timeout: 10000 })
+    execSync(`docker stop ${containerName}`, { stdio: 'ignore', timeout: 10_000 })
   } catch {
     // Ignore
   }
@@ -204,7 +204,7 @@ export function dockerExec(
   command: string,
   options: { timeout?: number; user?: string } = {},
 ): string {
-  const { timeout = 120000, user } = options
+  const { timeout = 120_000, user } = options
   const userFlag = user ? `-u ${user}` : ''
   try {
     return execSync(`docker exec ${userFlag} ${containerName} bash -c "${command}"`, {
