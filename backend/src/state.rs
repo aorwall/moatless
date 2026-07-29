@@ -73,8 +73,8 @@ pub struct AppState {
     pub sandbox_notify: Arc<dyn NotifyPort>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
-    /// Optional S3 client for file uploads/downloads.
-    pub s3: Option<aws_sdk_s3::Client>,
+    /// Optional S3 handle for file uploads/downloads.
+    pub s3: Option<crate::file_storage::s3::S3Storage>,
     /// Optional external adapters.
     pub adapters: Option<Arc<Adapters>>,
     /// Optional GitHub App service for installation tokens and user token refresh.
@@ -235,7 +235,7 @@ impl AppState {
         agent_status: Arc<dyn AgentStatusPort>,
         sandbox_notify: Arc<dyn NotifyPort>,
         events: Option<Arc<dyn EventPublisher>>,
-        s3: Option<aws_sdk_s3::Client>,
+        s3: Option<crate::file_storage::s3::S3Storage>,
         adapters: Option<Arc<Adapters>>,
         github_apps: Arc<GitHubAppRegistry>,
     ) -> Self {

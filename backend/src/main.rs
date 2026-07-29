@@ -145,7 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let adapter = startup::build_k8s_sandbox_adapter(
                 &config,
                 k8s.clone(),
-                s3_client.clone().map(std::sync::Arc::new),
+                s3_client
+                    .clone()
+                    .map(|storage| std::sync::Arc::new(storage.client)),
                 provision_deps.clone(),
             );
             sandbox_runtime = adapter.clone();
@@ -173,7 +175,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let adapter = startup::build_docker_sandbox_adapter(
                 &config,
                 docker_client.clone(),
-                s3_client.clone().map(std::sync::Arc::new),
+                s3_client
+                    .clone()
+                    .map(|storage| std::sync::Arc::new(storage.client)),
                 provision_deps.clone(),
             );
             sandbox_runtime = adapter.clone();

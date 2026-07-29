@@ -151,8 +151,8 @@ pub struct BackendSandboxServiceImpl {
     /// Backend config — supplies `frontend_url`, `proxy.domain`, `proxy.protocol`
     /// for the agent's append system prompt.
     pub backend_config: Option<Arc<Config>>,
-    /// S3 client used by `download_upload` to fetch attachment bytes.
-    pub s3: Option<Arc<aws_sdk_s3::Client>>,
+    /// S3 handle used by `download_upload` and workspace sync.
+    pub s3: Option<Arc<crate::file_storage::s3::S3Storage>>,
     /// File metadata repository — supplies filename and mime type when
     /// fulfilling `download_upload` requests.
     pub files: Option<Arc<dyn FileRepository>>,
@@ -1348,7 +1348,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             .ok_or_else(|| Status::not_found("File metadata not found"))?;
 
         let s3_key = format!("{}/{}", self.s3_key_prefix, req.file_id);
-        let (data, _content_type) = file_s3::get_object(s3_client, bucket, &s3_key)
+        let (data, _content_type) = file_s3::get_object(&s3_client.client, bucket, &s3_key)
             .await
             .map_err(|e| {
                 warn!(error = %e, file_id = %req.file_id, "S3 get_object failed");
@@ -1415,7 +1415,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let bytes_received = data.len() as i64;
         let key = transcript_key(&self.transcript_s3_prefix, &task_id);
-        file_s3::put_object(s3_client, bucket, &key, data, "application/x-tar")
+        file_s3::put_object(&s3_client.client, bucket, &key, data, "application/x-tar")
             .await
             .map_err(|e| {
                 warn!(error = %e, task_id = %task_id, "S3 put_object for transcript failed");
@@ -1450,7 +1450,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
 
         let key = transcript_key(&self.transcript_s3_prefix, &req.task_id);
-        let data = file_s3::get_object_opt(s3_client, bucket, &key)
+        let data = file_s3::get_object_opt(&s3_client.client, bucket, &key)
             .await
             .map_err(|e| {
                 warn!(error = %e, task_id = %req.task_id, "S3 get_object for transcript failed");
@@ -1515,9 +1515,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         debug!(task_id = %req.task_id, key = %key, "Minted workspace sync URLs");
         Ok(Response::new(GetWorkspaceSyncUrlsResponse {
-            put_url,
-            get_url,
-            expires_in_secs: WORKSPACE_PRESIGN_TTL.as_secs() as i64,
+            expires_in_secs: put_url.expires_in.min(get_url.expires_in).as_secs() as i64,
+            put_url: put_url.url,
+            get_url: get_url.url,
         }))
     }
 

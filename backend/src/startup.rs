@@ -243,7 +243,7 @@ pub async fn init_sse(
 // =========================================================================
 
 /// Optionally initialise the S3 client.
-pub async fn init_s3(config: &Config) -> Option<aws_sdk_s3::Client> {
+pub async fn init_s3(config: &Config) -> Option<crate::file_storage::s3::S3Storage> {
     if config.s3.bucket_name.is_none() {
         info!("S3_BUCKET_NAME not set — file uploads disabled");
         return None;
@@ -252,9 +252,13 @@ pub async fn init_s3(config: &Config) -> Option<aws_sdk_s3::Client> {
         .region(aws_config::Region::new(config.s3.region.clone()))
         .load()
         .await;
+    let credentials_provider = aws_config.credentials_provider();
     let client = aws_sdk_s3::Client::new(&aws_config);
     info!("S3 client initialized");
-    Some(client)
+    Some(crate::file_storage::s3::S3Storage::new(
+        client,
+        credentials_provider,
+    ))
 }
 
 // =========================================================================
@@ -269,7 +273,7 @@ pub fn spawn_grpc_server(
     config: &Config,
     db_pool: Option<&DbPool>,
     event_publisher: Option<Arc<dyn EventPublisher>>,
-    s3: Option<Arc<aws_sdk_s3::Client>>,
+    s3: Option<Arc<crate::file_storage::s3::S3Storage>>,
     connector: Arc<dyn crate::sandbox::access::SandboxConnector>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {

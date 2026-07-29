@@ -83,9 +83,15 @@ pub async fn upload_file(
             })?;
 
     // Upload to S3
-    s3::put_object(s3_client, bucket, &s3_key, data.clone(), &content_type)
-        .await
-        .map_err(FileStorageError::UploadFailed)?;
+    s3::put_object(
+        &s3_client.client,
+        bucket,
+        &s3_key,
+        data.clone(),
+        &content_type,
+    )
+    .await
+    .map_err(FileStorageError::UploadFailed)?;
 
     // Save metadata
     let meta = FileMetadata {
@@ -152,7 +158,7 @@ pub async fn download_file(
     }
 
     let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
-    let (data, content_type) = s3::get_object(s3_client, bucket, &s3_key)
+    let (data, content_type) = s3::get_object(&s3_client.client, bucket, &s3_key)
         .await
         .map_err(FileStorageError::UploadFailed)?;
 

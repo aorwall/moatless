@@ -196,7 +196,7 @@ pub(crate) async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<
         };
 
         let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
-        match crate::file_storage::s3::get_object(s3_client, bucket, &s3_key).await {
+        match crate::file_storage::s3::get_object(&s3_client.client, bucket, &s3_key).await {
             Ok((data, _content_type)) => {
                 files.push(OutboundFile {
                     filename: meta.filename,
