@@ -491,8 +491,7 @@ pub async fn shell_subscription(
 /// A resuming client is not holding nothing. It re-fetches the whole shell
 /// snapshot over HTTP on every resubscribe and applies it *before* it
 /// subscribes, and the `afterSequence` it sends is that snapshot's own sequence
-/// (`client-runtime/src/state/shell.ts:204-212`, recorded in Decision 8's
-/// correction in `specs/t3-shell-projection.md`). So its projects are the ones
+/// (`client-runtime/src/state/shell.ts:204-212`). So its projects are the ones
 /// [`shell_snapshot`] returned moments ago, and [`shell_snapshot`] returns
 /// **every workspace the viewer may read**, unconditionally, plus the ones a
 /// listed conversation references.

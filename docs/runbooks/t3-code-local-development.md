@@ -4,11 +4,12 @@ This runbook starts a local Moatless Docker Compose environment from the current
 Rust checkout, authenticates through the existing Moatless UI, and runs the T3
 Code web app against the opt-in Rust compatibility surface.
 
-The target is a **connected T3 environment showing the viewer's projects**:
+The target is a **connected T3 environment showing the viewer's projects and
+followed conversations**:
 discovery, cookie authentication, HTTP bootstrap, WebSocket upgrade, and the
-JSON Effect-RPC envelopes end to end, with the shell listing the Workspaces the
-logged-in user may read. The groups are empty — Moatless Tasks are not yet
-projected into T3 Threads — and commands are still refused.
+JSON Effect-RPC envelopes end to end, with the shell listing readable Workspaces
+and the Moatless Tasks the logged-in user follows. Most non-shell commands are
+still refused or exposed as empty bootstrap streams.
 
 ## Architecture
 
@@ -100,8 +101,7 @@ Moatless cookie, preventing cross-site WebSocket use.
 that id, and a listing built against one database must not be reused against
 another. Recreating the compose Postgres volume therefore changes the published
 id, and every connected client rebuilds instead of resuming into a database
-that no longer contains what it holds. That is intended; see Decision 7 in
-`specs/t3-shell-projection.md`.
+that no longer contains what it holds. That is intended.
 
 Check startup:
 

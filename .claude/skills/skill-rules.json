@@ -282,7 +282,7 @@
       "fileTriggers": {
         "pathPatterns": [
           "specs/*.md",
-          "docs/plans/**/*.md"
+          ".plans/**/*.md"
         ],
         "pathExclusions": [
           "specs/AGENTS.md",

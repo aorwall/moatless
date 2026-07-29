@@ -10,9 +10,8 @@
 //! position order the same order; what that costs callers is
 //! [`dao::record_change`]'s "call this last".
 //!
-//! Decisions 2 and 7 of `specs/t3-shell-projection.md` carry the argument. No T3
-//! vocabulary appears here — [`crate::ui_rpc`] turns the record into a shell
-//! event.
+//! No T3 vocabulary appears here — [`crate::ui_rpc`] turns the record into a
+//! shell event.
 
 pub mod dao;
 pub mod models;

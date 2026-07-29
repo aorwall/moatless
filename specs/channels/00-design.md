@@ -570,4 +570,4 @@ Remaining follow-up work:
 - keep task bindings as the canonical outbound reply target and task-following model
 - remove the unused automatic outbound notification path where any provider-specific remnants remain
 - keep `specs/channels/01-channel-scenarios.md` aligned with final provider behavior rather than documenting an intermediate state
-- use [docs/plans/github-pr-channel-architecture.md](/Users/albert/repos/soap/moatless-vibe/docs/plans/github-pr-channel-architecture.md:1) as the first provider-specific migration plan under this architecture
+- write new provider-specific migration plans under `.plans/`

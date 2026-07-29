@@ -39,7 +39,7 @@ Write the file to `/opt/moatless/workspace/scratchpad/`, creating the directory 
 
 `file` and `fileView` are search params on the **task route** — not a separate `/file` sub-route — so the link opens the page inside the normal task UI rather than stranding the reader on a bare document.
 
-- **The path is relative to the workspace root** (`WORKSPACE_DIR`, `/opt/moatless/workspace`), not to the repo. That means repo files carry the checkout directory: `moatless/specs/foo.md`, not `specs/foo.md`.
+- **The path is relative to the workspace root** (`WORKSPACE_DIR`, `/opt/moatless/workspace`), not to the repo. That means repo files carry the checkout directory: `moatless/.plans/foo.md`, not `.plans/foo.md`.
 - **URL-encode it.** Slashes become `%2F`. `scratchpad%2Freport.html`, `moatless%2Fspecs%2Ffoo.md`.
 - `fileView` is one of `code`, `diff`, `preview`. **`preview` renders both HTML and markdown** (`.md`, `.mdx`) — anything else falls back, so `code` is the only sensible mode for source.
 

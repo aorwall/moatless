@@ -11,9 +11,9 @@ description: Take a change from research to an agreed spec — research and deci
 2. **Render the page.** Its first content is that shared understanding, as `## Current solution`. Give the URL once.
 3. **Research and grill toward what to build**, growing `## Planned solution` as you go. This phase mixes reading code, asking the user, and writing the page — the seams are one of the questions. Update the lede and the decision table at the top whenever an answer changes them.
 4. **Get the plan approved, on the page.** Paste the decision table into the message so the choice is reachable without opening anything. This is an approval turn, not a ranked pick — see `/writing-messages`.
-5. **Write `specs/<slug>.md`, once** — complete and uncapped. It is for the agent that implements.
+5. **Write `.plans/<slug>.md`, once** — complete and uncapped. It is for the agent that implements.
 
-Nothing goes into `specs/` before step 5.
+Nothing goes into `.plans/` before step 5.
 
 **Recording and redrawing are different, and only one is a judgement call.** Recording is not optional: an answer lands, it goes on the page before the next question goes out — one `Edit` adding a row. Redrawing rewrites a section an answer made *wrong*, and the test is "wrong", not "out of date" — a section the page already shows as open is incomplete, and incomplete costs nothing.
 
@@ -30,7 +30,7 @@ Everything else in this skill is *how* to do one of those steps:
 ## The two surfaces
 
 - **The page** — `scratchpad/<slug>.html`. The only document the user ever works against, from step 2 to step 4. It carries the lede, the research, and every answer as it arrives.
-- **The markdown** — `specs/<slug>.md`. Written at step 5, for the agent that implements and for `/code-review`'s spec axis.
+- **The markdown** — `.plans/<slug>.md`. Written at step 5, for the agent that implements and for `/code-review`'s spec axis.
 
 **The page is capped by attention; the markdown is capped by nothing.** One screen is what gets approved; the implementing agent gets everything.
 
@@ -99,7 +99,7 @@ For **Seams and testing**, use the `/codebase-design` vocabulary exactly: module
 
 ## Writing style
 
-Where the repo has a `specs/AGENTS.md`, its rules apply to every spec, not only scenario files: no endpoint paths, no field names, no status codes, no infrastructure terminology, no event strings. Describe what happens, in plain-English state names.
+Where the repo has a `specs/AGENTS.md`, apply its language rules to `.plans/` change specs too: no endpoint paths, no field names, no status codes, no infrastructure terminology, no event strings. Describe what happens, in plain-English state names.
 
 Two more:
 

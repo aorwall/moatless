@@ -189,7 +189,7 @@ plans and `deletedAt`:
 | `id` | `tasks.task_id` |
 | `projectId` | `tasks.workspace_id`. A Task whose Workspace does not resolve is **left out of the listing**, not emitted — see the hazard below. |
 | `title` | `tasks.name`, falling back to `tasks.task_id`. `name` is nullable with no non-empty constraint and `title` is `TrimmedNonEmptyString`. |
-| `modelSelection` | `{instanceId, model}`, both required and non-empty (`:64-68`). Resolved by [spec decision 9](../specs/t3-shell-projection.md#9-a-conversation-reports-its-newest-turns-model); `instanceId` is the driver's default instance (`ClaudeCode → claudeAgent`, `Codex → codex`). |
+| `modelSelection` | `{instanceId, model}`, both required and non-empty (`:64-68`). Uses the newest Turn's model, falling back to the deployment default for the agent kind; `instanceId` is the driver's default instance (`ClaudeCode → claudeAgent`, `Codex → codex`). |
 | `runtimeMode` | `full-access` — `DEFAULT_RUNTIME_MODE` (`:124`). Moatless has no equivalent, and the permissive mode is an honest description of a Sandbox: a process in a pod with no approval gate in front of it. |
 | `branch` | `tasks.branch`, `null` when blank. |
 | `worktreePath` | `WORKSPACE_DIR` (`/opt/moatless/workspace`) when a Sandbox exists and has not been removed; `null` otherwise. Unlike a project's `workspaceRoot` this is a **label, not an identity** — the client only displays it — so one shared value collapses nothing. |
@@ -252,8 +252,7 @@ same something.
   it has changed (`client-runtime/src/authorization/service.ts:114`,
   `client-runtime/src/connection/resolver.ts:106`). The correction is recorded
   rather than removed because the original reading is the one that makes a
-  server-derived id look like a free choice, and Decision 7 of
-  `specs/t3-shell-projection.md` now depends on it not being one: this backend
+  server-derived id look like a free choice: this backend
   derives the id from the database it is serving, and a client that finds a
   different id is either starting fresh or refusing to connect — never resuming
   into a listing that no longer exists.
@@ -321,8 +320,7 @@ The third also resolves a smaller mismatch: T3's `sequence` is a
 `NonNegativeInt` (a JS number) while `task_events.id` is `i64`.
 
 That third option is what shipped, but **per deployment, not per Task** — this
-paragraph said "per-task counter" until `specs/t3-shell-projection.md` (Decision 2)
-settled it the other way. The shell snapshot carries one `snapshotSequence` and the
+paragraph said "per-task counter" until implementation settled it the other way. The shell snapshot carries one `snapshotSequence` and the
 client keeps one cursor, so a per-Task counter produces many positions where the
 contract has room for one, and no way to order them against each other. The counter
 is `task_listing_position`; see `backend/src/task_listing.rs`.
@@ -342,9 +340,7 @@ of what else lands.
   clock-dependent. Moatless's `TaskStatus` is server-durable `Open·Closed·Error`.
   Decide whether the adapter synthesizes settlement or T3 Code hides the control
   when the environment does not advertise the capability.
-- **Turn status enums.** **Settled** — the full mapping is
-  [spec decision 10](../specs/t3-shell-projection.md#10-the-turn-state-mapping-in-full).
-  Note that the enums are not the same size: `OrchestrationLatestTurnState`
+- **Turn status enums.** **Settled.** The enums are not the same size: `OrchestrationLatestTurnState`
   (`orchestration.ts:326`) is four values — `running·interrupted·completed·error`
   — against Moatless's five. **T3 has no `pending` turn state** (an earlier
   reading of this document claimed one): the only `"pending"` literal in the
@@ -358,9 +354,7 @@ of what else lands.
 - **A thread's model.** `OrchestrationThreadShell.modelSelection`
   (`orchestration.ts:405`) is required, and a `ModelSelection` is
   `{instanceId, model}` with `model` a `TrimmedNonEmptyString` (`:64-66`) —
-  no null, no decoding default. **Settled** —
-  [spec decision 9](../specs/t3-shell-projection.md#9-a-conversation-reports-its-newest-turns-model)
-  takes the newest Turn's model, by the same rule
+  no null, no decoding default. **Settled.** The adapter takes the newest Turn's model, by the same rule
   `task/statistics.rs` already uses for the Moatless UI (latest
   `assistant_message_model`, else the requested `model`), then the deployment
   default for the agent kind, then one last-resort constant. The catalog name

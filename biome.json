@@ -303,7 +303,7 @@
               "level": "error",
               "options": {
                 "paths": {
-                  "@/features/tasks": "features/preview and features/files must not import features/tasks. Composition flows one way: features/tasks composes these features, not the reverse. Move shared code to lib/ or invert via props. See docs/plans/task-page-composability.md."
+                  "@/features/tasks": "features/preview and features/files must not import features/tasks. Composition flows one way: features/tasks composes these features, not the reverse. Move shared code to lib/ or invert via props."
                 }
               }
             }

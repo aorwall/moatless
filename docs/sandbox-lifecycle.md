@@ -2,8 +2,7 @@
 
 How the backend creates, watches, protects, stops, recovers, and destroys
 Kubernetes sandboxes — as the system behaves **today**, after the reliability
-work tracked in `docs/plans/sandbox-reliability-fixes.md` (PRs #285–#301,
-#306, #307).
+work shipped in PRs #285-#301, #306, and #307.
 
 This is a companion to [Sandbox Architecture](./sandbox-architecture.md)
 (what runs *inside* the sandbox pod) and

@@ -16,7 +16,7 @@ Issue tracker + triage labels: `docs/agents/issue-tracker.md`.
 
 Check with the user that these seams match their expectations — one question, shaped per `/writing-messages`.
 
-3. Run the `/writing-specs` skill for the spec's shape — the fixed heading order, the decision table, and the writing rules. Write the spec to `specs/<slug>.md`, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Run the `/writing-specs` skill for the spec's shape — the fixed heading order, the decision table, and the writing rules. Write the spec to `.plans/<slug>.md`, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 
 There is no page and no interview here — the agreement already happened in the conversation, so this skill jumps straight to `/writing-specs` step 5: one complete markdown file, written once, for the agent that implements it. Nothing in it is capped.
 

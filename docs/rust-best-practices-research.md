@@ -15,8 +15,7 @@ The skill keeps universal rules short and loads backend, sandbox, or shared-crat
 detail only when the changed path requires it.
 
 Current code is not treated as proof that a convention is good. Verified
-violations of retained guidance are tracked as implementation tickets under
-[`docs/plans/rust-dev-guidelines/tickets/`](plans/rust-dev-guidelines/tickets/).
+violations of retained guidance should be tracked as implementation tickets.
 Rejected rules generate no remediation work.
 
 ## Primary-source baseline
@@ -78,21 +77,21 @@ an unrelated general Rust review.
 
 | Ticket | Priority | Verified problem |
 |---|---:|---|
-| [EVT-1](plans/rust-dev-guidelines/tickets/EVT-1-correct-event-admission.md) | P0 | Sandbox event ingress can acknowledge before required durable admission and records deduplication too early. |
-| [EVT-2](plans/rust-dev-guidelines/tickets/EVT-2-bound-sandbox-outbox.md) | P1 | The sandbox outbox advertises bounds behind an unbounded producer channel and has an uncapped lifecycle class. |
-| [DB-1](plans/rust-dev-guidelines/tickets/DB-1-task-pagination-total.md) | P1 | Task pagination can count tag-join duplicates and reports zero beyond the final page. |
-| [ASYNC-1](plans/rust-dev-guidelines/tickets/ASYNC-1-sandbox-init-filesystem.md) | P2 | Sandbox async initialization performs recursive synchronous filesystem work on a runtime worker. |
-| [WIRE-1](plans/rust-dev-guidelines/tickets/WIRE-1-fallible-proto-conversions.md) | P2 | Partial protobuf conversions silently collapse unrepresentable or unknown values. |
-| [SUP-BE](plans/rust-dev-guidelines/tickets/SUP-BE-supervise-backend-tasks.md) | P1 | Backend root tasks can terminate or panic without affecting health or process ownership. |
-| [SUP-SB](plans/rust-dev-guidelines/tickets/SUP-SB-supervise-sandbox-tasks.md) | P1 | Sandbox root/durability tasks and some dispatch work are detached from health and shutdown. |
-| [ING-1](plans/rust-dev-guidelines/tickets/ING-1-durable-adapter-admission.md) | P1 | Provider HTTP acknowledgment has no durable work-admission seam. |
-| [ING-2](plans/rust-dev-guidelines/tickets/ING-2-slack-telegram-admission.md) | P1 | Slack and Telegram acknowledge before required inbound routing is durable. |
-| [ING-3](plans/rust-dev-guidelines/tickets/ING-3-github-linear-admission.md) | P1 | Required GitHub and Linear webhook work is detached after acknowledgment. |
-| [PORT-1](plans/rust-dev-guidelines/tickets/PORT-1-inject-handler-repositories.md) | P2 | Handlers construct binding and adapter-connection PostgreSQL repositories directly. |
-| [PORT-2](plans/rust-dev-guidelines/tickets/PORT-2-remove-handler-pool-work.md) | P2 | Remaining handlers perform persistence work through the raw pool. |
-| [ERR-1](plans/rust-dev-guidelines/tickets/ERR-1-core-error-sources.md) | P2 | Core backend error families erase causal sources into strings. |
-| [ERR-2](plans/rust-dev-guidelines/tickets/ERR-2-adapter-error-sources.md) | P2 | Adapter and binding error families erase causal sources into strings. |
-| [LINT-1](plans/rust-dev-guidelines/tickets/LINT-1-lint-suppression-reasons.md) | P3 | Rust sources contain 111 textual `#[allow(...)]` sites and no native suppression reasons. |
+| EVT-1 | P0 | Sandbox event ingress can acknowledge before required durable admission and records deduplication too early. |
+| EVT-2 | P1 | The sandbox outbox advertises bounds behind an unbounded producer channel and has an uncapped lifecycle class. |
+| DB-1 | P1 | Task pagination can count tag-join duplicates and reports zero beyond the final page. |
+| ASYNC-1 | P2 | Sandbox async initialization performs recursive synchronous filesystem work on a runtime worker. |
+| WIRE-1 | P2 | Partial protobuf conversions silently collapse unrepresentable or unknown values. |
+| SUP-BE | P1 | Backend root tasks can terminate or panic without affecting health or process ownership. |
+| SUP-SB | P1 | Sandbox root/durability tasks and some dispatch work are detached from health and shutdown. |
+| ING-1 | P1 | Provider HTTP acknowledgment has no durable work-admission seam. |
+| ING-2 | P1 | Slack and Telegram acknowledge before required inbound routing is durable. |
+| ING-3 | P1 | Required GitHub and Linear webhook work is detached after acknowledgment. |
+| PORT-1 | P2 | Handlers construct binding and adapter-connection PostgreSQL repositories directly. |
+| PORT-2 | P2 | Remaining handlers perform persistence work through the raw pool. |
+| ERR-1 | P2 | Core backend error families erase causal sources into strings. |
+| ERR-2 | P2 | Adapter and binding error families erase causal sources into strings. |
+| LINT-1 | P3 | Rust sources contain 111 textual `#[allow(...)]` sites and no native suppression reasons. |
 
 Event ingress and local outbox capacity remain separate tickets: the former is a
 cross-process durability/acknowledgment contract, while the latter is a local

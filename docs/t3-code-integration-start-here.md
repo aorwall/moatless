@@ -34,32 +34,35 @@ superficially similar (`≈`), or absent (`∅`). **§6 "Things that are _kind o
 same"** is the highest-value section in either repo — read it even if you skim the
 tables. ~30 min.
 
-**4. `moatless/docs/t3-code-domain-mapping.md`** — the Moatless-side summary: which
-vocabulary wins, the two renames to refuse, and what the shell snapshot has to be
-populated from. Shorter than the above and partly overlaps them.
+**4. `moatless/docs/t3-code-current-state.md`** — what the Moatless backend
+currently implements: the opt-in compatibility routes, shell snapshot, listing
+feed, auth boundary, and known gaps.
 
-**5. `t3code/.plans/moatless-convergence.md`** — the four-move proposal for changing
+**5. `moatless/docs/t3-code-domain-mapping.md`** — the Moatless-side mapping
+details: which vocabulary wins, the two renames to refuse, and how shell fields
+are projected.
+
+**6. `t3code/.plans/moatless-convergence.md`** — the four-move proposal for changing
 *both* sides so the adapter shrinks from a simulation layer to a translation layer.
 Explicitly not scheduled. Read after the concept map; it assumes that vocabulary.
 
-**6. `t3code/.plans/moatless-adapter.md`** — the original full adapter spec (~990
+**7. `t3code/.plans/moatless-adapter.md`** — the original full adapter spec (~990
 lines). Note that concept-map §8 lists corrections to it, so read the corrections
 alongside it rather than taking it standalone.
 
 ## Then read the code
 
-- **`moatless/backend/src/ui_rpc/mod.rs`** — the whole compatibility surface, ~750
-  lines. Phase one: discovery, cookie auth, `/api/orchestration/shell`, WebSocket
-  upgrade, and Effect-RPC envelopes, all wired end to end and returning **empty**
-  payloads. `empty_shell_snapshot()` already emits the exact shape T3 expects.
+- **`moatless/backend/src/ui_rpc/mod.rs`** — the compatibility surface. Discovery,
+  cookie auth, `/api/orchestration/shell`, WebSocket upgrade, Effect-RPC
+  envelopes, shell projection, and shell subscription replay are wired end to end.
 - **`moatless/docs/runbooks/t3-code-local-development.md`** — how to actually run the
-  two together locally. Do this early; a connected-but-empty T3 environment makes the
-  documents above concrete.
+  two together locally.
 
 ## Where to start planning
 
-Phase one is connected and empty. Phase two populates it. Three decisions gate that
-work; one is now settled:
+The Moatless backend shell is populated. Remaining work is mainly command
+coverage, T3-side remote auth UX, and the contract mismatch for environment-scoped
+operations against per-Task Sandboxes.
 
 1. **The event cursor.** T3's client is a sequence-fold client; Moatless has no
    monotonic sequence. `task_events.id` is the obvious candidate and is **not safe

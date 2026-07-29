@@ -5,8 +5,7 @@ Rust (Axum) service managing the full lifecycle of Kubernetes- and Docker-based 
 ## Architecture
 
 ### Lifecycle module (`lifecycle/`)
-Deep module owning durable lifecycle intent and orchestration per Task, per
-`specs/sandbox/04-lifecycle-architecture.md`. The typed surface
+Deep module owning durable lifecycle intent and orchestration per Task. The typed surface
 (`LifecycleOutcome` with independent
 intent/runtime effect axes, `ArchiveRetention`, classifiable
 `LifecycleError`/`RuntimeError`, `OperationGeneration`/`CorrelationMarker`), the
