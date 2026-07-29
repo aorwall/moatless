@@ -1,25 +1,45 @@
 //! Linear webhook endpoint dispatcher.
 //!
-//! Verifies HMAC + dedup, parses the envelope, and routes to:
-//! - `agent_runtime::handle_session_created` / `handle_session_prompted`
-//!   for `AgentSessionEvent` payloads.
-//! - The legacy `runtime.rs` path for `Issue` / `Comment` payloads (still in
-//!   place until Step 4 of the refactor migrates them to `agent_runtime`).
+//! Verifies the HMAC, parses the envelope, derives the delivery identity, and
+//! admits the work it carries into [`super::delivery`]. Every one of the five
+//! event
+//! kinds Linear sends us is admitted, so no routing, message forwarding, task
+//! creation, or sandbox provisioning happens before the response.
+//!
+//! What is left on the response path is the part that decides whether a
+//! delivery carries any work at all: the signature, the envelope, and the
+//! payload-shape guards below. Those are pure reads of the request body — they
+//! reach no database, no task, and no Linear API — so a redelivery repeats
+//! nothing but the parse.
+//!
+//! Deduplication is admission's, and only admission's. A redelivery is
+//! collapsed because its identity ([`dedup_key`]) is already in
+//! `adapter_delivery` — on whichever replica it lands, however long after the
+//! first attempt. Nothing here holds state between deliveries, which is what
+//! makes a withheld acknowledgment honest: a delivery refused below leaves no
+//! trace that could dismiss the sender's next attempt as a duplicate.
+//!
+//! The single exception is named where it lives: a newly created agent session
+//! gets an ephemeral heartbeat activity posted to Linear before the `200`, so
+//! its panel is alive inside Linear's 10-second window. It is a best-effort
+//! notice whose failure is logged, not the work; the work behind it is admitted
+//! like everything else.
 
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::{debug, info, warn};
 
+use crate::adapters::delivery::AdapterDeliveryRequest;
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
+use crate::adapters::models::AdapterConnection;
 use crate::state::AppState;
 
 use super::adapter::LinearAdapter;
-use super::agent_api::LinearAgentApi;
 use super::agent_runtime;
+use super::delivery::LinearWebhookError;
 use super::webhook_payloads::LinearWebhookEnvelope;
-use super::work::LinearWebhookError;
 
 #[utoipa::path(
     post,
@@ -46,13 +66,28 @@ pub async fn linear_webhook(
         Ok(event_type) => {
             record_webhook("linear", "success", "", &event_type, "", "");
         }
-        // The one failure that must not be acknowledged. Nothing was written,
-        // so a 200 would tell Linear the session is ours while no record of it
-        // exists — and Linear does not redeliver an acknowledged event.
+        // Nothing was written, so a 200 would tell Linear the delivery is ours
+        // while no record of it exists — and Linear does not redeliver an
+        // acknowledged event.
         Err(LinearWebhookError::NotAdmitted(e)) => {
             record_webhook("linear", "error", "not_admitted", "", "", "");
             warn!(error = %e, "Linear webhook work was not admitted; asking Linear to redeliver");
             return Err(AdapterError::from(e));
+        }
+        // Also not acknowledged, but for the opposite reason: admission was
+        // never attempted, because the delivery carries no field that could
+        // tell its work apart from the next delivery's. A `400` says so — the
+        // delivery is malformed rather than the backend unwell, and no amount
+        // of retrying the same body will add the missing field.
+        Err(LinearWebhookError::Unidentifiable(missing)) => {
+            record_webhook("linear", "error", "unidentifiable", "", "", "");
+            warn!(
+                missing,
+                "Linear webhook refused: the delivery cannot be given an identity"
+            );
+            return Err(AdapterError::BadRequest(format!(
+                "Linear delivery is missing {missing}"
+            )));
         }
         // Everything else keeps the long-standing behaviour: log it, meter it,
         // and acknowledge.
@@ -69,7 +104,9 @@ pub async fn linear_webhook(
 ///
 /// Returns the parsed `event_type` (empty string when the envelope failed to
 /// parse) so the caller can label the success-path metric. Always returns
-/// `Ok(_)` on benign rejections (unknown org, dedup hit, unsupported event).
+/// `Ok(_)` on benign rejections (unknown org, unsupported event, a delivery
+/// carrying no work) and on a redelivery, which admission recognises as a
+/// duplicate of the record it already holds.
 async fn dispatch_webhook(
     state: &AppState,
     provider: &LinearAdapter,
@@ -149,44 +186,23 @@ async fn dispatch_webhook(
         return Err(e.into());
     }
 
-    // Dedup on the specific resource/event identity, NOT Linear's `webhookId`
-    // (which is the stable webhook-config id, identical on every delivery — see
-    // `dedup_key`). Compute unconditionally: a resource id can exist even when
+    // The delivery identity, on the specific resource/event that happened and
+    // NOT on Linear's `webhookId` (the stable webhook-config id, identical on
+    // every delivery — see `dedup_key`). It is the only thing that collapses a
+    // Linear retry: durable admission recognises it on any replica and after
+    // any restart. Compute unconditionally — a resource id can exist even when
     // `webhook_id` is absent.
     let key = dedup_key(&envelope);
-    if !provider.mark_seen_for_dispatch(&key).await {
-        info!(
-            webhook_id = envelope.webhook_id.as_deref().unwrap_or(""),
-            event_type = %envelope.event_type,
-            org_id,
-            "Linear webhook deduplicated"
-        );
-        return Ok(envelope.event_type.clone());
-    }
 
     let event_type = envelope.event_type.clone();
-    let result: Result<(), LinearWebhookError> = match event_type.as_str() {
+    let dispatch_result: Result<(), LinearWebhookError> = match event_type.as_str() {
         "AgentSessionEvent" => {
-            let api = agent_runtime::agent_api(state, &connection.scope_value);
-            handle_agent_session_event(state, &api, &connection, &envelope, &key).await
+            handle_agent_session_event(state, &connection, &envelope, &key).await
         }
-        "Issue" => {
-            let api = agent_runtime::agent_api(state, &connection.scope_value);
-            handle_issue_event(state, &api, &connection, &envelope)
-                .await
-                .map_err(Into::into)
-        }
-        "Comment" => {
-            let api = agent_runtime::agent_api(state, &connection.scope_value);
-            handle_comment_event(state, &api, &connection, &envelope)
-                .await
-                .map_err(Into::into)
-        }
+        "Issue" => admit_issue_event(state, &connection, &envelope, &key).await,
+        "Comment" => admit_comment_event(state, &connection, &envelope, &key).await,
         "AppUserNotification" => {
-            let api = agent_runtime::agent_api(state, &connection.scope_value);
-            handle_app_user_notification(state, &api, &connection, &envelope)
-                .await
-                .map_err(Into::into)
+            admit_notification_event(state, &connection, &envelope, &key).await
         }
         other => {
             let data_keys: Vec<&str> = envelope
@@ -210,29 +226,40 @@ async fn dispatch_webhook(
         }
     };
 
-    // The dedup cache was marked above, before any work could be admitted. If
-    // admission then failed we are about to ask Linear to redeliver, so the
-    // mark has to go — otherwise this replica would dismiss that redelivery as
-    // a duplicate and the session would be lost for good.
-    if let Err(LinearWebhookError::NotAdmitted(_)) = &result {
-        provider.forget_for_dispatch(&key).await;
-    }
-
-    result.map(|()| event_type)
+    dispatch_result.map(|()| event_type)
 }
 
 /// Derive a stable dedup identity for a Linear webhook delivery.
 ///
+/// This is the only deduplication Linear has: it becomes the `event_id` of
+/// every record admitted below, and the durable unique index on
+/// `(adapter, kind, event_id)` is what collapses a retry — on any replica and
+/// after any restart.
+///
 /// Linear's `webhookId` is the *webhook-configuration* id — it is identical on
-/// every delivery, not unique per event — so keying dedup on it (alone or with
-/// `event_type`) silently drops distinct events delivered within the cache TTL.
-/// Instead we key on the most specific stable *resource* identity available,
-/// plus the action (so e.g. `created` vs `prompted` on one session don't
-/// collide).
+/// every delivery, not unique per event — so keying on it (alone or with
+/// `event_type`) would recognise distinct events as duplicates of each other
+/// and drop them for the whole retention period. Instead we key on the most
+/// specific stable *resource* identity available, plus the action (so e.g.
+/// `created` vs `prompted` on one session don't collide).
+///
+/// The identity has to hold two properties at once: a genuine Linear retry
+/// carries the same one, and two events a person performed separately never
+/// do. A resource id alone only satisfies both when the resource can be acted
+/// on once — which is true of a comment and a session creation, and false of a
+/// session that can be prompted again and an issue that can be moved again.
+/// Those two therefore key on something the sender varies per event.
 ///
 /// Resource id by event type:
-/// - `AgentSessionEvent` → `agentSession.id`
-/// - `Comment` / `Issue`  → `data.id` (resource UUID)
+/// - `AgentSessionEvent.prompted` → `agentActivity.id`, the activity carrying
+///   the prompt. Keying on `agentSession.id` collapses a second message to one
+///   session into the first — the delivery a person is actively waiting on.
+/// - `AgentSessionEvent` (other actions) → `agentSession.id`
+/// - `Issue` → `data.id:webhookTimestamp`. Every update to one issue repeats
+///   that issue's id, so the id alone cannot tell two state changes apart;
+///   Linear resends `webhookTimestamp` unchanged on a retry, so a retry still
+///   collapses.
+/// - `Comment` → `data.id` (a comment id names one comment)
 /// - `AppUserNotification` → `notification.id`
 /// - fallback (unknown / missing) → `webhook_id:webhook_timestamp`
 ///   (Linear resends the same `webhookTimestamp` on genuine retries).
@@ -240,19 +267,15 @@ async fn dispatch_webhook(
 /// Key format: `"{event_type}:{action}:{resource_id}"`.
 fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
     let resource_id = match envelope.event_type.as_str() {
+        "AgentSessionEvent" if envelope.action == "prompted" => envelope
+            .agent_activity
+            .as_ref()
+            .map(|activity| activity.id.clone()),
         "AgentSessionEvent" => envelope.agent_session.as_ref().map(|s| s.id.clone()),
-        "Comment" | "Issue" => envelope
-            .data
-            .as_ref()
-            .and_then(|d| d.get("id"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string),
-        "AppUserNotification" => envelope
-            .notification
-            .as_ref()
-            .and_then(|n| n.get("id"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string),
+        "Issue" => resource_uuid(envelope.data.as_ref())
+            .map(|id| format!("{id}:{}", delivery_timestamp(envelope))),
+        "Comment" => resource_uuid(envelope.data.as_ref()),
+        "AppUserNotification" => resource_uuid(envelope.notification.as_ref()),
         _ => None,
     };
 
@@ -260,7 +283,7 @@ fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
         format!(
             "{}:{}",
             envelope.webhook_id.as_deref().unwrap_or(""),
-            envelope.webhook_timestamp.unwrap_or(0)
+            delivery_timestamp(envelope)
         )
     });
 
@@ -270,12 +293,48 @@ fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
     )
 }
 
-async fn handle_issue_event(
+/// The `id` of whichever resource payload the envelope carried.
+fn resource_uuid(payload: Option<&serde_json::Value>) -> Option<String> {
+    payload
+        .and_then(|v| v.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+/// Linear's own delivery timestamp, which it repeats unchanged on a retry.
+fn delivery_timestamp(envelope: &LinearWebhookEnvelope) -> i64 {
+    envelope.webhook_timestamp.unwrap_or(0)
+}
+
+/// Commit one delivery's work durably and log where it landed.
+///
+/// Every admission site funnels through here, so the property the acceptance
+/// rests on — the response is written after the record is, or not at all — is
+/// stated once. An [`AdmitError`](crate::adapters::delivery::AdmitError) becomes
+/// [`LinearWebhookError::NotAdmitted`], which is the one failure the route
+/// refuses to answer with a `200`.
+async fn admit(
     state: &AppState,
-    api: &LinearAgentApi,
-    connection: &crate::adapters::models::AdapterConnection,
+    request: AdapterDeliveryRequest,
+    event_id: &str,
+) -> Result<(), LinearWebhookError> {
+    let kind = request.kind;
+    let admission = state.adapter_delivery.admit(request).await?;
+    super::delivery::log_admission(kind, event_id, admission);
+    Ok(())
+}
+
+/// Admit an issue state change.
+///
+/// The guards are the ones this path always had, minus the rule lookup: which
+/// rules are active is re-resolved when the record executes, so an operator
+/// disabling one between the delivery and its execution stops the work.
+async fn admit_issue_event(
+    state: &AppState,
+    connection: &AdapterConnection,
     envelope: &LinearWebhookEnvelope,
-) -> Result<(), AdapterError> {
+    event_id: &str,
+) -> Result<(), LinearWebhookError> {
     // Only act on state updates.
     if envelope.action != "update" {
         return Ok(());
@@ -294,34 +353,39 @@ async fn handle_issue_event(
         }
     };
 
-    let Some(team_id) = issue.resolved_team_id().map(str::to_string) else {
+    if issue.resolved_team_id().is_none() {
         debug!(issue = %issue.identifier, "Issue.update missing team_id — ignoring");
-        return Ok(());
-    };
-
-    let rules = agent_runtime::resolve_rules_for_team(state, connection, &team_id).await?;
-    if rules.is_empty() {
-        debug!(team_id = %team_id, "No active Linear rule for team — ignoring Issue.update");
         return Ok(());
     }
 
-    agent_runtime::handle_issue_update(
-        state,
-        api,
-        connection,
-        &rules,
-        envelope.updated_from.as_ref(),
+    // An issue's id repeats on every update, so Linear's delivery timestamp is
+    // the whole of what tells two state changes on one issue apart — in the
+    // delivery identity and in the forwarded message's own id alike. Without it
+    // there is no identity to admit under, and substituting `0` would give
+    // every timestamp-less update on this issue the same one. Refuse instead:
+    // see `LinearWebhookError::Unidentifiable` for why that is the safer half
+    // of the trade.
+    let Some(delivered_at) = envelope.webhook_timestamp else {
+        return Err(LinearWebhookError::Unidentifiable("webhookTimestamp"));
+    };
+
+    let request = super::delivery::issue_update_request(
+        event_id,
+        &connection.id,
         &issue,
-    )
-    .await
+        envelope.updated_from.as_ref(),
+        delivered_at,
+    )?;
+    admit(state, request, event_id).await
 }
 
-async fn handle_comment_event(
+/// Admit a comment on an issue.
+async fn admit_comment_event(
     state: &AppState,
-    api: &LinearAgentApi,
-    connection: &crate::adapters::models::AdapterConnection,
+    connection: &AdapterConnection,
     envelope: &LinearWebhookEnvelope,
-) -> Result<(), AdapterError> {
+    event_id: &str,
+) -> Result<(), LinearWebhookError> {
     if envelope.action != "create" {
         debug!(action = %envelope.action, "Comment event with non-create action — ignoring");
         return Ok(());
@@ -346,15 +410,23 @@ async fn handle_comment_event(
         return Ok(());
     };
 
-    agent_runtime::handle_comment_created(state, api, connection, &issue_id, &comment).await
+    let request = super::delivery::comment_request(event_id, &connection.id, &issue_id, &comment)?;
+    admit(state, request, event_id).await
 }
 
-async fn handle_app_user_notification(
+/// Admit a workspace notification.
+///
+/// Every action is admitted, including the ones this adapter does not act on.
+/// Which actions are handled is a decision, and a decision made before
+/// admission leaves a whole class of Linear delivery with no durable trace of
+/// having arrived — so the action is carried into the record and the worker
+/// no-ops on it.
+async fn admit_notification_event(
     state: &AppState,
-    api: &LinearAgentApi,
-    connection: &crate::adapters::models::AdapterConnection,
+    connection: &AdapterConnection,
     envelope: &LinearWebhookEnvelope,
-) -> Result<(), AdapterError> {
+    event_id: &str,
+) -> Result<(), LinearWebhookError> {
     let Some(raw) = envelope.notification.as_ref() else {
         debug!("AppUserNotification missing notification payload — ignoring");
         return Ok(());
@@ -369,27 +441,14 @@ async fn handle_app_user_notification(
             }
         };
 
-    match envelope.action.as_str() {
-        "issueStatusChanged" => {
-            agent_runtime::handle_issue_status_notification(state, api, connection, &notif).await
-        }
-        other => {
-            warn!(
-                action = other,
-                org_id = connection.scope_value.as_str(),
-                notification_id = notif.id.as_deref().unwrap_or(""),
-                notification_kind = notif.kind.as_str(),
-                "Linear AppUserNotification: action not handled, ignoring"
-            );
-            Ok(())
-        }
-    }
+    let request =
+        super::delivery::notification_request(event_id, &connection.id, &envelope.action, &notif)?;
+    admit(state, request, event_id).await
 }
 
 async fn handle_agent_session_event(
     state: &AppState,
-    api: &LinearAgentApi,
-    connection: &crate::adapters::models::AdapterConnection,
+    connection: &AdapterConnection,
     envelope: &LinearWebhookEnvelope,
     event_id: &str,
 ) -> Result<(), LinearWebhookError> {
@@ -398,43 +457,45 @@ async fn handle_agent_session_event(
         return Ok(());
     };
 
-    let Some(issue) = session.issue.as_ref() else {
-        debug!(session_id = %session.id, "AgentSessionEvent missing issue — ignoring");
-        return Ok(());
-    };
-
-    let team_id = issue
-        .team_id
-        .clone()
-        .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
-        .unwrap_or_default();
-    let rules = agent_runtime::resolve_rules_for_team(state, connection, &team_id).await?;
-
     match envelope.action.as_str() {
-        // Unlike the other branches, an admission failure here is *not*
-        // swallowed: the whole point of admitting is that the session is not
-        // acknowledged until it is durably owned.
+        // The one kind that still touches Linear before answering, and it is
+        // deliberate: `handle_session_created` posts an ephemeral heartbeat
+        // activity so the session's panel is alive inside Linear's 10-second
+        // window. The provisioning behind it is admitted, not run.
         "created" => {
+            let Some(issue) = session.issue.as_ref() else {
+                debug!(session_id = %session.id, "AgentSessionEvent missing issue — ignoring");
+                return Ok(());
+            };
+            let team_id = issue
+                .team_id
+                .clone()
+                .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
+                .unwrap_or_default();
+            let rules = agent_runtime::resolve_rules_for_team(state, connection, &team_id).await?;
+            let api = agent_runtime::agent_api(state, &connection.scope_value);
             agent_runtime::handle_session_created(
-                state, api, connection, &rules, session, event_id,
+                state, &api, connection, &rules, session, event_id,
             )
             .await?;
         }
         "prompted" => {
-            let body = envelope
+            let Some(activity) = envelope
                 .agent_activity
                 .as_ref()
-                .map_or("", |a| a.body.as_str());
-            if body.is_empty() {
+                .filter(|a| !a.body.is_empty())
+            else {
                 debug!(session_id = %session.id, "Empty prompted body — ignoring");
                 return Ok(());
-            }
-            if let Err(e) =
-                agent_runtime::handle_session_prompted(state, api, connection, &session.id, body)
-                    .await
-            {
-                warn!(session_id = %session.id, error = %e, "handle_session_prompted failed");
-            }
+            };
+            let request = super::delivery::session_prompt_request(
+                event_id,
+                &connection.id,
+                &session.id,
+                &activity.id,
+                &activity.body,
+            )?;
+            admit(state, request, event_id).await?;
         }
         other => {
             warn!(
@@ -506,6 +567,126 @@ mod tests {
             "agentSession": {"id": "session-A"}
         }));
         assert_ne!(dedup_key(&created), dedup_key(&prompted));
+    }
+
+    /// Regression: two messages sent to one Linear agent session are two
+    /// deliveries. Keying them on the session made the second indistinguishable
+    /// from a retry of the first, so a person following up within the cache TTL
+    /// had their message discarded.
+    #[test]
+    fn two_prompts_on_one_session_get_distinct_keys() {
+        let first = envelope(serde_json::json!({
+            "action": "prompted",
+            "type": "AgentSessionEvent",
+            "webhookId": "9628c862-stable",
+            "webhookTimestamp": 1_700_000_000_000i64,
+            "agentSession": {"id": "session-A"},
+            "agentActivity": {"id": "activity-1", "type": "prompt", "body": "first"}
+        }));
+        let second = envelope(serde_json::json!({
+            "action": "prompted",
+            "type": "AgentSessionEvent",
+            "webhookId": "9628c862-stable",
+            "webhookTimestamp": 1_700_000_000_500i64,
+            "agentSession": {"id": "session-A"},
+            "agentActivity": {"id": "activity-2", "type": "prompt", "body": "second"}
+        }));
+        assert_ne!(dedup_key(&first), dedup_key(&second));
+    }
+
+    /// The other half of the same property: Linear retrying one prompt resends
+    /// the same activity, so the retry must still collapse.
+    #[test]
+    fn a_retried_prompt_keeps_one_key() {
+        let delivery = |timestamp: i64| {
+            envelope(serde_json::json!({
+                "action": "prompted",
+                "type": "AgentSessionEvent",
+                "webhookId": "9628c862-stable",
+                "webhookTimestamp": timestamp,
+                "agentSession": {"id": "session-A"},
+                "agentActivity": {"id": "activity-1", "type": "prompt", "body": "first"}
+            }))
+        };
+        // A retry may carry a later timestamp; the activity is what identifies
+        // the prompt, so the key must not move with the clock.
+        assert_eq!(
+            dedup_key(&delivery(1_700_000_000_000)),
+            dedup_key(&delivery(1_700_000_030_000))
+        );
+    }
+
+    /// Regression: an issue's id repeats on every update, so two state changes
+    /// keyed on it alone collided and the second was dropped.
+    #[test]
+    fn two_state_changes_on_one_issue_get_distinct_keys() {
+        let change = |timestamp: i64, state: &str| {
+            envelope(serde_json::json!({
+                "action": "update",
+                "type": "Issue",
+                "webhookId": "9628c862-stable",
+                "webhookTimestamp": timestamp,
+                "data": {"id": "issue-1", "identifier": "ENG-7", "state": {"id": state}}
+            }))
+        };
+        assert_ne!(
+            dedup_key(&change(1_700_000_000_000, "in-progress")),
+            dedup_key(&change(1_700_000_060_000, "in-review"))
+        );
+    }
+
+    /// A Linear retry of one issue update repeats `webhookTimestamp`, so the
+    /// identity holds and the redelivery is still recognised as the same one.
+    #[test]
+    fn a_retried_issue_update_keeps_one_key() {
+        let delivery = || {
+            envelope(serde_json::json!({
+                "action": "update",
+                "type": "Issue",
+                "webhookId": "9628c862-stable",
+                "webhookTimestamp": 1_700_000_000_000i64,
+                "data": {"id": "issue-1", "identifier": "ENG-7", "state": {"id": "in-progress"}}
+            }))
+        };
+        assert_eq!(dedup_key(&delivery()), dedup_key(&delivery()));
+    }
+
+    /// Two issues moving at the same instant are still two deliveries — the
+    /// timestamp discriminates changes to one issue, it does not replace it.
+    #[test]
+    fn two_issues_changing_at_the_same_instant_get_distinct_keys() {
+        let change = |issue: &str| {
+            envelope(serde_json::json!({
+                "action": "update",
+                "type": "Issue",
+                "webhookTimestamp": 1_700_000_000_000i64,
+                "data": {"id": issue}
+            }))
+        };
+        assert_ne!(dedup_key(&change("issue-1")), dedup_key(&change("issue-2")));
+    }
+
+    /// A comment id names one comment, so it needs no timestamp — and two
+    /// comments on one issue must not collide the way two updates did.
+    #[test]
+    fn two_comments_get_distinct_keys_and_a_retry_does_not() {
+        let comment = |id: &str, timestamp: i64| {
+            envelope(serde_json::json!({
+                "action": "create",
+                "type": "Comment",
+                "webhookTimestamp": timestamp,
+                "data": {"id": id, "body": "hi", "issueId": "issue-1"}
+            }))
+        };
+        assert_ne!(
+            dedup_key(&comment("comment-1", 1_700_000_000_000)),
+            dedup_key(&comment("comment-2", 1_700_000_000_000))
+        );
+        assert_eq!(
+            dedup_key(&comment("comment-1", 1_700_000_000_000)),
+            dedup_key(&comment("comment-1", 1_700_000_030_000)),
+            "a retried comment is one delivery even if Linear retimes it"
+        );
     }
 
     #[test]

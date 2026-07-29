@@ -1,4 +1,4 @@
-//! The supervised owner of admitted adapter work.
+//! The supervised owner of admitted Adapter deliveries.
 //!
 //! One worker runs per backend process. It claims due records for the kinds
 //! this build knows how to execute, runs each handler under a deadline and in
@@ -12,33 +12,33 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use super::handlers::AdapterWorkHandlers;
+use super::handlers::AdapterDeliveryHandlers;
 use super::metrics::{record_backlog, record_execution};
-use super::models::{AdapterWork, AdapterWorkFailure};
-use super::store::AdapterWorkStore;
+use super::models::{AdapterDelivery, AdapterDeliveryFailure};
+use super::store::AdapterDeliveryStore;
 
-/// Run the adapter work worker until the root token is cancelled.
+/// Run the Adapter delivery worker until the root token is cancelled.
 ///
 /// The join handle is returned for the root supervisor to own — see the
 /// criticality declared at its registration in `main` — and is `#[must_use]`
-/// because this task owns already-acknowledged provider work: detaching it
+/// because this task owns already-acknowledged sender work: detaching it
 /// would silently strand records the backend has already promised to run.
 ///
 /// The handle is the raw [`tokio::task::JoinHandle`] rather than a wrapper
 /// type, because `Supervisor::supervise` takes exactly that and is this
 /// function's only caller; there is no second consumer to poll or to join it
 /// on its own deadline.
-#[must_use = "this handle owns durable provider work; dropping it detaches the worker"]
-pub fn spawn_adapter_work_worker(
-    store: Arc<AdapterWorkStore>,
-    handlers: Arc<AdapterWorkHandlers>,
+#[must_use = "this handle owns admitted Adapter deliveries; dropping it detaches the worker"]
+pub fn spawn_adapter_delivery_worker(
+    store: Arc<AdapterDeliveryStore>,
+    handlers: Arc<AdapterDeliveryHandlers>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     let owner = worker_owner_id();
     info!(
         owner = %owner,
         kinds = handlers.kinds().len(),
-        "Adapter work worker spawned"
+        "Adapter delivery worker spawned"
     );
     tokio::spawn(run(store, handlers, owner, cancel))
 }
@@ -63,8 +63,8 @@ fn worker_owner_id() -> String {
 }
 
 async fn run(
-    store: Arc<AdapterWorkStore>,
-    handlers: Arc<AdapterWorkHandlers>,
+    store: Arc<AdapterDeliveryStore>,
+    handlers: Arc<AdapterDeliveryHandlers>,
     owner: String,
     cancel: CancellationToken,
 ) {
@@ -75,7 +75,7 @@ async fn run(
         Ok(recovered) => info!(
             owner = %owner,
             recovered,
-            "Recovered adapter work claimed by a previous run of this worker"
+            "Recovered Adapter deliveries claimed by a previous run of this worker"
         ),
         Err(e) => warn!(error = %e, owner = %owner, "Failed to recover this worker's claims"),
     }
@@ -104,20 +104,20 @@ async fn run(
     // lost when it does: those records stay `claimed` and are recovered by the
     // next run of this owner or by lease expiry. Shutdown delays admitted work,
     // it never loses it.
-    info!("Adapter work worker stopped");
+    info!("Adapter delivery worker stopped");
 }
 
 /// Claim one batch and run it to completion. Bounded by `batch_size`, so the
 /// worker never holds more in-flight work than it claimed.
 async fn drain_due(
-    store: &Arc<AdapterWorkStore>,
-    handlers: &Arc<AdapterWorkHandlers>,
+    store: &Arc<AdapterDeliveryStore>,
+    handlers: &Arc<AdapterDeliveryHandlers>,
     owner: &str,
 ) {
     let claimed = match store.claim_due(owner, &handlers.kinds()).await {
         Ok(claimed) => claimed,
         Err(e) => {
-            warn!(error = %e, "Failed to claim adapter work");
+            warn!(error = %e, "Failed to claim Adapter deliveries");
             return;
         }
     };
@@ -126,33 +126,37 @@ async fn drain_due(
     }
 
     let mut running = JoinSet::new();
-    for work in claimed {
+    for delivery in claimed {
         let store = Arc::clone(store);
         let handlers = Arc::clone(handlers);
         // One task per record: a handler that wedges or dies cannot stall the
         // records claimed beside it.
-        running.spawn(async move { execute(&store, &handlers, work).await });
+        running.spawn(async move { execute(&store, &handlers, delivery).await });
     }
     while let Some(joined) = running.join_next().await {
         if let Err(e) = joined {
             // `execute` already catches handler panics, so reaching here means
             // the runtime tore the task down. The record stays claimed and its
             // lease recovers it.
-            warn!(error = %e, "An adapter work execution task was lost");
+            warn!(error = %e, "An Adapter delivery execution task was lost");
         }
     }
 }
 
 /// Run one claimed record and drive it to its next state.
-async fn execute(store: &AdapterWorkStore, handlers: &AdapterWorkHandlers, work: AdapterWork) {
-    let Some(handler) = handlers.get(work.kind.as_str()) else {
+async fn execute(
+    store: &AdapterDeliveryStore,
+    handlers: &AdapterDeliveryHandlers,
+    delivery: AdapterDelivery,
+) {
+    let Some(handler) = handlers.get(delivery.kind.as_str()) else {
         // Unreachable while claims are filtered by registered kind. If it ever
         // happens the record is retried rather than made terminal, so a replica
         // that knows the kind can pick it up. The attempt charged at claim time
         // is not refunded — the retry budget is spent either way, which is what
         // stops an unknown kind from being retried forever.
-        warn!(kind = %work.kind, id = %work.id, "Claimed adapter work has no registered handler");
-        finish_failed(store, &work, false, "no handler registered for kind").await;
+        warn!(kind = %delivery.kind, id = %delivery.id, "A claimed Adapter delivery has no registered handler");
+        finish_failed(store, &delivery, false, "no handler registered for kind").await;
         return;
     };
 
@@ -162,43 +166,43 @@ async fn execute(store: &AdapterWorkStore, handlers: &AdapterWorkHandlers, work:
     // than a claim that quietly waits out its lease every time it is retried.
     let attempt = tokio::time::timeout(
         timeout,
-        AssertUnwindSafe(handler.execute(&work)).catch_unwind(),
+        AssertUnwindSafe(handler.execute(&delivery)).catch_unwind(),
     )
     .await;
 
     match attempt {
         Ok(Ok(Ok(()))) => {
-            if let Err(e) = store.mark_succeeded(&work.id).await {
+            if let Err(e) = store.mark_succeeded(&delivery.id).await {
                 // The handler did its job; the record stays claimed, its lease
                 // expires, and the work runs again. Handlers are required to be
                 // idempotent precisely for this window.
-                warn!(id = %work.id, error = %e, "Failed to mark adapter work succeeded");
+                warn!(id = %delivery.id, error = %e, "Failed to mark an Adapter delivery succeeded");
             }
-            record_execution(&work.provider, &work.kind, "succeeded");
+            record_execution(&delivery.adapter, &delivery.kind, "succeeded");
             info!(
-                id = %work.id,
-                provider = %work.provider,
-                kind = %work.kind,
-                event_id = %work.event_id,
-                attempt = work.attempts,
+                id = %delivery.id,
+                adapter = %delivery.adapter,
+                kind = %delivery.kind,
+                event_id = %delivery.event_id,
+                attempt = delivery.attempts,
                 duration_ms = started.elapsed().as_millis() as u64,
-                "Adapter work completed"
+                "Adapter delivery completed"
             );
         }
         Ok(Ok(Err(failure))) => {
-            let terminal = failure.is_permanent() || work.is_last_attempt();
-            finish_failed(store, &work, terminal, &describe(&failure)).await;
+            let terminal = failure.is_permanent() || delivery.is_last_attempt();
+            finish_failed(store, &delivery, terminal, &describe(&failure)).await;
         }
         Ok(Err(panic)) => {
             let reason = format!("handler panicked: {}", panic_message(&panic));
-            finish_failed(store, &work, work.is_last_attempt(), &reason).await;
+            finish_failed(store, &delivery, delivery.is_last_attempt(), &reason).await;
         }
         Err(_elapsed) => {
             let reason = format!(
                 "handler exceeded the {}s execution deadline",
                 timeout.as_secs()
             );
-            finish_failed(store, &work, work.is_last_attempt(), &reason).await;
+            finish_failed(store, &delivery, delivery.is_last_attempt(), &reason).await;
         }
     }
 }
@@ -207,43 +211,48 @@ async fn execute(store: &AdapterWorkStore, handlers: &AdapterWorkHandlers, work:
 ///
 /// A terminal record logs at `error` and increments the `terminal` outcome, so
 /// an abandoned webhook is never indistinguishable from one that never arrived.
-async fn finish_failed(store: &AdapterWorkStore, work: &AdapterWork, terminal: bool, reason: &str) {
+async fn finish_failed(
+    store: &AdapterDeliveryStore,
+    delivery: &AdapterDelivery,
+    terminal: bool,
+    reason: &str,
+) {
     if terminal {
         error!(
-            id = %work.id,
-            provider = %work.provider,
-            kind = %work.kind,
-            event_id = %work.event_id,
-            attempts = work.attempts,
+            id = %delivery.id,
+            adapter = %delivery.adapter,
+            kind = %delivery.kind,
+            event_id = %delivery.event_id,
+            attempts = delivery.attempts,
             reason,
-            "Adapter work abandoned after terminal failure"
+            "Adapter delivery abandoned after terminal failure"
         );
-        record_execution(&work.provider, &work.kind, "terminal");
+        record_execution(&delivery.adapter, &delivery.kind, "terminal");
     } else {
         warn!(
-            id = %work.id,
-            provider = %work.provider,
-            kind = %work.kind,
-            event_id = %work.event_id,
-            attempt = work.attempts,
-            max_attempts = work.max_attempts,
+            id = %delivery.id,
+            adapter = %delivery.adapter,
+            kind = %delivery.kind,
+            event_id = %delivery.event_id,
+            attempt = delivery.attempts,
+            max_attempts = delivery.max_attempts,
             reason,
-            "Adapter work attempt failed; retrying with backoff"
+            "Adapter delivery attempt failed; retrying with backoff"
         );
-        record_execution(&work.provider, &work.kind, "retry");
+        record_execution(&delivery.adapter, &delivery.kind, "retry");
     }
 
     if let Err(e) = store
-        .mark_attempt_failed(&work.id, terminal, work.attempts, reason)
+        .mark_attempt_failed(&delivery.id, terminal, delivery.attempts, reason)
         .await
     {
-        warn!(id = %work.id, error = %e, "Failed to record an adapter work attempt failure");
+        warn!(id = %delivery.id, error = %e, "Failed to record an Adapter delivery attempt failure");
     }
 }
 
 /// Flatten a failure and its source chain into the stored `last_error`. The
 /// chain is what makes a terminal record diagnosable weeks later.
-fn describe(failure: &AdapterWorkFailure) -> String {
+fn describe(failure: &AdapterDeliveryFailure) -> String {
     let mut rendered = failure.to_string();
     let mut source = std::error::Error::source(failure);
     while let Some(cause) = source {
@@ -266,22 +275,25 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
 
 /// Recover stale claims, publish the backlog gauges, and prune finished
 /// records.
-async fn run_maintenance(store: &AdapterWorkStore) {
+async fn run_maintenance(store: &AdapterDeliveryStore) {
     match store.release_expired_claims().await {
         Ok(0) => {}
-        Ok(released) => warn!(released, "Recovered adapter work whose claim lease expired"),
-        Err(e) => warn!(error = %e, "Failed to recover expired adapter work claims"),
+        Ok(released) => warn!(
+            released,
+            "Recovered Adapter deliveries whose claim lease expired"
+        ),
+        Err(e) => warn!(error = %e, "Failed to recover expired Adapter delivery claims"),
     }
 
     match store.backlog().await {
         Ok(backlog) => record_backlog(&backlog),
-        Err(e) => warn!(error = %e, "Failed to read the adapter work backlog"),
+        Err(e) => warn!(error = %e, "Failed to read the Adapter delivery backlog"),
     }
 
     match store.prune_finished().await {
         Ok(0) => {}
-        Ok(pruned) => info!(pruned, "Pruned finished adapter work records"),
-        Err(e) => warn!(error = %e, "Failed to prune finished adapter work records"),
+        Ok(pruned) => info!(pruned, "Pruned finished Adapter delivery records"),
+        Err(e) => warn!(error = %e, "Failed to prune finished Adapter delivery records"),
     }
 }
 
@@ -299,8 +311,8 @@ mod tests {
         #[error("inner")]
         struct Inner;
 
-        let rendered = describe(&AdapterWorkFailure::retryable(Outer(Inner)));
-        assert_eq!(rendered, "retryable adapter work failure: outer: inner");
+        let rendered = describe(&AdapterDeliveryFailure::retryable(Outer(Inner)));
+        assert_eq!(rendered, "retryable Adapter delivery failure: outer: inner");
     }
 
     #[test]
@@ -326,14 +338,16 @@ mod db_tests {
 
     use sqlx::PgPool;
 
-    use super::super::handlers::AdapterWorkHandler;
-    use super::super::models::{AdapterWorkPolicy, AdapterWorkRequest, Admission, AdmitError};
+    use super::super::handlers::AdapterDeliveryHandler;
+    use super::super::models::{
+        AdapterDeliveryPolicy, AdapterDeliveryRequest, Admission, AdmitError,
+    };
     use super::*;
 
     /// Timings collapsed so retry, lease expiry, and recovery all happen inside
     /// a test rather than over ten minutes.
-    fn fast_policy() -> AdapterWorkPolicy {
-        AdapterWorkPolicy {
+    fn fast_policy() -> AdapterDeliveryPolicy {
+        AdapterDeliveryPolicy {
             max_attempts: 3,
             base_backoff: Duration::from_millis(1),
             max_backoff: Duration::from_millis(1),
@@ -351,7 +365,7 @@ mod db_tests {
         }
     }
 
-    const KIND: &str = "test.work";
+    const KIND: &str = "test.delivery";
     const OTHER_KIND: &str = "test.other";
 
     /// A handler whose outcome the test dictates, counting every execution so
@@ -370,25 +384,28 @@ mod db_tests {
     }
 
     #[async_trait::async_trait]
-    impl AdapterWorkHandler for ScriptedHandler {
-        async fn execute(&self, _work: &AdapterWork) -> Result<(), AdapterWorkFailure> {
+    impl AdapterDeliveryHandler for ScriptedHandler {
+        async fn execute(&self, _delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
             self.runs.fetch_add(1, Ordering::SeqCst);
             match self.outcome {
                 Outcome::Succeed => Ok(()),
-                Outcome::Retryable => Err(AdapterWorkFailure::retryable(std::io::Error::other(
-                    "provider unavailable",
-                ))),
-                Outcome::Permanent => Err(AdapterWorkFailure::permanent(std::io::Error::other(
-                    "task was deleted",
-                ))),
+                Outcome::Retryable => Err(AdapterDeliveryFailure::retryable(
+                    std::io::Error::other("sender unavailable"),
+                )),
+                Outcome::Permanent => Err(AdapterDeliveryFailure::permanent(
+                    std::io::Error::other("task was deleted"),
+                )),
                 Outcome::Panic => panic!("poison record"),
             }
         }
     }
 
-    fn handler(kind: &'static str, outcome: Outcome) -> (AdapterWorkHandlers, Arc<AtomicUsize>) {
+    fn handler(
+        kind: &'static str,
+        outcome: Outcome,
+    ) -> (AdapterDeliveryHandlers, Arc<AtomicUsize>) {
         let runs = Arc::new(AtomicUsize::new(0));
-        let mut handlers = AdapterWorkHandlers::new();
+        let mut handlers = AdapterDeliveryHandlers::new();
         handlers.register(
             kind,
             Arc::new(ScriptedHandler {
@@ -399,9 +416,9 @@ mod db_tests {
         (handlers, runs)
     }
 
-    fn request(kind: &'static str, event_id: &str) -> AdapterWorkRequest {
-        AdapterWorkRequest {
-            provider: "test",
+    fn request(kind: &'static str, event_id: &str) -> AdapterDeliveryRequest {
+        AdapterDeliveryRequest {
+            adapter: "test",
             kind,
             event_id: event_id.to_string(),
             payload: serde_json::json!({ "text": "hello" }),
@@ -419,13 +436,13 @@ mod db_tests {
     /// Drive the worker until `done` holds or `budget` elapses, then cancel
     /// it — the same start/cancel path `main` uses.
     async fn run_worker_until(
-        store: &Arc<AdapterWorkStore>,
-        handlers: Arc<AdapterWorkHandlers>,
+        store: &Arc<AdapterDeliveryStore>,
+        handlers: Arc<AdapterDeliveryHandlers>,
         budget: Duration,
         done: impl Fn() -> bool + Send,
     ) {
         let cancel = CancellationToken::new();
-        let handle = spawn_adapter_work_worker(Arc::clone(store), handlers, cancel.clone());
+        let handle = spawn_adapter_delivery_worker(Arc::clone(store), handlers, cancel.clone());
         drive(handle, cancel, budget, done).await;
     }
 
@@ -438,8 +455,8 @@ mod db_tests {
     /// environment. `run` already takes the owner as a parameter; this passes
     /// it rather than letting the worker compute a second one.
     async fn run_worker_until_as(
-        store: &Arc<AdapterWorkStore>,
-        handlers: Arc<AdapterWorkHandlers>,
+        store: &Arc<AdapterDeliveryStore>,
+        handlers: Arc<AdapterDeliveryHandlers>,
         owner: &str,
         budget: Duration,
         done: impl Fn() -> bool + Send,
@@ -469,12 +486,12 @@ mod db_tests {
         handle.await.expect("worker exits cleanly on cancellation");
     }
 
-    fn store(pool: PgPool) -> Arc<AdapterWorkStore> {
-        Arc::new(AdapterWorkStore::with_policy(pool, fast_policy()))
+    fn store(pool: PgPool) -> Arc<AdapterDeliveryStore> {
+        Arc::new(AdapterDeliveryStore::with_policy(pool, fast_policy()))
     }
 
-    /// Verification: duplicate webhook delivery. A provider that re-delivers the
-    /// same event must not produce a second unit of work.
+    /// Verification: duplicate webhook delivery. A sender that re-delivers the
+    /// same event must not produce a second record.
     #[sqlx::test]
     async fn a_duplicate_delivery_admits_once_and_executes_once(pool: PgPool) {
         let store = store(pool);
@@ -485,7 +502,7 @@ mod db_tests {
         assert_eq!(
             store.admit(request(KIND, "evt-1")).await.unwrap(),
             Admission::Duplicate,
-            "the provider's event id, not a generated one, is the idempotency key"
+            "the sender's delivery id, not a generated one, is the idempotency key"
         );
 
         let (handlers, runs) = handler(KIND, Outcome::Succeed);
@@ -514,7 +531,7 @@ mod db_tests {
     async fn work_admitted_before_a_crash_is_executed_by_the_next_process(pool: PgPool) {
         let admitting = store(pool.clone());
         admitting.admit(request(KIND, "evt-crash")).await.unwrap();
-        drop(admitting); // the process that acknowledged the provider is gone
+        drop(admitting); // the process that acknowledged the sender is gone
 
         let recovering = store(pool);
         let (handlers, runs) = handler(KIND, Outcome::Succeed);
@@ -548,12 +565,12 @@ mod db_tests {
         // by the owner that is about to restart and one by a replica that is
         // never coming back. The first is recovered by owner match, the second
         // only by lease expiry, so the two paths are exercised separately.
-        sqlx::query("UPDATE adapter_work SET status = 'claimed', attempts = 1, claimed_at = NOW(), claimed_by = $1 WHERE event_id = 'evt-restart'")
+        sqlx::query("UPDATE adapter_delivery SET status = 'claimed', attempts = 1, claimed_at = NOW(), claimed_by = $1 WHERE event_id = 'evt-restart'")
             .bind(TEST_OWNER)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("UPDATE adapter_work SET status = 'claimed', attempts = 1, claimed_at = NOW() - INTERVAL '1 hour', claimed_by = 'dead-replica' WHERE event_id = 'evt-orphan'")
+        sqlx::query("UPDATE adapter_delivery SET status = 'claimed', attempts = 1, claimed_at = NOW() - INTERVAL '1 hour', claimed_by = 'dead-replica' WHERE event_id = 'evt-orphan'")
             .execute(&pool)
             .await
             .unwrap();
@@ -594,7 +611,7 @@ mod db_tests {
 
         let poison_runs = Arc::new(AtomicUsize::new(0));
         let healthy_runs = Arc::new(AtomicUsize::new(0));
-        let mut handlers = AdapterWorkHandlers::new();
+        let mut handlers = AdapterDeliveryHandlers::new();
         handlers.register(
             KIND,
             Arc::new(ScriptedHandler {
@@ -628,7 +645,7 @@ mod db_tests {
         );
         let last_error = last_error.expect("a terminal record says why it was abandoned");
         assert!(
-            last_error.contains("provider unavailable"),
+            last_error.contains("sender unavailable"),
             "the handler's cause is retained: {last_error}"
         );
 
@@ -696,11 +713,11 @@ mod db_tests {
     /// work rather than accepting what it cannot promise to run.
     #[sqlx::test]
     async fn admission_refuses_work_past_the_backlog_capacity(pool: PgPool) {
-        let policy = AdapterWorkPolicy {
+        let policy = AdapterDeliveryPolicy {
             backlog_capacity: 2,
             ..fast_policy()
         };
-        let store = AdapterWorkStore::with_policy(pool, policy);
+        let store = AdapterDeliveryStore::with_policy(pool, policy);
 
         store.admit(request(KIND, "evt-1")).await.unwrap();
         store.admit(request(KIND, "evt-2")).await.unwrap();
@@ -711,7 +728,7 @@ mod db_tests {
         assert!(matches!(err, AdmitError::AtCapacity { limit: 2 }));
 
         // A duplicate of already-admitted work is still recognised at capacity,
-        // so a provider retry does not turn into a rejection storm.
+        // so a sender retry does not turn into a rejection storm.
         assert_eq!(
             store.admit(request(KIND, "evt-1")).await.unwrap(),
             Admission::Duplicate
@@ -730,9 +747,9 @@ mod db_tests {
         const BURST: usize = 24;
 
         let in_flight = i64::from(pool.options().get_max_connections());
-        let store = Arc::new(AdapterWorkStore::with_policy(
+        let store = Arc::new(AdapterDeliveryStore::with_policy(
             pool.clone(),
-            AdapterWorkPolicy {
+            AdapterDeliveryPolicy {
                 backlog_capacity: CAPACITY,
                 ..fast_policy()
             },
@@ -788,7 +805,7 @@ mod db_tests {
     /// predicate counts.
     async fn unfinished(pool: &PgPool) -> i64 {
         sqlx::query_scalar(
-            "SELECT COUNT(*) FROM adapter_work WHERE status IN ('pending', 'claimed')",
+            "SELECT COUNT(*) FROM adapter_delivery WHERE status IN ('pending', 'claimed')",
         )
         .fetch_one(pool)
         .await

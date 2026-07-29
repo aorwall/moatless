@@ -538,7 +538,7 @@ pub async fn fan_out(
         &rule.id,
         &connection.id,
     );
-    // Permanent by classification (`adapters/work`): the same event walking the
+    // Permanent by classification (`adapters/delivery`): the same event walking the
     // same bindings is passed over the same way, so retrying only burns the
     // budget. The record lands in `failed` carrying this message, which is the
     // point — the event is not lost quietly.

@@ -112,9 +112,9 @@ pub enum AdapterError {
     #[error("Failed to serialize adapter config")]
     ConfigSerialization(#[source] serde_json::Error),
 
-    /// The backend cannot take on more durable adapter work right now. Distinct
-    /// from `Internal` because it is explicitly transient: the provider still
-    /// owns the delivery and should send it again.
+    /// The backend cannot take on any more Adapter deliveries right now.
+    /// Distinct from `Internal` because it is explicitly transient: the sender
+    /// still owns the delivery and should send it again.
     #[error("Service temporarily unavailable")]
     Overloaded,
 
@@ -209,7 +209,7 @@ impl IntoResponse for AdapterError {
                 )
             }
             AdapterError::Overloaded => {
-                tracing::warn!("Adapter work admission refused: backlog at capacity");
+                tracing::warn!("Adapter delivery admission refused: backlog at capacity");
                 (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
             }
             AdapterError::Internal(ref msg) => {

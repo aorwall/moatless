@@ -6,8 +6,8 @@
 use std::sync::Arc;
 
 use crate::adapters::dao::{AdapterConnectionRepository, PgAdapterConnectionRepository};
+use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
-use crate::adapters::work::AdapterWorkStore;
 use crate::adapters::Adapters;
 use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
@@ -155,11 +155,12 @@ pub struct AppState {
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugins, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
-    /// Durable admission for provider webhook work that cannot finish on the
-    /// HTTP response path. A webhook handler admits through this before it
-    /// acknowledges its provider; the supervised `adapter-work-worker` owns
-    /// what was admitted. See [`crate::adapters::work`].
-    pub adapter_work: Arc<AdapterWorkStore>,
+    /// Durable admission for every inbound Adapter delivery, whose work cannot
+    /// finish on the HTTP response path. A webhook handler admits through this
+    /// before it acknowledges its sender; the supervised
+    /// `adapter-delivery-worker` owns what was admitted. See
+    /// [`crate::adapters::delivery`].
+    pub adapter_delivery: Arc<AdapterDeliveryStore>,
 }
 
 /// Bounded per-Task lock-acquire attempts before a lifecycle call surfaces
@@ -244,8 +245,7 @@ impl AppState {
         let workspaces: Arc<dyn WorkspaceRepository> =
             Arc::new(PgWorkspaceRepository(pool.clone()));
         let repositories: Arc<dyn RepoRepository> = Arc::new(PgRepoRepository(pool.clone()));
-        let plugins: Arc<dyn PluginRepository> =
-            Arc::new(PgPluginRepository(pool.clone()));
+        let plugins: Arc<dyn PluginRepository> = Arc::new(PgPluginRepository(pool.clone()));
         let provider_tokens: Arc<dyn ProviderTokenRepository> =
             Arc::new(PgProviderTokenRepository(pool.clone()));
         let provider_token_auth: Arc<dyn ProviderTokenAuthRepository> =
@@ -381,7 +381,7 @@ impl AppState {
             plugin_sync,
             workspaces,
             skills,
-            adapter_work: Arc::new(AdapterWorkStore::new(pool.clone())),
+            adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
             db: pool,
             config,
             sandbox: lifecycle,

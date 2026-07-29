@@ -7,7 +7,7 @@
 //! check. A deploy, an OOM kill, or a panic lost all four with no trace, and
 //! GitHub had already been told the delivery was accepted.
 //!
-//! Each is now admitted into [`crate::adapters::work`] inside the request
+//! Each is now admitted into [`crate::adapters::delivery`] inside the request
 //! handler and executed by the supervised worker. The admission contract —
 //! when the producer may be acknowledged, what is durable, how retries and
 //! deduplication work, what happens at capacity, and how shutdown drains — is
@@ -25,38 +25,44 @@
 //! apart. Keying an absent header as `""` would collapse every such delivery
 //! into one record, which is the failure this fallback exists to avoid.
 //!
-//! Dedup is per `(provider, kind, event_id)`, so one delivery that triggers
+//! Dedup is per `(adapter, kind, event_id)`, so one delivery that triggers
 //! both a message and a merge-conflict check is two records that retry and fail
 //! independently.
 //!
-//! # Relationship to the in-process delivery cache
+//! # The only deduplication mechanism
 //!
-//! [`GithubPrAdapter`](super::adapter::GithubPrAdapter) keeps a 5-minute
-//! in-memory cache of delivery ids, and it stays. The two mechanisms are
-//! authoritative for different things:
+//! The durable unique index is it. There was once a 5-minute in-process cache
+//! of delivery ids on [`GithubPrAdapter`](super::adapter::GithubPrAdapter) as
+//! well; it is gone, along with the compensating eviction a failed admission
+//! needed to undo it. What is left is authoritative for *effects* — whether
+//! these four units of work run twice — on any replica, after any restart, and
+//! past any expiry, which is strictly more than the cache ever covered.
 //!
-//! - The **in-memory cache** is authoritative for *ingress*: it stops a
-//!   redelivery arriving at the same replica within the TTL from being parsed
-//!   again, from re-reading bindings, and from re-admitting. It covers the
-//!   non-admitted work too (parsing, status persistence), which the durable
-//!   index never sees.
-//! - The **durable unique index** is authoritative for *effects*: whether these
-//!   four units of work run twice. It covers what the cache cannot — a
-//!   redelivery landing on another replica, after a restart, or after the TTL.
+//! What the cache did cover and the index does not is the work the ingress path
+//! does *before* admitting: signature verification, parsing, and the
+//! subscription / binding reads, all read-only; and the two spawned writes in
+//! [`GithubPrAdapter`](super::adapter::GithubPrAdapter) that derive a value
+//! from the delivery payload and overwrite it (PR external status, review
+//! decision). The same payload derives the same value, so a redelivery re-runs
+//! them and lands on what is already there. That costs a little work and
+//! changes nothing, which is why this is a performance question rather than a
+//! correctness one.
 //!
-//! Nothing the cache covered before is uncovered now; the durable index is
-//! added underneath it. One consequence must be stated rather than assumed
-//! away: GitHub's manual redelivery window is 30 days, which is longer than
-//! [`AdapterWorkPolicy::succeeded_retention`](crate::adapters::work::AdapterWorkPolicy)
+//! One consequence must be stated rather than assumed away: GitHub's manual
+//! redelivery window is 30 days, which is longer than
+//! [`AdapterDeliveryPolicy::succeeded_retention`](crate::adapters::delivery::AdapterDeliveryPolicy)
 //! (7 days). A manual redelivery past that horizon is not a duplicate to the
 //! index and the work runs again. That is acceptable because every effect
 //! downstream is separately idempotent (per-binding event receipts keyed on
-//! `external_event_id`, the provider-event-task guard, per-run-id and
-//! per-head-sha notice dedup) — not because it cannot happen.
+//! `external_event_id`, the adapter-event-task guard, per-run-id and
+//! per-head-sha notice dedup) — not because it cannot happen. A *late*
+//! redelivery of an older event can also overwrite newer PR state with the
+//! state the old payload carries; that exposure is pre-existing and unrelated
+//! to the cache, which expired in five minutes against a 30-day window.
 //!
 //! # Execution deadline
 //!
-//! [`AdapterWorkPolicy::execution_timeout`](crate::adapters::work::AdapterWorkPolicy)
+//! [`AdapterDeliveryPolicy::execution_timeout`](crate::adapters::delivery::AdapterDeliveryPolicy)
 //! is 2 minutes. [`kind::PR_MESSAGE`] is the one kind that can plausibly reach
 //! it, because routing a `pull_request.opened` event creates a task and starts
 //! its sandbox. If it does, the attempt is abandoned at the deadline and
@@ -75,20 +81,21 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
 use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::delivery::{
+    AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryHandlers,
+    AdapterDeliveryRequest,
+};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
-use crate::adapters::work::{
-    AdapterWork, AdapterWorkFailure, AdapterWorkHandler, AdapterWorkHandlers, AdapterWorkRequest,
-};
 use crate::state::AppState;
 
 use super::adapter::{PostMergeRun, PrCloseInfo};
 
-/// Provider label on every record this module admits. Matches the value used
-/// for GitHub adapter connections, trigger sources, and bindings.
-pub const PROVIDER: &str = "github";
+/// Adapter name on every record this module admits. Matches the value used
+/// for GitHub Adapter connections, trigger sources, and bindings.
+pub const ADAPTER: &str = "github";
 
-/// The work kinds this adapter admits. One kind per unit of work that can fail
+/// The delivery kinds this adapter admits. One kind per unit of work that can fail
 /// and retry on its own — folding them behind a single kind would let a
 /// permanent failure in one spend the retry budget of the others.
 pub mod kind {
@@ -103,12 +110,12 @@ pub mod kind {
     pub const MERGE_CONFLICT: &str = "github.merge_conflict";
 }
 
-/// Register every GitHub work handler on the process-wide registry.
+/// Register every GitHub delivery handler on the process-wide registry.
 ///
 /// One call from the composition root; the worker then claims exactly these
 /// kinds. A build without this call leaves GitHub records for a replica that
 /// has it, rather than failing them.
-pub fn register(handlers: &mut AdapterWorkHandlers, state: &AppState) {
+pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
     handlers.register(kind::PR_MESSAGE, Arc::new(PrMessageHandler(state.clone())));
     handlers.register(kind::CLOSE, Arc::new(CloseHandler(state.clone())));
     handlers.register(kind::POST_MERGE, Arc::new(PostMergeHandler(state.clone())));
@@ -118,7 +125,7 @@ pub fn register(handlers: &mut AdapterWorkHandlers, state: &AppState) {
     );
 }
 
-/// The provider's idempotency key for one delivery.
+/// The sender's idempotency key for one delivery.
 ///
 /// `X-GitHub-Delivery` when GitHub sent one. The body digest otherwise, so an
 /// absent header cannot collapse unrelated deliveries onto a single record.
@@ -142,7 +149,7 @@ pub(super) fn delivery_event_id(delivery_id: &str, body: &[u8]) -> String {
 /// between resolves to `None`, which is exactly what a delivery for a repo with
 /// no trigger has always meant: deliver to existing bindings, create nothing.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(super) struct WorkContext {
+pub(super) struct DeliveryContext {
     pub(super) connection_id: String,
     pub(super) trigger_id: Option<String>,
     /// `owner/repo`, used to synthesize the delivery-only trigger config when
@@ -150,13 +157,13 @@ pub(super) struct WorkContext {
     pub(super) repo_full_name: String,
 }
 
-impl WorkContext {
+impl DeliveryContext {
     /// Load the connection and (optional) trigger this record was admitted for.
     async fn resolve(
         &self,
         state: &AppState,
-    ) -> Result<(AdapterConnection, Option<SubscriptionMatch>), AdapterWorkFailure> {
-        // reason: durable adapter work runs in the worker with no user
+    ) -> Result<(AdapterConnection, Option<SubscriptionMatch>), AdapterDeliveryFailure> {
+        // reason: a durable Adapter delivery runs in the worker with no user
         // session; the connection is named by an already-admitted record, not
         // by caller input.
         #[allow(clippy::disallowed_methods)]
@@ -164,11 +171,11 @@ impl WorkContext {
         let connection = PgAdapterConnectionRepository(state.db.clone())
             .find_by_id(&self.connection_id, &sys_ctx)
             .await
-            .map_err(|e| AdapterWorkFailure::retryable(AdapterError::Db(e)))?
+            .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?
             .ok_or_else(|| {
                 // The tenant's connection was deleted after the webhook was
                 // accepted. No retry can bring it back.
-                AdapterWorkFailure::permanent(GithubWorkError::ConnectionGone(
+                AdapterDeliveryFailure::permanent(GithubDeliveryError::ConnectionGone(
                     self.connection_id.clone(),
                 ))
             })?;
@@ -178,7 +185,7 @@ impl WorkContext {
                 .loops
                 .find_subscription_by_id(id)
                 .await
-                .map_err(|e| AdapterWorkFailure::retryable(AdapterError::Db(e)))?,
+                .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?,
             None => None,
         };
         Ok((connection, trigger))
@@ -203,25 +210,25 @@ impl WorkContext {
 /// happened on the request path (it is cheap and needs the raw body), and a
 /// payload that could not reproduce it would not be self-contained.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(super) struct PrMessageWork {
+pub(super) struct PrMessageDelivery {
     #[serde(flatten)]
-    pub(super) context: WorkContext,
+    pub(super) context: DeliveryContext,
     pub(super) message: InboundMessage,
 }
 
 /// Close the tasks a PR's trigger created.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(super) struct CloseWork {
+pub(super) struct CloseDelivery {
     #[serde(flatten)]
-    pub(super) context: WorkContext,
+    pub(super) context: DeliveryContext,
     pub(super) close: PrCloseInfo,
 }
 
 /// Announce a completed base-branch CI run.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(super) struct PostMergeWork {
+pub(super) struct PostMergeDelivery {
     #[serde(flatten)]
-    pub(super) context: WorkContext,
+    pub(super) context: DeliveryContext,
     /// Kept alongside `repo_full_name` because the ingress path falls back to
     /// `(owner_login, "")` when the full name has no `/`; re-splitting here
     /// would silently change which repo is queried.
@@ -233,9 +240,9 @@ pub(super) struct PostMergeWork {
 
 /// Re-check a PR's mergeable state.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(super) struct MergeConflictWork {
+pub(super) struct MergeConflictDelivery {
     #[serde(flatten)]
-    pub(super) context: WorkContext,
+    pub(super) context: DeliveryContext,
     pub(super) owner: String,
     pub(super) repo: String,
     pub(super) pr_number: u64,
@@ -245,14 +252,14 @@ pub(super) struct MergeConflictWork {
 /// Failures this module raises on its own behalf, as opposed to those it
 /// forwards from the runtime it calls.
 #[derive(Debug, thiserror::Error)]
-enum GithubWorkError {
+enum GithubDeliveryError {
     #[error("adapter connection {0} no longer exists")]
     ConnectionGone(String),
-    #[error("adapter work payload does not match its kind")]
+    #[error("Adapter delivery payload does not match its kind")]
     Payload(#[source] serde_json::Error),
 }
 
-/// Build the admission request for one unit of work.
+/// Build the admission request for one GitHub delivery.
 ///
 /// Fails only if the payload cannot be serialized, which for these types means
 /// a `serde_json::Value` containing a non-string map key — impossible for
@@ -261,23 +268,25 @@ pub(super) fn request(
     kind: &'static str,
     event_id: String,
     payload: &impl serde::Serialize,
-) -> Result<AdapterWorkRequest, AdapterError> {
+) -> Result<AdapterDeliveryRequest, AdapterError> {
     let payload = serde_json::to_value(payload).map_err(|e| {
         AdapterError::Internal(format!("failed to serialize {kind} work payload: {e}"))
     })?;
-    Ok(AdapterWorkRequest {
-        provider: PROVIDER,
+    Ok(AdapterDeliveryRequest {
+        adapter: ADAPTER,
         kind,
         event_id,
         payload,
     })
 }
 
-fn parse<T: serde::de::DeserializeOwned>(work: &AdapterWork) -> Result<T, AdapterWorkFailure> {
-    serde_json::from_value(work.payload.clone())
+fn parse<T: serde::de::DeserializeOwned>(
+    delivery: &AdapterDelivery,
+) -> Result<T, AdapterDeliveryFailure> {
+    serde_json::from_value(delivery.payload.clone())
         // A payload that does not deserialize was written by a build that is
         // gone or is corrupt; no retry can fix either.
-        .map_err(|e| AdapterWorkFailure::permanent(GithubWorkError::Payload(e)))
+        .map_err(|e| AdapterDeliveryFailure::permanent(GithubDeliveryError::Payload(e)))
 }
 
 // =============================================================================
@@ -287,9 +296,9 @@ fn parse<T: serde::de::DeserializeOwned>(work: &AdapterWork) -> Result<T, Adapte
 struct PrMessageHandler(AppState);
 
 #[async_trait::async_trait]
-impl AdapterWorkHandler for PrMessageHandler {
-    async fn execute(&self, work: &AdapterWork) -> Result<(), AdapterWorkFailure> {
-        let payload: PrMessageWork = parse(work)?;
+impl AdapterDeliveryHandler for PrMessageHandler {
+    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
+        let payload: PrMessageDelivery = parse(delivery)?;
         let (connection, trigger) = payload.context.resolve(&self.0).await?;
         super::runtime::route_inbound_message(
             &self.0,
@@ -298,22 +307,22 @@ impl AdapterWorkHandler for PrMessageHandler {
             payload.message,
         )
         .await
-        .map_err(AdapterWorkFailure::from)
+        .map_err(AdapterDeliveryFailure::from)
     }
 }
 
 struct CloseHandler(AppState);
 
 #[async_trait::async_trait]
-impl AdapterWorkHandler for CloseHandler {
-    async fn execute(&self, work: &AdapterWork) -> Result<(), AdapterWorkFailure> {
-        let payload: CloseWork = parse(work)?;
+impl AdapterDeliveryHandler for CloseHandler {
+    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
+        let payload: CloseDelivery = parse(delivery)?;
         let (_connection, trigger) = payload.context.resolve(&self.0).await?;
         // Auto-close only ever applied to trigger-created tasks. A trigger
         // deleted between admission and execution leaves nothing to close.
         let Some(trigger) = trigger else {
             info!(
-                id = %work.id,
+                id = %delivery.id,
                 pr_number = payload.close.pr_number,
                 "GitHub PR close skipped: its trigger no longer exists"
             );
@@ -321,16 +330,16 @@ impl AdapterWorkHandler for CloseHandler {
         };
         super::runtime::close_tasks_for_pr(&self.0, &trigger, &payload.close)
             .await
-            .map_err(AdapterWorkFailure::from)
+            .map_err(AdapterDeliveryFailure::from)
     }
 }
 
 struct PostMergeHandler(AppState);
 
 #[async_trait::async_trait]
-impl AdapterWorkHandler for PostMergeHandler {
-    async fn execute(&self, work: &AdapterWork) -> Result<(), AdapterWorkFailure> {
-        let payload: PostMergeWork = parse(work)?;
+impl AdapterDeliveryHandler for PostMergeHandler {
+    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
+        let payload: PostMergeDelivery = parse(delivery)?;
         let (connection, trigger) = payload.context.resolve(&self.0).await?;
         let rule = payload
             .context
@@ -345,16 +354,16 @@ impl AdapterWorkHandler for PostMergeHandler {
             &payload.sender_login,
         )
         .await
-        .map_err(AdapterWorkFailure::from)
+        .map_err(AdapterDeliveryFailure::from)
     }
 }
 
 struct MergeConflictHandler(AppState);
 
 #[async_trait::async_trait]
-impl AdapterWorkHandler for MergeConflictHandler {
-    async fn execute(&self, work: &AdapterWork) -> Result<(), AdapterWorkFailure> {
-        let payload: MergeConflictWork = parse(work)?;
+impl AdapterDeliveryHandler for MergeConflictHandler {
+    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
+        let payload: MergeConflictDelivery = parse(delivery)?;
         let (connection, trigger) = payload.context.resolve(&self.0).await?;
         let rule = payload
             .context
@@ -369,7 +378,7 @@ impl AdapterWorkHandler for MergeConflictHandler {
             &payload.sender_login,
         )
         .await
-        .map_err(AdapterWorkFailure::from)
+        .map_err(AdapterDeliveryFailure::from)
     }
 }
 
@@ -378,16 +387,16 @@ impl AdapterWorkHandler for MergeConflictHandler {
 pub(super) fn log_admission(
     kind: &'static str,
     event_id: &str,
-    admission: crate::adapters::work::Admission,
+    admission: crate::adapters::delivery::Admission,
 ) {
     match admission {
-        crate::adapters::work::Admission::Admitted => {
-            debug!(kind, event_id, "GitHub work admitted");
+        crate::adapters::delivery::Admission::Admitted => {
+            debug!(kind, event_id, "GitHub delivery admitted");
         }
-        crate::adapters::work::Admission::Duplicate => {
+        crate::adapters::delivery::Admission::Duplicate => {
             warn!(
                 kind,
-                event_id, "GitHub work already admitted for this delivery; nothing re-run"
+                event_id, "GitHub delivery already admitted; nothing re-run"
             );
         }
     }
@@ -400,8 +409,8 @@ mod tests {
 
     use super::*;
 
-    fn context() -> WorkContext {
-        WorkContext {
+    fn context() -> DeliveryContext {
+        DeliveryContext {
             connection_id: "conn-1".to_string(),
             trigger_id: Some("trigger-1".to_string()),
             repo_full_name: "acme/widgets".to_string(),
@@ -431,12 +440,12 @@ mod tests {
     /// every field has to survive the round trip through Postgres JSON.
     #[test]
     fn a_pr_message_payload_survives_the_round_trip() {
-        let work = PrMessageWork {
+        let delivery = PrMessageDelivery {
             context: context(),
             message: message(),
         };
-        let value = serde_json::to_value(&work).expect("serialize");
-        let back: PrMessageWork = serde_json::from_value(value).expect("deserialize");
+        let value = serde_json::to_value(&delivery).expect("serialize");
+        let back: PrMessageDelivery = serde_json::from_value(value).expect("deserialize");
 
         assert_eq!(back.context.connection_id, "conn-1");
         assert_eq!(back.context.trigger_id.as_deref(), Some("trigger-1"));
@@ -450,11 +459,11 @@ mod tests {
         assert_eq!(back.message.provider, AdapterKind::GithubPr);
         assert_eq!(
             back.message.thread_properties,
-            work.message.thread_properties
+            delivery.message.thread_properties
         );
     }
 
-    /// `CloseWork` and `PostMergeWork` wrap types owned by `adapter.rs`, whose
+    /// `CloseDelivery` and `PostMergeDelivery` wrap types owned by `adapter.rs`, whose
     /// fields this module cannot name. Pinning them as literal JSON is the only
     /// way to assert the stored shape from here — and it is the shape the
     /// crash-recovery test hardcodes, so a rename or a lost `flatten` has to
@@ -473,12 +482,12 @@ mod tests {
                 "sender_login": "octocat",
             },
         });
-        let work: CloseWork = serde_json::from_value(stored.clone()).expect("deserialize");
+        let delivery: CloseDelivery = serde_json::from_value(stored.clone()).expect("deserialize");
 
-        assert_eq!(work.context.connection_id, "conn-1");
-        assert_eq!(work.close.pr_number, 42);
-        assert!(work.close.merged);
-        assert_eq!(serde_json::to_value(&work).expect("serialize"), stored);
+        assert_eq!(delivery.context.connection_id, "conn-1");
+        assert_eq!(delivery.close.pr_number, 42);
+        assert!(delivery.close.merged);
+        assert_eq!(serde_json::to_value(&delivery).expect("serialize"), stored);
     }
 
     #[test]
@@ -499,19 +508,20 @@ mod tests {
                 "html_url": "https://github.com/acme/widgets/actions/runs/12345678901",
             },
         });
-        let work: PostMergeWork = serde_json::from_value(stored.clone()).expect("deserialize");
+        let delivery: PostMergeDelivery =
+            serde_json::from_value(stored.clone()).expect("deserialize");
 
-        assert!(work.context.trigger_id.is_none());
-        assert_eq!(work.owner, "acme");
+        assert!(delivery.context.trigger_id.is_none());
+        assert_eq!(delivery.owner, "acme");
         // A run id is a `u64` behind a `flatten`ed sibling, which routes through
         // serde's buffering representation; assert it comes back unrounded.
-        assert_eq!(serde_json::to_value(&work).expect("serialize"), stored);
+        assert_eq!(serde_json::to_value(&delivery).expect("serialize"), stored);
     }
 
     #[test]
     fn a_merge_conflict_payload_survives_the_round_trip() {
-        let work = MergeConflictWork {
-            context: WorkContext {
+        let delivery = MergeConflictDelivery {
+            context: DeliveryContext {
                 trigger_id: None,
                 ..context()
             },
@@ -520,8 +530,8 @@ mod tests {
             pr_number: 42,
             sender_login: "octocat".to_string(),
         };
-        let back: MergeConflictWork =
-            serde_json::from_value(serde_json::to_value(&work).expect("serialize"))
+        let back: MergeConflictDelivery =
+            serde_json::from_value(serde_json::to_value(&delivery).expect("serialize"))
                 .expect("deserialize");
         assert!(back.context.trigger_id.is_none());
         assert_eq!(back.pr_number, 42);
@@ -548,20 +558,20 @@ mod tests {
     }
 
     /// A record's kind names its handler; the request must carry the kind and
-    /// the provider's own key, not a generated one.
+    /// the sender's own key, not a generated one.
     #[test]
-    fn a_request_carries_the_kind_and_the_provider_key() {
+    fn a_request_carries_the_kind_and_the_senders_key() {
         let request = request(
             kind::PR_MESSAGE,
             "delivery-9".to_string(),
-            &PrMessageWork {
+            &PrMessageDelivery {
                 context: context(),
                 message: message(),
             },
         )
         .expect("serialize");
 
-        assert_eq!(request.provider, PROVIDER);
+        assert_eq!(request.adapter, ADAPTER);
         assert_eq!(request.kind, "github.pr_message");
         assert_eq!(request.event_id, "delivery-9");
         assert_eq!(request.payload["connection_id"], "conn-1");

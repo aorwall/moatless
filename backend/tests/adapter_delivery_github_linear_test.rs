@@ -6,7 +6,7 @@
     clippy::print_stderr
 )]
 //! Integration tests for ING-3: GitHub and Linear webhook work crossing the
-//! durable adapter-work handoff before the provider is acknowledged.
+//! durable adapter-delivery handoff before the provider is acknowledged.
 //!
 //! These exercise the real registered handlers against a real pool, because the
 //! properties under test are exactly the ones a unit test cannot see: that a
@@ -24,11 +24,11 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
+use moatless_vibe_backend::adapters::delivery::{
+    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
+};
 use moatless_vibe_backend::adapters::github_pr;
 use moatless_vibe_backend::adapters::linear;
-use moatless_vibe_backend::adapters::work::{
-    spawn_adapter_work_worker, AdapterWorkHandlers, AdapterWorkRequest, Admission,
-};
 use moatless_vibe_backend::state::AppState;
 use sqlx::PgPool;
 use sqlx::Row;
@@ -43,9 +43,12 @@ const LINEAR_CONNECTION_ID: &str = "conn-linear-1";
 /// get past its "does this tenant still exist?" guard.
 async fn seed_connection(pool: &PgPool, id: &str, adapter_kind: &str, account: &str) {
     sqlx::query(
+        // `owner_user_id` is not decoration: a user-scoped connection without
+        // one violates `integration_connections_owner_scope_chk`.
         r#"INSERT INTO integration_connections
-               (id, adapter_kind, connection_kind, external_account_id, created_by, scope)
-           VALUES ($1, $2, 'org', $3, 'user-1', 'user')
+               (id, adapter_kind, connection_kind, external_account_id, created_by, scope,
+                owner_user_id)
+           VALUES ($1, $2, 'org', $3, 'user-1', 'user', 'user-1')
            ON CONFLICT (id) DO NOTHING"#,
     )
     .bind(id)
@@ -68,7 +71,7 @@ fn github_context(connection_id: &str) -> serde_json::Value {
 
 /// One request per kind this ticket admits. Every one of them has to survive
 /// the crash test, so they are enumerated once and reused.
-fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterWorkRequest> {
+fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterDeliveryRequest> {
     let mut pr_message = github_context(connection_id);
     pr_message["message"] = serde_json::json!({
         "provider": "github_pr",
@@ -115,33 +118,33 @@ fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterWor
     merge_conflict["sender_login"] = serde_json::json!("octocat");
 
     vec![
-        AdapterWorkRequest {
-            provider: github_pr::work::PROVIDER,
-            kind: github_pr::work::kind::PR_MESSAGE,
+        AdapterDeliveryRequest {
+            adapter: github_pr::delivery::ADAPTER,
+            kind: github_pr::delivery::kind::PR_MESSAGE,
             event_id: "delivery-1".to_string(),
             payload: pr_message,
         },
-        AdapterWorkRequest {
-            provider: github_pr::work::PROVIDER,
-            kind: github_pr::work::kind::CLOSE,
+        AdapterDeliveryRequest {
+            adapter: github_pr::delivery::ADAPTER,
+            kind: github_pr::delivery::kind::CLOSE,
             event_id: "delivery-2".to_string(),
             payload: close,
         },
-        AdapterWorkRequest {
-            provider: github_pr::work::PROVIDER,
-            kind: github_pr::work::kind::POST_MERGE,
+        AdapterDeliveryRequest {
+            adapter: github_pr::delivery::ADAPTER,
+            kind: github_pr::delivery::kind::POST_MERGE,
             event_id: "delivery-3".to_string(),
             payload: post_merge,
         },
-        AdapterWorkRequest {
-            provider: github_pr::work::PROVIDER,
-            kind: github_pr::work::kind::MERGE_CONFLICT,
+        AdapterDeliveryRequest {
+            adapter: github_pr::delivery::ADAPTER,
+            kind: github_pr::delivery::kind::MERGE_CONFLICT,
             event_id: "delivery-4".to_string(),
             payload: merge_conflict,
         },
-        AdapterWorkRequest {
-            provider: linear::work::PROVIDER,
-            kind: linear::work::SESSION_PROVISION,
+        AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::SESSION_PROVISION,
             // Exactly the shape `handlers::dedup_key` produces.
             event_id: "AgentSessionEvent:created:session-A".to_string(),
             payload: serde_json::json!({
@@ -157,14 +160,84 @@ fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterWor
                 },
             }),
         },
+        AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::SESSION_PROMPT,
+            event_id: "AgentSessionEvent:prompted:activity-1".to_string(),
+            payload: serde_json::json!({
+                "connection_id": linear_connection_id,
+                "session_id": "session-A",
+                // The prompt's downstream identity is built from this, so a
+                // record that lost it would double-deliver on the next attempt.
+                "activity_id": "activity-1",
+                "body": "please look at this again",
+            }),
+        },
+        AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::ISSUE_UPDATE,
+            event_id: "Issue:update:issue-1:1700000000000".to_string(),
+            payload: serde_json::json!({
+                "connection_id": linear_connection_id,
+                "issue": {
+                    "id": "issue-1",
+                    "identifier": "ENG-7",
+                    "title": "Fix the thing",
+                    "teamId": "team-1",
+                    "state": {"id": "s2", "name": "In Progress", "type": "started"},
+                },
+                "updated_from": {"stateId": "s1"},
+                // Linear's own delivery timestamp, half of the forwarded
+                // message's identity — carried, never re-read from a clock.
+                "delivered_at": 1_700_000_000_000i64,
+            }),
+        },
+        AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::COMMENT,
+            event_id: "Comment:create:comment-1".to_string(),
+            payload: serde_json::json!({
+                "connection_id": linear_connection_id,
+                "issue_id": "issue-1",
+                "comment": {
+                    "id": "comment-1",
+                    "body": "have a look at this",
+                    "issueId": "issue-1",
+                    "user": {"id": "user-9", "name": "Alice"},
+                },
+            }),
+        },
+        AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::NOTIFICATION,
+            event_id: "AppUserNotification:issueStatusChanged:notif-1".to_string(),
+            payload: serde_json::json!({
+                "connection_id": linear_connection_id,
+                // Which actions are acted on is the worker's decision, so the
+                // action rides in the record rather than gating admission.
+                "action": "issueStatusChanged",
+                "notification": {
+                    "id": "notif-1",
+                    "type": "issueStatusChanged",
+                    "issueId": "issue-1",
+                    "issue": {
+                        "id": "issue-1",
+                        "identifier": "ENG-7",
+                        "title": "Fix the thing",
+                        "teamId": "team-1",
+                        "state": {"id": "s3", "name": "Done", "type": "completed"},
+                    },
+                },
+            }),
+        },
     ]
 }
 
 /// The registry the running process builds, assembled the same way `main` does.
-fn registered_handlers(state: &AppState) -> Arc<AdapterWorkHandlers> {
-    let mut handlers = AdapterWorkHandlers::new();
-    github_pr::work::register(&mut handlers, state);
-    linear::work::register(&mut handlers, state);
+fn registered_handlers(state: &AppState) -> Arc<AdapterDeliveryHandlers> {
+    let mut handlers = AdapterDeliveryHandlers::new();
+    github_pr::delivery::register(&mut handlers, state);
+    linear::delivery::register(&mut handlers, state);
     Arc::new(handlers)
 }
 
@@ -176,8 +249,8 @@ async fn run_worker_until(
     done: impl AsyncFn() -> bool,
 ) -> bool {
     let cancel = CancellationToken::new();
-    let handle = spawn_adapter_work_worker(
-        state.adapter_work.clone(),
+    let handle = spawn_adapter_delivery_worker(
+        state.adapter_delivery.clone(),
         registered_handlers(state),
         cancel.clone(),
     );
@@ -201,13 +274,13 @@ async fn status_of(
     event_id: &str,
 ) -> Option<(String, i32, Option<String>)> {
     sqlx::query(
-        "SELECT status, attempts, last_error FROM adapter_work WHERE kind = $1 AND event_id = $2",
+        "SELECT status, attempts, last_error FROM adapter_delivery WHERE kind = $1 AND event_id = $2",
     )
     .bind(kind)
     .bind(event_id)
     .fetch_optional(pool)
     .await
-    .expect("read adapter_work")
+    .expect("read adapter_delivery")
     .map(|row| {
         (
             row.get::<String, _>("status"),
@@ -218,19 +291,20 @@ async fn status_of(
 }
 
 async fn count_records(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
-    sqlx::query_scalar("SELECT COUNT(*) FROM adapter_work WHERE kind = $1 AND event_id = $2")
+    sqlx::query_scalar("SELECT COUNT(*) FROM adapter_delivery WHERE kind = $1 AND event_id = $2")
         .bind(kind)
         .bind(event_id)
         .fetch_one(pool)
         .await
-        .expect("count adapter_work")
+        .expect("count adapter_delivery")
 }
 
 /// Verification: crash/restart recovery for every admitted work kind.
 ///
 /// The admitting state is dropped without ever running a worker — from the
 /// queue's side that is indistinguishable from a process killed after it
-/// acknowledged the provider. A different process then has to finish all five.
+/// acknowledged the provider. A different process then has to finish every one
+/// of them.
 #[sqlx::test]
 async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_crash(pool: PgPool) {
     seed_connection(&pool, CONNECTION_ID, "github", "acme").await;
@@ -248,7 +322,7 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
             let kind = request.kind;
             assert_eq!(
                 admitting
-                    .adapter_work
+                    .adapter_delivery
                     .admit(request)
                     .await
                     .expect("admitted"),
@@ -311,20 +385,24 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
         "external_event_id": "github:ic:9001",
         "source_task_id": serde_json::Value::Null,
     });
-    let request = || AdapterWorkRequest {
-        provider: github_pr::work::PROVIDER,
-        kind: github_pr::work::kind::PR_MESSAGE,
+    let request = || AdapterDeliveryRequest {
+        adapter: github_pr::delivery::ADAPTER,
+        kind: github_pr::delivery::kind::PR_MESSAGE,
         event_id: "delivery-dup".to_string(),
         payload: message.clone(),
     };
 
     assert_eq!(
-        state.adapter_work.admit(request()).await.expect("first"),
+        state
+            .adapter_delivery
+            .admit(request())
+            .await
+            .expect("first"),
         Admission::Admitted
     );
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(request())
             .await
             .expect("redelivery"),
@@ -332,7 +410,7 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
         "GitHub's own delivery id is the idempotency key"
     );
     assert_eq!(
-        count_records(&pool, github_pr::work::kind::PR_MESSAGE, "delivery-dup").await,
+        count_records(&pool, github_pr::delivery::kind::PR_MESSAGE, "delivery-dup").await,
         1
     );
 
@@ -345,10 +423,10 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
     conflict["sender_login"] = serde_json::json!("octocat");
     assert_eq!(
         state
-            .adapter_work
-            .admit(AdapterWorkRequest {
-                provider: github_pr::work::PROVIDER,
-                kind: github_pr::work::kind::MERGE_CONFLICT,
+            .adapter_delivery
+            .admit(AdapterDeliveryRequest {
+                adapter: github_pr::delivery::ADAPTER,
+                kind: github_pr::delivery::kind::MERGE_CONFLICT,
                 event_id: "delivery-dup".to_string(),
                 payload: conflict,
             })
@@ -362,14 +440,14 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
     let pool_for_check = pool.clone();
     run_worker_until(&state, Duration::from_secs(30), async || {
         matches!(
-            status_of(&pool_for_check, github_pr::work::kind::PR_MESSAGE, "delivery-dup").await,
+            status_of(&pool_for_check, github_pr::delivery::kind::PR_MESSAGE, "delivery-dup").await,
             Some((ref status, ..)) if status == "succeeded" || status == "failed"
         )
     })
     .await;
 
     let (status, attempts, last_error) =
-        status_of(&pool, github_pr::work::kind::PR_MESSAGE, "delivery-dup")
+        status_of(&pool, github_pr::delivery::kind::PR_MESSAGE, "delivery-dup")
             .await
             .expect("record");
     assert_eq!(status, "succeeded", "{last_error:?}");
@@ -378,7 +456,7 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
     // A late redelivery still dedups against the finished record.
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(request())
             .await
             .expect("late redelivery"),
@@ -396,9 +474,9 @@ async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPo
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
     let state = test_app_state(pool.clone());
 
-    let session_request = |session_id: &str| AdapterWorkRequest {
-        provider: linear::work::PROVIDER,
-        kind: linear::work::SESSION_PROVISION,
+    let session_request = |session_id: &str| AdapterDeliveryRequest {
+        adapter: linear::delivery::ADAPTER,
+        kind: linear::delivery::SESSION_PROVISION,
         event_id: format!("AgentSessionEvent:created:{session_id}"),
         payload: serde_json::json!({
             "connection_id": LINEAR_CONNECTION_ID,
@@ -411,7 +489,7 @@ async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPo
 
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(session_request("session-A"))
             .await
             .expect("first"),
@@ -419,7 +497,7 @@ async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPo
     );
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(session_request("session-A"))
             .await
             .expect("retry"),
@@ -428,7 +506,7 @@ async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPo
     );
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(session_request("session-B"))
             .await
             .expect("second session"),
@@ -439,11 +517,154 @@ async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPo
     assert_eq!(
         count_records(
             &pool,
-            linear::work::SESSION_PROVISION,
+            linear::delivery::SESSION_PROVISION,
             "AgentSessionEvent:created:session-A"
         )
         .await,
         1
+    );
+}
+
+/// Verification: each Linear kind retries on its own budget.
+///
+/// The kinds are separate records rather than one shared `linear.webhook`
+/// precisely so that a delivery whose work can never succeed cannot spend the
+/// attempts of the work admitted beside it. Both records here carry the same
+/// delivery identity, so the only thing keeping them apart is the kind.
+#[sqlx::test]
+async fn a_permanently_failing_linear_kind_leaves_its_siblings_budget_alone(pool: PgPool) {
+    seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
+    let state = test_app_state(pool.clone());
+    let event_id = "Comment:create:comment-1";
+
+    // Written by a build that is gone: the payload has a connection but none of
+    // the fields its kind needs, so no attempt can ever read it.
+    state
+        .adapter_delivery
+        .admit(AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::ISSUE_UPDATE,
+            event_id: event_id.to_string(),
+            payload: serde_json::json!({"connection_id": LINEAR_CONNECTION_ID}),
+        })
+        .await
+        .expect("admitted");
+    state
+        .adapter_delivery
+        .admit(AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::COMMENT,
+            event_id: event_id.to_string(),
+            payload: serde_json::json!({
+                "connection_id": LINEAR_CONNECTION_ID,
+                "issue_id": "issue-1",
+                "comment": {"id": "comment-1", "body": "have a look", "issueId": "issue-1"},
+            }),
+        })
+        .await
+        .expect("one delivery's distinct kinds do not dedup against each other");
+
+    let pool_for_check = pool.clone();
+    let finished = run_worker_until(&state, Duration::from_secs(30), async || {
+        for kind in [linear::delivery::ISSUE_UPDATE, linear::delivery::COMMENT] {
+            match status_of(&pool_for_check, kind, event_id).await {
+                Some((status, ..)) if status == "succeeded" || status == "failed" => {}
+                _ => return false,
+            }
+        }
+        true
+    })
+    .await;
+    assert!(finished, "both records reached a terminal state");
+
+    let (status, attempts, last_error) = status_of(&pool, linear::delivery::ISSUE_UPDATE, event_id)
+        .await
+        .expect("the poisoned record is still there");
+    assert_eq!(status, "failed");
+    assert_eq!(
+        attempts, 1,
+        "a permanent failure spends no budget on retrying"
+    );
+    assert!(
+        last_error
+            .unwrap_or_default()
+            .contains("payload does not match its kind"),
+        "a terminal record says why it was abandoned"
+    );
+
+    let (status, attempts, last_error) = status_of(&pool, linear::delivery::COMMENT, event_id)
+        .await
+        .expect("the sibling is its own record");
+    assert_eq!(
+        status, "succeeded",
+        "the sibling ran despite its neighbour failing: {last_error:?}"
+    );
+    assert_eq!(
+        attempts, 1,
+        "the sibling kept its full budget — the failure next to it cost it nothing"
+    );
+}
+
+/// Verification: a Linear delivery interrupted mid-execution is retried.
+///
+/// Crash recovery above covers a process that died *before* executing. This is
+/// the other half: the record was claimed, the handler was running, and the
+/// replica disappeared. Nothing acknowledges it back to Linear, so the only
+/// thing that can rescue it is the claim lease — and the record has to complete
+/// under the next worker rather than sit `claimed` forever.
+#[sqlx::test]
+async fn a_linear_delivery_interrupted_mid_execution_is_retried(pool: PgPool) {
+    seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
+    let state = test_app_state(pool.clone());
+    let event_id = "AgentSessionEvent:prompted:activity-1";
+
+    state
+        .adapter_delivery
+        .admit(AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::SESSION_PROMPT,
+            event_id: event_id.to_string(),
+            payload: serde_json::json!({
+                "connection_id": LINEAR_CONNECTION_ID,
+                "session_id": "session-A",
+                "activity_id": "activity-1",
+                "body": "please look at this again",
+            }),
+        })
+        .await
+        .expect("admitted");
+
+    // The kill: claimed by a replica that is never coming back, long enough ago
+    // that its lease has expired. Set directly rather than waited for, because
+    // the lease is minutes and the property is not about the clock.
+    sqlx::query(
+        "UPDATE adapter_delivery \
+         SET status = 'claimed', attempts = 1, claimed_at = NOW() - INTERVAL '1 hour', \
+             claimed_by = 'dead-replica' \
+         WHERE kind = $1 AND event_id = $2",
+    )
+    .bind(linear::delivery::SESSION_PROMPT)
+    .bind(event_id)
+    .execute(&pool)
+    .await
+    .expect("simulate the interrupted execution");
+
+    let pool_for_check = pool.clone();
+    let finished = run_worker_until(&state, Duration::from_secs(30), async || {
+        matches!(
+            status_of(&pool_for_check, linear::delivery::SESSION_PROMPT, event_id).await,
+            Some((ref status, ..)) if status == "succeeded" || status == "failed"
+        )
+    })
+    .await;
+    assert!(finished, "the abandoned claim was picked up again");
+
+    let (status, _, last_error) = status_of(&pool, linear::delivery::SESSION_PROMPT, event_id)
+        .await
+        .expect("record");
+    assert_eq!(
+        status, "succeeded",
+        "the interrupted delivery was retried, not lost: {last_error:?}"
     );
 }
 
@@ -465,10 +686,10 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
     orphaned["pr_number"] = serde_json::json!(42);
     orphaned["sender_login"] = serde_json::json!("octocat");
     state
-        .adapter_work
-        .admit(AdapterWorkRequest {
-            provider: github_pr::work::PROVIDER,
-            kind: github_pr::work::kind::MERGE_CONFLICT,
+        .adapter_delivery
+        .admit(AdapterDeliveryRequest {
+            adapter: github_pr::delivery::ADAPTER,
+            kind: github_pr::delivery::kind::MERGE_CONFLICT,
             event_id: "delivery-orphan".to_string(),
             payload: orphaned,
         })
@@ -478,10 +699,10 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
     // A payload an older build wrote and this one cannot read is equally
     // hopeless, and must be terminal rather than retried forever.
     state
-        .adapter_work
-        .admit(AdapterWorkRequest {
-            provider: linear::work::PROVIDER,
-            kind: linear::work::SESSION_PROVISION,
+        .adapter_delivery
+        .admit(AdapterDeliveryRequest {
+            adapter: linear::delivery::ADAPTER,
+            kind: linear::delivery::SESSION_PROVISION,
             event_id: "AgentSessionEvent:created:unreadable".to_string(),
             payload: serde_json::json!({"connection_id": LINEAR_CONNECTION_ID}),
         })
@@ -489,9 +710,9 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
         .expect("admitted");
 
     let cases = [
-        (github_pr::work::kind::MERGE_CONFLICT, "delivery-orphan"),
+        (github_pr::delivery::kind::MERGE_CONFLICT, "delivery-orphan"),
         (
-            linear::work::SESSION_PROVISION,
+            linear::delivery::SESSION_PROVISION,
             "AgentSessionEvent:created:unreadable",
         ),
     ];
@@ -510,7 +731,7 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
 
     let (status, attempts, last_error) = status_of(
         &pool,
-        github_pr::work::kind::MERGE_CONFLICT,
+        github_pr::delivery::kind::MERGE_CONFLICT,
         "delivery-orphan",
     )
     .await
@@ -528,7 +749,7 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
 
     let (status, attempts, last_error) = status_of(
         &pool,
-        linear::work::SESSION_PROVISION,
+        linear::delivery::SESSION_PROVISION,
         "AgentSessionEvent:created:unreadable",
     )
     .await

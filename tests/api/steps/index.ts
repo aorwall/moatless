@@ -22,6 +22,11 @@ export {
   createWebhookTriggerFixture,
   createWebhookTriggerFixtureWithRouting,
   sendWebhookMessage,
+  taskMessageCount,
+  waitForLoopTasks,
+  waitForLoopTaskWithSubject,
+  waitForTaskMessages,
+  webhookSubjectKey,
 } from './integrations.steps'
 // Repository creation
 export { createRepository } from './repository.steps'

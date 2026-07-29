@@ -127,15 +127,45 @@ or a Linear issue — reached through an Adapter. Tracks the subject and whether
 inbound events still route to the Task. A Task has many Bindings.
 _Avoid_: task connection, connection, thread
 
-**Adapter work**:
-One unit of provider webhook work that cannot safely finish on the HTTP response
-path, persisted in the `adapter_work` table before the provider is acknowledged
-and executed later by the supervised `adapter-work-worker`. Keyed by the
-*provider's* event identifier, so a re-delivered webhook is a duplicate rather
-than a second unit of work. Best-effort side effects — outbound activity
-notifications, API-key usage timestamps — are deliberately not Adapter work.
-_Avoid_: adapter queue, adapter outbox (the transactional outbox is the durable
-event-ingress path, not this one), adapter job
+**Sender**:
+The external system on the other end of an Adapter, in its role of delivering an
+inbound event to us — Slack, Linear, GitHub, or an arbitrary client calling the
+Webhook Adapter. Used where the point is the retry contract ("the sender is
+acknowledged", "the sender's own delivery identifier") rather than the
+integration type.
+_Avoid_: provider
+
+**Adapter delivery**:
+One inbound delivery the backend has taken durable ownership of, persisted in the
+`adapter_delivery` table inside the request handler — before the sender is
+acknowledged — and executed later by the supervised `adapter-delivery-worker`.
+Keyed by the Adapter, the kind, and the sender's own delivery identifier
+*together*, so a redelivery is a duplicate rather than a second record.
+
+**Cardinality**: one sender delivery is one *or more* Adapter deliveries, one per
+kind it fans into — GitHub activity on an open pull request is ordinarily two.
+The sender's own interface counts that same event as one; the mismatch is the
+stated cost of the name and is not a defect. Nothing orders the records derived
+from one delivery, and nothing may be built on their execution order.
+
+Best-effort side effects — outbound activity notifications, API-key usage
+timestamps — are deliberately not Adapter deliveries.
+_Avoid_: adapter work (the previous name), adapter queue, adapter inbox, adapter
+outbox (the transactional outbox is the durable event-ingress path, not this
+one), adapter job, bare "delivery"
+
+**Why not the alternatives** (recorded so the name is not re-litigated — most
+were unavailable rather than merely less good):
+
+| Candidate | Verdict |
+|---|---|
+| Adapter delivery | Chosen. Names what the record is for, at the cardinality cost stated above. |
+| Adapter work | The previous name, and the residual one — correct at the element level but the least informative word available, kept only because everything more specific was blocked. |
+| Adapter task | Blocked. Task is the core domain noun. |
+| Adapter action | Blocked. Senders' own payloads key on an `action`, on more than one Adapter. |
+| Adapter job | Blocked by this glossary (see Schedule), and no more specific than "work". |
+| Adapter queue, Adapter inbox | Container nouns where an element noun is needed — one delivery becomes *several records*, which is a sentence "several queues" is not. "Queue" would also advertise an ordering guarantee the claim path does not make; "inbox" holds one row per received message, and this holds one row per effect derived from one. |
+| Adapter effect | Accurate and unblocked, but alien to the rest of the vocabulary. The only real runner-up. |
 
 "Integrations" is the user-facing umbrella for connected external systems; it is
 not a precise domain term (the type is an Adapter, an installation is an Adapter

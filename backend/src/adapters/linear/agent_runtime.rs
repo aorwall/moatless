@@ -11,7 +11,6 @@
 
 use std::fmt::Write as _;
 
-use chrono::Utc;
 use tracing::{debug, info, warn};
 
 use crate::adapters::dao::PgAdapterConnectionRepository;
@@ -24,12 +23,12 @@ use crate::bindings::recipients::{resolve_recipients, EventProvenance};
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use moatless_backend_core::scope::ScopeContext;
 use crate::task::models::{TaskStatus, Visibility};
+use moatless_backend_core::scope::ScopeContext;
 
 use super::agent_api::{default_http_client, ActivityKind, LinearAgentApi};
 use super::config::{rules_need_issue_fetch, select_spawn_rule, LinearRuleConfig};
-use super::work::LinearWebhookError;
+use super::delivery::LinearWebhookError;
 use super::webhook_payloads::{
     AgentSession, AppUserNotificationData, CommentPayloadData, IssuePayload,
 };
@@ -70,11 +69,11 @@ pub async fn resolve_rules_for_team(
 ///
 /// Performs the synchronous Linear API call (`agentActivityCreate`) that keeps
 /// Linear's UI alive inside its 10-second window, then hands the long-running
-/// task creation to durable adapter work. The webhook is acknowledged only
+/// task creation to a durable Adapter delivery. The webhook is acknowledged only
 /// after that record is committed, so a deploy between the acknowledgment and
 /// the provisioning delays the session instead of losing it.
 ///
-/// `event_id` is the dispatcher's dedup key — see [`super::work`] for why it
+/// `event_id` is the dispatcher's dedup key — see [`super::delivery`] for why it
 /// must be that string and not a new one.
 pub async fn handle_session_created(
     state: &AppState,
@@ -121,9 +120,9 @@ pub async fn handle_session_created(
         return Ok(());
     }
 
-    let request = super::work::session_provision_request(event_id, &connection.id, session)?;
-    let admission = state.adapter_work.admit(request).await?;
-    super::work::log_admission(event_id, admission);
+    let request = super::delivery::session_provision_request(event_id, &connection.id, session)?;
+    let admission = state.adapter_delivery.admit(request).await?;
+    super::delivery::log_admission(super::delivery::SESSION_PROVISION, event_id, admission);
     Ok(())
 }
 
@@ -164,7 +163,7 @@ pub(super) async fn provision_selected_session_task(
 /// Build a Linear Agents API client for a workspace from application state.
 ///
 /// Lives here rather than in the webhook dispatcher because both the dispatcher
-/// and the work handler need one, and neither has a [`LinearAdapter`] in hand.
+/// and the delivery handler need one, and neither has a [`LinearAdapter`] in hand.
 ///
 /// [`LinearAdapter`]: super::adapter::LinearAdapter
 pub(super) fn agent_api(state: &AppState, org_id: &str) -> LinearAgentApi {
@@ -227,11 +226,17 @@ async fn select_session_spawn_rule(
 }
 
 /// Route an `AgentSessionEvent.prompted` payload to the bound task.
+///
+/// `activity_id` is the id of the `agentActivity` carrying the prompt. It is
+/// what the forwarded message is identified by downstream: it names *this*
+/// prompt, so a second prompt on the same session is a second message, and a
+/// Linear retry of one prompt repeats the id and is dropped as a duplicate.
 pub async fn handle_session_prompted(
     state: &AppState,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     session_id: &str,
+    activity_id: &str,
     body: &str,
 ) -> Result<(), AdapterError> {
     let binding_repo = PgTaskBindingRepository(state.db.clone());
@@ -267,10 +272,7 @@ pub async fn handle_session_prompted(
         // Re-open the Linear turn gate for this follow-up prompt so the
         // next agent run's events flow through to Linear's UI.
         state.linear_active_turns.open(&binding.task_id);
-        let external_event_id = format!(
-            "linear:prompt:{session_id}:{}",
-            Utc::now().timestamp_millis()
-        );
+        let external_event_id = linear_prompt_external_id(activity_id);
         if let Err(e) = crate::message::send::send_message_flow(
             state,
             &binding.task_id,
@@ -508,12 +510,42 @@ fn linear_comment_external_id(comment_id: &str) -> String {
     format!("linear:comment:{comment_id}")
 }
 
+/// Identify a forwarded follow-up prompt by the Linear activity carrying it.
+///
+/// Every other external id in this module names the Linear resource it came
+/// from, and this one now does too. It used to be composed with the current
+/// time, which made every attempt at one prompt a fresh identity: a retry was
+/// delivered to the Agent a second time and nothing downstream could recognise
+/// it, because nothing downstream ever saw the same id twice.
+fn linear_prompt_external_id(activity_id: &str) -> String {
+    format!("linear:prompt:{activity_id}")
+}
+
+/// Identify a forwarded issue state change by the issue and Linear's own
+/// delivery timestamp — the same identity the dispatcher derives for the
+/// delivery (see `handlers::dedup_key`).
+///
+/// It used to name the state the issue moved *into*, which is not an identity:
+/// an issue that leaves a state and later returns to it produces two changes a
+/// person made separately under one id, and the second was dropped as a
+/// duplicate by `send_message_flow`. A retry repeats the timestamp, so a
+/// redelivery still collapses.
+fn linear_issue_state_external_id(issue_id: &str, delivered_at: i64) -> String {
+    format!("linear:issue-state:{issue_id}:{delivered_at}")
+}
+
 /// Handle an `Issue.update` payload.
 ///
 /// On any real state transition we forward a notification message to every
 /// bound task so the agent learns the issue changed status. When the new
 /// state is in the rule's `terminal_states` and `close_task_on_close` is set,
 /// the existing close path also runs and terminates the task.
+///
+/// `delivered_at` is Linear's own `webhookTimestamp`. It is what tells two
+/// changes to one issue apart — including an issue that leaves a state and
+/// later returns to it, where nothing else about the two deliveries differs —
+/// while a retry of one change repeats it and is recognised as the same
+/// delivery.
 pub async fn handle_issue_update(
     state: &AppState,
     api: &LinearAgentApi,
@@ -521,6 +553,7 @@ pub async fn handle_issue_update(
     rules: &[SubscriptionMatch],
     envelope_updated_from: Option<&serde_json::Value>,
     issue: &IssuePayload,
+    delivered_at: i64,
 ) -> Result<(), AdapterError> {
     let state_kind = issue.state_kind();
     let prev_state_id = envelope_updated_from
@@ -544,7 +577,7 @@ pub async fn handle_issue_update(
     let rule_config = LinearRuleConfig::from_rule(rule);
 
     // Forward a state-change notification to every bound task (best-effort).
-    notify_bindings_of_state_change(state, connection, issue, new_state_id.unwrap_or("")).await;
+    notify_bindings_of_state_change(state, connection, issue, delivered_at).await;
 
     if rule_config.close_task_on_close
         && rule_config.terminal_states.iter().any(|s| s == state_kind)
@@ -964,7 +997,7 @@ async fn notify_bindings_of_state_change(
     state: &AppState,
     connection: &AdapterConnection,
     issue: &IssuePayload,
-    new_state_id: &str,
+    delivered_at: i64,
 ) {
     let bindings = match PgTaskBindingRepository(state.db.clone())
         .find_active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
@@ -994,8 +1027,7 @@ async fn notify_bindings_of_state_change(
         .into_iter()
         .filter(|b| b.connection_id == connection.id)
     {
-        // Dedup on (issue, new state id) so Linear re-deliveries collapse.
-        let external_event_id = format!("linear:issue-state:{}:{new_state_id}", issue.id);
+        let external_event_id = linear_issue_state_external_id(&issue.id, delivered_at);
         if let Err(e) = crate::message::send::send_message_flow(
             state,
             &binding.task_id,
@@ -1093,7 +1125,10 @@ async fn close_active_bindings_for_issue(
             continue;
         }
 
-        #[allow(clippy::disallowed_methods)] // reason: Linear issue-close handler runs as background system, no caller identity
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "Linear issue-close handler runs as background system, no caller identity"
+        )]
         let sys = ScopeContext::system();
         match state.tasks.find_by_id(&binding.task_id, &sys).await {
             Ok(Some(task)) if task.status == TaskStatus::Closed => {
@@ -1210,11 +1245,14 @@ async fn provision_session_task(
         .as_ref()
         .ok_or_else(|| AdapterError::BadRequest("AgentSession missing issue".into()))?;
 
-    // Idempotency guard: if a binding already exists for this session id, a
-    // retry is re-delivering `created` (e.g. cross-pod, where the per-pod
-    // in-memory dedup cache doesn't apply). Return early rather than creating
-    // a second task. Keyed on session id, so multiple *distinct* sessions on
-    // the same issue still each get their own task.
+    // Idempotency guard: if a binding already exists for this session id, this
+    // is a second execution of work that already provisioned the task. Durable
+    // admission collapses a redelivery of one `created` event, but the record
+    // behind it is executed at-least-once — an attempt abandoned at its
+    // deadline or interrupted by a restart is claimed again — so the guard is
+    // what makes the *execution* converge. Return early rather than creating a
+    // second task. Keyed on session id, so multiple *distinct* sessions on the
+    // same issue still each get their own task.
     match PgTaskBindingRepository(state.db.clone())
         .find_by_subject(ADAPTER, SUBJECT_KIND, &session.id)
         .await
@@ -1534,7 +1572,10 @@ fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {
 }
 
 pub(crate) async fn task_attachment_title(state: &AppState, task_id: &str, prefix: &str) -> String {
-    #[allow(clippy::disallowed_methods)] // reason: attachment title fetch is a background formatting step, no caller identity
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "attachment title fetch is a background formatting step, no caller identity"
+    )]
     let sys = ScopeContext::system();
     match state.tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) => format_attachment_title(prefix, task.name.as_deref()),
@@ -1964,6 +2005,7 @@ mod tests {
     use crate::adapters::linear::webhook_payloads::{
         AgentSessionComment, AgentSessionIssue, LinearActor,
     };
+    use chrono::Utc;
 
     fn issue() -> AgentSessionIssue {
         AgentSessionIssue {

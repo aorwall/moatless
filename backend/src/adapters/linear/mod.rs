@@ -8,11 +8,11 @@ pub mod agent_api;
 pub mod agent_runtime;
 pub mod api_routes;
 pub mod config;
+pub mod delivery;
 pub mod handlers;
 pub mod signature;
 pub mod status;
 pub mod webhook_payloads;
-pub mod work;
 
 /// `task_bindings.subject_kind` for bindings that point to a Linear issue
 /// (CLI-created or operator-initiated). Distinct from the existing

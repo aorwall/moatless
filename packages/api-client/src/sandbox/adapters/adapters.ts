@@ -31,6 +31,7 @@ import type {
   CreateAdapterConnectionRequest,
   ErrorBody,
   TelegramWebhookBody,
+  WebhookAccepted,
   WebhookPayload
 } from '.././model';
 
@@ -826,8 +827,22 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getTelegramWebhookMutationOptions(options), queryClient);
     }
-    export type webhookInboundResponse200 = {
-  data: void
+    /**
+ * Everything the caller is answered with is decided before any routing runs:
+the delivery is verified, parsed, and written to the Adapter delivery seam,
+and only then acknowledged. A 200 therefore means the backend owns the delivery,
+not that a Task exists — the Task is created later, by the worker, out of the
+record this wrote. Anything that failed to record reaches the caller as a
+failure so its own retry is the recovery path.
+
+That includes a delivery to a deactivated trigger: it is admitted like any
+other and ends terminally when the worker resolves the trigger and finds it
+inactive. Answering it without a record would be an acknowledgment with
+nothing behind it, which is the thing this route exists to stop.
+ * @summary Take durable ownership of one inbound webhook delivery.
+ */
+export type webhookInboundResponse200 = {
+  data: WebhookAccepted
   status: 200
 }
     
@@ -893,7 +908,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type WebhookInboundMutationBody = WebhookPayload
     export type WebhookInboundMutationError = ErrorType<unknown>
 
-    export const useWebhookInbound = <TError = ErrorType<unknown>,
+    /**
+ * @summary Take durable ownership of one inbound webhook delivery.
+ */
+export const useWebhookInbound = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{triggerId: string;data: WebhookPayload}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof webhookInbound>>,

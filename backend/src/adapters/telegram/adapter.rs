@@ -3,7 +3,7 @@
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_work::{admit_inbound_message, InboundWorkPayload};
+use crate::adapters::inbound_delivery::{admit_inbound_message, InboundDeliveryPayload};
 use crate::adapters::models::{
     AccessDecision, AdapterConnection, Audience, BindingContext, InboundMessage, LoopContext,
     NewThreadInfo, OutboundReply, SubscriptionMatch, TaskBinding,
@@ -580,13 +580,14 @@ pub enum TelegramUpdateOutcome {
     /// answered inline, or an access decision. Acknowledging is safe because
     /// there is no work left to lose.
     Ignored,
-    /// Routing is durably owned by the adapter work queue — either admitted by
+    /// Routing is durably owned as an Adapter delivery — either admitted by
     /// this delivery or already admitted by an earlier one.
     Admitted,
 }
 
 /// Resolve the trigger source for a raw Telegram update, parse it, and hand the
-/// routing to the durable adapter work seam. Shared by the webhook handler and
+/// routing to the durable Adapter delivery seam. Shared by the webhook handler
+/// and
 /// the polling loop so the config-lookup + admission logic is not duplicated.
 ///
 /// Returns only once the routing is durable (or there is none to do). An `Err`
@@ -605,7 +606,7 @@ pub async fn resolve_and_process_telegram_update(
     // it as the same unit of work rather than a second one.
     //
     // `update_id` is unique per *bot*, not globally, and the dedup index —
-    // `(provider, kind, event_id)` — has no connection column to scope it by.
+    // `(adapter, kind, event_id)` — has no connection column to scope it by.
     // That is sound only because Telegram runs a single env-backed bot
     // transport, which is the same assumption the `"default"` connection scope
     // below rests on. Give Telegram a second connection and two bots' id
@@ -673,15 +674,15 @@ pub async fn resolve_and_process_telegram_update(
                 None,
             )?;
 
-            // The routing runs in the adapter work worker, which is also where
+            // The routing runs in the Adapter delivery worker, which is also where
             // the webhook outcome metric is recorded. Failing here propagates:
             // nothing durable was written, so the caller must not acknowledge.
             let admission = admit_inbound_message(
                 state,
-                super::work::PROVIDER,
-                super::work::INBOUND_MESSAGE,
+                super::delivery::ADAPTER,
+                super::delivery::INBOUND_MESSAGE,
                 update_id.to_string(),
-                InboundWorkPayload {
+                InboundDeliveryPayload {
                     connection_id: connection.id.clone(),
                     rule_id: rule.id.clone(),
                     subject_kind: destination.subject_kind.to_string(),
@@ -803,8 +804,8 @@ mod tests {
     // Deduplication is no longer a parse-time concern, so there is no
     // in-process duplicate case left to assert here. A re-delivered
     // `update_id` is now recognised by the unique index behind
-    // `AdapterWorkStore::admit`; that case is covered by
-    // `telegram::work::db_tests::a_redelivered_update_admits_one_unit_of_work`.
+    // `AdapterDeliveryStore::admit`; that case is covered by
+    // `telegram::delivery::db_tests::a_redelivered_update_admits_one_unit_of_work`.
 
     #[tokio::test]
     async fn parse_no_from_ignored() {

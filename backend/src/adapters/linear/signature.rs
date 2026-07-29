@@ -2,8 +2,9 @@
 //!
 //! Linear signs every webhook payload with `HMAC-SHA256(secret, raw_body)` and
 //! sends the result as a hex string in the `Linear-Signature` header. Unlike
-//! GitHub there is no `sha256=` prefix and no timestamp — replay protection
-//! is provided by the `webhookId` dedup cache in the provider.
+//! GitHub there is no `sha256=` prefix and no timestamp — a replayed body is
+//! collapsed by the delivery identity it is admitted under
+//! (`handlers::dedup_key`), which is durable rather than in-process.
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::signature::verify_hmac_sha256;

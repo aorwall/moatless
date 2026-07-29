@@ -336,7 +336,7 @@ impl SlackAdapter {
             .unwrap_or("");
 
         // 5. Deduplication happens durably, at admission: the webhook handler
-        // keys `adapter_work` on this same `event_id`, so a re-delivery is
+        // keys `adapter_delivery` on this same `event_id`, so a re-delivery is
         // recognised across restarts and replicas rather than for five minutes
         // inside one process.
         //

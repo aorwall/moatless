@@ -492,20 +492,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
-        // Durable adapter work. Webhook handlers admit into
-        // `app_state.adapter_work` before acknowledging their provider; this
+        // Durable Adapter delivery. Webhook handlers admit into
+        // `app_state.adapter_delivery` before acknowledging their sender; this
         // worker is what makes that acknowledgment true. Handlers are
-        // registered per provider as each one migrates onto the seam — an empty
-        // registry simply means this build claims no kinds.
-        let mut adapter_work_handlers = adapters::work::AdapterWorkHandlers::new();
-        adapters::slack::work::register(&mut adapter_work_handlers, &app_state);
-        adapters::telegram::work::register(&mut adapter_work_handlers, &app_state);
-        adapters::github_pr::work::register(&mut adapter_work_handlers, &app_state);
-        adapters::linear::work::register(&mut adapter_work_handlers, &app_state);
-        let adapter_work_handlers = Arc::new(adapter_work_handlers);
+        // registered per Adapter — an empty registry simply means this build
+        // claims no kinds.
+        let mut adapter_delivery_handlers = adapters::delivery::AdapterDeliveryHandlers::new();
+        adapters::slack::delivery::register(&mut adapter_delivery_handlers, &app_state);
+        adapters::telegram::delivery::register(&mut adapter_delivery_handlers, &app_state);
+        adapters::github_pr::delivery::register(&mut adapter_delivery_handlers, &app_state);
+        adapters::linear::delivery::register(&mut adapter_delivery_handlers, &app_state);
+        adapters::webhook::delivery::register(&mut adapter_delivery_handlers, &app_state);
+        let adapter_delivery_handlers = Arc::new(adapter_delivery_handlers);
         supervisor.supervise(
-            "adapter-work-worker",
-            // Readiness: the work it owns is durable, so losing this worker
+            "adapter-delivery-worker",
+            // Readiness: what it owns is durable, so losing this worker
             // delays admitted webhooks rather than dropping them — any replica
             // can claim the same records. Shedding traffic from a replica that
             // can no longer execute what it admits is the proportionate
@@ -513,13 +514,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // The consequence is deliberate: liveness stays on `/health`, so
             // nothing restarts the pod, and on a single-replica deployment the
             // backlog stalls until an operator acts. That is why the worker
-            // publishes `moatless_adapter_work_backlog` and
-            // `moatless_adapter_work_oldest_pending_seconds` — a stalled queue
-            // has to be visible, not merely survivable.
+            // publishes `moatless_adapter_delivery_backlog` and
+            // `moatless_adapter_delivery_oldest_pending_seconds` — a stalled
+            // backlog has to be visible, not merely survivable.
             Criticality::Readiness,
-            adapters::work::spawn_adapter_work_worker(
-                app_state.adapter_work.clone(),
-                adapter_work_handlers,
+            adapters::delivery::spawn_adapter_delivery_worker(
+                app_state.adapter_delivery.clone(),
+                adapter_delivery_handlers,
                 cancel.clone(),
             ),
         );

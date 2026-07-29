@@ -1350,6 +1350,8 @@
         "tags": [
           "adapters"
         ],
+        "summary": "Take durable ownership of one inbound webhook delivery.",
+        "description": "Everything the caller is answered with is decided before any routing runs:\nthe delivery is verified, parsed, and written to the Adapter delivery seam,\nand only then acknowledged. A 200 therefore means the backend owns the delivery,\nnot that a Task exists — the Task is created later, by the worker, out of the\nrecord this wrote. Anything that failed to record reaches the caller as a\nfailure so its own retry is the recovery path.\n\nThat includes a delivery to a deactivated trigger: it is admitted like any\nother and ends terminally when the worker resolves the trigger and finds it\ninactive. Answering it without a record would be an acknowledgment with\nnothing behind it, which is the thing this route exists to stop.",
         "operationId": "webhook_inbound",
         "parameters": [
           {
@@ -1373,7 +1375,14 @@
         },
         "responses": {
           "200": {
-            "description": "Webhook accepted"
+            "description": "The delivery is owned by the backend. Names the delivery, not a Task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAccepted"
+                }
+              }
+            }
           }
         }
       }
@@ -16025,6 +16034,31 @@
           }
         }
       },
+      "WebhookAccepted": {
+        "type": "object",
+        "description": "The answer to an accepted delivery.\n\nIt names the delivery, not a Task: routing has not run when this is written,\nso no Task exists to name yet.",
+        "required": [
+          "deliveryId",
+          "status"
+        ],
+        "properties": {
+          "deliveryId": {
+            "type": "string",
+            "description": "The identity the delivery was admitted under — the caller's own\n`deliveryId`, or the one minted for it."
+          },
+          "status": {
+            "$ref": "#/components/schemas/WebhookAdmission"
+          }
+        }
+      },
+      "WebhookAdmission": {
+        "type": "string",
+        "description": "What admission did with a delivery.",
+        "enum": [
+          "admitted",
+          "duplicate"
+        ]
+      },
       "WebhookPayload": {
         "type": "object",
         "description": "Inbound webhook payload.",
@@ -16032,6 +16066,13 @@
           "text"
         ],
         "properties": {
+          "deliveryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Caller-assigned identity for this delivery. Optional, and what it buys\ndiffers sharply by whether it is supplied:\n\n- **Supplied.** Two requests carrying the same `deliveryId` are one\n  delivery. The second is recognised as a duplicate and does no further\n  work — on any replica, and after any restart.\n- **Absent.** A fresh identity is minted per request, so sending the same\n  body twice is two deliveries and the work is done twice.\n\nEither way the response means the backend owns the delivery. Only the\ndeduplication is at the caller's discretion.\n\nIt is read from the request body rather than a header because the\nsignature covers the body only: an identifier carried outside the signed\ncontent could be altered in transit without invalidating the signature,\nwhich would either replay work as new or collapse two distinct\ndeliveries into one."
+          },
           "metadata": {
             "type": [
               "object",

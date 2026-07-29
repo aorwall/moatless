@@ -10,6 +10,14 @@
 //!   and to close active tasks on terminal state entry.
 //!
 //! Reference: <https://linear.app/developers/agents>
+//!
+//! The payload types below also `Serialize`, and that is load-bearing rather
+//! than incidental: every kind is admitted into [`super::delivery`] before Linear
+//! is answered, and the durable record carries the sender's own event data
+//! verbatim because it cannot be re-fetched once the request body is gone. The
+//! `rename` attributes therefore have to hold in both directions — a field that
+//! serialises under a different name than it parses would come back empty in
+//! the worker.
 
 use serde::{Deserialize, Serialize};
 
@@ -142,7 +150,7 @@ pub struct LinearTeamRef {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LinearProjectRef {
     pub id: String,
     #[serde(default)]
@@ -185,7 +193,7 @@ pub struct AgentActivityPayload {
 // binding for the comment's issue.
 // =============================================================================
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommentPayloadData {
     pub id: String,
     #[serde(default)]
@@ -200,7 +208,7 @@ pub struct CommentPayloadData {
     pub parent_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommentIssueRef {
     pub id: String,
     #[serde(default)]
@@ -221,7 +229,7 @@ impl CommentPayloadData {
 // Classic Issue payload (slim — we only need state + identity for wake/close)
 // =============================================================================
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IssuePayload {
     pub id: String,
     #[serde(default)]
@@ -283,7 +291,7 @@ impl IssuePayload {
 // no-op'd at the handler layer.
 // =============================================================================
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppUserNotificationData {
     #[serde(default)]
     pub id: Option<String>,

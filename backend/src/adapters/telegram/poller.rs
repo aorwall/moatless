@@ -40,7 +40,7 @@ fn advance(offset: &mut Option<i64>, update_id: Option<i64>) {
 /// [`AdapterError::BadRequest`] for exactly the unfixable cases — a malformed
 /// envelope — and answers an unmapped sender or a denied access decision with
 /// `Ignore` rather than an error. This is narrower than the four variants
-/// `inbound_work::classify` calls permanent, and that is correct *here* and not
+/// `inbound_delivery::classify` calls permanent, and that is correct *here* and not
 /// in general. If a fifth error kind is ever raised on this path, check it
 /// against this arm: an unfixable failure landing in the `true` branch wedges
 /// the poller on one update and blocks every update queued behind it.
@@ -176,7 +176,9 @@ pub fn spawn_telegram_poller(
                 Err(e) => {
                     let is_conflict = e.to_string().contains("409 Conflict");
                     if is_conflict {
-                        error!("Telegram poller: another bot instance is already polling — cannot run two polling instances simultaneously");
+                        error!(
+                            "Telegram poller: another bot instance is already polling — cannot run two polling instances simultaneously"
+                        );
                     } else {
                         warn!(
                             error = %e,

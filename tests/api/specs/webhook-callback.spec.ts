@@ -19,7 +19,12 @@ import { ChainContext } from '../context/chain-context'
 import { expect, test } from '../fixtures/api-fixtures'
 import { progress } from '../helpers/progress'
 import { discardTask } from '../helpers/teardown'
-import { createWebhookTriggerFixture, sendWebhookMessage, waitForSandboxReady } from '../steps'
+import {
+  createWebhookTriggerFixture,
+  sendWebhookMessage,
+  waitForLoopTasks,
+  waitForSandboxReady,
+} from '../steps'
 
 const callbackReason = missingCapability('inboundCallbacks', 'agentCredentials')
 
@@ -79,17 +84,18 @@ test.describe('Chain 6: Webhook Outbound Callback', () => {
   // ─── INT-61: Send inbound message — agent starts ────────────────────
 
   test('INT-61: Send inbound message — agent starts', async ({ api }) => {
-    const { response, taskId } = await sendWebhookMessage(
+    const { response } = await sendWebhookMessage(
       api,
       ctx.get<string>('triggerId')!,
       'Say hello world. Keep it brief.',
     )
 
     expect(response.status).toBe(200)
-    expect(taskId).toBeTruthy()
 
+    const items = await waitForLoopTasks(api, ctx.get<string>('triggerId')!, 1)
+    const taskId = items[0].task.taskId
     ctx.set('taskId', taskId)
-    ctx.set('taskIds', [taskId!])
+    ctx.set('taskIds', [taskId])
   })
 
   // ─── INT-62: Wait for agent completion ──────────────────────────────

@@ -1,11 +1,8 @@
 //! Linear adapter — Agents trait impl. The webhook dispatcher lives in
 //! `handlers.rs`; this module owns the [`Adapter`] trait surface (outbound
 //! `agentActivityCreate` calls) and the workspace-scoped configuration
-//! (webhook secret, OAuth client credentials, dedup cache).
+//! (webhook secret, OAuth client credentials).
 
-use std::time::Duration;
-
-use moka::future::Cache;
 use tracing::warn;
 
 use crate::adapters::error::AdapterError;
@@ -33,14 +30,6 @@ pub struct LinearAdapter {
     oauth_client_secret: Option<String>,
     /// Database pool for looking up workspace tokens.
     db: DbPool,
-    /// Deduplication cache with a 5-minute TTL, keyed on a per-event resource
-    /// identity (`{event_type}:{action}:{resource_id}` — see
-    /// `handlers::dedup_key`), NOT Linear's stable `webhookId`. This collapses
-    /// genuine Linear retries while never dropping distinct events. Per-pod and
-    /// in-memory, so cross-pod retries can still pass through — the
-    /// session-binding guard in `provision_session_task` covers the
-    /// resulting duplicate-task risk.
-    dedup_cache: Cache<String, ()>,
 }
 
 /// Build an outbound Linear comment body: the reply text followed by the
@@ -68,10 +57,6 @@ impl LinearAdapter {
             oauth_client_id,
             oauth_client_secret,
             db,
-            dedup_cache: Cache::builder()
-                .time_to_live(Duration::from_mins(5))
-                .max_capacity(10_000)
-                .build(),
         }
     }
 
@@ -113,34 +98,9 @@ impl LinearAdapter {
         }
     }
 
-    /// Exposed accessor for the new dispatcher in `handlers.rs`.
+    /// Exposed accessor for the dispatcher in `handlers.rs`.
     pub(crate) fn global_webhook_secret_for_dispatch(&self) -> Option<&str> {
         self.global_webhook_secret.as_deref()
-    }
-
-    /// Exposed wrapper for the new dispatcher in `handlers.rs`. `key` is the
-    /// per-event dedup identity from `handlers::dedup_key`.
-    pub(crate) async fn mark_seen_for_dispatch(&self, key: &str) -> bool {
-        self.mark_seen(key).await
-    }
-
-    /// Drop a dedup `key` so the next delivery carrying it is processed again.
-    ///
-    /// Used when durable admission failed after the key was marked: Linear is
-    /// being asked to redeliver, so this replica must not then dismiss the
-    /// redelivery as a duplicate.
-    pub(crate) async fn forget_for_dispatch(&self, key: &str) {
-        self.dedup_cache.invalidate(key).await;
-    }
-
-    /// Mark a dedup `key` as processed; returns `true` if this is the first
-    /// time we see it (caller should proceed), or `false` if it's a dup.
-    pub(crate) async fn mark_seen(&self, key: &str) -> bool {
-        if self.dedup_cache.get(key).await.is_some() {
-            return false;
-        }
-        self.dedup_cache.insert(key.to_string(), ()).await;
-        true
     }
 }
 

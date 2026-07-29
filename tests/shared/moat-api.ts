@@ -1071,6 +1071,7 @@ export class MoatApi {
       threadId?: string
       userId?: string
       metadata?: Record<string, unknown>
+      deliveryId?: string
     },
   ): Promise<RawResponse> {
     return this.moat.raw('POST', `/api/v1/adapters/webhook/${triggerId}`, payload)

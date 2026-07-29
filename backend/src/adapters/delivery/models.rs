@@ -1,31 +1,41 @@
-//! Record, request, outcome, and policy types for durable adapter work.
+//! Record, request, outcome, and policy types for durable Adapter delivery.
 
 use std::time::Duration;
 
-/// Work a webhook handler hands over before acknowledging its provider.
+/// One inbound delivery an Adapter hands over before acknowledging its sender.
 ///
-/// `event_id` must be the identifier the *provider* assigned to the delivery.
-/// A backend-generated id would make every re-delivery a new unit of work,
-/// which is the duplicate-effect bug this seam exists to prevent.
+/// `event_id` must be the identifier the *sender* assigned to the delivery.
+/// A backend-generated id would make every redelivery a new record, which is
+/// the duplicate-effect bug this seam exists to prevent.
+///
+/// One caller is deliberately outside that rule and says so on its own
+/// interface: the generic webhook adapter's sender is an arbitrary client with
+/// no retry contract, so it *may* supply a delivery identifier and gets
+/// deduplication when it does, and gets a freshly minted one — and therefore
+/// durable ownership without deduplication — when it does not.
 #[derive(Debug, Clone)]
-pub struct AdapterWorkRequest {
-    /// Provider label used for metrics and operator queries.
-    pub provider: &'static str,
-    /// Names the registered handler that will execute the work.
+pub struct AdapterDeliveryRequest {
+    /// The Adapter this delivery arrived on, used for metrics and operator
+    /// queries. Never "provider": the glossary keeps that word as a qualifier
+    /// only.
+    pub adapter: &'static str,
+    /// Names the registered handler that will execute this delivery. One
+    /// sender delivery becomes one record per kind it fans into.
     pub kind: &'static str,
-    /// The provider's delivery identifier.
+    /// The sender's delivery identifier.
     pub event_id: String,
-    /// Everything the handler needs to redo the work from scratch. Must be
-    /// self-contained: nothing held in memory survives a process kill.
+    /// Everything the handler needs to redo this delivery's work from scratch.
+    /// Must be self-contained: nothing held in memory survives a process kill.
     pub payload: serde_json::Value,
 }
 
 /// What admission did with a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admission {
-    /// A new durable record was written. The work is now owned by the backend.
+    /// A new durable record was written. The delivery is now owned by the
+    /// backend.
     Admitted,
-    /// This provider event was already admitted for this kind. Nothing was
+    /// This sender delivery was already admitted for this kind. Nothing was
     /// written and nothing extra will run.
     Duplicate,
 }
@@ -40,29 +50,29 @@ impl Admission {
     }
 }
 
-/// Admission failed, so the provider must not be told the work was accepted.
+/// Admission failed, so the sender must not be told the delivery was accepted.
 #[derive(Debug, thiserror::Error)]
 pub enum AdmitError {
     /// The unfinished backlog has reached its configured ceiling. Refusing here
-    /// is what keeps ingress bounded: the provider retries the delivery later
-    /// instead of the backend accepting work it cannot promise to run.
+    /// is what keeps ingress bounded: the sender retries the delivery later
+    /// instead of the backend accepting one it cannot promise to execute.
     ///
     /// `limit` is the configured capacity, which is what an operator recognises
     /// — not the observed count, which may sit a few records above it while
-    /// concurrent admissions commit. See [`AdapterWorkPolicy::backlog_capacity`].
-    #[error("adapter work backlog is at capacity ({limit} unfinished records)")]
+    /// concurrent admissions commit. See [`AdapterDeliveryPolicy::backlog_capacity`].
+    #[error("Adapter delivery backlog is at capacity ({limit} unfinished records)")]
     AtCapacity { limit: i64 },
     /// The durable write itself failed. The cause is retained as the source and
     /// redacted at the transport boundary.
-    #[error("failed to persist the adapter work record")]
+    #[error("failed to persist the Adapter delivery record")]
     Store(#[from] sqlx::Error),
 }
 
 /// One admitted record, as handed to its handler.
 #[derive(Debug, Clone, sqlx::FromRow)]
-pub struct AdapterWork {
+pub struct AdapterDelivery {
     pub id: String,
-    pub provider: String,
+    pub adapter: String,
     pub kind: String,
     pub event_id: String,
     pub payload: serde_json::Value,
@@ -72,32 +82,32 @@ pub struct AdapterWork {
     pub max_attempts: i32,
 }
 
-impl AdapterWork {
+impl AdapterDelivery {
     /// Whether a failure of this attempt exhausts the record's attempt budget.
     pub(crate) fn is_last_attempt(&self) -> bool {
         self.attempts >= self.max_attempts
     }
 }
 
-/// Why a handler could not complete a work record.
+/// Why a handler could not complete an Adapter delivery.
 ///
 /// The distinction is the whole of the retry policy at the handler's end:
 /// `Retryable` spends one attempt, `Permanent` ends the record immediately.
 /// Both keep the causing error as their source.
 #[derive(Debug, thiserror::Error)]
-pub enum AdapterWorkFailure {
-    /// A transient failure — a timeout, a provider 5xx, a lost connection.
+pub enum AdapterDeliveryFailure {
+    /// A transient failure — a timeout, a sender 5xx, a lost connection.
     /// Retried with backoff until the attempt budget runs out.
-    #[error("retryable adapter work failure")]
+    #[error("retryable Adapter delivery failure")]
     Retryable(#[source] Box<dyn std::error::Error + Send + Sync>),
-    /// The work can never succeed: a malformed payload, a deleted task, a
+    /// The delivery can never succeed: a malformed payload, a deleted task, a
     /// revoked connection. Goes terminal on this attempt, no matter how much
     /// budget is left.
-    #[error("permanent adapter work failure")]
+    #[error("permanent Adapter delivery failure")]
     Permanent(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
-impl AdapterWorkFailure {
+impl AdapterDeliveryFailure {
     /// Wrap a transient failure.
     pub fn retryable(source: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::Retryable(Box::new(source))
@@ -113,16 +123,16 @@ impl AdapterWorkFailure {
     }
 }
 
-/// The admission, retry, capacity, and retention policy for adapter work.
+/// The admission, retry, capacity, and retention policy for Adapter delivery.
 ///
 /// Every value here is a decision the seam owes its callers, so they are named
 /// and defaulted in one place rather than scattered as literals. Tests override
 /// the timing fields to exercise retry and recovery without waiting.
 #[derive(Debug, Clone, Copy)]
-pub struct AdapterWorkPolicy {
+pub struct AdapterDeliveryPolicy {
     /// Attempts a record gets before it goes terminal. "Retry forever" is not a
     /// policy: eight attempts on the backoff below spans roughly ten minutes,
-    /// which covers a provider or dependency blip without hiding a real bug.
+    /// which covers a sender or dependency blip without hiding a real bug.
     pub max_attempts: i32,
     /// First retry delay; each further attempt doubles it.
     pub base_backoff: Duration,
@@ -174,18 +184,18 @@ pub struct AdapterWorkPolicy {
     /// transaction-scoped advisory lock, or an admission-token row), because
     /// Postgres cannot serialise a count over concurrent inserters otherwise.
     /// That was rejected: it puts a single global lock, and two extra round
-    /// trips, on the hot path of *all* webhook ingress — on the provider
+    /// trips, on the hot path of *all* webhook ingress — on the sender
     /// response deadline this seam exists to protect — in exchange for a
     /// handful of records at the boundary. A load-shedding guard should not be
     /// the ingress path's bottleneck.
     pub backlog_capacity: i64,
     /// How long succeeded records are kept. Deduplication reads these rows, so
-    /// this must comfortably exceed every provider's *automatic* retry
+    /// this must comfortably exceed every sender's *automatic* retry
     /// schedule, which it does.
     ///
     /// It deliberately does not cover manual redelivery: GitHub keeps a
     /// delivery redeliverable for 30 days, so one replayed by hand after this
-    /// window is admitted as new work rather than recognised as a duplicate.
+    /// window is admitted as a new delivery rather than recognised as a duplicate.
     /// That is the useful behaviour — an operator replaying a delivery by hand
     /// is asking for it to run again — but it is a narrower guarantee than
     /// "never runs twice", and worth knowing before relying on the latter.
@@ -194,7 +204,7 @@ pub struct AdapterWorkPolicy {
     pub failed_retention: Duration,
 }
 
-impl Default for AdapterWorkPolicy {
+impl Default for AdapterDeliveryPolicy {
     fn default() -> Self {
         Self {
             max_attempts: 8,
@@ -212,7 +222,7 @@ impl Default for AdapterWorkPolicy {
     }
 }
 
-impl AdapterWorkPolicy {
+impl AdapterDeliveryPolicy {
     /// Delay before the next attempt after `attempts` have failed.
     ///
     /// Exponential from `base_backoff`, capped at `max_backoff`. Deterministic
@@ -233,7 +243,7 @@ mod tests {
 
     #[test]
     fn backoff_doubles_from_the_base_and_stops_at_the_ceiling() {
-        let policy = AdapterWorkPolicy::default();
+        let policy = AdapterDeliveryPolicy::default();
         assert_eq!(policy.backoff(1), Duration::from_secs(5));
         assert_eq!(policy.backoff(2), Duration::from_secs(10));
         assert_eq!(policy.backoff(3), Duration::from_secs(20));
@@ -246,7 +256,7 @@ mod tests {
 
     #[test]
     fn execution_deadline_stays_inside_the_claim_lease() {
-        let policy = AdapterWorkPolicy::default();
+        let policy = AdapterDeliveryPolicy::default();
         assert!(
             policy.execution_timeout < policy.claim_lease,
             "a handler must not still be running when its record is reclaimed"

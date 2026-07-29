@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
+use crate::adapters::delivery::Admission;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     Audience, BindingContext, InboundMessage, LoopContext, OutboundReply,
@@ -33,6 +34,64 @@ pub struct WebhookPayload {
     /// Arbitrary metadata stored in thread properties.
     #[schema(value_type = Option<Object>)]
     pub metadata: Option<serde_json::Value>,
+    /// Caller-assigned identity for this delivery. Optional, and what it buys
+    /// differs sharply by whether it is supplied:
+    ///
+    /// - **Supplied.** Two requests carrying the same `deliveryId` are one
+    ///   delivery. The second is recognised as a duplicate and does no further
+    ///   work — on any replica, and after any restart.
+    /// - **Absent.** A fresh identity is minted per request, so sending the same
+    ///   body twice is two deliveries and the work is done twice.
+    ///
+    /// Either way the response means the backend owns the delivery. Only the
+    /// deduplication is at the caller's discretion.
+    ///
+    /// It is read from the request body rather than a header because the
+    /// signature covers the body only: an identifier carried outside the signed
+    /// content could be altered in transit without invalidating the signature,
+    /// which would either replay work as new or collapse two distinct
+    /// deliveries into one.
+    pub delivery_id: Option<String>,
+}
+
+/// What admission did with a delivery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WebhookAdmission {
+    /// The backend has just taken ownership of this delivery.
+    Admitted,
+    /// It already owned it. Nothing extra was written and nothing extra runs.
+    Duplicate,
+}
+
+impl From<Admission> for WebhookAdmission {
+    fn from(admission: Admission) -> Self {
+        match admission {
+            Admission::Admitted => Self::Admitted,
+            Admission::Duplicate => Self::Duplicate,
+        }
+    }
+}
+
+/// The answer to an accepted delivery.
+///
+/// It names the delivery, not a Task: routing has not run when this is written,
+/// so no Task exists to name yet.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookAccepted {
+    /// The identity the delivery was admitted under — the caller's own
+    /// `deliveryId`, or the one minted for it.
+    pub delivery_id: String,
+    pub status: WebhookAdmission,
+}
+
+/// One inbound delivery, verified and parsed, ready to be admitted.
+pub(crate) struct WebhookDelivery {
+    /// The identity this delivery is admitted under.
+    pub(crate) delivery_id: String,
+    /// The message the admitted work will route.
+    pub(crate) message: InboundMessage,
 }
 
 /// Webhook adapter.
@@ -43,14 +102,16 @@ impl WebhookAdapter {
         Self
     }
 
-    /// Parse an inbound webhook request into an `InboundMessage`.
+    /// Parse an inbound webhook request into a [`WebhookDelivery`].
     ///
-    /// Verifies HMAC signature if `webhook_secret` is configured.
-    pub fn parse_inbound(
+    /// Verifies HMAC signature if `webhook_secret` is configured. The delivery
+    /// identity is read from inside the verified body, so a caller that signs
+    /// its request signs its identifier too.
+    pub(crate) fn parse_inbound(
         config: &LoopContext,
         body: &[u8],
         signature: Option<&str>,
-    ) -> Result<InboundMessage, AdapterError> {
+    ) -> Result<WebhookDelivery, AdapterError> {
         // 1. Verify signature if webhook_secret is configured
         let webhook_secret = config
             .provider_config
@@ -98,21 +159,39 @@ impl WebhookAdapter {
             "metadata": payload.metadata,
         });
 
-        Ok(InboundMessage {
-            provider: AdapterKind::Webhook,
-            source_id: config.source_id.clone(),
-            thread_id: payload.thread_id,
-            message_thread_id,
-            user_id,
-            text: payload.text,
-            file_ids: vec![],
-            thread_properties,
-            provider_context: serde_json::json!({}),
-            external_event_id: None,
-            source_task_id: None,
-            // A webhook payload carries no audience distinction: every event
-            // goes to every task bound to the source, as it always has.
-            audience: Audience::Everyone,
+        // 6. Settle the delivery identity. A caller that supplied none gets a
+        // fresh one, which is what makes every delivery admissible without
+        // forcing an arbitrary client to invent an identifier scheme it has no
+        // retry contract for. See `WebhookPayload::delivery_id`.
+        let delivery_id = payload
+            .delivery_id
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        // 7. The identity routing sees. Settled here, once, so every execution
+        // of the admitted record carries the same one — which is what makes a
+        // re-execution after a lost process converge instead of delivering the
+        // message twice.
+        let external_event_id = super::external_id::delivery(&delivery_id);
+
+        Ok(WebhookDelivery {
+            delivery_id,
+            message: InboundMessage {
+                provider: AdapterKind::Webhook,
+                source_id: config.source_id.clone(),
+                thread_id: payload.thread_id,
+                message_thread_id,
+                user_id,
+                text: payload.text,
+                file_ids: vec![],
+                thread_properties,
+                provider_context: serde_json::json!({}),
+                external_event_id: Some(external_event_id),
+                source_task_id: None,
+                // A webhook payload carries no audience distinction: every event
+                // goes to every task bound to the source, as it always has.
+                audience: Audience::Everyone,
+            },
         })
     }
 }
@@ -231,7 +310,9 @@ mod tests {
     fn parse_basic_payload() {
         let config = test_config(None);
         let body = br#"{"text": "hello world"}"#;
-        let msg = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+        let msg = WebhookAdapter::parse_inbound(&config, body, None)
+            .unwrap()
+            .message;
 
         assert_eq!(msg.text, "hello world");
         assert_eq!(msg.provider, AdapterKind::Webhook);
@@ -244,7 +325,9 @@ mod tests {
     fn parse_with_thread_id() {
         let config = test_config(None);
         let body = br#"{"text": "reply", "threadId": "thread-123"}"#;
-        let msg = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+        let msg = WebhookAdapter::parse_inbound(&config, body, None)
+            .unwrap()
+            .message;
 
         assert_eq!(msg.text, "reply");
         assert_eq!(msg.thread_id, Some("thread-123".to_string()));
@@ -255,7 +338,9 @@ mod tests {
     fn parse_with_user_id_override() {
         let config = test_config(Some(serde_json::json!({"user_id": "config-user"})));
         let body = br#"{"text": "hello", "userId": "override-user"}"#;
-        let msg = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+        let msg = WebhookAdapter::parse_inbound(&config, body, None)
+            .unwrap()
+            .message;
 
         assert_eq!(msg.user_id, "override-user");
     }
@@ -264,9 +349,115 @@ mod tests {
     fn parse_with_config_default_user() {
         let config = test_config(Some(serde_json::json!({"user_id": "config-user"})));
         let body = br#"{"text": "hello"}"#;
-        let msg = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+        let msg = WebhookAdapter::parse_inbound(&config, body, None)
+            .unwrap()
+            .message;
 
         assert_eq!(msg.user_id, "config-user");
+    }
+
+    /// The caller's identifier is what admission keys on, so it has to survive
+    /// parsing verbatim — anything derived from it would deduplicate something
+    /// other than what the caller named.
+    #[test]
+    fn a_supplied_delivery_id_is_the_delivery_identity() {
+        let config = test_config(None);
+        let body = br#"{"text": "hello", "deliveryId": "order-4711"}"#;
+        let delivery = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+
+        assert_eq!(delivery.delivery_id, "order-4711");
+    }
+
+    /// Absent, a delivery identity is still required — admission has no other
+    /// key. Minting one per request is what makes two identical bodies two
+    /// deliveries rather than one, which is the documented contract.
+    #[test]
+    fn an_absent_delivery_id_is_minted_fresh_per_request() {
+        let config = test_config(None);
+        let body = br#"{"text": "hello"}"#;
+
+        let first = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+        let second = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+
+        assert!(!first.delivery_id.is_empty());
+        assert_ne!(
+            first.delivery_id, second.delivery_id,
+            "two deliveries carrying no identifier must not collapse into one"
+        );
+    }
+
+    /// The worker executes an admitted record at least once, so routing needs a
+    /// stable identity to recognise a re-execution by. It is derived from the
+    /// delivery identity rather than the message, so two deliveries carrying the
+    /// same text stay distinct.
+    #[test]
+    fn the_message_carries_a_stable_external_event_id() {
+        let config = test_config(None);
+        let body = br#"{"text": "hello", "deliveryId": "order-4711"}"#;
+        let delivery = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+
+        assert_eq!(
+            delivery.message.external_event_id.as_deref(),
+            Some("webhook:delivery:order-4711")
+        );
+
+        // Two parses of one identifier agree, so a re-execution of the admitted
+        // record looks up the same id.
+        let again = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+        assert_eq!(
+            again.message.external_event_id,
+            delivery.message.external_event_id
+        );
+    }
+
+    /// A minted identity gets the same treatment — the mint happens once, at
+    /// parse time, and is what lands in the admitted payload.
+    #[test]
+    fn a_minted_delivery_also_carries_an_external_event_id() {
+        let config = test_config(None);
+        let body = br#"{"text": "hello"}"#;
+        let delivery = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+
+        assert_eq!(
+            delivery.message.external_event_id,
+            Some(format!("webhook:delivery:{}", delivery.delivery_id))
+        );
+    }
+
+    /// An empty string is a caller that supplied nothing, spelled differently.
+    /// Admitting it verbatim would collapse every such delivery into one record.
+    #[test]
+    fn a_blank_delivery_id_is_treated_as_absent() {
+        let config = test_config(None);
+        let body = br#"{"text": "hello", "deliveryId": "   "}"#;
+        let delivery = WebhookAdapter::parse_inbound(&config, body, None).unwrap();
+
+        assert_ne!(delivery.delivery_id.trim(), "");
+    }
+
+    /// The identifier is read from inside the signed body, so a tampered
+    /// identifier fails verification rather than reaching admission.
+    #[test]
+    fn the_delivery_id_is_covered_by_the_signature() {
+        use hmac::{Hmac, KeyInit, Mac};
+        use sha2::Sha256;
+
+        let secret = "my-secret";
+        let config = test_config(Some(serde_json::json!({"webhook_secret": secret})));
+        let signed = br#"{"text": "hello", "deliveryId": "delivery-1"}"#;
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(signed);
+        let sig = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+
+        let delivery = WebhookAdapter::parse_inbound(&config, signed, Some(&sig)).unwrap();
+        assert_eq!(delivery.delivery_id, "delivery-1");
+
+        let tampered = br#"{"text": "hello", "deliveryId": "delivery-2"}"#;
+        let result = WebhookAdapter::parse_inbound(&config, tampered, Some(&sig));
+        assert!(
+            result.is_err(),
+            "swapping the delivery id must invalidate the signature"
+        );
     }
 
     #[test]
@@ -306,7 +497,9 @@ mod tests {
         mac.update(body);
         let sig = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
 
-        let msg = WebhookAdapter::parse_inbound(&config, body, Some(&sig)).unwrap();
+        let msg = WebhookAdapter::parse_inbound(&config, body, Some(&sig))
+            .unwrap()
+            .message;
         assert_eq!(msg.text, "hello");
     }
 }

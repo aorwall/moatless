@@ -1,29 +1,46 @@
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::Json;
-use moatless_backend_core::scope::ScopeContext;
-use tracing::{info, warn};
+use tracing::{debug, info};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::metrics::record_webhook;
+use crate::adapters::inbound_delivery::{admit_inbound_message, InboundDeliveryPayload};
 use crate::state::AppState;
 
+use super::adapter::{WebhookAccepted, WebhookAdapter};
+use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
+
+/// Take durable ownership of one inbound webhook delivery.
+///
+/// Everything the caller is answered with is decided before any routing runs:
+/// the delivery is verified, parsed, and written to the Adapter delivery seam,
+/// and only then acknowledged. A 200 therefore means the backend owns the delivery,
+/// not that a Task exists — the Task is created later, by the worker, out of the
+/// record this wrote. Anything that failed to record reaches the caller as a
+/// failure so its own retry is the recovery path.
+///
+/// That includes a delivery to a deactivated trigger: it is admitted like any
+/// other and ends terminally when the worker resolves the trigger and finds it
+/// inactive. Answering it without a record would be an acknowledgment with
+/// nothing behind it, which is the thing this route exists to stop.
 #[utoipa::path(
     post,
     path = "/api/v1/adapters/webhook/{trigger_id}",
     tag = "adapters",
     request_body = super::adapter::WebhookPayload,
-    responses((status = 200, description = "Webhook accepted"))
+    responses((
+        status = 200,
+        description = "The delivery is owned by the backend. Names the delivery, not a Task.",
+        body = WebhookAccepted
+    ))
 )]
 pub async fn webhook_inbound(
     State(state): State<AppState>,
     Path(trigger_id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<axum::response::Response, AdapterError> {
-    use axum::response::IntoResponse;
-
+) -> Result<Json<WebhookAccepted>, AdapterError> {
     info!(trigger_id = %trigger_id, "Webhook inbound received");
 
     let rule = state
@@ -32,71 +49,59 @@ pub async fn webhook_inbound(
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(trigger_id.clone()))?;
 
-    if rule.provider != "webhook" {
+    if rule.provider != ADAPTER {
         return Err(AdapterError::BadRequest(format!(
             "Trigger {trigger_id} is not a webhook trigger"
         )));
     }
-    if !rule.active {
-        record_webhook(
-            "webhook",
-            "ignored",
-            "inactive",
-            "",
-            &trigger_id,
-            &rule.connection_id,
-        );
-        return Ok(StatusCode::OK.into_response());
-    }
-
-    // reason: inbound webhook routing has no user session; the connection is
-    // resolved from the trigger rule, not caller input.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-    let connection = state
-        .adapter_connections
-        .find_by_id(&rule.connection_id, &sys_ctx)
-        .await?
-        .ok_or_else(|| {
-            AdapterError::NotFound(format!("Connection {} not found", rule.connection_id))
-        })?;
 
     let signature = headers
         .get("x-webhook-signature")
         .and_then(|v| v.to_str().ok());
-    let config = crate::bindings::runtime::trigger_context(&rule, "webhook");
-    let msg = super::adapter::WebhookAdapter::parse_inbound(&config, &body, signature)?;
-    let thread_id = msg.thread_id.as_deref().unwrap_or(&msg.message_thread_id);
-    let subject_key = format!("{}:{thread_id}", msg.source_id);
+    let config = crate::bindings::runtime::trigger_context(&rule, ADAPTER);
+    let delivery = WebhookAdapter::parse_inbound(&config, &body, signature)?;
+    let message = delivery.message;
+    let thread_id = message
+        .thread_id
+        .as_deref()
+        .unwrap_or(&message.message_thread_id);
+    let subject_key = format!("{}:{thread_id}", message.source_id);
 
-    match crate::bindings::runtime::route_inbound_message(
+    // The Adapter connection is named, not read. Admission runs on the caller's
+    // response deadline and must not fail because a connection is missing or
+    // concurrently deleted; the handler reads it when it executes and reports a
+    // permanent failure if it is gone.
+    //
+    // Everything below the 200 depends on this write: a failure here must reach
+    // the caller as a failure so it re-delivers, and must never be swallowed
+    // into an acknowledgment. The routing itself now runs in the Adapter
+    // delivery worker, which is also where the webhook outcome metric is
+    // recorded.
+    let admission = admit_inbound_message(
         &state,
-        &connection,
-        &rule,
-        msg,
-        "webhook",
-        "webhook_thread",
-        &subject_key,
-        serde_json::json!({}),
+        ADAPTER,
+        INBOUND_MESSAGE,
+        delivery.delivery_id.clone(),
+        InboundDeliveryPayload {
+            connection_id: rule.connection_id.clone(),
+            rule_id: rule.id.clone(),
+            subject_kind: SUBJECT_KIND.to_string(),
+            subject_key,
+            destination_config: serde_json::json!({}),
+            event_type: String::new(),
+            message,
+        },
     )
-    .await
-    {
-        Ok(task_id) => {
-            record_webhook("webhook", "success", "", "", &trigger_id, &connection.id);
-            info!(task_id = %task_id, trigger_id = %trigger_id, "Webhook routed to task");
-            Ok(Json(serde_json::json!({ "taskId": task_id })).into_response())
-        }
-        Err(e) => {
-            record_webhook(
-                "webhook",
-                "error",
-                "delivery_failed",
-                "",
-                &trigger_id,
-                &connection.id,
-            );
-            warn!(trigger_id = %trigger_id, error = %e, "Webhook routing failed");
-            Err(e)
-        }
-    }
+    .await?;
+
+    debug!(
+        trigger_id = %trigger_id,
+        delivery_id = %delivery.delivery_id,
+        admission = admission.as_str(),
+        "Webhook delivery admitted for routing"
+    );
+    Ok(Json(WebhookAccepted {
+        delivery_id: delivery.delivery_id,
+        status: admission.into(),
+    }))
 }

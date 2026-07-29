@@ -2,9 +2,7 @@
 
 use std::fmt::Write;
 use std::sync::Arc;
-use std::time::Duration;
 
-use moka::future::Cache;
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
@@ -222,6 +220,7 @@ pub enum GithubPrWebhookResult {
 
 /// Outcome of `resolve_and_process_github_webhook`, surfaced so the HTTP
 /// handler can emit accurate metrics per outcome / reason / event_type.
+#[derive(Debug)]
 pub enum GithubWebhookOutcome {
     Processed {
         event_type: String,
@@ -236,7 +235,7 @@ pub enum GithubWebhookOutcome {
 /// to compose the auto-close chat notice.
 ///
 /// Serializable because it is carried as the payload of a `github.close`
-/// adapter work record (see [`super::work`]).
+/// Adapter delivery record (see [`super::delivery`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrCloseInfo {
     pub pr_number: u64,
@@ -288,8 +287,6 @@ pub struct GithubPrAdapter {
     /// Secret service — resolves the encrypted PAT behind a `secret_ref`
     /// provider-token row. `None` in tests / minimal wiring.
     secrets: Option<Arc<SecretService>>,
-    /// Deduplication cache: delivery_id → () with 5-minute TTL.
-    dedup_cache: Cache<String, ()>,
 }
 
 impl GithubPrAdapter {
@@ -317,10 +314,6 @@ impl GithubPrAdapter {
             github_app_service,
             github_apps,
             secrets: None,
-            dedup_cache: Cache::builder()
-                .time_to_live(Duration::from_mins(5))
-                .max_capacity(10_000)
-                .build(),
         }
     }
 
@@ -493,41 +486,20 @@ impl GithubPrAdapter {
         Ok((owner, repo, pr_number))
     }
 
-    /// Whether this delivery id was already seen (a GitHub redelivery of the
-    /// same `X-GitHub-Delivery`). Read-only: the cache *insert* happens in
-    /// [`Self::parse_webhook`] on first delivery, so gating additional paths
-    /// (post-merge CI, merge-conflict) on this read suppresses redeliveries
-    /// without swallowing the first delivery. An empty id never dedups.
-    pub(crate) async fn is_duplicate_delivery(&self, delivery_id: &str) -> bool {
-        !delivery_id.is_empty() && self.dedup_cache.get(delivery_id).await.is_some()
-    }
-
-    /// Drop a delivery id from the cache so a redelivery is processed again.
-    ///
-    /// Used when durable admission failed after [`Self::parse_webhook`] had
-    /// already recorded the delivery: the provider is being asked to send it
-    /// again, so this replica must not then dismiss it as a duplicate.
-    pub(super) async fn forget_delivery(&self, delivery_id: &str) {
-        self.dedup_cache.invalidate(delivery_id).await;
-    }
-
     /// Parse a GitHub webhook into an `InboundMessage`.
+    ///
+    /// Pure with respect to the delivery: it decides *what* the event means and
+    /// never decides whether the delivery has been seen before. Collapsing a
+    /// redelivery is durable admission's job — see
+    /// [`crate::adapters::github_pr::delivery`].
     pub async fn parse_webhook(
         &self,
-        delivery_id: &str,
         event_type: &str,
         payload: &serde_json::Value,
         rule: &SubscriptionMatch,
         db: &DbPool,
     ) -> Result<GithubPrWebhookResult, AdapterError> {
         let rule_config = GithubPrRuleConfig::from_rule(rule);
-
-        // Dedup by delivery ID
-        if self.dedup_cache.get(delivery_id).await.is_some() {
-            debug!(delivery_id, "GitHub webhook deduplicated");
-            return Ok(GithubPrWebhookResult::Ignore);
-        }
-        self.dedup_cache.insert(delivery_id.to_string(), ()).await;
 
         // Filter by events_filter config
         if rule_config.event_filtered_out(event_type) {
@@ -1838,7 +1810,7 @@ fn merge_conflict_pr_number(event_type: &str, payload: &serde_json::Value) -> Op
 
 /// Merge-conflict check for a PR touched by any webhook event.
 ///
-/// Runs as `github.merge_conflict` adapter work, so it is off the provider's
+/// Runs as a `github.merge_conflict` Adapter delivery, so it is off GitHub's
 /// response deadline *and* survives a restart between acknowledgment and
 /// execution. Polls the PR's mergeable state (GitHub computes it
 /// asynchronously) and, if the PR is open and conflicted
@@ -1960,7 +1932,7 @@ const POST_MERGE_NOTIFY_CONCLUSIONS: &[&str] = &[
 /// Parsed fields of a base-branch `workflow_run.completed` event.
 ///
 /// Serializable because it is carried as the payload of a `github.post_merge`
-/// adapter work record (see [`super::work`]).
+/// Adapter delivery record (see [`super::delivery`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct PostMergeRun {
     run_id: u64,
@@ -2067,7 +2039,7 @@ fn post_merge_ci_text(run: &PostMergeRun, owner: &str, repo: &str, pr_number: u6
 /// resolve the merged PR from the commit sha and notify every task still
 /// connected to that PR.
 ///
-/// Runs as `github.post_merge` adapter work, so it is off the provider's
+/// Runs as a `github.post_merge` Adapter delivery, so it is off GitHub's
 /// response deadline *and* survives a restart between acknowledgment and
 /// execution. Skips entirely when the run isn't on the repo's default branch,
 /// when no merged PR produced the commit, or when no active task is bound to
@@ -2171,7 +2143,7 @@ pub enum GithubWebhookError {
     /// by an operator for 30 days. That is a recorded, recoverable loss instead
     /// of a silent one, which is the whole difference this variant buys.
     #[error("GitHub webhook work was not admitted")]
-    NotAdmitted(#[from] crate::adapters::work::AdmitError),
+    NotAdmitted(#[from] crate::adapters::delivery::AdmitError),
     /// Everything the ingress path itself rejected: a missing header, an
     /// unparseable body, a failed signature, a database read.
     #[error(transparent)]
@@ -2271,24 +2243,13 @@ pub async fn resolve_and_process_github_webhook(
         .into());
     }
 
-    // Delivery-level dedup gate. A GitHub redelivery reuses the same
-    // `X-GitHub-Delivery` id; `parse_webhook` dedups the primary handler on it,
-    // but the spawned best-effort checks below (post-merge CI, merge-conflict)
-    // run independently and would otherwise fire on every redelivery, racing
-    // ahead of the per-task external-event dedup and producing duplicate
-    // notices. Gate the whole dispatch on one read so a redelivery is a no-op.
-    // The cache *insert* stays in `parse_webhook`, so the first delivery (a
-    // cache miss here) still flows through untouched.
-    if github_provider.is_duplicate_delivery(delivery_id).await {
-        debug!(
-            delivery_id,
-            "GitHub webhook redelivery ignored (deduplicated)"
-        );
-        return Ok(GithubWebhookOutcome::Ignored {
-            event_type: event_type.to_string(),
-            reason: "duplicate_delivery",
-        });
-    }
+    // No delivery-level gate here on purpose. A GitHub redelivery reuses the
+    // same `X-GitHub-Delivery` id and is collapsed by durable admission below —
+    // on any replica, after any restart, and past any expiry. Everything this
+    // function does before admitting is either read-only or derives a value
+    // from the delivery payload and writes that same value again (PR status,
+    // review decision), so re-running it on a redelivery costs work and changes
+    // nothing.
 
     // `parse_webhook` only reads the trigger as a config bag (event filter,
     // source label, sender→user fallback). When no trigger matches, synthesize
@@ -2300,13 +2261,12 @@ pub async fn resolve_and_process_github_webhook(
     };
 
     // Shared preflight gate for `event_filter` / `ignored_senders`. `parse_webhook`
-    // applies these to the primary handler, but the spawned best-effort checks
-    // below (post-merge CI, merge-conflict) run outside its result — so without
-    // this gate a trigger that filtered out an event or ignored a sender could
-    // still get post-merge/conflict deliveries and wake tasks it opted out of.
-    // Gating the whole dispatch here keeps trigger config authoritative for
-    // every path. (The primary handler re-checks inside `parse_webhook`, which
-    // other callers still rely on.)
+    // applies these to the primary handler, but the post-merge CI and
+    // merge-conflict admissions below are derived outside its result — so
+    // without this gate a trigger that filtered out an event or ignored a
+    // sender could still get post-merge/conflict deliveries and wake tasks it
+    // opted out of. Gating the whole dispatch here keeps trigger config
+    // authoritative for every path.
     let rule_config = GithubPrRuleConfig::from_rule(&rule_for_parse);
     let sender_login = payload
         .pointer("/sender/login")
@@ -2334,37 +2294,30 @@ pub async fn resolve_and_process_github_webhook(
     }
 
     let result = github_provider
-        .parse_webhook(
-            delivery_id,
-            event_type,
-            &payload,
-            &rule_for_parse,
-            &state.db,
-        )
+        .parse_webhook(event_type, &payload, &rule_for_parse, &state.db)
         .await?;
 
-    // From here on, nothing runs inline and nothing is spawned. Each unit of
-    // work is written to `adapter_work` under its own kind, keyed on GitHub's
-    // delivery id, and only then is this delivery acknowledged. An admission
+    // From here on, nothing runs inline and nothing is spawned. Each kind this
+    // delivery fans into is written to `adapter_delivery` under its own
+    // Adapter delivery record, keyed on GitHub's delivery id, and only then is
+    // the delivery acknowledged. An admission
     // failure aborts the whole dispatch with `NotAdmitted` so a delivery the
     // backend has not taken on is never acknowledged as if it had.
-    let work_context = super::work::WorkContext {
+    let delivery_context = super::delivery::DeliveryContext {
         connection_id: connection.id.clone(),
         trigger_id: rule.as_ref().map(|r| r.id.clone()),
         repo_full_name: repo_full_name.to_string(),
     };
-    let event_id = super::work::delivery_event_id(delivery_id, body);
+    let event_id = super::delivery::delivery_event_id(delivery_id, body);
 
     match result {
         GithubPrWebhookResult::Message(msg) => {
             admit(
                 state,
-                github_provider,
-                delivery_id,
-                super::work::kind::PR_MESSAGE,
+                super::delivery::kind::PR_MESSAGE,
                 &event_id,
-                &super::work::PrMessageWork {
-                    context: work_context.clone(),
+                &super::delivery::PrMessageDelivery {
+                    context: delivery_context.clone(),
                     message: *msg,
                 },
             )
@@ -2384,12 +2337,10 @@ pub async fn resolve_and_process_github_webhook(
             }
             admit(
                 state,
-                github_provider,
-                delivery_id,
-                super::work::kind::CLOSE,
+                super::delivery::kind::CLOSE,
                 &event_id,
-                &super::work::CloseWork {
-                    context: work_context.clone(),
+                &super::delivery::CloseDelivery {
+                    context: delivery_context.clone(),
                     close: info,
                 },
             )
@@ -2413,12 +2364,10 @@ pub async fn resolve_and_process_github_webhook(
             };
             admit(
                 state,
-                github_provider,
-                delivery_id,
-                super::work::kind::POST_MERGE,
+                super::delivery::kind::POST_MERGE,
                 &event_id,
-                &super::work::PostMergeWork {
-                    context: work_context.clone(),
+                &super::delivery::PostMergeDelivery {
+                    context: delivery_context.clone(),
                     owner,
                     repo,
                     run,
@@ -2441,12 +2390,10 @@ pub async fn resolve_and_process_github_webhook(
         };
         admit(
             state,
-            github_provider,
-            delivery_id,
-            super::work::kind::MERGE_CONFLICT,
+            super::delivery::kind::MERGE_CONFLICT,
             &event_id,
-            &super::work::MergeConflictWork {
-                context: work_context,
+            &super::delivery::MergeConflictDelivery {
+                context: delivery_context,
                 owner,
                 repo,
                 pr_number,
@@ -2461,32 +2408,22 @@ pub async fn resolve_and_process_github_webhook(
     })
 }
 
-/// Hand one unit of work to durable admission, or refuse the delivery.
+/// Hand one delivery to durable admission, or refuse it.
 ///
-/// The cache eviction on failure is load-bearing. `parse_webhook` records the
-/// delivery id in the in-process dedup cache *before* this point, so without it
-/// the operator redelivery this `503` exists to invite would be swallowed as a
-/// duplicate by the same replica and the work lost for good — a 200 that means
-/// "already handled" for work nobody ever took on.
+/// A failure leaves nothing behind: no record was committed and nothing in this
+/// process remembers the delivery, so the operator redelivery the resulting
+/// non-2xx exists to invite is processed like any other delivery — on this
+/// replica or any other.
 async fn admit(
     state: &AppState,
-    provider: &GithubPrAdapter,
-    delivery_id: &str,
     kind: &'static str,
     event_id: &str,
     payload: &impl serde::Serialize,
 ) -> Result<(), GithubWebhookError> {
-    let request = super::work::request(kind, event_id.to_string(), payload)?;
-    match state.adapter_work.admit(request).await {
-        Ok(admission) => {
-            super::work::log_admission(kind, event_id, admission);
-            Ok(())
-        }
-        Err(e) => {
-            provider.forget_delivery(delivery_id).await;
-            Err(GithubWebhookError::NotAdmitted(e))
-        }
-    }
+    let request = super::delivery::request(kind, event_id.to_string(), payload)?;
+    let admission = state.adapter_delivery.admit(request).await?;
+    super::delivery::log_admission(kind, event_id, admission);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2817,34 +2754,6 @@ mod tests {
         assert_eq!(pr2.mergeable_state, None);
     }
 
-    #[tokio::test]
-    async fn is_duplicate_delivery_reads_dedup_cache() {
-        let provider = GithubPrAdapter::new(
-            None,
-            None,
-            "https://app.example.com".to_string(),
-            fake_db_pool(),
-            fake_provider_tokens(),
-            None,
-            None,
-            fake_github_apps(),
-        );
-
-        // Unseen delivery id → not a duplicate.
-        assert!(!provider.is_duplicate_delivery("delivery-1").await);
-        // Empty id never dedups (missing header must not collapse deliveries).
-        assert!(!provider.is_duplicate_delivery("").await);
-
-        // Once `parse_webhook` has recorded it (simulated here), redeliveries
-        // are recognized so the post-merge / merge-conflict spawns are skipped.
-        provider
-            .dedup_cache
-            .insert("delivery-1".to_string(), ())
-            .await;
-        assert!(provider.is_duplicate_delivery("delivery-1").await);
-        assert!(!provider.is_duplicate_delivery("delivery-2").await);
-    }
-
     #[test]
     fn commit_pr_merged_detection() {
         let merged: crate::adapters::github_pr::api::CommitPr =
@@ -3086,7 +2995,6 @@ mod tests {
 
         let result = provider
             .parse_webhook(
-                "delivery-ignored-sender",
                 "issue_comment",
                 &issue_comment_payload("linear-code[bot]"),
                 &rule,
@@ -3116,7 +3024,6 @@ mod tests {
 
         let result = provider
             .parse_webhook(
-                "delivery-default-ignored-sender",
                 "issue_comment",
                 &issue_comment_payload("linear-code[bot]"),
                 &rule,
@@ -3148,7 +3055,6 @@ mod tests {
 
         let result = provider
             .parse_webhook(
-                "delivery-opt-out-sender",
                 "issue_comment",
                 &issue_comment_payload("linear-code[bot]"),
                 &rule,
@@ -3210,13 +3116,7 @@ mod tests {
 
         for title in ["chore(deps): bump serde", "deps(frontend): bump vite"] {
             let result = provider
-                .parse_webhook(
-                    "delivery-pr-title-ignored",
-                    "pull_request",
-                    &pr_opened_payload(title),
-                    &rule,
-                    &db,
-                )
+                .parse_webhook("pull_request", &pr_opened_payload(title), &rule, &db)
                 .await
                 .unwrap();
             assert!(
@@ -3245,7 +3145,6 @@ mod tests {
 
         let result = provider
             .parse_webhook(
-                "delivery-pr-title-real",
                 "pull_request",
                 &pr_opened_payload("feat: add a real feature"),
                 &rule,
@@ -3275,7 +3174,6 @@ mod tests {
 
         let result = provider
             .parse_webhook(
-                "delivery-pr-no-patterns",
                 "pull_request",
                 &pr_opened_payload("chore(deps): bump serde"),
                 &rule,

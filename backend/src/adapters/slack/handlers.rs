@@ -4,7 +4,7 @@ use axum::http::{HeaderMap, StatusCode};
 use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_work::{admit_inbound_message, InboundWorkPayload};
+use crate::adapters::inbound_delivery::{admit_inbound_message, InboundDeliveryPayload};
 use crate::adapters::metrics::record_webhook;
 use crate::adapters::models::InboundMessage;
 use crate::adapters::Adapter;
@@ -14,7 +14,7 @@ use crate::state::AppState;
 ///
 /// Slack repeats the envelope `event_id` on every retry of the same event,
 /// which is exactly what the durable dedup index on
-/// `(provider, kind, event_id)` needs. The fallback covers the envelope that
+/// `(adapter, kind, event_id)` needs. The fallback covers the envelope that
 /// carries no `event_id` at all — the channel plus the message's own external
 /// id names the same message just as stably, and is strictly better than the
 /// old in-memory cache, which skipped deduplication entirely for those.
@@ -177,7 +177,7 @@ pub async fn slack_webhook(
                 }
             };
             let event_id = admission_event_id(&payload, &msg);
-            let work = InboundWorkPayload {
+            let work = InboundDeliveryPayload {
                 connection_id: connection.id.clone(),
                 rule_id: rule.id.clone(),
                 subject_kind: destination.subject_kind.to_string(),
@@ -190,12 +190,12 @@ pub async fn slack_webhook(
             // Everything below the 200 depends on this write: a failure here
             // must reach Slack as a failure so it re-delivers, and must never
             // be swallowed into an acknowledgment. The routing itself now runs
-            // in the adapter work worker, which is also where the webhook
+            // in the Adapter delivery worker, which is also where the webhook
             // outcome metric is recorded.
             let admission = admit_inbound_message(
                 &state,
-                super::work::PROVIDER,
-                super::work::INBOUND_MESSAGE,
+                super::delivery::ADAPTER,
+                super::delivery::INBOUND_MESSAGE,
                 event_id.clone(),
                 work,
             )

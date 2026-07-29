@@ -296,6 +296,21 @@ pub fn test_config() -> Config {
 /// Build an AppState with a real PgPool and mock sandbox capabilities.
 #[allow(dead_code)]
 pub fn test_app_state(pool: PgPool) -> AppState {
+    test_app_state_with_adapters(pool, None)
+}
+
+/// Build an AppState carrying an adapter registry, for tests that drive an
+/// inbound webhook route — the route resolves its provider through
+/// `state.adapters`, so a `None` registry rejects the delivery before any of
+/// the behaviour under test runs.
+#[allow(
+    dead_code,
+    reason = "this module is compiled into every test binary; each one uses a subset of it"
+)]
+pub fn test_app_state_with_adapters(
+    pool: PgPool,
+    adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
+) -> AppState {
     let config = test_config();
     let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
     let connector: Arc<dyn SandboxConnector> = Arc::new(MockSandboxConnector);
@@ -317,7 +332,7 @@ pub fn test_app_state(pool: PgPool) -> AppState {
         Arc::new(MockNotify),
         None, // events
         None, // s3
-        None, // adapters
+        adapters,
         github_apps,
     )
 }
@@ -472,6 +487,54 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         source_task_id: None,
         start_fresh: false,
     }
+}
+
+// =========================================================================
+// Adapter delivery
+// =========================================================================
+
+/// Run the real adapter-delivery worker with the Linear handlers registered until
+/// nothing is left unfinished, then stop it.
+///
+/// A Linear delivery is answered once it is durably owned, so nothing has
+/// reached the Agent when the route returns; this stands in for the supervised
+/// worker a running process has. `worker_state` is deliberately the caller's
+/// *second* replica — what executes a record never depends on the process that
+/// accepted it.
+#[allow(
+    dead_code,
+    reason = "this module is compiled into every integration test binary and each uses a \
+              subset of it, so `expect` would fire in the binaries that do call this"
+)]
+pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState) {
+    let mut handlers = moatless_vibe_backend::adapters::delivery::AdapterDeliveryHandlers::new();
+    moatless_vibe_backend::adapters::linear::delivery::register(&mut handlers, &worker_state);
+
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let handle = moatless_vibe_backend::adapters::delivery::spawn_adapter_delivery_worker(
+        worker_state.adapter_delivery.clone(),
+        Arc::new(handlers),
+        cancel.clone(),
+    );
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut drained = false;
+    while tokio::time::Instant::now() < deadline {
+        let unfinished: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM adapter_delivery WHERE status IN ('pending', 'claimed')",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("read the Adapter delivery backlog");
+        if unfinished == 0 {
+            drained = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    cancel.cancel();
+    handle.await.expect("worker exits cleanly on cancellation");
+    assert!(drained, "every admitted record reached a terminal state");
 }
 
 // =========================================================================

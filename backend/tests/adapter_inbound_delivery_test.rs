@@ -6,12 +6,12 @@
     clippy::print_stderr
 )]
 //! DB-backed tests for Slack and Telegram inbound routing on the durable
-//! adapter work seam.
+//! Adapter delivery seam.
 //!
 //! These drive the seam at the highest point reachable without a live chat
-//! provider: work is admitted exactly as the webhook handlers admit it — same
-//! provider label, same kind, same event id, same payload shape — and executed
-//! by the same handlers `main` registers. The webhook request itself is not
+//! sender: a delivery is admitted exactly as the webhook handlers admit it —
+//! same Adapter name, same kind, same event id, same payload shape — and
+//! executed by the same handlers `main` registers. The webhook request itself is not
 //! replayed because that would need a signed Slack envelope and a live Slack
 //! API for `users.info`; what happens either side of that call is what this
 //! ticket changed, and that is what is covered here.
@@ -24,8 +24,8 @@ use std::time::Duration;
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 
-use moatless_vibe_backend::adapters::work::{
-    spawn_adapter_work_worker, AdapterWorkHandlers, AdapterWorkRequest, Admission,
+use moatless_vibe_backend::adapters::delivery::{
+    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
 };
 use moatless_vibe_backend::state::AppState;
 
@@ -62,13 +62,13 @@ fn payload(connection_id: &str, rule_id: &str, provider: &str) -> serde_json::Va
 }
 
 fn request(
-    provider: &'static str,
+    adapter: &'static str,
     kind: &'static str,
     event_id: &str,
     payload: serde_json::Value,
-) -> AdapterWorkRequest {
-    AdapterWorkRequest {
-        provider,
+) -> AdapterDeliveryRequest {
+    AdapterDeliveryRequest {
+        adapter,
         kind,
         event_id: event_id.to_string(),
         payload,
@@ -92,7 +92,7 @@ async fn seed_connection(pool: &PgPool, id: &str, adapter_kind: &str, account: &
 /// `(status, attempts, last_error)` for one admitted record.
 async fn record(pool: &PgPool, kind: &str, event_id: &str) -> (String, i32, Option<String>) {
     sqlx::query_as(
-        "SELECT status, attempts, last_error FROM adapter_work WHERE kind = $1 AND event_id = $2",
+        "SELECT status, attempts, last_error FROM adapter_delivery WHERE kind = $1 AND event_id = $2",
     )
     .bind(kind)
     .bind(event_id)
@@ -102,7 +102,7 @@ async fn record(pool: &PgPool, kind: &str, event_id: &str) -> (String, i32, Opti
 }
 
 async fn count(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
-    sqlx::query_scalar("SELECT COUNT(*) FROM adapter_work WHERE kind = $1 AND event_id = $2")
+    sqlx::query_scalar("SELECT COUNT(*) FROM adapter_delivery WHERE kind = $1 AND event_id = $2")
         .bind(kind)
         .bind(event_id)
         .fetch_one(pool)
@@ -122,13 +122,13 @@ async fn run_worker_until_terminal(
     records: &[(&str, &str)],
     budget: Duration,
 ) {
-    let mut handlers = AdapterWorkHandlers::new();
-    moatless_vibe_backend::adapters::slack::work::register(&mut handlers, state);
-    moatless_vibe_backend::adapters::telegram::work::register(&mut handlers, state);
+    let mut handlers = AdapterDeliveryHandlers::new();
+    moatless_vibe_backend::adapters::slack::delivery::register(&mut handlers, state);
+    moatless_vibe_backend::adapters::telegram::delivery::register(&mut handlers, state);
 
     let cancel = CancellationToken::new();
-    let handle = spawn_adapter_work_worker(
-        state.adapter_work.clone(),
+    let handle = spawn_adapter_delivery_worker(
+        state.adapter_delivery.clone(),
         Arc::new(handlers),
         cancel.clone(),
     );
@@ -160,7 +160,7 @@ async fn a_redelivered_slack_event_admits_one_unit_of_work(pool: PgPool) {
 
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(request("slack", SLACK_KIND, "Ev0001", work.clone()))
             .await
             .unwrap(),
@@ -168,7 +168,7 @@ async fn a_redelivered_slack_event_admits_one_unit_of_work(pool: PgPool) {
     );
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(request("slack", SLACK_KIND, "Ev0001", work))
             .await
             .unwrap(),
@@ -192,7 +192,7 @@ async fn a_redelivered_telegram_update_admits_one_unit_of_work(pool: PgPool) {
 
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(request("telegram", TELEGRAM_KIND, "90210", work.clone()))
             .await
             .unwrap(),
@@ -200,7 +200,7 @@ async fn a_redelivered_telegram_update_admits_one_unit_of_work(pool: PgPool) {
     );
     assert_eq!(
         state
-            .adapter_work
+            .adapter_delivery
             .admit(request("telegram", TELEGRAM_KIND, "90210", work))
             .await
             .unwrap(),
@@ -219,7 +219,7 @@ async fn work_whose_trigger_was_deleted_goes_terminal_without_burning_the_budget
     seed_connection(&pool, "pc_slack", "slack", "T1").await;
 
     state
-        .adapter_work
+        .adapter_delivery
         .admit(request(
             "slack",
             SLACK_KIND,
@@ -265,7 +265,7 @@ async fn claims_left_by_a_killed_worker_are_recovered_for_both_providers(pool: P
         ("telegram", TELEGRAM_KIND, "70001", "pc_telegram"),
     ] {
         state
-            .adapter_work
+            .adapter_delivery
             .admit(request(
                 provider,
                 kind,
@@ -279,7 +279,7 @@ async fn claims_left_by_a_killed_worker_are_recovered_for_both_providers(pool: P
     // The kill: both records were claimed by a replica that is never coming
     // back, long enough ago that its lease has expired.
     sqlx::query(
-        "UPDATE adapter_work SET status = 'claimed', attempts = 1, \
+        "UPDATE adapter_delivery SET status = 'claimed', attempts = 1, \
          claimed_at = NOW() - INTERVAL '1 hour', claimed_by = 'dead-replica'",
     )
     .execute(&pool)

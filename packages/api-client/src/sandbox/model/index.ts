@@ -358,6 +358,8 @@ export * from './validateSecretsRequest';
 export * from './validateSecretsResponse';
 export * from './visibility';
 export * from './wakeupJobInfo';
+export * from './webhookAccepted';
+export * from './webhookAdmission';
 export * from './webhookPayload';
 export * from './webhookPayloadMetadata';
 export * from './workspaceRepoInput';

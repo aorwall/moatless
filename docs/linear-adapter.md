@@ -18,8 +18,9 @@ OAuth token stored in `provider_tokens` (keyed by Linear organization UUID).
 | File | Role |
 | --- | --- |
 | `mod.rs` | Module declarations + the `SUBJECT_KIND_ISSUE` constant. |
-| `adapter.rs` | `Adapter` trait impl, dedup cache, `send_reply_for_binding` (routes by `subject_kind`). |
-| `handlers.rs` | Webhook endpoint dispatcher — HMAC verify, dedup, parse envelope, route by `event_type`. |
+| `adapter.rs` | `Adapter` trait impl, workspace-scoped config, `send_reply_for_binding` (routes by `subject_kind`). |
+| `handlers.rs` | Webhook endpoint dispatcher — HMAC verify, parse envelope, derive the delivery identity, admit by `event_type`. |
+| `delivery.rs` | Durable admission and the worker-side handlers for all five event kinds. |
 | `agent_runtime.rs` | All inbound business logic for `AgentSessionEvent`, `Comment.create`, `Issue.update`. Also emits ephemeral activities (`thought` / `action`) from the agent event consumer. |
 | `agent_api.rs` | GraphQL client. Token refresh, `agentActivityCreate`, `agentSessionUpdate`, `commentCreate`, `attachmentLinkURL`, name → UUID lookups. |
 | `api_routes.rs` | Typed `/api/v1/linear/*` HTTP surface used by the moat CLI (issue CRUD, comments, labels, GraphQL passthrough). Auto-creates `linear_issue` bindings when `task_id` is supplied. |
@@ -55,10 +56,13 @@ called out in every relevant sequence diagram below.
 ## Inbound: Webhook Dispatcher
 
 All Linear webhooks land on `POST /api/v1/adapters/linear/webhook`
-(`handlers.rs:25-62`). The dispatcher is intentionally generous: any benign
-rejection (unknown org, dedup hit, unsupported event) still returns
-`200 OK` so Linear doesn't retry, and a noisy `warn!` is reserved for real
-verification failures.
+(`handlers.rs`). The dispatcher verifies, admits, and answers — nothing with
+an effect runs before the response. It is intentionally generous about benign
+rejections (unknown org, unsupported event, a delivery carrying no work): each
+still returns `200 OK` so Linear doesn't retry, and a noisy `warn!` is reserved
+for real verification failures. The two outcomes that leave the delivery
+un-owned — a failed durable write, and a delivery with no identity to admit
+under — withhold the `200` instead, so Linear sends it again.
 
 ```mermaid
 sequenceDiagram
@@ -67,8 +71,8 @@ sequenceDiagram
     participant Dispatcher as handlers::dispatch_webhook
     participant ConnRepo as PgAdapterConnectionRepository
     participant Sig as signature::verify_signature
-    participant Dedup as LinearAdapter.dedup_cache (moka, 5m TTL)
-    participant Runtime as agent_runtime
+    participant Delivery as adapter_delivery (durable)
+    participant Worker as adapter-delivery-worker
 
     Linear->>Dispatcher: POST /webhook + Linear-Signature
     Dispatcher->>Dispatcher: parse envelope (type/action/organizationId/webhookId)
@@ -85,30 +89,38 @@ sequenceDiagram
         Sig-->>Dispatcher: AdapterError::SignatureInvalid
         Dispatcher-->>Linear: 200 (logged as error)
     end
-    Dispatcher->>Dedup: mark_seen("{webhookId}:{type}")
-    alt duplicate
-        Dedup-->>Dispatcher: false
-        Dispatcher-->>Linear: 200 (deduplicated)
-    end
-    alt type == "AgentSessionEvent"
-        Dispatcher->>Runtime: handle_session_created / handle_session_prompted
-    else type == "Issue" && action == "update"
-        Dispatcher->>Runtime: handle_issue_update
-    else type == "Comment" && action == "create"
-        Dispatcher->>Runtime: handle_comment_created
+    Dispatcher->>Dispatcher: dedup_key(envelope) → delivery identity
+    alt type is one of the five known kinds
+        Dispatcher->>Delivery: admit(kind, event_id = identity, payload)
+        alt the identity is already recorded
+            Delivery-->>Dispatcher: Duplicate (no second record)
+        else the write failed
+            Delivery-->>Dispatcher: AdmitError
+            Dispatcher-->>Linear: 5xx (redeliver — nothing was recorded)
+        end
     else
         Dispatcher-->>Linear: 200 (unsupported, logged)
     end
     Dispatcher-->>Linear: 200
+    Worker->>Delivery: claim under a lease, later
+    Worker->>Worker: provision / prompt / issue update / comment / notification
 ```
 
 Notes:
-- The dedup cache key is `{webhookId}:{event_type}` — Linear reuses one
-  `webhookId` across the related fan-out events (`Comment.create` and
-  `AgentSessionEvent.created` arrive together), so keying on the pair
-  prevents the second event being dropped as a duplicate.
+- The delivery identity is `{event_type}:{action}:{resource_id}`, where the
+  resource part names the specific thing that happened — the activity carrying
+  a prompt, the issue plus Linear's `webhookTimestamp`, the comment, the
+  notification. It is deliberately **not** keyed on `webhookId`, which is the
+  webhook *configuration* id and identical on every delivery. See
+  `handlers::dedup_key` for the full chain.
+- That identity is the adapter's only deduplication: the unique index on
+  `(adapter, kind, event_id)` collapses a Linear retry on any replica and
+  after any restart. The 5-minute in-process cache that used to sit in front of
+  it is gone, together with the eviction that had to compensate for it whenever
+  admission failed.
 - `signature.rs` does a constant-time HMAC-SHA256 compare with no `sha256=`
-  prefix and no timestamp; replay protection is the dedup cache.
+  prefix and no timestamp; a replayed body is collapsed by the delivery
+  identity it would be admitted under.
 
 ## Inbound: `AgentSessionEvent.created` (Mention / Assignment)
 
