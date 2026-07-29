@@ -1,8 +1,9 @@
-import type { WorkspaceRepoResponse } from '@moatless/api-client'
+import type { RepositoryResponse, WorkspaceRepoResponse } from '@moatless/api-client'
 import { GitBranch, Loader2, Plus, Star, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { getRepositoryLocation } from '@/features/repositories/utils/repository.utils'
 import {
   useAddWorkspaceRepo,
   useRemoveWorkspaceRepo,
@@ -56,10 +57,15 @@ export function WorkspaceReposPanel({
   const setPrimary = useSetWorkspacePrimaryRepo()
   const [isAddOpen, setIsAddOpen] = useState(false)
 
-  const repoName = (() => {
-    const byId = new Map(repositories?.map((r) => [r.id, r.name]))
-    return (id: string) => byId.get(id) ?? id
+  const repoMeta = (() => {
+    const byId = new Map(repositories?.map((repository) => [repository.id, repository]))
+    return (id: string) => byId.get(id)
   })()
+  const repoName = (id: string) => repoMeta(id)?.name ?? id
+  const repoLocation = (id: string) => {
+    const repository = repoMeta(id)
+    return repository ? getRepositoryLocation(repository) : ''
+  }
 
   const handleRemove = (placement: WorkspaceRepoResponse) => {
     removeRepo.mutate(
@@ -103,27 +109,37 @@ export function WorkspaceReposPanel({
               key={placement.id}
               className="flex items-center gap-3 rounded-md border bg-card p-3"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                {placement.isPrimary && (
-                  <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
-                )}
-                <span className="truncate font-medium text-sm">
-                  {repoName(placement.repositoryId)}
-                </span>
-                {placement.isPrimary && (
-                  <Badge variant="secondary" className="shrink-0 text-xs">
-                    Primary
-                  </Badge>
-                )}
-                {placement.branch && (
-                  <span className="flex shrink-0 items-center gap-1 text-muted-foreground text-xs">
-                    <GitBranch className="h-3 w-3" />
-                    {placement.branch}
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  {placement.isPrimary && (
+                    <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
+                  )}
+                  <span className="truncate font-medium text-sm">
+                    {repoName(placement.repositoryId)}
                   </span>
-                )}
-                {placement.mountName && (
-                  <span className="truncate text-muted-foreground text-xs">
-                    ./{placement.mountName}
+                  {placement.isPrimary && (
+                    <Badge variant="secondary" className="shrink-0 text-xs">
+                      Primary
+                    </Badge>
+                  )}
+                  {placement.branch && (
+                    <span className="flex shrink-0 items-center gap-1 text-muted-foreground text-xs">
+                      <GitBranch className="h-3 w-3" />
+                      {placement.branch}
+                    </span>
+                  )}
+                  {placement.mountName && (
+                    <span className="truncate text-muted-foreground text-xs">
+                      ./{placement.mountName}
+                    </span>
+                  )}
+                </div>
+                {repoLocation(placement.repositoryId) && (
+                  <span
+                    className="truncate text-muted-foreground text-xs"
+                    title={repoLocation(placement.repositoryId)}
+                  >
+                    {repoLocation(placement.repositoryId)}
                   </span>
                 )}
               </div>
@@ -192,7 +208,7 @@ export function WorkspaceReposPanel({
 interface AddRepoDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  repositories: { id: string; name: string }[]
+  repositories: Pick<RepositoryResponse, 'id' | 'name'>[]
   placedRepositoryIds: string[]
   hasPrimary: boolean
   isSaving: boolean

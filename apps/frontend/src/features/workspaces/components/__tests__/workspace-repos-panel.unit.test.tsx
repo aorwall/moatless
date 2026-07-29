@@ -10,8 +10,8 @@ const setPrimaryMutate = vi.fn()
 vi.mock('@/features/repositories/hooks/use-repositories', () => ({
   useRepositoriesList: () => ({
     data: [
-      { id: 'repo-api', name: 'api', kind: 'remote' },
-      { id: 'repo-web', name: 'web', kind: 'remote' },
+      { id: 'repo-api', name: 'api', kind: 'remote', remoteUrl: 'git@github.com:acme/api.git' },
+      { id: 'repo-web', name: 'web', kind: 'remote', remoteUrl: 'https://github.com/acme/web.git' },
       { id: 'repo-tmpl', name: 'template-repo', kind: 'template' },
     ],
   }),
@@ -67,6 +67,8 @@ describe('WorkspaceReposPanel', () => {
 
     expect(screen.getByText('api')).toBeInTheDocument()
     expect(screen.getByText('web')).toBeInTheDocument()
+    expect(screen.getByText('git@github.com:acme/api.git')).toBeInTheDocument()
+    expect(screen.getByText('https://github.com/acme/web.git')).toBeInTheDocument()
     expect(screen.getByText('Primary')).toBeInTheDocument()
     // Per-placement branch + mount name are surfaced.
     expect(screen.getByText('dev')).toBeInTheDocument()

@@ -2,6 +2,7 @@ import type { WorkspaceResponse } from '@moatless/api-client'
 import { Boxes, FileStack, FolderGit2, GitBranch, Layers, PencilLine, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useWorkspacesList } from '@/features/workspaces/hooks/use-workspaces'
+import { Button } from '@/lib/components/ui/button'
 import { ListDetailSidebar } from '@/lib/components/ui/list-detail-sidebar'
 import { useListFilter } from '@/lib/hooks/use-list-filter'
 
@@ -46,13 +47,31 @@ function getWorkspaceTrailing(ws: WorkspaceResponse) {
 export function AdminWorkspacesSidebar() {
   const { data, isLoading, error } = useWorkspacesList()
   const [search, setSearch] = useState('')
-  const workspaces = useListFilter(data, search, getSearchText, sortByName)
+  const [showDeleted, setShowDeleted] = useState(false)
+  const deletedCount = data?.filter((ws) => ws.deleted).length ?? 0
+  const visibleData = data?.filter((ws) => showDeleted || !ws.deleted)
+  const workspaces = useListFilter(visibleData, search, getSearchText, sortByName)
 
   return (
     <ListDetailSidebar
       icon={Boxes}
       title="Workspaces"
-      count={data?.length}
+      count={visibleData?.length}
+      action={
+        deletedCount > 0 ? (
+          <Button
+            type="button"
+            variant={showDeleted ? 'secondary' : 'ghost'}
+            size="icon"
+            aria-pressed={showDeleted}
+            aria-label={showDeleted ? 'Hide deleted Git overrides' : 'Show deleted Git overrides'}
+            title={showDeleted ? 'Hide deleted Git overrides' : 'Show deleted Git overrides'}
+            onClick={() => setShowDeleted((value) => !value)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : null
+      }
       search={search}
       onSearchChange={setSearch}
       searchPlaceholder="Search workspaces..."
