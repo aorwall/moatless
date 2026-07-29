@@ -47,7 +47,7 @@ use crate::sandbox::lifecycle::classify::ObservedTransition;
 use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
 use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use crate::task::dao::{TaskPatch, TaskRepository};
-use crate::task::models::SandboxStopReason;
+use crate::task::models::{SandboxDesiredState, SandboxStopReason};
 use crate::task_event::dao::TaskEventRepository;
 use crate::workspace::dao::WorkspaceRepository;
 
@@ -965,59 +965,56 @@ async fn process_watcher_event(
                 new_state.auto_stop_pending = false;
             }
 
-            // Reconcile a clean sandbox exit (Completed, exit 0) against the
-            // Deployment's desired replicas.
+            // Reconcile a clean sandbox exit (Completed, exit 0) against durable
+            // Sandbox intent.
             //
             // The sandbox's gRPC server never exits on its own during a task —
             // it only returns exit 0 via the SIGTERM graceful-shutdown driver
             // (see sandbox/src/shutdown.rs). So a `sandbox_completed` means "the
-            // pod got a SIGTERM", which has two very different causes:
-            //   * Intentional stop (idle reaper / user / crash auto-stop) already
-            //     scaled the Deployment to 0 — the SIGTERM is the pod draining.
-            //     Desired replicas == 0. Scaling to 0 again is a harmless no-op.
+            // pod got a SIGTERM", which has three very different causes:
+            //   * Stop (idle reaper / user / crash auto-stop) already scaled the
+            //     Deployment to 0 — the SIGTERM is the pod draining. Scaling to
+            //     0 again is a harmless no-op that confirms the stop.
+            //   * Remove (task close / delete) already deleted the Deployment.
+            //     There is nothing to scale.
             //   * Involuntary node event (spot reclaim, drain, consolidation)
-            //     SIGTERMs a pod the Deployment still wants (desired == 1). Here
-            //     K8s will reschedule the pod and agent recovery resumes the
-            //     in-flight turn — UNLESS we scale to 0 and cancel the task.
+            //     SIGTERMs a pod the Deployment still wants. Here K8s will
+            //     reschedule the pod and agent recovery resumes the in-flight
+            //     turn — UNLESS we scale to 0 and cancel the task.
             //
-            // So we must only "confirm" the stop when the Deployment already
-            // desires 0. When it still desires a replica, leave it untouched and
-            // let K8s reschedule. A genuine exit-0 restart loop is still caught
-            // by the restart-count auto-stop above.
+            // Only intent separates these: the K8s API reports a deleted and a
+            // scaled-to-0 Deployment identically. A genuine exit-0 restart loop
+            // is still caught by the restart-count auto-stop above.
             if plan.has_completed_transition {
-                let desired_zero = match deployment::get_deployment_replicas(k8s, &task_id).await {
-                    Ok((desired, _)) => desired == 0,
-                    Err(e) => {
-                        // Fail safe: if we can't tell, do NOT scale down — a
-                        // reschedule after eviction is recoverable, a wrongly
-                        // cancelled active task is not.
-                        warn!(
+                match clean_exit_action(deps, k8s, &task_id).await {
+                    CleanExitAction::AlreadyRemoved => {
+                        info!(
                             task_id = %task_id,
-                            error = %e,
-                            "Could not read deployment replicas on clean exit; leaving deployment untouched"
-                        );
-                        false
-                    }
-                };
-                if desired_zero {
-                    info!(
-                        task_id = %task_id,
-                        pod_name = %pod_name,
-                        "Sandbox exited cleanly after an intentional stop, confirming scale to 0"
-                    );
-                    if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
-                        warn!(
-                            task_id = %task_id,
-                            error = %e,
-                            "Failed to scale down completed sandbox"
+                            pod_name = %pod_name,
+                            "Sandbox exited cleanly after a remove; deployment is already deleted"
                         );
                     }
-                } else {
-                    info!(
-                        task_id = %task_id,
-                        pod_name = %pod_name,
-                        "Sandbox exited cleanly while deployment still desires a replica; treating as involuntary eviction and leaving it to K8s to reschedule"
-                    );
+                    CleanExitAction::ConfirmStop => {
+                        info!(
+                            task_id = %task_id,
+                            pod_name = %pod_name,
+                            "Sandbox exited cleanly after an intentional stop, confirming scale to 0"
+                        );
+                        if let Err(e) = deployment::scale_deployment(k8s, &task_id, 0).await {
+                            warn!(
+                                task_id = %task_id,
+                                error = %e,
+                                "Failed to scale down completed sandbox"
+                            );
+                        }
+                    }
+                    CleanExitAction::LeaveForReschedule => {
+                        info!(
+                            task_id = %task_id,
+                            pod_name = %pod_name,
+                            "Sandbox exited cleanly while a replica is still desired; treating as involuntary eviction and leaving it to K8s to reschedule"
+                        );
+                    }
                 }
             }
 
@@ -1454,6 +1451,73 @@ async fn crash_autostop(deps: &WatcherDeps, task_id: &str) -> bool {
             false
         }
     }
+}
+
+/// What to do with the Deployment when a sandbox pod exits cleanly (exit 0
+/// after SIGTERM). See the call site for why a clean exit is ambiguous.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CleanExitAction {
+    /// Intent is `Removed` — lifecycle already deleted the Deployment as part of
+    /// the remove, so there is nothing left to scale (a patch would 404).
+    AlreadyRemoved,
+    /// Intent is `Stopped` — the SIGTERM is the pod draining after a deliberate
+    /// stop. Confirm the scale-to-0.
+    ConfirmStop,
+    /// Intent is `Running`, or unknown — an involuntary node event SIGTERMed a
+    /// pod the Deployment still wants. Leave it for K8s to reschedule.
+    LeaveForReschedule,
+}
+
+/// Map durable Sandbox intent onto the clean-exit action.
+///
+/// `None` means intent could not be read (no lifecycle handle, missing Task
+/// row, or a store error) and fails safe: a reschedule after an eviction is
+/// recoverable, a wrongly cancelled active task is not.
+fn clean_exit_action_for_intent(desired: Option<SandboxDesiredState>) -> CleanExitAction {
+    match desired {
+        Some(SandboxDesiredState::Removed) => CleanExitAction::AlreadyRemoved,
+        Some(SandboxDesiredState::Stopped) => CleanExitAction::ConfirmStop,
+        Some(SandboxDesiredState::Running) | None => CleanExitAction::LeaveForReschedule,
+    }
+}
+
+/// Decide what a clean sandbox exit means for the Deployment.
+///
+/// Intent is the authority: lifecycle is the sole writer of Sandbox intent, and
+/// only it can distinguish "Deployment deleted by a remove" from "Deployment
+/// scaled to 0 by a stop" — the K8s API reports both as zero desired replicas
+/// (`get_deployment_replicas` maps a 404 to `(0, 0)`).
+///
+/// Without a lifecycle handle (DB-less setups) there is no intent to read, so
+/// this falls back to the replica count, which at least separates a stop from a
+/// still-wanted replica.
+async fn clean_exit_action(deps: &WatcherDeps, k8s: &K8sClient, task_id: &str) -> CleanExitAction {
+    let Some(lifecycle) = deps.lifecycle.as_ref() else {
+        return match deployment::get_deployment_replicas(k8s, task_id).await {
+            Ok((0, _)) => CleanExitAction::ConfirmStop,
+            Ok(_) => CleanExitAction::LeaveForReschedule,
+            Err(e) => {
+                warn!(
+                    task_id = %task_id,
+                    error = %e,
+                    "Could not read deployment replicas on clean exit; leaving deployment untouched"
+                );
+                CleanExitAction::LeaveForReschedule
+            }
+        };
+    };
+    let desired = match lifecycle.desired_state(task_id).await {
+        Ok(desired) => Some(desired),
+        Err(e) => {
+            debug!(
+                task_id = %task_id,
+                error = %e,
+                "Could not read sandbox intent on clean exit; leaving deployment untouched"
+            );
+            None
+        }
+    };
+    clean_exit_action_for_intent(desired)
 }
 
 /// Extract the task ID from a pod's labels.
@@ -2232,6 +2296,45 @@ mod tests {
         )]));
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
         assert_eq!(state.operation_generation, Some(OperationGeneration(12)));
+    }
+
+    /// A remove deletes the Deployment before the pod's exit-0 event arrives, so
+    /// "confirming" a scale-to-0 here would patch a Deployment that is already
+    /// gone and log a spurious NotFound warning.
+    #[test]
+    fn clean_exit_after_remove_leaves_the_deleted_deployment_alone() {
+        assert_eq!(
+            clean_exit_action_for_intent(Some(SandboxDesiredState::Removed)),
+            CleanExitAction::AlreadyRemoved
+        );
+    }
+
+    /// A stop scales to 0 and keeps the Deployment, so the clean exit confirms it.
+    #[test]
+    fn clean_exit_after_stop_confirms_scale_to_zero() {
+        assert_eq!(
+            clean_exit_action_for_intent(Some(SandboxDesiredState::Stopped)),
+            CleanExitAction::ConfirmStop
+        );
+    }
+
+    /// A clean exit while a replica is still wanted is an involuntary node event
+    /// (spot reclaim, drain). Scaling to 0 would cancel a live task.
+    #[test]
+    fn clean_exit_while_running_is_left_for_kubernetes() {
+        assert_eq!(
+            clean_exit_action_for_intent(Some(SandboxDesiredState::Running)),
+            CleanExitAction::LeaveForReschedule
+        );
+    }
+
+    /// Unreadable intent fails safe the same way: never scale down on a guess.
+    #[test]
+    fn clean_exit_with_unknown_intent_fails_safe() {
+        assert_eq!(
+            clean_exit_action_for_intent(None),
+            CleanExitAction::LeaveForReschedule
+        );
     }
 
     #[test]
