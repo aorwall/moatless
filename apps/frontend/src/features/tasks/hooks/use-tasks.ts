@@ -24,7 +24,7 @@ import type { MessagesPage } from '@/features/tasks/api/tasks'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { updateTaskInLists } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
-import { swapMessageUuid } from '@/lib/api/task-cache'
+import { mergeNewestMessagesPage, swapMessageUuid } from '@/lib/api/task-cache'
 import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@/lib/types/user-input'
 
 export const MESSAGES_PAGE_SIZE = 200
@@ -447,17 +447,7 @@ export async function refreshNewestMessagesPage(
 ): Promise<void> {
   const newest = await tasksApi.getTaskMessages(taskId, { limit: MESSAGES_PAGE_SIZE })
   queryClient.setQueryData<MessagesInfiniteData>(queryKeys.tasks.messages(taskId), (data) => {
-    if (!data || data.pages.length === 0) {
-      return {
-        pages: [newest],
-        pageParams: [undefined],
-      }
-    }
-    const pages = [...data.pages]
-    const pageParams = [...data.pageParams]
-    pages[pages.length - 1] = newest
-    pageParams[pageParams.length - 1] = undefined
-    return { ...data, pages, pageParams }
+    return mergeNewestMessagesPage(data, newest)
   })
 }
 

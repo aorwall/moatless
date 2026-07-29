@@ -25,6 +25,16 @@ function sameMessage(existing: UiMessage, incoming: UiMessage): boolean {
   )
 }
 
+function upsertIntoChronologicalMessages(messages: UiMessage[], incoming: UiMessage): UiMessage[] {
+  const idx = messages.findIndex((existing) => sameMessage(existing, incoming))
+  if (idx === -1) {
+    return [...messages, incoming]
+  }
+  const next = [...messages]
+  next[idx] = incoming
+  return next
+}
+
 /**
  * Replace-or-insert a Message by uuid in an existing messages cache. No-op when
  * the task has no messages cache entry — the read path hydrates it on open, so
@@ -69,6 +79,47 @@ export function upsertMessageByUuid(
     messages: [...lastPage.messages, message],
   }
   queryClient.setQueryData<MessagesInfiniteData>(key, { ...data, pages: nextPages })
+}
+
+/**
+ * Merge a refreshed newest page into the cached chronological pages.
+ *
+ * A straight page replacement loses rows once the "latest N" window moves
+ * forward: with older pages loaded, replacing the last page can leave a gap
+ * between the previous page and the new latest page. Keep existing rows and
+ * replace overlapping ones by uuid/messageId, appending genuinely new rows to
+ * the newest page.
+ */
+export function mergeNewestMessagesPage(
+  data: MessagesInfiniteData | undefined,
+  newestPage: MessagesPage,
+): MessagesInfiniteData {
+  if (!data || data.pages.length === 0) {
+    return {
+      pages: [newestPage],
+      pageParams: [undefined],
+    }
+  }
+
+  let merged = data.pages.flatMap((page) => page.messages)
+  for (const message of newestPage.messages) {
+    merged = upsertIntoChronologicalMessages(merged, message)
+  }
+
+  const oldestPage = data.pages[0] ?? newestPage
+
+  return {
+    ...data,
+    pages: [
+      {
+        ...newestPage,
+        hasMore: oldestPage.hasMore,
+        nextBeforeId: oldestPage.nextBeforeId,
+        messages: merged,
+      },
+    ],
+    pageParams: [data.pageParams[0]],
+  }
 }
 
 /**

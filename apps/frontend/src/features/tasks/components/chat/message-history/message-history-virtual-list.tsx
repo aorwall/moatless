@@ -33,6 +33,8 @@ interface MessageHistoryVirtualListProps {
   rows: VirtualRow[]
   /** Changes when the task switches, to re-run the initial scroll-to-bottom. */
   taskKey?: string | undefined
+  /** Changes when existing row content changes without changing row count. */
+  rowsVersion: string
   className?: string | undefined
   hasPreviousPage: boolean
   isFetchingPreviousPage: boolean
@@ -74,6 +76,7 @@ function metricsFromHandle(
 export function MessageHistoryVirtualList({
   rows,
   taskKey,
+  rowsVersion,
   className,
   hasPreviousPage,
   isFetchingPreviousPage,
@@ -89,6 +92,7 @@ export function MessageHistoryVirtualList({
   const initialPinningRef = useRef(false)
   const bottomSpacerRef = useRef<HTMLDivElement>(null)
   const prevCountRef = useRef(rows.length)
+  const prevRowsVersionRef = useRef(rowsVersion)
 
   const lastIndex = rows.length - 1
 
@@ -137,14 +141,16 @@ export function MessageHistoryVirtualList({
   // list at the top, where `shift` keeps the position instead).
   useLayoutEffect(() => {
     const prevCount = prevCountRef.current
+    const prevRowsVersion = prevRowsVersionRef.current
     prevCountRef.current = rows.length
+    prevRowsVersionRef.current = rowsVersion
     if (isPrependingRef.current) {
       return
     }
-    if (rows.length > prevCount && atBottomRef.current) {
+    if ((rows.length > prevCount || rowsVersion !== prevRowsVersion) && atBottomRef.current) {
       pinToBottomEvent()
     }
-  }, [rows.length])
+  }, [rows.length, rowsVersion])
 
   // Clear the prepend shift flag once the prepended rows have committed.
   useLayoutEffect(() => {

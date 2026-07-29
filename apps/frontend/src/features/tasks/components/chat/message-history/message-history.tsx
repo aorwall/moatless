@@ -129,6 +129,39 @@ function itemId(item: RenderItem): string {
   return item.kind === 'cluster' ? item.key : item.message.uuid
 }
 
+function messageVersion(message: UiMessage): string {
+  return [
+    message.uuid,
+    message.role,
+    message.messageType ?? '',
+    message.isQueued === true ? 'queued' : '',
+    message.hasPendingUserInput === true ? 'pending-input' : '',
+    message.content
+      .map((block) =>
+        [
+          block.type ?? '',
+          block.text ?? '',
+          block.toolUseId ?? '',
+          block.toolName ?? '',
+          block.subagentSummary
+            ? `${block.subagentSummary.status}:${block.subagentSummary.messageCount}:${block.subagentSummary.tokens}`
+            : '',
+        ].join(':'),
+      )
+      .join('|'),
+    (message.toolResults ?? [])
+      .map((result) => `${result.toolUseId}:${result.isError === true ? 'error' : 'ok'}`)
+      .join('|'),
+  ].join('::')
+}
+
+function renderItemVersion(item: RenderItem): string {
+  if (item.kind === 'cluster') {
+    return `${item.key}:${item.messages.map(messageVersion).join('~~')}`
+  }
+  return messageVersion(item.message)
+}
+
 interface CommandClusterProps {
   taskId?: string | undefined
   messages: UiMessage[]
@@ -528,14 +561,21 @@ function MessageHistoryComponent({
   }
 
   if (useVirtualList) {
+    const rows = [
+      ...renderItems.map((item) => ({ id: itemId(item), node: renderItemNode(item) })),
+      ...footerRows,
+    ]
+    const rowsVersion = [
+      ...renderItems.map(renderItemVersion),
+      ...footerRows.map((row) => row.id),
+    ].join('\n')
+
     return (
       <MessageHistoryVirtualList
         className={className}
         taskKey={taskId}
-        rows={[
-          ...renderItems.map((item) => ({ id: itemId(item), node: renderItemNode(item) })),
-          ...footerRows,
-        ]}
+        rows={rows}
+        rowsVersion={rowsVersion}
         hasPreviousPage={hasPreviousPage}
         isFetchingPreviousPage={isFetchingPreviousPage}
         fetchPreviousPage={fetchPreviousPage}

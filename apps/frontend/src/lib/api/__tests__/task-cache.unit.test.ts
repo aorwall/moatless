@@ -5,6 +5,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 import {
   applySubagentProgress,
   type MessagesInfiniteData,
+  mergeNewestMessagesPage,
   swapMessageUuid,
   upsertMessageByUuid,
 } from '@/lib/api/task-cache'
@@ -28,6 +29,14 @@ function seed(qc: QueryClient, messages: UiMessage[]): void {
     pageParams: [undefined],
   }
   qc.setQueryData(queryKeys.tasks.messages(TASK), data)
+}
+
+function page(
+  messages: UiMessage[],
+  hasMore = false,
+  nextBeforeId?: number,
+): MessagesInfiniteData['pages'][number] {
+  return { messages, hasMore, nextBeforeId }
 }
 
 function messagesIn(qc: QueryClient): UiMessage[] {
@@ -67,6 +76,49 @@ describe('task-cache', () => {
       seed(qc, [msg('temp', { messageId: 'msg_123' })])
       upsertMessageByUuid(qc, TASK, msg('real', { messageId: 'msg_123' }))
       expect(messagesIn(qc).map((m) => m.uuid)).toEqual(['real'])
+    })
+  })
+
+  describe('mergeNewestMessagesPage', () => {
+    it('hydrates an empty cache from the refreshed newest page', () => {
+      const merged = mergeNewestMessagesPage(undefined, page([msg('a'), msg('b')]))
+
+      expect(merged.pages.flatMap((p) => p.messages).map((m) => m.uuid)).toEqual(['a', 'b'])
+      expect(merged.pageParams).toEqual([undefined])
+    })
+
+    it('keeps rows that fall out of the newest window after the refresh', () => {
+      const existing: MessagesInfiniteData = {
+        pages: [page([msg('001'), msg('002')], true, 1), page([msg('003'), msg('004')])],
+        pageParams: [1, undefined],
+      }
+      const refreshedNewest = page([msg('004'), msg('005'), msg('006')])
+
+      const merged = mergeNewestMessagesPage(existing, refreshedNewest)
+
+      expect(merged.pages.flatMap((p) => p.messages).map((m) => m.uuid)).toEqual([
+        '001',
+        '002',
+        '003',
+        '004',
+        '005',
+        '006',
+      ])
+      expect(merged.pages[0]?.hasMore).toBe(true)
+      expect(merged.pages[0]?.nextBeforeId).toBe(1)
+    })
+
+    it('replaces overlapping messages in place', () => {
+      const existing: MessagesInfiniteData = {
+        pages: [page([msg('a'), msg('b', { content: [{ type: 'text', text: 'old' }] })])],
+        pageParams: [undefined],
+      }
+      const refreshedNewest = page([msg('b', { content: [{ type: 'text', text: 'new' }] })])
+
+      const merged = mergeNewestMessagesPage(existing, refreshedNewest)
+
+      expect(merged.pages.flatMap((p) => p.messages).map((m) => m.uuid)).toEqual(['a', 'b'])
+      expect(merged.pages[0]?.messages[1]?.content[0]).toMatchObject({ text: 'new' })
     })
   })
 
