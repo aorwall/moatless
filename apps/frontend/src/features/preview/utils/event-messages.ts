@@ -80,7 +80,7 @@ interface Descriptor {
  * are covered here so they render correctly the moment the backend emits them.
  */
 const DESCRIPTORS: Record<string, Descriptor> = {
-  // Sandbox lifecycle vocabulary (payload.lifecycleEvent).
+  // Sandbox lifecycle vocabulary (LifecycleEvent.lifecycleEvent).
   pod_ready: { label: 'Ready', tone: 'ok' },
   pod_recovering: { label: 'Recovering', tone: 'recovering' },
   pod_scheduled: { label: 'Scheduled', tone: 'neutral', icon: Clock },
@@ -100,7 +100,7 @@ const DESCRIPTORS: Record<string, Descriptor> = {
   idle_reaped: { label: 'Stopped (idle)', tone: 'neutral' },
   scheduling_blocked: { label: 'Scheduling blocked', tone: 'recovering', icon: Clock },
   startup_slow: { label: 'Slow startup', tone: 'recovering', icon: Clock },
-  // Lifecycle failure causes (payload.lifecycleEvent on an `error` sandbox
+  // Lifecycle failure causes (`lifecycleEvent` on an `error` sandbox
   // event). The operation and the underlying reason are in the message; these
   // are the bounded cause vocabulary the backend publishes.
   runtime_infrastructure: { label: 'Infrastructure error', tone: 'error' },
@@ -146,8 +146,8 @@ const DESCRIPTORS: Record<string, Descriptor> = {
 /** The lifecycleEvent is where the rich sandbox vocabulary lives; fall back to subType. */
 function resolveKey(event: LifecycleEvent): string {
   if (event.type === 'sandbox') {
-    const lifecycle = event.payload?.['lifecycleEvent']
-    if (typeof lifecycle === 'string' && lifecycle.length > 0) {
+    const lifecycle = event.lifecycleEvent
+    if (lifecycle && lifecycle.length > 0) {
       return lifecycle
     }
   }

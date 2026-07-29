@@ -23,6 +23,7 @@ import { useEffect } from 'react'
 import type { MessagesPage } from '@/features/tasks/api/tasks'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { updateTaskInLists } from '@/features/tasks/utils/query-helpers'
+import { TASK_DATA_GC_TIME } from '@/lib/api/query-client'
 import { queryKeys } from '@/lib/api/query-keys'
 import { mergeNewestMessagesPage, swapMessageUuid } from '@/lib/api/task-cache'
 import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@/lib/types/user-input'
@@ -431,6 +432,7 @@ export function useTaskMessages(taskId: string, options?: { enabled?: boolean })
     // Cap the cache so very long tasks don't drag the DOM; oldest pages drop
     // when the user scrolls past the limit and re-fetch on demand.
     maxPages: 10,
+    gcTime: TASK_DATA_GC_TIME,
     enabled: !!taskId && options?.enabled !== false,
   })
 }
@@ -456,6 +458,10 @@ export async function refreshNewestMessagesPage(
  * caller actually expands the tool call so list pages stay slim. The query is
  * keyed on `tool_use_id`, so re-collapsing and re-expanding within the same
  * route hits the cache, and SSE-driven list refreshes don't drop this data.
+ *
+ * One cache entry is created per expanded card and each holds a full tool
+ * result, so these are collected shortly after they go unobserved — a card
+ * left collapsed for longer than `TASK_DATA_GC_TIME` refetches on re-expand.
  */
 export function useTaskToolCall(
   taskId: string,
@@ -469,6 +475,7 @@ export function useTaskToolCall(
     queryFn: () => tasksApi.getToolCallDetail(taskId, id),
     enabled: enabled && !!taskId && !!id,
     staleTime: Number.POSITIVE_INFINITY,
+    gcTime: TASK_DATA_GC_TIME,
     ...options,
   })
 }
@@ -489,6 +496,7 @@ export function useSubagentTranscript(
     queryKey: queryKeys.tasks.subagentTranscript(taskId, id),
     queryFn: () => tasksApi.getSubagentTranscript(taskId, id),
     enabled: enabled && !!taskId && !!id,
+    gcTime: TASK_DATA_GC_TIME,
   })
 }
 

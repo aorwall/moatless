@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { TASK_DATA_GC_TIME } from '@/lib/api/query-client'
 import { queryKeys } from '@/lib/api/query-keys'
 import { fetchTaskEvents } from '../api/task-events'
 
@@ -13,6 +14,7 @@ export function useHistoricalLifecycleEvents(taskId: string | undefined) {
       taskId ? fetchTaskEvents(taskId) : Promise.reject(new Error('taskId is required')),
     enabled: !!taskId,
     staleTime: 30_000,
+    gcTime: TASK_DATA_GC_TIME,
     refetchOnWindowFocus: false,
   })
 }

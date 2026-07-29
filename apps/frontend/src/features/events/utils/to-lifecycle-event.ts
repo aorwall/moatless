@@ -60,6 +60,6 @@ export function toLifecycleEvent(event: Event): LifecycleEvent | null {
     terminatedReason: optString(payload['terminatedReason']),
     pendingSeconds:
       typeof payload['pendingSeconds'] === 'number' ? payload['pendingSeconds'] : undefined,
-    payload,
+    lifecycleEvent: optString(payload['lifecycleEvent']),
   }
 }

@@ -57,16 +57,15 @@ export function SandboxEventsProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    // Already mapped by `fetchTaskEvents` — only dedupe against live events
+    // that arrived before the query resolved.
     const mapped: LifecycleEvent[] = []
     for (const event of data) {
       if (seenEventIds.current.has(event.eventId)) {
         continue
       }
       seenEventIds.current.add(event.eventId)
-      const se = toLifecycleEvent(event)
-      if (se) {
-        mapped.push(se)
-      }
+      mapped.push(event)
     }
 
     if (mapped.length > 0) {

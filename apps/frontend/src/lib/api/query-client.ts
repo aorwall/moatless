@@ -79,6 +79,18 @@ function retryTransientErrors(failureCount: number, error: Error): boolean {
   return typeof status === 'number' && status >= 500
 }
 
+/**
+ * `gcTime` for the heavy task-scoped queries: messages, event history, file
+ * trees and file contents, tool-call and subagent details.
+ *
+ * The 10-minute default below kept every visited task's full dataset alive at
+ * once, which pushed the JS heap past 350 MB and turned cycle collection into
+ * multi-second main-thread freezes. Only one task page is mounted at a time
+ * (`TaskProviders` is keyed by task id), so these queries lose their observers
+ * on navigate-away and a short window still covers back-navigation.
+ */
+export const TASK_DATA_GC_TIME = 60_000
+
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {

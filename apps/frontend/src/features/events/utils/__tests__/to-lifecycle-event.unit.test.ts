@@ -49,7 +49,7 @@ describe('toLifecycleEvent', () => {
     expect(result?.agentType).toBeUndefined()
   })
 
-  it('preserves sandbox enrichment fields (node, exitCode, pendingSeconds)', () => {
+  it('preserves sandbox enrichment fields (node, exitCode, pendingSeconds, lifecycleEvent)', () => {
     const result = toLifecycleEvent(
       makeRaw({
         type: 'sandbox',
@@ -60,5 +60,19 @@ describe('toLifecycleEvent', () => {
     expect(result?.nodeName).toBe('i-abc')
     expect(result?.exitCode).toBe(137)
     expect(result?.pendingSeconds).toBe(12)
+    expect(result?.lifecycleEvent).toBe('fatal')
+  })
+
+  it('does not retain the raw payload', () => {
+    // The mapped event is cached for the life of the Events tab; holding the
+    // payload kept every agent message's content blocks alive with it.
+    const result = toLifecycleEvent(
+      makeRaw({
+        type: 'agent',
+        subType: 'message',
+        payload: { message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] } },
+      }),
+    )
+    expect(result).not.toHaveProperty('payload')
   })
 })

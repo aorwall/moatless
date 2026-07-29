@@ -45,9 +45,13 @@ pub async fn list_task_events(
             .collect()
     });
 
+    // Newest-first selection, returned oldest-first: the UI's Events tab and
+    // `moat events` both want the tail of a task's history, and `list_events`
+    // would hand back the oldest `limit` rows — so a long-running task showed a
+    // window frozen near its start.
     let events = state
         .task_events
-        .list_events(&task_id, &event_types, limit, offset)
+        .list_recent_events(&task_id, &event_types, limit, offset)
         .await?;
 
     let items = events

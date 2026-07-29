@@ -118,28 +118,24 @@ export function isStatusAffectingEvent(event: Event): boolean {
  */
 type ToolInvalidationAction = (taskId: string, queryClient: QueryClient) => void
 
+const invalidateFiles: ToolInvalidationAction = (taskId, queryClient) => {
+  queryClient.invalidateQueries({
+    queryKey: queryKeys.tasks.files(taskId),
+    refetchType: 'active',
+  })
+}
+
 const TOOL_INVALIDATION_REGISTRY: Readonly<
   Partial<Record<string | MoatlessToolName, ToolInvalidationAction>>
 > = {
   // File editing tools - invalidate file queries
-  Edit: (taskId, queryClient) => {
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.tasks.files(taskId),
-      refetchType: 'active',
-    })
-  },
-  MultiEdit: (taskId, queryClient) => {
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.tasks.files(taskId),
-      refetchType: 'active',
-    })
-  },
-  Write: (taskId, queryClient) => {
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.tasks.files(taskId),
-      refetchType: 'active',
-    })
-  },
+  Edit: invalidateFiles,
+  MultiEdit: invalidateFiles,
+  Write: invalidateFiles,
+  // A shell command can add, move or delete files just as readily (installs,
+  // git checkouts, generators). The file tree used to catch those on a 30s
+  // poll; it now refreshes from this event instead.
+  Bash: invalidateFiles,
   // Task metadata updates - invalidate task detail (using clean tool name)
   updateTaskMetadata: (taskId, queryClient) => {
     queryClient.invalidateQueries({

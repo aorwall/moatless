@@ -30,7 +30,13 @@ export interface LifecycleEvent {
   terminatedReason?: string | undefined
   /** Seconds spent Pending before the pod was scheduled (on pod_scheduled). */
   pendingSeconds?: number | undefined
-  payload: Record<string, unknown>
+  /**
+   * Sandbox lifecycle vocabulary key (`pod_evicted`, `node_reclaimed`, …), the
+   * only field the UI reads out of the raw event payload. Deliberately narrow:
+   * carrying the whole payload here kept every `agent` event's full SDK message
+   * alive for as long as the event log was cached, which dominated the JS heap.
+   */
+  lifecycleEvent?: string | undefined
 }
 
 /** K8s startup event shown in the sandbox initializing overlay. */

@@ -41,8 +41,27 @@ pub trait TaskEventRepository: Send + Sync {
     /// Insert a single event.
     async fn insert_event(&self, event: &InsertTaskEvent) -> Result<(), sqlx::Error>;
 
-    /// List events for a task, ordered by id ascending.
+    /// List events for a task from the OLDEST, ordered by id ascending.
+    ///
+    /// `limit` therefore truncates the *tail* — a task with more events than
+    /// `limit` never surfaces its recent ones. Use this only where replaying
+    /// from the start is the intent (the SSE history prelude); readers that
+    /// want the current state of a task want [`Self::list_recent_events`].
     async fn list_events(
+        &self,
+        task_id: &str,
+        event_types: &Option<Vec<String>>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TaskEvent>, sqlx::Error>;
+
+    /// List a task's most recent events, returned oldest-first.
+    ///
+    /// Selects descending so `limit` truncates the *head* (dropping old events)
+    /// rather than the tail, then reverses so callers still read chronologically
+    /// — the same shape [`Self::list_events`] returns. `offset` skips that many
+    /// of the newest events, so paging walks backwards through history.
+    async fn list_recent_events(
         &self,
         task_id: &str,
         event_types: &Option<Vec<String>>,
@@ -183,6 +202,36 @@ impl TaskEventRepository for PgTaskEventRepository {
         .bind(offset)
         .fetch_all(&self.0)
         .await
+    }
+
+    async fn list_recent_events(
+        &self,
+        task_id: &str,
+        event_types: &Option<Vec<String>>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TaskEvent>, sqlx::Error> {
+        let types_ref: Option<&[String]> = event_types.as_deref();
+        // Same projection as `list_events` (see the `id::bigint` note there),
+        // ordered DESC so LIMIT keeps the newest rows instead of the oldest.
+        let mut rows = sqlx::query_as::<_, TaskEvent>(
+            r#"SELECT
+                id::bigint AS id, event_id, task_id, type AS event_type, sub_type, is_error,
+                agent_type, turn_number, payload::jsonb AS payload, timestamp, created_at
+            FROM task_events
+            WHERE task_id = $1
+              AND ($2::text[] IS NULL OR type = ANY($2))
+            ORDER BY id DESC
+            LIMIT $3 OFFSET $4"#,
+        )
+        .bind(task_id)
+        .bind(types_ref)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.0)
+        .await?;
+        rows.reverse();
+        Ok(rows)
     }
 
     async fn active_turn_for_task(

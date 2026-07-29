@@ -9,17 +9,16 @@ function makeEvent(overrides: Partial<LifecycleEvent> = {}): LifecycleEvent {
     subType: 'stopped',
     timestamp: '2024-01-01T00:00:00Z',
     isError: false,
-    payload: {},
     ...overrides,
   }
 }
 
 describe('describeEvent', () => {
-  it('keys off payload.lifecycleEvent for sandbox events', () => {
+  it('keys off lifecycleEvent for sandbox events', () => {
     const evt = makeEvent({
       subType: 'error',
       isError: true,
-      payload: { lifecycleEvent: 'pod_evicted' },
+      lifecycleEvent: 'pod_evicted',
     })
     const { label, tone } = describeEvent(evt)
     expect(label).toBe('Evicted')
@@ -31,7 +30,7 @@ describe('describeEvent', () => {
     const { label, tone, chips } = describeEvent(
       makeEvent({
         subType: 'initializing',
-        payload: { lifecycleEvent: 'node_reclaimed' },
+        lifecycleEvent: 'node_reclaimed',
         nodeName: 'i-0e89d34c48ac6c99d',
         disruptionReason: 'DeletionByPodGC',
       }),
@@ -46,30 +45,26 @@ describe('describeEvent', () => {
 
   it('renders idle_reaped as a neutral stop, not an error', () => {
     const { label, tone } = describeEvent(
-      makeEvent({ subType: 'stopped', payload: { lifecycleEvent: 'idle_reaped' } }),
+      makeEvent({ subType: 'stopped', lifecycleEvent: 'idle_reaped' }),
     )
     expect(label).toBe('Stopped (idle)')
     expect(tone).toBe('neutral')
   })
 
   it('renders crashes and OOM as red errors', () => {
-    expect(
-      describeEvent(makeEvent({ payload: { lifecycleEvent: 'container_oom_killed' } })).tone,
-    ).toBe('error')
-    expect(describeEvent(makeEvent({ payload: { lifecycleEvent: 'fatal' } })).tone).toBe('error')
+    expect(describeEvent(makeEvent({ lifecycleEvent: 'container_oom_killed' })).tone).toBe('error')
+    expect(describeEvent(makeEvent({ lifecycleEvent: 'fatal' })).tone).toBe('error')
   })
 
   it('renders pod_ready as ok', () => {
-    expect(describeEvent(makeEvent({ payload: { lifecycleEvent: 'pod_ready' } })).tone).toBe('ok')
+    expect(describeEvent(makeEvent({ lifecycleEvent: 'pod_ready' })).tone).toBe('ok')
   })
 
   it('covers the new Phase 2 subtypes', () => {
-    expect(
-      describeEvent(makeEvent({ payload: { lifecycleEvent: 'scheduling_blocked' } })).tone,
-    ).toBe('recovering')
-    expect(describeEvent(makeEvent({ payload: { lifecycleEvent: 'startup_slow' } })).tone).toBe(
+    expect(describeEvent(makeEvent({ lifecycleEvent: 'scheduling_blocked' })).tone).toBe(
       'recovering',
     )
+    expect(describeEvent(makeEvent({ lifecycleEvent: 'startup_slow' })).tone).toBe('recovering')
     const turn = describeEvent(makeEvent({ type: 'taskTurn', subType: 'turn_interrupted' }))
     expect(turn.label).toBe('Turn interrupted')
     expect(turn.tone).toBe('recovering')
@@ -78,7 +73,7 @@ describe('describeEvent', () => {
   it('builds metadata chips from enrichment fields', () => {
     const { chips } = describeEvent(
       makeEvent({
-        payload: { lifecycleEvent: 'pod_evicted' },
+        lifecycleEvent: 'pod_evicted',
         nodeName: 'ip-10-0-1-42',
         disruptionReason: 'PreemptionByScheduler',
         initiator: 'eviction',
@@ -97,22 +92,20 @@ describe('describeEvent', () => {
 
   it('renders a pending-duration chip on pod_scheduled', () => {
     const { chips } = describeEvent(
-      makeEvent({ payload: { lifecycleEvent: 'pod_scheduled' }, pendingSeconds: 364 }),
+      makeEvent({ lifecycleEvent: 'pod_scheduled', pendingSeconds: 364 }),
     )
     expect(chips).toContainEqual({ label: 'pending', value: '6m 4s' })
   })
 
   it('renders old events without enrichment fields unchanged (no chips)', () => {
-    const { label, tone, chips } = describeEvent(makeEvent({ subType: 'ready', payload: {} }))
+    const { label, tone, chips } = describeEvent(makeEvent({ subType: 'ready' }))
     expect(label).toBe('Ready')
     expect(tone).toBe('ok')
     expect(chips).toEqual([])
   })
 
   it('falls back to a humanized label and error tone for unknown flagged events', () => {
-    const { label, tone } = describeEvent(
-      makeEvent({ subType: 'weird_new_thing', isError: true, payload: {} }),
-    )
+    const { label, tone } = describeEvent(makeEvent({ subType: 'weird_new_thing', isError: true }))
     expect(label).toBe('weird new thing')
     expect(tone).toBe('error')
   })
@@ -128,7 +121,7 @@ describe('describeEvent — lifecycle failure causes', () => {
       ['recovery_exhausted', 'Recovery exhausted'],
     ] as const) {
       const { label: got, tone } = describeEvent(
-        makeEvent({ subType: 'error', isError: true, payload: { lifecycleEvent: cause } }),
+        makeEvent({ subType: 'error', isError: true, lifecycleEvent: cause }),
       )
       expect(got).toBe(label)
       expect(tone).toBe('error')
