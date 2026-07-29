@@ -244,7 +244,8 @@ pub async fn send_to_binding(
         )));
     }
 
-    #[allow(clippy::disallowed_methods)] // reason: outbound reply path runs as background system, no caller identity
+    #[allow(clippy::disallowed_methods)]
+    // reason: outbound reply path runs as background system, no caller identity
     let sys = ScopeContext::system();
     let connection = PgAdapterConnectionRepository(state.db.clone())
         .find_by_id(&binding.connection_id, &sys)
@@ -290,7 +291,8 @@ pub async fn send_to_binding(
 
     // Author the reply under the owning task's identity (preferred by the GitHub
     // adapter over binding/trigger-derived identities).
-    #[allow(clippy::disallowed_methods)] // reason: outbound reply dispatched by background runtime, no caller identity
+    #[allow(clippy::disallowed_methods)]
+    // reason: outbound reply dispatched by background runtime, no caller identity
     let sys_author = ScopeContext::system();
     let author_user_id = state
         .tasks
@@ -374,7 +376,7 @@ pub async fn send_to_binding(
 }
 
 /// Persist a visible assistant row for a binding-based outbound reply.
-async fn persist_outbound_stub_for_binding(
+pub(crate) async fn persist_outbound_stub_for_binding(
     state: &AppState,
     task_id: &str,
     text: &str,
