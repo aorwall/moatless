@@ -75,15 +75,14 @@
 //! not zero.
 
 use moatless_backend_core::scope::ScopeContext;
-use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
-use tracing::{debug, info, warn};
+use tracing::info;
 
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::delivery::{
-    AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryHandlers,
-    AdapterDeliveryRequest,
+    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
+    register_typed_delivery,
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
@@ -116,12 +115,24 @@ pub mod kind {
 /// kinds. A build without this call leaves GitHub records for a replica that
 /// has it, rather than failing them.
 pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
-    handlers.register(kind::PR_MESSAGE, Arc::new(PrMessageHandler(state.clone())));
-    handlers.register(kind::CLOSE, Arc::new(CloseHandler(state.clone())));
-    handlers.register(kind::POST_MERGE, Arc::new(PostMergeHandler(state.clone())));
-    handlers.register(
+    register_typed_delivery::<PrMessageDelivery, _, _>(
+        handlers,
+        kind::PR_MESSAGE,
+        state,
+        execute_pr_message,
+    );
+    register_typed_delivery::<CloseDelivery, _, _>(handlers, kind::CLOSE, state, execute_close);
+    register_typed_delivery::<PostMergeDelivery, _, _>(
+        handlers,
+        kind::POST_MERGE,
+        state,
+        execute_post_merge,
+    );
+    register_typed_delivery::<MergeConflictDelivery, _, _>(
+        handlers,
         kind::MERGE_CONFLICT,
-        Arc::new(MergeConflictHandler(state.clone())),
+        state,
+        execute_merge_conflict,
     );
 }
 
@@ -255,8 +266,6 @@ pub(super) struct MergeConflictDelivery {
 enum GithubDeliveryError {
     #[error("adapter connection {0} no longer exists")]
     ConnectionGone(String),
-    #[error("Adapter delivery payload does not match its kind")]
-    Payload(#[source] serde_json::Error),
 }
 
 /// Build the admission request for one GitHub delivery.
@@ -280,106 +289,80 @@ pub(super) fn request(
     })
 }
 
-fn parse<T: serde::de::DeserializeOwned>(
-    delivery: &AdapterDelivery,
-) -> Result<T, AdapterDeliveryFailure> {
-    serde_json::from_value(delivery.payload.clone())
-        // A payload that does not deserialize was written by a build that is
-        // gone or is corrupt; no retry can fix either.
-        .map_err(|e| AdapterDeliveryFailure::permanent(GithubDeliveryError::Payload(e)))
-}
-
-// =============================================================================
-// Handlers
-// =============================================================================
-
-struct PrMessageHandler(AppState);
-
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for PrMessageHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let payload: PrMessageDelivery = parse(delivery)?;
-        let (connection, trigger) = payload.context.resolve(&self.0).await?;
-        super::runtime::route_inbound_message(
-            &self.0,
-            &connection,
-            trigger.as_ref(),
-            payload.message,
-        )
+async fn execute_pr_message(
+    state: AppState,
+    _delivery: crate::adapters::delivery::AdapterDelivery,
+    payload: PrMessageDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let (connection, trigger) = payload.context.resolve(&state).await?;
+    super::runtime::route_inbound_message(&state, &connection, trigger.as_ref(), payload.message)
         .await
         .map_err(AdapterDeliveryFailure::from)
-    }
 }
 
-struct CloseHandler(AppState);
-
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for CloseHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let payload: CloseDelivery = parse(delivery)?;
-        let (_connection, trigger) = payload.context.resolve(&self.0).await?;
-        // Auto-close only ever applied to trigger-created tasks. A trigger
-        // deleted between admission and execution leaves nothing to close.
-        let Some(trigger) = trigger else {
-            info!(
-                id = %delivery.id,
-                pr_number = payload.close.pr_number,
-                "GitHub PR close skipped: its trigger no longer exists"
-            );
-            return Ok(());
-        };
-        super::runtime::close_tasks_for_pr(&self.0, &trigger, &payload.close)
-            .await
-            .map_err(AdapterDeliveryFailure::from)
-    }
-}
-
-struct PostMergeHandler(AppState);
-
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for PostMergeHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let payload: PostMergeDelivery = parse(delivery)?;
-        let (connection, trigger) = payload.context.resolve(&self.0).await?;
-        let rule = payload
-            .context
-            .rule_for_parse(&connection, trigger.as_ref());
-        super::adapter::check_post_merge_ci(
-            &self.0,
-            &connection,
-            &rule,
-            &payload.owner,
-            &payload.repo,
-            &payload.run,
-            &payload.sender_login,
-        )
+async fn execute_close(
+    state: AppState,
+    delivery: crate::adapters::delivery::AdapterDelivery,
+    payload: CloseDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let (_connection, trigger) = payload.context.resolve(&state).await?;
+    // Auto-close only ever applied to trigger-created tasks. A trigger
+    // deleted between admission and execution leaves nothing to close.
+    let Some(trigger) = trigger else {
+        info!(
+            id = %delivery.id,
+            pr_number = payload.close.pr_number,
+            "GitHub PR close skipped: its trigger no longer exists"
+        );
+        return Ok(());
+    };
+    super::runtime::close_tasks_for_pr(&state, &trigger, &payload.close)
         .await
         .map_err(AdapterDeliveryFailure::from)
-    }
 }
 
-struct MergeConflictHandler(AppState);
+async fn execute_post_merge(
+    state: AppState,
+    _delivery: crate::adapters::delivery::AdapterDelivery,
+    payload: PostMergeDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let (connection, trigger) = payload.context.resolve(&state).await?;
+    let rule = payload
+        .context
+        .rule_for_parse(&connection, trigger.as_ref());
+    super::adapter::check_post_merge_ci(
+        &state,
+        &connection,
+        &rule,
+        &payload.owner,
+        &payload.repo,
+        &payload.run,
+        &payload.sender_login,
+    )
+    .await
+    .map_err(AdapterDeliveryFailure::from)
+}
 
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for MergeConflictHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let payload: MergeConflictDelivery = parse(delivery)?;
-        let (connection, trigger) = payload.context.resolve(&self.0).await?;
-        let rule = payload
-            .context
-            .rule_for_parse(&connection, trigger.as_ref());
-        super::adapter::check_pr_merge_conflict(
-            &self.0,
-            &connection,
-            &rule,
-            &payload.owner,
-            &payload.repo,
-            payload.pr_number,
-            &payload.sender_login,
-        )
-        .await
-        .map_err(AdapterDeliveryFailure::from)
-    }
+async fn execute_merge_conflict(
+    state: AppState,
+    _delivery: crate::adapters::delivery::AdapterDelivery,
+    payload: MergeConflictDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let (connection, trigger) = payload.context.resolve(&state).await?;
+    let rule = payload
+        .context
+        .rule_for_parse(&connection, trigger.as_ref());
+    super::adapter::check_pr_merge_conflict(
+        &state,
+        &connection,
+        &rule,
+        &payload.owner,
+        &payload.repo,
+        payload.pr_number,
+        &payload.sender_login,
+    )
+    .await
+    .map_err(AdapterDeliveryFailure::from)
 }
 
 /// Log line shared by the four admission sites, so an operator can follow one
@@ -389,23 +372,13 @@ pub(super) fn log_admission(
     event_id: &str,
     admission: crate::adapters::delivery::Admission,
 ) {
-    match admission {
-        crate::adapters::delivery::Admission::Admitted => {
-            debug!(kind, event_id, "GitHub delivery admitted");
-        }
-        crate::adapters::delivery::Admission::Duplicate => {
-            warn!(
-                kind,
-                event_id, "GitHub delivery already admitted; nothing re-run"
-            );
-        }
-    }
+    crate::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::Audience;
 
     use super::*;
 

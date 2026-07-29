@@ -2421,7 +2421,7 @@ async fn admit(
     payload: &impl serde::Serialize,
 ) -> Result<(), GithubWebhookError> {
     let request = super::delivery::request(kind, event_id.to_string(), payload)?;
-    let admission = state.adapter_delivery.admit(request).await?;
+    let admission = crate::adapters::ingress::admit_delivery(state, request).await?;
     super::delivery::log_admission(kind, event_id, admission);
     Ok(())
 }

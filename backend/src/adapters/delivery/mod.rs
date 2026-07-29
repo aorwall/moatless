@@ -113,6 +113,7 @@ mod handlers;
 mod metrics;
 mod models;
 mod store;
+mod typed;
 mod worker;
 
 pub use handlers::{AdapterDeliveryHandler, AdapterDeliveryHandlers};
@@ -122,6 +123,9 @@ pub use models::{
     Admission, AdmitError,
 };
 pub use store::AdapterDeliveryStore;
+pub(crate) use typed::{
+    ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery,
+};
 pub use worker::spawn_adapter_delivery_worker;
 
 use crate::adapters::error::AdapterError;

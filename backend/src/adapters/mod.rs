@@ -8,12 +8,14 @@ pub mod footer;
 pub mod github_pr;
 pub mod handlers;
 pub(crate) mod inbound_delivery;
+pub(crate) mod ingress;
 pub mod linear;
 pub mod metrics;
 pub mod models;
 pub mod routes;
 pub mod signature;
 pub mod slack;
+pub(crate) mod subject_events;
 pub mod telegram;
 #[cfg(test)]
 pub(crate) mod test_support;

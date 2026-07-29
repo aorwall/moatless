@@ -319,7 +319,7 @@ async fn admit(
     event_id: &str,
 ) -> Result<(), LinearWebhookError> {
     let kind = request.kind;
-    let admission = state.adapter_delivery.admit(request).await?;
+    let admission = crate::adapters::ingress::admit_delivery(state, request).await?;
     super::delivery::log_admission(kind, event_id, admission);
     Ok(())
 }

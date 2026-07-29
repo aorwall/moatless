@@ -67,15 +67,11 @@
 //! timestamp is carried in the payload rather than re-read from a clock the
 //! worker would see differently on every attempt.
 
-use moatless_backend_core::scope::ScopeContext;
-use std::sync::Arc;
-
 use tracing::{debug, info, warn};
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::delivery::{
-    AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryHandlers,
-    AdapterDeliveryRequest, AdmitError,
+    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest, AdmitError,
+    ConnectionDeliveryPayload, register_connection_delivery,
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::AdapterConnection;
@@ -110,17 +106,36 @@ pub const NOTIFICATION: &str = "linear.notification";
 /// kinds. A build without this call leaves Linear records for a replica that
 /// has it, rather than failing them.
 pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
-    handlers.register(
+    register_connection_delivery::<SessionProvisionDelivery, _, _>(
+        handlers,
         SESSION_PROVISION,
-        Arc::new(SessionProvisionHandler(state.clone())),
+        state,
+        execute_session_provision,
     );
-    handlers.register(
+    register_connection_delivery::<SessionPromptDelivery, _, _>(
+        handlers,
         SESSION_PROMPT,
-        Arc::new(SessionPromptHandler(state.clone())),
+        state,
+        execute_session_prompt,
     );
-    handlers.register(ISSUE_UPDATE, Arc::new(IssueUpdateHandler(state.clone())));
-    handlers.register(COMMENT, Arc::new(CommentHandler(state.clone())));
-    handlers.register(NOTIFICATION, Arc::new(NotificationHandler(state.clone())));
+    register_connection_delivery::<IssueUpdateDelivery, _, _>(
+        handlers,
+        ISSUE_UPDATE,
+        state,
+        execute_issue_update,
+    );
+    register_connection_delivery::<CommentDelivery, _, _>(
+        handlers,
+        COMMENT,
+        state,
+        execute_comment,
+    );
+    register_connection_delivery::<NotificationDelivery, _, _>(
+        handlers,
+        NOTIFICATION,
+        state,
+        execute_notification,
+    );
 }
 
 /// Why a Linear webhook did not reach a normal outcome.
@@ -163,6 +178,12 @@ pub(super) struct SessionProvisionDelivery {
     pub(super) session: AgentSession,
 }
 
+impl ConnectionDeliveryPayload for SessionProvisionDelivery {
+    fn connection_id(&self) -> &str {
+        &self.connection_id
+    }
+}
+
 /// Everything the prompt handler needs to forward one follow-up prompt.
 ///
 /// `activity_id` is what the forwarded message is identified by downstream
@@ -176,6 +197,12 @@ pub(super) struct SessionPromptDelivery {
     pub(super) session_id: String,
     pub(super) activity_id: String,
     pub(super) body: String,
+}
+
+impl ConnectionDeliveryPayload for SessionPromptDelivery {
+    fn connection_id(&self) -> &str {
+        &self.connection_id
+    }
 }
 
 /// Everything the issue handler needs to act on one workflow state change.
@@ -196,12 +223,24 @@ pub(super) struct IssueUpdateDelivery {
     pub(super) delivered_at: i64,
 }
 
+impl ConnectionDeliveryPayload for IssueUpdateDelivery {
+    fn connection_id(&self) -> &str {
+        &self.connection_id
+    }
+}
+
 /// Everything the comment handler needs to forward one comment.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct CommentDelivery {
     pub(super) connection_id: String,
     pub(super) issue_id: String,
     pub(super) comment: CommentPayloadData,
+}
+
+impl ConnectionDeliveryPayload for CommentDelivery {
+    fn connection_id(&self) -> &str {
+        &self.connection_id
+    }
 }
 
 /// Everything the notification handler needs to act on one workspace
@@ -219,13 +258,10 @@ pub(super) struct NotificationDelivery {
     pub(super) notification: AppUserNotificationData,
 }
 
-/// Failures this module raises on its own behalf.
-#[derive(Debug, thiserror::Error)]
-enum LinearDeliveryError {
-    #[error("adapter connection {0} no longer exists")]
-    ConnectionGone(String),
-    #[error("Adapter delivery payload does not match its kind")]
-    Payload(#[source] serde_json::Error),
+impl ConnectionDeliveryPayload for NotificationDelivery {
+    fn connection_id(&self) -> &str {
+        &self.connection_id
+    }
 }
 
 /// Build the admission request for one Linear delivery.
@@ -343,209 +379,153 @@ pub(super) fn notification_request(
     )
 }
 
-/// Read a record's payload back, or end the record.
-///
-/// A payload that does not deserialize was written by a build that is gone, or
-/// is corrupt; no retry can fix either.
-fn parse<T: serde::de::DeserializeOwned>(
-    delivery: &AdapterDelivery,
-) -> Result<T, AdapterDeliveryFailure> {
-    serde_json::from_value(delivery.payload.clone())
-        .map_err(|e| AdapterDeliveryFailure::permanent(LinearDeliveryError::Payload(e)))
-}
-
-/// Load the connection a record was admitted for.
-///
-/// Ids, not snapshots: re-resolving keeps the webhook secret out of a table
-/// retained for weeks, and a record executed minutes later sees the connection
-/// as it is. A connection deleted in between is permanent — the tenant is gone
-/// and no retry brings it back.
-async fn resolve_connection(
-    state: &AppState,
-    connection_id: &str,
-) -> Result<AdapterConnection, AdapterDeliveryFailure> {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "a durable Adapter delivery runs in the worker with no user session; the connection \
-                  is named by an already-admitted record, not by caller input"
-    )]
-    let sys_ctx = ScopeContext::system();
-    PgAdapterConnectionRepository(state.db.clone())
-        .find_by_id(connection_id, &sys_ctx)
-        .await
-        .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?
-        .ok_or_else(|| {
-            AdapterDeliveryFailure::permanent(LinearDeliveryError::ConnectionGone(
-                connection_id.to_string(),
-            ))
+async fn execute_session_provision(
+    state: AppState,
+    _delivery: crate::adapters::delivery::AdapterDelivery,
+    connection: AdapterConnection,
+    payload: SessionProvisionDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    // Rules are re-resolved rather than snapshotted: a trigger disabled
+    // between admission and execution should stop the provisioning, which
+    // is what an operator disabling it means.
+    let team_id = payload
+        .session
+        .issue
+        .as_ref()
+        .and_then(|issue| {
+            issue
+                .team_id
+                .clone()
+                .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
         })
+        .unwrap_or_default();
+    let rules = super::agent_runtime::resolve_rules_for_team(&state, &connection, &team_id)
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
+    if rules.is_empty() {
+        info!(
+            session_id = %payload.session.id,
+            team_id = %team_id,
+            "Linear session provisioning skipped: no active rule for the team"
+        );
+        return Ok(());
+    }
+
+    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
+    super::agent_runtime::provision_selected_session_task(
+        &state,
+        &api,
+        &connection,
+        &rules,
+        &payload.session,
+    )
+    .await
+    .map_err(AdapterDeliveryFailure::from)
 }
 
-struct SessionProvisionHandler(AppState);
-
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for SessionProvisionHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let state = &self.0;
-        let payload: SessionProvisionDelivery = parse(delivery)?;
-        let connection = resolve_connection(state, &payload.connection_id).await?;
-
-        // Rules are re-resolved rather than snapshotted: a trigger disabled
-        // between admission and execution should stop the provisioning, which
-        // is what an operator disabling it means.
-        let team_id = payload
-            .session
-            .issue
-            .as_ref()
-            .and_then(|issue| {
-                issue
-                    .team_id
-                    .clone()
-                    .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
-            })
-            .unwrap_or_default();
-        let rules = super::agent_runtime::resolve_rules_for_team(state, &connection, &team_id)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
-        if rules.is_empty() {
-            info!(
-                session_id = %payload.session.id,
-                team_id = %team_id,
-                "Linear session provisioning skipped: no active rule for the team"
-            );
-            return Ok(());
-        }
-
-        let api = super::agent_runtime::agent_api(state, &connection.scope_value);
-        super::agent_runtime::provision_selected_session_task(
-            state,
-            &api,
-            &connection,
-            &rules,
-            &payload.session,
-        )
-        .await
-        .map_err(AdapterDeliveryFailure::from)
-    }
+async fn execute_session_prompt(
+    state: AppState,
+    _delivery: crate::adapters::delivery::AdapterDelivery,
+    connection: AdapterConnection,
+    payload: SessionPromptDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
+    super::agent_runtime::handle_session_prompted(
+        &state,
+        &api,
+        &connection,
+        &payload.session_id,
+        &payload.activity_id,
+        &payload.body,
+    )
+    .await
+    .map_err(AdapterDeliveryFailure::from)
 }
 
-struct SessionPromptHandler(AppState);
-
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for SessionPromptHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let state = &self.0;
-        let payload: SessionPromptDelivery = parse(delivery)?;
-        let connection = resolve_connection(state, &payload.connection_id).await?;
-        let api = super::agent_runtime::agent_api(state, &connection.scope_value);
-        super::agent_runtime::handle_session_prompted(
-            state,
-            &api,
-            &connection,
-            &payload.session_id,
-            &payload.activity_id,
-            &payload.body,
-        )
+async fn execute_issue_update(
+    state: AppState,
+    _delivery: crate::adapters::delivery::AdapterDelivery,
+    connection: AdapterConnection,
+    payload: IssueUpdateDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    // Re-resolved rather than snapshotted, for the same reason the provisioning
+    // handler re-resolves: a rule disabled between admission and execution
+    // should stop the work, which is what disabling it means.
+    let team_id = payload.issue.resolved_team_id().unwrap_or_default();
+    let rules = super::agent_runtime::resolve_rules_for_team(&state, &connection, team_id)
         .await
-        .map_err(AdapterDeliveryFailure::from)
+        .map_err(AdapterDeliveryFailure::from)?;
+    if rules.is_empty() {
+        debug!(
+            issue = %payload.issue.identifier,
+            team_id,
+            "Linear issue update skipped: no active rule for the team"
+        );
+        return Ok(());
     }
+
+    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
+    super::agent_runtime::handle_issue_update(
+        &state,
+        &api,
+        &connection,
+        &rules,
+        payload.updated_from.as_ref(),
+        &payload.issue,
+        payload.delivered_at,
+    )
+    .await
+    .map_err(AdapterDeliveryFailure::from)
 }
 
-struct IssueUpdateHandler(AppState);
-
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for IssueUpdateHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let state = &self.0;
-        let payload: IssueUpdateDelivery = parse(delivery)?;
-        let connection = resolve_connection(state, &payload.connection_id).await?;
-
-        // Re-resolved rather than snapshotted, for the same reason the
-        // provisioning handler re-resolves: a rule disabled between admission
-        // and execution should stop the work, which is what disabling it means.
-        let team_id = payload.issue.resolved_team_id().unwrap_or_default();
-        let rules = super::agent_runtime::resolve_rules_for_team(state, &connection, team_id)
-            .await
-            .map_err(AdapterDeliveryFailure::from)?;
-        if rules.is_empty() {
-            debug!(
-                issue = %payload.issue.identifier,
-                team_id,
-                "Linear issue update skipped: no active rule for the team"
-            );
-            return Ok(());
-        }
-
-        let api = super::agent_runtime::agent_api(state, &connection.scope_value);
-        super::agent_runtime::handle_issue_update(
-            state,
-            &api,
-            &connection,
-            &rules,
-            payload.updated_from.as_ref(),
-            &payload.issue,
-            payload.delivered_at,
-        )
-        .await
-        .map_err(AdapterDeliveryFailure::from)
-    }
+async fn execute_comment(
+    state: AppState,
+    _delivery: crate::adapters::delivery::AdapterDelivery,
+    connection: AdapterConnection,
+    payload: CommentDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
+    super::agent_runtime::handle_comment_created(
+        &state,
+        &api,
+        &connection,
+        &payload.issue_id,
+        &payload.comment,
+    )
+    .await
+    .map_err(AdapterDeliveryFailure::from)
 }
 
-struct CommentHandler(AppState);
-
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for CommentHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let state = &self.0;
-        let payload: CommentDelivery = parse(delivery)?;
-        let connection = resolve_connection(state, &payload.connection_id).await?;
-        let api = super::agent_runtime::agent_api(state, &connection.scope_value);
-        super::agent_runtime::handle_comment_created(
-            state,
-            &api,
-            &connection,
-            &payload.issue_id,
-            &payload.comment,
-        )
-        .await
-        .map_err(AdapterDeliveryFailure::from)
+async fn execute_notification(
+    state: AppState,
+    _delivery: crate::adapters::delivery::AdapterDelivery,
+    connection: AdapterConnection,
+    payload: NotificationDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    // An action this adapter does not act on is a *successful* no-op, not a
+    // failure: the delivery arrived, it was recorded, and there was nothing to
+    // do with it. Ending the record any other way would put a delivery Linear
+    // sends routinely into an operator's failed-record queue.
+    if payload.action != "issueStatusChanged" {
+        warn!(
+            action = %payload.action,
+            org_id = connection.scope_value.as_str(),
+            notification_id = payload.notification.id.as_deref().unwrap_or(""),
+            notification_kind = payload.notification.kind.as_str(),
+            "Linear AppUserNotification: action not handled, nothing to do"
+        );
+        return Ok(());
     }
-}
 
-struct NotificationHandler(AppState);
-
-#[async_trait::async_trait]
-impl AdapterDeliveryHandler for NotificationHandler {
-    async fn execute(&self, delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
-        let state = &self.0;
-        let payload: NotificationDelivery = parse(delivery)?;
-        let connection = resolve_connection(state, &payload.connection_id).await?;
-
-        // An action this adapter does not act on is a *successful* no-op, not a
-        // failure: the delivery arrived, it was recorded, and there was nothing
-        // to do with it. Ending the record any other way would put a delivery
-        // Linear sends routinely into an operator's failed-record queue.
-        if payload.action != "issueStatusChanged" {
-            warn!(
-                action = %payload.action,
-                org_id = connection.scope_value.as_str(),
-                notification_id = payload.notification.id.as_deref().unwrap_or(""),
-                notification_kind = payload.notification.kind.as_str(),
-                "Linear AppUserNotification: action not handled, nothing to do"
-            );
-            return Ok(());
-        }
-
-        let api = super::agent_runtime::agent_api(state, &connection.scope_value);
-        super::agent_runtime::handle_issue_status_notification(
-            state,
-            &api,
-            &connection,
-            &payload.notification,
-        )
-        .await
-        .map_err(AdapterDeliveryFailure::from)
-    }
+    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
+    super::agent_runtime::handle_issue_status_notification(
+        &state,
+        &api,
+        &connection,
+        &payload.notification,
+    )
+    .await
+    .map_err(AdapterDeliveryFailure::from)
 }
 
 /// Log line shared by every admission site, so an operator can follow one
@@ -555,17 +535,7 @@ pub(super) fn log_admission(
     event_id: &str,
     admission: crate::adapters::delivery::Admission,
 ) {
-    match admission {
-        crate::adapters::delivery::Admission::Admitted => {
-            debug!(kind, event_id, "Linear delivery admitted");
-        }
-        crate::adapters::delivery::Admission::Duplicate => {
-            warn!(
-                kind,
-                event_id, "Linear delivery already admitted; nothing re-run"
-            );
-        }
-    }
+    crate::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
 }
 
 #[cfg(test)]

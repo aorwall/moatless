@@ -121,7 +121,7 @@ pub async fn handle_session_created(
     }
 
     let request = super::delivery::session_provision_request(event_id, &connection.id, session)?;
-    let admission = state.adapter_delivery.admit(request).await?;
+    let admission = crate::adapters::ingress::admit_delivery(state, request).await?;
     super::delivery::log_admission(super::delivery::SESSION_PROVISION, event_id, admission);
     Ok(())
 }

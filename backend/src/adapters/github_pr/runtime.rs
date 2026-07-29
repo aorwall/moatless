@@ -364,12 +364,12 @@ pub async fn route_inbound_message(
         )
     });
 
-    crate::bindings::runtime::fan_out(
+    crate::adapters::subject_events::route_subject_event(
         state,
         connection,
         &delivery_rule,
         &msg,
-        crate::bindings::runtime::Fanout {
+        crate::adapters::subject_events::SubjectEvent {
             provider_label: ADAPTER_LABEL,
             binding_provider: ADAPTER,
             subject_kind: SUBJECT_KIND,
