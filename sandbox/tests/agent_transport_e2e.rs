@@ -67,7 +67,7 @@ const TEST_MODEL: &str = "claude-haiku-4-5-20251001";
 const TEST_PROMPT: &str = "What is 2+2? Reply with only the number.";
 
 /// Codex model under test. `None` lets `codex_exec::resolve_codex_model` fall
-/// through to `DEFAULT_CODEX_MODEL` (`gpt-5.5`); override with `CODEX_TEST_MODEL`
+/// through to `DEFAULT_CODEX_MODEL` (`gpt-5.6-sol`); override with `CODEX_TEST_MODEL`
 /// to pin a cheaper model.
 fn codex_test_model() -> Option<String> {
     std::env::var("CODEX_TEST_MODEL").ok()

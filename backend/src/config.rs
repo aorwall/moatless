@@ -10,6 +10,10 @@ use std::str::FromStr;
 
 use serde::Deserialize;
 
+/// Default Codex model forwarded to sandbox agents when the deployment does not
+/// override `DEFAULT_CODEX_MODEL`.
+pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.6-sol";
+
 /// Which sandbox provider implementation to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SandboxProviderType {
@@ -1000,7 +1004,7 @@ impl Config {
                 node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
                 service_account_name: env_opt("K8S_SANDBOX_SERVICE_ACCOUNT"),
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
-                default_codex_model: env_opt("DEFAULT_CODEX_MODEL"),
+                default_codex_model: Some(env_str("DEFAULT_CODEX_MODEL", DEFAULT_CODEX_MODEL)),
                 extra_env: parse_extra_env("K8S_SANDBOX_EXTRA_ENV"),
                 cache_volumes: parse_cache_volumes("K8S_SANDBOX_CACHE_VOLUMES"),
                 cache_host_root: env_str("K8S_SANDBOX_CACHE_HOST_ROOT", "/mnt/cache"),
@@ -1378,7 +1382,7 @@ impl Config {
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,
-                default_codex_model: None,
+                default_codex_model: Some(DEFAULT_CODEX_MODEL.to_string()),
                 extra_env: vec![],
                 cache_volumes: vec![],
                 cache_host_root: "/mnt/cache".into(),
@@ -1544,6 +1548,18 @@ mod tests {
     fn auth_provider_display() {
         assert_eq!(AuthProvider::GitHub.to_string(), "github");
         assert_eq!(AuthProvider::Auth0.to_string(), "auth0");
+    }
+
+    #[test]
+    fn config_defaults_codex_model_to_gpt_56_sol() {
+        let previous = std::env::var("DEFAULT_CODEX_MODEL").ok();
+        std::env::remove_var("DEFAULT_CODEX_MODEL");
+        let model = env_str("DEFAULT_CODEX_MODEL", DEFAULT_CODEX_MODEL);
+        match previous {
+            Some(value) => std::env::set_var("DEFAULT_CODEX_MODEL", value),
+            None => std::env::remove_var("DEFAULT_CODEX_MODEL"),
+        }
+        assert_eq!(model, DEFAULT_CODEX_MODEL);
     }
 
     // =========================================================================

@@ -75,7 +75,7 @@ fn admin(user_id: &str) -> ScopeContext {
 fn defaults() -> AgentModelDefaults {
     AgentModelDefaults {
         claude_code: Some("claude-opus-4-5".into()),
-        codex: Some("gpt-5.5".into()),
+        codex: Some("gpt-5.6-sol".into()),
     }
 }
 
@@ -1184,7 +1184,7 @@ async fn a_codex_conversation_reports_the_codex_instance_and_default(pool: PgPoo
     let thread = thread(&pool, &viewer("user-1"), "t-codex").await;
     assert_decodable_thread(&thread);
     assert_eq!(thread["modelSelection"]["instanceId"], "codex");
-    assert_eq!(thread["modelSelection"]["model"], "gpt-5.5");
+    assert_eq!(thread["modelSelection"]["model"], "gpt-5.6-sol");
     assert_eq!(thread["session"]["providerInstanceId"], "codex");
 }
 

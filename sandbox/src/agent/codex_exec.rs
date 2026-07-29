@@ -441,12 +441,16 @@ pub struct TodoListEntry {
 /// Hardcoded final fallback model for Codex sessions.
 ///
 /// Used when neither the request, the repo `agent_config.model`, nor the
-/// `DEFAULT_CODEX_MODEL` env var supplies a model. Picked deliberately over
-/// the CLI's own auto-default: at the time of writing, the CLI's default
-/// (`gpt-5.2-codex`) is the only model in the 5.x family rejected by the
-/// ChatGPT-account Codex backend with HTTP 400 "model not supported",
-/// which silently breaks every ChatGPT-auth task.
-pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
+/// `DEFAULT_CODEX_MODEL` env var supplies a model. Keep this aligned with the
+/// backend's default so direct sandbox runs and orchestrated pods behave alike.
+pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.6-sol";
+
+/// Default Codex reasoning effort.
+pub const DEFAULT_CODEX_REASONING_EFFORT: &str = "high";
+
+fn codex_reasoning_effort_override() -> String {
+    format!("model_reasoning_effort={DEFAULT_CODEX_REASONING_EFFORT:?}")
+}
 
 /// Resolve the Codex model with the same priority as Claude:
 /// request > repo `agent_config.model` > `DEFAULT_CODEX_MODEL` env > hardcoded default.
@@ -489,6 +493,8 @@ pub async fn start(
     info!(model = %model, "Codex model resolved");
     command.arg("--model");
     command.arg(&model);
+    command.arg("-c");
+    command.arg(codex_reasoning_effort_override());
 
     let developer_instructions = build_prompt_append(config, request);
     command.arg("-c");
@@ -984,7 +990,10 @@ mod tests {
         let cfg = model_test_config(None, None);
         let req = model_test_request(None);
         assert_eq!(resolve_codex_model(&cfg, &req), DEFAULT_CODEX_MODEL);
-        // Sanity-check the chosen default is not the broken one.
-        assert_ne!(DEFAULT_CODEX_MODEL, "gpt-5.2-codex");
+        assert_eq!(DEFAULT_CODEX_MODEL, "gpt-5.6-sol");
+        assert_eq!(
+            codex_reasoning_effort_override(),
+            "model_reasoning_effort=\"high\""
+        );
     }
 }

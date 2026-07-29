@@ -958,7 +958,7 @@ mod tests {
     fn the_model_chain_ends_in_an_answer() {
         let defaults = AgentModelDefaults {
             claude_code: Some("claude-opus-4-5".to_string()),
-            codex: Some("gpt-5.5".to_string()),
+            codex: Some("gpt-5.6-sol".to_string()),
         };
         let mut row = conversation("task-a", "ws-a");
 

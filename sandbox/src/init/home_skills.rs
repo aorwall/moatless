@@ -102,7 +102,9 @@ fn copy_repo_skills(repo_skills: &Path, dst_skills: &Path) -> usize {
                 debug!(skill = %name.to_string_lossy(), dst = %dst.display(), "Copied repo skill into home dir");
                 copied += 1;
             }
-            Err(e) => warn!(dst = %dst.display(), error = %e, "Failed to copy repo skill into home dir"),
+            Err(e) => {
+                warn!(dst = %dst.display(), error = %e, "Failed to copy repo skill into home dir");
+            }
         }
     }
     copied
