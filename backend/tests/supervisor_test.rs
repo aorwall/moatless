@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
+use sqlx::postgres::PgPoolOptions;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
@@ -115,9 +116,16 @@ async fn wait_until(mut condition: impl FnMut() -> bool) {
 async fn ready_response(
     health: Arc<moatless_vibe_backend::supervisor::SupervisorHealth>,
 ) -> (StatusCode, serde_json::Value) {
+    ready_response_with_database(None, health).await
+}
+
+async fn ready_response_with_database(
+    database: Option<sqlx::PgPool>,
+    health: Arc<moatless_vibe_backend::supervisor::SupervisorHealth>,
+) -> (StatusCode, serde_json::Value) {
     // `events: None` isolates the supervisor's contribution to readiness from
     // the Redis health check the probe also performs.
-    let response = readiness_router(None, health)
+    let response = readiness_router(database, None, health)
         .oneshot(
             Request::builder()
                 .uri("/ready")
@@ -302,6 +310,22 @@ async fn a_required_worker_exit_flips_readiness_without_killing_the_process() {
         .await
         .expect("supervisor joined")
         .expect("not fatal");
+}
+
+#[tokio::test]
+async fn a_database_pool_that_cannot_serve_queries_flips_readiness() {
+    let cancel = CancellationToken::new();
+    let supervisor = Supervisor::new(cancel);
+    let health = supervisor.health();
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://readiness:readiness@127.0.0.1:1/readiness")
+        .expect("synthetic pool");
+    pool.close().await;
+
+    let (status, body) = ready_response_with_database(Some(pool), health).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["status"], "unavailable");
+    assert_eq!(body["component"], "database");
 }
 
 // =========================================================================

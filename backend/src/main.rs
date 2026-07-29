@@ -419,7 +419,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ui_rpc_router) = ui_rpc::router_from_env(
             config.auth.session_cookie_name.clone(),
             app_state.workspaces.clone(),
-            Arc::new(ui_rpc::dao::PgConversationRepository(app_state.db.clone())),
+            Arc::new(ui_rpc::dao::PgConversationRepository::new(
+                app_state.db.clone(),
+            )),
             ui_rpc::AgentModelDefaults {
                 claude_code: config.sandbox.default_model.clone(),
                 codex: config.sandbox.default_codex_model.clone(),
@@ -432,8 +434,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Domain routes registered");
 
         // Readiness probe — reports Redis connectivity and the root
-        // supervisor's view of readiness-critical background tasks.
+        // supervisor's view of readiness-critical background tasks, plus
+        // whether the main database pool can still serve work promptly.
         router = router.merge(startup::readiness_router(
+            Some(app_state.db.clone()),
             app_state.events.clone(),
             supervisor.health(),
         ));

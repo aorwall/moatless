@@ -4,6 +4,9 @@ use sqlx::postgres::PgPoolOptions;
 
 pub type DbPool = sqlx::PgPool;
 
+const POOL_CONNECTIONS: &str = "moatless_database_pool_connections";
+const READINESS_FAILURES: &str = "moatless_database_readiness_failures_total";
+
 /// How a pool reclaims idle connections.
 ///
 /// The main pool trims idle connections after ten minutes. The dedicated
@@ -38,8 +41,51 @@ pub async fn create_pool_kind(
     opts.connect(database_url).await
 }
 
+/// Register and refresh the main pool's operator-facing metrics.
+///
+/// SQLx exposes these values synchronously, so readiness can report pool
+/// starvation without first needing the connection whose absence it is trying
+/// to diagnose.
+pub fn record_pool_metrics(pool: &DbPool) {
+    let size = pool.size() as usize;
+    let idle = pool.num_idle();
+    let in_use = size.saturating_sub(idle);
+    let max = pool.options().get_max_connections();
+
+    metrics::describe_gauge!(
+        POOL_CONNECTIONS,
+        "SQLx main database pool connections by state"
+    );
+    metrics::describe_counter!(READINESS_FAILURES, "Database readiness failures by reason");
+    metrics::gauge!(POOL_CONNECTIONS, "state" => "open").set(size as f64);
+    metrics::gauge!(POOL_CONNECTIONS, "state" => "idle").set(idle as f64);
+    metrics::gauge!(POOL_CONNECTIONS, "state" => "in_use").set(in_use as f64);
+    metrics::gauge!(POOL_CONNECTIONS, "state" => "max").set(f64::from(max));
+}
+
+/// Count one failed database readiness check.
+pub fn record_readiness_failure(reason: &'static str) {
+    metrics::counter!(READINESS_FAILURES, "reason" => reason).increment(1);
+}
+
 /// Run pending SQL migrations from `./migrations/`.
 /// Uses PostgreSQL advisory locks — safe for concurrent replicas.
 pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!("./migrations").run(pool).await
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn shell_index_migrations_run_outside_a_transaction() {
+        let migrations = sqlx::migrate!();
+
+        for version in 107..=110 {
+            let migration = migrations
+                .iter()
+                .find(|migration| migration.version == version)
+                .expect("shell index migration");
+            assert!(migration.no_tx, "migration {version}");
+        }
+    }
 }

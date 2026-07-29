@@ -9,9 +9,14 @@
 //! No T3 vocabulary appears in this file. The names are Moatless's; the
 //! translation belongs one module up.
 
+use std::sync::Arc;
+use std::time::Instant;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
+use tokio::sync::Semaphore;
+use tracing::warn;
 
 use crate::db::DbPool;
 use crate::shared_models::AgentType;
@@ -119,7 +124,20 @@ pub trait ConversationRepository: Send + Sync {
     ) -> Result<Vec<ListingChange>, sqlx::Error>;
 }
 
-pub struct PgConversationRepository(pub DbPool);
+/// A full shell snapshot is a deployment-sized read with no pagination in T3's
+/// contract. One may run per backend replica; live change re-reads are narrowed
+/// by task id and do not take this permit. This reserves the rest of the main
+/// pool for task control, ingress, and reconciliation under shell overload.
+#[derive(Clone)]
+pub struct PgConversationRepository {
+    pool: DbPool,
+    full_listing: Arc<Semaphore>,
+}
+
+const FULL_LISTING_CONCURRENCY: usize = 1;
+const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
+const LISTING_DURATION: &str = "moatless_ui_shell_listing_duration_seconds";
+const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejections_total";
 
 /// Tool calls the agent uses to hand the conversation back to a person. An
 /// unanswered one is what "the agent is waiting" means in this backend.
@@ -127,6 +145,21 @@ const QUESTION_TOOL: &str = "AskUserQuestion";
 const PLAN_TOOL: &str = "ExitPlanMode";
 
 impl PgConversationRepository {
+    pub fn new(pool: DbPool) -> Self {
+        metrics::describe_histogram!(
+            LISTING_DURATION,
+            "Full T3 shell listing duration by outcome"
+        );
+        metrics::describe_counter!(
+            LISTING_REJECTIONS,
+            "Full T3 shell listings rejected before completion by reason"
+        );
+        Self {
+            pool,
+            full_listing: Arc::new(Semaphore::new(FULL_LISTING_CONCURRENCY)),
+        }
+    }
+
     /// The one listing query, optionally narrowed to a set of Tasks.
     ///
     /// Narrowing is a `WHERE` clause on the same query rather than a second one
@@ -138,6 +171,22 @@ impl PgConversationRepository {
         viewer: &ScopeContext,
         task_ids: Option<&[String]>,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
+        let full_listing = task_ids.is_none();
+        let _permit = if full_listing {
+            let Ok(permit) = self.full_listing.try_acquire() else {
+                metrics::counter!(LISTING_REJECTIONS, "reason" => "at_capacity").increment(1);
+                warn!(
+                    user_id = %viewer.user_id,
+                    "T3 UI shell listing rejected; another full listing is in progress"
+                );
+                return Err(sqlx::Error::PoolTimedOut);
+            };
+            Some(permit)
+        } else {
+            None
+        };
+        let started = full_listing.then(Instant::now);
+
         // `$1`/`$2` are the access filter's admin flag and user id; `$3` is the
         // follower. The read rule is the shared fragment rather than a copy, so
         // a change to what "may read" means reaches this listing too.
@@ -149,7 +198,14 @@ impl PgConversationRepository {
             .map(|_| format!("\n                 AND t.task_id = ANY(${})", plan_tool + 1))
             .unwrap_or_default();
         let sql = format!(
-            r#"SELECT
+            r#"WITH listed AS MATERIALIZED (
+                   SELECT t.*
+                   FROM task_follows tf
+                   JOIN tasks t ON t.task_id = tf.task_id
+                   WHERE tf.user_id = ${follower}
+                     AND {}{narrowed}
+               )
+               SELECT
                    t.task_id,
                    t.workspace_id,
                    t.name,
@@ -171,7 +227,7 @@ impl PgConversationRepository {
                    model.requested_model,
                    COALESCE(pending.question, false) AS pending_question,
                    COALESCE(pending.plan, false)     AS pending_plan
-               FROM tasks t
+               FROM listed t
                LEFT JOIN sandboxes s ON s.task_id = t.task_id
                LEFT JOIN LATERAL (
                    SELECT tt.turn_number, tt.status, tt.started_at, tt.ended_at
@@ -181,10 +237,12 @@ impl PgConversationRepository {
                    LIMIT 1
                ) turn ON TRUE
                LEFT JOIN LATERAL (
-                   SELECT MAX(m.created_at) AS latest_user_message_at
+                   SELECT m.created_at AS latest_user_message_at
                    FROM task_messages m
                    WHERE m.task_id = t.task_id
                      AND m.message_type = 'user'
+                   ORDER BY m.created_at DESC
+                   LIMIT 1
                ) person ON TRUE
                -- UNCERTAIN: `task_messages."timestamp"` is `text`, so every
                -- ORDER BY below is a lexicographic sort standing in for a
@@ -226,12 +284,13 @@ impl PgConversationRepository {
                -- question the agent then wrote past stops counting as pending,
                -- which is the narrow reading: the agent has moved on.
                --
-               -- "Newest" is `MAX(id)`, and `id` is a `bigserial` assigned at
-               -- INSERT but made visible at COMMIT, so a concurrent writer can
-               -- make this flag stale: the read computes it from message 100
-               -- while 101 is still committing. That is acceptable because it
-               -- is a point-in-time read that advances nothing — the next
-               -- snapshot sees 101 and is correct, so it is self-healing.
+               -- "Newest" is the highest `id`, and `id` is a `bigserial`
+               -- assigned at INSERT but made visible at COMMIT, so a concurrent
+               -- writer can make this flag stale: the read computes it from
+               -- message 100 while 101 is still committing. That is acceptable
+               -- because it is a point-in-time read that advances nothing —
+               -- the next snapshot sees 101 and is correct, so it is
+               -- self-healing.
                --
                -- It is **not** the hazard a polling cursor (`WHERE id > N`)
                -- has, which is the same mechanism with a different
@@ -251,10 +310,12 @@ impl PgConversationRepository {
                        FROM task_messages a,
                             LATERAL jsonb_array_elements(a.message_content) block
                        WHERE a.id = (
-                               SELECT MAX(newest.id)
+                               SELECT newest.id
                                FROM task_messages newest
                                WHERE newest.task_id = t.task_id
                                  AND newest.message_type = 'assistant'
+                               ORDER BY newest.id DESC
+                               LIMIT 1
                              )
                          AND jsonb_typeof(a.message_content) = 'array'
                          AND block->>'type' = 'tool_use'
@@ -270,12 +331,6 @@ impl PgConversationRepository {
                          AND reply->>'tool_use_id' = raised.tool_use_id
                    )
                ) pending ON TRUE
-               WHERE {}
-                 AND EXISTS (
-                     SELECT 1 FROM task_follows tf
-                     WHERE tf.task_id = t.task_id
-                       AND tf.user_id = ${follower}
-                 ){narrowed}
                -- Determinism for this query's own output, and nothing more.
                -- This is *not* the sidebar's order: T3 sorts client-side, in
                -- `resolveSettledTimestamp` (`Sidebar.logic.ts:484-502`), from
@@ -294,10 +349,36 @@ impl PgConversationRepository {
             .bind(&viewer.user_id)
             .bind(QUESTION_TOOL)
             .bind(PLAN_TOOL);
-        match task_ids {
-            Some(task_ids) => query.bind(task_ids.to_vec()).fetch_all(&self.0).await,
-            None => query.fetch_all(&self.0).await,
+        let result = match task_ids {
+            Some(task_ids) => query.bind(task_ids.to_vec()).fetch_all(&self.pool).await,
+            None => {
+                async {
+                    let mut tx = self.pool.begin().await?;
+                    sqlx::query("SELECT set_config('statement_timeout', $1, true)")
+                        .bind(FULL_LISTING_STATEMENT_TIMEOUT)
+                        .execute(&mut *tx)
+                        .await?;
+                    let rows = query.fetch_all(&mut *tx).await?;
+                    tx.commit().await?;
+                    Ok(rows)
+                }
+                .await
+            }
+        };
+        if let Some(started) = started {
+            let outcome = match &result {
+                Ok(_) => "ok",
+                Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("57014") => {
+                    metrics::counter!(LISTING_REJECTIONS, "reason" => "statement_timeout")
+                        .increment(1);
+                    "statement_timeout"
+                }
+                Err(_) => "error",
+            };
+            metrics::histogram!(LISTING_DURATION, "outcome" => outcome)
+                .record(started.elapsed().as_secs_f64());
         }
+        result
     }
 }
 
@@ -322,7 +403,7 @@ impl ConversationRepository for PgConversationRepository {
     }
 
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
-        task_listing::current_head(&self.0).await
+        task_listing::current_head(&self.pool).await
     }
 
     async fn listing_changes_after(
@@ -330,6 +411,6 @@ impl ConversationRepository for PgConversationRepository {
         after: i64,
         limit: i64,
     ) -> Result<Vec<ListingChange>, sqlx::Error> {
-        task_listing::changes_after(&self.0, after, limit).await
+        task_listing::changes_after(&self.pool, after, limit).await
     }
 }

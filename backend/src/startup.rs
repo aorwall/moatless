@@ -132,6 +132,7 @@ pub async fn init_database(
     for attempt in 1..=MAX_ATTEMPTS {
         match db::create_pool(url, max_connections).await {
             Ok(pool) => {
+                db::record_pool_metrics(&pool);
                 info!("Database pool initialized");
                 if run_migrations {
                     if let Err(e) = db::run_migrations(&pool).await {
@@ -462,16 +463,19 @@ async fn shutdown_signal() {
 ///
 /// Distinct from `/health`, which is a pure liveness probe (process up). The
 /// probe reports unavailable when a readiness-critical supervised task has
-/// terminated, or when Redis is unreachable — task creation degrades silently
-/// when event publishes time out. Either way Kubernetes sheds traffic to a
-/// replica that can still do the work.
+/// terminated, the main database pool cannot serve a trivial query promptly, or
+/// Redis is unreachable — task creation degrades silently when event publishes
+/// time out. Either way Kubernetes sheds traffic to a replica that can still do
+/// the work.
 pub fn readiness_router(
+    database: Option<DbPool>,
     events: Option<Arc<dyn EventPublisher>>,
     supervisor: Arc<crate::supervisor::SupervisorHealth>,
 ) -> Router {
     Router::new().route(
         "/ready",
         axum::routing::get(move || {
+            let database = database.clone();
             let events = events.clone();
             let supervisor = Arc::clone(&supervisor);
             async move {
@@ -490,6 +494,47 @@ pub fn readiness_router(
                         })),
                     )
                         .into_response();
+                }
+
+                if let Some(pool) = database {
+                    db::record_pool_metrics(&pool);
+                    match tokio::time::timeout(
+                        std::time::Duration::from_millis(500),
+                        sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&pool),
+                    )
+                    .await
+                    {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(error)) => {
+                            db::record_readiness_failure("query");
+                            tracing::warn!(
+                                error = %error,
+                                "Readiness probe: database unavailable"
+                            );
+                            return (
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                axum::Json(serde_json::json!({
+                                    "status": "unavailable",
+                                    "component": "database"
+                                })),
+                            )
+                                .into_response();
+                        }
+                        Err(_) => {
+                            db::record_readiness_failure("timeout");
+                            tracing::warn!(
+                                "Readiness probe: database pool did not answer within 500ms"
+                            );
+                            return (
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                axum::Json(serde_json::json!({
+                                    "status": "unavailable",
+                                    "component": "database"
+                                })),
+                            )
+                                .into_response();
+                        }
+                    }
                 }
 
                 match events {

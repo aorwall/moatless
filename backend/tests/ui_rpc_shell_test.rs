@@ -15,7 +15,9 @@
 
 mod common;
 
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
 use futures::future::BoxFuture;
@@ -85,7 +87,7 @@ fn defaults() -> AgentModelDefaults {
 async fn snapshot(pool: &PgPool, viewer: &ScopeContext) -> Value {
     match shell_snapshot(
         &PgWorkspaceRepository(pool.clone()),
-        &PgConversationRepository(pool.clone()),
+        &PgConversationRepository::new(pool.clone()),
         &defaults(),
         viewer,
     )
@@ -506,7 +508,7 @@ async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
     let router = router_from_env(
         "moatless_session".into(),
         Arc::new(PgWorkspaceRepository(pool.clone())),
-        Arc::new(PgConversationRepository(pool)),
+        Arc::new(PgConversationRepository::new(pool)),
         defaults(),
     )
     .await
@@ -628,7 +630,7 @@ async fn the_repositorys_own_server_config_projects_to_decodable_scripts(pool: P
 /// wrong*; failing in a seeded test with an empty result says nothing.
 #[sqlx::test]
 async fn postgres_accepts_the_conversation_query(pool: PgPool) {
-    let repository = PgConversationRepository(pool);
+    let repository = PgConversationRepository::new(pool);
     for viewer in [viewer("user-1"), admin("root")] {
         let listed = repository
             .list_followed(&viewer)
@@ -638,6 +640,99 @@ async fn postgres_accepts_the_conversation_query(pool: PgPool) {
             });
         assert!(listed.is_empty(), "nothing is seeded");
     }
+}
+
+/// The production incident's exact failure shape, against a real Postgres:
+/// one shell query blocked in the database, then another snapshot arriving at
+/// the same backend replica.
+///
+/// The second request must be rejected before it acquires a pool connection,
+/// and PostgreSQL itself must cancel the first query after five seconds. Before
+/// the execution guard this test's second read waited for the pool timeout;
+/// before the statement timeout the first read stayed blocked until the test's
+/// outer deadline.
+#[sqlx::test]
+async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
+    let mut blocker = pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE tasks IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+
+    let listing_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(pool.connect_options().as_ref().clone())
+        .await
+        .unwrap();
+    let repository = Arc::new(PgConversationRepository::new(listing_pool));
+    let running_repository = Arc::clone(&repository);
+    let running =
+        tokio::spawn(async move { running_repository.list_followed(&viewer("user-1")).await });
+
+    // The first read has a connection immediately and blocks when it reaches
+    // `tasks`. Give it time to take the repository's full-listing permit.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let rejected_at = Instant::now();
+    let rejected = repository
+        .list_followed(&viewer("user-1"))
+        .await
+        .expect_err("a second full listing must not enter PostgreSQL");
+    assert!(matches!(rejected, sqlx::Error::PoolTimedOut));
+    assert!(
+        rejected_at.elapsed() < Duration::from_secs(1),
+        "overload was queued until a pool timeout instead of rejected"
+    );
+
+    let timed_out = tokio::time::timeout(Duration::from_secs(7), running)
+        .await
+        .expect("the database statement timeout did not fire")
+        .expect("listing task panicked")
+        .expect_err("the blocked listing unexpectedly completed");
+    match timed_out {
+        sqlx::Error::Database(error) => {
+            assert_eq!(error.code().as_deref(), Some("57014"), "{error}");
+        }
+        other => panic!("expected PostgreSQL query cancellation, got {other:?}"),
+    }
+
+    blocker.rollback().await.unwrap();
+
+    let listed = repository
+        .list_followed(&viewer("user-1"))
+        .await
+        .expect("the timed-out connection must return to the pool");
+    assert!(listed.is_empty());
+}
+
+/// Each per-conversation message lookup in the full listing has a purpose-built
+/// partial index. Naming them here makes a dropped migration fail the database
+/// tier instead of returning as a production query-plan regression.
+#[sqlx::test]
+async fn the_shell_message_lookups_have_dedicated_indexes(pool: PgPool) {
+    let expected: HashSet<String> = [
+        "task_messages_latest_user_created_idx",
+        "task_messages_latest_assistant_idx",
+        "task_messages_turn_assistant_model_idx",
+        "task_messages_turn_requested_model_idx",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect();
+    let names: HashSet<String> = sqlx::query_scalar(
+        "SELECT indexname
+         FROM pg_indexes
+         WHERE schemaname = current_schema()
+           AND indexname = ANY($1)",
+    )
+    .bind(expected.iter().cloned().collect::<Vec<_>>())
+    .fetch_all(&pool)
+    .await
+    .unwrap()
+    .into_iter()
+    .collect();
+
+    assert_eq!(names, expected);
 }
 
 /// The one project every matrix conversation lives in. Its own readability is
@@ -1294,7 +1389,7 @@ async fn seed_live_project(pool: &PgPool) {
 async fn watching(pool: &PgPool, viewer: &ScopeContext) -> ShellFeed {
     let snapshot = shell_snapshot(
         &PgWorkspaceRepository(pool.clone()),
-        &PgConversationRepository(pool.clone()),
+        &PgConversationRepository::new(pool.clone()),
         &defaults(),
         viewer,
     )
@@ -1311,7 +1406,7 @@ async fn watching(pool: &PgPool, viewer: &ScopeContext) -> ShellFeed {
 async fn delivered(pool: &PgPool, feed: &mut ShellFeed, viewer: &ScopeContext) -> Vec<Value> {
     feed.poll(
         &PgWorkspaceRepository(pool.clone()),
-        &PgConversationRepository(pool.clone()),
+        &PgConversationRepository::new(pool.clone()),
         &defaults(),
         viewer,
     )
@@ -1369,7 +1464,7 @@ async fn ingress(pool: &PgPool, task_id: &str, turn_number: i32, event_type: &st
 /// ever recorded, and a filtering assertion means nothing if the change the
 /// viewer should not see was never written.
 async fn recorded_after(pool: &PgPool, after: i64) -> usize {
-    PgConversationRepository(pool.clone())
+    PgConversationRepository::new(pool.clone())
         .listing_changes_after(after, 100)
         .await
         .unwrap()
@@ -1444,7 +1539,7 @@ async fn a_burst_on_one_conversation_delivers_one_row(pool: PgPool) {
 
     let viewer = viewer("user-1");
     let mut feed = watching(&pool, &viewer).await;
-    let watched_from = PgConversationRepository(pool.clone())
+    let watched_from = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -1488,7 +1583,7 @@ async fn a_change_reaches_only_the_clients_whose_listing_holds_it(pool: PgPool) 
 
     let viewer = viewer("user-1");
     let mut feed = watching(&pool, &viewer).await;
-    let watched_from = PgConversationRepository(pool.clone())
+    let watched_from = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -1626,7 +1721,7 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     let refused = feed
         .poll(
             &PgWorkspaceRepository(pool.clone()),
-            &RefusesTheRowRead(PgConversationRepository(pool.clone())),
+            &RefusesTheRowRead(PgConversationRepository::new(pool.clone())),
             &defaults(),
             &viewer,
         )
@@ -1660,7 +1755,7 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     let refused = feed
         .poll(
             &PgWorkspaceRepository(gone),
-            &PgConversationRepository(pool.clone()),
+            &PgConversationRepository::new(pool.clone()),
             &defaults(),
             &viewer,
         )
@@ -1681,7 +1776,7 @@ async fn each_delivery_carries_a_position_past_the_one_before_it(pool: PgPool) {
     let viewer = viewer("user-1");
     let snapshot = shell_snapshot(
         &PgWorkspaceRepository(pool.clone()),
-        &PgConversationRepository(pool.clone()),
+        &PgConversationRepository::new(pool.clone()),
         &defaults(),
         &viewer,
     )
@@ -1708,7 +1803,7 @@ async fn each_delivery_carries_a_position_past_the_one_before_it(pool: PgPool) {
     assert!(finished > started);
     assert_eq!(
         finished,
-        PgConversationRepository(pool.clone())
+        PgConversationRepository::new(pool.clone())
             .listing_head()
             .await
             .unwrap()
@@ -1778,7 +1873,7 @@ async fn reconnect_to(
 ) -> (Vec<Value>, ShellFeed) {
     let subscription = shell_subscription(
         &PgWorkspaceRepository(pool.clone()),
-        &PgConversationRepository(pool.clone()),
+        &PgConversationRepository::new(pool.clone()),
         &defaults(),
         viewer,
         environment,
@@ -1820,7 +1915,7 @@ async fn a_client_that_missed_changes_is_replayed_rather_than_rebuilt(pool: PgPo
     let viewer = viewer("user-1");
 
     // It read the listing, then the connection dropped.
-    let held = PgConversationRepository(pool.clone())
+    let held = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -1881,7 +1976,7 @@ async fn a_caught_up_client_is_replayed_nothing_and_still_hears_what_comes_next(
     // A change happens, and the client's position is taken *after* it — so this
     // is the change that produced the position it holds.
     let turn = start_turn(&pool, "t-live", "run-1").await;
-    let held = PgConversationRepository(pool.clone())
+    let held = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -1935,13 +2030,13 @@ async fn a_gap_too_large_to_replay_is_a_fresh_listing_and_silence_is_not(pool: P
 
     // Someone who has been away a long time: their position, then more changes
     // than the resume window keeps.
-    let stale = PgConversationRepository(pool.clone())
+    let stale = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
         .position;
     other_peoples_work(&pool, RESUME_WINDOW + 1).await;
-    let head = PgConversationRepository(pool.clone())
+    let head = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -1986,7 +2081,7 @@ async fn the_resume_window_is_exclusive_at_exactly_its_own_width(pool: PgPool) {
     let viewer = viewer("user-1");
 
     other_peoples_work(&pool, RESUME_WINDOW + 1).await;
-    let head = PgConversationRepository(pool.clone())
+    let head = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -2022,7 +2117,7 @@ async fn a_position_the_deployment_has_never_reached_is_rebuilt_not_answered_wit
     seed_task(&pool, "t-live", "user-1", Some("ws-live")).await;
     let viewer = viewer("user-1");
 
-    let head = PgConversationRepository(pool.clone())
+    let head = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -2073,7 +2168,7 @@ async fn a_replay_does_not_carry_changes_the_viewer_may_not_see(pool: PgPool) {
     seed_task(&pool, "t-theirs", "user-2", Some("ws-live")).await;
     let viewer = viewer("user-1");
 
-    let held = PgConversationRepository(pool.clone())
+    let held = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -2645,7 +2740,7 @@ async fn descriptor(pool: &PgPool) -> Value {
     let router = router_from_env(
         "moatless_session".into(),
         Arc::new(PgWorkspaceRepository(pool.clone())),
-        Arc::new(PgConversationRepository(pool.clone())),
+        Arc::new(PgConversationRepository::new(pool.clone())),
         defaults(),
     )
     .await
@@ -2810,7 +2905,7 @@ impl Held {
     async fn opening(pool: &PgPool, viewer: &ScopeContext) -> Self {
         let snapshot = shell_snapshot(
             &PgWorkspaceRepository(pool.clone()),
-            &PgConversationRepository(pool.clone()),
+            &PgConversationRepository::new(pool.clone()),
             &defaults(),
             viewer,
         )
@@ -2933,7 +3028,7 @@ async fn a_removal_names_only_a_conversation_this_client_was_sent(pool: PgPool) 
     let watcher_viewer = viewer("user-2");
     let (mut feed, mut held) = watcher(&pool, &watcher_viewer).await;
     assert_eq!(held.threads, ["t-mine"], "they hold their own and nothing else");
-    let watched_from = PgConversationRepository(pool.clone())
+    let watched_from = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -3165,7 +3260,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
         // Watch from after the seeding, so the only change the feed can carry
         // is the one this case makes.
         let mut feed = watching(&pool, &viewer).await;
-        let watched_from = PgConversationRepository(pool.clone())
+        let watched_from = PgConversationRepository::new(pool.clone())
             .listing_head()
             .await
             .unwrap()
@@ -3301,7 +3396,7 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
 
     let viewer = viewer("user-1");
     let (mut feed, held) = watcher(&pool, &viewer).await;
-    let before = PgConversationRepository(pool.clone())
+    let before = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -3325,7 +3420,7 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
     }
 
     assert_eq!(
-        PgConversationRepository(pool.clone())
+        PgConversationRepository::new(pool.clone())
             .listing_head()
             .await
             .unwrap()
@@ -3530,7 +3625,7 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
         !held.projects.contains(&"ws-other".to_string()),
         "`ws-other` belongs to `user-2`"
     );
-    let watched_from = PgConversationRepository(pool.clone())
+    let watched_from = PgConversationRepository::new(pool.clone())
         .listing_head()
         .await
         .unwrap()
@@ -3826,7 +3921,7 @@ async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
     let watcher_viewer = viewer("user-1");
 
     // The premise, stated against the query a reconstruction would use.
-    let followed = PgConversationRepository(pool.clone())
+    let followed = PgConversationRepository::new(pool.clone())
         .list_followed(&watcher_viewer)
         .await
         .unwrap();

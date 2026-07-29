@@ -296,7 +296,7 @@ async fn shell_snapshot_http(
         Err(error) => {
             error!(%error, user_id = %identity.user_id, "Failed to assemble T3 UI shell snapshot");
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
+                shell_failure_status(&error),
                 Json(json!({ "error": "Failed to assemble the shell listing" })),
             )
                 .into_response()
@@ -1260,6 +1260,19 @@ fn failure_exit(request_id: &str, defect: impl Into<String>) -> Value {
 fn shell_failure_exit(request_id: &str, error: &sqlx::Error, identity: &AuthIdentity) -> Value {
     error!(%error, user_id = %identity.user_id, "Failed to assemble T3 UI shell snapshot");
     failure_exit(request_id, "Failed to assemble the shell listing")
+}
+
+/// Capacity and PostgreSQL statement cancellation are transient overload, not
+/// malformed requests or permanent server defects. HTTP clients may retry them;
+/// every other database error remains an internal failure.
+fn shell_failure_status(error: &sqlx::Error) -> StatusCode {
+    match error {
+        sqlx::Error::PoolTimedOut => StatusCode::SERVICE_UNAVAILABLE,
+        sqlx::Error::Database(error) if error.code().as_deref() == Some("57014") => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 fn unsupported_exit(request_id: &str, tag: &str) -> Value {
