@@ -21,6 +21,13 @@ pub struct InsertTaskEvent {
     pub timestamp: String,
 }
 
+/// Latest successful S3 workspace upload reported by a sandbox.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceSyncUpload {
+    pub bytes: i64,
+    pub created_at: DateTime<Utc>,
+}
+
 /// A task with an unclosed turn. The authoritative reaper query now lives on
 /// the `task_turns` table ([`crate::task_turn::dao::TaskTurnRepository::list_unclosed_active_turns`]);
 /// this module keeps the event-log-derived [`TaskEventRepository::active_turn_for_task`]
@@ -102,6 +109,16 @@ pub trait TaskEventRepository: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+
+    /// Return the task's most recent successful workspace upload marker.
+    ///
+    /// These markers are written from `ReportWorkspaceSync` after the sandbox
+    /// completes a direct S3 upload. A present row means the backend has durable
+    /// evidence that workspace data reached S3 before a later pod death.
+    async fn latest_successful_workspace_upload(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<WorkspaceSyncUpload>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskEventRepository`].
@@ -282,5 +299,27 @@ impl TaskEventRepository for PgTaskEventRepository {
         .await?;
 
         Ok(rows.into_iter().collect())
+    }
+
+    async fn latest_successful_workspace_upload(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<WorkspaceSyncUpload>, sqlx::Error> {
+        let row: Option<(i64, DateTime<Utc>)> = sqlx::query_as(
+            r#"SELECT COALESCE((payload::jsonb ->> 'bytes')::bigint, 0) AS bytes, created_at
+               FROM task_events
+               WHERE task_id = $1
+                 AND type = 'sandbox'
+                 AND sub_type = 'workspace_synced'
+                 AND payload::jsonb ->> 'direction' = 'upload'
+                 AND COALESCE((payload::jsonb ->> 'ok')::boolean, false)
+               ORDER BY created_at DESC, id DESC
+               LIMIT 1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.0)
+        .await?;
+
+        Ok(row.map(|(bytes, created_at)| WorkspaceSyncUpload { bytes, created_at }))
     }
 }

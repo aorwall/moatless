@@ -149,3 +149,57 @@ async fn seed_task_only(pool: &PgPool, task_id: &str) {
     let task = make_task_row(task_id, "user-1");
     task_dao::insert_task(pool, &task).await.expect("seed task");
 }
+
+async fn log_workspace_sync(
+    repo: &PgTaskEventRepository,
+    task_id: &str,
+    event_id: &str,
+    direction: &str,
+    ok: bool,
+    bytes: i64,
+) {
+    repo.insert_event(&InsertTaskEvent {
+        event_id: event_id.to_string(),
+        task_id: task_id.to_string(),
+        event_type: "sandbox".to_string(),
+        sub_type: "workspace_synced".to_string(),
+        is_error: false,
+        agent_type: None,
+        turn_number: None,
+        payload: serde_json::json!({
+            "direction": direction,
+            "bytes": bytes,
+            "durationMs": 100,
+            "ok": ok,
+        }),
+        timestamp: "2026-07-12T00:00:00.000Z".to_string(),
+    })
+    .await
+    .expect("log workspace sync");
+}
+
+#[sqlx::test]
+async fn latest_successful_workspace_upload_ignores_downloads_and_failures(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskEventRepository(pool.clone());
+
+    log_workspace_sync(&repo, "task-a", "download-ok", "download", true, 11).await;
+    log_workspace_sync(&repo, "task-a", "upload-failed", "upload", false, 22).await;
+    assert!(
+        repo.latest_successful_workspace_upload("task-a")
+            .await
+            .unwrap()
+            .is_none(),
+        "only a successful upload proves current workspace data reached S3"
+    );
+
+    log_workspace_sync(&repo, "task-a", "upload-ok-1", "upload", true, 33).await;
+    log_workspace_sync(&repo, "task-a", "upload-ok-2", "upload", true, 44).await;
+
+    let latest = repo
+        .latest_successful_workspace_upload("task-a")
+        .await
+        .unwrap()
+        .expect("successful upload marker");
+    assert_eq!(latest.bytes, 44);
+}

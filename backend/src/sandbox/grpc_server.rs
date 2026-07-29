@@ -52,7 +52,7 @@ use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
 use crate::task::dao::TaskRepository;
 use crate::task::relations::TaskRelationRepository;
-use crate::task_event::dao::TaskEventRepository;
+use crate::task_event::dao::{InsertTaskEvent, TaskEventRepository};
 use crate::task_turn::dao::{TaskTurnRepository, TurnStateEvent};
 use crate::task_turn::models::{classify_turn_transition, TurnStatus};
 use crate::workspace::dao::WorkspaceRepository;
@@ -1540,6 +1540,35 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             std::time::Duration::from_millis(req.duration_ms.max(0) as u64),
             req.ok,
         );
+
+        if req.ok && req.direction == "upload" {
+            if let Some(ref task_events) = self.task_events {
+                let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                let event = InsertTaskEvent {
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                    task_id: req.task_id.clone(),
+                    event_type: "sandbox".to_string(),
+                    sub_type: "workspace_synced".to_string(),
+                    is_error: false,
+                    agent_type: None,
+                    turn_number: None,
+                    payload: serde_json::json!({
+                        "direction": req.direction,
+                        "bytes": req.bytes.max(0),
+                        "durationMs": req.duration_ms.max(0),
+                        "ok": true,
+                    }),
+                    timestamp: now,
+                };
+                if let Err(e) = task_events.insert_event(&event).await {
+                    warn!(
+                        task_id = %req.task_id,
+                        error = %e,
+                        "Failed to persist successful workspace sync marker"
+                    );
+                }
+            }
+        }
 
         debug!(
             task_id = %req.task_id,

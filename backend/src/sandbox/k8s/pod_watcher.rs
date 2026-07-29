@@ -793,6 +793,9 @@ async fn process_watcher_event(
                 if let Some(ref disruption) = new_state.disruption_reason {
                     parts.push(format!("Disruption: `{disruption}`"));
                 }
+                if let Some(note) = workspace_preservation_note(deps, &task_id).await {
+                    parts.push(note);
+                }
                 if let Some(ref logs) = logs {
                     parts.push(format!("Container logs:\n```\n{logs}\n```"));
                 }
@@ -803,9 +806,9 @@ async fn process_watcher_event(
                         &task_id,
                         SandboxStatus::Error,
                         &SandboxEventPayload {
-                            message: detailed_message,
+                            message: detailed_message.clone(),
                             lifecycle_event: Some("fatal".to_string()),
-                            error: Some(error_msg),
+                            error: Some(detailed_message),
                             exit_code,
                             terminated_reason,
                             node_name: new_state.node_name.clone(),
@@ -1743,7 +1746,7 @@ async fn emit_turn_interrupted_if_active(
         }
     };
 
-    let message = match cause {
+    let mut message = match cause {
         Some(c) => format!(
             "Turn interrupted — sandbox pod terminated involuntarily ({c}). Resuming when it reschedules."
         ),
@@ -1752,6 +1755,10 @@ async fn emit_turn_interrupted_if_active(
                 .to_string()
         }
     };
+    if let Some(note) = workspace_preservation_note(deps, task_id).await {
+        message.push('\n');
+        message.push_str(&note);
+    }
     let mut payload = serde_json::json!({ "message": message });
     if let Some(c) = cause {
         payload["reason"] = serde_json::Value::String(c.to_string());
@@ -1772,6 +1779,45 @@ async fn emit_turn_interrupted_if_active(
             payload,
         )
         .await;
+}
+
+async fn workspace_preservation_note(deps: &WatcherDeps, task_id: &str) -> Option<String> {
+    let task_events = deps.task_events.as_ref()?;
+    match task_events
+        .latest_successful_workspace_upload(task_id)
+        .await
+    {
+        Ok(Some(upload)) => {
+            let synced_at = upload
+                .created_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            Some(format!(
+                "Workspace data was synced to S3 before termination; the latest preserved archive was uploaded at `{synced_at}` ({}).",
+                format_bytes(upload.bytes.max(0) as u64)
+            ))
+        }
+        Ok(None) => None,
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to read workspace sync marker for termination message");
+            None
+        }
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = KIB * 1024;
+    const GIB: u64 = MIB * 1024;
+
+    if bytes >= GIB {
+        format!("{:.1} GiB", bytes as f64 / GIB as f64)
+    } else if bytes >= MIB {
+        format!("{:.1} MiB", bytes as f64 / MIB as f64)
+    } else if bytes >= KIB {
+        format!("{:.1} KiB", bytes as f64 / KIB as f64)
+    } else {
+        format!("{bytes} B")
+    }
 }
 
 /// Periodic sweep over tracked pods that emits the threshold-driven visibility
@@ -2186,5 +2232,12 @@ mod tests {
         )]));
         let state = extract_pod_observed_state(&pod, "pod-1", "task-1");
         assert_eq!(state.operation_generation, Some(OperationGeneration(12)));
+    }
+
+    #[test]
+    fn format_bytes_uses_binary_units() {
+        assert_eq!(format_bytes(42), "42 B");
+        assert_eq!(format_bytes(1536), "1.5 KiB");
+        assert_eq!(format_bytes(2 * 1024 * 1024), "2.0 MiB");
     }
 }
