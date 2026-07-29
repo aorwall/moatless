@@ -13,6 +13,10 @@ services:
       DOCKER_NETWORK: ${DOCKER_NETWORK:-docker-compose_moatless}
       AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
       T3_UI_RPC_ENABLED: "true"
+      # The readable half of the published environmentId, not the whole of it:
+      # the backend appends a digest of the database's identity, so recreating
+      # the Postgres volume changes the id and connected clients rebuild rather
+      # than resume into a database that no longer holds what they cached.
       T3_UI_RPC_ENVIRONMENT_ID: ${T3_UI_RPC_ENVIRONMENT_ID:-moatless-compose}
       T3_UI_RPC_LABEL: ${T3_UI_RPC_LABEL:-Moatless Compose}
       # T3 currently warns when client and server release versions differ.

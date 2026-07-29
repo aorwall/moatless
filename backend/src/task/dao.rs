@@ -10,6 +10,7 @@ use super::models::{SandboxIntentView, Task, TaskStatus, Visibility};
 use crate::db::DbPool;
 use crate::sandbox::lifecycle::dao::load_sandbox_intent_views;
 use crate::shared_models::AgentType;
+use crate::task_listing;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 /// Filter struct for task listing queries.
@@ -196,6 +197,7 @@ impl TaskRepository for PgTaskRepository {
 
         // Durable Sandbox state lives in `sandboxes`, born lazily through
         // lifecycle — task creation writes none of it.
+        let mut tx = self.0.begin().await?;
         sqlx::query(
             r#"INSERT INTO tasks (
                 task_id, short_id, created_at, last_message_at, agent_type,
@@ -239,13 +241,23 @@ impl TaskRepository for PgTaskRepository {
         .bind(&row.trigger_id)
         .bind(&row.disabled_servers)
         .bind(&workspace_id)
-        .execute(&self.0)
+        .execute(&mut *tx)
         .await?;
+
+        // A conversation coming into existence is a listing change. Last, after
+        // the `tasks` insert — `record_change`'s "call this last".
+        task_listing::record_change(&mut tx, &row.task_id).await?;
+        tx.commit().await?;
 
         // Auto-follow the task for its creator so it lands in their personal
         // task list. Applied at the DAO layer so every creation path (HTTP
         // handler, adapters, triggers) follows consistently. Best-effort — a
         // follow failure must never fail task insertion.
+        //
+        // Deliberately after the commit rather than inside it: an error inside a
+        // transaction aborts it, so a "best-effort" write that cannot fail the
+        // insert cannot live in the insert's transaction. It records its own
+        // change, and the two coalesce into one delivered row.
         if let Some(ref creator) = row.created_by {
             if let Err(e) = self.follow_task(creator, &row.task_id).await {
                 tracing::warn!(
@@ -452,6 +464,12 @@ impl TaskRepository for PgTaskRepository {
         // can modify the row. The first executed statement's rows_affected drives
         // the return value; subsequent statements return their own rows_affected
         // but we track the first non-empty patch field's result.
+        //
+        // One transaction across the fields, because a listing change and the
+        // mutation it describes have to commit together or not at all. Every
+        // statement here shares one `WHERE`, so they all match the same row and
+        // `first_affected` speaks for all of them.
+        let mut tx = self.0.begin().await?;
         let ctrl = ctx.control_filter("", 3);
         let ctrl_sql = ctrl.sql();
         let mut first_affected: Option<u64> = None;
@@ -467,7 +485,7 @@ impl TaskRepository for PgTaskRepository {
                     .bind($value)
                     .bind(ctx.is_admin)
                     .bind(&ctx.user_id)
-                    .execute(&self.0)
+                    .execute(&mut *tx)
                     .await?;
                 if first_affected.is_none() {
                     first_affected = Some(res.rows_affected());
@@ -500,7 +518,7 @@ impl TaskRepository for PgTaskRepository {
                 .bind(increment)
                 .bind(ctx.is_admin)
                 .bind(&ctx.user_id)
-                .execute(&self.0)
+                .execute(&mut *tx)
                 .await?;
             if first_affected.is_none() {
                 first_affected = Some(res.rows_affected());
@@ -529,6 +547,16 @@ impl TaskRepository for PgTaskRepository {
             let json = serde_json::json!(disabled_servers);
             run_field!("disabled_servers = $2", json);
         }
+        // Last, after every `tasks` statement above — `record_change`'s "call
+        // this last". Gated twice: on `rows_affected`, because a patch the
+        // caller may not control moves nothing; and on `touches_listing`,
+        // because most of this patch is not sidebar-visible and the busiest of
+        // those paths runs once per turn.
+        if patch.touches_listing() && first_affected.is_some_and(|n| n > 0) {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+
         // Empty patch: caller read-checked the task first; return true.
         Ok(first_affected.is_none_or(|n| n > 0))
     }
@@ -545,13 +573,21 @@ impl TaskRepository for PgTaskRepository {
              WHERE task_id = $1 AND status <> 'closed' AND {}",
             ctrl.sql()
         );
+        let mut tx = self.0.begin().await?;
         let res = sqlx::query(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(new_status)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&self.0)
+            .execute(&mut *tx)
             .await?;
+        // Only when the guard let the flip through: a task already `closed`
+        // matches nothing here, and a no-op must not advance the position.
+        // Last, after the `tasks` row lock — `record_change`'s "call this last".
+        if res.rows_affected() > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -561,12 +597,21 @@ impl TaskRepository for PgTaskRepository {
             "DELETE FROM tasks WHERE task_id = $1 AND {}",
             ctrl.sql()
         );
+        let mut tx = self.0.begin().await?;
         let res = sqlx::query(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&self.0)
+            .execute(&mut *tx)
             .await?;
+        // The record outlives the Task it names — `task_listing_changes` has no
+        // foreign key precisely so that a deletion is still replayable. A
+        // watching client re-reads this id, finds nothing, and drops the row it
+        // holds.
+        if res.rows_affected() > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -711,24 +756,42 @@ impl TaskRepository for PgTaskRepository {
     }
 
     async fn follow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let mut tx = self.0.begin().await?;
+        let res = sqlx::query(
             r#"INSERT INTO task_follows (user_id, task_id)
                VALUES ($1, $2)
                ON CONFLICT (user_id, task_id) DO NOTHING"#,
         )
         .bind(user_id)
         .bind(task_id)
-        .execute(&self.0)
+        .execute(&mut *tx)
         .await?;
+        // Following is the one change that alters the *membership* of a sidebar
+        // rather than the contents of a row already in it, so a client that
+        // handles everything else can still miss this one. `ON CONFLICT DO
+        // NOTHING` makes the call idempotent; recording on the effect rather
+        // than the call keeps a re-follow from advancing the position.
+        if res.rows_affected() > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
     async fn unfollow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"DELETE FROM task_follows WHERE user_id = $1 AND task_id = $2"#)
+        let mut tx = self.0.begin().await?;
+        let res = sqlx::query(r#"DELETE FROM task_follows WHERE user_id = $1 AND task_id = $2"#)
             .bind(user_id)
             .bind(task_id)
-            .execute(&self.0)
+            .execute(&mut *tx)
             .await?;
+        // The row leaves this person's listing and nobody else's. The delivery
+        // path re-reads it per viewer, so the one whose follow this was finds
+        // nothing and the rest see no change at all.
+        if res.rows_affected() > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -813,6 +876,27 @@ pub struct TaskPatch {
     pub inactive_ttl_days: Option<i32>,
     /// Full-replace the per-task auto-disabled server list.
     pub disabled_servers: Option<Vec<String>>,
+}
+
+impl TaskPatch {
+    /// Whether this patch moves anything a personal sidebar listing shows.
+    ///
+    /// The listed fields are the ones Decision 6 of the T3 shell projection spec
+    /// puts in the change feed: a conversation being closed or reopened, its
+    /// name or description, its visibility (which decides who may still read
+    /// it), and its expiry. The rest — the conversation clock, the running cost,
+    /// the site URL, the short id, the appended prompt, the disabled-server set
+    /// — are written by paths a sidebar does not follow, and the busiest of them
+    /// runs once per agent turn. Recording those would advance the deployment's
+    /// one position counter to move values no sidebar carries.
+    fn touches_listing(&self) -> bool {
+        self.status.is_some()
+            || self.name.is_some()
+            || self.description.is_some()
+            || self.visibility.is_some()
+            || self.ttl_minutes.is_some()
+            || self.inactive_ttl_days.is_some()
+    }
 }
 
 // =========================================================================

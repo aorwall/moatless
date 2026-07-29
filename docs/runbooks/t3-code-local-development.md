@@ -4,10 +4,11 @@ This runbook starts a local Moatless Docker Compose environment from the current
 Rust checkout, authenticates through the existing Moatless UI, and runs the T3
 Code web app against the opt-in Rust compatibility surface.
 
-The phase-one target is intentionally an **empty but connected T3 environment**:
+The target is a **connected T3 environment showing the viewer's projects**:
 discovery, cookie authentication, HTTP bootstrap, WebSocket upgrade, and the
-current JSON Effect-RPC envelopes end to end. It does not yet project Moatless
-Tasks into T3 Threads or accept commands.
+JSON Effect-RPC envelopes end to end, with the shell listing the Workspaces the
+logged-in user may read. The groups are empty — Moatless Tasks are not yet
+projected into T3 Threads — and commands are still refused.
 
 ## Architecture
 
@@ -21,7 +22,7 @@ T3 Vite proxy
 Moatless Rust :8080
   ├─ /.well-known/t3/environment   public discovery
   ├─ /api/auth/session             authenticated bootstrap
-  ├─ /api/orchestration/shell      authenticated empty snapshot
+  ├─ /api/orchestration/shell      authenticated shell snapshot
   └─ /ws                           authenticated JSON RPC
        │
        ├─ PostgreSQL
@@ -93,6 +94,15 @@ The second allowed origin accounts for dev-proxy implementations that rewrite
 `Origin` to their target. The backend still requires an exact match and a valid
 Moatless cookie, preventing cross-site WebSocket use.
 
+`T3_UI_RPC_ENVIRONMENT_ID` is not the id the backend publishes. The published
+`environmentId` is this value with a digest of the database's identity appended
+— `moatless-compose-3f9a1c0e4b7d8a52` — because T3 keys its cached listing on
+that id, and a listing built against one database must not be reused against
+another. Recreating the compose Postgres volume therefore changes the published
+id, and every connected client rebuilds instead of resuming into a database
+that no longer contains what it holds. That is intended; see Decision 7 in
+`specs/t3-shell-projection.md`.
+
 Check startup:
 
 ```bash
@@ -145,8 +155,9 @@ T3CODE_PROXY_TARGET_OVERRIDE=http://localhost:8080
 ```
 
 Open [http://localhost:5733](http://localhost:5733). The application should
-connect to an environment labelled `Moatless Compose` and render an empty
-project/thread shell without a pairing prompt.
+connect to an environment labelled `Moatless Compose` and render one sidebar
+group per Workspace the logged-in user may read, each group empty, without a
+pairing prompt. An admin session sees every Workspace in the deployment.
 
 ## 5. Acceptance checks
 
@@ -157,8 +168,9 @@ The phase is successful when all of the following hold:
    browser proxy;
 3. the `/ws` request is `101 Switching Protocols`;
 4. `server.getConfig` receives a successful `Exit`;
-5. `orchestration.subscribeShell` receives a `Chunk` containing an empty
-   snapshot and `synchronized`;
+5. `orchestration.subscribeShell` receives a `Chunk` whose snapshot lists one
+   project per readable Workspace — distinct `workspaceRoot` values, so two
+   Workspaces are two sidebar groups — plus `synchronized`;
 6. the client sends `Ack` for the chunk and remains connected;
 7. a page left open continues to exchange JSON `Ping`/`Pong`;
 8. no Moatless Task, Message, or Workspace is mutated.
@@ -174,7 +186,7 @@ authenticated Moatless user id for session, shell, and socket bootstrap.
 |---|---|---|
 | `GET /.well-known/t3/environment` | public | T3 execution-environment descriptor |
 | `GET /api/auth/session` | Moatless cookie/API key | authenticated read-only T3 session |
-| `GET /api/orchestration/shell` | Moatless cookie/API key | empty shell snapshot |
+| `GET /api/orchestration/shell` | Moatless cookie/API key | the viewer's projects; no threads yet |
 | `GET /ws` | Moatless cookie/API key plus allowed Origin | Effect-compatible WebSocket |
 
 ### RPC
@@ -182,7 +194,8 @@ authenticated Moatless user id for session, shell, and socket bootstrap.
 | Behavior | Methods |
 |---|---|
 | handshake/config | `server.probe`, `server.getConfig`, `server.getSettings`, `server.refreshProviders` |
-| empty reads | `server.discoverSourceControl`, `preview.list`, `orchestration.getArchivedShellSnapshot`, `orchestration.replayEvents`, `cloud.getRelayClientStatus` |
+| empty reads | `server.discoverSourceControl`, `preview.list`, `orchestration.replayEvents`, `cloud.getRelayClientStatus` |
+| projected reads | `orchestration.getArchivedShellSnapshot` (projects only) |
 | initialized streams | `orchestration.subscribeShell`, `subscribeServerConfig`, `subscribeServerLifecycle`, `subscribeAuthAccess` |
 | intentionally idle streams | `subscribeVcsStatus`, `subscribeTerminalEvents`, `subscribeTerminalMetadata`, `subscribePreviewEvents`, `subscribeDiscoveredLocalServers` |
 | visible failure | every other RPC receives a request-local unsupported defect |
@@ -196,7 +209,7 @@ interrupted stream. Initial streams stay open.
 
 This is a transport kernel, not the complete server:
 
-- the shell is always empty;
+- the shell lists projects but never a thread;
 - no Moatless event source feeds a live RPC stream;
 - only one initial chunk is produced per initialized stream, so queued
   multi-chunk delivery, acknowledgement timeout, and slow-consumer policy are

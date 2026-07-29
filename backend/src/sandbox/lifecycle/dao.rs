@@ -227,6 +227,15 @@ impl LifecycleStore for PgLifecycleStore {
         // lock so `changed` reflects the desired-state / stop-reason / retention
         // delta — the intent-change axis — while the marker is always
         // overwritten. A first write (empty `prev`) is `Changed` by definition.
+        //
+        // Now in a transaction, because the listing record below has to commit
+        // with it: a sidebar shows the session's status, and a status that moved
+        // with no record is a session the sidebar stops updating.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StoreError::with_source("begin intent transaction", e))?;
         let changed: Option<bool> = sqlx::query_scalar(
             r#"WITH prev AS (
                    SELECT desired_state, stop_reason, archive_retention
@@ -270,9 +279,22 @@ impl LifecycleStore for PgLifecycleStore {
         // Lifecycle owns the start timestamp: bump it whenever intent moves
         // toward Running (start/restart/redeploy), regardless of caller path.
         .bind(write.desired_state == SandboxDesiredState::Running)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| StoreError::with_source("persist lifecycle intent", e))?;
+
+        // Only when intent actually moved: the marker is rewritten on every
+        // operation, and `changed` is the axis that reaches the session status.
+        // Last, after the `sandboxes` row this statement holds `FOR UPDATE` —
+        // `record_change`'s "call this last".
+        if changed == Some(true) {
+            crate::task_listing::record_change(&mut tx, task_id)
+                .await
+                .map_err(|e| StoreError::with_source("record listing change for intent", e))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| StoreError::with_source("commit intent transaction", e))?;
 
         match changed {
             Some(true) => Ok(IntentEffect::Changed),
@@ -748,5 +770,114 @@ mod db_tests {
             0,
             "ON DELETE CASCADE removes the Sandbox row with its Task",
         );
+    }
+
+    /// A sidebar shows whether a conversation's session is running, so intent
+    /// moving is a listing change — and intent *not* moving is not one.
+    ///
+    /// The second half is the half with teeth. Every operation rewrites the
+    /// correlation marker, and a store that recorded on the call rather than on
+    /// the effect would advance the deployment's one position counter for
+    /// bookkeeping churn no sidebar shows.
+    #[sqlx::test]
+    async fn intent_records_a_listing_change_only_when_it_actually_moves(pool: PgPool) {
+        seed(&pool, "t1").await;
+        let store = PgLifecycleStore::new(pool.clone());
+        // `seed` leaves the Sandbox running, so stopping it is the move.
+        let write = IntentWrite {
+            desired_state: SandboxDesiredState::Stopped,
+            stop_reason: Some(SandboxStopReason::User),
+            retention: None,
+            marker: marker(OperationKind::Stop, 1),
+        };
+        assert_eq!(
+            store.persist_intent("t1", &write).await.unwrap(),
+            IntentEffect::Changed
+        );
+
+        let changes = crate::task_listing::changes_after(&pool, 0, 10).await.unwrap();
+        assert_eq!(changes.len(), 1, "the session moved and nothing recorded it");
+        assert_eq!(
+            changes[0].subject(),
+            Some(crate::task_listing::ChangeSubject::Task("t1"))
+        );
+        let after_move = crate::task_listing::current_position(&pool).await.unwrap();
+
+        // Same intent, a fresh marker: the correlation churn every operation
+        // writes, and nothing a sidebar carries.
+        let again = IntentWrite {
+            marker: marker(OperationKind::Stop, 2),
+            ..write.clone()
+        };
+        assert_eq!(
+            store.persist_intent("t1", &again).await.unwrap(),
+            IntentEffect::Unchanged
+        );
+        assert_eq!(
+            crate::task_listing::current_position(&pool).await.unwrap(),
+            after_move,
+            "rewriting the marker advanced the deployment's position counter"
+        );
+    }
+
+    /// `record_change`'s "call this last", for the one mutation site an
+    /// integration test cannot reach: `PgLifecycleStore` is `pub(crate)`, so the
+    /// loop in `tests/task_listing_position_test.rs` cannot name it.
+    ///
+    /// Same shape as that loop. Someone holds the `sandboxes` row this write
+    /// locks `FOR UPDATE`; the write is started and asserted to be waiting on
+    /// it; then the deployment's counter is taken on a third connection and has
+    /// to answer. Against the other order this times out, because the write
+    /// would be holding the counter while it waits — one half of a deadlock
+    /// with every conversation mutation in the deployment.
+    #[sqlx::test]
+    async fn an_intent_write_blocked_on_the_sandbox_row_is_not_holding_the_counter(pool: PgPool) {
+        use std::time::Duration;
+
+        seed(&pool, "t1").await;
+
+        let mut holder = pool.begin().await.unwrap();
+        sqlx::query("SELECT task_id FROM sandboxes WHERE task_id = 't1' FOR UPDATE")
+            .execute(&mut *holder)
+            .await
+            .unwrap();
+
+        let store = PgLifecycleStore::new(pool.clone());
+        let write = tokio::spawn(async move {
+            store
+                .persist_intent(
+                    "t1",
+                    &IntentWrite {
+                        desired_state: SandboxDesiredState::Stopped,
+                        stop_reason: Some(SandboxStopReason::User),
+                        retention: None,
+                        marker: marker(OperationKind::Stop, 1),
+                    },
+                )
+                .await
+                .unwrap()
+        });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !write.is_finished(),
+            "the intent write did not wait for the `sandboxes` row, so this \
+             proves nothing about the order it takes its locks in"
+        );
+
+        let mut unrelated = pool.begin().await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            crate::task_listing::record_change(&mut unrelated, "t2"),
+        )
+        .await
+        .expect(
+            "the intent write was holding the deployment's counter while it \
+             waited for the `sandboxes` row",
+        )
+        .unwrap();
+        unrelated.commit().await.unwrap();
+
+        holder.rollback().await.unwrap();
+        assert_eq!(write.await.unwrap(), IntentEffect::Changed);
     }
 }

@@ -19,6 +19,7 @@ use sqlx::Postgres;
 
 use super::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use crate::db::DbPool;
+use crate::task_listing;
 
 /// A state-bearing event applied transactionally at the gRPC ingress.
 ///
@@ -92,6 +93,24 @@ fn turn_projection_query<'a>(
         .bind(agent_type)
         .bind(at),
     }
+}
+
+/// Record a listing change for `task_id` when the projection above actually
+/// moved the row, on the same transaction that moved it.
+///
+/// The guard is `rows_affected` rather than the transition because the Redis
+/// consumer re-applies every event the gRPC ingress already committed, so
+/// recording on arrival would double each turn's position advance and deliver
+/// the same row twice.
+async fn record_listing_change(
+    tx: &mut sqlx::PgConnection,
+    task_id: &str,
+    rows_affected: u64,
+) -> Result<(), sqlx::Error> {
+    if rows_affected > 0 {
+        task_listing::record_change(tx, task_id).await?;
+    }
+    Ok(())
 }
 
 /// Repository for authoritative task-turn state.
@@ -226,7 +245,9 @@ impl TaskTurnRepository for PgTaskTurnRepository {
         .await?;
 
         // 2) Project the turn state (idempotent — see `turn_projection_query`).
-        turn_projection_query(
+        //    Whether it moved the row is what decides, in step 4, if there is a
+        //    change to record; nothing between here and there disturbs it.
+        let projected = turn_projection_query(
             &ev.task_id,
             ev.turn_number,
             ev.agent_type.as_deref(),
@@ -249,6 +270,11 @@ impl TaskTurnRepository for PgTaskTurnRepository {
             .await?;
         }
 
+        // 4) Record the change, when — and only when — step 2 moved the row.
+        //    Last, after the `tasks` row lock step 3 takes: `record_change`'s
+        //    "call this last".
+        record_listing_change(&mut tx, &ev.task_id, projected.rows_affected()).await?;
+
         tx.commit().await?;
         Ok(())
     }
@@ -261,9 +287,19 @@ impl TaskTurnRepository for PgTaskTurnRepository {
         transition: TurnTransition,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
-        turn_projection_query(task_id, turn_number, agent_type.as_deref(), transition, at)
-            .execute(&self.0)
-            .await?;
+        // A transaction for what used to be one statement: the projection and
+        // its listing record have to land together or not at all. This path is
+        // the consumer's backstop and the reaper's stuck-turn close, and the
+        // reaper's is the one place a turn reaches a terminal state without any
+        // event committing for it — so without this the sidebar would keep
+        // showing a reconciled turn as running until something else moved it.
+        let mut tx = self.0.begin().await?;
+        let projected =
+            turn_projection_query(task_id, turn_number, agent_type.as_deref(), transition, at)
+                .execute(&mut *tx)
+                .await?;
+        record_listing_change(&mut tx, task_id, projected.rows_affected()).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -365,6 +401,13 @@ impl TaskTurnRepository for PgTaskTurnRepository {
         .bind(run_id)
         .execute(&mut *tx)
         .await?;
+
+        // Allocation is usually the only place a turn start shows: by the time
+        // `taskTurn.active` reaches `apply_ingress_event` the row is already
+        // `active` and its guarded projection changes nothing. Last, after the
+        // advisory lock and both `task_turns` writes — `record_change`'s "call
+        // this last".
+        task_listing::record_change(&mut tx, task_id).await?;
 
         tx.commit().await?;
         Ok(turn_number)

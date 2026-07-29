@@ -4,6 +4,7 @@ use async_trait::async_trait;
 
 use super::models::{Tag, TaskTag};
 use crate::db::DbPool;
+use crate::task_listing;
 
 /// Repository trait for tag persistence.
 #[cfg_attr(test, mockall::automock)]
@@ -29,15 +30,27 @@ impl TagRepository for PgTagRepository {
     }
 
     async fn add_task_tags(&self, task_id: &str, tag_ids: &[String]) -> Result<(), sqlx::Error> {
+        if tag_ids.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.0.begin().await?;
+        let mut added = 0;
         for tag_id in tag_ids {
-            sqlx::query(
+            let res = sqlx::query(
                 "INSERT INTO task_tags (task_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
             )
             .bind(task_id)
             .bind(tag_id)
-            .execute(&self.0)
+            .execute(&mut *tx)
             .await?;
+            added += res.rows_affected();
         }
+        // Only when a tag was actually added — re-adding changes nothing and
+        // must not advance the position. Last, per "call this last".
+        if added > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -71,19 +84,28 @@ impl TagRepository for PgTagRepository {
     }
 
     async fn set_task_tags(&self, task_id: &str, tag_ids: &[String]) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM task_tags WHERE task_id = $1")
+        let mut tx = self.0.begin().await?;
+        let removed = sqlx::query("DELETE FROM task_tags WHERE task_id = $1")
             .bind(task_id)
-            .execute(&self.0)
-            .await?;
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
 
         for tag_id in tag_ids {
             sqlx::query("INSERT INTO task_tags (task_id, tag_id) VALUES ($1, $2)")
                 .bind(task_id)
                 .bind(tag_id)
-                .execute(&self.0)
+                .execute(&mut *tx)
                 .await?;
         }
 
+        // A replace that touched no row either way is a no-op. Anything else
+        // moved the tag set, and the whole set is replaced here rather than
+        // diffed, so "removed nothing and added nothing" is the only silence.
+        if removed > 0 || !tag_ids.is_empty() {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 

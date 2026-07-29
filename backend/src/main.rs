@@ -412,8 +412,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         router = router.merge(moatless_vibe_backend::sse::routes::task_events_router(
             app_state.clone(),
         ));
-        if let Some(ui_rpc_router) =
-            ui_rpc::router_from_env(config.auth.session_cookie_name.clone())?
+        if let Some(ui_rpc_router) = ui_rpc::router_from_env(
+            config.auth.session_cookie_name.clone(),
+            app_state.workspaces.clone(),
+            Arc::new(ui_rpc::dao::PgConversationRepository(app_state.db.clone())),
+            ui_rpc::AgentModelDefaults {
+                claude_code: config.sandbox.default_model.clone(),
+                codex: config.sandbox.default_codex_model.clone(),
+            },
+        )
+        .await?
         {
             router = router.merge(ui_rpc_router);
         }
@@ -466,6 +474,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handle,
             );
         }
+
+        // The listing feed's retention. `task_listing_changes` is written by
+        // Moatless mutations whether or not the T3 compatibility module is
+        // enabled, so this is not gated on it. What it deletes is what
+        // `task_listing::resume` already refuses to replay from, so falling
+        // behind costs disk and nothing else.
+        supervisor.supervise(
+            "listing-change-pruner",
+            // Optional: a stalled pruner grows one table and changes no answer
+            // any client receives — `resume` refuses the same cursors either
+            // way. Shedding traffic over it would be the larger outage.
+            Criticality::Optional,
+            moatless_vibe_backend::task_listing::spawn_change_pruner(
+                app_state.db.clone(),
+                cancel.clone(),
+            ),
+        );
 
         // Durable adapter work. Webhook handlers admit into
         // `app_state.adapter_work` before acknowledging their provider; this

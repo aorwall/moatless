@@ -21,8 +21,16 @@ cd apps/frontend && bunx shadcn@latest add [component]
 cargo build -p moatless-vibe-backend        # or moatless-sandbox
 cargo clippy -p moatless-vibe-backend -- -D warnings
 cargo test -p moatless-vibe-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
+task test:integration                       # backend/tests/ — needs DATABASE_URL, no Docker
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
 ```
+Every file in `backend/tests/` except `supervisor_test.rs` is behind
+`#![cfg(feature = "db-tests")]`, so the plain `cargo test` line above — and
+`ci.yml`, which runs that same line — compiles only that one. `task
+test:integration` is `-p moatless-vibe-backend --features db-tests` and is the
+only tier that builds the rest. Run it after changing anything under
+`backend/tests/`; a run without the feature passes green having built almost
+none of them, and CI will not catch what you missed.
 
 ### E2E (one suite, two profiles; details: e2e-testing skill)
 `tests/api` drives the product through the `moat` CLI, so the same chains run

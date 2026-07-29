@@ -5,8 +5,51 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
+use super::models::{MessageType, TaskMessage, TaskMessageContentBlock, TaskMessageContext};
 use crate::db::DbPool;
+use crate::task_listing;
+
+/// The tool calls that hand a conversation back to a person. A sidebar shows
+/// whether one is outstanding, so the message that raises one moves a listing
+/// row even though the agent wrote it.
+///
+/// Keep in sync with `handlers::INTERACTIVE_TOOL_NAMES`,
+/// `transform::check_pending_user_input` and the same pair in `ui_rpc::dao`,
+/// which is what reads the flag back out.
+const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
+
+/// Whether appending this message moves anything a personal sidebar shows.
+///
+/// Two things, and deliberately not a third. A message **a person wrote** moves
+/// the activity timestamp, which is what T3 orders the sidebar by — and the
+/// answer to a question arrives as one of these, so answering is covered here
+/// too. A message **raising an interactive tool call** flips the
+/// waiting-on-a-person flag, and that one the agent writes.
+///
+/// Everything else the agent produces is excluded, and that exclusion is what
+/// keeps this design affordable: ordinary agent output is the highest-rate path
+/// in the system, the only sidebar value it could touch is the activity
+/// timestamp, and T3 defines that as counting messages authored by a person. A
+/// tool result is *not* treated as an answer here for the same reason — every
+/// tool the agent runs produces one, and the answers that matter are the
+/// person's own `user` rows.
+fn moves_a_listing_row(msg: &TaskMessage) -> bool {
+    if msg.message_type == MessageType::User {
+        return true;
+    }
+    let Some(blocks) = msg.message_content.as_array() else {
+        // `message_content` is `jsonb NOT NULL` with nothing constraining it to
+        // an array; a non-array carries no tool_use block to find.
+        return false;
+    };
+    blocks.iter().any(|block| {
+        block.get("type").and_then(serde_json::Value::as_str) == Some("tool_use")
+            && block
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|name| INTERACTIVE_TOOLS.contains(&name))
+    })
+}
 
 /// A page of messages with their associated context rows and content blocks.
 type MessagePage = (
@@ -515,6 +558,13 @@ impl MessageRepository for PgMessageRepository {
             .bind(&block.image_data)
             .execute(&mut *tx)
             .await?;
+        }
+
+        // A person writing, or the agent asking, is a listing change. Last,
+        // after every `task_messages` write above — `record_change`'s "call this
+        // last", and this is the busiest transaction that allocates.
+        if moves_a_listing_row(msg) {
+            task_listing::record_change(&mut tx, &msg.task_id).await?;
         }
 
         tx.commit().await?;

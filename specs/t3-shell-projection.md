@@ -1,7 +1,7 @@
 # Spec — The T3 sidebar shows real Moatless work
 
 > **Status:** approved
-> **Updated:** 2026-07-27
+> **Updated:** 2026-07-28
 > **Vocabulary:** CONTEXT.md
 
 ## Current solution
@@ -38,7 +38,7 @@ T3's sidebar row carries twenty pieces of information. Roughly half come straigh
 | Its branch | The Task's branch |
 | When it was created and last changed | The Task's timestamps |
 | When a person last wrote to it | Computed. T3 counts only messages authored by a person. Moatless's nearest stored value also moves when the agent writes, so it is the wrong source and the value has to be derived. |
-| Its most recent turn, and that turn's state | The Task's newest Turn. The two state vocabularies differ by two values and need an explicit mapping. |
+| Its most recent turn, and that turn's state | The Task's newest Turn. The vocabularies are not the same size — Moatless has two states T3 has no word for — and one word they share means different things on the two sides; [Decision 10](#10-the-turn-state-mapping-in-full) maps all five. A conversation that has never run reports no turn, which the contract allows. |
 | Its session | Sandbox lifecycle together with the agent Session. Absent when no Sandbox was ever requested. |
 | Whether it is archived | A closed Task is an archived conversation. Closing records no timestamp of its own, so one has to be chosen. |
 | Whether the agent is waiting on an answer | Computed from an unanswered question raised by the agent. |
@@ -48,7 +48,7 @@ T3's sidebar row carries twenty pieces of information. Roughly half come straigh
 | Whether it is snoozed, and until when | No equivalent. Optional in the contract, so it can be omitted. |
 | Whether approvals are pending | No equivalent. The contract requires a definite yes or no with no empty value available, so the answer is always no. |
 | Its runtime mode | No equivalent, and the contract requires one of four named modes with no empty value. The permissive mode is both the contract's own default and an honest description of a Moatless Sandbox. |
-| Its model | No equivalent, and this one is not answerable by convention. The contract requires a resolvable model identity, refuses an empty value, and offers no default. Model choice belongs to a Turn in Moatless, not to the conversation. See the open questions. |
+| Its model | No conversation-level equivalent — model choice belongs to a Turn — and the contract requires a resolvable identity with no empty value and no default of its own. [Decision 9](#9-a-conversation-reports-its-newest-turns-model) takes the newest Turn's model, through a chain that always ends in an answer. |
 
 ### How T3 solves the same problem on its own side
 
@@ -130,6 +130,9 @@ When a client asks to resume from a position this deployment has never reached, 
 | [6](#6-what-enters-the-feed) | What enters the feed | Eight change kinds; agent output excluded | Including agent output puts the highest-rate path in the system behind a deployment-wide lock, to move a value defined as counting people |
 | [7](#7-two-guards-on-resuming) | Resuming from an impossible position | Reject the position and tie identity to the database | Either guard alone leaves a case the other covers |
 | [8](#8-tested-against-a-real-database) | Testing seam | Against a real database | Shape-only tests cannot see access filtering or commit ordering, which are the two things most likely to be wrong |
+| [9](#9-a-conversation-reports-its-newest-turns-model) | Which model a conversation reports | The newest Turn's model, resolved through a chain that always ends in an answer, on the provider instance named by the agent kind | A deployment-wide default is stable, is wrong for every conversation not on it, and gives the sidebar no sign that it is guessing |
+| [10](#10-the-turn-state-mapping-in-full) | How the two turn-state vocabularies map | A named counterpart for all five Moatless states; a stopped turn is reported as interrupted, and an interrupted one as running | Matching the two words spelled *interrupted* to each other reports a turn that resumes as a turn that ended |
+| [11](#11-a-resuming-clients-held-set-is-two-questions-not-one) | What a resuming client is assumed to hold | Nothing removable, and the viewer's readable projects for grouping | One set for both questions is either a full listing per reconnection or a removal naming an id the client was never shown |
 
 ### 1. A T3 project is a Workspace
 
@@ -153,9 +156,17 @@ Every change to a sidebar-visible value writes a durable record, in the same tra
 
 The cost is that changes which advance the position serialize against one another. Decision 6 is what keeps that cost small.
 
+**Holding one row for the whole deployment imposes a lock order, and callers have to honour it.** Every writer that records a change contends on the counter row. A transaction that takes the counter and *then* locks a `tasks` row is ordered counter-before-tasks; one that updates a `tasks` row and then records is ordered tasks-before-counter. Both are natural to write, and together they are a deadlock: two concurrent writers, opposite order, the same two locks. The rule is therefore **allocate last** — take every other lock the transaction needs first, and none afterwards — which makes the counter the innermost lock of everything that touches it, a total order by construction that needs no agreement between callers. It also shortens the hold on the row the whole deployment serializes on; the same transaction priced both ways runs about half again as fast when it allocates last. The invariant is stated canonically on `record_change` in `backend/src/task_listing/dao.rs`, and call sites carry a pointer rather than a re-derivation.
+
+**A record names exactly one subject, and it is not always a conversation.** This decision says only that every change writes a record, and everything downstream of it assumed the subject was a Task — which is true of eight of the nine kinds in Decision 6 and false of the ninth. A Workspace change cannot be expressed as a Task change in either direction: a Workspace being *created* has no Tasks to name, and the title a sidebar groups by lives on the project row, which the conversation event does not carry. So the record names a Task **or** a Workspace, enforced structurally by a CHECK that exactly one of the two columns is set (`task_listing_changes`, migration `0105`) rather than by the discipline of every caller. Neither column carries a foreign key, for the reason a deletion is a change worth delivering: a record has to outlive the row it names.
+
 **Rejected: completing the existing history log and taking the position from it.** This looks cheaper and is not. It makes a log whose purpose is history into a load-bearing part of correctness, which is exactly the entanglement that was deliberately undone when turn state became a row written transactionally. It also still requires finding and changing every path that mutates a sidebar-visible value, so it saves none of the work that actually carries risk.
 
-**Rejected: no replay at all, rebuild the listing on every reconnection.** T3 already rebuilds past a large enough gap, so this is within its contract and is by far the cheapest option. It was rejected because the listing is not paginated and an administrator's listing is the entire deployment, which turns every brief disconnection into a full scan.
+**Rejected: no replay at all, rebuild the listing on every reconnection.** T3 already rebuilds past a large enough gap, so this is within its contract and is by far the cheapest option. It was rejected because rebuilding re-sends the entire projects and threads list **over the socket** on every reconnection, and replay is what removes that. This is what the contract asks replay for in its own words — `afterSequence` exists "so the subscription resumes without re-sending the entire projects/threads list" — and what T3's reference server implements it for.
+
+**Correction to the reason originally given.** This rejection first read "the listing is not paginated and an administrator's listing is the entire deployment, which turns every brief disconnection into a full scan." That argument does not hold, and it is recorded here rather than deleted because a rejected alternative whose stated reason is false invites the decision to be reopened along with the reason. The client loads the shell snapshot over HTTP on every subscribe *and resubscribe* — `packages/client-runtime/src/state/shell.ts:204-212`, inside the `makeSubscribeInput` that `subscribeDynamic` calls each time — applies it, and only then passes *that* snapshot's sequence as `afterSequence`. So the full scan happens on every reconnection whether or not replay works, and the position a client resumes from is normally seconds old rather than days. Replay saves the socket frame, not the scan.
+
+The scan itself is a real cost and it lands somewhere else: on the client's HTTP snapshot, or on pagination, which is out of scope here and is already an [open question](#open-questions) below.
 
 **Why a naive position from the existing log would have been wrong.** A position assigned when a row is inserted but made visible when its transaction commits can be read out of order. Two writers take consecutive positions, the second commits first, a reader polling for anything past the first position sees the second, advances, and never sees the first. This is the hazard recorded in T3 Code's convergence analysis, and a position taken as the current maximum of the existing log has exactly this bug. It fails silently: the client believes it is up to date.
 
@@ -209,6 +220,21 @@ Administrators may read every Workspace, so the union adds nothing for them. The
 
 A project with no listed conversations renders as an empty group. That is intended: seeing the names gives a person the shape of the deployment they work in.
 
+**The two halves are not projected the same way, and that narrowing is what makes the paragraph above true.** It was not always true. This decision has always priced the widening in names — *"seeing the names gives a person the shape of the deployment they work in"*, *"the small disclosure"* — while the code projected both halves through one function, and that function emits a project's **scripts**: every server's name, label, and start commands joined as one string. So following one colleague's conversation disclosed the start commands of the private Workspace it runs in. A start command carries paths, flags, and whatever else someone put in a server config; it is not a name, and no argument here ever justified it.
+
+A Workspace the viewer may **not** read is therefore projected to what the contract needs in order to render a group and no more:
+
+| Field | Widened half |
+|---|---|
+| `id`, `title`, `workspaceRoot` | Present. The id is the grouping key, the title is the name this decision is argued on, and the root is synthesized from the id, so it discloses nothing the id does not. |
+| `repositoryIdentity`, `defaultModelSelection` | `null`, as they are for every project. |
+| `scripts` | **Empty.** The narrowing. |
+| `createdAt`, `updatedAt` | Present. Required by the contract with no empty value and no decoding default, and an invented timestamp is the kind of plausible stand-in this spec refuses everywhere else. So they are disclosed, and that is stated here rather than left to be discovered. |
+
+Workspaces the viewer *may* read are unchanged. This narrows one half of the union, not the listing.
+
+**The conversation rows need no equivalent narrowing, and the reason is not symmetry.** A conversation is listed because the viewer **follows** it, which is a different permission from reading the Workspace it runs in — so the question has to be asked separately. It is answered by Decision 4: the conversation filter is *follows* **and** *may still read*, so every conversation row is one the read rule admits in its own right, and every value in it is a fact about that Task. The only Workspace-derived value in the row is `projectId`, which is the id the grouping needs and which the widened project already carries.
+
 **Rejected: list only projects referenced by a listed conversation.** The tightest correct set, and it leaks nothing. Rejected because the empty groups are worth more than the small disclosure — though note this is now the larger half of the union rather than an alternative to it.
 
 **Rejected: the read rule alone.** What this decision said before Decision 4 changed, and it is now unsound in exactly the case following was introduced to support: a colleague's conversation, in their private Workspace, that you were asked to look at.
@@ -238,6 +264,12 @@ Following is in the feed because it is the one change that adds or removes a who
 
 Note that writing to a conversation now does two things at once for the author: it advances the activity timestamp, and if they were not already following, it adds the row. Both are already in the table, but a listening client has to handle the second before it can render the first.
 
+**"Becomes pending, or is answered" reads as one mechanism and is two.** The table's row for a pending question describes a single change kind. In the code the two halves come from different places, and only one of them is a write anybody makes deliberately. A question or plan *becomes* pending when the agent writes an `AskUserQuestion` or `ExitPlanMode` tool call, which is a message append and is recorded. It stops being pending when a `tool_result` block with the matching id exists — and the person's answer arrives as exactly one row, a `user` message whose content is that block (`message/send.rs::send_tool_response_flow`), so answering is recorded by the same rule that records a person writing. That is the path that matters and it is covered end to end.
+
+**The gap this leaves, and why it is left.** The flag is read off the *newest* assistant message, so it also drops when the agent supersedes its own unanswered question with a later assistant message — and that message records nothing, because it is agent output. A sidebar can therefore keep showing *waiting on you* until something else moves the row. Closing it would mean recording on ordinary agent output, which is the one thing this decision exists to keep out of the feed; the trade is not close. In practice the turn ends immediately after, and a turn ending is in the table. Recorded here rather than left implicit: the alternative to knowing about this gap is rediscovering it as a stale flag with no explanation.
+
+**The workspace row is low-rate because of a gate, not because workspaces are rare.** Read from the table alone, "a workspace is created, renamed, or deleted" sizes as an administrative action a few times a week, and that is right for the explicit paths. It is not the whole picture: creating a conversation with no workspace named runs `ensure_shadow_workspace` for its repository, which is a creation path on the busiest write in the system. What keeps it low-rate is that the creation is an `ON CONFLICT` upsert and the record is gated on it having actually inserted — so it fires once per repository for the life of the deployment, not once per conversation. The gate is load-bearing and is invisible from this table; anyone sizing the counter's load from the table should know the gate is what makes the number small.
+
 On delivery, a burst affecting one conversation is coalesced, and the row is then re-read and sent whole. Never a per-change difference. This is the same shape as the assembled message upsert already used elsewhere in this backend, and it is what makes T3's own burst behaviour hold up.
 
 **Rejected: include agent output.** Sidebar ordering would be exact and live. Every agent message would serialize on one row.
@@ -258,6 +290,26 @@ The environment's identity is derived from the database, so a replaced database 
 
 **Why this matters more than it looks.** The failure is silent in the one direction nothing watches. T3 guards against the client falling behind the server. Neither side guards against the server falling behind the client. A client asking for everything after a position the server has never reached receives nothing, forever, while reporting itself as live.
 
+**The identity comes from outside the data, and both halves are load-bearing.** It is the cluster's `system_identifier` and the database's OID — `pg_control_system()` and `pg_database.oid`, neither of which is a row anything writes. A seeded identifier row would be the wrong choice for the failure this is built for: a restore copies the data, so it would copy the identifier with it and the restored database would present as the original. Each half alone is also insufficient. Database OIDs begin at 16,384 in every freshly-`initdb`'d cluster, so the OID alone would let a restore into a new server present as the database it replaced; the cluster identifier alone would miss a restore into a second database in the same cluster, which is what a restore-and-cut-over normally is.
+
+**Reading the identity needs no privilege, and that was checked rather than assumed.** `pg_control_system()` carries no ACL of its own, so `EXECUTE` is `PUBLIC`'s by default and an ordinary application role can call it: `pg_proc.proacl` for it is null on PostgreSQL 13, 16 and 17, and the function appears nowhere in the `system_functions.sql`/`system_views.sql` that `initdb` runs. The functions people are remembering — `pg_ls_logdir`, `pg_read_file`, `pg_stat_file`, `pg_ls_dir`, `pg_switch_wal` — each carry an explicit `{postgres=X/postgres}` and a matching `REVOKE ... FROM public` in those files. This matters because the identity is read at startup and the router returns an error rather than inventing one, so a read a least-privilege application role could not make would take the T3 router down on precisely the deployments configured correctly. A superuser can still revoke it by hand per database; that breaks loudly at startup rather than quietly at runtime. `the_identity_is_readable_by_a_least_privilege_application_role` runs the statement as a role holding one grant in the database — every other test connects as the database's creating superuser and cannot see this at all.
+
+**The client is never told, and does not have to be.** The identity is published as part of the `environmentId`, which is the key T3 caches its listing under (`client-runtime/src/platform/persistence.ts:59-63`). This is the point: an identity mismatch after a restore looks, from the client's side, exactly like a legitimate first connection, so the guard cannot rest on the client reporting honestly what it holds. It rests on the server's answer.
+
+**What a changed id does to a client depends on how it connected, and one of the two is not silent.** A same-origin client — how Moatless is reached — builds its connection *from* the descriptor rather than checking ours against one it stored (`apps/web/src/connection/platform.ts:286-300`), so the new id simply has no cached listing under it and the shell starts empty. A registered bearer, relay or SSH connection stored the id at onboarding and compares it on every attempt, refusing to connect on a mismatch: *"Connected environment X does not match Y"* (`client-runtime/src/connection/errors.ts:25-33`). Replacing the database therefore means re-onboarding those connections. That is the correct answer — it *is* a different environment — but it is a real operational cost and is recorded rather than discovered.
+
+The other cost is smaller and easier to miss: client-side state keyed per project is keyed `{environmentId}:{projectId}` (`client-runtime/src/environment/scoped.ts:24-31`), and unsent composer drafts are among it (`apps/web/src/composerDraftStore.ts:1193`). A changed id orphans them even though the Workspaces they belong to are unchanged. Sidebar grouping recovers, because it is recomputed; a draft does not.
+
+**The identity is the outer layer, not the mechanism.** The id is read once per page load and held for the session, so it moves at reload rather than at reconnect. Everything above about a mid-session replacement is carried by the two server-side checks; the published id is what stops a client from carrying a stale listing across a reload.
+
+**A third place the check has to run.** "Two guards on resuming" names where they were first needed, not the whole of it. A subscription that stays open across the replacement never resumes: the socket is up, the cursor is where it was, and the poll goes on asking for changes past a position the new database has not reached — answered with silence, then, once the replacement counts past it, with changes, having skipped everything in between. So the identity is compared on every poll as well, and a mismatch rebuilds the listing in place. The cost is one extra round trip per poll per subscription, on a path that already makes one.
+
+**A restore has two shapes and only one of them is covered.** Restoring into a new database and repointing the deployment changes the OID, so the identity moves and every client rebuilds. Running `pg_restore` into the existing database does not: the cluster is the same cluster and the OID is the same OID, by construction, because it is the same database. A client holding a position above the restored head is still caught — that position is impossible until the counter climbs back — but once the counter has climbed past it, a reconnection is admitted and the changes issued in between are skipped in silence. **So the supported procedure is to restore into a new database and cut over**, and that is not a preference: it is the only one of the two the guards can see.
+
+Making the identity sensitive to an in-place restore is possible — the counter table's `relfilenode` changes when the table is rewritten — and it is deliberately not done. It would also change on `VACUUM FULL`, `CLUSTER`, and rewriting `ALTER TABLE`, and a changed identity does not merely cost a rebuild: a registered bearer, relay or SSH connection *refuses to connect* until it is re-onboarded. That turns routine maintenance into a client lockout. The identity is tied to things that change only when the database genuinely is a different database, and the in-place restore is left to the procedure instead.
+
+**One more case sits outside all of this, and no guard is proposed for it either.** Emptying `task_listing_changes` by hand while leaving the counter alone changes neither the position nor the identity: the cursor is below the head, the database is the same database, and the replay is answered correctly with the records that survive — which is to say, with nothing. Catching it would need a third guard on the retained range itself, comparing a resuming cursor against the oldest surviving record. That is not built, because the operation it defends against is not one the system performs; pruning is bounded so that it cannot delete a record `resume` will admit, and that bound is asserted at compile time. It is recorded here so that a future change to pruning is read as touching a guarantee rather than a constant.
+
 ### 8. Tested against a real database
 
 The primary seam is the module's data access, exercised against a real database using the existing integration-test harness and its row factories. Workspaces and conversations are seeded, a listing is assembled for a given viewer, and the assertions are about what that viewer sees.
@@ -269,6 +321,79 @@ A small number of shape-level tests are retained for the message envelope encodi
 **Rejected: shape-level tests only.** This is what phase one has, and it is fast. It is blind to both of the things most likely to be wrong here: a filter that admits the wrong rows, and two transactions committing positions out of order. Neither is observable without a real database.
 
 **Rejected: end-to-end through the T3 client.** Highest confidence, and it makes the T3 web application a dependency of this backend's test suite. A failure would report that something broke without indicating where. Manual verification against a real client is already covered by the local development runbook, which is the right form for that question at this stage.
+
+### 9. A conversation reports its newest Turn's model
+
+The row reports the model the conversation is actually running: the newest Turn's, not a fixed one.
+
+**Moatless already answers this question, and answers it this way.** The conversation view computes a single model for a conversation by taking the most recent model an agent reply reported it was produced by, falling back to the model that was asked for. Reusing that rule is what makes the two clients say the same thing about the same conversation, exactly as Decision 4 does for what a person's list is. Inventing a second rule here would let the Moatless UI and T3 disagree about a conversation while both are correct by their own lights.
+
+**The churn the other candidate avoids is not a cost here.** Decision 6 re-reads the whole row and sends it whole whenever anything in the bounded set changes, and a turn starting is already in that set. So a conversation that changes model costs no extra delivery — and it is a real change that the person watching asked for, not noise. The model moves when a new turn runs on a different model, and at no other time.
+
+**The chain has to end in an answer, because the contract refuses an empty one.** Every step above the last can be absent, and the absences are ordinary rather than exotic:
+
+| Step | Where it comes from | When it is absent |
+|---|---|---|
+| 1 | The concrete model the newest agent reply in the newest Turn reported | The conversation has never run, or the turn has started and nothing has come back yet |
+| 2 | The model asked for when that turn was started | Nobody chose one — the common case, since a conversation started without a choice carries none |
+| 3 | The deployment-wide default for that conversation's kind of agent | The deployment sets none for that kind — the defaults it forwards to Sandboxes are optional configuration |
+| 4 | A single last-resort identity, named once in the module | Never |
+
+**A choice that names no model is not an answer.** Moatless model choices are catalog names, and one of them means *whatever this agent picks* — it is resolved inside the Sandbox at run time and is never written back. Reporting it as though it were a model identity would put a word in the row that names nothing. Step 2 therefore skips it and falls through to step 3, which is what it actually resolves to. This is also why step 1 sits above step 2: only the agent's own reply carries the identity of the model that ran, rather than the name of a choice.
+
+Step 4 is the only invented value in the row. The module records when it reaches it, so the invention is visible rather than silent, and a deployment that configures a default model never gets there.
+
+**The identity has two parts, and the chain above fills one of them.** What the contract calls a model selection is a model name together with the provider instance it runs on, and the instance is the routing key — the thing T3 resolves the model against. It is required and non-empty exactly as the model name is, so it needs an answer too. Moatless has no provider-instance concept, and does not need to grow one: T3's default instance for a driver is named after the driver itself, and a conversation's agent kind already names the driver — the Claude-family agents run on the Claude driver, Codex agents on the Codex one. So the instance is derived from the agent kind, and the four steps above fill only the model name. This is the safer half of the pair in any case: T3 treats an instance a build does not recognize as unavailable rather than refusing to decode it, so a name it has never seen cannot break the listing.
+
+**Rejected: a single deployment-wide default for every conversation.** Stable, one value to configure, and never late. It is also wrong for every conversation not running the default, and wrong invisibly: a sidebar showing a plausible model gives no sign that it is a stand-in, so nobody ever discovers it. That is the same failure shape this spec rejects everywhere else — an answer that looks right and cannot be checked. Stability was its only argument, and Decision 6 already pays the delivery cost that stability was protecting.
+
+**Rejected: leaving the field out and letting T3 choose.** The contract refuses it. There is no empty value and no decoding default, so this is not an available option — it is stated here only because it is the first thing anyone reaches for.
+
+### 10. The turn-state mapping in full
+
+Five Moatless states, four T3 states. Three words appear in both vocabularies — *completed*, *error*, *interrupted* — and one of those three means different things on the two sides, which is the whole of the difficulty. Beyond them, Moatless has two words T3 has no equivalent for, *active* and *stopped*; T3 has one Moatless lacks, *running*. Of the two Moatless surplus words, *active* is a rename of T3's *running* and *stopped* is a real gap, decided below. Neither is defaulted, and the shared word that lies is handled explicitly.
+
+**Moatless to T3 — every state has a counterpart:**
+
+| Moatless | T3 | Why |
+|---|---|---|
+| active | running | The same state under a different word. This is the rename half of the difference. |
+| completed | completed | Identical. |
+| error | error | Identical. |
+| stopped | interrupted | A person cut the turn short. T3 has no *stopped*, and *interrupted* is what T3 calls that event: ended, and ended by a person rather than by the agent. |
+| interrupted | running | Not a name match — a state match. See below. |
+
+**An interrupted turn is not a finished turn.** In Moatless, *interrupted* means the conversation's Sandbox went away mid-turn. The turn stays open: it resumes when the work is rescheduled, and the backend's own backstop reconciles it into a terminal state if it never does. It is grouped with *active* everywhere this backend asks which turns are still open. Mapping it onto T3's *interrupted* because the two words match would report a turn that is about to carry on as a turn that ended, and the row would stay wrong until something else overwrote it — the sidebar quietly stops showing work that is still happening. Reporting it as *running* is right for both outcomes: if the work resumes, the row was already correct; if it never does, the backstop writes a terminal state and the row follows.
+
+The cost is that a live turn and a turn waiting to be rescheduled look the same in the sidebar. That is the correct amount of detail for a sidebar — both mean *not finished*, both render the same way, and the difference is Moatless's to resolve, not the viewer's to watch.
+
+**Nothing is left over on the T3 side.** Its one word Moatless lacks is *running*, and both Moatless states meaning a turn is still open land on it. Every T3 turn state is reachable, so the mapping is onto as well as total.
+
+**There is no not-yet-started state in either vocabulary, and none is needed.** A Moatless turn comes into existence already running — there is no queued turn to represent — and T3's turn state has no value for one that has not started either. So a message waiting for a Sandbox has no turn attached to it at all. The contract already has the place for that: a conversation's latest turn may be absent, and a conversation that has never run reports no turn rather than an invented one. This is the one place where a gap on both sides cancels instead of needing a decision.
+
+The write path is out of scope, so this mapping is only ever applied in the Moatless-to-T3 direction.
+
+### 11. A resuming client's held set is two questions, not one
+
+Decision 6's removal delivery rests on a set of ids the feed has already sent this client: only those may come back as a `thread-removed` or a `project-removed`, which is what makes a removal safe on a shared deployment. Decision 7's resume hands a reconnecting client the changes it missed instead of the listing. The two were built on separate branches and meet badly, because a resuming subscription has no such set — nothing on this side records what was sent before the socket dropped — and the feed also consults that same set to decide whether a changed conversation can go out as a row at all. Seeded empty, every reconnection paid for a full listing on its first change, which is the cost Decision 7 exists to remove.
+
+They are two questions and they want different answers.
+
+**May this id be taken back?** Only ids this feed sent. The set has to be a *subset* of what the client was shown, and there is no honest way to rebuild it: the listing the client holds came from a snapshot served over a separate HTTP request that this process kept nothing of. Reconstructing it from what the viewer may currently read is the obvious substitute and is wrong in the direction that matters — the ids missing from it are exactly the rows that left the listing while the client was away, which are exactly the rows it is owed a removal for. So a resumed feed starts with nothing removable and grows the set by delivery alone. The cost is real and is accepted: **a row that leaves a listing across a disconnection is not taken back until something rebuilds that listing.** It is a delivery not made rather than one made wrongly.
+
+**Will the client be able to group this row?** A conversation whose project the client has no group for is dropped on that side in silence, which is why Decision 5's case sends a whole listing instead. This question has a sound answer that the first one does not, and it comes from the client's own behaviour: a reconnecting client re-fetches the whole shell snapshot over HTTP and applies it *before* it subscribes, and the `afterSequence` it sends is that snapshot's sequence (`client-runtime/src/state/shell.ts:204-212`). So it is holding a listing this server built moments ago — and that listing contains **every project the viewer may read**, unconditionally (Decision 5). A project the viewer may read now was therefore in it, unless it became readable in between, and becoming readable is a Workspace mutation that records its own change (Decision 2) and is replayed as a `project-upserted` before anything can be delivered under it.
+
+So the resume seeds the grouping answer with the viewer's readable projects and nothing else. Projects held only because a listed conversation *references* them — Decision 5's second clause, a colleague's private Workspace — are deliberately left out, because that is precisely the case where a conversation can arrive under a project the client has never been sent. Those still cost one listing, once.
+
+**Rejected: one set for both questions.** It is what the merge produces and either setting is a defect. Empty means every reconnection buys a full listing on its first change. Seeded from what the viewer may read means a removal can name an id this client was never shown — including one that never survived projection, since a conversation whose Workspace is gone is returned by the read and dropped from the listing.
+
+**What this does not cover.** The viewer's own scope widening between their snapshot request and their subscribe: no Workspace changed, so no record exists, and a project that became readable in that window is assumed held when it may not be. The window is one round trip and the consequence is one row not rendered until the next rebuild, not anything disclosed.
+
+**Why the pair cannot simply be delivered together.** A conversation arriving under a project the client has no group for needs two events, and there is no position pair that delivers both. The client advances its position on the first and discards anything at or below it, so two events at one position deliver one. Sending the project at `P - 1` fails exactly when `P == cursor + 1` — the quiet single-user case, where there is no integer strictly between the position the client holds and the one the change took. Sending the conversation at `P + 1` looks like the way around that and is worse: `P + 1` is not allocated, so when a real change later takes it the client has already moved past and drops it in silence. Inventing a position corrupts the cursor, so the answer is a fresh snapshot, which the contract declares as a stream item and the client applies whole.
+
+**`rebuild` and `resynchronize` reseed both.** Both replace the client's listing wholesale, so both replace everything the feed believes about it — the id sets included, from the snapshot they just sent. Leaving them is silent in both directions: an id from the replaced listing comes back as a removal naming a row the client does not have, and a row the snapshot introduced is in no set, so its own removal is never sent.
+
+**They do not treat the cursor the same way, and the difference is not incidental.** `resynchronize` *advances* it — `max(cursor, snapshot.sequence)` — because the counter is the same counter, so the old cursor is still meaningful and rewinding it would redeliver. `rebuild` *sets* it, because the old cursor was allocated by a counter that is now gone and can sit anywhere relative to the new database's head; a `max()` there would park the feed above a position the replacement has not reached and answer every poll with silence until it got there. Collapsing the two into one `max()` reads as a simplification and breaks the replacement case silently.
 
 ## Seams and testing
 
@@ -306,11 +431,7 @@ Adding a per-conversation permission marker to T3's contract, which Decision 4 d
 
 **Whether an administrator will accept a sidebar that is not the deployment.** Decision 4 deliberately removes the administrator's privileged view, on the grounds that a sidebar of everything is not a sidebar. If administrators are in practice using T3 as an operations console rather than a place to do their own work, this is the wrong trade and the answer is a filter or a second view, not a wider default.
 
-**Which model a conversation reports.** This is the one required value in the row with no source and no available fallback: the contract refuses an empty model and supplies no default of its own. The two candidates are the newest Turn's model, which is accurate but changes under the sidebar as work proceeds, and a single deployment-wide default, which is stable and sometimes wrong. This has to be settled before the row can be built at all.
-
 **Which timestamp represents archiving.** Closing a conversation records no timestamp of its own, and T3 wants one. The most recent update is the obvious substitute and is not the same thing. The contract does supply an empty value here, so this does not block the build — it only decides whether archived conversations sort correctly.
-
-**How the two turn-state vocabularies map.** They differ by two values. The mapping is mechanical but has not been written down, and the turn state is a required part of the row, so it has to be written down before the row can be built.
 
 **Whether the live channel's existing silent frame-dropping should be addressed here.** It currently discards frames when a consumer falls behind and reports this to nobody. Introducing a position makes the loss detectable for the first time, which is a benefit available independently of this work.
 

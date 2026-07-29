@@ -5,10 +5,31 @@ use sqlx::AssertSqlSafe;
 
 use super::models::{Workspace, WorkspaceRepo};
 use crate::db::DbPool;
+use crate::task_listing;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR \
     (deleted = true AND source = 'manual' AND source_repository_id IS NOT NULL AND source_key IS NOT NULL))";
+
+/// A workspace in a widened listing, and whether the caller may actually read
+/// it.
+///
+/// [`WorkspaceRepository::list_readable_including`] returns a union of two sets
+/// with different rules behind them: the workspaces the read rule admits, and
+/// the workspaces something the caller may see happens to reference. A row from
+/// the second half is present so that a listing can render a group for it — not
+/// because the caller was granted anything — and a caller that cannot tell the
+/// halves apart will project them alike and disclose the second half's
+/// configuration.
+///
+/// The flag is evaluated by the same access filter the `WHERE` clause is built
+/// from, in the same statement, so the two cannot drift.
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct ListedWorkspace {
+    #[sqlx(flatten)]
+    pub workspace: Workspace,
+    pub readable: bool,
+}
 
 /// Patch struct for partial workspace updates. Outer `Option` = "field present
 /// in the patch"; inner `Option` = the nullable column value.
@@ -57,6 +78,29 @@ pub trait WorkspaceRepository: Send + Sync {
     /// row. Missing or soft-deleted ids are simply absent from the result.
     async fn find_names_by_ids(&self, ids: &[String])
         -> Result<Vec<(String, String)>, sqlx::Error>;
+
+    /// Every non-deleted workspace the caller may read, plus every non-deleted
+    /// workspace in `also_include` whether or not they may read it, ordered by
+    /// name.
+    ///
+    /// The widening exists for listings that group tasks by their workspace. A
+    /// task the caller may read can run in a workspace they may not — someone
+    /// else's user-scoped one — and a grouping that omits the workspace omits
+    /// the task with it.
+    ///
+    /// Unlike [`Self::list`] this excludes git-origin tombstones: a tombstone is
+    /// a deleted workspace kept only so a sync will not recreate it, and a
+    /// listing that groups live work has nothing to put under it.
+    ///
+    /// Each row says which half of the union it came from — see
+    /// [`ListedWorkspace`]. A caller that projects the two halves the same way
+    /// hands the widened half's configuration to someone the read rule refused,
+    /// so the distinction is returned rather than left to be re-derived.
+    async fn list_readable_including(
+        &self,
+        ctx: &ScopeContext,
+        also_include: &[String],
+    ) -> Result<Vec<ListedWorkspace>, sqlx::Error>;
 
     /// List a workspace's repo placements, primary first then by `position`.
     async fn find_repos(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepo>, sqlx::Error>;
@@ -180,6 +224,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     }
 
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error> {
+        let mut tx = self.0.begin().await?;
         sqlx::query(
             r#"INSERT INTO workspaces (
                    id, name, description, kind,
@@ -213,8 +258,13 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.deleted)
-        .execute(&self.0)
+        .execute(&mut *tx)
         .await?;
+        // A project appearing is a listing change even before any conversation
+        // runs in it: the sidebar shows an empty group, and that group is how a
+        // person sees the shape of the deployment they work in.
+        task_listing::record_workspace_change(&mut tx, &row.id).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -230,6 +280,33 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         sqlx::query_as::<_, Workspace>(AssertSqlSafe(sql))
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
+            .fetch_all(&self.0)
+            .await
+    }
+
+    async fn list_readable_including(
+        &self,
+        ctx: &ScopeContext,
+        also_include: &[String],
+    ) -> Result<Vec<ListedWorkspace>, sqlx::Error> {
+        let access = ctx.access_filter(ScopedEntity::Resource, "", 1);
+        let ids_param = access.next_param();
+        // The same fragment twice, on purpose: as the admitting half of the
+        // `WHERE` and as the column that says which half admitted the row. One
+        // expression, so a row can never be reported readable by one and not
+        // the other.
+        let sql = format!(
+            "SELECT *, {} AS readable FROM workspaces \
+             WHERE (deleted IS NULL OR deleted = false) \
+             AND ({} OR id = ANY(${ids_param})) \
+             ORDER BY name ASC",
+            access.sql(),
+            access.sql()
+        );
+        sqlx::query_as::<_, ListedWorkspace>(AssertSqlSafe(sql))
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .bind(also_include)
             .fetch_all(&self.0)
             .await
     }
@@ -316,6 +393,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         );
 
         let now = chrono::Utc::now();
+        let mut tx = self.0.begin().await?;
         let mut q = sqlx::query(AssertSqlSafe(sql)).bind(id);
 
         macro_rules! bind_opt {
@@ -349,7 +427,14 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         q = q.bind(ctx.is_admin);
         q = q.bind(&ctx.user_id);
 
-        let result = q.execute(&self.0).await?;
+        let result = q.execute(&mut *tx).await?;
+        // Renaming is the change this mechanism was built for: it used to leave
+        // its durable record to a relay that could drop it in silence. Last —
+        // `record_change`'s "call this last".
+        if result.rows_affected() > 0 {
+            task_listing::record_workspace_change(&mut tx, id).await?;
+        }
+        tx.commit().await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -360,13 +445,20 @@ impl WorkspaceRepository for PgWorkspaceRepository {
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
             control.sql()
         );
+        let mut tx = self.0.begin().await?;
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
             .bind(chrono::Utc::now())
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&self.0)
+            .execute(&mut *tx)
             .await?;
+        // Guarded on the delete having happened: the statement already refuses
+        // an already-deleted row, and re-deleting must not advance the position.
+        if result.rows_affected() > 0 {
+            task_listing::record_workspace_change(&mut tx, id).await?;
+        }
+        tx.commit().await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -386,13 +478,22 @@ impl WorkspaceRepository for PgWorkspaceRepository {
                AND {}",
             control.sql()
         );
+        let mut tx = self.0.begin().await?;
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
             .bind(chrono::Utc::now())
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&self.0)
+            .execute(&mut *tx)
             .await?;
+        // A tombstone is excluded from `list_readable_including`, so this takes
+        // the project off every watching sidebar exactly as `soft_delete` does.
+        // The transaction exists so the record is atomic with the mutation; last
+        // in it, per `record_change`'s "call this last".
+        if result.rows_affected() > 0 {
+            task_listing::record_workspace_change(&mut tx, id).await?;
+        }
+        tx.commit().await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -542,7 +643,7 @@ pub async fn ensure_shadow_workspace(
 ) -> Result<String, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    sqlx::query(
+    let created = sqlx::query(
         r#"INSERT INTO workspaces (
                id, name, description, kind,
                docker_image, docker_access, sandbox_service_account,
@@ -562,7 +663,8 @@ pub async fn ensure_shadow_workspace(
     )
     .bind(repository_id)
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
 
     sqlx::query(
         r#"INSERT INTO workspace_repos (
@@ -582,6 +684,14 @@ pub async fn ensure_shadow_workspace(
     .execute(&mut *tx)
     .await?;
 
+    // Only the first task in a repository creates the shadow workspace; every
+    // later one conflicts and changes nothing, so recording on the effect keeps
+    // task creation from advancing the position twice. Last — "call this last".
+    let workspace_id = format!("ws_{repository_id}");
+    if created > 0 {
+        task_listing::record_workspace_change(&mut tx, &workspace_id).await?;
+    }
+
     tx.commit().await?;
-    Ok(format!("ws_{repository_id}"))
+    Ok(workspace_id)
 }

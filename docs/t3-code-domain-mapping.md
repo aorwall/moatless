@@ -65,7 +65,7 @@ Where a concept exists only in T3 Code, **T3 Code's name carries over unchanged*
 | T3 Code | Moatless | Status |
 | --- | --- | --- |
 | `Thread` | `Task` | Genuine synonym. Rename in T3 Code. |
-| `Turn` (`projection_turns`) | `Turn` (`task_turns`) | Already identical. Align status enums: `pending·running·interrupted·completed·error` vs `active·completed·error·stopped·interrupted`. |
+| `Turn` (`projection_turns`) | `Turn` (`task_turns`) | Already identical. Status enums are not the same size — `running·interrupted·completed·error` (four) vs `active·completed·error·stopped·interrupted` (five) — and the shared word `interrupted` does not mean the same thing on both sides. Mapping settled; see the known gaps below. |
 | `Session` (`projection_thread_sessions`) | `Session` | Same concept — the resumable provider conversation. Moatless additionally splits out `Sandbox` as the durable pod-lifecycle intent; T3 Code's session row carries both concerns. |
 | Message | `TaskMessage` + content blocks | T3 Code stores flat rows; Moatless stores one row with N blocks and folds tool results into the calling assistant message at assembly (ADR-0002). |
 | Activity (`projection_thread_activities`) | `task_events` | **Not equivalent.** T3 Code's activities are a projection; `task_events` is history. |
@@ -105,18 +105,20 @@ on every task creation anyway. Multi-repo Workspaces stay visible instead of bei
 flattened, and no Repository becomes unreachable, because **Default workspace**
 already guarantees every Repository has one.
 
-Field by field:
+Field by field (as built in `ui_rpc/projection.rs`). The shell listing carries
+`OrchestrationProjectShell`; `OrchestrationProject` is its near-twin with one
+extra field, and projecting the wrong one is an easy mistake:
 
-| `OrchestrationProject` | Moatless source |
+| `OrchestrationProjectShell` | Moatless source |
 | --- | --- |
 | `id` | `workspaces.id` |
-| `title` | `workspaces.name` |
-| `workspaceRoot` | **Synthetic — see the hazard below.** |
-| `repositoryIdentity` | The primary `WorkspaceRepo`'s Repository. `canonicalKey` is its normalized remote URL. |
+| `title` | `workspaces.name`, falling back to `workspaces.id`. `name` is `text NOT NULL` with no non-empty constraint (`0079_workspaces.sql:24`) and `title` is `TrimmedNonEmptyString`, so a blank name would make the listing undecodable. |
+| `workspaceRoot` | **Synthetic — see the hazard below.** Built as `/moatless/workspaces/{workspaces.id}`, matching the equally nominal `cwd` the descriptor already reports. |
+| `repositoryIdentity` | The primary `WorkspaceRepo`'s Repository. `canonicalKey` is its normalized remote URL. Emitted as `null` while the descriptor advertises `capabilities.repositoryIdentity: false`; the field is `Schema.optional(Schema.NullOr(RepositoryIdentity))` (`orchestration.ts:393`), so `null` decodes. |
 | `defaultModelSelection` | `null`. Model selection is per Task/Turn in Moatless, not per Workspace. |
-| `scripts[]` | `workspaces.servers` (`ServerConfig`). `name`/`label` → `name`, `start_commands` → `command`, `default` → `autoOpenPreview`. `previewUrl` has **no direct source**: `ServerConfig.port` is a `u16` (`backend/src/sandbox/models.rs:130`) and `ProjectScript.previewUrl` is an optional non-empty URL string (`orchestration.ts:192`). The adapter must synthesize the sandbox's published preview URL for that port, or omit the field — a bare port number is not a valid value. `setup_commands` are provisioning, **not** scripts — do not map them here. |
+| `scripts[]` | `workspaces.servers` (`ServerConfig`). `label`/`name` → `name`, `name` → `id`, `start_commands` joined with `&&` → `command`, `default` → `autoOpenPreview`. **`ProjectScript` has three more required fields** (`orchestration.ts:192-209`): `id`, `icon`, and `runOnWorktreeCreate`. `icon` is a closed literal set (`play·test·lint·configure·build·debug`, `:182-189`); every Moatless server is a long-running process bound to a port, so it is always `play`. `runOnWorktreeCreate` is `false`. The flag is an instruction to the client rather than a description of Moatless: the client runs the flagged script itself when it creates a working copy (`packages/shared/src/projectScripts.ts:35-37`, `ProjectSetupScriptRunner.ts:127`). A Moatless server is already started by the Sandbox, which runs it as a container in the pod (`k8s/pod_builder.rs:build_server_containers`), so flagging it would put a second process on the same bound port. `previewUrl` has **no direct source**: `ServerConfig.port` is a `u16` (`backend/src/sandbox/models.rs:130`) and `previewUrl` is an optional non-empty URL string. The adapter must synthesize the sandbox's published preview URL for that port, or omit the field — a bare port number is not a valid value. `setup_commands` are provisioning, **not** scripts — do not map them here. **Emitted only for a Workspace the viewer may read.** The project list is a union (spec Decision 5) and its widened half — Workspaces present only because a followed conversation references them — is projected with `scripts: []`: the widening is argued on names, and a start command carries paths and flags rather than a name. |
 | `createdAt` / `updatedAt` | `workspaces.created_at` / `updated_at` |
-| `deletedAt` | `null`. `workspaces.deleted` is a boolean and deleted rows are filtered from the snapshot, so no timestamp is needed. |
+| `deletedAt` | **Not a field of the shell listing.** The snapshot carries `OrchestrationProjectShell` (`orchestration.ts:389-397`, referenced at `:432`), which is `OrchestrationProject` minus `deletedAt`. Deleted rows are filtered from the snapshot, so nothing is lost. Project the shell type, not its near-twin. |
 
 `workspaces.kind` (`blank` \| `single` \| `multi`) tells the adapter up front when a
 Workspace cannot be represented faithfully as a single root.
@@ -156,16 +158,105 @@ When `Thread → Task` lands, move the **type layer** in `packages/contracts` an
 leave the wire and storage strings alone, or ship an alias map applied at read
 time. Same discipline as a database column rename.
 
+### Decision: a T3 thread listing is what the viewer follows
+
+**Settled.** `threadId ↔ tasks.task_id`, and the shell listing carries the Tasks
+the viewer **follows** *and* may still **read**.
+
+The two filters are different rules and both are load-bearing:
+
+- **Follow** is what makes this a sidebar rather than a deployment listing. It
+  already drives the Moatless sidebar (`task_follows`, migration `0069`), so the
+  two clients agree about what a person's list is instead of T3 getting a rule of
+  its own. **An administrator is not a special case** — their sidebar is what
+  they follow, which is deliberately the opposite of `projects[]`, where an
+  administrator does see the whole deployment.
+- **Read** is what stops a follow, which is durable, from outliving the access
+  that produced it. A conversation can be made private or change hands long after
+  someone wrote to it. The filter is the shared
+  `ScopeContext::access_filter(ScopedEntity::Task, …)` fragment rather than a
+  copy, so a change to what "may read" means reaches this listing too.
+
+Following never *grants* access — it only ever narrows the readable set.
+
+Field by field (as built in `ui_rpc/projection.rs`), against
+`OrchestrationThreadShell` (`orchestration.ts:401-427`) — the near-twin of
+`OrchestrationThread` without its messages, activities, checkpoints, proposed
+plans and `deletedAt`:
+
+| `OrchestrationThreadShell` | Moatless source |
+| --- | --- |
+| `id` | `tasks.task_id` |
+| `projectId` | `tasks.workspace_id`. A Task whose Workspace does not resolve is **left out of the listing**, not emitted — see the hazard below. |
+| `title` | `tasks.name`, falling back to `tasks.task_id`. `name` is nullable with no non-empty constraint and `title` is `TrimmedNonEmptyString`. |
+| `modelSelection` | `{instanceId, model}`, both required and non-empty (`:64-68`). Resolved by [spec decision 9](../specs/t3-shell-projection.md#9-a-conversation-reports-its-newest-turns-model); `instanceId` is the driver's default instance (`ClaudeCode → claudeAgent`, `Codex → codex`). |
+| `runtimeMode` | `full-access` — `DEFAULT_RUNTIME_MODE` (`:124`). Moatless has no equivalent, and the permissive mode is an honest description of a Sandbox: a process in a pod with no approval gate in front of it. |
+| `branch` | `tasks.branch`, `null` when blank. |
+| `worktreePath` | `WORKSPACE_DIR` (`/opt/moatless/workspace`) when a Sandbox exists and has not been removed; `null` otherwise. Unlike a project's `workspaceRoot` this is a **label, not an identity** — the client only displays it — so one shared value collapses nothing. |
+| `latestTurn` | The newest `task_turns` row by `turn_number`; `null` when the Task has never run. `turnId` is `{task_id}:{turn_number}` — Moatless has no single-column turn id. `requestedAt` and `startedAt` are both `started_at`: a Moatless Turn comes into existence already running. `assistantMessageId` is `null` — the shell listing carries no messages. |
+| `createdAt` / `updatedAt` | `tasks.created_at_db` (falling back to the text `created_at`) / `tasks.updated_at`. |
+| `session` | The `sandboxes` row, or `null` when none exists — absence is the lazy converged-Stopped default and is the one case meaning *no session*. `status` folds `desired_state` + turn openness + `stop_reason`; `activeTurnId` is set only while the newest turn is open; `providerName` is the agent catalog's label; `lastError` is `null` (Moatless records no durable Sandbox error text). `runtimeMode` is **omitted** here — the session's copy carries a decoding default, unlike the conversation's. |
+| `latestUserMessageAt` | `MAX(task_messages.created_at) WHERE message_type = 'user'` — see the hazard below. |
+| `hasPendingApprovals` | `false`. Moatless has no approval queue and the contract supplies no empty value. |
+| `hasPendingUserInput` / `hasActionableProposedPlan` | An unanswered `AskUserQuestion` / `ExitPlanMode` `tool_use` block in the newest assistant message. |
+| `interactionMode`, `archivedAt`, `settledOverride`, `settledAt`, `snoozedUntil`, `snoozedAt` | **Deliberately absent, not null.** All six are `Schema.optional` or carry a `withDecodingDefault`, and Moatless has nothing honest to put in them. Leaving them out lets the contract fill them. |
+| `deletedAt` | **Not a field of this type** — it belongs to `OrchestrationThread` (`:370`). Same trap as `OrchestrationProjectShell`. |
+
+Because no `archivedAt` is ever emitted, `orchestration.getArchivedShellSnapshot`
+must **not** return the live listing: the client's archived view is
+`archived_at IS NOT NULL` (`ProjectionSnapshotQuery.ts:414`), so returning it
+would present every followed conversation as archived. It returns the viewer's
+projects with no conversations.
+
+#### Hazard: the two values with a plausible wrong source
+
+**`latestUserMessageAt` counts only messages a person wrote.** That is T3's own
+definition — its pipeline reads `message.role === "user"`
+(`ProjectionPipeline.ts:564-570`). Moatless's nearest stored value,
+`tasks.last_message_at`, **also advances when the agent writes**
+(`agent_handlers.rs:101`, `:442`, `:552`), so a sidebar built on it reorders
+itself while nobody is talking. The value is derived instead, from
+`task_messages.message_type = 'user'` — this backend's own predicate for a
+person's message, since the SDK's `user`-role rows (tool results streamed back)
+are persisted as `system` (`agent_handlers.rs:831`).
+
+**A conversation whose Workspace does not resolve must be left out of the
+listing entirely.** New Tasks always get one (`task/dao.rs::insert_task` resolves
+or creates a shadow Workspace), but older and hand-written rows can have
+`workspace_id IS NULL`, and provisioning still falls back to repository-only
+behaviour for those. A row whose `projectId` is absent from the same snapshot is
+dropped by the client with a bare `continue` — no error, nothing logged
+(`Sidebar.logic.ts:779`). Dropping it on this side costs the same row and leaves
+a warning behind. The same applies to a Workspace that is soft-deleted, which is
+why the drop happens after the workspace read rather than in SQL.
+
 ## Two axes of federation
 
 A recurring source of confusion: both systems are "multi-something," but not the
 same something.
 
-- **T3 Code federates over machines you own.** `environmentId` is assigned
-  *client-side*, one per connection target (`Primary`, `Bearer`, `Relay`, `Ssh`).
-  No server table mentions it. Ids are only unique within an environment, so all
-  cross-environment references are scoped `{environmentId, projectId}`. Projects
-  are grouped across machines client-side by normalized git remote URL.
+- **T3 Code federates over machines you own.** `environmentId` is *held*
+  client-side, one per connection target (`Primary`, `Bearer`, `Relay`, `Ssh`).
+  Ids are only unique within an environment, so all cross-environment references
+  are scoped `{environmentId, projectId}`. Projects are grouped across machines
+  client-side by normalized git remote URL.
+
+  **Correction: the client does not assign the id, and the server's answer is
+  authoritative.** This paragraph originally read *"`environmentId` is assigned
+  client-side … No server table mentions it."* Neither sentence holds. Every
+  target type takes its id from the server's `/.well-known/t3/environment`
+  descriptor: onboarding reads it (`client-runtime/src/connection/onboarding.ts:100-110`),
+  the same-origin primary rebuilds its target from it on every discovery
+  (`apps/web/src/connection/platform.ts:286-300`), and bearer, relay and SSH
+  connections re-fetch it on every connection attempt and *refuse to connect* if
+  it has changed (`client-runtime/src/authorization/service.ts:114`,
+  `client-runtime/src/connection/resolver.ts:106`). The correction is recorded
+  rather than removed because the original reading is the one that makes a
+  server-derived id look like a free choice, and Decision 7 of
+  `specs/t3-shell-projection.md` now depends on it not being one: this backend
+  derives the id from the database it is serving, and a client that finds a
+  different id is either starting fresh or refusing to connect — never resuming
+  into a listing that no longer exists.
 - **Moatless federates over access scope.** Rows carry `scope` (`Global` or
   `User`) plus ownership, and every query is filtered by a `ScopeContext`. Teams
   are an org concept and grant no resource access (ADR 0006).
@@ -177,16 +268,15 @@ stays entirely on the Moatless side.
 
 ## What phase two has to fill
 
-Phase one returns a well-formed but empty snapshot
-(`ui_rpc/mod.rs:553`) and an empty replay (`orchestration.replayEvents → []`),
-and already advertises `shellResumeCompletionMarker` /
-`threadResumeCompletionMarker` in `server_config`. The wire shape is fixed by T3
-Code's contract:
+`projects[]` and `threads[]` are populated; the sequence and replay
+(`orchestration.replayEvents → []`) are not. `server_config` already advertises
+`shellResumeCompletionMarker` / `threadResumeCompletionMarker`. The wire shape
+is fixed by T3 Code's contract:
 
 | Snapshot field | Moatless source |
 | --- | --- |
-| `projects[]` | `workspaces` joined through `workspace_repos`, scope-filtered. One project per workspace; `workspaceRoot` is **synthetic and per-Workspace** — not the primary repo's mount path. See [the hazard](#hazard-workspaceroot-is-an-identity-not-a-label). |
-| `threads[]` | `tasks`, scope-filtered, non-deleted, projected to `OrchestrationThreadShell`. |
+| `projects[]` | **Done.** `workspaces`, filtered to what the viewer may read **plus** any workspace a listed Task references — the two lists cannot be filtered the same way, because a Task whose project is absent is dropped by the client in silence. One project per workspace; `workspaceRoot` is **synthetic and per-Workspace** — not the primary repo's mount path. See [the hazard](#hazard-workspaceroot-is-an-identity-not-a-label). |
+| `threads[]` | **Done.** `tasks` the viewer **follows** *and* may read, projected to `OrchestrationThreadShell`. The two filters are different rules and both are load-bearing — see [the conversation listing](#decision-a-t3-thread-listing-is-what-the-viewer-follows). |
 | `snapshotSequence` | See below. |
 | `updatedAt` | Wall clock at assembly. |
 
@@ -224,11 +314,18 @@ Three options, analysed in T3 Code's `.plans/moatless-convergence.md` §3.5:
   so the reader never straddles a commit boundary;
 - hold the cursor below the oldest in-flight transaction (`pg_snapshot_xmin`),
   trading latency for correctness;
-- allocate the sequence **inside the transaction** from a per-task counter, so
-  ordering and visibility coincide.
+- allocate the sequence **inside the transaction** from a counter, so ordering and
+  visibility coincide.
 
 The third also resolves a smaller mismatch: T3's `sequence` is a
 `NonNegativeInt` (a JS number) while `task_events.id` is `i64`.
+
+That third option is what shipped, but **per deployment, not per Task** — this
+paragraph said "per-task counter" until `specs/t3-shell-projection.md` (Decision 2)
+settled it the other way. The shell snapshot carries one `snapshotSequence` and the
+client keeps one cursor, so a per-Task counter produces many positions where the
+contract has room for one, and no way to order them against each other. The counter
+is `task_listing_position`; see `backend/src/task_listing.rs`.
 
 Worth noting independently: today's SSE lag is *silent* — `sse/routes.rs` logs
 `SSE client lagged, skipping events` and drops frames with no way for the client
@@ -245,7 +342,35 @@ of what else lands.
   clock-dependent. Moatless's `TaskStatus` is server-durable `Open·Closed·Error`.
   Decide whether the adapter synthesizes settlement or T3 Code hides the control
   when the environment does not advertise the capability.
-- **Turn status enums** differ by two values and need an explicit mapping.
+- **Turn status enums.** **Settled** — the full mapping is
+  [spec decision 10](../specs/t3-shell-projection.md#10-the-turn-state-mapping-in-full).
+  Note that the enums are not the same size: `OrchestrationLatestTurnState`
+  (`orchestration.ts:326`) is four values — `running·interrupted·completed·error`
+  — against Moatless's five. **T3 has no `pending` turn state** (an earlier
+  reading of this document claimed one): the only `"pending"` literal in the
+  contract is `ProjectionPendingApprovalStatus` (`:1333`), which is about
+  approvals. The two non-obvious mappings: Moatless `stopped` → T3 `interrupted`,
+  and Moatless `interrupted` (which is *open* — it resumes on reschedule) → T3
+  `running`, **not** its like-named counterpart. A Task with no turn reports
+  none: `latestTurn` is `Schema.NullOr` (`:412` on `OrchestrationThreadShell`;
+  `:356` is the same field on `OrchestrationThread`, and `:355` — cited by an
+  earlier revision of this document — is `worktreePath`).
+- **A thread's model.** `OrchestrationThreadShell.modelSelection`
+  (`orchestration.ts:405`) is required, and a `ModelSelection` is
+  `{instanceId, model}` with `model` a `TrimmedNonEmptyString` (`:64-66`) —
+  no null, no decoding default. **Settled** —
+  [spec decision 9](../specs/t3-shell-projection.md#9-a-conversation-reports-its-newest-turns-model)
+  takes the newest Turn's model, by the same rule
+  `task/statistics.rs` already uses for the Moatless UI (latest
+  `assistant_message_model`, else the requested `model`), then the deployment
+  default for the agent kind, then one last-resort constant. The catalog name
+  `default` is not a model identity and must not be reported as one.
+  `instanceId` is the routing key, not part of the model name: it is an **open**
+  branded slug (`providerInstance.ts:59`), and
+  `defaultInstanceIdForDriver(driver) = driver` (`:148`), so a Moatless
+  `AgentKind` maps to the driver's default instance — `ClaudeCode → claudeAgent`,
+  `Codex → codex` (driver slugs at `model.ts:130-131`). An unrecognized instance
+  is marked unavailable at runtime rather than failing to decode.
 - **`task_events` retention.** Unpruned today. If it is ever pruned, resume
   windows break silently; the adapter must fall back to a full re-snapshot past a
   configured gap, as T3 Code's own server does.

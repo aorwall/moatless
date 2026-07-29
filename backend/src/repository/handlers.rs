@@ -474,19 +474,43 @@ pub async fn delete_repository(
 
     // Soft-delete workspaces this repo declared in git — once the source repo is
     // gone no future sync will prune them. Best-effort; the repo is already deleted.
-    if let Err(e) = sqlx::query(
-        "UPDATE workspaces SET deleted = true, updated_at = now() \
-         WHERE source_repository_id = $1 AND source = 'git' \
-           AND (deleted IS NULL OR deleted = false)",
-    )
-    .bind(&repository_id)
-    .execute(&state.db)
-    .await
-    {
+    if let Err(e) = delete_declared_workspaces(&state.db, &repository_id).await {
         warn!(repository_id = %repository_id, error = %e, "Failed to soft-delete git workspaces for deleted repo");
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Soft-delete every workspace a deleted repository declared in git, recording
+/// each one as a listing change.
+///
+/// One record per affected workspace, because `project-removed` carries one id
+/// and there is no bulk form; `RETURNING id` makes the record set exactly the
+/// mutated set. The volume is the entries in one `.moatless/workspaces.json` —
+/// single digits to tens — which matters because the hold on the counter is n
+/// allocations long rather than one. The records come **last**, after the
+/// `UPDATE` has taken every `workspaces` row lock: `record_change`'s "call this
+/// last".
+async fn delete_declared_workspaces(
+    db: &crate::db::DbPool,
+    repository_id: &str,
+) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let deleted: Vec<String> = sqlx::query_scalar(
+        "UPDATE workspaces SET deleted = true, updated_at = now() \
+         WHERE source_repository_id = $1 AND source = 'git' \
+           AND (deleted IS NULL OR deleted = false) \
+         RETURNING id",
+    )
+    .bind(repository_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for workspace_id in &deleted {
+        crate::task_listing::record_workspace_change(&mut tx, workspace_id).await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Convert a remote repository to a template.
