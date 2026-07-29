@@ -8,13 +8,12 @@ use futures_util::StreamExt;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::sandbox::{
     SandboxStatusFullResponse, ServerConfigResponse, ServerOverride, ServerOverridesResponse,
-    ServerStatusResponse,
-    UpdateServerConfigRequest,
+    ServerStatusResponse, UpdateServerConfigRequest,
 };
 use moatless_api_schemas::shared::{AgentMode, AgentType};
 use moatless_api_schemas::task::{
-    CreateTaskRequest, ListTasksQuery, ListTasksResponse, TaskResponse, UpdateTaskMetadataRequest,
-    UpdateTaskTtlRequest,
+    CreateTaskRequest, FileContextData, ListTasksQuery, ListTasksResponse, MessageContextInput,
+    TaskResponse, UpdateTaskMetadataRequest, UpdateTaskTtlRequest,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -53,13 +52,16 @@ pub enum TaskAction {
         no_parent: bool,
         #[arg(long)]
         message: Option<String>,
+        /// Relevant repo file path to attach as a message context. Repeatable.
+        #[arg(long = "context-file", alias = "relevant-file", value_name = "PATH")]
+        context_files: Vec<String>,
         #[arg(long)]
         branch: Option<String>,
         /// Agent mode: "edit" or "plan"
         #[arg(long)]
         mode: Option<String>,
-        /// Harness to run the task with, e.g. `claude-code` or `codex`
-        /// (see `moat api GET /api/v1/agents`)
+        /// Harness to run the task with. Run `moat agents models` to list
+        /// available harnesses and model IDs.
         #[arg(
             long,
             required = true,
@@ -274,6 +276,7 @@ pub async fn run(
             parent,
             no_parent,
             message,
+            context_files,
             branch,
             mode,
             agent_type,
@@ -295,7 +298,9 @@ pub async fn run(
                 None => None,
             };
 
+            validate_context_files_have_message(&message, &context_files)?;
             let has_message = message.is_some();
+            let contexts = context_files_to_contexts(&context_files);
             let req = CreateTaskRequest {
                 repository_id,
                 workspace_id,
@@ -305,7 +310,7 @@ pub async fn run(
                 parent_task_id,
                 agent_mode: mode.map(AgentMode),
                 agent_type: Some(AgentType(agent_type)),
-                contexts: Vec::new(),
+                contexts,
                 description: None,
                 file_ids: Vec::new(),
                 model,
@@ -508,6 +513,68 @@ pub async fn run(
         }
     }
     Ok(())
+}
+
+fn validate_context_files_have_message(
+    message: &Option<String>,
+    context_files: &[String],
+) -> Result<(), ClientError> {
+    if message.is_none() && !context_files.is_empty() {
+        return Err(ClientError::Api {
+            status: 400,
+            body: "--context-file requires --message so the file contexts have an initial message to attach to".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn context_files_to_contexts(paths: &[String]) -> Vec<MessageContextInput> {
+    paths
+        .iter()
+        .map(|path| {
+            let reference_id = normalize_context_file_path(path);
+            let path_ref = std::path::Path::new(path);
+            let filename = path_ref
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(reference_id.as_str())
+                .to_string();
+            let mime_type = mime_guess::from_path(path_ref)
+                .first_or_octet_stream()
+                .to_string();
+            let size = std::fs::metadata(path_ref)
+                .map(|metadata| metadata.len().min(i64::MAX as u64) as i64)
+                .unwrap_or_default();
+
+            MessageContextInput::File {
+                reference_id,
+                data: FileContextData {
+                    filename,
+                    mime_type,
+                    size,
+                },
+            }
+        })
+        .collect()
+}
+
+fn normalize_context_file_path(path: &str) -> String {
+    let path_ref = std::path::Path::new(path);
+    let relative = if path_ref.is_absolute() {
+        std::env::current_dir()
+            .ok()
+            .and_then(|cwd| path_ref.strip_prefix(cwd).ok())
+            .unwrap_or(path_ref)
+    } else {
+        path_ref
+    };
+
+    let normalized = relative.to_string_lossy().replace('\\', "/");
+    normalized
+        .strip_prefix("./")
+        .unwrap_or(normalized.as_str())
+        .to_string()
 }
 
 async fn run_server_action(
@@ -1258,7 +1325,14 @@ fn format_file_tree(resp: &serde_json::Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{label, looks_like_task_id};
+    use moatless_api_schemas::task::MessageContextInput;
+
+    use crate::client::ClientError;
+
+    use super::{
+        context_files_to_contexts, label, looks_like_task_id, normalize_context_file_path,
+        validate_context_files_have_message,
+    };
 
     #[test]
     fn label_prefers_name_then_id_then_dash() {
@@ -1285,5 +1359,51 @@ mod tests {
         assert!(!looks_like_task_id(
             "1f0d0ebb00a8e049c2094ff077e8ea50b8bbxx"
         ));
+    }
+
+    #[test]
+    fn normalizes_relative_context_file_path() {
+        assert_eq!(
+            normalize_context_file_path("./crates/cli/src/commands/tasks.rs"),
+            "crates/cli/src/commands/tasks.rs"
+        );
+    }
+
+    #[test]
+    fn context_files_become_file_contexts() {
+        let contexts = context_files_to_contexts(&["specs/tasks/00-design.md".to_string()]);
+
+        assert_eq!(contexts.len(), 1);
+        match &contexts[0] {
+            MessageContextInput::File { reference_id, data } => {
+                assert_eq!(reference_id, "specs/tasks/00-design.md");
+                assert_eq!(data.filename, "00-design.md");
+                assert_eq!(data.mime_type, "text/markdown");
+            }
+            _ => panic!("expected file context"),
+        }
+    }
+
+    #[test]
+    fn context_files_require_initial_message() {
+        let err = validate_context_files_have_message(
+            &None,
+            &["crates/cli/src/commands/tasks.rs".to_string()],
+        )
+        .expect_err("context files without message should be rejected");
+
+        match err {
+            ClientError::Api { status, body } => {
+                assert_eq!(status, 400);
+                assert!(body.contains("--context-file requires --message"));
+            }
+            other => panic!("expected API validation error, got {other:?}"),
+        }
+
+        validate_context_files_have_message(
+            &Some("read these files".to_string()),
+            &["crates/cli/src/commands/tasks.rs".to_string()],
+        )
+        .expect("message owns context files");
     }
 }

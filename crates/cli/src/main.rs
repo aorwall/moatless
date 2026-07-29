@@ -51,6 +51,11 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::tasks::TaskAction,
     },
+    /// Agent harness and model catalog
+    Agents {
+        #[command(subcommand)]
+        action: commands::agents::AgentAction,
+    },
     /// Repository management
     Repos {
         #[command(subcommand)]
@@ -387,6 +392,9 @@ async fn run_shared(
         }
         SharedCommands::Tasks { action } => {
             commands::tasks::run(moat, action, json, cfg).await?;
+        }
+        SharedCommands::Agents { action } => {
+            commands::agents::run(moat, action, json).await?;
         }
         SharedCommands::Repos { action } => {
             commands::repos::run(moat, *action, json).await?;

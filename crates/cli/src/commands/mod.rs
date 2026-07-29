@@ -1,4 +1,5 @@
 pub mod adapters;
+pub mod agents;
 pub mod api;
 pub mod bots;
 pub mod docker;
