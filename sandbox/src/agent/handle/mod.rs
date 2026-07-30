@@ -1,32 +1,21 @@
-//! Actor-style agent handle — owns the CLI session and exposes `send()`.
+//! Agent command handle — exposes `send()`, `stop()`, and startup recovery.
 //!
 //! The outside world (dispatcher, gRPC handlers) calls `agent.send(text)`.
-//! Internally, the actor manages the runtime lifecycle:
-//! - Claude sessions stay open and accept injected user messages.
-//! - Codex runs one turn per `codex exec` invocation and resumes on the next turn.
-//!
-//! The actor emits `AgentEvent`s through the shared event publisher.
+//! Internally, [`CoordinatorService`](super::coordinator::CoordinatorService)
+//! owns the runtime lifecycle through the harness interface.
 //!
 //! Module layout:
-//! - [`actor`] — the `tokio::select!` event loop
-//! - [`session`] — starting/fingerprinting CLI sessions
 //! - [`retry`] — transient-error classification and backoff
 //! - [`credential_recovery`] — re-driving a prompt after a credential refresh
-//! - [`claude`] / [`codex`] — per-runtime message processing
 //! - [`codex_payloads`] — pure Codex item → event-JSON builders
 
-mod actor;
-mod claude;
-mod codex;
 pub(crate) mod codex_payloads;
 pub(crate) mod credential_recovery;
 pub(crate) mod retry;
-pub(crate) mod session;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use claude_agent_sdk::QueryHandle as ClaudeQueryHandle;
 use moatless_events::AgentSubType;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
@@ -37,7 +26,6 @@ use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
 
 use super::agent_state::AgentState;
-use super::codex_exec::CodexCliSession;
 use super::harness::{
     ClaudeConfig, CodexConfig, ErrorClass, FailureStage, Harness, HarnessError, SessionImpact,
 };
@@ -51,15 +39,15 @@ pub(crate) const AGENT_TYPE_CLAUDE_CODE: &str = "claude-code";
 const AGENT_TYPE_CLAUDE_CODE_TUI: &str = "claude-code-tui";
 /// Claude Code over the subprocess/NDJSON transport (the explicit non-tmux CLI
 /// variant). Treated as the claude-code family for everything except the
-/// transport selection in `start_session`.
+/// transport selection inside the Claude harness.
 const AGENT_TYPE_CLAUDE_CODE_CLI: &str = "claude-code-cli";
 /// Claude Code pinned to the `fable` model. Same executor family as claude-code;
 /// the model is forced backend-side when the message carries none.
 const AGENT_TYPE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
 const AGENT_TYPE_CODEX: &str = "codex";
 
-/// Resolve a raw agent-type string into the canonical harness identifier the
-/// actor branches on, rejecting values this Sandbox has no harness for.
+/// Resolve a raw agent-type string into the canonical harness identifier,
+/// rejecting values this Sandbox has no harness for.
 ///
 /// Used to validate the Task's fixed selection at Sandbox construction (ADR-0004):
 /// an unsupported harness is an invalid-configuration failure surfaced at
@@ -124,53 +112,6 @@ pub fn build_harness(
     })
 }
 
-/// Fix the harness selection on first resolution and keep it for the actor's
-/// lifetime. `current` is the selection already resolved — from the Sandbox's
-/// construction-time config, or (legacy migration) the first Message that
-/// carried an agent type. A later Message's agent type is tolerated as input but
-/// can never switch the harness, so it is adopted only when nothing is fixed yet.
-fn adopt_agent_type(current: &Option<String>, incoming: Option<String>) -> Option<String> {
-    match current {
-        Some(_) => current.clone(),
-        None => incoming,
-    }
-}
-
-enum ActiveHandle {
-    Claude(ClaudeQueryHandle),
-    Codex(CodexCliSession),
-}
-
-#[derive(Debug, thiserror::Error)]
-enum AgentRuntimeError {
-    #[error(transparent)]
-    Claude(#[from] claude_agent_sdk::SdkError),
-    #[error("{0}")]
-    Codex(String),
-}
-
-impl ActiveHandle {
-    async fn send(&self, text: &str, session_id: &str) -> Result<(), AgentRuntimeError> {
-        match self {
-            Self::Claude(handle) => {
-                let user_msg = claude::make_user_message(text, session_id);
-                handle.send_user_message(&user_msg).await?;
-                Ok(())
-            }
-            Self::Codex(_) => Err(AgentRuntimeError::Codex(
-                "Cannot inject into an active Codex turn".to_string(),
-            )),
-        }
-    }
-
-    fn close(&self) {
-        match self {
-            Self::Claude(handle) => handle.close(),
-            Self::Codex(handle) => handle.cancel(),
-        }
-    }
-}
-
 /// What the dispatcher needs to acknowledge a batch of messages: the CLI
 /// session that consumed them and the agent run they belong to.
 ///
@@ -183,14 +124,13 @@ pub struct RunAck {
     pub run_id: String,
 }
 
-/// Commands sent to the agent actor.
+/// Commands sent to the agent lifecycle owner.
 pub(crate) enum AgentCommand {
     /// Send a message. The ack sender is resolved with the session and run IDs
     /// once the agent confirms it processed the message.
     Send {
         text: String,
         model: Option<String>,
-        agent_type: Option<String>,
         agent_mode: Option<String>,
         /// Session ID from the backend for resuming after pod restart.
         resume_session_id: Option<String>,
@@ -205,7 +145,6 @@ pub(crate) enum AgentCommand {
     /// rest. Acks are dropped (no caller waiting on a session_id).
     Recover {
         text: String,
-        agent_type: Option<String>,
         agent_mode: Option<String>,
         resume_session_id: String,
     },
@@ -220,18 +159,7 @@ pub(crate) enum AgentCommand {
     },
 }
 
-/// Queued turn waiting for a runtime to become idle.
-pub(crate) struct QueuedSend {
-    text: String,
-    model: Option<String>,
-    agent_type: Option<String>,
-    agent_mode: Option<String>,
-    resume_session_id: Option<String>,
-    start_fresh: bool,
-    ack: oneshot::Sender<RunAck>,
-}
-
-/// Handle to the agent actor — the only interface the outside world needs.
+/// Handle to the agent lifecycle owner — the only interface the outside world needs.
 #[derive(Clone)]
 pub struct AgentHandle {
     command_tx: mpsc::UnboundedSender<AgentCommand>,
@@ -256,7 +184,7 @@ impl AgentHandle {
         &self,
         text: String,
         model: Option<String>,
-        agent_type: Option<String>,
+        _agent_type: Option<String>,
         agent_mode: Option<String>,
         resume_session_id: Option<String>,
         start_fresh: bool,
@@ -265,7 +193,6 @@ impl AgentHandle {
         let _ = self.command_tx.send(AgentCommand::Send {
             text,
             model,
-            agent_type,
             agent_mode,
             resume_session_id,
             start_fresh,
@@ -287,7 +214,7 @@ impl AgentHandle {
         ack_rx
     }
 
-    /// Whether the actor loop has exited (its command receiver was dropped).
+    /// Whether the lifecycle owner has exited (its command receiver was dropped).
     ///
     /// Used by the `/livez` liveness probe: a closed channel means no further
     /// agent turn can ever run, so the pod should be restarted.
@@ -304,13 +231,12 @@ impl AgentHandle {
     pub fn recover(
         &self,
         text: String,
-        agent_type: Option<String>,
+        _agent_type: Option<String>,
         agent_mode: Option<String>,
         resume_session_id: String,
     ) {
         let _ = self.command_tx.send(AgentCommand::Recover {
             text,
-            agent_type,
             agent_mode,
             resume_session_id,
         });
@@ -329,13 +255,8 @@ impl AgentHandle {
     }
 }
 
-/// Spawn the agent actor loop and return a handle.
-///
-/// When `config.agent_type` is `Some(...)`, routes through the new
-/// [`CoordinatorService`] backed by the appropriate [`Harness`]. When
-/// `config.agent_type` is `None` (legacy pod), spawns the legacy
-/// `actor::agent_loop` unchanged — the one migration-compat path.
-#[allow(clippy::too_many_arguments)] // reason: actor wiring; refactor pending
+/// Spawn the coordinator-backed agent lifecycle owner and return a handle.
+#[allow(clippy::too_many_arguments)] // reason: lifecycle wiring; every argument is a distinct dependency
 pub fn spawn_agent(
     config: Arc<Config>,
     agent_state: Arc<AgentState>,
@@ -348,111 +269,63 @@ pub fn spawn_agent(
     system_prompt_cache: Arc<RwLock<Option<String>>>,
     heartbeat: super::heartbeat::Heartbeat,
 ) -> AgentHandle {
-    if let Some(ref agent_type) = config.agent_type.clone() {
-        // New harness path: build the harness fixed for this Sandbox's agent
-        // type and drive it with a CoordinatorService.
-        let (command_tx, command_rx) = mpsc::unbounded_channel::<AgentCommand>();
+    let (command_tx, command_rx) = mpsc::unbounded_channel::<AgentCommand>();
+    let agent_type = config.agent_type.as_deref().unwrap_or("");
 
-        match build_harness(&config, &agent_state, &credential_failures, agent_type) {
-            Ok(harness) => {
-                let coordinator = super::coordinator::Coordinator::new(
-                    harness,
-                    events.clone(),
-                    config.task_id.clone(),
-                );
-                let service = super::coordinator::CoordinatorService::new(
-                    coordinator,
-                    Arc::clone(&agent_state),
-                    Arc::clone(&config),
-                    Arc::clone(&credentials),
-                    Arc::clone(&backend_client),
-                    Arc::clone(&system_prompt_cache),
-                    Arc::clone(&scheduled_jobs),
-                    // The same detector instance the harness populates, so the
-                    // service sees the credential flags Codex raises mid-Turn.
-                    credential_failures.clone(),
-                    Arc::clone(&credential_dispatcher),
-                );
-                tokio::spawn(service.run(command_rx, heartbeat));
-            }
-            Err(harness_err) => {
-                // Invalid configuration: spawn a "poison" task that publishes
-                // one classified error event and then exits (dropping command_rx
-                // so `is_closed()` → true and `/livez` restarts the pod).
-                let task_id = config.task_id.clone();
-                let diagnostic = harness_err.diagnostic.clone();
-                tokio::spawn(async move {
-                    events
-                        .publish_agent_event(
-                            &task_id,
-                            AgentSubType::Error,
-                            serde_json::json!({
-                                "error": diagnostic,
-                                "reason": "invalid_configuration",
-                            }),
-                        )
-                        .await;
-                    // command_rx is dropped here, closing the channel.
-                    drop(command_rx);
-                });
-            }
+    match build_harness(&config, &agent_state, &credential_failures, agent_type) {
+        Ok(harness) => {
+            let coordinator = super::coordinator::Coordinator::new(
+                harness,
+                events.clone(),
+                config.task_id.clone(),
+            );
+            let service = super::coordinator::CoordinatorService::new(
+                coordinator,
+                Arc::clone(&agent_state),
+                Arc::clone(&config),
+                Arc::clone(&credentials),
+                Arc::clone(&backend_client),
+                Arc::clone(&system_prompt_cache),
+                Arc::clone(&scheduled_jobs),
+                // The same detector instance the harness populates, so the
+                // service sees the credential flags Codex raises mid-Turn.
+                credential_failures.clone(),
+                Arc::clone(&credential_dispatcher),
+            );
+            tokio::spawn(service.run(command_rx, heartbeat));
         }
-
-        return AgentHandle { command_tx };
+        Err(harness_err) => {
+            // Invalid configuration: spawn a poison task that publishes one
+            // classified error event and then exits, dropping `command_rx` so
+            // `is_closed()` becomes true and `/livez` restarts the pod.
+            let task_id = config.task_id.clone();
+            let diagnostic = harness_err.diagnostic.clone();
+            tokio::spawn(async move {
+                events
+                    .publish_agent_event(
+                        &task_id,
+                        AgentSubType::Error,
+                        serde_json::json!({
+                            "error": diagnostic,
+                            "reason": "invalid_configuration",
+                        }),
+                    )
+                    .await;
+                drop(command_rx);
+            });
+        }
     }
-
-    // Legacy path (config.agent_type is None): spawn the existing actor loop
-    // exactly as before — the one migration-compat path.
-    let (command_tx, command_rx) = mpsc::unbounded_channel();
-
-    tokio::spawn(actor::agent_loop(
-        command_rx,
-        config,
-        agent_state,
-        events,
-        credentials,
-        backend_client,
-        scheduled_jobs,
-        credential_failures,
-        credential_dispatcher,
-        system_prompt_cache,
-        heartbeat,
-    ));
 
     AgentHandle { command_tx }
 }
 
-fn append_turn_output(turn_output: &mut String, text: &str) {
-    if text.trim().is_empty() {
-        return;
-    }
-    if !turn_output.is_empty() {
-        turn_output.push_str("\n\n");
-    }
-    turn_output.push_str(text);
-}
-
-fn drain_pending_acks(pending_acks: &mut VecDeque<oneshot::Sender<RunAck>>) {
-    while let Some(ack) = pending_acks.pop_front() {
-        drop(ack);
-    }
-}
-
 /// Truncate a string to at most `max` characters (on a char boundary).
-fn truncate(s: &str, max: usize) -> &str {
-    match s.char_indices().nth(max) {
-        Some((idx, _)) => &s[..idx],
-        None => s,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use super::{
-        adopt_agent_type, build_harness, resolve_agent_harness, spawn_agent,
-        AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX,
+        build_harness, resolve_agent_harness, spawn_agent, AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX,
     };
     use crate::agent::agent_state::AgentState;
     use crate::agent::harness::ErrorClass;
@@ -578,6 +451,44 @@ mod tests {
         cancel.cancel();
     }
 
+    /// A missing `AGENT_TYPE` is a classified invalid configuration that closes
+    /// the handle for liveness.
+    #[tokio::test]
+    async fn spawn_agent_without_agent_type_closes_channel_promptly() {
+        let cancel = CancellationToken::new();
+        let events = make_publisher(cancel.clone());
+
+        let mut config = minimal_config();
+        config.agent_type = None;
+
+        let handle = spawn_agent(
+            Arc::new(config),
+            Arc::new(AgentState::new()),
+            events,
+            Arc::new(RwLock::new(std::collections::HashMap::new())),
+            Arc::new(NopBackend),
+            Arc::new(ScheduledJobRegistry::new(Arc::new(LateInjector::new()))),
+            CredentialFailureDetector::default(),
+            Arc::new(Dispatcher::new()),
+            Arc::new(RwLock::new(None)),
+            Heartbeat::new(),
+        );
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if handle.is_closed() {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "handle channel did not close within 2 s"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        cancel.cancel();
+    }
+
     fn harness_inputs(use_tmux: bool) -> (Arc<Config>, Arc<AgentState>, CredentialFailureDetector) {
         let mut config = minimal_config();
         config.use_tmux = use_tmux;
@@ -650,23 +561,5 @@ mod tests {
         let err = resolve_agent_harness("gpt-9000").unwrap_err();
         assert!(err.contains("gpt-9000"));
         assert!(err.contains("unsupported Agent harness"));
-    }
-
-    #[test]
-    fn adopt_agent_type_freezes_the_first_resolved_selection() {
-        // A construction-time (or first legacy) selection is authoritative and a
-        // later Message cannot switch it.
-        let fixed = Some("codex".to_string());
-        assert_eq!(
-            adopt_agent_type(&fixed, Some("claude-code".to_string())),
-            fixed
-        );
-        // No fixed selection yet (legacy pod): adopt the first Message's type.
-        assert_eq!(
-            adopt_agent_type(&None, Some("codex".to_string())),
-            Some("codex".to_string())
-        );
-        // Still nothing to adopt when the Message carries none.
-        assert_eq!(adopt_agent_type(&None, None), None);
     }
 }

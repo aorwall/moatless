@@ -1,132 +1,19 @@
-//! Pure builders that map Codex CLI thread items to event JSON payloads
-//! (assistant `tool_use` / user `tool_result` envelopes) and publish them.
+//! Pure builders that map Codex CLI thread items to typed tool inputs/results.
 
 use std::collections::HashMap;
-
-use moatless_events::AgentSubType;
 
 use moatless_api_schemas::codex::{
     CodexCollabAgentState, CodexCollabAgentStatus, CodexCollabInput, CodexCollabResult,
     CodexCollabTool, CodexEditInput, CodexEditResult, CodexMcpInput, CodexMcpResult,
     CodexShellInput, CodexShellResult, CodexTodoItem, CodexTodoListInput, CodexToolStatus,
-    CodexWebSearchInput, FileUpdateChange, FileUpdateKind, CODEX_TOOL_COLLAB, CODEX_TOOL_EDIT,
-    CODEX_TOOL_MCP, CODEX_TOOL_SHELL, CODEX_TOOL_TODO_LIST, CODEX_TOOL_WEB_SEARCH,
+    FileUpdateChange, FileUpdateKind,
 };
 
 use crate::agent::codex_exec::{
     self, CollabAgentStatus as CodexExecCollabAgentStatus, CollabTool as CodexExecCollabTool,
     CollabToolCallItem, CollabToolCallStatus, CommandExecutionItem, CommandExecutionStatus,
-    FileChangeItem, McpToolCallItem, McpToolCallStatus, PatchApplyStatus, TodoListItem, Usage,
-    WebSearchItem,
+    FileChangeItem, McpToolCallItem, McpToolCallStatus, PatchApplyStatus, TodoListItem,
 };
-use crate::events::GrpcEventPublisher;
-
-pub(super) fn codex_message_payload(
-    uuid: &str,
-    session_id: &str,
-    text: &str,
-    requested_model: Option<&str>,
-) -> serde_json::Value {
-    let mut message = serde_json::Map::new();
-    message.insert("role".to_string(), serde_json::json!("assistant"));
-    message.insert(
-        "content".to_string(),
-        serde_json::json!([{ "type": "text", "text": text }]),
-    );
-    if let Some(model) = requested_model {
-        message.insert("model".to_string(), serde_json::json!(model));
-    }
-
-    serde_json::json!({
-        "uuid": uuid,
-        "session_id": session_id,
-        "message": serde_json::Value::Object(message),
-    })
-}
-
-/// Assistant text payload for a codex reasoning item, tagged so the UI
-/// can render it collapsed.
-pub(super) fn codex_reasoning_payload(
-    uuid: &str,
-    session_id: &str,
-    text: &str,
-    requested_model: Option<&str>,
-) -> serde_json::Value {
-    let mut message = serde_json::Map::new();
-    message.insert("role".to_string(), serde_json::json!("assistant"));
-    message.insert(
-        "content".to_string(),
-        serde_json::json!([{ "type": "text", "text": text }]),
-    );
-    if let Some(model) = requested_model {
-        message.insert("model".to_string(), serde_json::json!(model));
-    }
-
-    serde_json::json!({
-        "uuid": uuid,
-        "session_id": session_id,
-        "message": serde_json::Value::Object(message),
-        "sdk_metadata": { "codex_reasoning": true },
-    })
-}
-
-/// Build an assistant message envelope containing a single `tool_use` block.
-fn codex_tool_use_payload(
-    uuid: &str,
-    session_id: &str,
-    tool_use_id: &str,
-    tool_name: &str,
-    tool_input: serde_json::Value,
-    requested_model: Option<&str>,
-) -> serde_json::Value {
-    let mut message = serde_json::Map::new();
-    message.insert("role".to_string(), serde_json::json!("assistant"));
-    message.insert(
-        "content".to_string(),
-        serde_json::json!([{
-            "type": "tool_use",
-            "id": tool_use_id,
-            "name": tool_name,
-            "input": tool_input,
-        }]),
-    );
-    if let Some(model) = requested_model {
-        message.insert("model".to_string(), serde_json::json!(model));
-    }
-
-    serde_json::json!({
-        "uuid": uuid,
-        "session_id": session_id,
-        "message": serde_json::Value::Object(message),
-    })
-}
-
-/// Build a user message envelope containing a single `tool_result` block
-/// referencing a prior `tool_use`. The `tool_use_result` field carries the
-/// typed codex result for backend enrichment.
-fn codex_tool_result_payload(
-    uuid: &str,
-    session_id: &str,
-    tool_use_id: &str,
-    content: &str,
-    is_error: bool,
-    tool_use_result: serde_json::Value,
-) -> serde_json::Value {
-    serde_json::json!({
-        "uuid": uuid,
-        "session_id": session_id,
-        "message": {
-            "role": "user",
-            "content": [{
-                "type": "tool_result",
-                "tool_use_id": tool_use_id,
-                "content": content,
-                "is_error": is_error,
-            }],
-        },
-        "tool_use_result": tool_use_result,
-    })
-}
 
 /// Map a codex shell status + exit code to the shared typed status enum.
 ///
@@ -237,7 +124,9 @@ pub(crate) fn build_shell_tool_use(cmd: &CommandExecutionItem) -> serde_json::Va
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
 }
 
-pub(crate) fn build_shell_tool_result(cmd: &CommandExecutionItem) -> (serde_json::Value, String, bool) {
+pub(crate) fn build_shell_tool_result(
+    cmd: &CommandExecutionItem,
+) -> (serde_json::Value, String, bool) {
     let status = command_execution_to_tool_status(cmd.status, cmd.exit_code);
     let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
     let summary_text = cmd.aggregated_output.clone().unwrap_or_default();
@@ -297,84 +186,6 @@ pub(crate) fn build_edit_tool_result(edit: &FileChangeItem) -> (serde_json::Valu
     (value, summary_text, is_error)
 }
 
-pub(super) async fn publish_codex_shell_call(
-    events: &GrpcEventPublisher,
-    task_id: &str,
-    session_id: &str,
-    spawn_nonce: &str,
-    item_id: &str,
-    cmd: &CommandExecutionItem,
-    requested_model: Option<&str>,
-) {
-    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
-    let tool_input = build_shell_tool_use(cmd);
-    let use_payload = codex_tool_use_payload(
-        &assistant_uuid,
-        session_id,
-        &tool_use_id,
-        CODEX_TOOL_SHELL,
-        tool_input,
-        requested_model,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
-        .await;
-
-    let (result_value, summary_text, is_error) = build_shell_tool_result(cmd);
-    let result_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_result");
-    let result_payload = codex_tool_result_payload(
-        &result_uuid,
-        session_id,
-        &tool_use_id,
-        &summary_text,
-        is_error,
-        result_value,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, result_payload)
-        .await;
-}
-
-pub(super) async fn publish_codex_edit_call(
-    events: &GrpcEventPublisher,
-    task_id: &str,
-    session_id: &str,
-    spawn_nonce: &str,
-    item_id: &str,
-    edit: &FileChangeItem,
-    requested_model: Option<&str>,
-) {
-    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
-    let tool_input = build_edit_tool_use(edit);
-    let use_payload = codex_tool_use_payload(
-        &assistant_uuid,
-        session_id,
-        &tool_use_id,
-        CODEX_TOOL_EDIT,
-        tool_input,
-        requested_model,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
-        .await;
-
-    let (result_value, summary_text, is_error) = build_edit_tool_result(edit);
-    let result_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_result");
-    let result_payload = codex_tool_result_payload(
-        &result_uuid,
-        session_id,
-        &tool_use_id,
-        &summary_text,
-        is_error,
-        result_value,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, result_payload)
-        .await;
-}
-
 pub(crate) fn build_codex_todo_list_input(todo: &TodoListItem) -> CodexTodoListInput {
     CodexTodoListInput {
         items: todo
@@ -386,39 +197,6 @@ pub(crate) fn build_codex_todo_list_input(todo: &TodoListItem) -> CodexTodoListI
             })
             .collect(),
     }
-}
-
-/// Publish a codex `todo_list` item as a tool_use block. Unlike shell/edit,
-/// this is called on every `item.started` / `item.updated` / `item.completed`
-/// for the same `item_id` — the stable `assistant_uuid`
-/// (session + spawn_nonce + item_id) causes the backend DAO to upsert in
-/// place, so the UI sees one card that mutates live as codex flips items to
-/// done. No `tool_result` is emitted; codex's todo_list has no separate
-/// result concept.
-pub(super) async fn publish_codex_todo_list_call(
-    events: &GrpcEventPublisher,
-    task_id: &str,
-    session_id: &str,
-    spawn_nonce: &str,
-    item_id: &str,
-    todo: &TodoListItem,
-    requested_model: Option<&str>,
-) {
-    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
-    let input = build_codex_todo_list_input(todo);
-    let tool_input = serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}));
-    let use_payload = codex_tool_use_payload(
-        &assistant_uuid,
-        session_id,
-        &tool_use_id,
-        CODEX_TOOL_TODO_LIST,
-        tool_input,
-        requested_model,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
-        .await;
 }
 
 pub(crate) fn build_mcp_tool_use(item: &McpToolCallItem) -> serde_json::Value {
@@ -465,45 +243,6 @@ pub(crate) fn build_mcp_tool_result(item: &McpToolCallItem) -> (serde_json::Valu
     (value, summary_text, is_error)
 }
 
-pub(super) async fn publish_codex_mcp_call(
-    events: &GrpcEventPublisher,
-    task_id: &str,
-    session_id: &str,
-    spawn_nonce: &str,
-    item_id: &str,
-    mcp: &McpToolCallItem,
-    requested_model: Option<&str>,
-) {
-    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
-    let tool_input = build_mcp_tool_use(mcp);
-    let use_payload = codex_tool_use_payload(
-        &assistant_uuid,
-        session_id,
-        &tool_use_id,
-        CODEX_TOOL_MCP,
-        tool_input,
-        requested_model,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
-        .await;
-
-    let (result_value, summary_text, is_error) = build_mcp_tool_result(mcp);
-    let result_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_result");
-    let result_payload = codex_tool_result_payload(
-        &result_uuid,
-        session_id,
-        &tool_use_id,
-        &summary_text,
-        is_error,
-        result_value,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, result_payload)
-        .await;
-}
-
 pub(crate) fn build_collab_tool_use(item: &CollabToolCallItem) -> serde_json::Value {
     let input = CodexCollabInput {
         tool: map_collab_tool(item.tool),
@@ -515,7 +254,9 @@ pub(crate) fn build_collab_tool_use(item: &CollabToolCallItem) -> serde_json::Va
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
 }
 
-pub(crate) fn build_collab_tool_result(item: &CollabToolCallItem) -> (serde_json::Value, String, bool) {
+pub(crate) fn build_collab_tool_result(
+    item: &CollabToolCallItem,
+) -> (serde_json::Value, String, bool) {
     let status = collab_to_tool_status(item.status);
     let agents_states = map_collab_agents_states(&item.agents_states);
     let any_errored = agents_states
@@ -543,212 +284,9 @@ pub(crate) fn build_collab_tool_result(item: &CollabToolCallItem) -> (serde_json
     (value, summary_text, is_error)
 }
 
-pub(super) async fn publish_codex_collab_call(
-    events: &GrpcEventPublisher,
-    task_id: &str,
-    session_id: &str,
-    spawn_nonce: &str,
-    item_id: &str,
-    collab: &CollabToolCallItem,
-    requested_model: Option<&str>,
-) {
-    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
-    let tool_input = build_collab_tool_use(collab);
-    let use_payload = codex_tool_use_payload(
-        &assistant_uuid,
-        session_id,
-        &tool_use_id,
-        CODEX_TOOL_COLLAB,
-        tool_input,
-        requested_model,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
-        .await;
-
-    let (result_value, summary_text, is_error) = build_collab_tool_result(collab);
-    let result_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_result");
-    let result_payload = codex_tool_result_payload(
-        &result_uuid,
-        session_id,
-        &tool_use_id,
-        &summary_text,
-        is_error,
-        result_value,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, result_payload)
-        .await;
-}
-
-/// Publish a `web_search` item as a single tool_use block — no result is
-/// emitted because upstream has no status or payload on completion.
-pub(super) async fn publish_codex_web_search_call(
-    events: &GrpcEventPublisher,
-    task_id: &str,
-    session_id: &str,
-    spawn_nonce: &str,
-    item_id: &str,
-    web: &WebSearchItem,
-    requested_model: Option<&str>,
-) {
-    let tool_use_id = format!("{session_id}_{spawn_nonce}_{item_id}");
-    let assistant_uuid = format!("{session_id}_{spawn_nonce}_{item_id}_call");
-    let input = CodexWebSearchInput {
-        query: web.query.clone(),
-        action: web.action.clone(),
-    };
-    let tool_input = serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}));
-    let use_payload = codex_tool_use_payload(
-        &assistant_uuid,
-        session_id,
-        &tool_use_id,
-        CODEX_TOOL_WEB_SEARCH,
-        tool_input,
-        requested_model,
-    );
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, use_payload)
-        .await;
-}
-
-/// Publish a non-fatal codex `error` item as an assistant text message,
-/// flagged via `sdk_metadata.codex_error` so the UI can render it distinctly.
-/// Note: this intentionally does NOT touch `agent_state.set_error()` — the
-/// turn is still running; only the item itself reports a non-fatal error.
-pub(super) async fn publish_codex_error_item(
-    events: &GrpcEventPublisher,
-    task_id: &str,
-    session_id: &str,
-    spawn_nonce: &str,
-    item_id: &str,
-    text: &str,
-    requested_model: Option<&str>,
-) {
-    let uuid = format!("{session_id}_{spawn_nonce}_{item_id}");
-    let payload = codex_error_message_payload(&uuid, session_id, text, requested_model);
-    events
-        .publish_agent_event(task_id, AgentSubType::Message, payload)
-        .await;
-}
-
-/// Assistant text payload for a non-fatal codex error item.
-fn codex_error_message_payload(
-    uuid: &str,
-    session_id: &str,
-    text: &str,
-    requested_model: Option<&str>,
-) -> serde_json::Value {
-    let mut message = serde_json::Map::new();
-    message.insert("role".to_string(), serde_json::json!("assistant"));
-    message.insert(
-        "content".to_string(),
-        serde_json::json!([{ "type": "text", "text": text }]),
-    );
-    if let Some(model) = requested_model {
-        message.insert("model".to_string(), serde_json::json!(model));
-    }
-
-    serde_json::json!({
-        "uuid": uuid,
-        "session_id": session_id,
-        "message": serde_json::Value::Object(message),
-        "sdk_metadata": { "codex_error": true },
-    })
-}
-
-pub(super) fn codex_result_payload(
-    session_id: Option<&str>,
-    is_error: bool,
-    subtype: &str,
-    result: String,
-    usage: Option<&Usage>,
-    requested_model: Option<&str>,
-) -> serde_json::Value {
-    let mut payload = serde_json::Map::new();
-    if let Some(session_id) = session_id.filter(|session_id| !session_id.is_empty()) {
-        payload.insert("session_id".to_string(), serde_json::json!(session_id));
-    }
-    payload.insert("is_error".to_string(), serde_json::json!(is_error));
-    payload.insert("subtype".to_string(), serde_json::json!(subtype));
-    payload.insert("result".to_string(), serde_json::json!(result.clone()));
-    // Mirror the Claude `extract_result_info` shape: when `is_error`, expose the
-    // text under `error` so `handle_agent_error` can read it without knowing
-    // SDK-specific layout (it falls back to "Unknown agent error" otherwise).
-    if is_error {
-        payload.insert("error".to_string(), serde_json::json!(result));
-    }
-    payload.insert("total_cost_usd".to_string(), serde_json::json!(0.0));
-    payload.insert("num_turns".to_string(), serde_json::json!(1));
-    if let Some(model) = requested_model {
-        payload.insert("model".to_string(), serde_json::json!(model));
-    }
-    if let Some(usage) = usage {
-        payload.insert(
-            "usage".to_string(),
-            serde_json::json!({
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "cache_read_input_tokens": usage.cached_input_tokens,
-                "cache_creation_input_tokens": serde_json::Value::Null,
-                "reasoning_output_tokens": usage.reasoning_output_tokens,
-            }),
-        );
-    }
-
-    serde_json::Value::Object(payload)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn codex_tool_use_payload_shapes_assistant_block() {
-        let input = serde_json::json!({ "command": "echo hi" });
-        let payload = codex_tool_use_payload(
-            "sess_NONCE_item_1_call",
-            "sess",
-            "sess_NONCE_item_1",
-            "codex.shell",
-            input,
-            Some("gpt-5"),
-        );
-
-        assert_eq!(payload["uuid"], "sess_NONCE_item_1_call");
-        assert_eq!(payload["session_id"], "sess");
-        assert_eq!(payload["message"]["role"], "assistant");
-        assert_eq!(payload["message"]["model"], "gpt-5");
-
-        let block = &payload["message"]["content"][0];
-        assert_eq!(block["type"], "tool_use");
-        assert_eq!(block["id"], "sess_NONCE_item_1");
-        assert_eq!(block["name"], "codex.shell");
-        assert_eq!(block["input"]["command"], "echo hi");
-    }
-
-    #[test]
-    fn codex_tool_result_payload_carries_typed_result() {
-        let typed = serde_json::json!({ "status": "completed", "exitCode": 0 });
-        let payload = codex_tool_result_payload(
-            "sess_NONCE_item_1_result",
-            "sess",
-            "sess_NONCE_item_1",
-            "hi\n",
-            false,
-            typed,
-        );
-
-        assert_eq!(payload["uuid"], "sess_NONCE_item_1_result");
-        assert_eq!(payload["message"]["role"], "user");
-        let block = &payload["message"]["content"][0];
-        assert_eq!(block["type"], "tool_result");
-        assert_eq!(block["tool_use_id"], "sess_NONCE_item_1");
-        assert_eq!(block["content"], "hi\n");
-        assert_eq!(block["is_error"], false);
-        assert_eq!(payload["tool_use_result"]["exitCode"], 0);
-    }
 
     #[test]
     fn command_execution_status_nonzero_exit_is_failed() {
@@ -799,69 +337,6 @@ mod tests {
         assert!(input.items[0].completed);
         assert_eq!(input.items[1].text, "second");
         assert!(!input.items[1].completed);
-    }
-
-    #[test]
-    fn codex_todo_list_payload_uses_stable_uuid_per_item_id() {
-        // Simulate two emissions for the same codex item_id: first a started
-        // snapshot with all false, then an updated snapshot with one true.
-        // Both should produce the same uuid so the backend upserts in place.
-        let initial = serde_json::to_value(build_codex_todo_list_input(&TodoListItem {
-            items: vec![
-                codex_exec::TodoListEntry {
-                    text: "a".to_string(),
-                    completed: false,
-                },
-                codex_exec::TodoListEntry {
-                    text: "b".to_string(),
-                    completed: false,
-                },
-            ],
-        }))
-        .unwrap();
-        let updated = serde_json::to_value(build_codex_todo_list_input(&TodoListItem {
-            items: vec![
-                codex_exec::TodoListEntry {
-                    text: "a".to_string(),
-                    completed: true,
-                },
-                codex_exec::TodoListEntry {
-                    text: "b".to_string(),
-                    completed: false,
-                },
-            ],
-        }))
-        .unwrap();
-
-        let p1 = codex_tool_use_payload(
-            &format!("{}_{}_{}_call", "sess", "NONCE", "item_1"),
-            "sess",
-            &format!("{}_{}_{}", "sess", "NONCE", "item_1"),
-            CODEX_TOOL_TODO_LIST,
-            initial,
-            Some("gpt-5"),
-        );
-        let p2 = codex_tool_use_payload(
-            &format!("{}_{}_{}_call", "sess", "NONCE", "item_1"),
-            "sess",
-            &format!("{}_{}_{}", "sess", "NONCE", "item_1"),
-            CODEX_TOOL_TODO_LIST,
-            updated,
-            Some("gpt-5"),
-        );
-
-        assert_eq!(p1["uuid"], p2["uuid"]);
-        assert_eq!(p1["uuid"], "sess_NONCE_item_1_call");
-        assert_eq!(p1["message"]["content"][0]["name"], CODEX_TOOL_TODO_LIST);
-        // Payloads differ only in the tool_input items array.
-        assert_eq!(
-            p1["message"]["content"][0]["input"]["items"][0]["completed"],
-            false
-        );
-        assert_eq!(
-            p2["message"]["content"][0]["input"]["items"][0]["completed"],
-            true
-        );
     }
 
     #[test]
@@ -938,72 +413,5 @@ mod tests {
         };
         let (_, _, is_error) = build_collab_tool_result(&item);
         assert!(is_error);
-    }
-
-    #[test]
-    fn codex_error_message_payload_sets_metadata_flag() {
-        let payload = codex_error_message_payload(
-            "sess_item_8",
-            "sess",
-            "tool returned warning",
-            Some("gpt-5"),
-        );
-        assert_eq!(payload["sdk_metadata"]["codex_error"], true);
-        assert_eq!(
-            payload["message"]["content"][0]["text"],
-            "tool returned warning"
-        );
-        assert_eq!(payload["message"]["role"], "assistant");
-    }
-
-    #[test]
-    fn codex_reasoning_payload_sets_metadata_flag() {
-        let payload = codex_reasoning_payload("sess_item_0", "sess", "thinking...", Some("gpt-5"));
-        assert_eq!(payload["sdk_metadata"]["codex_reasoning"], true);
-        assert_eq!(payload["message"]["content"][0]["type"], "text");
-        assert_eq!(payload["message"]["content"][0]["text"], "thinking...");
-    }
-
-    #[test]
-    fn codex_result_payload_includes_usage_shape() {
-        let payload = codex_result_payload(
-            Some("thread-1"),
-            false,
-            "completed",
-            "done".to_string(),
-            Some(&Usage {
-                input_tokens: 12,
-                cached_input_tokens: 3,
-                output_tokens: 4,
-                reasoning_output_tokens: 7,
-            }),
-            Some("gpt-5"),
-        );
-
-        assert_eq!(payload["session_id"], "thread-1");
-        assert_eq!(payload["is_error"], false);
-        assert!(payload.get("error").is_none());
-        assert_eq!(payload["usage"]["input_tokens"], 12);
-        assert_eq!(payload["usage"]["cache_read_input_tokens"], 3);
-        assert_eq!(payload["usage"]["reasoning_output_tokens"], 7);
-        assert_eq!(payload["model"], "gpt-5");
-    }
-
-    #[test]
-    fn codex_result_payload_injects_error_key_when_failed() {
-        let payload = codex_result_payload(
-            Some("thread-2"),
-            true,
-            "failed",
-            "refresh_token_reused".to_string(),
-            None,
-            Some("gpt-5"),
-        );
-
-        assert_eq!(payload["is_error"], true);
-        assert_eq!(payload["result"], "refresh_token_reused");
-        // `error` mirrors `result` so backend `handle_agent_error` (which reads
-        // payload["error"]) renders the failure text instead of "Unknown agent error".
-        assert_eq!(payload["error"], "refresh_token_reused");
     }
 }

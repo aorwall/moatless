@@ -1,18 +1,11 @@
 //! Credential-recovery retries: when a turn fails because a credential went
 //! stale, pull fresh values from the backend and re-drive the same prompt.
 
-use moatless_events::AgentSubType;
-use tokio::time::Instant;
 use tracing::{info, warn};
 
-use crate::agent::agent_state::AgentState;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
-use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::Dispatcher;
-use crate::events::GrpcEventPublisher;
-
-use super::retry::{compute_backoff, RetryState};
 
 /// Cap on how many times one prompt can be re-driven by a credential-recovery
 /// retry — distinct from `MAX_RETRIES` which covers transient API errors.
@@ -21,142 +14,6 @@ use super::retry::{compute_backoff, RetryState};
 ///
 /// `pub(crate)` so the harness-path [`CoordinatorService`] shares the same cap.
 pub(crate) const MAX_CREDENTIAL_RECOVERY_RETRIES: u32 = 2;
-
-/// Drive a credential-recovery retry: take any flagged keys, pull fresh
-/// values from the backend, apply via dispatcher, and (on success) schedule
-/// the same prompt for retry. Caps at [`MAX_CREDENTIAL_RECOVERY_RETRIES`] per
-/// prompt so a permanently invalid credential doesn't loop forever — after
-/// that a user-facing error is emitted.
-#[allow(clippy::too_many_arguments)] // reason: actor internals; mirrors existing retry helpers
-pub(super) async fn try_credential_recovery_retry(
-    failures: &CredentialFailureDetector,
-    dispatcher: &Dispatcher,
-    backend_client: &dyn BackendClient,
-    config: &Config,
-    task_id: &str,
-    last_prompt: &Option<String>,
-    last_model: &Option<String>,
-    last_agent_type: &Option<String>,
-    last_agent_mode: &Option<String>,
-    retry_state: &mut Option<RetryState>,
-    credential_recovery_attempts: &mut u32,
-    consecutive_errors: &mut u32,
-    agent_state: &AgentState,
-    events: &GrpcEventPublisher,
-) {
-    let flagged = failures.take_all();
-    if flagged.is_empty() {
-        return;
-    }
-
-    let Some(prompt) = last_prompt.clone() else {
-        warn!(
-            ?flagged,
-            "Credential failure detected but no prompt to retry"
-        );
-        return;
-    };
-
-    if *credential_recovery_attempts >= MAX_CREDENTIAL_RECOVERY_RETRIES {
-        warn!(
-            ?flagged,
-            attempts = *credential_recovery_attempts,
-            "Credential recovery exhausted — giving up"
-        );
-        let provider_hint = flagged
-            .iter()
-            .find_map(|k| match k.as_str() {
-                "CODEX_AUTH_JSON" => Some("Codex"),
-                "CLAUDE_CODE_OAUTH_TOKEN" => Some("Claude"),
-                "GITHUB_TOKEN" => Some("GitHub"),
-                _ => None,
-            })
-            .unwrap_or("provider");
-        let user_msg = format!("Sign-in expired. Please reconnect {provider_hint} in Settings.");
-        agent_state.set_error(user_msg.clone()).await;
-        *consecutive_errors += 1;
-        events
-            .publish_agent_event(
-                task_id,
-                AgentSubType::Error,
-                serde_json::json!({
-                    "error": user_msg,
-                    "provider": provider_hint,
-                    "credential_recovery_exhausted": true,
-                }),
-            )
-            .await;
-        return;
-    }
-
-    let recovered =
-        try_recover_credentials(backend_client, dispatcher, task_id, &flagged, config).await;
-    if recovered.is_empty() {
-        // Either the backend has nothing fresher than the on-disk value, or
-        // the dispatcher rejected every value. Retrying just re-fails — go
-        // straight to the user-facing error so the user can reconnect.
-        let provider_hint = flagged
-            .iter()
-            .find_map(|k| match k.as_str() {
-                "CODEX_AUTH_JSON" => Some("Codex"),
-                "CLAUDE_CODE_OAUTH_TOKEN" => Some("Claude"),
-                "GITHUB_TOKEN" => Some("GitHub"),
-                _ => None,
-            })
-            .unwrap_or("provider");
-        let user_msg = format!("Sign-in expired. Please reconnect {provider_hint} in Settings.");
-        agent_state.set_error(user_msg.clone()).await;
-        *consecutive_errors += 1;
-        events
-            .publish_agent_event(
-                task_id,
-                AgentSubType::Error,
-                serde_json::json!({
-                    "error": user_msg,
-                    "provider": provider_hint,
-                    "credential_recovery_exhausted": true,
-                    "reason": "no_fresher_credential_available",
-                }),
-            )
-            .await;
-        return;
-    }
-
-    *credential_recovery_attempts += 1;
-    // Undo the consecutive_errors increment caused by this failure since we're
-    // about to retry. The retry path will increment again on its own failure.
-    *consecutive_errors = consecutive_errors.saturating_sub(1);
-
-    let backoff = compute_backoff(0);
-    info!(
-        ?recovered,
-        backoff_secs = backoff.as_secs_f64(),
-        attempt = *credential_recovery_attempts,
-        "Scheduling credential-recovery retry"
-    );
-
-    *retry_state = Some(RetryState {
-        prompt,
-        model: last_model.clone(),
-        agent_type: last_agent_type.clone(),
-        agent_mode: last_agent_mode.clone(),
-        attempt: 0,
-        retry_at: Instant::now() + backoff,
-    });
-    events
-        .publish_agent_event(
-            task_id,
-            AgentSubType::Retrying,
-            serde_json::json!({
-                "attempt": *credential_recovery_attempts,
-                "max_retries": MAX_CREDENTIAL_RECOVERY_RETRIES,
-                "backoff_secs": backoff.as_secs_f64(),
-                "reason": "credential_recovery",
-                "recovered_keys": recovered,
-            }),
-        )
-        .await;
-}
 
 /// Pull fresh credentials from the backend and apply each flagged key through
 /// the dispatcher. Returns the list of keys that were successfully refreshed

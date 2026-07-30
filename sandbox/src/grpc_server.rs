@@ -12,14 +12,13 @@ use tracing::info;
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
     scheduled_job_info, ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess,
-    BackgroundWatchJobInfo, ExecuteAgentRequest,
-    ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
-    GetFileTreeResponse, GetServerConfigRequest, GetServerConfigResponse, ListFilesRequest,
-    ListFilesResponse, NotifyMessagesRequest,
+    BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
+    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetServerConfigRequest,
+    GetServerConfigResponse, ListFilesRequest, ListFilesResponse, NotifyMessagesRequest,
     NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
-    RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest, ServerConfigOverride,
-    SearchFilesByNameResponse, StopAgentRequest, StopAgentResponse, WakeupJobInfo,
-    WriteFileRequest, WriteFileResponse,
+    RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest,
+    SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest, StopAgentResponse,
+    WakeupJobInfo, WriteFileRequest, WriteFileResponse,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
@@ -40,8 +39,8 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         _request: Request<ExecuteAgentRequest>,
     ) -> Result<Response<ExecuteAgentResponse>, Status> {
-        // Fetch pending messages and send to the agent actor.
-        // The actor handles whether to start a new session or inject into a running one.
+        // Fetch pending messages and send to the agent lifecycle task.
+        // The coordinator handles whether to start a new session or inject into a running one.
         //
         // Detached, but through the dispatcher's supervision seam: the RPC
         // returns before dispatch finishes (that is the contract — `Ok` means
@@ -62,9 +61,8 @@ impl SandboxService for SandboxServiceImpl {
         &self,
         request: Request<StopAgentRequest>,
     ) -> Result<Response<StopAgentResponse>, Status> {
-        // Route the stop through the lifecycle owner (CoordinatorService for the
-        // harness path, legacy actor for `agent_type = None`) — never publishing
-        // the terminal event here, and never branching on harness selection. The
+        // Route the stop through the lifecycle owner — never publishing the
+        // terminal event here, and never branching on harness selection. The
         // ack resolves once exactly one `agent.stopped` has been published and the
         // Turn closed, so returning Ok means the stop was processed, not queued.
         let source = crate::agent::types::StopSource::from(request.get_ref().source());

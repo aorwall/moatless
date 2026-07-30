@@ -31,13 +31,13 @@ pub struct SandboxState {
     pub events: GrpcEventPublisher,
     /// Agent execution state (status, session, cancel token, pending prompts).
     pub agent: Arc<AgentState>,
-    /// Actor-style agent handle — send messages via `agent_handle.send()`.
+    /// Agent command handle — send messages via `agent_handle.send()`.
     pub agent_handle: AgentHandle,
-    /// Liveness heartbeat bumped by the agent actor loop. Read by the `/livez`
-    /// probe to detect a wedged actor (see [`crate::agent::heartbeat`]).
+    /// Liveness heartbeat bumped by the agent lifecycle task. Read by the
+    /// `/livez` probe to detect a wedged service (see [`crate::agent::heartbeat`]).
     pub heartbeat: Heartbeat,
     /// Registry of deferred-work jobs (Monitor crons + ScheduleWakeup timers)
-    /// spawned by the permission handler / agent actor.
+    /// spawned by the permission handler / agent lifecycle service.
     pub scheduled_jobs: Arc<ScheduledJobRegistry>,
     /// Backend client for gRPC communication (message polling, acknowledgment).
     pub backend_client: Arc<dyn BackendClient>,
@@ -61,7 +61,7 @@ pub struct SandboxState {
     /// routes to the appropriate sink (file write, env var update, etc.).
     pub credential_dispatcher: Arc<Dispatcher>,
     /// Tracks credential failures observed on agent stderr (e.g. Codex
-    /// `refresh_token_reused`). The agent loop reads + clears these flags at
+    /// `refresh_token_reused`). The coordinator service reads + clears these flags at
     /// turn-failure boundaries to decide whether to retry after pulling a
     /// fresh credential from the backend.
     pub credential_failures: CredentialFailureDetector,
@@ -71,7 +71,7 @@ pub struct SandboxState {
     pub codex_watcher_handle: Arc<RwLock<Option<WatcherHandle>>>,
     /// Last system prompt fetched from the backend. Used as a fallback when
     /// `BackendClient::get_system_prompt` fails on a subsequent agent run.
-    /// Refreshed on every successful fetch in `start_session`.
+    /// Refreshed on every successful coordinator input build.
     pub system_prompt_cache: Arc<RwLock<Option<String>>>,
     /// Single-flight guard for pending-message dispatch.
     ///
@@ -102,7 +102,7 @@ impl SandboxState {
     ///
     /// 1. A supervised task the pod needs terminated early. The supervisor
     ///    records it by name; nothing here is restartable in place.
-    /// 2. The agent actor wedged or exited — see
+    /// 2. The agent lifecycle task wedged or exited — see
     ///    [`crate::agent::heartbeat::actor_is_alive`].
     ///
     /// Deliberately still independent of backend reachability, credentials, and

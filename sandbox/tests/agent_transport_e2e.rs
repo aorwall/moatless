@@ -1,15 +1,15 @@
 //! E2E test of the production agent path (`spawn_agent`) over BOTH SDK transports.
 //!
-//! The live agent runtime is the actor spawned by
+//! The live agent runtime is the coordinator service spawned by
 //! `moatless_sandbox::agent::handle::spawn_agent`. The transport switch lives in
-//! its `start_session` → `sdk_query` closure, driven by `Config.use_tmux`:
+//! the Claude harness, driven by `Config.use_tmux`:
 //! `use_tmux = false` → `claude_agent_sdk::query()` (subprocess / NDJSON `-p`,
 //! one process per turn); `use_tmux = true` → `claude_agent_sdk::query_tmux_streaming()`
 //! (tmux / TUI, persistent session — the TUI survives turn ends and follow-up
 //! sends are pasted into the live session). Both branches share the same
 //! `build_options()`.
 //!
-//! These tests drive the actor end-to-end with a no-op `BackendClient` and a
+//! These tests drive the coordinator end-to-end with a no-op `BackendClient` and a
 //! real `claude` CLI, asserting the agent reaches `Idle` with no error.
 //!
 //! Gating (mirrors `crates/claude-agent-sdk/tests/e2e.rs`): the subprocess test
@@ -75,8 +75,8 @@ fn codex_test_model() -> Option<String> {
 
 // ── Auth token from the host environment ────────────────────────────────────
 
-/// Auth credentials forwarded to the agent subprocess. The actor's
-/// `start_session` calls `BackendClient::get_credentials` and OVERWRITES the
+/// Auth credentials forwarded to the agent subprocess. The coordinator's input
+/// build calls `BackendClient::get_credentials` and OVERWRITES the
 /// in-pod credentials map with the result, so the token must be returned here
 /// (preloading the `credentials` RwLock alone would be clobbered).
 /// `filter_agent_credentials` retains both Claude auth keys and the Codex keys
@@ -104,7 +104,7 @@ fn auth_credentials() -> HashMap<String, String> {
 
 // ── No-op backend ───────────────────────────────────────────────────────────
 
-/// Minimal `BackendClient` for driving the actor without a real backend.
+/// Minimal `BackendClient` for driving the coordinator without a real backend.
 /// `get_credentials` returns the host auth token so it reaches the agent env.
 /// Published events are recorded as `"<event_type>/<sub_type>"` strings so
 /// tests can assert on the emitted event sequence (poll-based status checks
@@ -249,12 +249,12 @@ fn test_config(tmp: &TempDir, use_tmux: bool) -> Config {
 /// Event log recorded by the no-op backend: `"<EVENT_TYPE>/<sub_type>"`.
 type EventLog = Arc<std::sync::Mutex<Vec<String>>>;
 
-/// Spawn the production agent actor wired with a no-op backend. Returns the
+/// Spawn the production agent lifecycle task wired with a no-op backend. Returns the
 /// handle, the shared agent state, the published-event log, and the `TempDir`
 /// (kept alive by the caller).
 fn spawn_test_agent(use_tmux: bool) -> (AgentHandle, Arc<AgentState>, EventLog, TempDir) {
     let tmp = TempDir::new().expect("create tempdir");
-    // start_session persists credential files under these dirs. `claude-config`
+    // The harness persists credential files under these dirs. `claude-config`
     // is the cold CLAUDE_CONFIG_DIR (outside HOME) — see `test_config`.
     for sub in [
         "workspace",
@@ -500,9 +500,9 @@ async fn run_agent_resume(use_tmux: bool) {
     handle.stop(StopSource::User);
 }
 
-/// Multi-turn persistent-session body (tmux): one actor, two sends. Turn 1
+/// Multi-turn persistent-session body (tmux): one lifecycle task, two sends. Turn 1
 /// spawns the persistent TUI; turn 2 must be pasted into the SAME live session
-/// (same `session_id`, no respawn) — the actor keeps the handle alive across
+/// (same `session_id`, no respawn) — the coordinator keeps the handle alive across
 /// the turn boundary.
 async fn run_agent_multi_turn(use_tmux: bool) {
     init_tracing();
@@ -602,7 +602,7 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
 
     // The CLI clamps `delaySeconds` to a 60s minimum (next minute boundary,
     // so up to ~2min), then fires the wakeup turn inside the live TUI. Wait
-    // for the actor to surface it as a full second turn cycle.
+    // for the coordinator to surface it as a full second turn cycle.
     let deadline = tokio::time::Instant::now() + Duration::from_mins(4);
     loop {
         if count("EVENT_TYPE_AGENT/completed") >= 2 {
@@ -815,7 +815,7 @@ async fn test_multi_turn_agent_tmux() {
 }
 
 /// Tmux CLI-internal wakeup: the CLI's own ScheduleWakeup timer fires inside
-/// the persistent TUI and starts a turn with no sandbox send; the actor must
+/// the persistent TUI and starts a turn with no sandbox send; the coordinator must
 /// surface and complete it.
 #[tokio::test]
 #[ignore]

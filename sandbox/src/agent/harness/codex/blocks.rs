@@ -3,13 +3,13 @@
 //! Codex reports native item families (`agent_message`, `command_execution`, …)
 //! whose type strings the backend assembler and UI do not understand, so a
 //! forwarded native block renders as nothing. This maps each family into the
-//! same `text` / `tool_use` / `tool_result` blocks the legacy actor path emits,
+//! same `text` / `tool_use` / `tool_result` blocks the coordinator publishes,
 //! so a Codex turn renders identically through the harness. Tool families expand
 //! to a `tool_use` block plus, when the item carries output, a paired
 //! `tool_result` block carrying the typed Codex result for backend enrichment.
 //!
-//! The block-shaping itself is shared with the legacy path via the pure
-//! `handle::codex_payloads` builders — this module only wires those shapes into
+//! The block-shaping itself lives in the pure `handle::codex_payloads` builders;
+//! this module only wires those shapes into
 //! canonical blocks with the right tool name, role, and shared tool-use id.
 //!
 //! Blocks are built through the shared [`CanonicalContentBlock`] enum the Claude

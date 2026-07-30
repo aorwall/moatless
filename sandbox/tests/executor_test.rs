@@ -1,9 +1,9 @@
 //! Integration tests for the agent dispatcher and handle.
 //!
 //! Tests `dispatch_pending_messages` with a mock `BackendClient`.
-//! The agent handle spawns the actor loop, but since we don't have a real
+//! The agent handle spawns the coordinator service, but since we don't have a real
 //! Claude CLI, we test the dispatcher routing, acknowledgment logic,
-//! and multi-send actor channel mechanics.
+//! and multi-send command channel mechanics.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -192,7 +192,7 @@ fn test_config() -> Config {
         port: 0,
         grpc_port: 0,
         task_id: "test-task-1".to_string(),
-        agent_type: None,
+        agent_type: Some("claude-code".to_string()),
         workspace_dir: "/tmp/test-workspace".to_string(),
         repo_dir: "/tmp/test-workspace".to_string(),
         data_dir: "/tmp/test-data".to_string(),
@@ -299,7 +299,7 @@ async fn dispatch_with_no_messages_does_nothing() {
 
 #[tokio::test]
 async fn dispatch_does_not_ack_when_agent_fails_to_start() {
-    // Without a real CLI binary, the agent actor will fail to start a session.
+    // Without a real CLI binary, the coordinator will fail to start a session.
     // The ack oneshot is dropped on failure, so the dispatcher's spawned task
     // gets RecvError and skips the acknowledge call.
     let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
@@ -310,7 +310,7 @@ async fn dispatch_does_not_ack_when_agent_fails_to_start() {
 
     moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 
-    // Give the actor time to attempt session start and fail
+    // Give the coordinator time to attempt session start and fail
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     assert_eq!(
@@ -361,7 +361,7 @@ async fn redispatch_skipped_when_circuit_breaker_active() {
     let state = test_state(Arc::clone(&backend) as _);
 
     // Prime the agent state past the circuit-breaker threshold so the
-    // re-dispatch gate trips regardless of when the actor's own failure
+    // re-dispatch gate trips regardless of when the coordinator's own failure
     // increments the counter.
     for _ in 0..3 {
         state.agent.set_error("induced failure".to_string()).await;
@@ -478,7 +478,7 @@ async fn agent_handle_send_triggers_actor() {
     let backend = Arc::new(MockBackendClient::new(vec![]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    // Send directly to agent handle — actor will try to start a session.
+    // Send directly to agent handle — coordinator will try to start a session.
     // It will fail (no real CLI) but the send itself should not panic.
     // Drop the ack receiver since we don't need it.
     let _ack_rx =
@@ -486,7 +486,7 @@ async fn agent_handle_send_triggers_actor() {
             .agent_handle
             .send("test message".to_string(), None, None, None, None, false);
 
-    // Give the actor loop time to process
+    // Give the coordinator service time to process
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Agent should have attempted to start and hit an error (no CLI binary).
@@ -510,7 +510,7 @@ async fn agent_handle_stop_exits_cleanly() {
 }
 
 // =============================================================================
-// Multi-send actor channel tests
+// Multi-send command channel tests
 // =============================================================================
 
 #[tokio::test]
@@ -518,7 +518,7 @@ async fn agent_handle_rapid_fire_send_no_panic() {
     let backend = Arc::new(MockBackendClient::new(vec![]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    // Send 10 messages rapidly — actor processes them without panic or deadlock.
+    // Send 10 messages rapidly — coordinator processes them without panic or deadlock.
     // Drop ack receivers since we only care about channel stability.
     for i in 0..10 {
         let _ack_rx =
@@ -527,7 +527,7 @@ async fn agent_handle_rapid_fire_send_no_panic() {
                 .send(format!("rapid message {i}"), None, None, None, None, false);
     }
 
-    // Give the actor time to attempt processing
+    // Give the coordinator service time to attempt processing
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     state.agent_handle.stop(StopSource::User);
@@ -548,8 +548,9 @@ async fn agent_handle_send_after_stop_does_not_panic() {
     state.agent_handle.stop(StopSource::User);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Sending after stop should be silently ignored (command channel closed,
-    // ack receiver will get RecvError immediately).
+    // A stop terminates the active turn, not the lifecycle service. A later send
+    // can be accepted by the command channel; in this test environment it then
+    // fails at CLI startup and drops the ack.
     let ack1 = state.agent_handle.send(
         "should be ignored".to_string(),
         None,
@@ -562,14 +563,14 @@ async fn agent_handle_send_after_stop_does_not_panic() {
         .agent_handle
         .send("also ignored".to_string(), None, None, None, None, false);
 
-    // Ack receivers should resolve with error (sender dropped)
+    // Ack receivers should resolve with error (sender dropped when startup fails).
     assert!(ack1.await.is_err(), "ack should fail after stop");
     assert!(ack2.await.is_err(), "ack should fail after stop");
 
     assert_eq!(
         state.agent.status().await,
-        AgentStatus::Stopped,
-        "Agent should remain stopped after sends to closed channel"
+        AgentStatus::Idle,
+        "Agent should remain live for future turns after failed sends"
     );
 }
 
@@ -613,18 +614,16 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
 
 #[tokio::test]
 async fn dispatch_does_not_ack_without_real_session() {
-    // Even with agent state set to Running, the actor has no real QueryHandle.
-    // The send goes through but the actor tries to inject into a non-existent
-    // session handle (handle is None in the actor), so it starts a new session
-    // which fails. The ack oneshot is dropped, and the dispatcher's spawned
-    // task gets RecvError — no ack fires.
+    // Even with agent state set to Running, there is no real CLI session.
+    // The send goes through but startup fails, the ack oneshot is dropped, and
+    // the dispatcher's spawned task gets RecvError — no ack fires.
     let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
         "injected message",
         Some("uuid-inject"),
     )]]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    // Simulate agent state as "running" — but the actor's internal handle is None
+    // Simulate agent state as "running" without a real CLI session.
     state
         .agent
         .set_running(tokio_util::sync::CancellationToken::new())

@@ -283,7 +283,7 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     .await;
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
-    // Awaited, not detached: dispatch only fetches, submits to the agent actor,
+    // Awaited, not detached: dispatch only fetches, submits to the agent lifecycle task,
     // and returns (the turn itself runs in the coordinator) — it does not block on
     // the turn, so Phase 2 workspace setup is not delayed. Awaiting keeps this the
     // one authoritative startup dispatch and avoids an orphaned JoinHandle.
@@ -425,7 +425,7 @@ pub(crate) async fn recover_interrupted_run_unless_pending(
 }
 
 /// Detect any interrupted agent run via the backend RPC and queue a resume on
-/// the agent actor. Runs once on startup, **only when there are no new pending
+/// the agent lifecycle task. Runs once on startup, **only when there are no new pending
 /// user messages** — a fresh message supersedes the interrupted turn and
 /// `dispatch_pending_messages` carries it forward instead.
 ///
@@ -702,15 +702,14 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         let claude_config_dir = PathBuf::from(&state.config.claude_config_dir);
         let codex_home_dir = PathBuf::from(&state.config.codex_home_dir);
         let installed = run_init_blocking("install_repo_skills_to_home", move || {
-            home_skills::install_repo_skills_to_home(
-                &repo_dir,
-                &claude_config_dir,
-                &codex_home_dir,
-            )
+            home_skills::install_repo_skills_to_home(&repo_dir, &claude_config_dir, &codex_home_dir)
         })
         .await?;
         if installed > 0 {
-            info!(count = installed, "Installed repo skills into home skill dirs");
+            info!(
+                count = installed,
+                "Installed repo skills into home skill dirs"
+            );
         }
     }
 

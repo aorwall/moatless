@@ -760,7 +760,6 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
     tx.send(AgentCommand::Send {
         text: "do the thing".to_string(),
         model: None,
-        agent_type: None,
         agent_mode: None,
         resume_session_id: None,
         start_fresh: false,
@@ -785,6 +784,90 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
 
     // Agent state must be Idle after a successful completion.
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
+
+    cancel.cancel();
+}
+
+/// A synthetic scheduled-job Send carries no explicit model. It must reuse the
+/// last selected model instead of falling back to the sandbox default.
+#[tokio::test]
+async fn coordinator_service_send_without_model_reuses_last_model() {
+    let cancel = CancellationToken::new();
+    let config = {
+        let mut c = minimal_config();
+        c.agent_type = Some("codex".to_string());
+        Arc::new(c)
+    };
+    let agent_state = Arc::new(AgentState::new());
+    let recorder = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-model".to_string())),
+        Step::AcceptInput,
+        Step::Completed,
+    ]);
+    let (tx, _received, events) = service_with_harness(
+        Harness::scripted_recording(script, Arc::clone(&recorder)),
+        Arc::clone(&config),
+        Arc::clone(&agent_state),
+        cancel.clone(),
+    );
+
+    let (first_ack, _first_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "first".to_string(),
+        model: Some("gpt-5.6-sol".to_string()),
+        agent_mode: None,
+        resume_session_id: None,
+        start_fresh: false,
+        ack: first_ack,
+    })
+    .expect("channel open");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        flush(&events).await;
+        if recorder.lock().await.len() >= 1 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "first input not recorded within 5 s"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let (second_ack, _second_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "synthetic".to_string(),
+        model: None,
+        agent_mode: None,
+        resume_session_id: None,
+        start_fresh: false,
+        ack: second_ack,
+    })
+    .expect("channel open");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        flush(&events).await;
+        if recorder.lock().await.len() >= 2 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "second input not recorded within 5 s"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let inputs = recorder.lock().await;
+    assert_eq!(inputs[0].model.as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(
+        inputs[1].model.as_deref(),
+        Some("gpt-5.6-sol"),
+        "synthetic sends with model=None must preserve the selected model"
+    );
 
     cancel.cancel();
 }
@@ -816,7 +899,6 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
     tx.send(AgentCommand::Send {
         text: "do the thing".to_string(),
         model: None,
-        agent_type: None,
         agent_mode: None,
         resume_session_id: None,
         start_fresh: false,
@@ -892,7 +974,6 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
     tx.send(AgentCommand::Send {
         text: "do the thing".to_string(),
         model: None,
-        agent_type: None,
         agent_mode: None,
         resume_session_id: None,
         start_fresh: false,
@@ -953,8 +1034,7 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
 
 /// A `ScheduleWakeup` tool_use in a completed Turn's Source blocks arms a wakeup
 /// job on the AGENT_TYPE path; once its (zero) delay elapses the job injects the
-/// scheduled prompt back into the service — the harness-path equivalent of the
-/// legacy actor's self-scheduling.
+/// scheduled prompt back into the service.
 #[tokio::test]
 async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
     let cancel = CancellationToken::new();
@@ -1008,7 +1088,6 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
     tx.send(AgentCommand::Send {
         text: "go".to_string(),
         model: None,
-        agent_type: None,
         agent_mode: None,
         resume_session_id: None,
         start_fresh: false,
@@ -1074,7 +1153,6 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
         tx.send(AgentCommand::Send {
             text: "do the thing".to_string(),
             model: None,
-            agent_type: None,
             agent_mode: None,
             resume_session_id: None,
             start_fresh: false,
@@ -1092,7 +1170,6 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
     tx.send(AgentCommand::Send {
         text: "one more".to_string(),
         model: None,
-        agent_type: None,
         agent_mode: None,
         resume_session_id: None,
         start_fresh: false,
@@ -1147,7 +1224,6 @@ async fn start_turn_and_wait_running(
     tx.send(AgentCommand::Send {
         text: "go".to_string(),
         model: None,
-        agent_type: None,
         agent_mode: None,
         resume_session_id: None,
         start_fresh: false,
@@ -1542,7 +1618,6 @@ fn send_text(tx: &mpsc::UnboundedSender<AgentCommand>, text: &str) {
     tx.send(AgentCommand::Send {
         text: text.to_string(),
         model: None,
-        agent_type: None,
         agent_mode: None,
         resume_session_id: None,
         start_fresh: false,

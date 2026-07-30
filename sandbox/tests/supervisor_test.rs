@@ -558,7 +558,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         port: 0,
         grpc_port: 0,
         task_id: "test-task".to_string(),
-        agent_type: None,
+        agent_type: Some("claude-code".to_string()),
         workspace_dir: path("workspace"),
         repo_dir: path("workspace"),
         data_dir: path("data"),
@@ -593,7 +593,7 @@ fn test_config(dir: &std::path::Path) -> Config {
     }
 }
 
-/// A `SandboxState` whose agent actor is the real (legacy) loop, so
+/// A `SandboxState` whose agent lifecycle task is real, so
 /// `agent_handle.is_closed()` answers honestly for the liveness assertions.
 /// `dir` must outlive the state.
 fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> SandboxState {

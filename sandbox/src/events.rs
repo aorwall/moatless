@@ -37,7 +37,7 @@ impl GrpcEventPublisher {
     }
 
     /// A clone of this publisher that stamps `run_id` on everything it emits.
-    /// Used by the agent actor for the lifetime of one agent run.
+    /// Used by the coordinator service for the lifetime of one agent run.
     pub fn for_run(&self, run_id: &str) -> Self {
         Self {
             outbox: self.outbox.clone(),

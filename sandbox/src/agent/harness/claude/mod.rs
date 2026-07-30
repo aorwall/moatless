@@ -18,7 +18,7 @@
 //! - it never folds content blocks into an assembled Message (one `SourceEvent`
 //!   per native block, in native order);
 //! - it forwards repeated usage verbatim on every block (the backend admits it
-//!   once) rather than deduplicating like the legacy `AssistantBuffer`;
+//!   once) rather than deduplicating in the sandbox;
 //! - it never silently falls back to a fresh Session on resume failure — it
 //!   reports [`ErrorClass::UnavailableSession`] with [`SessionImpact::Lost`] and
 //!   lets the coordinator drive the context-loss recovery.

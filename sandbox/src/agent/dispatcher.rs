@@ -6,8 +6,9 @@
 //! - `init::run_init()` after `InitPhase::Ready` is set
 //!
 //! The dispatcher fetches pending messages from the backend, sends text to
-//! the agent actor via `agent_handle.send()`, and acknowledges the messages.
-//! The agent handles whether to start a new session or inject mid-turn.
+//! the agent lifecycle task via `agent_handle.send()`, and acknowledges the
+//! messages. The coordinator handles whether to start a new session or inject
+//! mid-turn.
 //!
 //! It self-gates on [`SandboxState::is_ready`]: the two gRPC entry points fire
 //! from the moment the pod starts, so a call that races `run_init` is dropped
@@ -54,7 +55,7 @@ pub(crate) fn spawn_supervised(
 /// Dispatch pending messages to the agent.
 ///
 /// If the agent is waiting for user input (AskUserQuestion/ExitPlanMode),
-/// resolves the pending prompt. Otherwise sends text to the agent actor.
+/// resolves the pending prompt. Otherwise sends text to the agent lifecycle task.
 pub async fn dispatch_pending_messages(state: SandboxState) {
     // The pod is shutting down (SIGTERM mid-boot or between notifications) —
     // don't start a new turn that would just be torn down. The lifecycle token
@@ -176,7 +177,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         return;
     }
 
-    // Send to agent actor — it handles injection vs new session.
+    // Send to agent lifecycle task — it handles injection vs new session.
     // Ack is deferred until the agent confirms it processed the message.
     let ack_rx = state.agent_handle.send(
         text,
@@ -286,7 +287,7 @@ fn ack_retry_delay(task_id: &str, attempt: u32) -> Duration {
 const ACK_RETRY_WARN_EVERY: u32 = 10;
 
 /// Skip re-dispatch once the agent has accumulated this many consecutive
-/// errors — mirrors the agent actor's `MAX_CONSECUTIVE_ERRORS` circuit
+/// errors — mirrors the coordinator service's `MAX_CONSECUTIVE_ERRORS` circuit
 /// breaker so a persistently failing agent can't loop dispatch → drop →
 /// re-dispatch forever.
 const MAX_REDISPATCH_CONSECUTIVE_ERRORS: u32 = 3;

@@ -30,16 +30,16 @@ pub trait JobInjector: Send + Sync + 'static {
 
 impl JobInjector for AgentHandle {
     fn inject(&self, text: String) {
-        // The job has nothing to ack; drop the receiver so the actor doesn't
-        // wait. The actor's own session-id resolution still works.
+        // The job has nothing to ack; drop the receiver so the lifecycle task
+        // doesn't wait. The coordinator's session-id resolution still works.
         drop(self.send(text, None, None, None, None, false));
     }
 }
 
 /// Late-init injector — needed to break the circular dependency between
-/// `ScheduledJobRegistry` (which the actor needs at construction) and
+/// `ScheduledJobRegistry` (which the lifecycle task needs at construction) and
 /// `AgentHandle` (which the registry needs to inject messages). Construct
-/// the wrapper, build the registry around it, spawn the actor, then call
+/// the wrapper, build the registry around it, spawn the lifecycle task, then call
 /// `set` with the resulting `AgentHandle`.
 pub struct LateInjector {
     inner: std::sync::OnceLock<Box<dyn JobInjector>>,

@@ -26,16 +26,16 @@
 //!   explicitly and once.
 //!
 //! The harness-neutral [`Coordinator`] above owns only the seam mapping. The
-//! production lifecycle policy that the legacy actor used to own now lives in
+//! production lifecycle policy lives in
 //! [`CoordinatorService`] (also in this module): transient-error **retry** with
 //! backoff (same Run id), the consecutive-error **circuit breaker**, **wakeup
 //! and background-watch scheduling** (armed from Source blocks at turn end),
 //! **credential-recovery retry** (pull fresh credentials and re-drive the same
 //! prompt/Run after a stale-credential failure, or surface one reconnect error
 //! when nothing fresher is available), and **`AgentState` status transitions**.
-//! Both are driven for every AGENT_TYPE pod by `handle::spawn_agent`; the legacy
-//! `actor::agent_loop` remains only for pods with no `AGENT_TYPE` set — the one
-//! migration-compat path, removed in the final ticket.
+//! `handle::spawn_agent` now routes every valid AGENT_TYPE pod through
+//! [`CoordinatorService`]; missing or unsupported selections are classified as
+//! invalid configuration at startup.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -64,7 +64,6 @@ use super::handle::{
     credential_recovery::{try_recover_credentials, MAX_CREDENTIAL_RECOVERY_RETRIES},
     resolve_agent_harness,
     retry::{compute_backoff, is_retryable_harness_error, MAX_RETRIES},
-    session::fetch_system_prompt,
     AgentCommand, RunAck, AGENT_TYPE_CLAUDE_CODE,
 };
 use super::harness::{
@@ -108,7 +107,7 @@ pub struct Coordinator {
     /// One-shot: suppress the terminal `error` event for the next `Failed`
     /// outcome. The service sets this when it has decided to retry a transient
     /// failure, so the user sees `retrying` (published by the service) instead of
-    /// a terminal error — matching the legacy actor's retry path.
+    /// a terminal error.
     suppress_failure_event: bool,
 }
 
@@ -476,8 +475,7 @@ fn new_run_id() -> String {
 }
 
 /// Extract a [`WakeupJob`] from a canonical Source block when it is a
-/// `ScheduleWakeup` tool_use — the typed analog of the legacy
-/// `handle::claude::extract_wakeup_job`.
+/// `ScheduleWakeup` tool_use.
 fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option<WakeupJob> {
     let CanonicalContentBlock::ToolUse { id, name, input } = block else {
         return None;
@@ -548,8 +546,7 @@ fn error_reason(class: ErrorClass) -> &'static str {
 
 // ── CoordinatorService ───────────────────────────────────────────────────────
 
-/// Drives a [`Coordinator`] from an [`AgentCommand`] channel — the new-harness
-/// equivalent of the legacy `actor::agent_loop`.
+/// Drives a [`Coordinator`] from an [`AgentCommand`] channel.
 ///
 /// Owns the [`Coordinator`], shared services, and the service-lifetime cancel
 /// token. The command channel carries [`AgentCommand`]s directly (same type as
@@ -738,8 +735,8 @@ impl CoordinatorService {
 
                         // Decide retry BEFORE the coordinator publishes: a
                         // failure we will re-drive must suppress the coordinator's
-                        // terminal `error` event so the user sees only `retrying`
-                        // (matching the legacy actor's retry path).
+                        // terminal `error` event so the user sees only
+                        // `retrying`.
                         //
                         // A flagged credential takes precedence over transient
                         // retry — a Codex auth failure can surface as a process
@@ -982,7 +979,6 @@ impl CoordinatorService {
                         Some(AgentCommand::Send {
                             text,
                             model,
-                            agent_type: _,
                             agent_mode,
                             resume_session_id,
                             start_fresh,
@@ -1022,14 +1018,16 @@ impl CoordinatorService {
                             // Capture last-Send fields for retry rebuilding before
                             // moving text into build_input.
                             self.last_text = Some(text.clone());
-                            self.last_model = model.clone();
+                            if model.is_some() {
+                                self.last_model = model.clone();
+                            }
                             self.last_agent_mode = agent_mode.clone();
                             self.last_resume_session_id = resume_session_id.clone();
                             self.last_start_fresh = start_fresh;
 
                             let input = match self.build_input(
                                 text,
-                                model,
+                                self.last_model.clone(),
                                 agent_mode,
                                 resume_session_id,
                                 start_fresh,
@@ -1047,7 +1045,6 @@ impl CoordinatorService {
                         }
                         Some(AgentCommand::Recover {
                             text,
-                            agent_type: _,
                             agent_mode,
                             resume_session_id,
                         }) => {
@@ -1142,8 +1139,8 @@ impl CoordinatorService {
     /// Arm the self-scheduled jobs a just-completed Turn requested: a buffered
     /// `ScheduleWakeup` (latest-wins) and a background-completion watch when
     /// long-running processes outlived the Turn. Both register against
-    /// `run_cancel`, so a `Stop` cancels them. Mirrors the legacy actor's
-    /// turn-end arming (subprocess-mode only for the background watch).
+    /// `run_cancel`, so a `Stop` cancels them. Background watches are only armed
+    /// in subprocess mode.
     async fn arm_scheduled_jobs(&mut self, task_id: &str) {
         let run_id = self.coordinator.current_run_id().to_string();
 
@@ -1315,8 +1312,8 @@ impl CoordinatorService {
         resume_session_id: Option<String>,
         start_fresh: bool,
     ) -> Result<Input, String> {
-        // Resolve system prompt from backend (with cache fallback) — same as
-        // `session::fetch_system_prompt`.
+        // Resolve system prompt from backend, falling back to the cached prompt
+        // when a later fetch fails.
         let system_prompt = fetch_system_prompt(
             self.backend_client.as_ref(),
             &self.config.task_id,
@@ -1387,6 +1384,31 @@ impl CoordinatorService {
     }
 }
 
+/// Fetch the assembled append-system-prompt from the backend. On failure,
+/// fall back to whatever was last cached in this pod. Cache is purely a
+/// resilience layer: every successful fetch refreshes it.
+async fn fetch_system_prompt(
+    backend_client: &dyn BackendClient,
+    task_id: &str,
+    system_prompt_cache: &RwLock<Option<String>>,
+) -> Option<String> {
+    match backend_client.get_system_prompt(task_id).await {
+        Ok(prompt) => {
+            *system_prompt_cache.write().await = Some(prompt.clone());
+            Some(prompt)
+        }
+        Err(error) => {
+            let cached = system_prompt_cache.read().await.clone();
+            warn!(
+                error = %error,
+                has_cache = cached.is_some(),
+                "Failed to fetch system prompt; using cached fallback"
+            );
+            cached
+        }
+    }
+}
+
 /// Resolve the `ResumeSession` for a new harness `Input`. Mirrors
 /// `session::resolve_resume_session`: the pod's last known Session id wins, then
 /// the backend-provided id, then a `--continue` (`ResumeSession::Last`) for the
@@ -1414,7 +1436,7 @@ fn build_resume(
 }
 
 /// A human-readable provider name for a set of flagged credential keys, for the
-/// user-facing reconnect message. Mirrors the legacy actor's mapping.
+/// user-facing reconnect message.
 fn provider_hint(flagged: &[String]) -> &'static str {
     flagged
         .iter()

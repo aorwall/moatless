@@ -1,6 +1,6 @@
 //! Generic agent state machine — tracks status, session, cancel token, and pending prompts.
 //!
-//! Owned by the agent actor (`handle/`); harness-neutral so any agent
+//! Owned by the coordinator service (`coordinator.rs`); harness-neutral so any agent
 //! implementation can reuse it.
 
 use tokio::sync::RwLock;
@@ -19,9 +19,9 @@ pub struct AgentState {
 struct AgentInner {
     status: AgentStatus,
     last_session_id: Option<String>,
-    /// The agent run currently in flight (see the actor's `run_id`). Read by
+    /// The agent run currently in flight (see the coordinator's `run_id`). Read by
     /// paths that must attribute a message to the running turn without going
-    /// through the actor — e.g. acknowledging an interactive prompt response.
+    /// through the lifecycle task — e.g. acknowledging an interactive prompt response.
     current_run_id: Option<String>,
     last_error: Option<String>,
     cancel_token: Option<CancellationToken>,

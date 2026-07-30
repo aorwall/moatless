@@ -23,7 +23,7 @@ fn truncate_diagnostic(text: &str) -> String {
 
 /// Whether a startup failure means the resume-target transcript is unavailable
 /// (a stale session id after a pod restart), the case the coordinator recovers
-/// from by starting fresh. Mirrors the legacy `is_session_unavailable_error`.
+/// from by starting fresh.
 fn is_session_unavailable(error: &SdkError) -> bool {
     matches!(
         error,

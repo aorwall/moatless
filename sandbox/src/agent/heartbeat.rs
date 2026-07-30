@@ -1,13 +1,13 @@
-//! Liveness heartbeat for the agent actor loop.
+//! Liveness heartbeat for the agent lifecycle task.
 //!
-//! The agent actor is the single task that drives every agent turn. If that
+//! The coordinator service is the single task that drives every agent turn. If that
 //! task wedges (a processor `await` that never returns, a deadlock on a shared
 //! lock) the pod keeps passing its `/health` readiness gate — `InitPhase::Ready`
 //! stays set — yet no turn can ever make progress. K8s never restarts it.
 //!
-//! The heartbeat closes that gap: the actor stamps [`Heartbeat::beat`] on every
+//! The heartbeat closes that gap: the lifecycle task stamps [`Heartbeat::beat`] on every
 //! loop iteration and on a periodic tick, and the `/livez` handler checks the
-//! stamp for staleness. Liveness depends ONLY on the actor being alive — never
+//! stamp for staleness. Liveness depends ONLY on the lifecycle task being alive — never
 //! on backend reachability, credentials, or disk — so a transient backend
 //! outage can never trigger a restart that kills an in-flight turn.
 
@@ -15,29 +15,29 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// How stale the heartbeat may get while a turn is `Running` before the actor
-/// is considered wedged. Chosen well above the actor's own tick cadence so a
+/// How stale the heartbeat may get while a turn is `Running` before the service
+/// is considered wedged. Chosen well above the service's own tick cadence so a
 /// briefly busy loop never trips it.
 pub const HEARTBEAT_STALE_THRESHOLD_MS: u64 = 60_000;
 
-/// Cadence at which the actor loop bumps the heartbeat even when it is otherwise
+/// Cadence at which the lifecycle task bumps the heartbeat even when it is otherwise
 /// blocked waiting for runtime messages. Keeps the stamp fresh while the model
 /// is thinking (a long tool call emits no messages), so `Running` staleness only
-/// ever means the actor task itself is stuck — not that a turn is slow.
+/// ever means the lifecycle task itself is stuck — not that a turn is slow.
 pub const HEARTBEAT_TICK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Current wall-clock time as milliseconds since the Unix epoch.
 ///
 /// Falls back to `0` if the system clock is somehow before the epoch; that only
 /// makes the heartbeat look maximally stale, which fails safe (the handler still
-/// checks the command channel before declaring the actor dead).
+/// checks the command channel before declaring the lifecycle task dead).
 pub fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
 }
 
-/// Shared, cheaply-clonable liveness stamp bumped by the agent actor loop.
+/// Shared, cheaply-clonable liveness stamp bumped by the agent lifecycle task.
 #[derive(Clone)]
 pub struct Heartbeat {
     last_beat_ms: Arc<AtomicU64>,
@@ -51,14 +51,14 @@ impl Default for Heartbeat {
 
 impl Heartbeat {
     /// Create a heartbeat stamped with the current time so a freshly-spawned
-    /// actor is never momentarily considered stale.
+    /// service is never momentarily considered stale.
     pub fn new() -> Self {
         Self {
             last_beat_ms: Arc::new(AtomicU64::new(now_millis())),
         }
     }
 
-    /// Record that the actor loop is alive right now.
+    /// Record that the lifecycle task is alive right now.
     pub fn beat(&self) {
         self.last_beat_ms.store(now_millis(), Ordering::Relaxed);
     }
@@ -69,11 +69,11 @@ impl Heartbeat {
     }
 }
 
-/// Pure liveness decision for the agent actor.
+/// Pure liveness decision for the agent lifecycle task.
 ///
-/// - A closed command channel means the actor loop has exited entirely — no turn
+/// - A closed command channel means the lifecycle task has exited entirely — no turn
 ///   can ever run again, so the sandbox is unhealthy regardless of turn state.
-/// - While a turn is `Running` the actor loop must keep beating; a stale stamp
+/// - While a turn is `Running` the lifecycle task must keep beating; a stale stamp
 ///   means the loop is wedged mid-turn.
 /// - When idle the loop legitimately blocks on the command channel, so an open
 ///   channel is a sufficient liveness signal on its own.

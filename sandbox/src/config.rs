@@ -105,11 +105,11 @@ pub struct Config {
     /// Task ID (required)
     pub task_id: String,
     /// The Task's selected Agent harness, fixed for the Sandbox lifetime and
-    /// delivered at construction via the `AGENT_TYPE` env (ADR-0004). `None` on
-    /// a legacy pod provisioned before this env existed — the actor then falls
-    /// back to the first Message's agent type as migration input. When set it is
-    /// validated at load, so an unsupported value fails startup instead of
-    /// silently running Claude.
+    /// delivered at construction via the `AGENT_TYPE` env (ADR-0004). `None`
+    /// means the pod has no valid harness selection and is surfaced as an invalid
+    /// configuration by the agent lifecycle owner. When set it is validated at
+    /// load, so an unsupported value fails startup instead of silently running
+    /// Claude.
     pub agent_type: Option<String>,
     /// Workspace directory — the persisted *container* dir (e.g.
     /// `/opt/moatless/workspace`). This is the agent's cwd and the root of the
@@ -331,9 +331,9 @@ fn parse_permission_mode(raw: &str) -> Option<PermissionMode> {
 
 /// Read the Task's fixed Agent-harness selection from `AGENT_TYPE`.
 ///
-/// Returns `None` when the env is absent or empty (a legacy pod). Any non-empty
-/// value is preserved verbatim — including an unsupported one. Validation is not
-/// done here: an unsupported harness must surface as a classified
+/// Returns `None` when the env is absent or empty. Any non-empty value is
+/// preserved verbatim — including an unsupported one. Validation is not done
+/// here: an unsupported harness must surface as a classified
 /// [`HarnessError::InvalidConfiguration`](crate::agent::harness::HarnessError)
 /// at the construction seam (`build_harness`, driven from `spawn_agent`), not as
 /// a config-load `panic!` that aborts the pod before the Sandbox can publish the
@@ -808,7 +808,9 @@ mod tests {
         assert_eq!(repos[0].branch.as_deref(), Some("main"));
         assert!(repos[0].is_primary);
         assert_eq!(
-            primary_checkout(&repos).unwrap().dir("/opt/moatless/workspace"),
+            primary_checkout(&repos)
+                .unwrap()
+                .dir("/opt/moatless/workspace"),
             "/opt/moatless/workspace/repo"
         );
     }
@@ -832,7 +834,9 @@ mod tests {
         );
         assert_eq!(repos.len(), 2);
         assert_eq!(
-            primary_checkout(&repos).unwrap().dir("/opt/moatless/workspace"),
+            primary_checkout(&repos)
+                .unwrap()
+                .dir("/opt/moatless/workspace"),
             "/opt/moatless/workspace/api"
         );
         assert_eq!(repos[1].provider, "gitlab");

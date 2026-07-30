@@ -160,9 +160,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the scheduled-job registry that owns Monitor crons and
     // ScheduleWakeup timers. The injector is late-bound: we need an
-    // `AgentHandle` to inject messages, but the actor (which produces the
+    // `AgentHandle` to inject messages, but the lifecycle task (which produces the
     // handle) needs the registry up front. The `LateInjector` breaks the
-    // cycle — we construct the registry around it, spawn the actor with the
+    // cycle — we construct the registry around it, spawn the lifecycle task with the
     // registry, then point the injector at the returned handle.
     let late_injector = Arc::new(LateInjector::new());
     let scheduled_jobs = Arc::new(ScheduledJobRegistry::new(Arc::clone(&late_injector) as _));
@@ -190,7 +190,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let credential_failures = CredentialFailureDetector::default();
     let system_prompt_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
-    // Liveness heartbeat: the actor loop bumps it, the `/livez` probe reads it.
+    // Liveness heartbeat: the coordinator service bumps it, the `/livez` probe reads it.
     let heartbeat = moatless_sandbox::agent::heartbeat::Heartbeat::new();
 
     let agent_handle = spawn_agent(
@@ -226,9 +226,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         supervisor_health: supervisor.health(),
     };
 
-    // The agent actor is deliberately NOT registered with the root supervisor.
+    // The agent lifecycle task is deliberately NOT registered with the root supervisor.
     // It is the one long-lived task whose termination already reaches a probe:
-    // when the actor loop exits or panics, `command_rx` drops and
+    // when the lifecycle task exits or panics, `command_rx` drops and
     // `agent_handle.is_closed()` makes `/livez` report 503 — the same outcome a
     // `Criticality::Liveness` registration would produce. It also does not
     // observe the lifecycle token (it exits when the last `AgentHandle` drops,
@@ -401,7 +401,7 @@ async fn health(State(state): State<SandboxState>) -> impl IntoResponse {
 /// Returns 200 while the pod can still make progress and 503 once it cannot, so
 /// K8s can restart a hung-but-running pod that `/health` (a startup probe) would
 /// keep reporting healthy. Two ways to lose it: a supervised task terminated
-/// early, or the agent actor wedged or exited. Still depends on neither backend
+/// early, or the agent lifecycle task wedged or exited. Still depends on neither backend
 /// reachability, credentials, nor disk, so a transient dependency outage can't
 /// trigger a restart that kills an in-flight turn.
 ///

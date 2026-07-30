@@ -1,13 +1,12 @@
 //! One-shot timer for the Claude Code `ScheduleWakeup` tool.
 //!
-//! When the agent calls `ScheduleWakeup`, the actor parses the tool input into
-//! a `WakeupJob` and registers it against the shared `ScheduledJobRegistry`
+//! When the agent calls `ScheduleWakeup`, the coordinator service parses the
+//! tool input into a `WakeupJob` and registers it against the shared `ScheduledJobRegistry`
 //! once the turn ends successfully (latest-wins replaces any prior wakeup).
 //! When the timer fires, the job hands the agent-supplied prompt back to the
-//! actor via `ctx.injector.inject(...)`, which goes through `AgentHandle::send`
-//! → mpsc → `queued_sends`. (One extra hop vs the previous in-loop push, but
-//! functionally identical: if `Stop` is in flight the synthetic send is
-//! dropped, same as today's behaviour.)
+//! lifecycle owner via `ctx.injector.inject(...)`, which goes through
+//! `AgentHandle::send` → mpsc. If `Stop` is in flight the synthetic send is
+//! dropped.
 
 use std::time::Duration;
 

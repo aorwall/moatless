@@ -28,11 +28,11 @@ src/
 ├── agent/
 │   ├── mod.rs
 │   ├── agent_state.rs         # AgentState: status, session id, current run id, cancel, prompts
-│   ├── handle/                # Agent actor: owns the CLI session and exposes send()
-│   │   ├── actor.rs           # tokio::select! event loop; mints the per-run run_id
-│   │   ├── session.rs         # start_session + tmux session fingerprint
-│   │   ├── claude.rs          # Claude SdkMessage -> events
-│   │   ├── codex.rs           # Codex event stream -> events
+│   ├── coordinator.rs         # Harness-neutral lifecycle, retry, run ids, event publication
+│   ├── harness/               # Claude/Codex adapters behind the Harness seam
+│   ├── handle/                # AgentHandle command API + harness construction helpers
+│   │   ├── codex_payloads.rs  # Pure Codex item → typed tool payload builders
+│   │   ├── credential_recovery.rs
 │   │   └── retry.rs           # Transient-error classification and backoff
 │   ├── dispatcher.rs          # dispatch_pending_messages(): fetch, send, acknowledge
 │   ├── options.rs             # Build ClaudeOptions from config + request
@@ -94,8 +94,8 @@ tests/
 - **Interactive prompts**: `tokio::sync::oneshot` for AskUserQuestion/ExitPlanMode blocking
 - **Event publishing**: Fire-and-forget gRPC calls, failures logged but never propagated
 - **Message fetching**: Direct invocation via `dispatch_pending_messages()` — called from init, gRPC notify, and post-agent completion
-- **Run identity**: the actor mints a `run_id` (UUID) whenever a run starts while
-  the agent is idle, and holds it for the run's lifetime. Every event published
-  from inside the run carries it, and so does the message acknowledgment. The
-  backend maps `run_id` -> turn number, so a turn is exactly one agent run
-  regardless of the order those two channels deliver in
+- **Run identity**: `CoordinatorService` mints a `run_id` (UUID) whenever a run
+  starts while the agent is idle, and holds it for the run's lifetime. Every
+  event published from inside the run carries it, and so does the message
+  acknowledgment. The backend maps `run_id` -> turn number, so a turn is exactly
+  one agent run regardless of the order those two channels deliver in
