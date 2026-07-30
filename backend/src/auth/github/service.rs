@@ -450,7 +450,7 @@ impl GitHubAppService {
     /// Run before an App is stored and before a rotated key replaces the one
     /// in place, so a stored App is always one that has already worked. The
     /// error messages are the ones an admin reads, so they name which part
-    /// failed and never suggest something was saved.
+    /// failed, say what to do about it, and never suggest something was saved.
     pub async fn prove(&self) -> Result<ProvedApp, AuthError> {
         let app_jwt = self.generate_app_jwt()?;
         let resp = self
@@ -470,18 +470,10 @@ impl GitHubAppService {
                 ))
             })?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
-            || resp.status() == reqwest::StatusCode::FORBIDDEN
-        {
-            return Err(AuthError::BadRequest(
-                "GitHub did not accept this key for this App. Nothing was stored.".to_string(),
-            ));
-        }
         if !resp.status().is_success() {
             let status = resp.status();
-            return Err(AuthError::BadRequest(format!(
-                "GitHub refused the request with {status}, so the App was not stored."
-            )));
+            let body = resp.text().await.unwrap_or_default();
+            return Err(refusal(status, &body, self.app_id));
         }
 
         let metadata: AppMetadata = resp.json().await.map_err(|e| {
@@ -754,5 +746,107 @@ impl GitHubAppService {
         );
         *self.bot_identity.write().await = Some(identity.clone());
         Ok(identity)
+    }
+}
+
+/// Turn GitHub's refusal of `GET /app` into something an admin can act on.
+///
+/// The status alone is not enough to act on, and 404 in particular reads as a
+/// broken deployment when it is nothing of the sort: GitHub answers `404
+/// Integration not found` when the JWT is signed correctly but its issuer is
+/// not an App id. That is what an admin sees after pasting the Installation ID
+/// — the long number in the installation URL — into the App ID field, which is
+/// the easiest of the three numbers on those pages to reach for.
+fn refusal(status: reqwest::StatusCode, body: &str, app_id: u64) -> AuthError {
+    let github_said = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("message")?.as_str().map(str::to_string));
+
+    AuthError::BadRequest(match status {
+        // GitHub's own words are kept: if it ever answers 404 for some other
+        // reason, the advice below would otherwise be the only thing an admin
+        // sees, and it would be wrong.
+        reqwest::StatusCode::NOT_FOUND => format!(
+            "GitHub has no App with ID {app_id} (it answered '{}'). That number is the \
+             App ID on the App's own settings page — not the Installation ID from the \
+             installation URL, and not the client ID. Nothing was stored.",
+            github_said.as_deref().unwrap_or("Not Found")
+        ),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => format!(
+            "GitHub did not accept this key for App {app_id}. Check the key was generated \
+             by this App and pasted whole, including the BEGIN and END lines. Nothing was \
+             stored."
+        ),
+        _ => {
+            let detail = github_said
+                .as_deref()
+                .map(|m| format!(" ({m})"))
+                .unwrap_or_default();
+            format!("GitHub refused the request with {status}{detail}, so the App was not stored.")
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// GitHub's own words for the case this was written for.
+    const INTEGRATION_NOT_FOUND: &str = r#"{"message":"Integration not found","status":"404"}"#;
+
+    #[test]
+    fn a_404_says_which_number_is_wanted_rather_than_repeating_the_status() {
+        let error = refusal(
+            reqwest::StatusCode::NOT_FOUND,
+            INTEGRATION_NOT_FOUND,
+            150038583,
+        );
+
+        let message = error.to_string();
+        assert!(message.contains("150038583"), "{message}");
+        assert!(message.contains("Installation ID"), "{message}");
+        assert!(message.contains("Integration not found"), "{message}");
+        assert!(message.contains("Nothing was stored"), "{message}");
+    }
+
+    #[test]
+    fn a_rejected_key_is_told_apart_from_an_app_that_does_not_exist() {
+        let message = refusal(
+            reqwest::StatusCode::UNAUTHORIZED,
+            r#"{"message":"A JSON web token could not be decoded"}"#,
+            42,
+        )
+        .to_string();
+
+        assert!(message.contains("did not accept this key"), "{message}");
+        assert!(!message.contains("Installation ID"), "{message}");
+    }
+
+    /// Anything else is unclassified, so GitHub's own message is the most
+    /// useful thing we have and is passed through rather than swallowed.
+    #[test]
+    fn an_unclassified_refusal_carries_githubs_own_message() {
+        let message = refusal(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            r#"{"message":"Service unavailable"}"#,
+            42,
+        )
+        .to_string();
+
+        assert!(message.contains("503"), "{message}");
+        assert!(message.contains("Service unavailable"), "{message}");
+    }
+
+    #[test]
+    fn a_body_that_is_not_json_still_produces_a_usable_message() {
+        let message = refusal(
+            reqwest::StatusCode::BAD_GATEWAY,
+            "<html>upstream is having a day</html>",
+            42,
+        )
+        .to_string();
+
+        assert!(message.contains("502"), "{message}");
+        assert!(!message.contains("<html>"), "{message}");
     }
 }

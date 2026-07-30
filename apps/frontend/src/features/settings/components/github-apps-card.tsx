@@ -106,6 +106,10 @@ function RegisterAppDialog({
               value={appId}
               onChange={(e) => setAppId(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              From the App's own settings page, under <strong>App ID</strong>. Not the installation
+              ID in the URL of the page where you installed it, and not the client ID.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="github-app-pem">Signing key (PEM)</Label>

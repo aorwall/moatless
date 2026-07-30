@@ -15,6 +15,43 @@ const baseURL =
 		? ""
 		: (import.meta.env?.VITE_API_URL ?? "");
 
+/**
+ * The message to put on a thrown request error.
+ *
+ * `response.statusText` cannot carry this on its own: HTTP/2 dropped the
+ * reason phrase, so browsers report it as an empty string against any
+ * HTTP/2 deployment. An error thrown with an empty message reaches the UI as
+ * a blank alert and a toast with no description — the request failed and the
+ * screen says nothing about why. The server's own words are what an operator
+ * needs, so they are preferred, in the shapes this API actually returns:
+ * `{error: "..."}`, `{error: {message: "..."}}`, `{message}`, `{detail}`.
+ */
+export function errorMessage(
+	status: number,
+	statusText: string,
+	body: unknown,
+): string {
+	if (typeof body === "object" && body !== null) {
+		const data = body as Record<string, unknown>;
+		const nested =
+			typeof data["error"] === "object" && data["error"] !== null
+				? (data["error"] as Record<string, unknown>)["message"]
+				: undefined;
+		for (const candidate of [
+			data["error"],
+			nested,
+			data["message"],
+			data["detail"],
+		]) {
+			if (typeof candidate === "string" && candidate.length > 0) {
+				return candidate;
+			}
+		}
+	}
+
+	return statusText || `Request failed with status ${status}`;
+}
+
 export const customInstance = async <T>(
 	url: string,
 	options?: RequestInit & { params?: Record<string, string> },
@@ -36,11 +73,14 @@ export const customInstance = async <T>(
 
 	if (!response.ok) {
 		const errorData = await response.json().catch(() => null);
-		throw Object.assign(new Error(response.statusText), {
-			status: response.status,
-			statusText: response.statusText,
-			data: errorData,
-		});
+		throw Object.assign(
+			new Error(errorMessage(response.status, response.statusText, errorData)),
+			{
+				status: response.status,
+				statusText: response.statusText,
+				data: errorData,
+			},
+		);
 	}
 
 	if (response.status === 204) {
