@@ -755,49 +755,86 @@ async fn send_frames(
     true
 }
 
-/// Read a wire request id, which T3 encodes as `string | number`.
+/// A request id, in the JSON form it arrived as and the text this protocol
+/// correlates on.
 ///
-/// `RpcMessage.RequestEncoded` widened its id to accept either, and the client
-/// sends whichever the id already was — an unquoted integer for the counter it
-/// generates. The decimal string is what the rest of this protocol correlates
-/// on and what a response carries back, so a number becomes one here.
-fn deserialize_request_id<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    struct RequestIdVisitor;
+/// T3 encodes the id as `string | number` and sends whichever it already had —
+/// an unquoted integer for the counter its client generates. The form matters
+/// on the way back: the client resolves a response by looking `requestId` up in
+/// a map keyed by the value it sent, and its JSON codec coerces nothing. An id
+/// that arrives as `0` and returns as `"0"` therefore matches no caller, the
+/// request never completes, and the connection attempt times out with the
+/// socket open and every frame apparently fine. So the id goes back exactly as
+/// it came, while correlation here stays on the decimal text.
+#[derive(Debug, Clone, PartialEq)]
+struct RequestId {
+    text: String,
+    wire: Value,
+}
 
-    impl serde::de::Visitor<'_> for RequestIdVisitor {
-        type Value = String;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a request id as a string or an integer")
-        }
-
-        fn visit_str<E: serde::de::Error>(self, id: &str) -> Result<String, E> {
-            Ok(id.to_string())
-        }
-
-        fn visit_u64<E: serde::de::Error>(self, id: u64) -> Result<String, E> {
-            Ok(id.to_string())
-        }
-
-        fn visit_i64<E: serde::de::Error>(self, id: i64) -> Result<String, E> {
-            Ok(id.to_string())
-        }
+impl RequestId {
+    fn as_str(&self) -> &str {
+        &self.text
     }
 
-    // A fractional id reaches no visitor here and is refused, which is what
-    // `valid_request_id` would decide about it anyway.
-    deserializer.deserialize_any(RequestIdVisitor)
+    fn wire(&self) -> Value {
+        self.wire.clone()
+    }
+}
+
+impl fmt::Display for RequestId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.text)
+    }
+}
+
+impl<'de> Deserialize<'de> for RequestId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RequestIdVisitor;
+
+        impl serde::de::Visitor<'_> for RequestIdVisitor {
+            type Value = RequestId;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a request id as a string or an integer")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, id: &str) -> Result<RequestId, E> {
+                Ok(RequestId {
+                    text: id.to_string(),
+                    wire: Value::String(id.to_string()),
+                })
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, id: u64) -> Result<RequestId, E> {
+                Ok(RequestId {
+                    text: id.to_string(),
+                    wire: Value::from(id),
+                })
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, id: i64) -> Result<RequestId, E> {
+                Ok(RequestId {
+                    text: id.to_string(),
+                    wire: Value::from(id),
+                })
+            }
+        }
+
+        // A fractional id reaches no visitor here and is refused, which is what
+        // `valid_request_id` would decide about it anyway.
+        deserializer.deserialize_any(RequestIdVisitor)
+    }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "_tag")]
 enum ClientFrame {
     Request {
-        #[serde(deserialize_with = "deserialize_request_id")]
-        id: String,
+        id: RequestId,
         tag: String,
         #[serde(default)]
         payload: Value,
@@ -814,13 +851,11 @@ enum ClientFrame {
     },
     Ack {
         #[serde(rename = "requestId")]
-        #[serde(deserialize_with = "deserialize_request_id")]
-        request_id: String,
+        request_id: RequestId,
     },
     Interrupt {
         #[serde(rename = "requestId")]
-        #[serde(deserialize_with = "deserialize_request_id")]
-        request_id: String,
+        request_id: RequestId,
     },
     Ping,
     Eof,
@@ -915,24 +950,24 @@ impl ProtocolSession {
                     break;
                 }
                 ClientFrame::Ack { request_id } => {
-                    if !valid_request_id(&request_id) {
+                    if !valid_request_id(request_id.as_str()) {
                         output
                             .frames
                             .push(connection_defect("Ack requestId is not a decimal string"));
                         continue;
                     }
-                    if let Some(stream) = self.streams.get_mut(&request_id) {
+                    if let Some(stream) = self.streams.get_mut(request_id.as_str()) {
                         stream.awaiting_ack = false;
                     }
                 }
                 ClientFrame::Interrupt { request_id } => {
-                    if !valid_request_id(&request_id) {
+                    if !valid_request_id(request_id.as_str()) {
                         output.frames.push(connection_defect(
                             "Interrupt requestId is not a decimal string",
                         ));
                         continue;
                     }
-                    self.streams.remove(&request_id);
+                    self.streams.remove(request_id.as_str());
                     output.frames.push(interrupted_exit(&request_id));
                 }
                 ClientFrame::Request {
@@ -958,18 +993,18 @@ impl ProtocolSession {
 
     async fn handle_request(
         &mut self,
-        id: String,
+        id: RequestId,
         tag: String,
         payload: Value,
         state: &UiRpcState,
         identity: &AuthIdentity,
     ) -> Vec<Value> {
-        if !valid_request_id(&id) {
+        if !valid_request_id(id.as_str()) {
             return vec![connection_defect(
                 "Request id is not a decimal string and cannot be correlated",
             )];
         }
-        if self.streams.contains_key(&id) {
+        if self.streams.contains_key(id.as_str()) {
             return vec![connection_defect(format!(
                 "Duplicate in-flight RPC request id: {id}"
             ))];
@@ -1066,7 +1101,7 @@ impl ProtocolSession {
                     frames,
                 ));
                 let started = self.start_stream(&id, Some(values));
-                if let Some(stream) = self.streams.get_mut(&id) {
+                if let Some(stream) = self.streams.get_mut(id.as_str()) {
                     stream.producer = Some(producer);
                 } else {
                     // The stream limit refused it; nothing will read its frames.
@@ -1135,7 +1170,7 @@ impl ProtocolSession {
     /// why nothing between the first chunk and the first live poll can fall
     /// through the join: it is the same feed either way.
     async fn watch_shell(
-        request_id: String,
+        request_id: RequestId,
         mut feed: ShellFeed,
         state: UiRpcState,
         viewer: ScopeContext,
@@ -1178,7 +1213,7 @@ impl ProtocolSession {
             }
             let chunk = json!({
                 "_tag": "Chunk",
-                "requestId": request_id,
+                "requestId": request_id.wire(),
                 "values": values
             });
             // A chunk that cannot be queued is not the poll's problem, and the
@@ -1198,7 +1233,7 @@ impl ProtocolSession {
         }
     }
 
-    fn start_stream(&mut self, id: &str, values: Option<Vec<Value>>) -> Vec<Value> {
+    fn start_stream(&mut self, id: &RequestId, values: Option<Vec<Value>>) -> Vec<Value> {
         if self.streams.len() >= MAX_ACTIVE_STREAMS {
             return vec![failure_exit(
                 id,
@@ -1208,7 +1243,7 @@ impl ProtocolSession {
 
         let awaiting_ack = values.is_some();
         self.streams.insert(
-            id.to_string(),
+            id.as_str().to_string(),
             StreamState {
                 awaiting_ack,
                 producer: None,
@@ -1218,7 +1253,7 @@ impl ProtocolSession {
             .map(|values| {
                 vec![json!({
                     "_tag": "Chunk",
-                    "requestId": id,
+                    "requestId": id.wire(),
                     "values": values
                 })]
             })
@@ -1315,10 +1350,10 @@ fn platform_arch() -> &'static str {
     }
 }
 
-fn success_exit(request_id: &str, value: Value) -> Value {
+fn success_exit(request_id: &RequestId, value: Value) -> Value {
     json!({
         "_tag": "Exit",
-        "requestId": request_id,
+        "requestId": request_id.wire(),
         "exit": {
             "_tag": "Success",
             "value": value
@@ -1326,10 +1361,10 @@ fn success_exit(request_id: &str, value: Value) -> Value {
     })
 }
 
-fn failure_exit(request_id: &str, defect: impl Into<String>) -> Value {
+fn failure_exit(request_id: &RequestId, defect: impl Into<String>) -> Value {
     json!({
         "_tag": "Exit",
-        "requestId": request_id,
+        "requestId": request_id.wire(),
         "exit": {
             "_tag": "Failure",
             "cause": [{
@@ -1342,7 +1377,11 @@ fn failure_exit(request_id: &str, defect: impl Into<String>) -> Value {
 
 /// The client is told the listing could not be built; the cause is logged once
 /// here rather than shipped to the browser.
-fn shell_failure_exit(request_id: &str, error: &sqlx::Error, identity: &AuthIdentity) -> Value {
+fn shell_failure_exit(
+    request_id: &RequestId,
+    error: &sqlx::Error,
+    identity: &AuthIdentity,
+) -> Value {
     error!(%error, user_id = %identity.user_id, "Failed to assemble T3 UI shell snapshot");
     failure_exit(request_id, "Failed to assemble the shell listing")
 }
@@ -1360,17 +1399,17 @@ fn shell_failure_status(error: &sqlx::Error) -> StatusCode {
     }
 }
 
-fn unsupported_exit(request_id: &str, tag: &str) -> Value {
+fn unsupported_exit(request_id: &RequestId, tag: &str) -> Value {
     failure_exit(
         request_id,
         format!("RPC method is not implemented by the phase-one Moatless server: {tag}"),
     )
 }
 
-fn interrupted_exit(request_id: &str) -> Value {
+fn interrupted_exit(request_id: &RequestId) -> Value {
     json!({
         "_tag": "Exit",
-        "requestId": request_id,
+        "requestId": request_id.wire(),
         "exit": {
             "_tag": "Failure",
             "cause": [{
@@ -1470,24 +1509,54 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_numeric_request_id_is_answered_as_a_decimal_string() {
-        // What the T3 client actually puts on the wire: `"id": 21`, unquoted.
+    async fn a_request_id_returns_in_the_json_type_it_arrived_as() {
+        // The client resolves a response by looking `requestId` up in a map
+        // keyed by the value it sent, and coerces nothing. Answering `21` with
+        // `"21"` matches no caller, so the request never completes and the
+        // connection attempt times out with every frame looking correct.
+        for id in [json!(21), json!("21")] {
+            let frame = serde_json::to_vec(&json!({
+                "_tag": "Request",
+                "id": id,
+                "tag": "server.getConfig",
+                "payload": {},
+                "headers": []
+            }))
+            .unwrap();
+            let mut session = session();
+            let output = session.handle_json(&frame, &state(), &viewer()).await;
+            assert_eq!(output.frames[0]["_tag"], "Exit");
+            assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+            assert_eq!(
+                output.frames[0]["requestId"], id,
+                "a {id} request id must come back as {id}, not re-typed"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_numeric_stream_id_returns_numeric_on_every_frame() {
         let frame = serde_json::to_vec(&json!({
             "_tag": "Request",
-            "id": 21,
-            "tag": "server.getConfig",
+            "id": 4,
+            "tag": "subscribeServerConfig",
             "payload": {},
             "headers": []
         }))
         .unwrap();
         let mut session = session();
         let output = session.handle_json(&frame, &state(), &viewer()).await;
-        assert_eq!(output.frames[0]["_tag"], "Exit");
-        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert_eq!(output.frames[0]["_tag"], "Chunk");
         assert_eq!(
-            output.frames[0]["requestId"], "21",
-            "a numeric id is correlated as the decimal string a response carries"
+            output.frames[0]["requestId"],
+            json!(4),
+            "a stream's chunks correlate by the same id its request carried"
         );
+
+        let interrupt = serde_json::to_vec(&json!({ "_tag": "Interrupt", "requestId": 4 })).unwrap();
+        let output = session.handle_json(&interrupt, &state(), &viewer()).await;
+        assert_eq!(output.frames[0]["_tag"], "Exit");
+        assert_eq!(output.frames[0]["requestId"], json!(4));
     }
 
     #[tokio::test]

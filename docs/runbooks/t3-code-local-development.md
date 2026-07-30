@@ -204,8 +204,10 @@ authenticated Moatless user id for session, shell, and socket bootstrap.
 | visible failure | every other RPC receives a request-local unsupported defect |
 
 The protocol accepts one envelope or an array per WebSocket message, reads the
-`string | number` request id T3 encodes and correlates it as a decimal string,
-caps message/frame and active-stream counts,
+`string | number` request id T3 encodes and returns it in the JSON type it
+arrived as — the client resolves a response against a map keyed by the value it
+sent and coerces nothing, so a re-typed id reaches no caller — while correlating
+internally on the decimal text. It caps message/frame and active-stream counts,
 answers Effect keepalives, records stream acknowledgement, and terminates an
 interrupted stream. Initial streams stay open.
 
