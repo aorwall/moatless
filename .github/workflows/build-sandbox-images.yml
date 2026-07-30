@@ -10,6 +10,7 @@ on:
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
       - 'docker/Dockerfile.sandbox*'
+      - 'docker/cli-versions.env'
       - 'docker/docker-entrypoint-sandbox.sh'
       - 'docker/sync-plugins.sh'
       - 'docker/moatless-git-cred.sh'
@@ -79,6 +80,7 @@ jobs:
               - '.github/workflows/build-sandbox-images.yml'
             base:
               - 'docker/Dockerfile.sandbox-base'
+              - 'docker/cli-versions.env'
               - '.github/workflows/build-sandbox-images.yml'
             sandbox:
               - 'docker/Dockerfile.sandbox'
@@ -276,6 +278,7 @@ jobs:
           build-args: |
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+            TASK_VERSION=${{ env.TASK_VERSION }}
           cache-from: type=gha,scope=sandbox-base
           cache-to: type=gha,mode=max,scope=sandbox-base
 

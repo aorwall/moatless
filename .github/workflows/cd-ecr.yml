@@ -78,6 +78,7 @@ jobs:
       rust-package-key: ${{ steps.compute.outputs.rust-package-key }}
       claude-cli-version: ${{ steps.versions.outputs.CLAUDE_CLI_VERSION }}
       codex-cli-version: ${{ steps.versions.outputs.CODEX_CLI_VERSION }}
+      task-version: ${{ steps.versions.outputs.TASK_VERSION }}
     steps:
       # fetch-depth: 0 so `git describe --tags` can see the v* release history
       # used to compute the next monotonic semver on push-to-main.
@@ -186,7 +187,7 @@ jobs:
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(backend/|docker/Dockerfile\.backend-cross$)'; then
                 BACKEND=true
               fi
-              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(sandbox/|docker/Dockerfile\.sandbox-soap$|docker/docker-entrypoint-sandbox\.sh$|docker/sync-plugins\.sh$|docker/moatless-git-cred\.sh$)'; then
+              if printf '%s\n' "$CHANGED_FILES" | grep -qE '^(sandbox/|docker/Dockerfile\.sandbox-soap$|docker/cli-versions\.env$|docker/docker-entrypoint-sandbox\.sh$|docker/sync-plugins\.sh$|docker/moatless-git-cred\.sh$)'; then
                 SANDBOX=true
               fi
               if printf '%s\n' "$CHANGED_FILES" | grep -qE '^crates/'; then
@@ -710,6 +711,7 @@ jobs:
       build-args: |
         CLAUDE_CLI_VERSION=${{ needs.setup.outputs.claude-cli-version }}
         CODEX_CLI_VERSION=${{ needs.setup.outputs.codex-cli-version }}
+        TASK_VERSION=${{ needs.setup.outputs.task-version }}
     # Sandbox base (aorwall/moatless-sandbox-base) + golang build stages all
     # pull from docker.io — the most rate-limit-exposed of the three images.
     secrets:

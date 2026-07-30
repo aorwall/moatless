@@ -1,18 +1,34 @@
 # moatless-sandbox-base: Stable base image for all sandbox variants.
 #
-# Contains: Ubuntu, Node.js, npm, Claude Code CLI, Codex CLI, Bun, pnpm, yarn,
-# TypeScript/tsx, Playwright + Chromium, the Rust toolchain (rustup/cargo/clippy/
-# rustfmt) plus protoc/pkg-config so agents can build Rust projects — including
-# moatless-vibe itself — inside the sandbox, git, system tools, moatless user.
+# Contains: Ubuntu, Node.js, npm, Claude Code CLI, Codex CLI, Task, Bun, pnpm,
+# yarn, TypeScript/tsx, Playwright + Chromium, the Rust toolchain
+# (rustup/cargo/clippy/rustfmt) plus protoc/pkg-config so agents can build Rust
+# projects — including moatless-vibe itself — inside the sandbox, git, system
+# tools, moatless user.
 # Does NOT contain: the compiled sandbox/moat binaries or entrypoint scripts —
 # those are added by leaf images (Dockerfile.sandbox, Dockerfile.sandbox-full)
 # so the expensive layers here cache across normal code changes.
 #
-# Bumping CLAUDE_CLI_VERSION, CODEX_CLI_VERSION, BUN_VERSION or the Playwright
-# install rebuilds this image (and invalidates leaf-image caches from the FROM
-# step onward — that's intended).
+# Bumping CLAUDE_CLI_VERSION, CODEX_CLI_VERSION, TASK_VERSION, BUN_VERSION or
+# the Playwright install rebuilds this image (and invalidates leaf-image caches
+# from the FROM step onward — that's intended).
 #
 # Published as: aorwall/moatless-sandbox-base:latest
+
+# Global ARG so the builder and final stages share the same default. Build paths
+# pass the value from docker/cli-versions.env; this fallback is for ad-hoc builds.
+ARG TASK_VERSION=v3.52.0
+
+# Build go-task from source instead of copying the upstream release binary so
+# dependency CVE patches can be applied during the build.
+FROM golang:1.26.5-bookworm AS task-builder
+ARG TASK_VERSION
+ENV CGO_ENABLED=0
+RUN git clone --depth 1 --branch ${TASK_VERSION} https://github.com/go-task/task.git /src && \
+    cd /src && \
+    go get golang.org/x/net@v0.55.0 && \
+    go mod tidy && \
+    go build -o /go/bin/task ./cmd/task
 
 FROM ubuntu:24.04
 
@@ -83,6 +99,12 @@ RUN ARCH=$(dpkg --print-architecture) && \
     unzip -q /tmp/awscliv2.zip -d /tmp && \
     /tmp/aws/install && \
     rm -rf /tmp/aws /tmp/awscliv2.zip
+
+# Taskfile CLI (`task`) for repositories that use Taskfile.yml.
+COPY --from=task-builder /go/bin/task /usr/local/bin/task
+RUN chmod +x /usr/local/bin/task \
+    && mkdir -p /opt/moatless \
+    && (task --version 2>/dev/null || echo "unknown") > /opt/moatless/.task-version
 
 # Install Python build dependencies and pyenv prerequisites (used by sandbox-full),
 # plus native build tooling needed to compile the Rust workspace: pkg-config and

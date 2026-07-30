@@ -33,8 +33,10 @@ SANDBOX_JS_ALIAS_NAME="moatless-sandbox-js"
 CLI_VERSIONS_FILE="$(cd "$(dirname "$0")" && pwd)/cli-versions.env"
 _default_claude="$(sed -n 's/^CLAUDE_CLI_VERSION=//p' "$CLI_VERSIONS_FILE")"
 _default_codex="$(sed -n 's/^CODEX_CLI_VERSION=//p' "$CLI_VERSIONS_FILE")"
+_default_task="$(sed -n 's/^TASK_VERSION=//p' "$CLI_VERSIONS_FILE")"
 CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-$_default_claude}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-$_default_codex}"
+TASK_VERSION="${TASK_VERSION:-$_default_task}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -301,7 +303,8 @@ build_image() {
 if [ "$BUILD_SANDBOX_BASE" = true ]; then
   build_image "Dockerfile.sandbox-base" "moatless-sandbox-base" \
     "--build-arg CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION} \
-     --build-arg CODEX_CLI_VERSION=${CODEX_CLI_VERSION}"
+     --build-arg CODEX_CLI_VERSION=${CODEX_CLI_VERSION} \
+     --build-arg TASK_VERSION=${TASK_VERSION}"
 fi
 
 if [ "$BUILD_SANDBOX" = true ]; then
