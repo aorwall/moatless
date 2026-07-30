@@ -3,7 +3,7 @@ import type { TaskActivityState } from '@/features/tasks/utils/task-status'
 
 export interface EnrichedTask {
   task: TaskResponse
-  repositoryName: string
+  workspaceName: string
   state: TaskActivityState
   unread: boolean
   preview: string | null

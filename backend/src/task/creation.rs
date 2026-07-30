@@ -316,11 +316,18 @@ impl TaskCreationService {
             return Err(TaskCreationError::Preflight(msg));
         }
 
-        self.tasks.insert_task(&row).await?;
+        // `insert_task` resolves the repository's shadow workspace when the
+        // caller supplied none, so the persisted row always has one. Carry it
+        // back onto the in-memory row: the create response and the
+        // `task.created` event are built from this row, not re-read, and both
+        // label the workspace the task runs in.
+        let workspace_id = self.tasks.insert_task(&row).await?;
+        row.workspace_id = Some(workspace_id);
         tracing::info!(
             task_id = %task_id,
             created_by = ?row.created_by,
             repository_id = %row.repository_id,
+            workspace_id = ?row.workspace_id,
             "Task created"
         );
 
@@ -426,6 +433,10 @@ mod tests {
     use crate::task::relations::MockTaskRelationRepository;
     use crate::test_support::RecordingPublisher;
 
+    /// What `insert_task` resolves for a request that names no workspace: the
+    /// repository's shadow workspace.
+    const SHADOW_WORKSPACE: &str = "ws_repo1";
+
     fn sample_repo() -> Repository {
         Repository {
             id: "repo1".into(),
@@ -519,7 +530,7 @@ mod tests {
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Open)
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
         let mut starter = MockSandboxStarter::new();
         starter.expect_start().times(1).returning(|_| Ok(()));
 
@@ -536,6 +547,33 @@ mod tests {
         assert!(publisher.sandbox_statuses().is_empty());
     }
 
+    /// The request named no workspace, so the insert resolved the repository's
+    /// shadow one. The create response and the `task.created` event are built
+    /// from this row rather than re-read, so a row left with `None` here
+    /// publishes a task whose workspace no client can name.
+    #[tokio::test]
+    async fn the_returned_row_carries_the_workspace_the_insert_resolved() {
+        let mut tasks = MockTaskRepository::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks
+            .expect_insert_task()
+            .withf(|row| row.workspace_id.is_none())
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+        let mut starter = MockSandboxStarter::new();
+        starter.expect_start().returning(|_| Ok(()));
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+
+        let outcome = svc
+            .create(sample_request(), empty_payload, no_message)
+            .await
+            .expect("creation succeeds");
+
+        assert_eq!(outcome.task.workspace_id.as_deref(), Some(SHADOW_WORKSPACE));
+    }
+
     #[tokio::test]
     async fn preflight_failure_marks_errored_publishes_error_event_and_skips_provision() {
         let mut tasks = MockTaskRepository::new();
@@ -544,7 +582,7 @@ mod tests {
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Error)
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
         let mut starter = MockSandboxStarter::new();
         starter.expect_start().never();
 
@@ -576,7 +614,7 @@ mod tests {
             .expect_insert_task()
             .withf(|row| row.status == TaskStatus::Open)
             .times(1)
-            .returning(|_| Ok(()));
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
         let mut starter = MockSandboxStarter::new();
         starter
             .expect_start()
@@ -610,7 +648,10 @@ mod tests {
             .times(1)
             .in_sequence(&mut seq)
             .returning(|_| Ok(false));
-        tasks.expect_insert_task().times(1).returning(|_| Ok(()));
+        tasks
+            .expect_insert_task()
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
         let mut starter = MockSandboxStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 

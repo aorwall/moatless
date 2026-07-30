@@ -9,6 +9,7 @@ import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask, useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { liveStatusToActivityState } from '@/features/tasks/utils/live-status'
+import { taskWorkspaceLabel } from '@/features/tasks/utils/task-workspace-label'
 import { taskLiveStatusQueryOptions } from '@/lib/api/task-live-status-queries'
 import {
   AlertDialog,
@@ -86,7 +87,6 @@ function enrichTask(
   activity: TaskActivity | undefined,
   liveStatus: LiveStatus | undefined,
 ): EnrichedTask {
-  const repositoryName = task.repositoryName || task.repositoryId
   // Live stream state wins; fall back to the independently-cached live status.
   const liveState = activityToState(activity)
   const state = liveState !== 'idle' ? liveState : liveStatusToActivityState(liveStatus)
@@ -99,7 +99,7 @@ function enrichTask(
 
   return {
     task,
-    repositoryName,
+    workspaceName: taskWorkspaceLabel(task),
     state,
     unread,
     preview: activity?.lastMessage || null,
@@ -285,7 +285,7 @@ function SidebarTaskItem({
   /** Task to navigate to when closing the active task, or `null` if none. */
   neighborTaskId: string | null
 }) {
-  const { task, repositoryName, state, unread, preview, recentMessages, lastActivityAt } = item
+  const { task, workspaceName, state, unread, preview, recentMessages, lastActivityAt } = item
   const agentWorking = state === 'agent-working'
   // The open task is being read right now, so never flag it as unread.
   const showUnread = unread && !isActive
@@ -341,7 +341,7 @@ function SidebarTaskItem({
                 )
               )}
               <div className="flex items-center justify-between gap-2 text-xs text-sidebar-foreground/60">
-                <span className="truncate">{repositoryName}</span>
+                <span className="truncate">{workspaceName}</span>
                 <span className="shrink-0">{getRelativeTime(lastActivityAt)}</span>
               </div>
             </div>

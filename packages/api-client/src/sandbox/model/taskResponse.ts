@@ -93,14 +93,17 @@ occurred for this many minutes. `0` means "never reap". */
   vibe?: boolean | null;
   visibility: Visibility;
   /**
-   * Workspace the task runs in. `None` for tasks created before workspaces
-existed, or whose repository has no explicit workspace placement.
+   * Workspace the task runs in. Every task has one — the insert resolves the
+repository's shadow workspace when the creating request named none, and
+pre-workspace tasks were backfilled the same way — so this is only
+`None` for a response built without reading the persisted row.
    * @nullable
    */
   workspaceId?: string | null;
   /**
    * Display name for `workspace_id`, resolved alongside `repository_name`.
-`None` when there is no workspace or the row could not be read.
+`None` when the workspace row is deleted or its lookup failed; clients
+showing this as a label fall back to the repository.
    * @nullable
    */
   workspaceName?: string | null;

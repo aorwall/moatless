@@ -16,6 +16,7 @@ function task(taskId: string, parentTaskId?: string): TaskResponse {
     relations: [],
     repositoryId: 'repo-1',
     repositoryName: 'Repo',
+    workspaceName: 'Workspace',
     sandboxDesiredState: 'running',
     sandboxDesiredStateUpdatedAt: BASE_TIME,
     scope: 'user',
@@ -32,7 +33,7 @@ function task(taskId: string, parentTaskId?: string): TaskResponse {
 function enriched(taskId: string, parentTaskId?: string): EnrichedTask {
   return {
     task: task(taskId, parentTaskId),
-    repositoryName: 'Repo',
+    workspaceName: 'Workspace',
     state: 'idle',
     unread: false,
     preview: null,

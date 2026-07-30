@@ -42,7 +42,11 @@ pub trait TaskRepository: Send + Sync {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Task>, sqlx::Error>;
-    async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error>;
+    /// Insert a task, returning the workspace id the row was persisted with.
+    /// That is `row.workspace_id` when the caller set one, otherwise the
+    /// repository's shadow workspace this resolves — callers building a response
+    /// from the in-memory row need it to label the workspace.
+    async fn insert_task(&self, row: &Task) -> Result<String, sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
     /// Update task fields for the caller's scope. Per-field statements embed the
     /// control_filter so the caller only modifies rows they own. Returns `true`
@@ -180,7 +184,7 @@ impl TaskRepository for PgTaskRepository {
             .await
     }
 
-    async fn insert_task(&self, row: &Task) -> Result<(), sqlx::Error> {
+    async fn insert_task(&self, row: &Task) -> Result<String, sqlx::Error> {
         // Resolve the workspace this task belongs to. Callers may set
         // `workspace_id` explicitly (future multi-repo flows); when unset, ensure
         // the repository's deterministic shadow workspace exists and use it — so
@@ -268,7 +272,7 @@ impl TaskRepository for PgTaskRepository {
             }
         }
 
-        Ok(())
+        Ok(workspace_id)
     }
 
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error> {
@@ -906,8 +910,9 @@ impl TaskPatch {
 // Integration tests in `tests/` call these as `task_dao::insert_task(&pool, &row)`.
 // Each wrapper constructs a `PgTaskRepository` and delegates to the trait method.
 
-/// Insert a task (convenience wrapper).
-pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<(), sqlx::Error> {
+/// Insert a task (convenience wrapper). Returns the workspace id the row was
+/// persisted with, as the trait method does.
+pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<String, sqlx::Error> {
     PgTaskRepository(pool.clone()).insert_task(row).await
 }
 

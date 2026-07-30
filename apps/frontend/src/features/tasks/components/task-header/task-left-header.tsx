@@ -2,13 +2,14 @@ import { useRepositoriesList } from '@/features/repositories/hooks/use-repositor
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useSandboxStatus } from '@/features/tasks/hooks/use-sandbox-status'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
+import { taskWorkspaceLabel } from '@/features/tasks/utils/task-workspace-label'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
 import { ScheduledJobsPill } from './scheduled-jobs-pill'
 
 /**
  * Desktop chat-panel header: sits above the chat side of the desktop task
- * split. Shows the task title, repository/creator metadata, scheduled jobs, and
+ * split. Shows the task title, workspace/creator metadata, scheduled jobs, and
  * the create-repo action. The mobile view switcher lives in `TaskMobileHeader`.
  */
 export function TaskLeftHeader() {
@@ -24,9 +25,11 @@ export function TaskLeftHeader() {
 
   const { repositoryId, name, description, templateId, createdByDisplayName, createdBy } = task
 
-  // Get repository name or template ID for vibe tasks
+  // The header shows the workspace the task runs in; the repository it resolves
+  // to stays on the control panel. `repositories` is only needed for the
+  // create-repo action below.
   const repository = repositories?.find((repo) => repo.id === repositoryId)
-  const displayName = repository?.name ?? ''
+  const displayName = taskWorkspaceLabel(task)
 
   // Get task title (use name if available, otherwise first line of description or "Untitled")
   const taskTitle = name || description?.split('\n')[0] || 'Untitled'
