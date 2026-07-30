@@ -56,6 +56,9 @@ pub struct Task {
     pub site_id: Option<String>,
     pub site_provider: Option<String>,
     pub branch: Option<String>,
+    /// Current requested model for this task. Updated when a user message
+    /// explicitly names a model and reused for later messages that omit one.
+    pub model: Option<String>,
     pub created_by: Option<String>,
     pub visibility: Visibility,
     pub scope: Scope,

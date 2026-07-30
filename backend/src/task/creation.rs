@@ -104,6 +104,7 @@ pub struct NewTaskRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub branch: Option<String>,
+    pub model: Option<String>,
     pub created_by: Option<String>,
     pub headless: bool,
     pub visibility: Visibility,
@@ -271,6 +272,7 @@ impl TaskCreationService {
             site_id: None,
             site_provider: None,
             branch: req.branch.clone(),
+            model: req.model.clone(),
             created_by: req.created_by.clone(),
             visibility: req.visibility,
             scope: req.scope,
@@ -465,6 +467,7 @@ mod tests {
             name: Some("t".into()),
             description: None,
             branch: None,
+            model: None,
             created_by: Some("user1".into()),
             headless: false,
             visibility: Visibility::Private,
@@ -572,6 +575,31 @@ mod tests {
             .expect("creation succeeds");
 
         assert_eq!(outcome.task.workspace_id.as_deref(), Some(SHADOW_WORKSPACE));
+    }
+
+    #[tokio::test]
+    async fn task_creation_persists_requested_model_on_the_task() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks
+            .expect_insert_task()
+            .withf(|row| row.model.as_deref() == Some("claude-opus-4-6"))
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+        let mut starter = MockSandboxStarter::new();
+        starter.expect_start().returning(|_| Ok(()));
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, preflight_ok(), publisher);
+        let mut req = sample_request();
+        req.model = Some("claude-opus-4-6".to_string());
+
+        let outcome = svc
+            .create(req, empty_payload, no_message)
+            .await
+            .expect("creation succeeds");
+
+        assert_eq!(outcome.task.model.as_deref(), Some("claude-opus-4-6"));
     }
 
     #[tokio::test]

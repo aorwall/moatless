@@ -48,6 +48,8 @@ conversation. `None` if they have never opened it. Compare against
    */
   lastReadAt?: string | null;
   /** @nullable */
+  model?: string | null;
+  /** @nullable */
   name?: string | null;
   /** @nullable */
   ownerUserId?: string | null;

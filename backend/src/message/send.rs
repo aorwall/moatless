@@ -265,6 +265,7 @@ pub async fn send_message_flow(
             task_id,
             &TaskPatch {
                 last_message_at: Some(now),
+                model: model.map(std::string::ToString::to_string),
                 ..Default::default()
             },
             &sys_ctx,

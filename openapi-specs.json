@@ -14862,6 +14862,12 @@
             ],
             "description": "RFC3339 timestamp of when the requesting user last read this task's\nconversation. `None` if they have never opened it. Compare against\n`last_message_at` to derive unread state."
           },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "name": {
             "type": [
               "string",

@@ -338,6 +338,7 @@ mod tests {
             site_id: None,
             site_provider: None,
             branch: None,
+            model: None,
             created_by: None,
             visibility: Visibility::Private,
             scope: moatless_backend_core::scope::Scope::User,

@@ -103,6 +103,7 @@ pub(crate) async fn create_task_from_loop(
         name: params.name,
         description: Some(params.description),
         branch: None, // Will use repo default
+        model: None,
         created_by: Some(config.effective_user_id().to_string()),
         headless: true,
         visibility: params.visibility,

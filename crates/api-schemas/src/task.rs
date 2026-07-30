@@ -201,6 +201,7 @@ pub struct TaskResponse {
     /// showing this as a label fall back to the repository.
     pub workspace_name: Option<String>,
     pub branch: Option<String>,
+    pub model: Option<String>,
     pub created_at: String,
     pub last_message_at: String,
     pub total_cost_usd: f64,

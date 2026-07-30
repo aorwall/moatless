@@ -209,13 +209,13 @@ impl TaskDao for PgTaskDao {
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, owner_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
-                inactive_ttl_days, trigger_id, disabled_servers,
+                inactive_ttl_days, trigger_id, disabled_servers, model,
                 workspace_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, NOW(), $22, $23, $24, $25, $26,
-                $27
+                $27, $28
             )"#,
         )
         .bind(&row.task_id)
@@ -244,6 +244,7 @@ impl TaskDao for PgTaskDao {
         .bind(row.inactive_ttl_days)
         .bind(&row.trigger_id)
         .bind(&row.disabled_servers)
+        .bind(&row.model)
         .bind(&workspace_id)
         .execute(&mut *tx)
         .await?;
@@ -302,6 +303,7 @@ impl TaskDao for PgTaskDao {
             site_id: Option<String>,
             site_provider: Option<String>,
             branch: Option<String>,
+            model: Option<String>,
             created_by: Option<String>,
             visibility: Option<Visibility>,
             scope: Option<Scope>,
@@ -346,6 +348,7 @@ impl TaskDao for PgTaskDao {
                     site_id: self.site_id,
                     site_provider: self.site_provider,
                     branch: self.branch,
+                    model: self.model,
                     created_by: self.created_by,
                     visibility: self.visibility?,
                     scope: self.scope?,
@@ -383,7 +386,7 @@ impl TaskDao for PgTaskDao {
                     t.task_id, t.short_id, t.created_at, t.last_message_at, t.agent_type,
                     t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                     t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
-                    t.created_by, t.visibility, t.scope, t.owner_user_id,
+                    t.model, t.created_by, t.visibility, t.scope, t.owner_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
                     t.inactive_ttl_days, t.trigger_id, t.disabled_servers
@@ -536,6 +539,9 @@ impl TaskDao for PgTaskDao {
         }
         if let Some(ref short_id) = patch.short_id {
             run_field!("short_id = $2", short_id);
+        }
+        if let Some(ref model) = patch.model {
+            run_field!("model = $2", model);
         }
         if let Some(ref append_system_prompt) = patch.append_system_prompt {
             run_field!("append_system_prompt = $2", append_system_prompt);
@@ -875,6 +881,7 @@ pub struct TaskPatch {
     pub site_url: Option<String>,
     pub visibility: Option<Visibility>,
     pub short_id: Option<String>,
+    pub model: Option<String>,
     pub append_system_prompt: Option<Option<String>>,
     pub ttl_minutes: Option<i32>,
     pub inactive_ttl_days: Option<i32>,

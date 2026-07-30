@@ -839,6 +839,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             || AgentType::CLAUDE_CODE.to_string(),
             |t| t.agent_type.0.clone(),
         );
+        let task_model = task.as_ref().and_then(|t| t.model.clone());
 
         // Fetch pending user messages from DB
         let pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
@@ -978,7 +979,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
                 Some(sandbox_proto::PendingMessage {
                     content,
-                    model: effective_model(row.model.clone(), &task_agent_type),
+                    model: effective_model(row.model.clone(), task_model.clone(), &task_agent_type),
                     system_prompt: None,
                     resume,
                     agent_type: Some(task_agent_type.clone()),
@@ -1820,8 +1821,12 @@ fn credential_key_to_provider(key: &str) -> Option<&'static str> {
 /// no model, agents that pin a model (e.g. `claude-code-fable` → `fable`) get it
 /// forced here, since the catalog `default_model` is only a UI hint and is not
 /// otherwise applied at runtime.
-fn effective_model(row_model: Option<String>, agent_type: &str) -> Option<String> {
-    row_model.or_else(|| match agent_type {
+fn effective_model(
+    row_model: Option<String>,
+    task_model: Option<String>,
+    agent_type: &str,
+) -> Option<String> {
+    row_model.or(task_model).or_else(|| match agent_type {
         "claude-code-fable" => Some("fable".to_string()),
         _ => None,
     })
@@ -2020,8 +2025,16 @@ mod tests {
     fn effective_model_forces_fable_when_unset() {
         // Fable agent with no per-message model is pinned to "fable".
         assert_eq!(
-            effective_model(None, "claude-code-fable"),
+            effective_model(None, None, "claude-code-fable"),
             Some("fable".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_model_uses_task_model_when_message_omits_one() {
+        assert_eq!(
+            effective_model(None, Some("claude-sonnet-4-6".to_string()), "claude-code"),
+            Some("claude-sonnet-4-6".to_string())
         );
     }
 
@@ -2029,7 +2042,11 @@ mod tests {
     fn effective_model_preserves_explicit_model() {
         // An explicit per-message model always wins, even for the fable agent.
         assert_eq!(
-            effective_model(Some("claude-opus-4-6".to_string()), "claude-code-fable"),
+            effective_model(
+                Some("claude-opus-4-6".to_string()),
+                Some("fable".to_string()),
+                "claude-code-fable",
+            ),
             Some("claude-opus-4-6".to_string())
         );
     }
@@ -2037,8 +2054,8 @@ mod tests {
     #[test]
     fn effective_model_leaves_other_agents_unset() {
         // Non-pinned agents keep their None (falls back to deployment default).
-        assert_eq!(effective_model(None, "claude-code"), None);
-        assert_eq!(effective_model(None, "codex"), None);
+        assert_eq!(effective_model(None, None, "claude-code"), None);
+        assert_eq!(effective_model(None, None, "codex"), None);
     }
 
     #[test]
@@ -2260,6 +2277,7 @@ mod tests {
             site_id: None,
             site_provider: None,
             branch: None,
+            model: None,
             created_by: owner_user_id.map(|u| uid(u).to_string()),
             visibility: crate::task::models::Visibility::Private,
             scope,

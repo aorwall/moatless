@@ -819,6 +819,7 @@ mod authz_tests {
             site_id: None,
             site_provider: None,
             branch: None,
+            model: None,
             created_by: owner_user_id.map(|u| uid(u).to_string()),
             visibility: crate::task::models::Visibility::Private,
             scope,
