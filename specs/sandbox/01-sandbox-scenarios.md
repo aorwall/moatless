@@ -318,13 +318,18 @@ Overrides cannot shadow the credentials and wiring the sandbox depends on.
 ### SERVER-09: An overridden server that crashes still auto-disables
 
 The supervisor restarts the server process only when the config generation
-advances. A process that exits on its own still takes the container down, so
+advances. A process that exits on its own still takes the server down, so
 crash-loop detection and auto-disable behave exactly as without an override.
+Disabling a broken preview server never disturbs the sandbox around it: the
+sandbox stays ready, the agent keeps working, and other preview servers keep
+serving. The disabled server is dropped the next time the sandbox starts.
 
 * **Given** a ready sandbox with a running preview server
 
 * **When** overriding the server's start command with one that exits immediately
 
-* **Then** the server container crash-loops
+* **Then** the server crash-loops
 
-* **And** after the crash-restart threshold the server is auto-disabled and the sandbox is redeployed
+* **And** after the crash-restart threshold the server is reported as disabled
+  * **And** the sandbox stays ready throughout
+  * **And** the server is gone after the sandbox is stopped and started again

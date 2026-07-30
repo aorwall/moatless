@@ -30,13 +30,24 @@ pub fn filter_disabled_servers(repo_config: &mut RepoConfig, disabled: &[String]
         return;
     }
     if let Some(servers) = repo_config.servers.as_mut() {
-        servers.retain(|s| !disabled.contains(&s.name));
+        filter_disabled_server_list(servers, disabled);
         if servers.is_empty() {
             repo_config.servers = None;
-        } else if !servers.iter().any(|s| s.default) {
-            if let Some(first) = servers.first_mut() {
-                first.default = true;
-            }
+        }
+    }
+}
+
+/// The list half of [`filter_disabled_servers`], shared with the status path so
+/// what the UI lists matches what provisioning actually builds. Without it a
+/// disabled server keeps a container-less entry that reads `starting` forever.
+pub fn filter_disabled_server_list(servers: &mut Vec<ServerConfig>, disabled: &[String]) {
+    if disabled.is_empty() {
+        return;
+    }
+    servers.retain(|s| !disabled.contains(&s.name));
+    if !servers.is_empty() && !servers.iter().any(|s| s.default) {
+        if let Some(first) = servers.first_mut() {
+            first.default = true;
         }
     }
 }
@@ -220,5 +231,25 @@ mod tests {
         let mut rc = repo_config_with(vec![server("dev", true)]);
         filter_disabled_servers(&mut rc, &[]);
         assert_eq!(rc.servers.unwrap().len(), 1);
+    }
+
+    /// The status path filters the bare list, and it has to drop the same
+    /// entries provisioning does — otherwise a disabled server keeps a
+    /// container-less entry the resolver reports as `starting` forever.
+    #[test]
+    fn list_filter_matches_repo_config_filter() {
+        let mut servers = vec![server("storybook", true), server("dev", false)];
+        filter_disabled_server_list(&mut servers, &["storybook".to_string()]);
+
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "dev");
+        assert!(servers[0].default);
+    }
+
+    #[test]
+    fn list_filter_empties_when_all_disabled() {
+        let mut servers = vec![server("only", true)];
+        filter_disabled_server_list(&mut servers, &["only".to_string()]);
+        assert!(servers.is_empty());
     }
 }

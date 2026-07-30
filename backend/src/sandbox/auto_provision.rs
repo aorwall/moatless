@@ -29,8 +29,9 @@ use crate::workspace::dao::WorkspaceDao;
 // Re-export the workspace-sourced config builders from k8s/auto_provision. They
 // are shared by lifecycle plan construction and pod-watcher parsing.
 pub use crate::sandbox::k8s::auto_provision::{
-    build_repo_config_from_workspace, build_server_configs_from_workspace, filter_disabled_servers,
-    parse_disabled_servers, parse_env_vars_from_workspace,
+    build_repo_config_from_workspace, build_server_configs_from_workspace,
+    filter_disabled_server_list, filter_disabled_servers, parse_disabled_servers,
+    parse_env_vars_from_workspace,
 };
 
 /// Build a `ProvisionRequest` from database state.
@@ -530,9 +531,13 @@ pub async fn get_server_configs_for_task(
     }
 }
 
-/// Resolve a task's server configs from its workspace's `servers` JSONB.
+/// Resolve a task's server configs from its workspace's `servers` JSONB, minus
+/// the task's auto-disabled servers.
 ///
 /// Resolves task_id → task → workspace → `build_server_configs_from_workspace`.
+/// The disabled filter mirrors provisioning, so a server the crash-loop guard
+/// dropped stops being listed rather than reporting `starting` for a container
+/// that will never exist.
 /// Returns `Err` on DB failures or missing rows so callers can log.
 async fn resolve_server_configs(
     tasks: &dyn TaskDao,
@@ -555,7 +560,9 @@ async fn resolve_server_configs(
         .await
         .map_err(|e| format!("Failed to fetch workspace {ws_id}: {e}"))?
         .ok_or_else(|| format!("Workspace {ws_id} not found"))?;
-    Ok(build_server_configs_from_workspace(&ws))
+    let mut servers = build_server_configs_from_workspace(&ws);
+    filter_disabled_server_list(&mut servers, &parse_disabled_servers(&task));
+    Ok(servers)
 }
 
 #[cfg(test)]

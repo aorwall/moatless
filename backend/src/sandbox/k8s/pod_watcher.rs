@@ -128,14 +128,10 @@ pub(super) struct PodObservedState {
     /// Suppresses repeated fatal events during CrashLoopBackOff.
     pub(super) fatal_published: bool,
     /// Server names already auto-disabled during this pod's lifecycle. Fire-once
-    /// guard so the watcher doesn't repeatedly redeploy while the old pod is
-    /// still reporting the crash-looping container. Cleared naturally when a new
-    /// pod replaces this map entry. A server enters the guard on a successful
-    /// redeploy or after `MAX_AUTO_DISABLE_ATTEMPTS` failed redeploys.
+    /// guard so the watcher doesn't re-publish the disable on every watch event
+    /// while the container keeps crash-looping in this pod. Cleared naturally
+    /// when a new pod replaces this map entry.
     pub(super) auto_disabled_servers: HashSet<String>,
-    /// Per-server count of failed auto-disable redeploys, so a permanently
-    /// failing redeploy stops retrying instead of looping every watch event.
-    pub(super) auto_disable_attempts: HashMap<String, u32>,
     /// Whether the `moatless_sandbox_startup_seconds` histogram has already been
     /// recorded for this pod. Carried over so a pod that goes Ready→NotReady→
     /// Ready (e.g. after a container restart) is only timed on its *first* ready,
@@ -712,7 +708,6 @@ async fn process_watcher_event(
             if let Some(prev) = prev_state {
                 new_state.fatal_published = prev.fatal_published;
                 new_state.auto_disabled_servers = prev.auto_disabled_servers.clone();
-                new_state.auto_disable_attempts = prev.auto_disable_attempts.clone();
                 new_state.startup_recorded = prev.startup_recorded;
                 // Sticky fire-once guards for the threshold sweep, so re-observing
                 // a still-stuck pod doesn't re-emit its blocked/slow event.
@@ -1023,8 +1018,11 @@ async fn process_watcher_event(
             }
 
             // Auto-disable a crash-looping *server* container so a single broken
-            // preview server doesn't gate readiness / poison the whole sandbox.
-            // The default server is never disabled (only surfaced as Failed).
+            // preview server doesn't come back on the sandbox's next start. This
+            // never touches the running pod: the sandbox container and every
+            // healthy sidecar keep serving, and the broken container is left to
+            // the kubelet's own restart backoff. The default server is never
+            // disabled (only surfaced as Failed).
             if max_crash_restart_count > 0 && !is_intentional_stop {
                 // Identify server containers that just crossed the restart
                 // threshold and haven't already been auto-disabled this pod.
@@ -1054,7 +1052,7 @@ async fn process_watcher_event(
                         .strip_suffix("-server")
                         .unwrap_or(&sc.name)
                         .to_string();
-                    let outcome = auto_disable_server(
+                    auto_disable_server(
                         &task_id,
                         &server_name,
                         &sc,
@@ -1063,33 +1061,7 @@ async fn process_watcher_event(
                         deps,
                     )
                     .await;
-                    match outcome {
-                        // Terminal — redeploy landed or there was nothing to
-                        // redeploy: fire the guard so this pod doesn't repeat it.
-                        AutoDisableOutcome::Settled => {
-                            new_state.auto_disabled_servers.insert(server_name);
-                        }
-                        // The redeploy failed: leave the guard unset so a later
-                        // event retries, but give up (and fire the guard) once the
-                        // attempt cap is hit so a permanently failing redeploy
-                        // doesn't loop.
-                        AutoDisableOutcome::RedeployFailed => {
-                            let attempts = new_state
-                                .auto_disable_attempts
-                                .entry(server_name.clone())
-                                .or_insert(0);
-                            *attempts += 1;
-                            if *attempts >= MAX_AUTO_DISABLE_ATTEMPTS {
-                                warn!(
-                                    task_id = %task_id,
-                                    server = %server_name,
-                                    attempts = *attempts,
-                                    "Auto-disable redeploy failed repeatedly; giving up retries"
-                                );
-                                new_state.auto_disabled_servers.insert(server_name);
-                            }
-                        }
-                    }
+                    new_state.auto_disabled_servers.insert(server_name);
                 }
             }
 
@@ -1290,28 +1262,22 @@ async fn publish_server_failed(
         .await;
 }
 
-/// Failed auto-disable redeploys tolerated before the guard fires anyway (so a permanently failing redeploy stops retrying).
-const MAX_AUTO_DISABLE_ATTEMPTS: u32 = 3;
-
-/// Outcome of an [`auto_disable_server`] attempt, driving the caller's fire-once
-/// guard and retry accounting.
-enum AutoDisableOutcome {
-    /// Terminal — the redeploy landed, or there was nothing to redeploy (default
-    /// server, no DB access). Fire the guard so this pod doesn't repeat it.
-    Settled,
-    /// The redeploy failed — retry on a later event, bounded by the attempt count.
-    RedeployFailed,
-}
-
 /// Auto-disable a crash-looping server container for a task.
 ///
 /// - The **default** server is never disabled — only surfaced as `Failed` —
 ///   because removing it would leave the sandbox without a primary preview.
 /// - Without DB access (e.g. Docker mode), this degrades to publishing a
 ///   `Failed` event so the UI reflects the broken server.
-/// - Otherwise the server name is persisted into `tasks.disabled_servers`
-///   (so it stays gone across stop/start) and the Deployment is rebuilt
-///   without the container.
+/// - Otherwise the server name is persisted into `tasks.disabled_servers`, so
+///   the next provisioned pod is built without the container.
+///
+/// **The running pod is deliberately left alone.** Removing a container from a
+/// pod means replacing the pod, which kills the sandbox container and the
+/// in-flight agent turn with it — a broken preview server taking down the whole
+/// sandbox is exactly what this function exists to prevent. The crash-looping
+/// container stays in `CrashLoopBackOff` (kubelet backoff caps at 5 minutes)
+/// until the sandbox is next stopped/started, which also means a server the
+/// agent repairs in the meantime recovers on its own.
 async fn auto_disable_server(
     task_id: &str,
     server_name: &str,
@@ -1319,7 +1285,7 @@ async fn auto_disable_server(
     event_publisher: &dyn EventPublisher,
     max_crash_restart_count: i32,
     deps: &WatcherDeps,
-) -> AutoDisableOutcome {
+) {
     warn!(
         task_id = %task_id,
         server = %server_name,
@@ -1329,19 +1295,24 @@ async fn auto_disable_server(
     );
 
     let failed_message = format!(
-        "Server auto-disabled after {} restarts (threshold: {})",
+        "Server disabled after {} restarts (threshold: {}); it will not be started again with the sandbox",
         sc.restart_count, max_crash_restart_count
     );
 
-    // Need DB access to determine default-ness and persist the disabled set; the
-    // lifecycle owns the redeploy plan DAOs.
+    // Need DB access to determine default-ness and persist the disabled set.
     let (Some(tasks), Some(workspaces)) = (deps.tasks.as_ref(), deps.workspaces.as_ref()) else {
         debug!(
             task_id = %task_id,
             "No DB access in watcher — surfacing server Failed without auto-disable"
         );
-        publish_server_failed(event_publisher, task_id, server_name, failed_message).await;
-        return AutoDisableOutcome::Settled;
+        publish_server_failed(
+            event_publisher,
+            task_id,
+            server_name,
+            format!("Server crash-looping after {} restarts", sc.restart_count),
+        )
+        .await;
+        return;
     };
 
     // Never disable the default server — surface Failed and stop.
@@ -1371,7 +1342,7 @@ async fn auto_disable_server(
             ),
         )
         .await;
-        return AutoDisableOutcome::Settled;
+        return;
     }
 
     // Merge the server into the per-task disabled set and persist.
@@ -1382,11 +1353,11 @@ async fn auto_disable_server(
         Ok(Some(task)) => crate::sandbox::auto_provision::parse_disabled_servers(&task),
         Ok(None) => {
             warn!(task_id = %task_id, "Task not found while auto-disabling server");
-            return AutoDisableOutcome::Settled;
+            return;
         }
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "DB error reading task for auto-disable");
-            return AutoDisableOutcome::Settled;
+            return;
         }
     };
     if !disabled.iter().any(|s| s == server_name) {
@@ -1399,43 +1370,17 @@ async fn auto_disable_server(
     };
     if let Err(e) = tasks.update_task(task_id, &patch, &sys).await {
         warn!(task_id = %task_id, error = %e, "Failed to persist disabled_servers");
-        return AutoDisableOutcome::Settled;
+        return;
     }
 
-    // Notify the UI: the server is dead and the sandbox is being rebuilt.
+    // Server-scoped fact only: the sandbox itself is unaffected, so publishing a
+    // `sandbox` event here would report a healthy sandbox as re-initializing.
     publish_server_failed(event_publisher, task_id, server_name, failed_message).await;
-    event_publisher
-        .publish_sandbox_event_with_payload(
-            task_id,
-            SandboxStatus::Initializing,
-            &SandboxEventPayload {
-                message: format!("Disabled crash-looping server '{server_name}' and redeploying"),
-                lifecycle_event: Some("server_auto_disabled".to_string()),
-                ..Default::default()
-            },
-        )
-        .await;
-
-    // Redeploy through the lifecycle: it rebuilds the plan (now filtering the
-    // disabled server), threads the Running intent + generation, and applies the
-    // fresh pod spec. `disabled_servers` is already persisted above, so the
-    // rebuilt plan drops the crash-looping server. The lifecycle handle is always
-    // present when DB access is (the branch above already required `tasks`).
-    let Some(lifecycle) = deps.lifecycle.as_ref() else {
-        warn!(task_id = %task_id, "No lifecycle handle — skipping redeploy after auto-disable");
-        return AutoDisableOutcome::Settled;
-    };
-    if let Err(e) = lifecycle.redeploy(task_id).await {
-        warn!(task_id = %task_id, error = %e, "Failed to redeploy after auto-disabling server");
-        AutoDisableOutcome::RedeployFailed
-    } else {
-        info!(
-            task_id = %task_id,
-            server = %server_name,
-            "Auto-disabled crash-looping server and redeployed"
-        );
-        AutoDisableOutcome::Settled
-    }
+    info!(
+        task_id = %task_id,
+        server = %server_name,
+        "Auto-disabled crash-looping server; it will be dropped from the next pod"
+    );
 }
 
 /// Stop a crash-looping sandbox through the lifecycle (Stopped/Error intent +
@@ -1710,7 +1655,6 @@ pub(super) fn extract_pod_observed_state(
         server_containers,
         fatal_published: false,
         auto_disabled_servers: HashSet::new(),
-        auto_disable_attempts: HashMap::new(),
         startup_recorded: false,
         node_name,
         disruption_reason,
