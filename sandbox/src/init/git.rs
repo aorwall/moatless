@@ -503,6 +503,34 @@ mod tests {
         }
     }
 
+    fn run_git_sync(dir: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .status()
+            .expect("git command runs");
+        assert!(status.success(), "git {args:?} failed");
+    }
+
+    fn init_local_source_repo(path: &Path) {
+        std::fs::create_dir_all(path).unwrap();
+        run_git_sync(path, &["init", "--initial-branch", "main"]);
+        std::fs::write(path.join("README.md"), "secondary\n").unwrap();
+        run_git_sync(path, &["add", "README.md"]);
+        run_git_sync(
+            path,
+            &[
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test User",
+                "commit",
+                "-m",
+                "init",
+            ],
+        );
+    }
+
     /// A repo whose directory already holds a `.git` is left alone, so a restart
     /// onto a persistent volume neither re-clones nor reports a reclone.
     #[tokio::test]
@@ -518,6 +546,50 @@ mod tests {
         let summary = clone_repositories(&config).await.unwrap();
         assert!(summary.cloned.is_empty());
         assert!(!summary.primary_recloned);
+    }
+
+    /// A full S3 restore can contain an older workspace shape: the primary repo
+    /// is present, but a repo added to the workspace later is absent. The init
+    /// flow still runs this clone pass after restore, so only the missing sibling
+    /// should be cloned and the primary should not count as recloned.
+    #[tokio::test]
+    async fn restored_primary_does_not_prevent_new_sibling_clone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let source = tmp.path().join("source-secondary");
+        init_local_source_repo(&source);
+
+        let workspace_str = workspace.display().to_string();
+        let primary = workspace.join("primary");
+        std::fs::create_dir_all(primary.join(".git")).unwrap();
+
+        let mut config = minimal_config();
+        config.workspace_dir = workspace_str.clone();
+        config.repo_dir = primary.display().to_string();
+        config.git_provider = "local".to_string();
+        config.repos = vec![
+            RepoCheckout {
+                clone_url: "https://example.test/acme/primary.git".to_string(),
+                branch: None,
+                provider: "local".to_string(),
+                mount_name: "primary".to_string(),
+                is_primary: true,
+            },
+            RepoCheckout {
+                clone_url: source.display().to_string(),
+                branch: None,
+                provider: "local".to_string(),
+                mount_name: "secondary".to_string(),
+                is_primary: false,
+            },
+        ];
+
+        let summary = clone_repositories(&config).await.unwrap();
+
+        assert_eq!(summary.cloned, vec!["secondary"]);
+        assert!(!summary.primary_recloned);
+        assert!(workspace.join("secondary").join(".git").is_dir());
+        assert!(workspace.join("secondary").join("README.md").is_file());
     }
 
     /// Each checkout authenticates with its own provider's token, and the pod's

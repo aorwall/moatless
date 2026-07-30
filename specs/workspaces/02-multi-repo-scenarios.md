@@ -77,6 +77,7 @@ addition without losing what is on disk.
 
 * **Then** the new placement is checked out
   * **And** the existing checkouts are left as they were, uncommitted changes included
+  * **And** the same is true when the sandbox first restores an older S3 workspace snapshot
 
 ---
 
