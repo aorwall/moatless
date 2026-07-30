@@ -34,11 +34,13 @@ Everything else in this skill is *how* to do one of those steps:
 
 **The page is capped by attention; the markdown is capped by nothing.** One screen is what gets approved; the implementing agent gets everything.
 
+**Same sections on both surfaces, different resolution.** A section that earns a place in the markdown appears on the page too, at high level — the same model, drawn with the words a person uses instead of the types in the code. What the page never carries: module inventories, migrations, function signatures, error codes, test commands.
+
 **Design against flatness, not against length.** Every section carries a table, list, diagram or code block — a section that would be pure prose is either wrong or too long.
 
 Neighbours that are not this:
 
-- `specs/<domain>/NN-*.md` — Given/When/Then scenario chains with permanent IDs, tied to E2E tests. Own format, in `specs/AGENTS.md`.
+- `specs/<domain>/NN-*.md` — Given/When/Then scenario chains with permanent IDs, tied to E2E tests. Own format, documented alongside them.
 - `docs/architecture/` — what the system **is**, as built.
 
 ## Researching the current state
@@ -54,17 +56,78 @@ The research goes on the page, not into chat. Each question then names the one f
 
 ## Growing the planned solution
 
-An interview that only asks ranked decisions produces a decision table and nothing else — five technology picks, no description of what gets built. Three things keep step 3 from going thin:
+An interview that only asks ranked decisions produces a decision table and nothing else — five technology picks, no description of what gets built. The decision table records *what was chosen*; `## Planned solution` has to say *what the thing is*.
 
-- **`## Planned solution` accumulates.** Every answer adds to it, not only to the decision table. If an answer changed nothing there, ask what it actually settled.
+**It grows as sections, not as a list of answers.** An answer usually sharpens a section that already exists. Appending a `###` per answer is what turns the planned solution back into a restatement of the decision table — the failure this section exists to prevent.
+
 - **Ask about the seams.** Which seams the change is tested at, why the highest available one, and what prior art exists.
 - **Ask about behaviour, using `/grilling`'s selection shape.** "Here are the eighteen chains that exist — which survive, which are dropped, what's missing?" is a question the ranked-pick format cannot express.
+- **Ask about failure.** What can fail, what a partial write leaves behind, what stays available while a dependency is down. This is the material an interview loses most often, because nobody volunteers it.
 
 **The stopping test is sufficiency, not slot-filling:** could someone build this without asking you anything? A page where every section has content but no statement of what the thing does is not finished.
 
+### The sections, and when each is included
+
+Include a section when **any** of its triggers applies. A section whose triggers are all unmet is **left out of both surfaces** — not stubbed, not "n/a". Every section that is present names the trigger that admitted it, in one line, so a section that did not need to be there is visibly unjustified rather than merely long.
+
+| Section | Include when |
+|---|---|
+| **Architecture and key flows** | More than one component is affected · a component's responsibility changes materially · a new dependency direction or architectural boundary appears · the change adds a background process, integration, cache or storage layer · the work could plausibly be placed in several parts of the system · the solution deviates from an established repository pattern |
+| **Data model** | The change affects the shape, ownership, lifecycle, persistence, identity, validation, sensitivity or consistency of meaningful state — persistent records, cache keys and invalidation, session state, in-memory registries, message payloads, file formats, state machines, derived or replicated state |
+| **Interfaces and contracts** | Another user, component or system depends on the behaviour |
+| **Failure, safety and recovery** | A dependency can fail · a write can partially complete · operations may be retried · failure could leave inconsistent state · failure has a user-visible or operational consequence · a security-sensitive action can be rejected · recovery or rollback is required · existing behaviour must stay available in degraded mode |
+| **Testing and verification** | Always |
+
+"State that outlives a single call" is **not** the data-model test. An in-memory registry whose key changes qualifies, on identity and consistency.
+
+### Architecture and key flows
+
+**Name affected and newly introduced modules only.** Not an inventory of the subsystem, and never a path that has not been opened. For each one, keep four things apart:
+
+- **Observed** — what the repository does today, with the symbol and line it was read at.
+- **Proposed responsibility** — the one question that module answers after the change.
+- **Proposed change** — what is edited or added.
+- **Evidence** — file, symbol, test or configuration path, probed in this checkout.
+
+**Placement follows directories that exist**, not a conventional source tree. If a route, table or job already has a home, that home is the answer — name the observed fact that puts it there. Where a fact could not be established, write that it was not established and what to probe; never a plausible value. Probing is cheap and an invented path reaches an implementer as fact.
+
+**Key flows go here, not in a section of their own.** Include a flow when ordering matters, several components participate, a transaction or consistency boundary matters, work is asynchronous, data crosses a trust, process or network boundary, side effects happen, requests may be duplicated or reordered, or cache invalidation or propagation matters.
+
+Do not document every flow. Document **the main successful flow, each material failure flow, and one flow per materially different consistency or security boundary** — each naming the rule that admitted it.
+
+### Data model
+
+Two levels, and the second is conditional:
+
+- **Logical model** — entity meaning, ownership, identity, lifecycle, invariants, relationships.
+- **Physical representation** — tables, fields, types, indexes, serialisation. **Only where it is constrained, or where repository evidence supports it.** A migration echoing an existing table's column names is constrained; a guessed index is not.
+
+**Only changed or newly relevant fields.** Describing an existing table in full is noise and costs the implementing agent context it needs elsewhere. A field whose *meaning* changes is newly relevant even though the column is old — say which and why.
+
+### Interfaces and contracts
+
+Separate the two, because they carry different weight:
+
+- **External contract** — behaviour relied on by users, clients, services, plugins, stored data, scripts or operators. Trace each back to the requirement it serves. Changing one is a product decision.
+- **Internal interface** — a proposed implementation boundary that may change without affecting observable behaviour. It belongs in the markdown so the implementer has a plan, and it is **not** a promise. Say that in the section, so changing one later needs no spec update.
+
+Where an internal change has a wide blast radius, list the call sites — as information, not as a contract.
+
+### Failure, safety and recovery
+
+For each failure worth naming: the condition, the state before, the state after, what the caller sees, whether retry is safe, the retry and timeout policy, the idempotency mechanism, cleanup or compensation, logging and alerting, and the recovery or rollback procedure. Routine failures fit one table; the ones that are not routine get a paragraph each.
+
+**Fix the meaning, not the copy.** Exact user-visible wording is settled here only where it is genuinely a product or compliance decision — mark which. Otherwise state what the person must be able to work out and leave final copy to whoever owns it.
+
+### Testing and verification
+
+Unit, integration, contract and end-to-end cases; the exact commands, **including which tier actually builds them**; manual verification; acceptance criteria as Given/When/Then. Use the `/codebase-design` vocabulary for the seams tests attach to: module, interface, depth, seam, adapter, leverage, locality.
+
+Separate **what only a person can judge** from what a test proves. That separation is what the page carries.
+
 ## The spec markdown
 
-Written at step 5, in one pass, with no interview left to run. Every heading, in this order, so a reader who has read one spec can navigate every spec. Sections may be empty; they may not be reordered or renamed.
+Written at step 5, in one pass, with no interview left to run. Headings in this order, so a reader who has read one spec can navigate every spec.
 
 ```md
 # <The change, not the component>
@@ -77,12 +140,18 @@ Written at step 5, in one pass, with no interview left to run. Every heading, in
 ## Planned solution   — what gets built
 ### Problem           — from the perspective of whoever feels it
 ### Behaviour         — user stories or Given/When/Then, grouped by actor
+### Architecture and key flows    — conditional; triggers above
+### Data model                    — conditional
+### Interfaces and contracts      — conditional
+### Failure, safety and recovery  — conditional
+### Testing and verification      — always
 ## Decisions          — the table, then one ### per row with the full reasoning
-## Seams and testing
 ## Out of scope
 ## Open questions
 ## Ticket breakdown   — only when /to-tickets has run; "None." otherwise
 ```
+
+**The unconditional headings may not be reordered or renamed.** The five conditional ones are omitted when their triggers are unmet — an omitted section is a statement, an empty one is a gap. Each one that appears opens by naming the trigger that admitted it.
 
 ### Rules for the spec
 
@@ -95,11 +164,11 @@ Written at step 5, in one pass, with no interview left to run. Every heading, in
 
 **Current solution** is the research, transcribed — written now, but describing the code as it was when the interview started. **Behaviour** covers every actor; past seven stories in a group, use a table rather than cutting any.
 
-For **Seams and testing**, use the `/codebase-design` vocabulary exactly: module, interface, depth, seam, adapter, leverage, locality.
-
 ## Writing style
 
-Where the repo has a `specs/AGENTS.md`, apply its language rules to `.plans/` change specs too: no endpoint paths, no field names, no status codes, no infrastructure terminology, no event strings. Describe what happens, in plain-English state names.
+**The markdown is read by an agent, so it names things exactly** — fields, routes, events, status codes, commands, symbols, and file paths with `file:line` where the fact was read. Nothing in it is softened into plain-English state names: that costs the implementer the identifier it needs and buys nothing, because no person reads this file.
+
+**The page is read by a person, so it names things as a person would** — "the App record", not `github_apps.app_key`. Same sections, same shapes, different resolution.
 
 Two more:
 
