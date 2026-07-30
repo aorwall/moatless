@@ -23,6 +23,7 @@ pub use feed::ShellFeed;
 
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -754,10 +755,48 @@ async fn send_frames(
     true
 }
 
+/// Read a wire request id, which T3 encodes as `string | number`.
+///
+/// `RpcMessage.RequestEncoded` widened its id to accept either, and the client
+/// sends whichever the id already was — an unquoted integer for the counter it
+/// generates. The decimal string is what the rest of this protocol correlates
+/// on and what a response carries back, so a number becomes one here.
+fn deserialize_request_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct RequestIdVisitor;
+
+    impl serde::de::Visitor<'_> for RequestIdVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a request id as a string or an integer")
+        }
+
+        fn visit_str<E: serde::de::Error>(self, id: &str) -> Result<String, E> {
+            Ok(id.to_string())
+        }
+
+        fn visit_u64<E: serde::de::Error>(self, id: u64) -> Result<String, E> {
+            Ok(id.to_string())
+        }
+
+        fn visit_i64<E: serde::de::Error>(self, id: i64) -> Result<String, E> {
+            Ok(id.to_string())
+        }
+    }
+
+    // A fractional id reaches no visitor here and is refused, which is what
+    // `valid_request_id` would decide about it anyway.
+    deserializer.deserialize_any(RequestIdVisitor)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "_tag")]
 enum ClientFrame {
     Request {
+        #[serde(deserialize_with = "deserialize_request_id")]
         id: String,
         tag: String,
         #[serde(default)]
@@ -775,10 +814,12 @@ enum ClientFrame {
     },
     Ack {
         #[serde(rename = "requestId")]
+        #[serde(deserialize_with = "deserialize_request_id")]
         request_id: String,
     },
     Interrupt {
         #[serde(rename = "requestId")]
+        #[serde(deserialize_with = "deserialize_request_id")]
         request_id: String,
     },
     Ping,
@@ -1426,6 +1467,61 @@ mod tests {
             "headers": []
         }))
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_numeric_request_id_is_answered_as_a_decimal_string() {
+        // What the T3 client actually puts on the wire: `"id": 21`, unquoted.
+        let frame = serde_json::to_vec(&json!({
+            "_tag": "Request",
+            "id": 21,
+            "tag": "server.getConfig",
+            "payload": {},
+            "headers": []
+        }))
+        .unwrap();
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+        assert_eq!(output.frames[0]["_tag"], "Exit");
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert_eq!(
+            output.frames[0]["requestId"], "21",
+            "a numeric id is correlated as the decimal string a response carries"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_numeric_id_is_accepted_on_every_frame_that_carries_one() {
+        for frame in [
+            json!({ "_tag": "Ack", "requestId": 7 }),
+            json!({ "_tag": "Interrupt", "requestId": 7 }),
+        ] {
+            let tag = frame["_tag"].as_str().unwrap().to_string();
+            let mut session = session();
+            let output = session
+                .handle_json(&serde_json::to_vec(&frame).unwrap(), &state(), &viewer())
+                .await;
+            let defected = output
+                .frames
+                .iter()
+                .any(|frame| frame["_tag"] == "Defect");
+            assert!(!defected, "{tag} with a numeric id should parse, got {output:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_fractional_request_id_is_refused() {
+        let frame = serde_json::to_vec(&json!({
+            "_tag": "Request",
+            "id": 21.5,
+            "tag": "server.getConfig",
+            "payload": {},
+            "headers": []
+        }))
+        .unwrap();
+        let mut session = session();
+        let output = session.handle_json(&frame, &state(), &viewer()).await;
+        assert_eq!(output.frames[0]["_tag"], "Defect");
     }
 
     #[tokio::test]

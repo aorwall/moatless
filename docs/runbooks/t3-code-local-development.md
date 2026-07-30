@@ -203,8 +203,9 @@ authenticated Moatless user id for session, shell, and socket bootstrap.
 | intentionally idle streams | `subscribeVcsStatus`, `subscribeTerminalEvents`, `subscribeTerminalMetadata`, `subscribePreviewEvents`, `subscribeDiscoveredLocalServers` |
 | visible failure | every other RPC receives a request-local unsupported defect |
 
-The protocol accepts one envelope or an array per WebSocket message, preserves
-decimal request ids as strings, caps message/frame and active-stream counts,
+The protocol accepts one envelope or an array per WebSocket message, reads the
+`string | number` request id T3 encodes and correlates it as a decimal string,
+caps message/frame and active-stream counts,
 answers Effect keepalives, records stream acknowledgement, and terminates an
 interrupted stream. Initial streams stay open.
 
