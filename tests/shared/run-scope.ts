@@ -86,6 +86,19 @@ export function runStartedAt(name: string | null | undefined): Date | null {
   return Number.isFinite(millis) && millis > 0 ? new Date(millis) : null
 }
 
+/**
+ * The task this process is running inside, or null when it is not in a sandbox.
+ *
+ * A sandbox exports its own task as `TASK_ID` — the variable `moat send` and
+ * `moat linear` already default to — and a task created from inside a sandbox is
+ * a child of it. That makes this the one handle on work a run caused to exist
+ * without naming: an inbound delivery routed into a new task, or anything else
+ * the product spawned on the run's behalf and titled itself.
+ */
+export function sandboxTaskId(): string | null {
+  return process.env.TASK_ID?.trim() || null
+}
+
 /** Keep only the items this run created. */
 export function ownedByThisRun<T>(items: T[], nameOf: (item: T) => string | null | undefined): T[] {
   return items.filter((item) => belongsToThisRun(nameOf(item)))

@@ -7,13 +7,22 @@
  * matters, because a killed run never reaches its own teardown, and a task left
  * open on the cluster keeps a sandbox pod alive.
  *
- * The rule is the same in both cases: a resource is only ever removed when its
- * name says a run created it. A name this module cannot read is not touched.
+ * The rule is the same in both cases: a resource is only ever removed when
+ * something about it says a run created it. What this module cannot attribute to
+ * a run, it does not touch. For most resources that evidence is the name; for
+ * tasks it can also be the description or the parent, because the suite is not
+ * the only thing that creates tasks on its behalf — see `claimedTasks`.
  */
 
 import type { TaskResponse } from '@moatless/api-client/sandbox/model'
 import type { MoatApi } from './moat-api'
-import { belongsToAnyRun, belongsToThisRun, runPrefix, runStartedAt } from './run-scope'
+import {
+  belongsToAnyRun,
+  belongsToThisRun,
+  runPrefix,
+  runStartedAt,
+  sandboxTaskId,
+} from './run-scope'
 
 export interface SweepOptions {
   /** Only sweep this process's own run. */
@@ -80,10 +89,7 @@ export async function sweep(api: MoatApi, options: SweepOptions = {}): Promise<S
   }
 
   // Tasks — stopped before deletion, so the sandbox goes with them.
-  for (const task of await allTasks(api)) {
-    if (!owned(task.name)) {
-      continue
-    }
+  for (const task of claimedTasks(await allTasks(api), owned, minimumAgeMs)) {
     await record({ kind: 'task', id: task.taskId, name: task.name ?? task.taskId }, async () => {
       await api.stopTask(task.taskId)
       await deleteWhenTheSandboxHasGone(api, task.taskId)
@@ -209,6 +215,90 @@ async function deleteWhenTheSandboxHasGone(
       await new Promise((resolve) => setTimeout(resolve, attempt * 5000))
     }
   }
+}
+
+/**
+ * The tasks a sweep may remove, children before parents.
+ *
+ * A name is not the only evidence a run created a task, because the suite is not
+ * the only thing that creates tasks on its behalf. Three channels:
+ *
+ *  - the **name**, for everything a test made through `scopedName`.
+ *  - the **description**, which holds an inbound delivery's text verbatim. A
+ *    webhook delivery creates a task the backend titles from the message, so the
+ *    name is a summary the prefix does not survive into and the description is
+ *    the only field that still carries it. This is the channel that works from
+ *    another sandbox, which is why a killed run's leftovers are reachable at all.
+ *  - the **parent**, because a task created from inside a sandbox is a child of
+ *    that sandbox's own task. This claims what a run caused through the product
+ *    — routed, spawned, whatever the backend chose to call it — and needs no
+ *    cooperation from the naming at all. It only sees the sandbox it runs in.
+ *
+ * Ancestry is walked to the root rather than one hop, so a grandchild is claimed
+ * whatever order the listing arrives in.
+ *
+ * The sandbox's own task is the one task never claimed: sweeping the task that
+ * is doing the sweeping would take the pod out from under the run.
+ */
+function claimedTasks(
+  tasks: TaskResponse[],
+  owned: (name: string | null | undefined) => boolean,
+  minimumAgeMs: number,
+): TaskResponse[] {
+  const ambient = sandboxTaskId()
+  const byId = new Map(tasks.map((task) => [task.taskId, task]))
+  const claimed = new Set<string>()
+
+  for (const task of tasks) {
+    if (owned(task.name) || owned(task.description)) {
+      claimed.add(task.taskId)
+    }
+  }
+
+  for (const task of tasks) {
+    if (claimed.has(task.taskId) || !oldEnough(task, minimumAgeMs)) {
+      continue
+    }
+    for (const ancestor of ancestry(task, byId)) {
+      if (ancestor === ambient || claimed.has(ancestor)) {
+        claimed.add(task.taskId)
+        break
+      }
+    }
+  }
+
+  return tasks
+    .filter((task) => claimed.has(task.taskId) && task.taskId !== ambient)
+    .sort((left, right) => ancestry(right, byId).length - ancestry(left, byId).length)
+}
+
+/** A task's parents, nearest first, stopping at a cycle. */
+function ancestry(task: TaskResponse, byId: Map<string, TaskResponse>): string[] {
+  const chain: string[] = []
+  const seen = new Set([task.taskId])
+  let parentId = task.parentTaskId
+  while (parentId && !seen.has(parentId)) {
+    chain.push(parentId)
+    seen.add(parentId)
+    parentId = byId.get(parentId)?.parentTaskId ?? null
+  }
+  return chain
+}
+
+/**
+ * Whether a task is old enough for a sweep that has an age threshold.
+ *
+ * A task claimed through its parent has no prefix to read a run's start time
+ * from, so its own creation time is the only clock available. It is also the
+ * more accurate one, and it keeps a run in flight in this same sandbox out of a
+ * scheduled sweep's way.
+ */
+function oldEnough(task: TaskResponse, minimumAgeMs: number): boolean {
+  if (minimumAgeMs <= 0) {
+    return true
+  }
+  const createdAt = task.createdAt ? Date.parse(task.createdAt) : Number.NaN
+  return Number.isFinite(createdAt) && Date.now() - createdAt >= minimumAgeMs
 }
 
 /**

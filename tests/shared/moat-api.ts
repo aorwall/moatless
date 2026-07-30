@@ -1068,7 +1068,14 @@ export class MoatApi {
       deliveryId?: string
     },
   ): Promise<RawResponse> {
-    return this.moat.raw('POST', `/api/v1/adapters/webhook/${triggerId}`, payload)
+    // The text is stamped like a name. This delivery creates a task the backend
+    // titles from the message itself, so the name it ends up with carries no
+    // prefix — the description, which holds this text verbatim, is the only place
+    // a sweep running in a different sandbox can still read the run off it.
+    return this.moat.raw('POST', `/api/v1/adapters/webhook/${triggerId}`, {
+      ...payload,
+      text: scopedName(payload.text),
+    })
   }
 
   /** Deliver an arbitrary webhook payload, for malformed-input assertions. */
