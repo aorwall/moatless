@@ -122,6 +122,16 @@ pub struct UpdateTaskMetadataRequest {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CloseTaskRequest {
+    /// Whether descendant tasks created by this task should also be closed.
+    /// Required when the task has children; optional for leaf tasks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close_children: Option<bool>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

@@ -760,11 +760,13 @@ pub async fn unfollow_task(
     post,
     path = "/api/v1/tasks/{task_id}/close",
     tag = "tasks",
+    request_body = Option<CloseTaskRequest>,
     params(
         ("task_id" = String, Path, description = "Task identifier")
     ),
     responses(
         (status = 200, description = "Task closed", body = TaskResponse),
+        (status = 400, description = "Child-close choice required", body = crate::error::ErrorBody),
         (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
@@ -772,7 +774,9 @@ pub async fn close_task(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(task_id): Path<String>,
+    req: Option<Json<CloseTaskRequest>>,
 ) -> Result<Json<TaskResponse>, TaskError> {
+    let req = req.map(|Json(req)| req).unwrap_or_default();
     let scope_ctx = auth.scope_context();
     // Read-check + control-check: find_by_id uses access_filter (visibility);
     // the inline can_control check enforces owner/admin policy without the
@@ -786,8 +790,24 @@ pub async fn close_task(
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 
-    let mut visited = HashSet::new();
-    close_task_tree(&state, &task_id, &mut visited).await?;
+    let children = state
+        .task_relations
+        .list_incoming(&task_id, Some(TaskRelationType::CreatedBy))
+        .await
+        .map_err(TaskError::Db)?;
+    if !children.is_empty() && req.close_children.is_none() {
+        return Err(TaskError::BadRequest(
+            "closeChildren must be explicitly set to true or false when closing a task with children"
+                .to_string(),
+        ));
+    }
+
+    if req.close_children == Some(true) {
+        let mut visited = HashSet::new();
+        close_task_tree(&state, &task_id, &mut visited).await?;
+    } else {
+        close_single_task(&state, &task_id).await?;
+    }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
 
     let updated = state

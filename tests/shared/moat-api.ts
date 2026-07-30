@@ -286,13 +286,7 @@ export class MoatApi {
   // Tasks
   // =========================================================================
 
-  /**
-   * Create a task against a repository.
-   *
-   * `--no-parent` matters: the CLI adopts the ambient task as a parent when it
-   * runs inside a sandbox, which would file every test's task underneath the
-   * run itself.
-   */
+  /** Create a task against a repository. */
   async createVibeTask(
     config: (CreateVibeTaskRequest | { workspaceId: string; name?: string; message?: string }) & {
       /** Harness to run under. Omitted uses the test suite's standard agent. */
@@ -302,7 +296,7 @@ export class MoatApi {
       agentMode?: string
     },
   ): Promise<TaskResponse> {
-    const args = ['tasks', 'create', '--no-parent']
+    const args = ['tasks', 'create']
     args.push('--name', scopedName(config.name ?? 'task'))
     if ('workspaceId' in config) {
       args.push('--workspace', config.workspaceId)
@@ -368,7 +362,7 @@ export class MoatApi {
   /** Close a task and return it, so a caller can assert on the new status. */
   async closeTask(taskId: string): Promise<TaskResponse> {
     // Closing removes the sandbox before it answers.
-    await this.moat.text(['tasks', 'close', taskId], {
+    await this.moat.text(['tasks', 'close', taskId, '--close-children', 'false'], {
       timeoutMs: this.sandboxWork,
     })
     return this.getTask(taskId)

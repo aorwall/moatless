@@ -10,6 +10,17 @@ import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask, useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { liveStatusToActivityState } from '@/features/tasks/utils/live-status'
 import { taskLiveStatusQueryOptions } from '@/lib/api/task-live-status-queries'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/lib/components/ui/alert-dialog'
 import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
@@ -283,10 +294,7 @@ function SidebarTaskItem({
   const closeTask = useCloseTask(task.taskId)
   const hasChildren = childCount > 0
 
-  const handleClose = async (event: React.MouseEvent) => {
-    event.preventDefault()
-    event.stopPropagation()
-
+  const close = async (closeChildren?: boolean) => {
     // If we're closing the task that's currently open, move to the neighbouring
     // task instead of bouncing back to the dashboard.
     if (isActive) {
@@ -297,7 +305,7 @@ function SidebarTaskItem({
       }
     }
 
-    closeTask.mutate()
+    closeTask.mutate(closeChildren)
   }
 
   return (
@@ -349,17 +357,60 @@ function SidebarTaskItem({
           className="pointer-events-none absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-sky-500 transition-opacity group-hover/menu-item:opacity-0"
         />
       )}
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Close task"
-        className="absolute right-1 top-1 z-10 h-5 w-5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 focus-visible:opacity-100"
-        onClick={handleClose}
-        disabled={closeTask.isPending}
-      >
-        <X className="h-3.5 w-3.5" />
-        <span className="sr-only">Close task</span>
-      </Button>
+      {hasChildren ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Close task"
+              className="absolute right-1 top-1 z-10 h-5 w-5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 focus-visible:opacity-100"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              disabled={closeTask.isPending}
+            >
+              <X className="h-3.5 w-3.5" />
+              <span className="sr-only">Close task</span>
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Close parent task?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Choose whether to leave its child tasks open or close the entire task tree.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => close(false)}>Keep children open</AlertDialogAction>
+              <AlertDialogAction
+                className="bg-destructive text-white hover:bg-destructive/90"
+                onClick={() => close(true)}
+              >
+                Close children too
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Close task"
+          className="absolute right-1 top-1 z-10 h-5 w-5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 focus-visible:opacity-100"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            close().catch(() => undefined)
+          }}
+          disabled={closeTask.isPending}
+        >
+          <X className="h-3.5 w-3.5" />
+          <span className="sr-only">Close task</span>
+        </Button>
+      )}
     </SidebarMenuItem>
   )
 }

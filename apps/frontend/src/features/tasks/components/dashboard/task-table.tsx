@@ -82,7 +82,7 @@ function TaskActionCell({ task }: { task: TaskResponse }) {
     if (isClosed) {
       deleteTaskMutation.mutate(task.taskId)
     } else {
-      closeTaskMutation.mutate()
+      closeTaskMutation.mutate(undefined)
     }
   }
 

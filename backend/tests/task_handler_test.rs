@@ -18,6 +18,9 @@ use moatless_vibe_backend::task::dao::{
     self as task_dao, PgTaskRepository, TaskPatch, TaskRepository,
 };
 use moatless_vibe_backend::task::models::TaskStatus;
+use moatless_vibe_backend::task::relations::{
+    PgTaskRelationRepository, TaskRelation, TaskRelationRepository, TaskRelationType,
+};
 use moatless_vibe_backend::task::routes::task_router;
 
 use common::{
@@ -222,6 +225,82 @@ async fn set_closed(pool: &PgPool, task_id: &str) {
         )
         .await
         .unwrap();
+}
+
+async fn seed_parent_and_child(pool: &PgPool) {
+    seed_repo(pool).await;
+    for id in ["task-parent", "task-child"] {
+        task_dao::insert_task(pool, &make_task_row(id, USER_1))
+            .await
+            .unwrap();
+    }
+    PgTaskRelationRepository(pool.clone())
+        .insert(&TaskRelation::new(
+            "task-child",
+            "task-parent",
+            TaskRelationType::CreatedBy,
+            serde_json::json!({}),
+        ))
+        .await
+        .unwrap();
+}
+
+#[sqlx::test]
+async fn close_parent_requires_explicit_child_choice(pool: PgPool) {
+    seed_parent_and_child(&pool).await;
+    let app = build_router(pool);
+    let req = authed_json_request(
+        "POST",
+        "/api/v1/tasks/task-parent/close",
+        USER_1,
+        serde_json::json!({}),
+    );
+
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test]
+async fn close_parent_without_children_leaves_child_open(pool: PgPool) {
+    seed_parent_and_child(&pool).await;
+    let app = build_router(pool.clone());
+    let req = authed_json_request(
+        "POST",
+        "/api/v1/tasks/task-parent/close",
+        USER_1,
+        serde_json::json!({"closeChildren": false}),
+    );
+
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let child = task_dao::find_by_id(&pool, "task-child", &user_scope(USER_1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(child.status, TaskStatus::Open);
+}
+
+#[sqlx::test]
+async fn close_parent_with_children_closes_descendants(pool: PgPool) {
+    seed_parent_and_child(&pool).await;
+    let app = build_router(pool.clone());
+    let req = authed_json_request(
+        "POST",
+        "/api/v1/tasks/task-parent/close",
+        USER_1,
+        serde_json::json!({"closeChildren": true}),
+    );
+
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let child = task_dao::find_by_id(&pool, "task-child", &user_scope(USER_1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(child.status, TaskStatus::Closed);
 }
 
 #[sqlx::test]

@@ -319,7 +319,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
     if (isClosed) {
       deleteTaskMutation.mutate(task.taskId)
     } else {
-      closeTaskMutation.mutate()
+      closeTaskMutation.mutate(undefined)
     }
   }
 

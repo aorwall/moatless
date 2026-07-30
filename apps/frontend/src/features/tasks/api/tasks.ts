@@ -1,5 +1,6 @@
 import type {
   SendMessageRequest as ApiSendMessageRequest,
+  CloseTaskRequest,
   Connection,
   CreateTaskRequest,
   CreateTaskResponse,
@@ -228,8 +229,9 @@ export const tasksApi = {
     return await unwrapResponse(getSubagentTranscriptHandler(taskId, toolUseId))
   },
 
-  async closeTask(taskId: string): Promise<TaskResponse> {
-    return await unwrapResponse(closeTaskHandler(taskId))
+  async closeTask(taskId: string, closeChildren?: boolean): Promise<TaskResponse> {
+    const request: CloseTaskRequest = closeChildren === undefined ? {} : { closeChildren }
+    return await unwrapResponse(closeTaskHandler(taskId, request))
   },
 
   async reopenTask(taskId: string): Promise<TaskResponse> {

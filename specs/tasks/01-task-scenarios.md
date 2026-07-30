@@ -213,6 +213,27 @@ A real-time event is emitted when a task is closed.
 
 ---
 
+### TASK-08.2: Close a task with children
+
+Closing a parent requires an explicit decision about its descendants.
+
+* **Given** an open task has child tasks
+
+* **When** the user closes it without specifying `closeChildren`
+
+* **Then** the request is rejected
+
+* **When** the user closes it with `closeChildren: false`
+
+* **Then** the parent is closed
+  * **And** its child tasks remain open
+
+* **When** the user closes another parent with `closeChildren: true`
+
+* **Then** the parent and all descendant tasks are closed recursively
+
+---
+
 ### TASK-09: Delete task
 
 A task can be permanently deleted.

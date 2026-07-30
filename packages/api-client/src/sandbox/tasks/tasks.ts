@@ -25,6 +25,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  CloseTaskRequest,
   Connection,
   CreateTaskRequest,
   CreateTaskResponse,
@@ -741,6 +742,11 @@ export type closeTaskResponse200 = {
   status: 200
 }
 
+export type closeTaskResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
 export type closeTaskResponse404 = {
   data: ErrorBody
   status: 404
@@ -749,7 +755,7 @@ export type closeTaskResponse404 = {
 export type closeTaskResponseSuccess = (closeTaskResponse200) & {
   headers: Headers;
 };
-export type closeTaskResponseError = (closeTaskResponse404) & {
+export type closeTaskResponseError = (closeTaskResponse400 | closeTaskResponse404) & {
   headers: Headers;
 };
 
@@ -763,14 +769,16 @@ export const getCloseTaskUrl = (taskId: string,) => {
   return `/api/v1/tasks/${taskId}/close`
 }
 
-export const closeTask = async (taskId: string, options?: RequestInit): Promise<closeTaskResponse> => {
+export const closeTask = async (taskId: string,
+    nullCloseTaskRequest: null | CloseTaskRequest, options?: RequestInit): Promise<closeTaskResponse> => {
   
   return customInstance<closeTaskResponse>(getCloseTaskUrl(taskId),
   {      
     ...options,
-    method: 'POST'
-    
-    
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      nullCloseTaskRequest,)
   }
 );}
 
@@ -778,8 +786,8 @@ export const closeTask = async (taskId: string, options?: RequestInit): Promise<
 
 
 export const getCloseTaskMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof closeTask>>, TError,{taskId: string}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeTask>>, TError,{taskId: string;data: null | CloseTaskRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof closeTask>>, TError,{taskId: string;data: null | CloseTaskRequest}, TContext> => {
 
 const mutationKey = ['closeTask'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -791,10 +799,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof closeTask>>, {taskId: string}> = (props) => {
-          const {taskId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof closeTask>>, {taskId: string;data: null | CloseTaskRequest}> = (props) => {
+          const {taskId,data} = props ?? {};
 
-          return  closeTask(taskId,requestOptions)
+          return  closeTask(taskId,data,requestOptions)
         }
 
 
@@ -805,18 +813,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type CloseTaskMutationResult = NonNullable<Awaited<ReturnType<typeof closeTask>>>
-    
+    export type CloseTaskMutationBody = null | CloseTaskRequest
     export type CloseTaskMutationError = ErrorType<ErrorBody>
 
     /**
  * @summary Close a task and stop its sandbox.
  */
 export const useCloseTask = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeTask>>, TError,{taskId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof closeTask>>, TError,{taskId: string;data: null | CloseTaskRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof closeTask>>,
         TError,
-        {taskId: string},
+        {taskId: string;data: null | CloseTaskRequest},
         TContext
       > => {
       return useMutation(getCloseTaskMutationOptions(options), queryClient);

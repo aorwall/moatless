@@ -500,13 +500,16 @@ export function useSubagentTranscript(
   })
 }
 
-export function useCloseTask(taskId: string, options?: UseMutationOptions<TaskResponse, Error>) {
+export function useCloseTask(
+  taskId: string,
+  options?: UseMutationOptions<TaskResponse, Error, boolean | undefined>,
+) {
   const queryClient = useQueryClient()
 
-  return useMutation<TaskResponse, Error, void>({
+  return useMutation<TaskResponse, Error, boolean | undefined>({
     ...options,
     mutationKey: ['tasks', taskId, 'close'],
-    mutationFn: () => tasksApi.closeTask(taskId),
+    mutationFn: (closeChildren) => tasksApi.closeTask(taskId, closeChildren),
     onMutate: () => {
       // Snapshot the previous task data
       const previousTask = queryClient.getQueryData<TaskResponse>(queryKeys.tasks.detail(taskId))

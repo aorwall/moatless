@@ -43,6 +43,7 @@ export * from './branchEntry';
 export * from './branchListResponse';
 export * from './changePasswordRequest';
 export * from './clearPluginActivationParams';
+export * from './closeTaskRequest';
 export * from './codexConfigResponse';
 export * from './codexDeviceCodePollRequest';
 export * from './codexDeviceCodePollResponse';

@@ -5498,6 +5498,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloseTaskRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Task closed",
@@ -5505,6 +5521,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Child-close choice required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -8747,6 +8773,18 @@
           },
           "newPassword": {
             "type": "string"
+          }
+        }
+      },
+      "CloseTaskRequest": {
+        "type": "object",
+        "properties": {
+          "closeChildren": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether descendant tasks created by this task should also be closed.\nRequired when the task has children; optional for leaf tasks."
           }
         }
       },

@@ -88,7 +88,7 @@ function TaskStatusControls({
     <button
       type="button"
       disabled={closeDisabled}
-      onClick={hasChildren ? undefined : () => closeTask.mutate()}
+      onClick={hasChildren ? undefined : () => closeTask.mutate(undefined)}
       title={
         childCountKnown
           ? hasChildren
@@ -126,17 +126,20 @@ function TaskStatusControls({
             <AlertDialogHeader>
               <AlertDialogTitle>Close parent task?</AlertDialogTitle>
               <AlertDialogDescription>
-                Closing this task will also close {childCount}{' '}
-                {childCount === 1 ? 'child task' : 'child tasks'} and stop their sandboxes.
+                This task has {childCount} {childCount === 1 ? 'child task' : 'child tasks'}. Choose
+                whether to leave them open or close the entire task tree.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => closeTask.mutate(false)}>
+                Keep children open
+              </AlertDialogAction>
               <AlertDialogAction
                 className="bg-destructive text-white hover:bg-destructive/90"
-                onClick={() => closeTask.mutate()}
+                onClick={() => closeTask.mutate(true)}
               >
-                Close all
+                Close children too
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

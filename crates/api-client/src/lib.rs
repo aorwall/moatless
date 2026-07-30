@@ -288,8 +288,9 @@ impl ApiClient {
     pub async fn close_task(
         &self,
         task_id: &str,
+        req: &moatless_api_schemas::task::CloseTaskRequest,
     ) -> Result<moatless_api_schemas::task::TaskResponse, ApiError> {
-        self.post_no_body(&format!("/api/v1/tasks/{task_id}/close"))
+        self.post(&format!("/api/v1/tasks/{task_id}/close"), req)
             .await
     }
 
@@ -883,8 +884,6 @@ impl ApiClient {
             .unwrap_or_default();
         self.get(&format!("/api/v1/triggers/{id}/tasks{qs}")).await
     }
-
-
     /// GET /api/v1/tasks/{task_id}/bindings
     pub async fn list_task_bindings(
         &self,
@@ -1084,8 +1083,7 @@ impl ApiClient {
 
     /// DELETE /api/v1/plugins/{id}
     pub async fn delete_plugin(&self, id: &str) -> Result<(), ApiError> {
-        self.delete_request(&format!("/api/v1/plugins/{id}"))
-            .await
+        self.delete_request(&format!("/api/v1/plugins/{id}")).await
     }
 
     /// GET /api/v1/plugins/{id}/skills

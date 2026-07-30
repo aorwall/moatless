@@ -12,8 +12,8 @@ use moatless_api_schemas::sandbox::{
 };
 use moatless_api_schemas::shared::{AgentMode, AgentType};
 use moatless_api_schemas::task::{
-    CreateTaskRequest, FileContextData, ListTasksQuery, ListTasksResponse, MessageContextInput,
-    TaskResponse, UpdateTaskMetadataRequest, UpdateTaskTtlRequest,
+    CloseTaskRequest, CreateTaskRequest, FileContextData, ListTasksQuery, ListTasksResponse,
+    MessageContextInput, TaskResponse, UpdateTaskMetadataRequest, UpdateTaskTtlRequest,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -47,9 +47,6 @@ pub enum TaskAction {
         name: Option<String>,
         #[arg(long)]
         parent: Option<String>,
-        /// Do not auto-set parent_task_id from TASK_ID env
-        #[arg(long)]
-        no_parent: bool,
         #[arg(long)]
         message: Option<String>,
         /// Relevant repo file path to attach as a message context. Repeatable.
@@ -96,7 +93,13 @@ pub enum TaskAction {
     /// Stop a task
     Stop { task_id: String },
     /// Close a task
-    Close { task_id: String },
+    Close {
+        task_id: String,
+        /// Also close all descendant tasks. Required as true or false when the
+        /// task has children.
+        #[arg(long, value_name = "BOOL", num_args = 1)]
+        close_children: Option<bool>,
+    },
     /// Update task name and/or description
     Update {
         task_id: String,
@@ -274,7 +277,6 @@ pub async fn run(
             workspace,
             name,
             parent,
-            no_parent,
             message,
             context_files,
             branch,
@@ -283,11 +285,9 @@ pub async fn run(
             model,
             headless,
         } => {
-            let parent_task_id = if no_parent {
-                None
-            } else {
-                parent.or_else(|| config.task_id().map(String::from))
-            };
+            // Agent-created tasks inside a sandbox always belong to the
+            // ambient task, even if an explicit parent was also supplied.
+            let parent_task_id = resolve_parent_task_id(config.task_id(), parent);
 
             let repository_id = match &repo {
                 Some(r) => Some(resolve_repo_id(client, r).await?),
@@ -369,9 +369,15 @@ pub async fn run(
             client.api().stop_task(&task_id).await?;
             println!("Task {task_id} stopped.");
         }
-        TaskAction::Close { task_id } => {
+        TaskAction::Close {
+            task_id,
+            close_children,
+        } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            client.api().close_task(&task_id).await?;
+            client
+                .api()
+                .close_task(&task_id, &CloseTaskRequest { close_children })
+                .await?;
             println!("Task {task_id} closed.");
         }
         TaskAction::Update {
@@ -637,7 +643,10 @@ async fn run_server_action(
                 port,
                 docker_image,
             };
-            let resp = client.api().update_server_config(task_id, &server, &req).await?;
+            let resp = client
+                .api()
+                .update_server_config(task_id, &server, &req)
+                .await?;
             print_server_config(&resp, json);
         }
         ServerAction::Restart { server } => {
@@ -767,6 +776,13 @@ fn is_own_sandbox(config: &Config, task_id: &str) -> bool {
 /// True if `s` looks like a full task_id (UUID: 36 chars with 4 hyphens).
 fn looks_like_task_id(s: &str) -> bool {
     s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4
+}
+
+fn resolve_parent_task_id(
+    ambient_task_id: Option<&str>,
+    explicit_parent: Option<String>,
+) -> Option<String> {
+    ambient_task_id.map(String::from).or(explicit_parent)
 }
 
 /// Resolve a task reference to a full task_id.
@@ -1331,7 +1347,7 @@ mod tests {
 
     use super::{
         context_files_to_contexts, label, looks_like_task_id, normalize_context_file_path,
-        validate_context_files_have_message,
+        resolve_parent_task_id, validate_context_files_have_message,
     };
 
     #[test]
@@ -1359,6 +1375,18 @@ mod tests {
         assert!(!looks_like_task_id(
             "1f0d0ebb00a8e049c2094ff077e8ea50b8bbxx"
         ));
+    }
+
+    #[test]
+    fn ambient_sandbox_task_is_always_the_parent() {
+        assert_eq!(
+            resolve_parent_task_id(Some("ambient-task"), Some("other-task".to_string())),
+            Some("ambient-task".to_string())
+        );
+        assert_eq!(
+            resolve_parent_task_id(None, Some("explicit-task".to_string())),
+            Some("explicit-task".to_string())
+        );
     }
 
     #[test]
