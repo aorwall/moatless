@@ -365,10 +365,11 @@ function SidebarTaskItem({
               size="icon"
               aria-label="Close task"
               className="absolute right-1 top-1 z-10 h-5 w-5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 focus-visible:opacity-100"
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-              }}
+              // Keep the click off the row's Link, but never call
+              // `preventDefault()` here: Radix composes the trigger's own
+              // open handler behind a `defaultPrevented` check, so preventing
+              // the default swallows the dialog and the button does nothing.
+              onClick={(event) => event.stopPropagation()}
               disabled={closeTask.isPending}
             >
               <X className="h-3.5 w-3.5" />
