@@ -66,7 +66,7 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 Conventional commits, enforced by commitlint; header ≤100 chars. Types: `feat fix docs style refactor test chore`. Optional scopes (others rejected): `components layout routes styles utils hooks`. Pre-push runs `bun run test:fast`.
 
 ## Architecture & conventions
-- Overviews: [docs/architecture-overview.md](./docs/architecture-overview.md), [docs/sandbox-architecture.md](./docs/sandbox-architecture.md), [docs/sandbox-lifecycle.md](./docs/sandbox-lifecycle.md). Domain glossary: `CONTEXT.md`. Decisions: `docs/adr/`.
+- Overviews: [docs/sandbox-architecture.md](./docs/sandbox-architecture.md), [docs/sandbox-lifecycle.md](./docs/sandbox-lifecycle.md). Domain glossary: `CONTEXT.md`. Decisions: `docs/adr/`.
 - Rust conventions live in the model-invoked `rust-dev-guidelines` skill for
   `backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions remain
   path-scoped in `.claude/rules/frontend-conventions.md`.

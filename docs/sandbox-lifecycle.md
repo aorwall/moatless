@@ -5,8 +5,7 @@ Kubernetes sandboxes — as the system behaves **today**, after the reliability
 work shipped in PRs #285-#301, #306, and #307.
 
 This is a companion to [Sandbox Architecture](./sandbox-architecture.md)
-(what runs *inside* the sandbox pod) and
-[Architecture Overview](./architecture-overview.md) (the whole system). This
+(what runs *inside* the sandbox pod). This
 document covers the *control plane*: the lifecycle machinery in
 `backend/src/sandbox/` and `backend/src/task/reaper.rs`.
 

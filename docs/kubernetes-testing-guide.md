@@ -477,4 +477,4 @@ alias kvdesc='kubectl describe pod -n vibe'
 ## Related Documentation
 
 - [API Authentication Guide](./api-authentication.md)
-- [Architecture Overview](./architecture-overview.md)
+- [Sandbox Lifecycle](./sandbox-lifecycle.md)

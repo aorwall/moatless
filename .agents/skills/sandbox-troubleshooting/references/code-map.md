@@ -4,10 +4,10 @@ Read `docs/sandbox-lifecycle.md` first (canonical state machine, env-var config
 table). `docs/sandbox-architecture.md` covers inside-the-pod details (startup
 sequence, gRPC API, preview-server state machine).
 
-> Note: `docs/architecture-overview.md` and `kubernetes-testing/references/metrics.md`
-> describe a legacy TypeScript implementation (`apps/backend`, `apps/sandbox`,
-> metric names like `moatless_kubernetes_pod_total`). The current code is Rust
-> (`backend/`, `sandbox/`); use the verified metric names in the Metrics section.
+> Note: `kubernetes-testing/references/metrics.md` describes a legacy
+> TypeScript implementation (`apps/backend`, `apps/sandbox`, metric names like
+> `moatless_kubernetes_pod_total`). The current code is Rust (`backend/`,
+> `sandbox/`); use the verified metric names in the Metrics section.
 
 ## Backend — lifecycle & status
 

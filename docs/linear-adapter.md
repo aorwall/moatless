@@ -280,7 +280,7 @@ sequenceDiagram
     autonumber
     participant Linear
     participant Runtime as agent_runtime::handle_issue_update
-    participant Rules as PgTaskTriggerRouteRepository
+    participant Rules as LoopDao
     participant BindingRepo as PgTaskBindingDao
     participant MsgFlow as message::send::send_message_flow
     participant API as LinearAgentApi

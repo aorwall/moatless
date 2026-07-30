@@ -505,6 +505,5 @@ This checks PostgreSQL, Redis, backend API, frontend, Docker socket access, and 
 
 ## Additional Resources
 
-- [Architecture Overview](../docs/architecture-overview.md)
 - [Main README](../README.md)
 - [Docker Compose Documentation](https://docs.docker.com/compose/)

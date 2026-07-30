@@ -8,8 +8,8 @@ Apply this reference to Rust changes under `backend/`.
   pointing toward domain behavior. Do not impose a fixed file template.
 - HTTP and webhook handlers obtain persistence and domain behavior through DAOs
   or services injected into `AppState`.
-- Construct concrete `Pg*` adapters in composition roots or inside DAO/service
-  implementations, not in handlers.
+- Construct concrete `Pg*` DAO implementations in composition roots or inside
+  DAO/service implementations, not in handlers.
 - Direct pool access in handlers is limited to documented authentication,
   infrastructure, or transaction boundaries.
 - Add a trait only when the boundary has more than one real consumer or a test
