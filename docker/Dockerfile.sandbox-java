@@ -23,7 +23,7 @@ ARG APT_SECURITY_REFRESH=2026-06-20
 
 # Install essential system packages for sandbox operation
 RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" && \
-    apt-https-mirrors.sh && \
+    apt-https-mirrors.sh --bootstrap-ca-certificates && \
     apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \

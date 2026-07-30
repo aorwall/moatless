@@ -21,6 +21,17 @@
 # image; until then, run this before `apt-get update`.
 set -e
 
+bootstrap_ca=false
+if [ "${1:-}" = "--bootstrap-ca-certificates" ]; then
+	bootstrap_ca=true
+	shift
+fi
+
+if [ "$#" -ne 0 ]; then
+	echo "usage: $0 [--bootstrap-ca-certificates]" >&2
+	exit 2
+fi
+
 # Bookworm images use /etc/apt/sources.list; newer Debian/Ubuntu images use
 # deb822 .sources. Both globs can come up empty, hence the per-file guard.
 for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
@@ -32,3 +43,16 @@ for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.l
 		-e 's|http://security\.ubuntu\.com|https://security.ubuntu.com|g' \
 		"$f"
 done
+
+if [ "$bootstrap_ca" = true ] && [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then
+	apt_no_verify=/etc/apt/apt.conf.d/99bootstrap-ca-certificates
+	trap 'rm -f "$apt_no_verify"' EXIT
+	{
+		echo 'Acquire::https::Verify-Peer "false";'
+		echo 'Acquire::https::Verify-Host "false";'
+	} > "$apt_no_verify"
+	apt-get update
+	apt-get install -y --no-install-recommends ca-certificates
+	rm -f "$apt_no_verify"
+	trap - EXIT
+fi

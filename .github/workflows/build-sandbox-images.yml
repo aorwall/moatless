@@ -36,6 +36,10 @@ env:
   SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-js
   SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-java
   CARGO_INCREMENTAL: 0
+  # Do not upload docker/build-push-action build records as GitHub artifacts:
+  # this workflow already uses GHA cache for handoff/build layers, and the org
+  # artifact quota can otherwise break post-build cleanup.
+  DOCKER_BUILD_RECORD_UPLOAD: false
   # CLI versions baked into sandbox images live in docker/cli-versions.env
   # (single source of truth). Each build job loads it into $GITHUB_ENV below.
 

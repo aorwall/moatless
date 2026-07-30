@@ -32,7 +32,7 @@ ARG APT_SECURITY_REFRESH=2026-07-03
 
 # Install essential system packages
 RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" \
-    && apt-https-mirrors.sh \
+    && apt-https-mirrors.sh --bootstrap-ca-certificates \
     && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
