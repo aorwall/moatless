@@ -227,7 +227,7 @@ fn test_config() -> Config {
     }
 }
 
-fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
+fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> SandboxState {
     use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 
     let (outbox, _drainer) = moatless_sandbox::outbox::EventOutbox::spawn(
@@ -236,7 +236,7 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
         tokio_util::sync::CancellationToken::new(),
     );
     let events = GrpcEventPublisher::new(outbox);
-    let config = Arc::new(test_config());
+    let config = Arc::new(config);
     let agent_state = Arc::new(AgentState::new());
     let credentials = Arc::new(RwLock::new(HashMap::new()));
 
@@ -282,6 +282,10 @@ fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
     }
 }
 
+fn test_state(backend: Arc<dyn BackendClient>) -> SandboxState {
+    test_state_with_config(backend, test_config())
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -295,6 +299,31 @@ async fn dispatch_with_no_messages_does_nothing() {
 
     // No messages → no ack, no events
     assert_eq!(backend.ack_count(), 0);
+}
+
+#[tokio::test]
+async fn running_codex_turn_still_fetches_pending_messages_for_harness_queue() {
+    let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
+        "late follow-up",
+        Some("uuid-late"),
+    )]]));
+    let mut config = test_config();
+    config.agent_type = Some("codex".to_string());
+    let state = test_state_with_config(Arc::clone(&backend) as _, config);
+    state.agent.set_running(CancellationToken::new()).await;
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    assert_eq!(
+        backend.get_pending_count(),
+        1,
+        "Codex cannot inject into the active process, but the harness can queue the next turn"
+    );
+    assert_eq!(
+        backend.ack_count(),
+        0,
+        "backend ack still waits for the queued turn to actually start"
+    );
 }
 
 #[tokio::test]

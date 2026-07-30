@@ -77,6 +77,39 @@ describe('task-cache', () => {
       upsertMessageByUuid(qc, TASK, msg('real', { messageId: 'msg_123' }))
       expect(messagesIn(qc).map((m) => m.uuid)).toEqual(['real'])
     })
+
+    it('does not let a stale queued upsert regress an accepted user message', () => {
+      seed(qc, [
+        msg('user-1', {
+          role: 'user',
+          messageType: 'user',
+          sessionId: 'session-1',
+          turnNumber: 4,
+          agentMode: 'edit',
+        }),
+      ])
+
+      upsertMessageByUuid(
+        qc,
+        TASK,
+        msg('user-1', {
+          role: 'user',
+          messageType: 'user',
+          isQueued: true,
+          sessionId: null,
+          turnNumber: null,
+          agentMode: null,
+        }),
+      )
+
+      expect(messagesIn(qc)[0]).toMatchObject({
+        uuid: 'user-1',
+        sessionId: 'session-1',
+        turnNumber: 4,
+        agentMode: 'edit',
+      })
+      expect(messagesIn(qc)[0]?.isQueued).toBeUndefined()
+    })
   })
 
   describe('mergeNewestMessagesPage', () => {
@@ -119,6 +152,40 @@ describe('task-cache', () => {
 
       expect(merged.pages.flatMap((p) => p.messages).map((m) => m.uuid)).toEqual(['a', 'b'])
       expect(merged.pages[0]?.messages[1]?.content[0]).toMatchObject({ text: 'new' })
+    })
+
+    it('does not let a stale queued newest-page refresh regress accepted delivery state', () => {
+      const existing: MessagesInfiniteData = {
+        pages: [
+          page([
+            msg('user-1', {
+              role: 'user',
+              messageType: 'user',
+              sessionId: 'session-1',
+              turnNumber: 4,
+            }),
+          ]),
+        ],
+        pageParams: [undefined],
+      }
+      const refreshedNewest = page([
+        msg('user-1', {
+          role: 'user',
+          messageType: 'user',
+          isQueued: true,
+          sessionId: null,
+          turnNumber: null,
+        }),
+      ])
+
+      const merged = mergeNewestMessagesPage(existing, refreshedNewest)
+
+      expect(merged.pages[0]?.messages[0]).toMatchObject({
+        uuid: 'user-1',
+        sessionId: 'session-1',
+        turnNumber: 4,
+      })
+      expect(merged.pages[0]?.messages[0]?.isQueued).toBeUndefined()
     })
   })
 

@@ -25,13 +25,44 @@ function sameMessage(existing: UiMessage, incoming: UiMessage): boolean {
   )
 }
 
+function hasAcceptedDelivery(message: UiMessage): boolean {
+  return message.isQueued !== true && (message.sessionId != null || message.turnNumber != null)
+}
+
+function mergeMessage(existing: UiMessage, incoming: UiMessage): UiMessage {
+  if (hasAcceptedDelivery(existing) && incoming.isQueued === true) {
+    const { isQueued: _staleQueued, ...accepted } = incoming
+    const merged: UiMessage = { ...accepted }
+    if (existing.sessionId !== undefined) {
+      merged.sessionId = existing.sessionId
+    }
+    if (existing.turnNumber !== undefined) {
+      merged.turnNumber = existing.turnNumber
+    }
+    const agentMode = existing.agentMode ?? incoming.agentMode
+    if (agentMode !== undefined) {
+      merged.agentMode = agentMode
+    }
+    const model = existing.model ?? incoming.model
+    if (model !== undefined) {
+      merged.model = model
+    }
+    return merged
+  }
+  return incoming
+}
+
 function upsertIntoChronologicalMessages(messages: UiMessage[], incoming: UiMessage): UiMessage[] {
   const idx = messages.findIndex((existing) => sameMessage(existing, incoming))
   if (idx === -1) {
     return [...messages, incoming]
   }
+  const existing = messages[idx]
+  if (!existing) {
+    return messages
+  }
   const next = [...messages]
-  next[idx] = incoming
+  next[idx] = mergeMessage(existing, incoming)
   return next
 }
 
@@ -58,8 +89,12 @@ export function upsertMessageByUuid(
       return page
     }
     replaced = true
+    const existing = page.messages[idx]
+    if (!existing) {
+      return page
+    }
     const messages = [...page.messages]
-    messages[idx] = message
+    messages[idx] = mergeMessage(existing, message)
     return { ...page, messages }
   })
 

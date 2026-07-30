@@ -1047,6 +1047,16 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     acknowledged = count,
                     "Messages acknowledged"
                 );
+                for uuid in &req.message_uuids {
+                    crate::message::hooks::emit_message_upsert_from_daos(
+                        self.events.as_ref(),
+                        messages,
+                        self.files.as_ref(),
+                        &req.task_id,
+                        uuid,
+                    )
+                    .await;
+                }
             }
             Err(e) => {
                 warn!(

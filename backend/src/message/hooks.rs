@@ -11,6 +11,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use moatless_events::{EventType, MessageSubType};
 use serde_json::json;
@@ -19,6 +20,9 @@ use tracing::{debug, warn};
 use super::models::MessageType;
 use super::schemas::{SubagentStatus, UiMessage};
 use crate::adapters::github_pr::shell_reconcile::reconcile_shell_command;
+use crate::events::EventPublisher;
+use crate::file_storage::dao::FileDao;
+use crate::message::dao::MessageDao;
 use crate::state::AppState;
 
 /// Inspect the just-persisted message for shell tool calls and hand each one
@@ -112,11 +116,19 @@ pub(crate) async fn hydrate_subagent_summaries(
     task_id: &str,
     messages: &mut [UiMessage],
 ) {
+    hydrate_subagent_summaries_from_dao(&state.messages, task_id, messages).await;
+}
+
+async fn hydrate_subagent_summaries_from_dao(
+    message_dao: &Arc<dyn MessageDao>,
+    task_id: &str,
+    messages: &mut [UiMessage],
+) {
     let ids = super::transform::agent_tool_use_ids(messages);
     if ids.is_empty() {
         return;
     }
-    let aggregates = match state.messages.get_subagent_aggregates(task_id, &ids).await {
+    let aggregates = match message_dao.get_subagent_aggregates(task_id, &ids).await {
         Ok(rows) => rows,
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Failed to load subagent aggregates");
@@ -145,12 +157,30 @@ pub(crate) async fn hydrate_subagent_summaries(
 /// `task_events`, and the SSE consumer relays it to clients. Fire-and-forget:
 /// assembly failures are logged and the read path hydrates on next open.
 pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: &str) {
-    let Some(events) = state.events.as_ref() else {
+    emit_message_upsert_from_daos(
+        state.events.as_ref(),
+        &state.messages,
+        Some(&state.files),
+        task_id,
+        message_uuid,
+    )
+    .await;
+}
+
+/// DAO-based form of [`emit_message_upsert`] for infrastructure paths that do
+/// not own a full [`AppState`] but still mutate UI-visible message fields.
+pub async fn emit_message_upsert_from_daos(
+    events: Option<&Arc<dyn EventPublisher>>,
+    message_dao: &Arc<dyn MessageDao>,
+    file_dao: Option<&Arc<dyn FileDao>>,
+    task_id: &str,
+    message_uuid: &str,
+) {
+    let Some(events) = events else {
         return;
     };
 
-    let loaded = match state
-        .messages
+    let loaded = match message_dao
         .get_message_for_assembly(task_id, message_uuid)
         .await
     {
@@ -175,21 +205,22 @@ pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: 
         .collect();
     let file_metadata = if legacy_file_ids.is_empty() {
         HashMap::new()
-    } else {
-        state
-            .files
+    } else if let Some(file_dao) = file_dao {
+        file_dao
             .find_by_ids(&legacy_file_ids)
             .await
             .unwrap_or_else(|e| {
                 warn!(task_id = %task_id, error = %e, "Failed to batch-load file metadata for message.upsert");
                 HashMap::new()
             })
+    } else {
+        HashMap::new()
     };
 
     let mut assembled =
         super::transform::transform_to_ui_with_files(&messages, &contexts, &blocks, &file_metadata);
     // Inject subagent summaries onto `Agent` blocks via the shared helper.
-    hydrate_subagent_summaries(state, task_id, &mut assembled).await;
+    hydrate_subagent_summaries_from_dao(message_dao, task_id, &mut assembled).await;
 
     let Some(message) = assembled.into_iter().find(|m| m.uuid == target_uuid) else {
         debug!(task_id = %task_id, uuid = %target_uuid, "affected Message not found in assembly; skipping upsert");
