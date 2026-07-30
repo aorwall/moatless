@@ -8,6 +8,8 @@
 ARG BASE_IMAGE=eclipse-temurin:25.0.3_9-jdk-noble
 FROM ${BASE_IMAGE}
 
+COPY .github/scripts/apt-https-mirrors.sh /usr/local/bin/apt-https-mirrors.sh
+
 ARG JAVA_VERSION=25
 
 ENV LANG="C.UTF-8"
@@ -21,6 +23,7 @@ ARG APT_SECURITY_REFRESH=2026-06-20
 
 # Install essential system packages for sandbox operation
 RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" && \
+    apt-https-mirrors.sh && \
     apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \

@@ -16,6 +16,8 @@
 
 FROM ubuntu:24.04
 
+COPY .github/scripts/apt-https-mirrors.sh /usr/local/bin/apt-https-mirrors.sh
+
 ENV LANG="C.UTF-8"
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -30,6 +32,7 @@ ARG APT_SECURITY_REFRESH=2026-07-03
 
 # Install essential system packages
 RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" \
+    && apt-https-mirrors.sh \
     && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \

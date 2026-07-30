@@ -1,7 +1,7 @@
 #!/bin/sh
-# Point this container's Debian apt sources at HTTPS.
+# Point this container's Debian/Ubuntu apt sources at HTTPS.
 #
-# The `arc-runners` NetworkPolicy (soap-platform-gitops →
+# The `arc-runners` NetworkPolicy (soap-platform-gitops ->
 # apps/nonprod/arc-runner-rbac/templates/networkpolicy.yaml) allows external
 # egress on 443/TCP only, so the stock `http://deb.debian.org` sources hang
 # until they time out on the self-hosted staging runners:
@@ -9,8 +9,8 @@
 #   Err:1 http://deb.debian.org/debian bookworm InRelease
 #     Could not connect to debian.map.fastlydns.net:80 (...), connection timed out
 #
-# Debian serves the same mirrors over HTTPS, so rewriting the sources fixes apt
-# without widening the policy for every workload in the namespace.
+# Debian and Ubuntu serve the same mirrors over HTTPS, so rewriting the sources
+# fixes apt without widening the policy for every workload in the namespace.
 #
 # Nothing in the Rust workspace needs a system package any more — protoc is
 # vendored (crates/sandbox-proto) — but sccache and mold still come from apt,
@@ -21,12 +21,14 @@
 # image; until then, run this before `apt-get update`.
 set -e
 
-# bookworm images use /etc/apt/sources.list; newer ones use deb822 .sources.
-# Both globs can come up empty, hence the per-file guard.
+# Bookworm images use /etc/apt/sources.list; newer Debian/Ubuntu images use
+# deb822 .sources. Both globs can come up empty, hence the per-file guard.
 for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
 	[ -f "$f" ] || continue
 	sed -i \
 		-e 's|http://deb\.debian\.org|https://deb.debian.org|g' \
 		-e 's|http://security\.debian\.org|https://security.debian.org|g' \
+		-e 's|http://archive\.ubuntu\.com|https://archive.ubuntu.com|g' \
+		-e 's|http://security\.ubuntu\.com|https://security.ubuntu.com|g' \
 		"$f"
 done
