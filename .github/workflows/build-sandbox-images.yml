@@ -155,19 +155,16 @@ jobs:
             sccache --show-stats || true
           fi
 
-      - name: Upload sandbox binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      # Handed to the image jobs via the Actions cache rather than artifacts:
+      # the org's artifact storage is over quota and CreateArtifact hard-fails.
+      # The commit-scoped key prevents consumers from restoring stale binaries.
+      - name: Cache sandbox binaries for downstream jobs
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: sandbox-binary
-          path: target/ci/sandbox
-          retention-days: 1
-
-      - name: Upload CLI binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: cli-binary
-          path: target/ci/moat
-          retention-days: 1
+          path: |
+            target/ci/sandbox
+            target/ci/moat
+          key: sandbox-binaries-${{ github.sha }}
 
   # ── Build and push the sandbox-tools image (binaries only) ──
   build-tools-image:
@@ -186,20 +183,20 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Download sandbox binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Restore sandbox binaries
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: sandbox-binary
-          path: /tmp/sandbox-binaries/amd64
-
-      - name: Download CLI binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: cli-binary
-          path: /tmp/sandbox-binaries/amd64
+          path: |
+            target/ci/sandbox
+            target/ci/moat
+          key: sandbox-binaries-${{ github.sha }}
+          fail-on-cache-miss: true
 
       - name: Prepare binaries
-        run: chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
+        run: |
+          mkdir -p /tmp/sandbox-binaries/amd64
+          cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/amd64/
+          chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
 
       - name: Compute short SHA
         id: sha
@@ -303,20 +300,20 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Download sandbox binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - name: Restore sandbox binaries
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          name: sandbox-binary
-          path: /tmp/sandbox-binaries/amd64
-
-      - name: Download CLI binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: cli-binary
-          path: /tmp/sandbox-binaries/amd64
+          path: |
+            target/ci/sandbox
+            target/ci/moat
+          key: sandbox-binaries-${{ github.sha }}
+          fail-on-cache-miss: true
 
       - name: Prepare binaries
-        run: chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
+        run: |
+          mkdir -p /tmp/sandbox-binaries/amd64
+          cp target/ci/sandbox target/ci/moat /tmp/sandbox-binaries/amd64/
+          chmod +x /tmp/sandbox-binaries/amd64/sandbox /tmp/sandbox-binaries/amd64/moat
 
       - name: Compute short SHA
         id: sha
