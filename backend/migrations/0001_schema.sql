@@ -123,7 +123,6 @@ CREATE TABLE IF NOT EXISTS "tasks" (
     "site_id" text,
     "site_provider" text,
     "branch" text,
-    "model" text,
     "created_by" text,
     "visibility" text DEFAULT 'private' NOT NULL,
     "created_at_db" timestamptz DEFAULT now()
