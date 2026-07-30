@@ -124,7 +124,7 @@ pub use models::{
 };
 pub use store::AdapterDeliveryStore;
 pub(crate) use typed::{
-    ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery,
+    register_connection_delivery, register_typed_delivery, ConnectionDeliveryPayload,
 };
 pub use worker::spawn_adapter_delivery_worker;
 
@@ -200,6 +200,7 @@ impl From<AdapterError> for AdapterDeliveryFailure {
             AdapterError::ConfigNotFound(_)
             | AdapterError::NotFound(_)
             | AdapterError::BadRequest(_)
+            | AdapterError::Conflict(_)
             | AdapterError::SignatureInvalid
             | AdapterError::AccessDenied(_)
             | AdapterError::MultipleTargets { .. } => Self::permanent(error),

@@ -1,4 +1,5 @@
 import type {
+  ActivateLoopRequest,
   CreateLoopRequest,
   Loop,
   LoopRecentTaskItem,
@@ -74,5 +75,54 @@ export function useLoopRecentTasks(loopId: string, opts?: { limit?: number }) {
     queryKey: queryKeys.loops.recentTasks(loopId),
     queryFn: () => loopsApi.listLoopRecentTasks(loopId, { limit: opts?.limit ?? 10 }),
     enabled: !!loopId,
+  })
+}
+
+function useLoopLifecycleInvalidation() {
+  const queryClient = useQueryClient()
+  return (loopId: string) => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.loops.all() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.loops.detail(loopId) })
+  }
+}
+
+export function useActivateLoop() {
+  const invalidate = useLoopLifecycleInvalidation()
+  return useMutation({
+    mutationFn: ({ id, request }: { id: string; request: ActivateLoopRequest }) =>
+      loopsApi.activateLoop(id, request),
+    onSuccess: (_loop, variables) => invalidate(variables.id),
+  })
+}
+
+export function usePauseLoop() {
+  const invalidate = useLoopLifecycleInvalidation()
+  return useMutation({
+    mutationFn: (id: string) => loopsApi.pauseLoop(id),
+    onSuccess: (_loop, id) => invalidate(id),
+  })
+}
+
+export function useResumeLoop() {
+  const invalidate = useLoopLifecycleInvalidation()
+  return useMutation({
+    mutationFn: (id: string) => loopsApi.resumeLoop(id),
+    onSuccess: (_loop, id) => invalidate(id),
+  })
+}
+
+export function useOverrideLoop() {
+  const invalidate = useLoopLifecycleInvalidation()
+  return useMutation({
+    mutationFn: (id: string) => loopsApi.overrideLoop(id),
+    onSuccess: (_loop, id) => invalidate(id),
+  })
+}
+
+export function useResetGitLoop() {
+  const invalidate = useLoopLifecycleInvalidation()
+  return useMutation({
+    mutationFn: (id: string) => loopsApi.resetGitLoop(id),
+    onSuccess: (_result, id) => invalidate(id),
   })
 }

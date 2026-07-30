@@ -67,7 +67,15 @@ function repository(overrides: Partial<RepositoryResponse> = {}): RepositoryResp
 function syncResult(reclaimed = 0): SyncConfigResponse {
   return {
     repository: currentRepository,
-    loops: { created: 0, removed: 0, skipped: [], updated: 0 },
+    loops: {
+      approvalsRevoked: 0,
+      created: 0,
+      overridesSkipped: 0,
+      removed: 0,
+      skipped: [],
+      updated: 0,
+      warnings: [],
+    },
     workspaces: { created: 0, reclaimed, removed: 0, skipped: [], updated: 0 },
   }
 }
@@ -127,6 +135,7 @@ describe('RepositoryConfigEditSection', () => {
     render(<RepositoryConfigEditSection repositoryId="repo-1" />)
 
     await user.click(screen.getByRole('button', { name: 'Sync from Git' }))
+    await user.click(screen.getByRole('button', { name: 'Synchronize' }))
 
     expect(mocks.syncMutate).toHaveBeenCalledWith(
       'repo-1',
@@ -139,7 +148,7 @@ describe('RepositoryConfigEditSection', () => {
     const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
     callbacks.onSuccess(syncResult())
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Repository configuration synced from Git', {
-      description: undefined,
+      description: '',
     })
   })
 
@@ -148,11 +157,37 @@ describe('RepositoryConfigEditSection', () => {
     render(<RepositoryConfigEditSection repositoryId="repo-1" />)
 
     await user.click(screen.getByRole('button', { name: 'Sync from Git' }))
+    await user.click(screen.getByRole('button', { name: 'Synchronize' }))
 
     const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
     callbacks.onSuccess(syncResult(2))
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Repository configuration synced from Git', {
-      description: '2 overridden workspaces reset to the config in Git.',
+      description: '2 overridden workspaces reset to Git.',
+    })
+  })
+
+  it('reports Loop changes, skips, and warnings from Git sync', async () => {
+    const user = userEvent.setup()
+    render(<RepositoryConfigEditSection repositoryId="repo-1" />)
+
+    await user.click(screen.getByRole('button', { name: 'Sync from Git' }))
+    await user.click(screen.getByRole('button', { name: 'Synchronize' }))
+
+    const result = syncResult()
+    result.loops = {
+      approvalsRevoked: 2,
+      created: 1,
+      overridesSkipped: 1,
+      removed: 1,
+      skipped: [{ loopName: 'local', reason: 'local override' }],
+      updated: 2,
+      warnings: [{ loopName: 'daily', field: 'active', message: 'ignored' }],
+    }
+    const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
+    callbacks.onSuccess(result)
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Repository configuration synced from Git', {
+      description:
+        '1 Loop created. 2 Loops updated. 1 Loop removed. 2 Loop approvals revoked. 1 Loop override preserved. 1 Loop skipped. 1 Loop warning reported.',
     })
   })
 
@@ -169,6 +204,7 @@ describe('RepositoryConfigEditSection', () => {
     render(<RepositoryConfigEditSection repositoryId="repo-1" />)
 
     await user.click(screen.getByRole('button', { name: 'Sync from Git' }))
+    await user.click(screen.getByRole('button', { name: 'Synchronize' }))
 
     const callbacks = mocks.syncMutate.mock.calls[0]?.[1]
     callbacks.onError(new Error('Git provider unavailable'))

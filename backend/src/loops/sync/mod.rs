@@ -2,15 +2,14 @@
 //!
 //! A "loop" is an agent automation declared in git. Each `LOOP.md` maps to a
 //! row in the existing `triggers` / `trigger_rules` / `*_trigger_sources`
-//! tables, tagged `managed_by = 'repo_loop'` and keyed by
-//! `(source_repository_id, loop_name)` so reconciliation never touches
-//! manually-created triggers.
+//! tables with Git configuration authority and stable repository provenance.
+//! Manual overrides retain that provenance so reconciliation can skip them.
 
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use moatless_api_schemas::loops::LoopKind;
-use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary};
+use moatless_api_schemas::loops::{LoopSyncSkip, LoopSyncSummary, LoopSyncWarning};
 use tracing::{debug, warn};
 
 mod error;
@@ -57,34 +56,124 @@ pub async fn sync_repo_loops(
     let token = resolve_github_token(state, repo, remote_url).await;
     let fetcher = GitHubLoopFetcher::new(loop_http_client());
     let files = fetcher
-        .fetch_loop_files(remote_url, token.as_deref())
+        .fetch_loop_files(remote_url, token.as_deref(), repo.default_branch.as_deref())
         .await?;
 
-    let parsed: Vec<ParsedLoop> = files
+    let present = files
         .iter()
-        .filter_map(|f| parse_loop(&f.content, &f.dir_name))
-        .collect();
+        .map(|file| file.dir_name.clone())
+        .collect::<HashSet<_>>();
+    let mut parsed = Vec::new();
+    let mut parse_skips = Vec::new();
+    for file in files {
+        match parse_loop(&file.content, &file.dir_name) {
+            Some(loop_) => parsed.push(loop_),
+            None => parse_skips.push(LoopSyncSkip {
+                loop_name: file.dir_name,
+                reason: "malformed LOOP.md; existing Loop preserved".to_string(),
+            }),
+        }
+    }
 
-    sync_loops(state, repo, auth, parsed).await
+    sync_loops_snapshot(state, repo, auth, parsed, present, parse_skips).await
+}
+
+/// Reset one overridden or deleted Loop to its current Git declaration.
+///
+/// Unlike repository reconciliation this never considers sibling removals.
+/// The existing row keeps its identity, becomes Git-owned, and returns to
+/// awaiting approval.
+pub async fn reset_repo_loop(
+    state: &AppState,
+    repo: &Repository,
+    auth: &AuthUser,
+    source_key: &str,
+) -> Result<bool, LoopError> {
+    let remote_url = repo.remote_url.as_deref().ok_or_else(|| LoopError::Fetch {
+        git_url: repo.id.clone(),
+        message: "repository has no remote URL".to_string(),
+    })?;
+    let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+    if provider != RepositoryProvider::Github {
+        return Err(LoopError::Fetch {
+            git_url: remote_url.to_string(),
+            message: "Loop sync only supports GitHub repositories".to_string(),
+        });
+    }
+    let token = resolve_github_token(state, repo, remote_url).await;
+    let fetcher = GitHubLoopFetcher::new(loop_http_client());
+    let files = fetcher
+        .fetch_loop_files(remote_url, token.as_deref(), repo.default_branch.as_deref())
+        .await?;
+    let file = files
+        .into_iter()
+        .find(|file| file.dir_name == source_key)
+        .ok_or_else(|| LoopError::Fetch {
+            git_url: remote_url.to_string(),
+            message: format!("Loop directory `{source_key}` no longer exists"),
+        })?;
+    let parsed = parse_loop(&file.content, source_key).ok_or_else(|| {
+        LoopError::Internal(format!("Loop `{source_key}` has malformed frontmatter"))
+    })?;
+    let resolved = match resolve_loop(state, repo, &parsed).await? {
+        ResolveOutcome::Resolved(resolved) => resolved,
+        ResolveOutcome::Skipped(reason) => return Err(LoopError::Internal(reason)),
+    };
+    let input = managed_loop_input(repo, auth, &parsed, &resolved);
+    state
+        .loops
+        .reset_managed_loop(&input)
+        .await
+        .map_err(LoopError::from)
 }
 
 /// Reconcile a set of already-parsed loops into the trigger tables.
 ///
-/// Upserts each loop by `(source_repository_id, loop_name)` and deletes any
-/// `repo_loop` trigger for this repo whose loop directory is no longer present.
+/// Reconciles by `(source_repository_id, source_key)` and removes Git-owned
+/// rows whose Loop directory is confirmed absent.
 pub async fn sync_loops(
     state: &AppState,
     repo: &Repository,
     auth: &AuthUser,
     loops: Vec<ParsedLoop>,
 ) -> Result<LoopSyncSummary, LoopError> {
-    let mut summary = LoopSyncSummary::default();
-    // Every loop that exists in the tree (even if skipped) — so we never delete
-    // a previously-synced trigger just because it couldn't sync this round.
-    let mut present: HashSet<String> = HashSet::new();
+    let present = loops
+        .iter()
+        .map(|loop_| loop_.name.clone())
+        .collect::<HashSet<_>>();
+    sync_loops_snapshot(state, repo, auth, loops, present, Vec::new()).await
+}
+
+async fn sync_loops_snapshot(
+    state: &AppState,
+    repo: &Repository,
+    auth: &AuthUser,
+    loops: Vec<ParsedLoop>,
+    present: HashSet<String>,
+    parse_skips: Vec<LoopSyncSkip>,
+) -> Result<LoopSyncSummary, LoopError> {
+    let mut summary = LoopSyncSummary {
+        skipped: parse_skips,
+        ..LoopSyncSummary::default()
+    };
+    let mut desired = Vec::new();
 
     for parsed in &loops {
-        present.insert(parsed.name.clone());
+        if parsed.frontmatter.active.is_some() {
+            summary.warnings.push(LoopSyncWarning {
+                loop_name: parsed.name.clone(),
+                field: "active".to_string(),
+                message: "ignored: Git cannot approve Loop execution".to_string(),
+            });
+        }
+        if parsed.frontmatter.run_as_user_id.is_some() {
+            summary.warnings.push(LoopSyncWarning {
+                loop_name: parsed.name.clone(),
+                field: "runAsUserId".to_string(),
+                message: "ignored: select the run-as user during administrator activation"
+                    .to_string(),
+            });
+        }
         match resolve_loop(state, repo, parsed).await? {
             ResolveOutcome::Skipped(reason) => {
                 debug!(repository_id = %repo.id, loop = %parsed.name, %reason, "Skipping loop");
@@ -94,26 +183,35 @@ pub async fn sync_loops(
                 });
             }
             ResolveOutcome::Resolved(resolved) => {
-                let created = upsert_loop(state, repo, auth, parsed, &resolved).await?;
-                if created {
-                    summary.created += 1;
-                } else {
-                    summary.updated += 1;
-                }
+                desired.push(managed_loop_input(repo, auth, parsed, &resolved));
             }
         }
     }
 
-    // Reconcile deletes: drop repo_loop triggers whose directory is gone.
-    let existing = state.loops.list_managed_loops(&repo.id).await?;
-
-    let to_delete = names_to_delete(&existing, &present);
-    let ctx = auth.scope_context();
-    for id in &to_delete {
-        // Cascade drops trigger_rules + source rows.
-        state.loops.delete(id, &ctx).await?;
-    }
-    summary.removed = to_delete.len() as u32;
+    let reconciled = state
+        .loops
+        .reconcile_managed_loops(&repo.id, &desired, &present)
+        .await?;
+    summary.created = reconciled.created;
+    summary.updated = reconciled.updated;
+    summary.removed = reconciled.removed;
+    summary.approvals_revoked = reconciled.approvals_revoked;
+    summary.overrides_skipped = reconciled.overrides_skipped;
+    summary.skipped.extend(
+        reconciled
+            .skipped_overrides
+            .into_iter()
+            .map(|skip| LoopSyncSkip {
+                loop_name: skip.source_key,
+                reason: if skip.deleted {
+                    "Git-origin Loop has a local deletion tombstone; reset it explicitly to restore"
+                        .to_string()
+                } else {
+                    "Git-origin Loop has a local override; reset it explicitly to resume Git sync"
+                        .to_string()
+                },
+            }),
+    );
 
     Ok(summary)
 }
@@ -123,12 +221,10 @@ struct ResolvedLoop {
     kind: LoopKind,
     /// Display name override for `triggers.name` (defaults to the loop dir name).
     name: Option<String>,
-    active: bool,
     routing_mode: RoutingMode,
     agent_type: String,
     prompt: Option<String>,
     tag_ids: Vec<String>,
-    run_as_user_id: Option<String>,
     inactive_ttl_days: Option<i32>,
     adapter: Option<ResolvedAdapterSource>,
     schedule: Option<ResolvedScheduleSource>,
@@ -165,25 +261,6 @@ async fn resolve_loop(
 ) -> Result<ResolveOutcome, LoopError> {
     let fm = &parsed.frontmatter;
 
-    let run_as_user_id = resolve_run_as_user_id(
-        fm.run_as_user_id.as_deref(),
-        state.config.default_run_as_user_id.as_deref(),
-        repo.owner_user_id.as_deref(),
-        repo.created_by.as_deref(),
-    );
-    // A committed `runAsUserId` (or the configured default) may be a legacy
-    // provider id; resolve it to the internal uuid, falling back to the repo
-    // owner/creator (already uuids) when it names no known user.
-    let run_as_user_id = match run_as_user_id {
-        Some(raw) => resolve_run_as_to_internal_id(state.users.as_ref(), &raw)
-            .await
-            .or_else(|| {
-                warn!(run_as = %raw, "runAsUserId does not resolve to a known user; falling back to repo owner/creator");
-                repo.owner_user_id.clone().or_else(|| repo.created_by.clone())
-            }),
-        None => None,
-    };
-
     let routing_mode = match fm.routing_mode.as_deref() {
         None => RoutingMode::BySubject,
         Some(s) => match RoutingMode::try_from(s) {
@@ -196,7 +273,6 @@ async fn resolve_loop(
         .agent_type
         .clone()
         .unwrap_or_else(|| "claude-code".to_string());
-    let active = fm.active.unwrap_or(true);
     let prompt = if parsed.prompt_body.is_empty() {
         None
     } else {
@@ -404,27 +480,23 @@ async fn resolve_loop(
     Ok(ResolveOutcome::Resolved(Box::new(ResolvedLoop {
         kind,
         name: fm.name.clone(),
-        active,
         routing_mode,
         agent_type,
         prompt,
         tag_ids,
-        run_as_user_id,
         inactive_ttl_days: fm.inactive_ttl_days,
         adapter,
         schedule,
     })))
 }
 
-/// Insert or update the trigger rows for one resolved loop. Returns `true` when
-/// a fresh trigger was inserted, `false` when an existing one was updated.
-async fn upsert_loop(
-    state: &AppState,
+/// Convert one resolved Git declaration into the store's reconciliation input.
+fn managed_loop_input(
     repo: &Repository,
     auth: &AuthUser,
     parsed: &ParsedLoop,
     resolved: &ResolvedLoop,
-) -> Result<bool, LoopError> {
+) -> ManagedLoopUpsert {
     let created_by = repo
         .created_by
         .clone()
@@ -449,28 +521,23 @@ async fn upsert_loop(
         next_fire_at: s.next_fire_at,
     });
 
-    let created = state
-        .loops
-        .upsert_managed_loop(&ManagedLoopUpsert {
-            source_repository_id: repo.id.clone(),
-            loop_name: parsed.name.clone(),
-            trigger_name,
-            kind: resolved.kind.as_str().to_string(),
-            active: resolved.active,
-            scope: repo.scope,
-            owner_user_id: repo.owner_user_id.clone(),
-            created_by,
-            routing_mode: resolved.routing_mode,
-            prompt: resolved.prompt.clone(),
-            tag_ids: resolved.tag_ids.clone(),
-            run_as_user_id: resolved.run_as_user_id.clone(),
-            agent_type: resolved.agent_type.clone(),
-            inactive_ttl_days: resolved.inactive_ttl_days,
-            adapter,
-            schedule,
-        })
-        .await?;
-    Ok(created)
+    ManagedLoopUpsert {
+        source_repository_id: repo.id.clone(),
+        source_key: parsed.name.clone(),
+        source_config_path: format!(".moatless/loops/{}/LOOP.md", parsed.name),
+        trigger_name,
+        kind: resolved.kind.as_str().to_string(),
+        scope: repo.scope,
+        owner_user_id: repo.owner_user_id.clone(),
+        created_by,
+        routing_mode: resolved.routing_mode,
+        prompt: resolved.prompt.clone(),
+        tag_ids: resolved.tag_ids.clone(),
+        agent_type: resolved.agent_type.clone(),
+        inactive_ttl_days: resolved.inactive_ttl_days,
+        adapter,
+        schedule,
+    }
 }
 
 /// Resolve a GitHub token for loop fetching, best-effort.
@@ -506,53 +573,6 @@ fn loop_http_client() -> reqwest::Client {
 // =========================================================================
 // Pure helpers (unit-tested below)
 // =========================================================================
-
-/// Resolve a loop's `run_as_user_id` in priority order:
-/// frontmatter → global config default → repo owner → repo creator.
-pub(crate) fn resolve_run_as_user_id(
-    frontmatter: Option<&str>,
-    config_default: Option<&str>,
-    repo_owner: Option<&str>,
-    repo_created_by: Option<&str>,
-) -> Option<String> {
-    frontmatter
-        .or(config_default)
-        .or(repo_owner)
-        .or(repo_created_by)
-        .map(str::to_string)
-}
-
-/// Resolve a `run_as_user_id` reference — an internal uuid, or a legacy provider
-/// id preserved in `user_provider_ids.provider_user_id` — to the internal uuid.
-/// Returns `None` when it names no known user.
-async fn resolve_run_as_to_internal_id(
-    users: &dyn crate::auth::users::UserDao,
-    raw: &str,
-) -> Option<String> {
-    if let Ok(uid) = raw.parse::<uuid::Uuid>() {
-        if matches!(users.get_user(&uid).await, Ok(Some(_))) {
-            return Some(uid.to_string());
-        }
-    }
-    match users.find_user_by_legacy_id(raw).await {
-        Ok(Some(user)) => Some(user.id.to_string()),
-        _ => None,
-    }
-}
-
-/// Given the repo's existing `repo_loop` triggers as `(trigger_id, loop_name)`
-/// and the set of loop names currently present in the tree, return the trigger
-/// ids whose loop directory is gone and should be deleted.
-pub(crate) fn names_to_delete(
-    existing: &[(String, String)],
-    present: &HashSet<String>,
-) -> Vec<String> {
-    existing
-        .iter()
-        .filter(|(_, loop_name)| !present.contains(loop_name))
-        .map(|(id, _)| id.clone())
-        .collect()
-}
 
 /// Default kickoff message for a schedule loop with no explicit `schedule.message`.
 pub(crate) fn default_schedule_message(loop_name: &str) -> String {
@@ -599,54 +619,6 @@ pub(crate) fn build_linear_adapter_config(fm: &LoopFrontmatter) -> serde_json::V
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn run_as_prefers_frontmatter() {
-        let got =
-            resolve_run_as_user_id(Some("u_fm"), Some("u_cfg"), Some("u_owner"), Some("u_cb"));
-        assert_eq!(got.as_deref(), Some("u_fm"));
-    }
-
-    #[test]
-    fn run_as_falls_back_to_config_default() {
-        let got = resolve_run_as_user_id(None, Some("u_cfg"), Some("u_owner"), Some("u_cb"));
-        assert_eq!(got.as_deref(), Some("u_cfg"));
-    }
-
-    #[test]
-    fn run_as_falls_back_to_repo_owner_then_creator() {
-        assert_eq!(
-            resolve_run_as_user_id(None, None, Some("u_owner"), Some("u_cb")).as_deref(),
-            Some("u_owner")
-        );
-        assert_eq!(
-            resolve_run_as_user_id(None, None, None, Some("u_cb")).as_deref(),
-            Some("u_cb")
-        );
-        assert_eq!(resolve_run_as_user_id(None, None, None, None), None);
-    }
-
-    #[test]
-    fn names_to_delete_picks_only_absent_loops() {
-        let existing = vec![
-            ("tr_1".to_string(), "java-review".to_string()),
-            ("tr_2".to_string(), "daily-health-check".to_string()),
-            ("tr_3".to_string(), "stale-loop".to_string()),
-        ];
-        let mut present = HashSet::new();
-        present.insert("java-review".to_string());
-        present.insert("daily-health-check".to_string());
-
-        let to_delete = names_to_delete(&existing, &present);
-        assert_eq!(to_delete, vec!["tr_3".to_string()]);
-    }
-
-    #[test]
-    fn names_to_delete_empty_present_deletes_all() {
-        let existing = vec![("tr_1".to_string(), "a".to_string())];
-        let to_delete = names_to_delete(&existing, &HashSet::new());
-        assert_eq!(to_delete, vec!["tr_1".to_string()]);
-    }
 
     #[test]
     fn default_schedule_message_uses_loop_name() {

@@ -37,6 +37,7 @@ pub trait LoopFetcher: Send + Sync {
         &self,
         remote_url: &str,
         token: Option<&str>,
+        branch: Option<&str>,
     ) -> Result<Vec<FetchedLoopFile>, LoopError>;
 }
 
@@ -64,6 +65,7 @@ impl LoopFetcher for GitHubLoopFetcher {
         &self,
         remote_url: &str,
         token: Option<&str>,
+        branch: Option<&str>,
     ) -> Result<Vec<FetchedLoopFile>, LoopError> {
         let lower = remote_url.to_ascii_lowercase();
         if !lower.contains("github.com") {
@@ -81,8 +83,12 @@ impl LoopFetcher for GitHubLoopFetcher {
                 message: "cannot parse owner/repo from URL".to_string(),
             })?;
 
-        let list_url =
-            format!("https://api.github.com/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}");
+        let reference = branch
+            .map(|branch| format!("?ref={}", urlencoding::encode(branch)))
+            .unwrap_or_default();
+        let list_url = format!(
+            "https://api.github.com/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}{reference}"
+        );
         let Some(entries) = send_github_json::<Vec<ContentEntry>>(
             &self.client,
             &list_url,
@@ -108,20 +114,24 @@ impl LoopFetcher for GitHubLoopFetcher {
             let remote_url = remote_url.to_string();
             let client = self.client.clone();
             let token = token.map(str::to_string);
+            let reference = reference.clone();
             async move {
                 let file_url = format!(
-                    "https://api.github.com/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}/{dir_name}/LOOP.md"
+                    "https://api.github.com/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}/{dir_name}/LOOP.md{reference}"
                 );
                 let content =
                     fetch_github_raw(&client, &file_url, token.as_deref(), &remote_url).await?;
-                Ok::<Option<FetchedLoopFile>, LoopError>(
-                    content.map(|content| FetchedLoopFile { dir_name, content }),
-                )
+                Ok::<FetchedLoopFile, LoopError>(FetchedLoopFile {
+                    dir_name,
+                    // A directory without LOOP.md is still present. Returning
+                    // empty content lets the parser classify it as malformed
+                    // without turning it into a confirmed removal.
+                    content: content.unwrap_or_default(),
+                })
             }
         });
 
-        let results: Vec<Option<FetchedLoopFile>> = try_join_all(fetches).await?;
-        Ok(results.into_iter().flatten().collect())
+        try_join_all(fetches).await
     }
 }
 
@@ -233,6 +243,7 @@ mod tests {
             &self,
             _remote_url: &str,
             _token: Option<&str>,
+            _branch: Option<&str>,
         ) -> Result<Vec<FetchedLoopFile>, LoopError> {
             Ok(self.files.clone())
         }
@@ -247,7 +258,7 @@ mod tests {
             }],
         };
         let files = stub
-            .fetch_loop_files("https://github.com/x/y.git", None)
+            .fetch_loop_files("https://github.com/x/y.git", None, Some("main"))
             .await
             .unwrap();
         assert_eq!(files.len(), 1);
@@ -258,7 +269,7 @@ mod tests {
     async fn non_github_url_returns_empty() {
         let fetcher = GitHubLoopFetcher::new(Client::new());
         let files = fetcher
-            .fetch_loop_files("https://gitlab.com/foo/bar.git", None)
+            .fetch_loop_files("https://gitlab.com/foo/bar.git", None, None)
             .await
             .unwrap();
         assert!(files.is_empty());

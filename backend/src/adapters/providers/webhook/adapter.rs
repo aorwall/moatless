@@ -322,7 +322,7 @@ mod tests {
             scope: moatless_backend_core::scope::Scope::User,
             task_name: None,
             tag_ids: vec![],
-            run_as_user_id: None,
+            run_as_user_id: Some("default-user".into()),
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             created_by: "default-user".into(),
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(msg.text, "hello world");
         assert_eq!(msg.provider, AdapterKind::Webhook);
         assert_eq!(msg.source_id, "my-webhook");
-        assert_eq!(msg.user_id, "default-user"); // falls back to created_by
+        assert_eq!(msg.user_id, "default-user");
         assert!(msg.thread_id.is_none());
     }
 

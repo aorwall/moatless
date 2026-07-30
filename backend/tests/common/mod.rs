@@ -406,6 +406,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         site_id: None,
         site_provider: None,
         branch: Some("main".to_string()),
+        model: None,
         created_by: Some(user_id.to_string()),
         visibility: Visibility::Private,
         scope: moatless_vibe_backend::scope::Scope::User,

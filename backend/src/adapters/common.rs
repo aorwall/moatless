@@ -3,7 +3,8 @@ use moatless_api_schemas::adapters::AdapterConnectionResponse;
 use moatless_api_schemas::bindings::{ReplyTargetDescriptor, TaskBindingResponse};
 use moatless_api_schemas::enums::{AdapterKind, Scope};
 use moatless_api_schemas::loops::{
-    Loop, LoopConfig, LoopKind, LoopSource, ManualSource, Schedule, Subscription,
+    Loop, LoopConfig, LoopConfigSource, LoopExecutionState, LoopKind, LoopSource, ManualSource,
+    Schedule, Subscription,
 };
 use serde::Deserialize;
 
@@ -48,6 +49,15 @@ pub(crate) fn adapter_connection_response(row: &AdapterConnection) -> AdapterCon
 
 pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
     let kind = LoopKind::try_from(record.trigger.kind.as_str()).unwrap_or(LoopKind::Manual);
+    let config_source = LoopConfigSource::try_from(record.trigger.config_source.as_str())
+        .unwrap_or(LoopConfigSource::Manual);
+    let execution_state = if record.trigger.active {
+        LoopExecutionState::Active
+    } else if record.rule.run_as_user_id.is_some() {
+        LoopExecutionState::Paused
+    } else {
+        LoopExecutionState::AwaitingApproval
+    };
     let source = match &record.source {
         LoopSourceRow::AdapterEvent(source) => LoopSource::AdapterEvent(Subscription {
             adapter_kind: parse_adapter_kind(&source.adapter_kind),
@@ -82,6 +92,13 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
         created_by: record.trigger.created_by.clone(),
         created_at: record.trigger.created_at.to_rfc3339(),
         updated_at: record.trigger.updated_at.to_rfc3339(),
+        config_source,
+        synced_from_git: config_source == LoopConfigSource::Git && !record.trigger.deleted,
+        source_repository_id: record.trigger.source_repository_id.clone(),
+        source_key: record.trigger.source_key.clone(),
+        source_config_path: record.trigger.source_config_path.clone(),
+        deleted: record.trigger.deleted,
+        execution_state,
         config: LoopConfig {
             repository_id: record.rule.repository_id.clone(),
             routing_mode: record.rule.routing_mode,
@@ -257,45 +274,5 @@ pub(crate) async fn resolve_connection(
                 ids.join(", ")
             )))
         }
-    }
-}
-
-/// Authorize a `run_as_user_id` choice for a trigger.
-///
-/// Allows the choice when:
-/// 1. The target is the caller themselves, or the caller is an admin
-///    (existing `ctx.can_run_as` rule), or
-/// 2. The target is a bot user (`users.is_bot = true`). For v1 there is no
-///    team scoping on bots — any authenticated human user can point a
-///    trigger at any bot.
-///
-/// Bot-on-bot impersonation is blocked: a caller who is themselves a bot
-/// (`ctx.is_bot = true`) cannot pick a different bot as the `run_as_user_id`
-/// even though `ctx.can_run_as` would otherwise allow it for admins.
-/// Today no caller path constructs a `ScopeContext` for a bot user, so this
-/// guard is defensive; it removes transitive impersonation as a follow-up
-/// risk without requiring changes elsewhere.
-pub(crate) async fn ensure_can_run_as(
-    state: &AppState,
-    ctx: &ScopeContext,
-    run_as_user_id: Option<&str>,
-) -> Result<(), AdapterError> {
-    let Some(target) = run_as_user_id else {
-        return Ok(());
-    };
-    if ctx.can_run_as(target) {
-        return Ok(());
-    }
-    // `target` is a uuid; a legacy provider id also resolves via the identity map.
-    let found = match target.parse::<uuid::Uuid>() {
-        Ok(uid) => state.users.get_user(&uid).await,
-        Err(_) => state.users.find_user_by_legacy_id(target).await,
-    };
-    match found {
-        Ok(Some(user)) if user.is_bot => Ok(()),
-        Ok(_) => Err(AdapterError::AccessDenied(format!(
-            "Cannot run as user {target}"
-        ))),
-        Err(e) => Err(AdapterError::Db(e)),
     }
 }

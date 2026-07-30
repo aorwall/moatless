@@ -64,10 +64,16 @@ pub struct LoopContext {
 }
 
 impl LoopContext {
-    /// The user ID to attribute tasks to when the actual sender cannot be resolved.
-    /// Falls back to `created_by` when `run_as_user_id` is not set.
+    /// The administrator-approved execution identity.
+    ///
+    /// Runnable Loop queries exclude rows without this value.
+    // The database query establishes this invariant before constructing a
+    // runnable Loop context.
+    #[allow(clippy::expect_used)]
     pub fn effective_user_id(&self) -> &str {
-        self.run_as_user_id.as_deref().unwrap_or(&self.created_by)
+        self.run_as_user_id
+            .as_deref()
+            .expect("runnable Loop must have an explicit run-as user")
     }
 }
 
@@ -141,10 +147,13 @@ pub struct LoopSpawnConfig {
 }
 
 impl LoopSpawnConfig {
-    /// The user ID to attribute tasks to when the actual sender cannot be resolved.
-    /// Falls back to `created_by` when `run_as_user_id` is not set.
+    /// The administrator-approved execution identity.
+    // Runnable spawn-config queries exclude rows without this value.
+    #[allow(clippy::expect_used)]
     pub fn effective_user_id(&self) -> &str {
-        self.run_as_user_id.as_deref().unwrap_or(&self.created_by)
+        self.run_as_user_id
+            .as_deref()
+            .expect("runnable Loop must have an explicit run-as user")
     }
 }
 
@@ -179,10 +188,13 @@ pub struct SubscriptionMatch {
 }
 
 impl SubscriptionMatch {
-    /// The user ID to attribute tasks to when the actual sender cannot be resolved.
-    /// Falls back to `created_by` when `run_as_user_id` is not set.
+    /// The administrator-approved execution identity.
+    // Runnable subscription queries exclude rows without this value.
+    #[allow(clippy::expect_used)]
     pub fn effective_user_id(&self) -> &str {
-        self.run_as_user_id.as_deref().unwrap_or(&self.created_by)
+        self.run_as_user_id
+            .as_deref()
+            .expect("runnable Loop must have an explicit run-as user")
     }
 }
 

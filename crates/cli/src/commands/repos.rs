@@ -157,11 +157,21 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                 let loops = &result.loops;
                 println!("Config synced for repository {}.", result.repository.id);
                 println!(
-                    "Loops: {} created, {} updated, {} removed.",
-                    loops.created, loops.updated, loops.removed
+                    "Loops: {} created, {} updated, {} removed, {} approvals revoked, {} overrides preserved.",
+                    loops.created,
+                    loops.updated,
+                    loops.removed,
+                    loops.approvals_revoked,
+                    loops.overrides_skipped
                 );
                 for skip in &loops.skipped {
                     println!("  skipped {}: {}", skip.loop_name, skip.reason);
+                }
+                for warning in &loops.warnings {
+                    println!(
+                        "  warning {} ({}): {}",
+                        warning.loop_name, warning.field, warning.message
+                    );
                 }
                 let workspaces = &result.workspaces;
                 println!(

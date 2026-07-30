@@ -35,6 +35,9 @@ pub enum AdapterError {
     #[error("Invalid request: {0}")]
     BadRequest(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Adapter not configured: {0}")]
     AdapterNotConfigured(String),
 
@@ -163,6 +166,7 @@ impl IntoResponse for AdapterError {
                 (StatusCode::NOT_FOUND, self.to_string())
             }
             AdapterError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            AdapterError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             AdapterError::AdapterNotConfigured(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AdapterError::SignatureInvalid => (StatusCode::UNAUTHORIZED, self.to_string()),
             AdapterError::Db(e) => {

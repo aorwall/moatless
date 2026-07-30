@@ -60,7 +60,7 @@ pub(crate) struct InboundDeliveryPayload {
 /// A synthesized condition, not a wrapped failure: there is no underlying
 /// error to retain, and no retry can bring the row back.
 #[derive(Debug, thiserror::Error)]
-#[error("the {what} (`{id}`) this delivery was admitted for no longer exists")]
+#[error("the {what} (`{id}`) this delivery was admitted for is no longer available")]
 struct Vanished {
     what: &'static str,
     id: String,
@@ -176,7 +176,7 @@ async fn resolve(
 
     let rule = state
         .loops
-        .find_subscription_by_id(rule_id)
+        .find_runnable_subscription_by_id(rule_id)
         .await
         .map_err(AdapterDeliveryFailure::retryable)?
         .ok_or_else(|| {

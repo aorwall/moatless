@@ -6,14 +6,19 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { LoopConfig } from './loopConfig';
+import type { LoopConfigSource } from './loopConfigSource';
+import type { LoopExecutionState } from './loopExecutionState';
 import type { LoopKind } from './loopKind';
 import type { LoopSource } from './loopSource';
 import type { Scope } from './scope';
 
 export interface Loop {
   active: boolean;
+  configSource: LoopConfigSource;
   createdAt: string;
   createdBy: string;
+  deleted: boolean;
+  executionState: LoopExecutionState;
   id: string;
   kind: LoopKind;
   /** @nullable */
@@ -23,5 +28,12 @@ export interface Loop {
   rule: LoopConfig;
   scope: Scope;
   source: LoopSource;
+  /** @nullable */
+  sourceConfigPath?: string | null;
+  /** @nullable */
+  sourceKey?: string | null;
+  /** @nullable */
+  sourceRepositoryId?: string | null;
+  syncedFromGit: boolean;
   updatedAt: string;
 }

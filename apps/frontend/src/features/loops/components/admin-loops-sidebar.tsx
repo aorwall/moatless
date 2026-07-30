@@ -76,11 +76,16 @@ export function AdminLoopsSidebar() {
           secondary={sourceSubtitle(loop, connectionsById)}
           trailing={
             <span className="flex items-center gap-1">
-              {loop.active ? null : (
-                <Badge variant="outline" className="h-4 px-1 text-[10px]">
-                  off
-                </Badge>
-              )}
+              <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                {loop.deleted
+                  ? 'deleted'
+                  : loop.executionState === 'awaiting_approval'
+                    ? 'approval'
+                    : loop.executionState}
+              </Badge>
+              <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                {loop.syncedFromGit ? 'git' : 'manual'}
+              </Badge>
               <Badge variant="secondary" className="h-4 px-1 text-[10px]">
                 {getLoopKindLabel(loop)}
               </Badge>

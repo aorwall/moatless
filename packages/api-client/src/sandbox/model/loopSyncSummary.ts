@@ -6,16 +6,27 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { LoopSyncSkip } from './loopSyncSkip';
+import type { LoopSyncWarning } from './loopSyncWarning';
 
 /**
  * Summary of reconciling a repo's `.moatless/loops/` into the trigger tables.
  */
 export interface LoopSyncSummary {
   /**
+   * Existing Git-synced Loops whose approval was revoked.
+   * @minimum 0
+   */
+  approvalsRevoked: number;
+  /**
    * Loops inserted as new triggers.
    * @minimum 0
    */
   created: number;
+  /**
+   * Manual overrides or deletion tombstones preserved during repository sync.
+   * @minimum 0
+   */
+  overridesSkipped: number;
   /**
    * Loop triggers removed because their directory is gone.
    * @minimum 0
@@ -28,4 +39,6 @@ export interface LoopSyncSummary {
    * @minimum 0
    */
   updated: number;
+  /** Non-fatal authoring warnings, including ignored Git authority fields. */
+  warnings: LoopSyncWarning[];
 }

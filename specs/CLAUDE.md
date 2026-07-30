@@ -17,6 +17,7 @@ Every scenario has a permanent ID in the format `{DOMAIN}-{NUMBER}` or `{DOMAIN}
 | `FILE`    | File and workspace operations   |
 | `REPO`    | Repository management           |
 | `WS`      | Workspaces and git config sync  |
+| `LOOP`    | Loop configuration and execution authority |
 | `CHAN`    | Channel integrations            |
 | `AUTH`    | Authentication and access control |
 

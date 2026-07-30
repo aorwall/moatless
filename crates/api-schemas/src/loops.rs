@@ -21,6 +21,44 @@ pub enum LoopKind {
     Manual,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LoopConfigSource {
+    Git,
+    Manual,
+}
+
+impl LoopConfigSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Git => "git",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+impl TryFrom<&str> for LoopConfigSource {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "git" => Ok(Self::Git),
+            "manual" => Ok(Self::Manual),
+            other => Err(format!("unknown LoopConfigSource: {other:?}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LoopExecutionState {
+    AwaitingApproval,
+    Active,
+    Paused,
+}
+
 impl LoopKind {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -87,7 +125,6 @@ pub struct UpdateLoopConfig {
     pub task_name: Option<Option<String>>,
     pub prompt: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
-    pub run_as_user_id: Option<Option<String>>,
     pub agent_type: Option<String>,
     pub inactive_ttl_days: Option<Option<i32>>,
 }
@@ -220,6 +257,13 @@ pub struct Loop {
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
+    pub config_source: LoopConfigSource,
+    pub synced_from_git: bool,
+    pub source_repository_id: Option<String>,
+    pub source_key: Option<String>,
+    pub source_config_path: Option<String>,
+    pub deleted: bool,
+    pub execution_state: LoopExecutionState,
     #[serde(rename = "rule")]
     pub config: LoopConfig,
     pub source: LoopSource,
@@ -243,11 +287,27 @@ pub struct CreateLoopRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateLoopRequest {
     pub name: Option<Option<String>>,
-    pub active: Option<bool>,
     pub scope: Option<Scope>,
     #[serde(rename = "rule")]
     pub config: Option<UpdateLoopConfig>,
     pub source: Option<UpdateLoopSource>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ActivateLoopRequest {
+    pub run_as_user_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ResetGitLoopResponse {
+    #[serde(rename = "loop")]
+    pub loop_: Loop,
+    pub resynced: bool,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -285,6 +345,15 @@ pub struct LoopSyncSkip {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LoopSyncWarning {
+    pub loop_name: String,
+    pub field: String,
+    pub message: String,
+}
+
 /// Summary of reconciling a repo's `.moatless/loops/` into the trigger tables.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -296,8 +365,14 @@ pub struct LoopSyncSummary {
     pub updated: u32,
     /// Loop triggers removed because their directory is gone.
     pub removed: u32,
+    /// Existing Git-synced Loops whose approval was revoked.
+    pub approvals_revoked: u32,
+    /// Manual overrides or deletion tombstones preserved during repository sync.
+    pub overrides_skipped: u32,
     /// Loops that were present but not synced, with reasons.
     pub skipped: Vec<LoopSyncSkip>,
+    /// Non-fatal authoring warnings, including ignored Git authority fields.
+    pub warnings: Vec<LoopSyncWarning>,
 }
 
 /// Response for `POST /api/v1/repositories/{id}/sync-config`.

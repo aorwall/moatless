@@ -12,6 +12,8 @@
 //! The SQL here is a verbatim relocation of the previous call sites: same
 //! queries, same transactions, one home.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
@@ -35,6 +37,11 @@ pub struct LoopRow {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub config_source: String,
+    pub source_repository_id: Option<String>,
+    pub source_key: Option<String>,
+    pub source_config_path: Option<String>,
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +109,11 @@ struct JoinedLoopRecordRow {
     created_by: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    config_source: String,
+    source_repository_id: Option<String>,
+    source_key: Option<String>,
+    source_config_path: Option<String>,
+    deleted: bool,
     repository_id: String,
     routing_mode: RoutingMode,
     ongoing_task_id: Option<String>,
@@ -141,6 +153,11 @@ impl JoinedLoopRecordRow {
             created_by: self.created_by,
             created_at: self.created_at,
             updated_at: self.updated_at,
+            config_source: self.config_source,
+            source_repository_id: self.source_repository_id,
+            source_key: self.source_key,
+            source_config_path: self.source_config_path,
+            deleted: self.deleted,
         };
         let rule = LoopConfigRow {
             trigger_id: self.id.clone(),
@@ -204,6 +221,11 @@ const LOOP_RECORD_SELECT: &str = r#"
            t.created_by,
            t.created_at,
            t.updated_at,
+           t.config_source,
+           t.source_repository_id,
+           t.source_key,
+           t.source_config_path,
+           t.deleted,
            r.repository_id,
            r.routing_mode,
            r.ongoing_task_id,
@@ -295,7 +317,6 @@ pub struct NewScheduleSource {
 /// Resolved `triggers` columns to update (identity + scope, not the rule/source).
 pub struct LoopUpdate {
     pub name: Option<String>,
-    pub active: bool,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
 }
@@ -318,25 +339,40 @@ pub struct AdapterSourceUpdate {
     pub notify_on_success: bool,
 }
 
-/// A managed (`managed_by = 'repo_loop'`) Loop reconciled from a repository's
-/// `.moatless/loops/` tree, keyed by `(source_repository_id, loop_name)`.
+/// A Git-owned Loop reconciled from a repository's `.moatless/loops/` tree,
+/// keyed by `(source_repository_id, source_key)`.
 pub struct ManagedLoopUpsert {
     pub source_repository_id: String,
-    pub loop_name: String,
+    pub source_key: String,
+    pub source_config_path: String,
     pub trigger_name: Option<String>,
     pub kind: String,
-    pub active: bool,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: String,
     pub routing_mode: RoutingMode,
     pub prompt: Option<String>,
     pub tag_ids: Vec<String>,
-    pub run_as_user_id: Option<String>,
     pub agent_type: String,
     pub inactive_ttl_days: Option<i32>,
     pub adapter: Option<NewAdapterEventSource>,
     pub schedule: Option<NewScheduleSource>,
+}
+
+#[derive(Debug, Default)]
+pub struct ManagedLoopReconcileSummary {
+    pub created: u32,
+    pub updated: u32,
+    pub removed: u32,
+    pub approvals_revoked: u32,
+    pub overrides_skipped: u32,
+    pub skipped_overrides: Vec<ManagedLoopOverrideSkip>,
+}
+
+#[derive(Debug)]
+pub struct ManagedLoopOverrideSkip {
+    pub source_key: String,
+    pub deleted: bool,
 }
 
 // =============================================================================
@@ -364,7 +400,7 @@ impl LoopDao {
     ) -> Result<Option<LoopRecord>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::Resource, "t.", 2);
         let sql = format!(
-            "{LOOP_RECORD_SELECT} WHERE t.id = $1 AND {}",
+            "{LOOP_RECORD_SELECT} WHERE t.id = $1 AND {} AND (t.deleted = false OR $2)",
             access.sql()
         );
         let row = sqlx::query_as::<_, JoinedLoopRecordRow>(AssertSqlSafe(sql))
@@ -383,7 +419,10 @@ impl LoopDao {
         filter: LoopListFilter<'_>,
     ) -> Result<Vec<LoopRecord>, sqlx::Error> {
         let access = ctx.access_filter(ScopedEntity::Resource, "t.", 1);
-        let mut sql = format!("{LOOP_RECORD_SELECT} WHERE {}", access.sql());
+        let mut sql = format!(
+            "{LOOP_RECORD_SELECT} WHERE {} AND (t.deleted = false OR $1)",
+            access.sql()
+        );
         let mut next_param = access.next_param();
         if filter.kind.is_some() {
             sql.push_str(" AND t.kind = $");
@@ -418,8 +457,8 @@ impl LoopDao {
         sqlx::query(
             r#"INSERT INTO triggers
                (id, name, kind, active, scope, owner_user_id,
-                created_by, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)"#,
+                created_by, config_source, deleted, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'manual', false, $8, $8)"#,
         )
         .bind(&new.id)
         .bind(&new.name)
@@ -457,33 +496,33 @@ impl LoopDao {
         source: Option<UpdateLoopSource>,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let ctrl = ctx.control_filter("t.", 6);
+        let mut tx = self.db.begin().await?;
+        lock_git_origin(&mut tx, id).await?;
+        let ctrl = ctx.control_filter("t.", 5);
         let sql = format!(
             r#"UPDATE triggers t
                SET name = $2,
-                   active = $3,
-                   scope = $4,
-                   owner_user_id = $5,
+                   scope = $3,
+                   owner_user_id = $4,
                    updated_at = now()
                WHERE t.id = $1
+                 AND t.config_source = 'manual'
+                 AND t.deleted = false
                  AND {}"#,
             ctrl.sql()
         );
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
             .bind(&trigger.name)
-            .bind(trigger.active)
             .bind(trigger.scope)
             .bind(&trigger.owner_user_id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&self.db)
+            .execute(&mut *tx)
             .await?;
         if result.rows_affected() == 0 {
             return Ok(false);
         }
-
-        let mut tx = self.db.begin().await?;
 
         if let Some(rule) = rule {
             sqlx::query(
@@ -563,21 +602,182 @@ impl LoopDao {
         Ok(true)
     }
 
-    /// Delete a Loop by id. Cascades to `trigger_rules` and source rows.
+    /// Delete a Loop by id. Git-origin Loops become local tombstones so
+    /// repository sync cannot recreate them; plain manual Loops are removed.
     /// Returns `false` when the id is not found or the caller lacks control.
     pub async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {
-        let ctrl = ctx.control_filter("", 2);
+        let mut tx = self.db.begin().await?;
+        lock_git_origin(&mut tx, id).await?;
+        let ctrl = ctx.control_filter("t.", 2);
         let sql = format!(
-            "DELETE FROM triggers WHERE id = $1 AND {}",
+            "SELECT t.source_repository_id FROM triggers t WHERE t.id = $1 AND {} FOR UPDATE",
             ctrl.sql()
         );
-        let result = sqlx::query(AssertSqlSafe(sql))
+        let provenance: Option<Option<String>> = sqlx::query_scalar(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&self.db)
+            .fetch_optional(&mut *tx)
             .await?;
-        Ok(result.rows_affected())
+        let Some(source_repository_id) = provenance else {
+            return Ok(0);
+        };
+
+        if source_repository_id.is_some() {
+            sqlx::query(
+                "UPDATE triggers
+                 SET active = false, config_source = 'manual', deleted = true, updated_at = now()
+                 WHERE id = $1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("UPDATE trigger_rules SET run_as_user_id = NULL WHERE trigger_id = $1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            sqlx::query("DELETE FROM triggers WHERE id = $1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(1)
+    }
+
+    pub async fn activate(
+        &self,
+        id: &str,
+        run_as_user_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.db.begin().await?;
+        lock_git_origin(&mut tx, id).await?;
+        let ctrl = ctx.control_filter("t.", 2);
+        let sql = format!(
+            "SELECT t.id
+             FROM triggers t
+             JOIN trigger_rules r ON r.trigger_id = t.id
+             WHERE t.id = $1
+               AND t.deleted = false
+               AND {}
+             FOR UPDATE OF t, r",
+            ctrl.sql()
+        );
+        let trigger_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if trigger_id.is_none() {
+            return Ok(false);
+        }
+        sqlx::query("UPDATE trigger_rules SET run_as_user_id = $2 WHERE trigger_id = $1")
+            .bind(id)
+            .bind(run_as_user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE triggers SET active = true, updated_at = now() WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    pub async fn pause(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
+        let mut tx = self.db.begin().await?;
+        lock_git_origin(&mut tx, id).await?;
+        let ctrl = ctx.control_filter("t.", 2);
+        let sql = format!(
+            "SELECT t.id FROM triggers t
+             WHERE t.id = $1 AND t.deleted = false AND {}
+             FOR UPDATE",
+            ctrl.sql()
+        );
+        let trigger_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if trigger_id.is_none() {
+            return Ok(false);
+        }
+        sqlx::query("UPDATE triggers SET active = false, updated_at = now() WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    pub async fn resume(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
+        let mut tx = self.db.begin().await?;
+        lock_git_origin(&mut tx, id).await?;
+        let ctrl = ctx.control_filter("t.", 2);
+        let sql = format!(
+            "SELECT t.id
+             FROM triggers t
+             JOIN trigger_rules r ON r.trigger_id = t.id
+             WHERE t.id = $1
+               AND r.run_as_user_id IS NOT NULL
+               AND t.deleted = false
+               AND {}
+             FOR UPDATE OF t, r",
+            ctrl.sql()
+        );
+        let trigger_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if trigger_id.is_none() {
+            return Ok(false);
+        }
+        sqlx::query("UPDATE triggers SET active = true, updated_at = now() WHERE id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    pub async fn override_git(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
+        let mut tx = self.db.begin().await?;
+        lock_git_origin(&mut tx, id).await?;
+        let ctrl = ctx.control_filter("t.", 2);
+        let sql = format!(
+            "SELECT t.id FROM triggers t
+             WHERE t.id = $1
+               AND t.config_source = 'git'
+               AND t.deleted = false
+               AND {}
+             FOR UPDATE",
+            ctrl.sql()
+        );
+        let trigger_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
+            .bind(id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if trigger_id.is_none() {
+            return Ok(false);
+        }
+        sqlx::query(
+            "UPDATE triggers
+             SET config_source = 'manual', updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     // ---------------------------------------------------------------------
@@ -596,13 +796,29 @@ impl LoopDao {
         .await
     }
 
+    pub async fn find_runnable_subscription_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
+        sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
+            "{SUBSCRIPTION_MATCH_SELECT}
+             WHERE t.id = $1
+               AND t.active = true
+               AND t.deleted = false
+               AND r.run_as_user_id IS NOT NULL"
+        )))
+        .bind(id)
+        .fetch_optional(&self.db)
+        .await
+    }
+
     pub async fn find_subscription_by_source_matcher(
         &self,
         provider: &str,
         source_matcher: &str,
     ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
         sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
-            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = $2 AND t.active = true ORDER BY t.created_at ASC LIMIT 1"
+            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = $2 AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL ORDER BY t.created_at ASC LIMIT 1"
         )))
         .bind(provider)
         .bind(source_matcher)
@@ -618,7 +834,7 @@ impl LoopDao {
         source_matcher: &str,
     ) -> Result<Vec<SubscriptionMatch>, sqlx::Error> {
         sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
-            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = $2 AND t.active = true ORDER BY t.created_at ASC"
+            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = $2 AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL ORDER BY t.created_at ASC"
         )))
         .bind(provider)
         .bind(source_matcher)
@@ -631,7 +847,7 @@ impl LoopDao {
         provider: &str,
     ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
         sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
-            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = '*' AND t.active = true LIMIT 1"
+            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND aes.source_matcher = '*' AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL LIMIT 1"
         )))
         .bind(provider)
         .fetch_optional(&self.db)
@@ -643,7 +859,7 @@ impl LoopDao {
         provider: &str,
     ) -> Result<Vec<SubscriptionMatch>, sqlx::Error> {
         sqlx::query_as::<_, SubscriptionMatch>(AssertSqlSafe(format!(
-            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND t.active = true ORDER BY t.created_at ASC"
+            "{SUBSCRIPTION_MATCH_SELECT} WHERE aes.adapter_kind = $1 AND t.active = true AND t.deleted = false AND r.run_as_user_id IS NOT NULL ORDER BY t.created_at ASC"
         )))
         .bind(provider)
         .fetch_all(&self.db)
@@ -790,136 +1006,175 @@ impl LoopDao {
     }
 
     // ---------------------------------------------------------------------
-    // Repo-loop reconciliation (managed_by = 'repo_loop').
+    // Repository Loop reconciliation.
     // ---------------------------------------------------------------------
 
-    /// Existing `repo_loop` triggers for a repository as `(trigger_id, loop_name)`.
-    pub async fn list_managed_loops(
+    /// Reconcile one complete repository snapshot in one transaction.
+    ///
+    /// `present_keys` includes malformed and unresolved Loop directories. That
+    /// distinction prevents a bad `LOOP.md` from being interpreted as removal.
+    /// Manual overrides and deletion tombstones retain their Git provenance and
+    /// are skipped until an administrator explicitly resets them.
+    pub async fn reconcile_managed_loops(
         &self,
         source_repository_id: &str,
-    ) -> Result<Vec<(String, String)>, sqlx::Error> {
-        sqlx::query_as(
-            "SELECT id, loop_name FROM triggers \
-             WHERE source_repository_id = $1 AND managed_by = 'repo_loop' AND loop_name IS NOT NULL",
-        )
-        .bind(source_repository_id)
-        .fetch_all(&self.db)
-        .await
-    }
-
-    /// Insert or update a `repo_loop` Loop keyed by
-    /// `(source_repository_id, loop_name)`. Source rows are replaced so a kind
-    /// switch (adapter_event <-> schedule) is clean. Returns `true` when a fresh
-    /// trigger was inserted, `false` when an existing one was updated.
-    pub async fn upsert_managed_loop(
-        &self,
-        input: &ManagedLoopUpsert,
-    ) -> Result<bool, sqlx::Error> {
+        inputs: &[ManagedLoopUpsert],
+        present_keys: &HashSet<String>,
+    ) -> Result<ManagedLoopReconcileSummary, sqlx::Error> {
         let now = Utc::now();
         let mut tx = self.db.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(source_repository_id)
+            .execute(&mut *tx)
+            .await?;
+        let mut summary = ManagedLoopReconcileSummary::default();
 
-        let existing_id: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM triggers \
-             WHERE source_repository_id = $1 AND loop_name = $2 AND managed_by = 'repo_loop'",
-        )
-        .bind(&input.source_repository_id)
-        .bind(&input.loop_name)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let (trigger_id, created) = if let Some(id) = existing_id {
-            sqlx::query(
-                "UPDATE triggers \
-                 SET name = $2, kind = $3, active = $4, scope = $5, \
-                     owner_user_id = $6, updated_at = $7 \
-                 WHERE id = $1",
+        for input in inputs {
+            let existing: Option<(String, String, bool, bool)> = sqlx::query_as(
+                "SELECT t.id, t.config_source, t.deleted,
+                        (t.active OR r.run_as_user_id IS NOT NULL) AS approved
+                 FROM triggers t
+                 JOIN trigger_rules r ON r.trigger_id = t.id
+                 WHERE t.source_repository_id = $1 AND t.source_key = $2
+                 FOR UPDATE",
             )
-            .bind(&id)
-            .bind(&input.trigger_name)
-            .bind(&input.kind)
-            .bind(input.active)
-            .bind(input.scope)
-            .bind(&input.owner_user_id)
-            .bind(now)
-            .execute(&mut *tx)
-            .await?;
-            (id, false)
-        } else {
-            let id = format!("tr_{}", uuid::Uuid::new_v4());
-            sqlx::query(
-                "INSERT INTO triggers \
-                 (id, name, kind, active, scope, owner_user_id, created_by, \
-                  managed_by, source_repository_id, loop_name, created_at, updated_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'repo_loop', $8, $9, $10, $10)",
-            )
-            .bind(&id)
-            .bind(&input.trigger_name)
-            .bind(&input.kind)
-            .bind(input.active)
-            .bind(input.scope)
-            .bind(&input.owner_user_id)
-            .bind(&input.created_by)
-            .bind(&input.source_repository_id)
-            .bind(&input.loop_name)
-            .bind(now)
-            .execute(&mut *tx)
-            .await?;
-            (id, true)
-        };
-
-        // `ongoing_task_id` is mutable runtime state (the live task an Ongoing
-        // loop keeps feeding), set by firing rather than the repo declaration.
-        // Preserve it across re-syncs — the old ON CONFLICT DO UPDATE left this
-        // column untouched, so read it back before the delete-then-insert.
-        let ongoing_task_id: Option<String> =
-            sqlx::query_scalar("SELECT ongoing_task_id FROM trigger_rules WHERE trigger_id = $1")
-                .bind(&trigger_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .flatten();
-
-        // Replace the rule + source rows so both the update path and a kind
-        // switch (github_pr <-> schedule) reduce to a clean delete-then-insert
-        // through the shared helpers.
-        sqlx::query("DELETE FROM trigger_rules WHERE trigger_id = $1")
-            .bind(&trigger_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM adapter_event_trigger_sources WHERE trigger_id = $1")
-            .bind(&trigger_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM schedule_trigger_sources WHERE trigger_id = $1")
-            .bind(&trigger_id)
-            .execute(&mut *tx)
+            .bind(source_repository_id)
+            .bind(&input.source_key)
+            .fetch_optional(&mut *tx)
             .await?;
 
-        insert_config(
-            &mut tx,
-            &trigger_id,
-            &NewLoopConfig {
-                repository_id: input.source_repository_id.clone(),
-                routing_mode: input.routing_mode,
-                ongoing_task_id,
-                prompt: input.prompt.clone(),
-                task_name: None,
-                tag_ids: input.tag_ids.clone(),
-                run_as_user_id: input.run_as_user_id.clone(),
-                agent_type: input.agent_type.clone(),
-                inactive_ttl_days: input.inactive_ttl_days,
-            },
-        )
-        .await?;
+            let trigger_id = match existing {
+                Some((_, config_source, deleted, _)) if config_source == "manual" || deleted => {
+                    summary.overrides_skipped += 1;
+                    summary.skipped_overrides.push(ManagedLoopOverrideSkip {
+                        source_key: input.source_key.clone(),
+                        deleted,
+                    });
+                    continue;
+                }
+                Some((id, _, _, approved)) => {
+                    sqlx::query(
+                        "UPDATE triggers
+                         SET name = $2, kind = $3, active = false, scope = $4,
+                             owner_user_id = $5, source_config_path = $6,
+                             deleted = false, updated_at = $7
+                         WHERE id = $1",
+                    )
+                    .bind(&id)
+                    .bind(&input.trigger_name)
+                    .bind(&input.kind)
+                    .bind(input.scope)
+                    .bind(&input.owner_user_id)
+                    .bind(&input.source_config_path)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await?;
+                    summary.updated += 1;
+                    if approved {
+                        summary.approvals_revoked += 1;
+                    }
+                    id
+                }
+                None => {
+                    let id = format!("tr_{}", uuid::Uuid::new_v4());
+                    sqlx::query(
+                        "INSERT INTO triggers
+                         (id, name, kind, active, scope, owner_user_id, created_by,
+                          config_source, source_repository_id, source_key,
+                          source_config_path, deleted, created_at, updated_at)
+                         VALUES ($1, $2, $3, false, $4, $5, $6, 'git', $7, $8, $9,
+                                 false, $10, $10)",
+                    )
+                    .bind(&id)
+                    .bind(&input.trigger_name)
+                    .bind(&input.kind)
+                    .bind(input.scope)
+                    .bind(&input.owner_user_id)
+                    .bind(&input.created_by)
+                    .bind(source_repository_id)
+                    .bind(&input.source_key)
+                    .bind(&input.source_config_path)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await?;
+                    summary.created += 1;
+                    id
+                }
+            };
 
-        if let Some(adapter) = &input.adapter {
-            insert_adapter_event_source(&mut tx, &trigger_id, adapter).await?;
+            replace_managed_loop_rows(&mut tx, &trigger_id, input).await?;
         }
-        if let Some(schedule) = &input.schedule {
-            insert_schedule_source(&mut tx, &trigger_id, schedule).await?;
+
+        let existing: Vec<(String, String, String, bool)> = sqlx::query_as(
+            "SELECT id, source_key, config_source, deleted
+             FROM triggers
+             WHERE source_repository_id = $1 AND source_key IS NOT NULL
+             FOR UPDATE",
+        )
+        .bind(source_repository_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for (id, source_key, config_source, deleted) in existing {
+            if present_keys.contains(&source_key) {
+                continue;
+            }
+            if config_source == "git" {
+                sqlx::query("DELETE FROM triggers WHERE id = $1")
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+                summary.removed += 1;
+            } else {
+                summary.overrides_skipped += 1;
+                summary.skipped_overrides.push(ManagedLoopOverrideSkip {
+                    source_key,
+                    deleted,
+                });
+            }
         }
 
         tx.commit().await?;
-        Ok(created)
+        Ok(summary)
+    }
+
+    /// Force one override or tombstone back to its Git declaration. The caller
+    /// must have fetched and resolved that exact source first.
+    pub async fn reset_managed_loop(&self, input: &ManagedLoopUpsert) -> Result<bool, sqlx::Error> {
+        let mut tx = self.db.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(&input.source_repository_id)
+            .execute(&mut *tx)
+            .await?;
+        let id: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM triggers
+             WHERE source_repository_id = $1 AND source_key = $2
+             FOR UPDATE",
+        )
+        .bind(&input.source_repository_id)
+        .bind(&input.source_key)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(id) = id else {
+            return Ok(false);
+        };
+        sqlx::query(
+            "UPDATE triggers
+             SET name = $2, kind = $3, active = false, scope = $4,
+                 owner_user_id = $5, config_source = 'git',
+                 source_config_path = $6, deleted = false, updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(&id)
+        .bind(&input.trigger_name)
+        .bind(&input.kind)
+        .bind(input.scope)
+        .bind(&input.owner_user_id)
+        .bind(&input.source_config_path)
+        .execute(&mut *tx)
+        .await?;
+        replace_managed_loop_rows(&mut tx, &id, input).await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     // ---------------------------------------------------------------------
@@ -956,6 +1211,8 @@ impl LoopDao {
                JOIN schedule_trigger_sources sts ON sts.trigger_id = t.id
                WHERE t.kind = 'schedule'
                  AND t.active = true
+                 AND t.deleted = false
+                 AND r.run_as_user_id IS NOT NULL
                  AND sts.next_fire_at <= now()
                  AND (sts.locked_until IS NULL OR sts.locked_until < now())
                ORDER BY sts.next_fire_at ASC
@@ -980,7 +1237,7 @@ impl LoopDao {
                    touched_trigger AS (
                        UPDATE triggers
                        SET updated_at = now()
-                       WHERE id = $1 AND active = true AND kind = 'schedule'
+                       WHERE id = $1 AND active = true AND deleted = false AND kind = 'schedule'
                        RETURNING *
                    )
                    SELECT t.id,
@@ -1001,7 +1258,8 @@ impl LoopDao {
                           t.updated_at
                    FROM touched_trigger t
                    JOIN trigger_rules r ON r.trigger_id = t.id
-                   JOIN locked_source s ON s.trigger_id = t.id"#,
+                   JOIN locked_source s ON s.trigger_id = t.id
+                   WHERE r.run_as_user_id IS NOT NULL"#,
             )
             .bind(&job.id)
             .bind(worker_id)
@@ -1125,6 +1383,80 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
 // =============================================================================
 // Private insert helpers shared by create.
 // =============================================================================
+
+/// Serialize every mutation of a Git-origin Loop with repository reconciliation.
+///
+/// Provenance survives override and deletion, so the same lock also orders
+/// local edits, tombstones, resets, and lifecycle changes against Git sync.
+async fn lock_git_origin(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    trigger_id: &str,
+) -> Result<(), sqlx::Error> {
+    let repository_id: Option<String> =
+        sqlx::query_scalar("SELECT source_repository_id FROM triggers WHERE id = $1")
+            .bind(trigger_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+    if let Some(repository_id) = repository_id {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(repository_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+async fn replace_managed_loop_rows(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    trigger_id: &str,
+    input: &ManagedLoopUpsert,
+) -> Result<(), sqlx::Error> {
+    let ongoing_task_id: Option<String> =
+        sqlx::query_scalar("SELECT ongoing_task_id FROM trigger_rules WHERE trigger_id = $1")
+            .bind(trigger_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+
+    sqlx::query("DELETE FROM trigger_rules WHERE trigger_id = $1")
+        .bind(trigger_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM adapter_event_trigger_sources WHERE trigger_id = $1")
+        .bind(trigger_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM schedule_trigger_sources WHERE trigger_id = $1")
+        .bind(trigger_id)
+        .execute(&mut **tx)
+        .await?;
+
+    insert_config(
+        tx,
+        trigger_id,
+        &NewLoopConfig {
+            repository_id: input.source_repository_id.clone(),
+            routing_mode: input.routing_mode,
+            ongoing_task_id,
+            prompt: input.prompt.clone(),
+            task_name: None,
+            tag_ids: input.tag_ids.clone(),
+            run_as_user_id: None,
+            agent_type: input.agent_type.clone(),
+            inactive_ttl_days: input.inactive_ttl_days,
+        },
+    )
+    .await?;
+
+    if let Some(adapter) = &input.adapter {
+        insert_adapter_event_source(tx, trigger_id, adapter).await?;
+    }
+    if let Some(schedule) = &input.schedule {
+        insert_schedule_source(tx, trigger_id, schedule).await?;
+    }
+    Ok(())
+}
 
 async fn insert_config(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

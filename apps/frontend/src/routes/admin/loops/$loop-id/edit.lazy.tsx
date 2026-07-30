@@ -31,6 +31,14 @@ function EditLoopPage() {
   if (!loop) {
     return <DetailNotFound title="Loop not found" description="This loop may have been deleted." />
   }
+  if (loop.syncedFromGit || loop.deleted) {
+    return (
+      <DetailNotFound
+        title="Loop configuration is read-only"
+        description="Override this Loop from its admin detail page before editing it."
+      />
+    )
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">

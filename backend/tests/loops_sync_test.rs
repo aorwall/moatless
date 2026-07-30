@@ -15,6 +15,7 @@ mod common;
 
 use sqlx::{PgPool, Row};
 
+use moatless_backend_core::scope::ScopeContext;
 use moatless_vibe_backend::extractors::AuthUser;
 use moatless_vibe_backend::loops::sync::parse_loop;
 use moatless_vibe_backend::loops::sync::sync_loops;
@@ -25,8 +26,8 @@ use common::{make_repository_row, test_app_state};
 fn auth(user_id: &str) -> AuthUser {
     AuthUser {
         // `AuthUser::user_id` is a `Uuid`; derive a stable one from the symbolic
-        // name. Its value is immaterial here — connections resolve by GitHub org
-        // and run-as falls back to the repo owner, neither keyed on this id.
+        // name. Its value is immaterial here — connections resolve by GitHub
+        // organization and Git sync never assigns a run-as identity.
         user_id: uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, user_id.as_bytes()),
         login: user_id.to_string(),
         role: None,
@@ -118,7 +119,7 @@ const SLACK_LOOP: &str = "---\non: slack\nsourceMatcher: C0000000001\nteamId: T0
 const LINEAR_LOOP: &str = "---\non: linear\nsourceMatcher: team-uuid-eng\ntriggerStates: [Ready]\nprojectIds: [proj-launch]\nstartState: In Progress\n---\n\nPick up the Linear ticket and implement it.\n";
 
 async fn count_manual_triggers(pool: &PgPool) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM triggers WHERE managed_by IS NULL")
+    sqlx::query_scalar("SELECT count(*) FROM triggers WHERE config_source = 'manual'")
         .fetch_one(pool)
         .await
         .unwrap()
@@ -153,11 +154,12 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
 
     // github_pr loop -> adapter_event trigger pointed at owner/repo.
     let gh = sqlx::query(
-        "SELECT t.kind, t.name, r.agent_type, r.prompt, aes.adapter_kind, aes.source_matcher \
+        "SELECT t.kind, t.name, t.active, t.config_source, t.source_config_path,
+                r.agent_type, r.prompt, r.run_as_user_id, aes.adapter_kind, aes.source_matcher \
          FROM triggers t \
          JOIN trigger_rules r ON r.trigger_id = t.id \
          JOIN adapter_event_trigger_sources aes ON aes.trigger_id = t.id \
-         WHERE t.source_repository_id = $1 AND t.loop_name = 'java-review' AND t.managed_by = 'repo_loop'",
+         WHERE t.source_repository_id = $1 AND t.source_key = 'java-review' AND t.config_source = 'git'",
     )
     .bind(&repo.id)
     .fetch_one(&pool)
@@ -175,13 +177,24 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     );
     assert_eq!(gh.get::<String, _>("adapter_kind"), "github");
     assert_eq!(gh.get::<String, _>("source_matcher"), "test/repo");
+    assert!(!gh.get::<bool, _>("active"), "Git cannot activate a Loop");
+    assert_eq!(gh.get::<String, _>("config_source"), "git");
+    assert_eq!(
+        gh.get::<String, _>("source_config_path"),
+        ".moatless/loops/java-review/LOOP.md"
+    );
+    assert_eq!(
+        gh.get::<Option<String>, _>("run_as_user_id"),
+        None,
+        "Git cannot assign the execution user"
+    );
 
     // schedule loop -> schedule trigger with cron + message.
     let sched = sqlx::query(
         "SELECT t.kind, sts.cron_expression, sts.timezone, sts.message_template \
          FROM triggers t \
          JOIN schedule_trigger_sources sts ON sts.trigger_id = t.id \
-         WHERE t.source_repository_id = $1 AND t.loop_name = 'daily-health-check' AND t.managed_by = 'repo_loop'",
+         WHERE t.source_repository_id = $1 AND t.source_key = 'daily-health-check' AND t.config_source = 'git'",
     )
     .bind(&repo.id)
     .fetch_one(&pool)
@@ -204,6 +217,26 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
         "manual trigger untouched"
     );
 
+    // An administrator can approve the imported Loop, but accepting a later
+    // Git snapshot revokes both activation and the run-as identity.
+    let schedule_id: String = sqlx::query_scalar(
+        "SELECT id FROM triggers \
+         WHERE source_repository_id = $1 AND source_key = 'daily-health-check'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let admin = ScopeContext {
+        user_id: "admin-1".to_string(),
+        is_admin: true,
+    };
+    assert!(state
+        .loops
+        .activate(&schedule_id, "approved-user", &admin)
+        .await
+        .unwrap());
+
     // Re-sync dropping the github_pr loop: it should be removed, schedule kept,
     // manual trigger still untouched.
     let loops = vec![parse_loop(SCHEDULE_LOOP, "daily-health-check").unwrap()];
@@ -211,15 +244,30 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     assert_eq!(summary.created, 0);
     assert_eq!(summary.updated, 1, "schedule loop updated in place");
     assert_eq!(summary.removed, 1, "java-review loop removed");
+    assert_eq!(
+        summary.approvals_revoked, 1,
+        "every accepted re-sync revokes approval"
+    );
 
     let remaining: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM triggers WHERE source_repository_id = $1 AND managed_by = 'repo_loop'",
+        "SELECT count(*) FROM triggers WHERE source_repository_id = $1 AND config_source = 'git'",
     )
     .bind(&repo.id)
     .fetch_one(&pool)
     .await
     .unwrap();
     assert_eq!(remaining, 1, "only the schedule loop remains");
+    let approval = sqlx::query(
+        "SELECT t.active, r.run_as_user_id \
+         FROM triggers t JOIN trigger_rules r ON r.trigger_id = t.id \
+         WHERE t.id = $1",
+    )
+    .bind(&schedule_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!approval.get::<bool, _>("active"));
+    assert_eq!(approval.get::<Option<String>, _>("run_as_user_id"), None);
     assert_eq!(
         count_manual_triggers(&pool).await,
         1,
@@ -251,7 +299,7 @@ async fn github_pr_loop_without_connection_is_skipped(pool: PgPool) {
     );
 
     let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM triggers WHERE source_repository_id = $1 AND managed_by = 'repo_loop'",
+        "SELECT count(*) FROM triggers WHERE source_repository_id = $1 AND config_source = 'git'",
     )
     .bind(&repo.id)
     .fetch_one(&pool)
@@ -288,7 +336,7 @@ async fn sync_creates_slack_loop(pool: PgPool) {
          FROM triggers t \
          JOIN trigger_rules r ON r.trigger_id = t.id \
          JOIN adapter_event_trigger_sources aes ON aes.trigger_id = t.id \
-         WHERE t.source_repository_id = $1 AND t.loop_name = 'e2e-triage' AND t.managed_by = 'repo_loop'",
+         WHERE t.source_repository_id = $1 AND t.source_key = 'e2e-triage' AND t.config_source = 'git'",
     )
     .bind(&repo.id)
     .fetch_one(&pool)
@@ -339,7 +387,7 @@ async fn sync_creates_linear_loop(pool: PgPool) {
                 aes.connection_id, aes.adapter_config \
          FROM triggers t \
          JOIN adapter_event_trigger_sources aes ON aes.trigger_id = t.id \
-         WHERE t.source_repository_id = $1 AND t.loop_name = 'ready-pool' AND t.managed_by = 'repo_loop'",
+         WHERE t.source_repository_id = $1 AND t.source_key = 'ready-pool' AND t.config_source = 'git'",
     )
     .bind(&repo.id)
     .fetch_one(&pool)
@@ -415,7 +463,7 @@ async fn slack_loop_without_connection_is_skipped(pool: PgPool) {
     );
 
     let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM triggers WHERE source_repository_id = $1 AND managed_by = 'repo_loop'",
+        "SELECT count(*) FROM triggers WHERE source_repository_id = $1 AND config_source = 'git'",
     )
     .bind(&repo.id)
     .fetch_one(&pool)
@@ -445,7 +493,7 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
     // Simulate a firing linking an ongoing task to the loop's rule row.
     let trigger_id: String = sqlx::query_scalar(
         "SELECT id FROM triggers \
-         WHERE source_repository_id = $1 AND loop_name = 'java-review' AND managed_by = 'repo_loop'",
+         WHERE source_repository_id = $1 AND source_key = 'java-review' AND config_source = 'git'",
     )
     .bind(&repo.id)
     .fetch_one(&pool)
@@ -474,5 +522,120 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
         ongoing.as_deref(),
         Some("task-ongoing-1"),
         "re-sync must preserve the ongoing task link"
+    );
+}
+
+#[sqlx::test]
+async fn resync_skips_an_override_and_preserves_its_approval(pool: PgPool) {
+    let repo = make_repository_row("repo-override", "user-1");
+    seed_team(&pool, "user-1").await;
+    repository_dao::insert(&pool, &repo).await.unwrap();
+    insert_github_connection(&pool, "test").await;
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+    let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
+    sync_loops(&state, &repo, &auth, loops).await.unwrap();
+
+    let trigger_id: String = sqlx::query_scalar(
+        "SELECT id FROM triggers \
+         WHERE source_repository_id = $1 AND source_key = 'java-review'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let admin = ScopeContext {
+        user_id: "admin-1".to_string(),
+        is_admin: true,
+    };
+    state
+        .loops
+        .activate(&trigger_id, "approved-user", &admin)
+        .await
+        .unwrap();
+    state.loops.override_git(&trigger_id, &admin).await.unwrap();
+
+    let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
+    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    assert_eq!(summary.updated, 0);
+    assert_eq!(summary.approvals_revoked, 0);
+    assert_eq!(summary.overrides_skipped, 1);
+    assert_eq!(summary.skipped.len(), 1);
+    assert!(summary.skipped[0].reason.contains("local override"));
+
+    let row = sqlx::query(
+        "SELECT t.config_source, t.active, r.run_as_user_id \
+         FROM triggers t JOIN trigger_rules r ON r.trigger_id = t.id \
+         WHERE t.id = $1",
+    )
+    .bind(&trigger_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("config_source"), "manual");
+    assert!(row.get::<bool, _>("active"));
+    assert_eq!(
+        row.get::<Option<String>, _>("run_as_user_id").as_deref(),
+        Some("approved-user")
+    );
+}
+
+#[sqlx::test]
+async fn concurrent_activation_and_resync_finish_in_a_serial_state(pool: PgPool) {
+    let repo = make_repository_row("repo-concurrent", "user-1");
+    seed_team(&pool, "user-1").await;
+    repository_dao::insert(&pool, &repo).await.unwrap();
+    insert_github_connection(&pool, "test").await;
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+    sync_loops(
+        &state,
+        &repo,
+        &auth,
+        vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()],
+    )
+    .await
+    .unwrap();
+    let trigger_id: String = sqlx::query_scalar(
+        "SELECT id FROM triggers \
+         WHERE source_repository_id = $1 AND source_key = 'java-review'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let admin = ScopeContext {
+        user_id: "admin-1".to_string(),
+        is_admin: true,
+    };
+
+    let activate = state.loops.activate(&trigger_id, "approved-user", &admin);
+    let resync = sync_loops(
+        &state,
+        &repo,
+        &auth,
+        vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()],
+    );
+    let (activate_result, sync_result) = tokio::join!(activate, resync);
+    assert!(activate_result.unwrap());
+    sync_result.unwrap();
+
+    let row = sqlx::query(
+        "SELECT t.active, r.run_as_user_id \
+         FROM triggers t JOIN trigger_rules r ON r.trigger_id = t.id \
+         WHERE t.id = $1",
+    )
+    .bind(&trigger_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let active = row.get::<bool, _>("active");
+    let run_as_user_id = row.get::<Option<String>, _>("run_as_user_id");
+    assert_eq!(
+        active,
+        run_as_user_id.is_some(),
+        "the final row must equal activation-last or sync-last, never a half-approved merge"
     );
 }

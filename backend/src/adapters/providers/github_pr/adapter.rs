@@ -1390,7 +1390,7 @@ impl GithubPrAdapter {
     }
 
     /// Resolve a GitHub login to a system user, falling back to the rule's
-    /// effective user (run_as_user_id ?? created_by).
+    /// administrator-approved run-as user.
     async fn resolve_user_or_fallback(
         &self,
         github_login: &str,
@@ -1402,7 +1402,7 @@ impl GithubPrAdapter {
 }
 
 /// Resolve a GitHub login to a system user id via `provider_tokens`,
-/// falling back to the rule's effective user (`run_as_user_id ?? created_by`).
+/// falling back to the rule's administrator-approved run-as user.
 ///
 /// Free-function form so callers without a `GithubPrAdapter` instance
 /// (e.g. `runtime::close_tasks_for_pr`) can use the same lookup.
@@ -2899,7 +2899,7 @@ mod tests {
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],
-            run_as_user_id: None,
+            run_as_user_id: Some("alice".into()),
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             allow_direct_send: false,

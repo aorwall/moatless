@@ -1096,8 +1096,8 @@ pub async fn start_task(
     }
 
     // Best-effort: if the repo ships a `.moatless/` directory, reconcile its
-    // `config.json` + `loops/` before provisioning so the sandbox and trigger
-    // tables pick up the latest committed settings. Never fails the start.
+    // workspace config before provisioning. Loops are never synchronized as a
+    // side effect of task start.
     maybe_sync_repo_config_on_start(&state, &auth, &repo).await;
 
     state.sandbox.start(&task_id).await?;
@@ -1106,7 +1106,7 @@ pub async fn start_task(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// Best-effort auto-sync of a repo's `.moatless/` config + loops when a task
+/// Best-effort auto-sync of a repo's workspace config when a task
 /// starts. Gated on the repo actually shipping a `.moatless/` directory so we
 /// don't hit the provider API for repos that don't use it. Every failure is
 /// logged and swallowed — this must never block or fail a task start.
@@ -1161,22 +1161,18 @@ async fn maybe_sync_repo_config_on_start(
     // Automatic sync: workspaces the user overrode from the UI/CLI stay
     // overridden — only an explicit sync-config or reset-git reclaims them.
     let force = crate::workspace::git_sync::SyncForce::RespectOverrides;
-    match crate::repository::handlers::sync_repo_config(state, repo, auth, &force).await {
-        Ok((_, loops, workspaces)) => {
+    match crate::workspace::git_sync::sync_repo_workspaces(state, repo, auth, &force).await {
+        Ok(workspaces) => {
             tracing::info!(
                 repository_id = %repo.id,
-                created = loops.created,
-                updated = loops.updated,
-                removed = loops.removed,
-                skipped = loops.skipped.len(),
                 workspaces_created = workspaces.created,
                 workspaces_updated = workspaces.updated,
                 workspaces_overridden = workspaces.skipped.len(),
-                "Config auto-sync on task start complete"
+                "Workspace config auto-sync on task start complete"
             );
         }
         Err(e) => {
-            tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync on task start failed");
+            tracing::warn!(repository_id = %repo.id, error = %e, "Workspace config auto-sync on task start failed");
         }
     }
 }

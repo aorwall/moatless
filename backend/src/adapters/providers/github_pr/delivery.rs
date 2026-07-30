@@ -81,8 +81,8 @@ use tracing::info;
 
 use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::{
-    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
-    register_typed_delivery,
+    register_typed_delivery, AdapterDeliveryFailure, AdapterDeliveryHandlers,
+    AdapterDeliveryRequest,
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
@@ -194,7 +194,7 @@ impl DeliveryContext {
         let trigger = match self.trigger_id.as_deref() {
             Some(id) => state
                 .loops
-                .find_subscription_by_id(id)
+                .find_runnable_subscription_by_id(id)
                 .await
                 .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?,
             None => None,
@@ -377,8 +377,8 @@ pub(super) fn log_admission(
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterKind;
     use crate::adapters::models::Audience;
+    use crate::adapters::AdapterKind;
 
     use super::*;
 

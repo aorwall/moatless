@@ -107,16 +107,19 @@ async fn execute_job(
     let route = state.loops.find_loop_spawn_config(&job.loop_id).await?;
 
     let config = route_to_config(&route, job);
+    let run_as_user_id = job
+        .run_as_user_id
+        .clone()
+        .or_else(|| route.run_as_user_id.clone())
+        .ok_or_else(|| {
+            std::io::Error::other("claimed schedule Loop has no approved run-as user")
+        })?;
     let msg = InboundMessage {
         provider: AdapterKind::Webhook,
         source_id: job.id.clone(),
         thread_id: None,
         message_thread_id: format!("scheduled:{}", job.id),
-        user_id: job
-            .run_as_user_id
-            .clone()
-            .or_else(|| route.run_as_user_id.clone())
-            .unwrap_or_else(|| route.effective_user_id().to_string()),
+        user_id: run_as_user_id,
         text: job.message_template.clone(),
         file_ids: vec![],
         thread_properties: serde_json::json!({"scheduled_job_id": job.id}),
@@ -129,7 +132,8 @@ async fn execute_job(
     let mut is_new_task = false;
     let task_id = if route.routing_mode == crate::adapters::models::RoutingMode::Ongoing {
         if let Some(task_id) = route.ongoing_task_id.as_deref() {
-            #[allow(clippy::disallowed_methods)] // reason: schedule runner is a background system with no caller identity
+            #[allow(clippy::disallowed_methods)]
+            // reason: schedule runner is a background system with no caller identity
             let sys = ScopeContext::system();
             match state.tasks.find_by_id(task_id, &sys).await {
                 Ok(Some(task)) if task.status == TaskStatus::Open => task.task_id,

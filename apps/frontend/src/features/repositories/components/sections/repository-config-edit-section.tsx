@@ -1,4 +1,4 @@
-import type { Scope, UpdateRepositoryRequest } from '@moatless/api-client'
+import type { Scope, SyncConfigResponse, UpdateRepositoryRequest } from '@moatless/api-client'
 import { ArrowRight, FileCode, Loader2, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -33,6 +33,43 @@ interface RepositoryConfigEditSectionProps {
   onDeleted?: () => void
 }
 
+function appendCount(
+  messages: string[],
+  count: number,
+  singular: string,
+  plural: string,
+  outcome: string,
+) {
+  if (count > 0) {
+    messages.push(`${count} ${count === 1 ? singular : plural} ${outcome}.`)
+  }
+}
+
+function syncDescription(result: SyncConfigResponse): string {
+  const messages: string[] = []
+  const loops = result.loops
+  const workspaces = result.workspaces
+  appendCount(messages, loops.created, 'Loop', 'Loops', 'created')
+  appendCount(messages, loops.updated, 'Loop', 'Loops', 'updated')
+  appendCount(messages, loops.removed, 'Loop', 'Loops', 'removed')
+  appendCount(messages, loops.approvalsRevoked, 'Loop approval', 'Loop approvals', 'revoked')
+  appendCount(messages, loops.overridesSkipped, 'Loop override', 'Loop overrides', 'preserved')
+  appendCount(messages, loops.skipped.length, 'Loop', 'Loops', 'skipped')
+  appendCount(messages, loops.warnings.length, 'Loop warning', 'Loop warnings', 'reported')
+  appendCount(messages, workspaces.created, 'workspace', 'workspaces', 'created')
+  appendCount(messages, workspaces.updated, 'workspace', 'workspaces', 'updated')
+  appendCount(messages, workspaces.removed, 'workspace', 'workspaces', 'removed')
+  appendCount(
+    messages,
+    workspaces.reclaimed,
+    'overridden workspace',
+    'overridden workspaces',
+    'reset to Git',
+  )
+  appendCount(messages, workspaces.skipped.length, 'workspace', 'workspaces', 'skipped')
+  return messages.join(' ')
+}
+
 // Configuration Skeleton Component
 function ConfigurationSkeleton() {
   return (
@@ -59,6 +96,7 @@ export function RepositoryConfigEditSection({
   const usersQuery = useAdminUsersList()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showConvertDialog, setShowConvertDialog] = useState(false)
+  const [showSyncDialog, setShowSyncDialog] = useState(false)
 
   // Derive base form data from repository - following derived state pattern.
   // A repository is now just a reusable git pointer: only the git-pointer fields
@@ -192,14 +230,9 @@ export function RepositoryConfigEditSection({
   const handleSync = () => {
     syncRepositoryConfig.mutate(repositoryId, {
       onSuccess: (result) => {
-        const reclaimed = result.workspaces.reclaimed
+        setShowSyncDialog(false)
         toast.success('Repository configuration synced from Git', {
-          // An explicit sync is authoritative: it takes overridden workspaces
-          // back under git control, replacing their local changes.
-          description:
-            reclaimed > 0
-              ? `${reclaimed} overridden workspace${reclaimed === 1 ? '' : 's'} reset to the config in Git.`
-              : undefined,
+          description: syncDescription(result),
         })
       },
       onError: (error) => {
@@ -250,7 +283,7 @@ export function RepositoryConfigEditSection({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={handleSync}
+                  onClick={() => setShowSyncDialog(true)}
                   disabled={syncRepositoryConfig.isPending}
                 >
                   <RefreshCw
@@ -260,8 +293,8 @@ export function RepositoryConfigEditSection({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                Warning: this also resets overridden workspaces of this repository, replacing their
-                local changes with the config in Git.
+                Synchronizes Loops and workspaces from Git. Loop approvals are revoked; Loop
+                overrides remain local.
               </TooltipContent>
             </Tooltip>
           )}
@@ -327,6 +360,24 @@ export function RepositoryConfigEditSection({
           </Button>
         </div>
       </div>
+      <AlertDialog open={showSyncDialog} onOpenChange={setShowSyncDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Synchronize configuration from Git?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Every Git-synced Loop will be paused and its run-as user cleared, even when its
+              committed configuration is unchanged. Loop overrides and deleted Loop tombstones are
+              preserved. Overridden workspaces are reset to Git.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={syncRepositoryConfig.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSync} disabled={syncRepositoryConfig.isPending}>
+              {syncRepositoryConfig.isPending ? 'Syncing...' : 'Synchronize'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -47,13 +47,11 @@ interface LoopFormProps {
 interface LoopFormState {
   kind: LoopKind
   name: string
-  active: boolean
   repositoryId: string
   routingMode: RoutingMode
   prompt: string
   taskName: string
   tagIdsText: string
-  runAsUserId: string
   agentType: string
   adapter: AdapterKind
   connectionId: string
@@ -123,7 +121,6 @@ function makeRuleFields(rule: Loop['rule'] | undefined) {
     prompt: rule?.prompt ?? '',
     taskName: rule?.taskName ?? '',
     tagIdsText: rule?.tagIds.join(', ') ?? '',
-    runAsUserId: rule?.runAsUserId ?? '',
     agentType: rule?.agentType ?? 'claude-code',
   }
 }
@@ -158,7 +155,6 @@ function makeInitialForm(loop: Loop | null | undefined, adapters: string[]): Loo
   return {
     kind: loop?.kind ?? LoopKind.adapter_event,
     name: loop?.name ?? '',
-    active: loop?.active ?? true,
     ...makeRuleFields(loop?.rule),
     ...makeAdapterFields(loop?.source, adapters),
     ...makeScheduleFields(loop?.source),
@@ -188,14 +184,25 @@ function validateForm(form: LoopFormState): string | null {
   return null
 }
 
-function buildRule(form: LoopFormState): CreateLoopRequest['rule'] {
+function buildUpdateRule(form: LoopFormState): NonNullable<UpdateLoopRequest['rule']> {
   return {
     repositoryId: form.repositoryId,
     routingMode: form.routingMode,
     prompt: form.prompt.trim() || null,
     taskName: form.taskName.trim() || null,
     tagIds: parseTags(form.tagIdsText),
-    runAsUserId: form.runAsUserId.trim() || null,
+    agentType: form.agentType.trim() || 'claude-code',
+  }
+}
+
+function buildCreateRule(form: LoopFormState): CreateLoopRequest['rule'] {
+  return {
+    repositoryId: form.repositoryId,
+    routingMode: form.routingMode,
+    prompt: form.prompt.trim() || null,
+    taskName: form.taskName.trim() || null,
+    tagIds: parseTags(form.tagIdsText),
+    runAsUserId: null,
     agentType: form.agentType.trim() || 'claude-code',
   }
 }
@@ -307,8 +314,7 @@ function LoopFormFields({
           id: loop.id,
           request: {
             name,
-            active: form.active,
-            rule: buildRule(form),
+            rule: buildUpdateRule(form),
             source: buildUpdateSource(form),
           },
         })
@@ -317,8 +323,8 @@ function LoopFormFields({
         await createLoop.mutateAsync({
           name,
           kind: form.kind,
-          active: form.active,
-          rule: buildRule(form),
+          active: false,
+          rule: buildCreateRule(form),
           source: buildCreateSource(form),
         })
         toast.success('Loop created')
@@ -532,14 +538,6 @@ function LoopFormFields({
           />
         </div>
         <div className="space-y-2">
-          <Label>Run As User ID</Label>
-          <Input
-            value={form.runAsUserId}
-            onChange={(event) => setForm((prev) => ({ ...prev, runAsUserId: event.target.value }))}
-            placeholder="Optional user ID"
-          />
-        </div>
-        <div className="space-y-2">
           <Label>Agent Type</Label>
           <Input
             value={form.agentType}
@@ -591,14 +589,6 @@ function LoopFormFields({
       )}
 
       <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium">Active</span>
-          <Switch
-            aria-label="Active"
-            checked={form.active}
-            onCheckedChange={(active) => setForm((prev) => ({ ...prev, active }))}
-          />
-        </div>
         {form.kind === LoopKind.adapter_event && (
           <>
             <div className="flex items-center justify-between gap-3">

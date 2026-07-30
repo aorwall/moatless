@@ -8,9 +8,9 @@ use std::io::IsTerminal;
 use clap::Subcommand;
 use moatless_api_schemas::enums::{AdapterKind, RoutingMode, Scope};
 use moatless_api_schemas::loops::{
-    CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSchedule, CreateSubscription,
-    LoopKind, LoopSource, UpdateLoopConfig, UpdateLoopRequest, UpdateLoopSource, UpdateSchedule,
-    UpdateSubscription,
+    ActivateLoopRequest, CreateLoopConfig, CreateLoopRequest, CreateLoopSource, CreateSchedule,
+    CreateSubscription, LoopKind, LoopSource, UpdateLoopConfig, UpdateLoopRequest,
+    UpdateLoopSource, UpdateSchedule, UpdateSubscription,
 };
 
 use super::adapters::{parse_adapter_kind, parse_json_opt, print_or_json};
@@ -130,8 +130,6 @@ pub enum LoopsAction {
         name: Option<String>,
         #[arg(long)]
         clear_name: bool,
-        #[arg(long, value_name = "BOOL")]
-        active: Option<bool>,
         #[arg(long)]
         repository_id: Option<String>,
         #[arg(long)]
@@ -152,10 +150,6 @@ pub enum LoopsAction {
         tag_ids: Vec<String>,
         #[arg(long)]
         clear_tags: bool,
-        #[arg(long)]
-        run_as_user_id: Option<String>,
-        #[arg(long)]
-        clear_run_as_user_id: bool,
         #[arg(long)]
         agent_type: Option<String>,
         #[arg(long, value_name = "DAYS")]
@@ -201,6 +195,33 @@ pub enum LoopsAction {
         message_template: Option<String>,
         #[arg(long)]
         scope: Option<String>,
+    },
+    /// Activate a loop and atomically select its execution user
+    Activate {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        run_as_user_id: String,
+    },
+    /// Pause a loop while preserving its selected execution user
+    Pause {
+        #[arg(long)]
+        id: String,
+    },
+    /// Resume a paused loop with its existing execution user
+    Resume {
+        #[arg(long)]
+        id: String,
+    },
+    /// Override Git configuration so repository sync skips this loop
+    Override {
+        #[arg(long)]
+        id: String,
+    },
+    /// Discard an override or restore a tombstone from Git
+    ResetGit {
+        #[arg(long)]
+        id: String,
     },
     /// Delete a loop
     Delete {
@@ -318,7 +339,6 @@ pub async fn run_loops(
             id,
             name,
             clear_name,
-            active,
             repository_id,
             routing_mode,
             ongoing_task_id,
@@ -329,8 +349,6 @@ pub async fn run_loops(
             clear_task_name,
             tag_ids,
             clear_tags,
-            run_as_user_id,
-            clear_run_as_user_id,
             agent_type,
             inactive_ttl_days,
             clear_inactive_ttl_days,
@@ -378,8 +396,6 @@ pub async fn run_loops(
                 clear_task_name,
                 tag_ids,
                 clear_tags,
-                run_as_user_id,
-                clear_run_as_user_id,
                 agent_type,
                 inactive_ttl_days,
                 clear_inactive_ttl_days,
@@ -400,7 +416,6 @@ pub async fn run_loops(
             )?;
             let req = UpdateLoopRequest {
                 name: fold_clearable(name, clear_name, "name")?,
-                active,
                 scope,
                 config: rule,
                 source,
@@ -408,9 +423,34 @@ pub async fn run_loops(
             let updated = client.api().update_loop(&id, &req).await?;
             print_or_json(&updated, json);
         }
+        LoopsAction::Activate { id, run_as_user_id } => {
+            let updated = client
+                .api()
+                .activate_loop(&id, &ActivateLoopRequest { run_as_user_id })
+                .await?;
+            print_or_json(&updated, json);
+        }
+        LoopsAction::Pause { id } => {
+            let updated = client.api().pause_loop(&id).await?;
+            print_or_json(&updated, json);
+        }
+        LoopsAction::Resume { id } => {
+            let updated = client.api().resume_loop(&id).await?;
+            print_or_json(&updated, json);
+        }
+        LoopsAction::Override { id } => {
+            let updated = client.api().override_loop(&id).await?;
+            print_or_json(&updated, json);
+        }
+        LoopsAction::ResetGit { id } => {
+            let result = client.api().reset_git_loop(&id).await?;
+            print_or_json(&result, json);
+        }
         LoopsAction::Delete { id, yes } => {
+            let loop_ = client.api().get_loop(&id).await?;
+            let restorable = loop_.source_repository_id.is_some();
             if !yes {
-                confirm_delete(&id)?;
+                confirm_delete(&id, restorable)?;
             }
             client.api().delete_loop(&id).await?;
             if json {
@@ -418,8 +458,12 @@ pub async fn run_loops(
                     "id": id,
                     "deleted": true,
                 }));
+            } else if restorable {
+                println!(
+                    "Deleted loop {id}; its Git tombstone can be restored with `moat loops reset-git --id {id}`."
+                );
             } else {
-                println!("Deleted loop {id}");
+                println!("Deleted loop {id} permanently.");
             }
         }
     }
@@ -454,8 +498,6 @@ fn update_rule(
     clear_task_name: bool,
     tag_ids: Vec<String>,
     clear_tags: bool,
-    run_as_user_id: Option<String>,
-    clear_run_as_user_id: bool,
     agent_type: Option<String>,
     inactive_ttl_days: Option<i32>,
     clear_inactive_ttl_days: bool,
@@ -468,7 +510,6 @@ fn update_rule(
         prompt: fold_clearable(prompt, clear_prompt, "prompt")?,
         task_name: fold_clearable(task_name, clear_task_name, "task-name")?,
         tag_ids,
-        run_as_user_id: fold_clearable(run_as_user_id, clear_run_as_user_id, "run-as-user-id")?,
         agent_type,
         inactive_ttl_days: fold_clearable(
             inactive_ttl_days,
@@ -482,7 +523,6 @@ fn update_rule(
         && rule.prompt.is_none()
         && rule.task_name.is_none()
         && rule.tag_ids.is_none()
-        && rule.run_as_user_id.is_none()
         && rule.agent_type.is_none()
         && rule.inactive_ttl_days.is_none()
     {
@@ -546,7 +586,7 @@ fn update_source(
     }
 }
 
-fn confirm_delete(id: &str) -> Result<(), ClientError> {
+fn confirm_delete(id: &str, restorable: bool) -> Result<(), ClientError> {
     use std::io::Write;
 
     if !std::io::stdin().is_terminal() {
@@ -554,7 +594,12 @@ fn confirm_delete(id: &str) -> Result<(), ClientError> {
             "Refusing to delete without --yes in non-interactive mode".to_string(),
         ));
     }
-    print!("Delete loop {id}? This cannot be undone. [y/N] ");
+    let consequence = if restorable {
+        "Its Git tombstone remains restorable."
+    } else {
+        "This cannot be undone."
+    };
+    print!("Delete loop {id}? {consequence} [y/N] ");
     std::io::stdout()
         .flush()
         .map_err(|e| ClientError::Other(format!("Failed to flush stdout: {e}")))?;

@@ -1,14 +1,24 @@
-import type { AdapterConnectionResponse, Loop, LoopRecentTaskItem } from '@moatless/api-client'
+import {
+  type AdapterConnectionResponse,
+  type Loop,
+  LoopExecutionState,
+  type LoopRecentTaskItem,
+} from '@moatless/api-client'
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Loader2, Trash2 } from 'lucide-react'
+import { Loader2, Pause, Play, RotateCcw, Trash2, Unplug } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { useAdminUsersList } from '@/features/admin/hooks/use-admin-users-teams'
 import { useIntegrationConnections } from '@/features/integrations/hooks/use-integrations'
 import {
+  useActivateLoop,
   useDeleteLoop,
   useLoop,
   useLoopRecentTasks,
-  useUpdateLoop,
+  useOverrideLoop,
+  usePauseLoop,
+  useResetGitLoop,
+  useResumeLoop,
 } from '@/features/loops/hooks/use-loops'
 import {
   getAdapterLabel,
@@ -31,7 +41,13 @@ import { Button } from '@/lib/components/ui/button'
 import { DetailHeader } from '@/lib/components/ui/detail-header'
 import { DetailItem } from '@/lib/components/ui/detail-item'
 import { DetailNotFound } from '@/lib/components/ui/detail-not-found'
-import { Switch } from '@/lib/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/lib/components/ui/select'
 import {
   Table,
   TableBody,
@@ -121,6 +137,116 @@ function RuleInfoSection({ loop }: { loop: Loop }) {
   )
 }
 
+function executionLabel(state: Loop['executionState']): string {
+  switch (state) {
+    case LoopExecutionState.active:
+      return 'Active'
+    case LoopExecutionState.paused:
+      return 'Paused'
+    case LoopExecutionState.awaiting_approval:
+      return 'Awaiting approval'
+  }
+}
+
+function ExecutionPanel({ loop }: { loop: Loop }) {
+  const usersQuery = useAdminUsersList()
+  const activateLoop = useActivateLoop()
+  const pauseLoop = usePauseLoop()
+  const resumeLoop = useResumeLoop()
+  const [runAsUserId, setRunAsUserId] = useState(loop.rule.runAsUserId ?? '')
+  const isPending = activateLoop.isPending || pauseLoop.isPending || resumeLoop.isPending
+  const selectedUser = usersQuery.data?.users.find((user) => user.id === loop.rule.runAsUserId)
+
+  const activate = () => {
+    if (!runAsUserId) {
+      toast.error('Select a run-as user')
+      return
+    }
+    activateLoop.mutate(
+      { id: loop.id, request: { runAsUserId } },
+      {
+        onSuccess: () => toast.success('Loop activated'),
+        onError: (error) =>
+          toast.error('Failed to activate Loop', { description: getErrorMessage(error) }),
+      },
+    )
+  }
+
+  const pause = () => {
+    pauseLoop.mutate(loop.id, {
+      onSuccess: () => toast.success('Loop paused'),
+      onError: (error) =>
+        toast.error('Failed to pause Loop', { description: getErrorMessage(error) }),
+    })
+  }
+
+  const resume = () => {
+    resumeLoop.mutate(loop.id, {
+      onSuccess: () => toast.success('Loop resumed'),
+      onError: (error) =>
+        toast.error('Failed to resume Loop', { description: getErrorMessage(error) }),
+    })
+  }
+
+  return (
+    <div className="rounded-md border p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Execution approval</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Only administrators can choose the identity used by this Loop.
+          </p>
+        </div>
+        <Badge
+          variant={loop.executionState === LoopExecutionState.active ? 'default' : 'secondary'}
+        >
+          {executionLabel(loop.executionState)}
+        </Badge>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+        <Select value={runAsUserId} onValueChange={setRunAsUserId} disabled={isPending}>
+          <SelectTrigger aria-label="Run as user">
+            <SelectValue placeholder="Select a user" />
+          </SelectTrigger>
+          <SelectContent>
+            {(usersQuery.data?.users ?? []).map((user) => (
+              <SelectItem key={user.id} value={user.id}>
+                {user.name || user.login} ({user.login})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex gap-2">
+          {loop.executionState === LoopExecutionState.active ? (
+            <Button variant="outline" onClick={pause} disabled={isPending}>
+              <Pause className="mr-2 h-4 w-4" />
+              Pause
+            </Button>
+          ) : null}
+          {loop.executionState === LoopExecutionState.paused ? (
+            <Button variant="outline" onClick={resume} disabled={isPending}>
+              <Play className="mr-2 h-4 w-4" />
+              Resume
+            </Button>
+          ) : null}
+          <Button onClick={activate} disabled={isPending || !runAsUserId}>
+            {activateLoop.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {loop.executionState === LoopExecutionState.awaiting_approval
+              ? 'Activate'
+              : 'Apply user'}
+          </Button>
+        </div>
+      </div>
+      {loop.rule.runAsUserId ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Approved user: {selectedUser?.name || selectedUser?.login || loop.rule.runAsUserId}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function RecentTasksSection({ items }: { items: LoopRecentTaskItem[] }) {
   if (items.length === 0) {
     return <p className="text-sm text-muted-foreground">No tasks created yet.</p>
@@ -161,6 +287,46 @@ function RecentTasksSection({ items }: { items: LoopRecentTaskItem[] }) {
   )
 }
 
+interface LoopConfigurationActionsProps {
+  loop: Loop
+  overriding: boolean
+  resetting: boolean
+  onOverride: () => void
+  onResetGit: () => void
+}
+
+function LoopConfigurationActions({
+  loop,
+  overriding,
+  resetting,
+  onOverride,
+  onResetGit,
+}: LoopConfigurationActionsProps) {
+  return (
+    <>
+      {loop.syncedFromGit ? (
+        <Button variant="outline" onClick={onOverride} disabled={overriding}>
+          <Unplug className="mr-2 h-4 w-4" />
+          Override
+        </Button>
+      ) : null}
+      {loop.sourceRepositoryId && !loop.syncedFromGit ? (
+        <Button variant="outline" onClick={onResetGit} disabled={resetting}>
+          <RotateCcw className="mr-2 h-4 w-4" />
+          {loop.deleted ? 'Restore from Git' : 'Reset to Git'}
+        </Button>
+      ) : null}
+      {!(loop.syncedFromGit || loop.deleted) ? (
+        <Button asChild variant="outline">
+          <Link to="/admin/loops/$loop-id/edit" params={{ 'loop-id': loop.id }}>
+            Edit
+          </Link>
+        </Button>
+      ) : null}
+    </>
+  )
+}
+
 function LoopDetailPage() {
   const params = Route.useParams()
   const loopId = params['loop-id']
@@ -170,8 +336,9 @@ function LoopDetailPage() {
   const { data: recentTasks, isLoading: tasksLoading } = useLoopRecentTasks(loopId, {
     limit: 10,
   })
-  const updateLoop = useUpdateLoop()
   const deleteLoop = useDeleteLoop()
+  const overrideLoop = useOverrideLoop()
+  const resetGitLoop = useResetGitLoop()
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   if (loopLoading) {
@@ -191,16 +358,26 @@ function LoopDetailPage() {
     ? connections?.find((item) => item.id === source.connectionId)
     : undefined
 
-  const handleToggleActive = () => {
-    updateLoop.mutate(
-      { id: loop.id, request: { active: !loop.active } },
-      {
-        onError: (mutationError) =>
-          toast.error('Failed to update loop', {
-            description: getErrorMessage(mutationError),
-          }),
+  const handleOverride = () => {
+    overrideLoop.mutate(loop.id, {
+      onSuccess: () => toast.success('Loop configuration can now be edited locally'),
+      onError: (error) =>
+        toast.error('Failed to override Loop', { description: getErrorMessage(error) }),
+    })
+  }
+
+  const handleResetGit = () => {
+    resetGitLoop.mutate(loop.id, {
+      onSuccess: (result) => {
+        if (result.resynced) {
+          toast.success('Loop reset to Git and returned to awaiting approval')
+        } else {
+          toast.error('Loop was not reset', { description: result.error ?? undefined })
+        }
       },
-    )
+      onError: (error) =>
+        toast.error('Failed to reset Loop', { description: getErrorMessage(error) }),
+    })
   }
 
   const handleDelete = () => {
@@ -222,26 +399,23 @@ function LoopDetailPage() {
         title={getSourceLabel(loop)}
         subtitle={`${loop.kind} loop`}
         badges={
-          <Badge variant={loop.active ? 'default' : 'secondary'}>
-            {loop.active ? 'Active' : 'Inactive'}
-          </Badge>
+          <div className="flex gap-2">
+            <Badge variant={loop.active ? 'default' : 'secondary'}>
+              {executionLabel(loop.executionState)}
+            </Badge>
+            <Badge variant="outline">{loop.syncedFromGit ? 'Git' : 'Manual'}</Badge>
+            {loop.deleted ? <Badge variant="destructive">Deleted</Badge> : null}
+          </div>
         }
         actions={
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={loop.active}
-                onCheckedChange={handleToggleActive}
-                disabled={updateLoop.isPending}
-                aria-label="Toggle active"
-              />
-              <span className="text-sm text-muted-foreground">Active</span>
-            </div>
-            <Button asChild variant="outline">
-              <Link to="/admin/loops/$loop-id/edit" params={{ 'loop-id': loop.id }}>
-                Edit
-              </Link>
-            </Button>
+            <LoopConfigurationActions
+              loop={loop}
+              overriding={overrideLoop.isPending}
+              resetting={resetGitLoop.isPending}
+              onOverride={handleOverride}
+              onResetGit={handleResetGit}
+            />
             <Button
               variant="ghost"
               size="icon"
@@ -255,17 +429,28 @@ function LoopDetailPage() {
         }
       />
 
+      {loop.syncedFromGit ? (
+        <div className="rounded-md border bg-muted p-4 text-sm">
+          This Loop’s configuration is read-only because it is synchronized from{' '}
+          <span className="font-medium">{loop.sourceConfigPath}</span>. Override it to edit locally.
+          Repository sync will preserve overrides until Reset to Git is chosen.
+        </div>
+      ) : null}
+
       <div className="rounded-md border p-4">
         <h2 className="mb-4 text-sm font-semibold">Loop</h2>
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <DetailItem label="Kind" value={loop.kind} />
           <DetailItem label="Name" value={loop.name ?? '-'} />
           <DetailItem label="Scope" value={loop.scope} />
+          <DetailItem label="Configuration source" value={loop.configSource} />
+          <DetailItem label="Git source key" value={loop.sourceKey ?? '-'} />
           <DetailItem label="Created" value={formatTimestamp(loop.createdAt)} />
         </dl>
       </div>
       <SourceInfoSection loop={loop} connection={connection} />
       <RuleInfoSection loop={loop} />
+      {!loop.deleted ? <ExecutionPanel key={`${loop.id}:${loop.updatedAt}`} loop={loop} /> : null}
       <div className="rounded-md border p-4">
         <h2 className="mb-4 text-sm font-semibold">Recent Tasks</h2>
         {tasksLoading ? (
@@ -282,7 +467,9 @@ function LoopDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Loop</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete loop "{getSourceLabel(loop)}"? This cannot be undone.
+              {loop.sourceRepositoryId
+                ? `Delete Loop "${getSourceLabel(loop)}"? Its Git provenance will be kept so an administrator can restore it explicitly.`
+                : `Delete Loop "${getSourceLabel(loop)}"? This cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

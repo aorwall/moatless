@@ -827,6 +827,61 @@ impl ApiClient {
         self.get(&format!("/api/v1/loops/{id}/tasks{qs}")).await
     }
 
+    /// POST /api/v1/loops/{id}/activate
+    pub async fn activate_loop(
+        &self,
+        id: &str,
+        req: &moatless_api_schemas::loops::ActivateLoopRequest,
+    ) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
+        self.post(&format!("/api/v1/loops/{id}/activate"), req)
+            .await
+    }
+
+    /// POST /api/v1/loops/{id}/pause
+    pub async fn pause_loop(
+        &self,
+        id: &str,
+    ) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
+        self.post(&format!("/api/v1/loops/{id}/pause"), &serde_json::json!({}))
+            .await
+    }
+
+    /// POST /api/v1/loops/{id}/resume
+    pub async fn resume_loop(
+        &self,
+        id: &str,
+    ) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
+        self.post(
+            &format!("/api/v1/loops/{id}/resume"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// POST /api/v1/loops/{id}/override
+    pub async fn override_loop(
+        &self,
+        id: &str,
+    ) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
+        self.post(
+            &format!("/api/v1/loops/{id}/override"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// POST /api/v1/loops/{id}/reset-git
+    pub async fn reset_git_loop(
+        &self,
+        id: &str,
+    ) -> Result<moatless_api_schemas::loops::ResetGitLoopResponse, ApiError> {
+        self.post(
+            &format!("/api/v1/loops/{id}/reset-git"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
     // The `*_trigger*` methods below have no `moat` command behind them: they
     // exist so `crates/integration-tests` can assert the deprecated
     // `/api/v1/triggers` alias still serves the same handlers as `/api/v1/loops`.

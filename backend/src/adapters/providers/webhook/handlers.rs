@@ -20,10 +20,9 @@ use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
 /// record this wrote. Anything that failed to record reaches the caller as a
 /// failure so its own retry is the recovery path.
 ///
-/// That includes a delivery to a deactivated trigger: it is admitted like any
-/// other and ends terminally when the worker resolves the trigger and finds it
-/// inactive. Answering it without a record would be an acknowledgment with
-/// nothing behind it, which is the thing this route exists to stop.
+/// Deactivated triggers are rejected before admission. A trigger can also be
+/// paused or resynced after admission; the worker rechecks runnable state and
+/// then terminates the durable delivery without creating a Task.
 #[utoipa::path(
     post,
     path = "/api/v1/adapters/webhook/{trigger_id}",
@@ -45,7 +44,7 @@ pub async fn webhook_inbound(
 
     let rule = state
         .loops
-        .find_subscription_by_id(&trigger_id)
+        .find_runnable_subscription_by_id(&trigger_id)
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(trigger_id.clone()))?;
 

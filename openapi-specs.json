@@ -1351,7 +1351,7 @@
           "adapters"
         ],
         "summary": "Take durable ownership of one inbound webhook delivery.",
-        "description": "Everything the caller is answered with is decided before any routing runs:\nthe delivery is verified, parsed, and written to the Adapter delivery seam,\nand only then acknowledged. A 200 therefore means the backend owns the delivery,\nnot that a Task exists — the Task is created later, by the worker, out of the\nrecord this wrote. Anything that failed to record reaches the caller as a\nfailure so its own retry is the recovery path.\n\nThat includes a delivery to a deactivated trigger: it is admitted like any\nother and ends terminally when the worker resolves the trigger and finds it\ninactive. Answering it without a record would be an acknowledgment with\nnothing behind it, which is the thing this route exists to stop.",
+        "description": "Everything the caller is answered with is decided before any routing runs:\nthe delivery is verified, parsed, and written to the Adapter delivery seam,\nand only then acknowledged. A 200 therefore means the backend owns the delivery,\nnot that a Task exists — the Task is created later, by the worker, out of the\nrecord this wrote. Anything that failed to record reaches the caller as a\nfailure so its own retry is the recovery path.\n\nDeactivated triggers are rejected before admission. A trigger can also be\npaused or resynced after admission; the worker rechecks runnable state and\nthen terminates the durable delivery without creating a Task.",
         "operationId": "webhook_inbound",
         "parameters": [
           {
@@ -3418,6 +3418,166 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loops/{id}/activate": {
+      "post": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "activate_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateLoopRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Loop activated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loop"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loops/{id}/override": {
+      "post": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "override_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Git Loop overridden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loop"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loops/{id}/pause": {
+      "post": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "pause_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loop paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loop"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loops/{id}/reset-git": {
+      "post": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "reset_git_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loop reset result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetGitLoopResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loops/{id}/resume": {
+      "post": {
+        "tags": [
+          "loops"
+        ],
+        "operationId": "resume_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loop resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Loop"
                 }
               }
             }
@@ -8202,6 +8362,17 @@
   },
   "components": {
     "schemas": {
+      "ActivateLoopRequest": {
+        "type": "object",
+        "required": [
+          "runAsUserId"
+        ],
+        "properties": {
+          "runAsUserId": {
+            "type": "string"
+          }
+        }
+      },
       "ActivationReach": {
         "type": "string",
         "description": "Who an activation applies to: everyone, or the calling user alone.",
@@ -11613,6 +11784,10 @@
           "createdBy",
           "createdAt",
           "updatedAt",
+          "configSource",
+          "syncedFromGit",
+          "deleted",
+          "executionState",
           "rule",
           "source"
         ],
@@ -11620,11 +11795,20 @@
           "active": {
             "type": "boolean"
           },
+          "configSource": {
+            "$ref": "#/components/schemas/LoopConfigSource"
+          },
           "createdAt": {
             "type": "string"
           },
           "createdBy": {
             "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "executionState": {
+            "$ref": "#/components/schemas/LoopExecutionState"
           },
           "id": {
             "type": "string"
@@ -11652,6 +11836,27 @@
           },
           "source": {
             "$ref": "#/components/schemas/LoopSource"
+          },
+          "sourceConfigPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceRepositoryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "syncedFromGit": {
+            "type": "boolean"
           },
           "updatedAt": {
             "type": "string"
@@ -11715,6 +11920,21 @@
             ]
           }
         }
+      },
+      "LoopConfigSource": {
+        "type": "string",
+        "enum": [
+          "git",
+          "manual"
+        ]
+      },
+      "LoopExecutionState": {
+        "type": "string",
+        "enum": [
+          "awaiting_approval",
+          "active",
+          "paused"
+        ]
       },
       "LoopKind": {
         "type": "string",
@@ -11813,13 +12033,28 @@
           "created",
           "updated",
           "removed",
-          "skipped"
+          "approvalsRevoked",
+          "overridesSkipped",
+          "skipped",
+          "warnings"
         ],
         "properties": {
+          "approvalsRevoked": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Existing Git-synced Loops whose approval was revoked.",
+            "minimum": 0
+          },
           "created": {
             "type": "integer",
             "format": "int32",
             "description": "Loops inserted as new triggers.",
+            "minimum": 0
+          },
+          "overridesSkipped": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Manual overrides or deletion tombstones preserved during repository sync.",
             "minimum": 0
           },
           "removed": {
@@ -11840,6 +12075,32 @@
             "format": "int32",
             "description": "Existing loop triggers updated in place.",
             "minimum": 0
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LoopSyncWarning"
+            },
+            "description": "Non-fatal authoring warnings, including ignored Git authority fields."
+          }
+        }
+      },
+      "LoopSyncWarning": {
+        "type": "object",
+        "required": [
+          "loopName",
+          "field",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "loopName": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -12618,6 +12879,27 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ResetGitLoopResponse": {
+        "type": "object",
+        "required": [
+          "loop",
+          "resynced"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "loop": {
+            "$ref": "#/components/schemas/Loop"
+          },
+          "resynced": {
+            "type": "boolean"
           }
         }
       },
@@ -15663,12 +15945,6 @@
               }
             ]
           },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "tagIds": {
             "type": [
               "array",
@@ -15689,12 +15965,6 @@
       "UpdateLoopRequest": {
         "type": "object",
         "properties": {
-          "active": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
           "name": {
             "type": [
               "string",

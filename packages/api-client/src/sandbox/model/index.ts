@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './activateLoopRequest';
 export * from './activationReach';
 export * from './activationResponse';
 export * from './adapterConnectionResponse';
@@ -154,12 +155,15 @@ export * from './liveStatus';
 export * from './lookupParams';
 export * from './loop';
 export * from './loopConfig';
+export * from './loopConfigSource';
+export * from './loopExecutionState';
 export * from './loopKind';
 export * from './loopRecentTaskItem';
 export * from './loopRecentTaskSummary';
 export * from './loopSource';
 export * from './loopSyncSkip';
 export * from './loopSyncSummary';
+export * from './loopSyncWarning';
 export * from './manualSource';
 export * from './messageContextInput';
 export * from './messageContextInputData';
@@ -209,6 +213,7 @@ export * from './repositoryResponsePlugins';
 export * from './repositoryResponseServers';
 export * from './repositoryResponseServerStartCommands';
 export * from './repositoryResponseSetupCommands';
+export * from './resetGitLoopResponse';
 export * from './resetGitWorkspaceResponse';
 export * from './resourceConfig';
 export * from './resourceConfigLimits';

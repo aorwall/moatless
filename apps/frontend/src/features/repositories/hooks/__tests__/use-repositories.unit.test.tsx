@@ -22,10 +22,13 @@ const syncResponse: SyncConfigResponse = {
     scope: 'user',
   },
   loops: {
+    approvalsRevoked: 0,
     created: 0,
+    overridesSkipped: 0,
     removed: 0,
     skipped: [],
     updated: 0,
+    warnings: [],
   },
   workspaces: {
     created: 0,

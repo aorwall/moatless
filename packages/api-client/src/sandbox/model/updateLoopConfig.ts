@@ -20,8 +20,6 @@ export interface UpdateLoopConfig {
   repositoryId?: string | null;
   routingMode?: null | RoutingMode;
   /** @nullable */
-  runAsUserId?: string | null;
-  /** @nullable */
   tagIds?: string[] | null;
   /** @nullable */
   taskName?: string | null;

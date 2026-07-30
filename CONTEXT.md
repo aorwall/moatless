@@ -193,12 +193,17 @@ data.
 
 **Loop**:
 A standing, named definition of recurring agent work — the umbrella over automated
-Task creation. Declared in a repo (`.moatless/loops/<name>/LOOP.md`, `source =
-git`) or authored via the API (`source = manual`). A Loop fires on a Schedule or a
-Subscription and drives one or more Tasks. Manual one-off Tasks are created
-directly and are not part of a Loop.
+Task creation. Declared in a repo (`.moatless/loops/<name>/LOOP.md`) or authored
+directly. A Loop fires on a Schedule or a Subscription and drives one or more
+Tasks. Manual one-off Tasks are created directly and are not part of a Loop.
 _Avoid_: trigger (as a noun / umbrella) — a Loop is *triggered*, but the thing is
 a Loop
+
+**Loop configuration source**:
+The authority for a Loop's editable configuration: `git` when reconciled from a
+repository, or `manual` when authored or overridden locally. Distinct from its
+firing condition, which is a Schedule or Subscription.
+_Avoid_: bare source, Loop source
 
 The config that persists a Loop *is* the Loop — its fields are Loop fields, so
 there is no separate "Routing" term beyond `Routing mode`. As of ticket 03 this

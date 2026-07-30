@@ -25,7 +25,8 @@ pub struct LoopFrontmatter {
     /// Tag names resolved to ids for `trigger_rules.tag_ids`.
     #[serde(default)]
     pub tags: Option<Vec<String>>,
-    /// Explicit run-as user id; see resolution order in `sync.rs`.
+    /// Legacy Git field retained for compatibility. Sync reports and ignores
+    /// it because only an administrator may approve the run-as identity.
     #[serde(default)]
     pub run_as_user_id: Option<String>,
     /// Override the adapter-event `source_matcher` (default `owner/repo`).
@@ -67,7 +68,8 @@ pub struct LoopFrontmatter {
     /// Adapter-specific config JSON stored on the trigger source.
     #[serde(default)]
     pub adapter_config: Option<serde_json::Value>,
-    /// Whether the trigger is active (default `true`).
+    /// Legacy Git field retained for compatibility. Sync reports and ignores
+    /// it because Git configuration cannot approve Loop execution.
     #[serde(default)]
     pub active: Option<bool>,
     /// Per-trigger task inactivity TTL in days (`trigger_rules.inactive_ttl_days`).

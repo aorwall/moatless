@@ -21,6 +21,11 @@ use crate::state::AppState;
         handlers::update_loop,
         handlers::delete_loop,
         handlers::list_loop_recent_tasks,
+        handlers::activate_loop,
+        handlers::pause_loop,
+        handlers::resume_loop,
+        handlers::override_loop,
+        handlers::reset_git_loop,
     )
 )]
 pub struct LoopsApiDoc;
@@ -33,6 +38,11 @@ pub fn loops_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(handlers::get_loop))
         .routes(routes!(handlers::update_loop, handlers::delete_loop))
         .routes(routes!(handlers::list_loop_recent_tasks))
+        .routes(routes!(handlers::activate_loop))
+        .routes(routes!(handlers::pause_loop))
+        .routes(routes!(handlers::resume_loop))
+        .routes(routes!(handlers::override_loop))
+        .routes(routes!(handlers::reset_git_loop))
         .with_state(state.clone())
         .split_for_parts();
 
@@ -57,6 +67,26 @@ fn legacy_trigger_aliases(state: AppState) -> Router {
         .route(
             "/api/v1/triggers/{id}/tasks",
             get(handlers::list_loop_recent_tasks),
+        )
+        .route(
+            "/api/v1/triggers/{id}/activate",
+            axum::routing::post(handlers::activate_loop),
+        )
+        .route(
+            "/api/v1/triggers/{id}/pause",
+            axum::routing::post(handlers::pause_loop),
+        )
+        .route(
+            "/api/v1/triggers/{id}/resume",
+            axum::routing::post(handlers::resume_loop),
+        )
+        .route(
+            "/api/v1/triggers/{id}/override",
+            axum::routing::post(handlers::override_loop),
+        )
+        .route(
+            "/api/v1/triggers/{id}/reset-git",
+            axum::routing::post(handlers::reset_git_loop),
         )
         .with_state(state)
 }

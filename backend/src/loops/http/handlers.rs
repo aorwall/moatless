@@ -5,16 +5,15 @@ use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
 use moatless_api_schemas::loops::{
-    CreateLoopRequest, Loop, LoopKind, LoopRecentTaskItem, LoopRecentTaskSummary,
-    UpdateLoopRequest, UpdateLoopSource,
+    ActivateLoopRequest, CreateLoopRequest, Loop, LoopKind, LoopRecentTaskItem,
+    LoopRecentTaskSummary, ResetGitLoopResponse, UpdateLoopRequest, UpdateLoopSource,
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::adapters::common::{
-    ensure_can_run_as, ensure_repository_exists, load_adapter_connection_for_auth,
-    load_loop_for_auth, loop_response, next_fire_at, parse_adapter_kind,
-    resolve_scope_for_adapter_create, LoopFilter,
+    ensure_repository_exists, load_adapter_connection_for_auth, load_loop_for_auth, loop_response,
+    next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create, LoopFilter,
 };
 use crate::adapters::error::AdapterError;
 use crate::bindings::dao::LoopRecentTaskRow;
@@ -24,6 +23,25 @@ use crate::loops::dao::{
     NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource,
 };
 use crate::state::AppState;
+
+fn require_admin(auth: &AuthUser) -> Result<(), AdapterError> {
+    if auth.role.as_deref() == Some("admin") {
+        Ok(())
+    } else {
+        Err(AdapterError::AccessDenied(
+            "Only administrators can modify Loops".to_string(),
+        ))
+    }
+}
+
+async fn resolve_run_as_user(state: &AppState, requested: &str) -> Result<String, AdapterError> {
+    let user = match requested.parse::<uuid::Uuid>() {
+        Ok(id) => state.users.get_user(&id).await?,
+        Err(_) => state.users.find_user_by_legacy_id(requested).await?,
+    };
+    user.map(|user| user.id.to_string())
+        .ok_or_else(|| AdapterError::BadRequest(format!("Run-as user {requested} does not exist")))
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RecentTasksQuery {
@@ -125,9 +143,19 @@ pub async fn create_loop(
     auth: AuthUser,
     Json(req): Json<CreateLoopRequest>,
 ) -> Result<Json<Loop>, AdapterError> {
+    require_admin(&auth)?;
     let ctx = auth.scope_context();
     ensure_repository_exists(&state, &ctx, &req.config.repository_id).await?;
-    ensure_can_run_as(&state, &ctx, req.config.run_as_user_id.as_deref()).await?;
+    let run_as_user_id = match req.config.run_as_user_id.as_deref() {
+        Some(requested) => Some(resolve_run_as_user(&state, requested).await?),
+        None => None,
+    };
+    let active = req.active.unwrap_or(false);
+    if active && run_as_user_id.is_none() {
+        return Err(AdapterError::BadRequest(
+            "Activating a Loop requires an explicit run-as user".to_string(),
+        ));
+    }
 
     let adapter_source = match (&req.kind, &req.source) {
         (
@@ -209,7 +237,7 @@ pub async fn create_loop(
             id: id.clone(),
             name: req.name.clone(),
             kind: req.kind.as_str().to_string(),
-            active: req.active.unwrap_or(true),
+            active,
             scope: resolved.scope,
             owner_user_id: resolved.owner_user_id,
             created_by: auth.user_id.to_string(),
@@ -221,7 +249,7 @@ pub async fn create_loop(
                 prompt: req.config.prompt.clone(),
                 task_name: req.config.task_name.clone(),
                 tag_ids: req.config.tag_ids.clone().unwrap_or_default(),
-                run_as_user_id: req.config.run_as_user_id.clone(),
+                run_as_user_id,
                 agent_type: req
                     .config
                     .agent_type
@@ -254,15 +282,18 @@ pub async fn update_loop(
     Path(id): Path<String>,
     Json(req): Json<UpdateLoopRequest>,
 ) -> Result<Json<Loop>, AdapterError> {
+    require_admin(&auth)?;
     let ctx = auth.scope_context();
     let current = load_loop_for_auth(&state, &ctx, &id).await?;
+    if current.trigger.config_source != "manual" || current.trigger.deleted {
+        return Err(AdapterError::Conflict(
+            "Git-synced Loops are read-only; override the Loop before editing it".to_string(),
+        ));
+    }
 
     if let Some(rule) = &req.config {
         if let Some(repository_id) = rule.repository_id.as_deref() {
             ensure_repository_exists(&state, &ctx, repository_id).await?;
-        }
-        if let Some(run_as_user_id) = rule.run_as_user_id.as_ref().and_then(|v| v.as_deref()) {
-            ensure_can_run_as(&state, &ctx, Some(run_as_user_id)).await?;
         }
     }
 
@@ -271,10 +302,7 @@ pub async fn update_loop(
         let resolved = resolve_scope_for_adapter_create(&ctx, Some(requested))?;
         (resolved.scope, resolved.owner_user_id)
     } else {
-        (
-            current.trigger.scope,
-            current.trigger.owner_user_id.clone(),
-        )
+        (current.trigger.scope, current.trigger.owner_user_id.clone())
     };
 
     if let Some(UpdateLoopSource::AdapterEvent(source)) = &req.source {
@@ -324,9 +352,7 @@ pub async fn update_loop(
             .task_name
             .unwrap_or_else(|| current.rule.task_name.clone()),
         tag_ids: rule.tag_ids.unwrap_or_else(|| current.rule.tag_ids.clone()),
-        run_as_user_id: rule
-            .run_as_user_id
-            .unwrap_or_else(|| current.rule.run_as_user_id.clone()),
+        run_as_user_id: current.rule.run_as_user_id.clone(),
         agent_type: rule
             .agent_type
             .unwrap_or_else(|| current.rule.agent_type.clone()),
@@ -399,7 +425,6 @@ pub async fn update_loop(
             &id,
             LoopUpdate {
                 name: req.name.unwrap_or_else(|| current.trigger.name.clone()),
-                active: req.active.unwrap_or(current.trigger.active),
                 scope: next_scope,
                 owner_user_id: next_owner,
             },
@@ -477,6 +502,7 @@ pub async fn delete_loop(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AdapterError> {
+    require_admin(&auth)?;
     let ctx = auth.scope_context();
     let result = state.loops.delete(&id, &ctx).await?;
 
@@ -485,4 +511,152 @@ pub async fn delete_loop(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn updated_loop(
+    state: &AppState,
+    ctx: &moatless_backend_core::scope::ScopeContext,
+    id: &str,
+) -> Result<Json<Loop>, AdapterError> {
+    let record = state
+        .loops
+        .get(id, ctx)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
+    Ok(Json(loop_response(&record)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/loops/{id}/activate",
+    tag = "loops",
+    request_body = ActivateLoopRequest,
+    responses((status = 200, description = "Loop activated", body = Loop))
+)]
+pub async fn activate_loop(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(req): Json<ActivateLoopRequest>,
+) -> Result<Json<Loop>, AdapterError> {
+    require_admin(&auth)?;
+    let ctx = auth.scope_context();
+    let run_as_user_id = resolve_run_as_user(&state, &req.run_as_user_id).await?;
+    if !state.loops.activate(&id, &run_as_user_id, &ctx).await? {
+        return Err(AdapterError::NotFound(format!("Loop {id} not found")));
+    }
+    updated_loop(&state, &ctx, &id).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/loops/{id}/pause",
+    tag = "loops",
+    responses((status = 200, description = "Loop paused", body = Loop))
+)]
+pub async fn pause_loop(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Loop>, AdapterError> {
+    require_admin(&auth)?;
+    let ctx = auth.scope_context();
+    if !state.loops.pause(&id, &ctx).await? {
+        return Err(AdapterError::NotFound(format!("Loop {id} not found")));
+    }
+    updated_loop(&state, &ctx, &id).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/loops/{id}/resume",
+    tag = "loops",
+    responses((status = 200, description = "Loop resumed", body = Loop))
+)]
+pub async fn resume_loop(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Loop>, AdapterError> {
+    require_admin(&auth)?;
+    let ctx = auth.scope_context();
+    if !state.loops.resume(&id, &ctx).await? {
+        return Err(AdapterError::Conflict(
+            "Loop cannot resume until an administrator selects a run-as user".to_string(),
+        ));
+    }
+    updated_loop(&state, &ctx, &id).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/loops/{id}/override",
+    tag = "loops",
+    responses((status = 200, description = "Git Loop overridden", body = Loop))
+)]
+pub async fn override_loop(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Loop>, AdapterError> {
+    require_admin(&auth)?;
+    let ctx = auth.scope_context();
+    if !state.loops.override_git(&id, &ctx).await? {
+        return Err(AdapterError::Conflict(
+            "Only a non-deleted Git-synced Loop can be overridden".to_string(),
+        ));
+    }
+    updated_loop(&state, &ctx, &id).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/loops/{id}/reset-git",
+    tag = "loops",
+    responses((status = 200, description = "Loop reset result", body = ResetGitLoopResponse))
+)]
+pub async fn reset_git_loop(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<ResetGitLoopResponse>, AdapterError> {
+    require_admin(&auth)?;
+    let ctx = auth.scope_context();
+    let current = state
+        .loops
+        .get(&id, &ctx)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
+    let repository_id = current
+        .trigger
+        .source_repository_id
+        .as_deref()
+        .ok_or_else(|| AdapterError::BadRequest("Loop has no Git provenance".to_string()))?;
+    let source_key = current
+        .trigger
+        .source_key
+        .as_deref()
+        .ok_or_else(|| AdapterError::BadRequest("Loop has no Git source key".to_string()))?;
+    let repository = state
+        .repositories
+        .find_by_id(repository_id, &ctx)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("Repository {repository_id} not found")))?;
+
+    let result = crate::loops::sync::reset_repo_loop(&state, &repository, &auth, source_key).await;
+    let record = state
+        .loops
+        .get(&id, &ctx)
+        .await?
+        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
+    let (resynced, error) = match result {
+        Ok(true) => (true, None),
+        Ok(false) => (false, Some("Loop provenance no longer exists".to_string())),
+        Err(error) => (false, Some(error.to_string())),
+    };
+    Ok(Json(ResetGitLoopResponse {
+        loop_: loop_response(&record),
+        resynced,
+        error,
+    }))
 }

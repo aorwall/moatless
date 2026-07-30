@@ -107,31 +107,10 @@ pub async fn create_repository(
         .await?
         .unwrap_or(row);
 
-    // Sync `.moatless/loops/` into the trigger tables. Best-effort and
-    // non-fatal, exactly like the config auto-read above.
     if final_row.remote_url.is_some() {
-        match sync_repo_loops(&state, &final_row, &auth).await {
-            Ok(summary) => {
-                if summary.created + summary.updated + summary.removed > 0
-                    || !summary.skipped.is_empty()
-                {
-                    info!(
-                        repository_id = %id,
-                        created = summary.created,
-                        updated = summary.updated,
-                        removed = summary.removed,
-                        skipped = summary.skipped.len(),
-                        "Synced repo loops on create"
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(repository_id = %id, error = %e, "Failed to sync repo loops on create");
-            }
-        }
-
         // Sync git-declared workspaces (`.moatless/workspaces.json` or the legacy
-        // `.moatless/config.json`). Best-effort and non-fatal, like loop sync.
+        // `.moatless/config.json`). Loop sync is deliberately never automatic:
+        // an administrator must invoke the explicit sync endpoint.
         log_workspace_sync(
             &state,
             &final_row,
@@ -551,7 +530,10 @@ pub async fn convert_to_template(
         ..Default::default()
     };
 
-    state.repositories.update(&repository_id, &patch, &ctx).await?;
+    state
+        .repositories
+        .update(&repository_id, &patch, &ctx)
+        .await?;
 
     let updated = state
         .repositories
@@ -1094,6 +1076,11 @@ pub async fn sync_config(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<SyncConfigResponse>, RepositoryError> {
+    if auth.role.as_deref() != Some("admin") {
+        return Err(RepositoryError::Forbidden(
+            "Only administrators can synchronize repository configuration".to_string(),
+        ));
+    }
     let scope_ctx = auth.scope_context();
     let repo = state
         .repositories
@@ -1116,14 +1103,11 @@ pub async fn sync_config(
 /// Reconcile a repository's committed `.moatless/loops/` + git-declared
 /// workspaces into the trigger tables and `workspaces` rows.
 ///
-/// Shared by the `sync-config` endpoint and the automatic sync on task start,
-/// which differ only in `force`: the explicit endpoint reclaims manually
-/// overridden workspaces, the automatic one leaves them alone.
-///
 /// Run-config from `.moatless/config.json` / `.moatless/workspaces.json` flows
 /// into the workspace (via `sync_repo_workspaces`), not into repo columns — a
-/// repository is only a git connection. Loop sync is best-effort: a fetch
-/// failure yields an empty summary rather than failing the whole reconcile.
+/// repository is only a git connection. Loop sync failures abort the explicit
+/// operation so the administrator cannot mistake a skipped refresh for a
+/// successful approval revocation.
 pub(crate) async fn sync_repo_config(
     state: &AppState,
     repo: &Repository,
@@ -1136,20 +1120,15 @@ pub(crate) async fn sync_repo_config(
         ));
     }
 
-    // Reconcile `.moatless/loops/` into the trigger tables. Best-effort: a fetch
-    // failure surfaces an empty summary rather than failing the whole sync.
-    let loops = match sync_repo_loops(state, repo, auth).await {
-        Ok(summary) => summary,
-        Err(e) => {
-            warn!(repository_id = %repo.id, error = %e, "Loop sync failed during config sync");
-            LoopSyncSummary::default()
-        }
-    };
+    // This is the sole repository-wide Loop sync path. Surface fetch and
+    // reconciliation failures so an administrator never mistakes a skipped
+    // refresh for a successful approval revocation.
+    let loops = sync_repo_loops(state, repo, auth)
+        .await
+        .map_err(|error| RepositoryError::ProviderError(error.to_string()))?;
 
     // Reconcile git-declared workspaces (`.moatless/workspaces.json` or the
-    // legacy `.moatless/config.json` → workspace run-config). This also covers
-    // task start, since `maybe_sync_repo_config_on_start` calls `sync_repo_config`
-    // behind the `.moatless/` existence gate. Best-effort and non-fatal.
+    // legacy `.moatless/config.json` → workspace run-config).
     let workspaces = log_workspace_sync(state, repo, auth, "sync-config", force).await;
 
     Ok((repo.clone(), loops, workspaces))

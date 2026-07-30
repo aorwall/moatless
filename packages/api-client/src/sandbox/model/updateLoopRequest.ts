@@ -11,8 +11,6 @@ import type { UpdateLoopSource } from './updateLoopSource';
 
 export interface UpdateLoopRequest {
   /** @nullable */
-  active?: boolean | null;
-  /** @nullable */
   name?: string | null;
   rule?: null | UpdateLoopConfig;
   scope?: null | Scope;
