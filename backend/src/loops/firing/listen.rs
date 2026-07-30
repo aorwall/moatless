@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, BindingContext, SubscriptionMatch, TaskBinding};
-use crate::adapters::{Adapter, AdapterKind};
+use crate::adapters::{AdapterDestinationBuilder, AdapterKind};
 use crate::state::AppState;
 
 /// Connect a task to an existing provider thread by creating a task binding.
@@ -22,15 +22,16 @@ pub async fn connect(
     thread_properties: serde_json::Value,
     filter_user_id: Option<&str>,
 ) -> Result<(String, BindingContext), AdapterError> {
-    let provider = state
+    let providers = state
         .adapters
         .as_ref()
-        .and_then(|providers| providers.get(provider_type))
         .ok_or_else(|| AdapterError::AdapterNotConfigured(provider_type.as_str().to_string()))?;
+    let provider = providers.destination_builder(provider_type)?;
 
     let (rule, binding) = connect_binding(
         state,
-        provider.as_ref(),
+        provider,
+        provider_type.as_str(),
         source_id,
         task_id,
         external_thread_id,
@@ -45,7 +46,8 @@ pub async fn connect(
 #[allow(clippy::too_many_arguments)]
 async fn connect_binding(
     state: &AppState,
-    provider: &dyn Adapter,
+    provider: &dyn AdapterDestinationBuilder,
+    provider_label: &str,
     source_id: &str,
     task_id: &str,
     external_thread_id: &str,
@@ -73,7 +75,7 @@ async fn connect_binding(
         task_id,
         binding_id = %binding.id,
         subject_key = %binding.subject_key,
-        provider = provider.provider_key(),
+        provider = provider_label,
         "Task connected to integration binding"
     );
 
@@ -92,7 +94,8 @@ async fn connect_binding(
 #[allow(clippy::too_many_arguments)]
 async fn connect_binding_optional_rule(
     state: &AppState,
-    provider: &dyn Adapter,
+    provider: &dyn AdapterDestinationBuilder,
+    provider_label: &str,
     source_id: &str,
     task_id: &str,
     external_thread_id: &str,
@@ -121,7 +124,7 @@ async fn connect_binding_optional_rule(
         task_id,
         binding_id = %binding.id,
         subject_key = %binding.subject_key,
-        provider = provider.provider_key(),
+        provider = provider_label,
         "Task connected to integration binding (outbound, trigger optional)"
     );
 
@@ -135,7 +138,7 @@ async fn connect_binding_optional_rule(
 #[allow(clippy::too_many_arguments)]
 async fn write_binding(
     state: &AppState,
-    provider: &dyn Adapter,
+    provider: &dyn AdapterDestinationBuilder,
     connection: &AdapterConnection,
     rule: Option<&SubscriptionMatch>,
     source_id: &str,
@@ -174,7 +177,7 @@ async fn write_binding(
 /// Resolve the provider connection for a source. Errors when none exists.
 async fn resolve_connection(
     state: &AppState,
-    provider: &dyn Adapter,
+    provider: &dyn AdapterDestinationBuilder,
     source_id: &str,
     thread_properties: &serde_json::Value,
 ) -> Result<AdapterConnection, AdapterError> {
@@ -207,7 +210,7 @@ async fn resolve_connection(
 /// logged) so callers that tolerate a missing trigger still succeed.
 async fn resolve_optional_rule(
     state: &AppState,
-    provider: &dyn Adapter,
+    provider: &dyn AdapterDestinationBuilder,
     source_id: &str,
     thread_properties: &serde_json::Value,
     connection: &AdapterConnection,
@@ -239,7 +242,7 @@ async fn resolve_optional_rule(
 
 async fn resolve_connection_and_rule(
     state: &AppState,
-    provider: &dyn Adapter,
+    provider: &dyn AdapterDestinationBuilder,
     source_id: &str,
     thread_properties: &serde_json::Value,
 ) -> Result<(AdapterConnection, SubscriptionMatch), AdapterError> {
@@ -281,14 +284,15 @@ pub async fn connect_github_binding(
     thread_properties: serde_json::Value,
     filter_user_id: Option<&str>,
 ) -> Result<(Option<SubscriptionMatch>, TaskBinding), AdapterError> {
-    let provider = state
+    let providers = state
         .adapters
         .as_ref()
-        .and_then(|providers| providers.get(AdapterKind::GithubPr))
         .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
+    let provider = providers.destination_builder(AdapterKind::GithubPr)?;
     connect_binding_optional_rule(
         state,
-        provider.as_ref(),
+        provider,
+        AdapterKind::GithubPr.as_str(),
         source_id,
         task_id,
         "",

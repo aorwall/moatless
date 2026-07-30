@@ -1,5 +1,5 @@
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use chrono::Utc;
 use moatless_api_schemas::bindings::{
     CreateTaskBindingRequest, SendTaskReplyRequest, SendTaskReplyResponse, TaskBindingResponse,
@@ -14,7 +14,7 @@ use crate::adapters::common::{
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::TaskBinding;
-use crate::bindings::reply::{resolve_message_target, ExternalReplyService};
+use crate::bindings::reply::{ExternalReplyService, resolve_message_target};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -158,9 +158,7 @@ pub async fn add_message_reaction(
         .adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
-    let adapter = providers
-        .get_by_name(&provider_key)
-        .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
+    let adapter = providers.reactions_by_name(&provider_key)?;
     let binding_ctx = crate::bindings::runtime::binding_context(&binding);
     let external_id = adapter
         .add_reaction(&binding_ctx, &ext_id, &req.emoji)
@@ -192,9 +190,7 @@ pub async fn remove_message_reaction(
         .adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
-    let adapter = providers
-        .get_by_name(&provider_key)
-        .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
+    let adapter = providers.reactions_by_name(&provider_key)?;
     let binding_ctx = crate::bindings::runtime::binding_context(&binding);
     adapter
         .remove_reaction(&binding_ctx, &ext_id, &emoji)

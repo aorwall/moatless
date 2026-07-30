@@ -11,7 +11,12 @@ use crate::adapters::models::{
     AdapterConnection, BindingContext, LoopContext, SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::models::{Audience, InboundMessage, NewThreadInfo, OutboundReply};
-use crate::adapters::{Adapter, AdapterKind, BindingDestination, DestinationPostResult};
+use crate::adapters::{
+    Adapter, AdapterBindingReply, AdapterDestinationBuilder, AdapterDirectDestination,
+    AdapterDirectMessage, AdapterInboundPresentation, AdapterKind, AdapterMessageReply,
+    AdapterNewThread, AdapterOutboundContent, AdapterReactions, AdapterUserIdentity,
+    BindingDestination, DestinationPostResult,
+};
 use crate::db::DbPool;
 
 use super::access::enforce_slack_access;
@@ -753,20 +758,46 @@ fn parse_slack_reaction_target<'a>(
     Ok((channel, ts))
 }
 
-#[async_trait::async_trait]
 impl Adapter for SlackAdapter {
     fn adapter_kind(&self) -> AdapterKind {
         AdapterKind::Slack
     }
+}
 
-    fn supports_files(&self) -> bool {
-        true
+#[async_trait::async_trait]
+impl AdapterUserIdentity for SlackAdapter {
+    async fn resolve_user(
+        &self,
+        identity: &str,
+        db: &DbPool,
+    ) -> Result<Option<String>, AdapterError> {
+        let Some(info) = self.api.get_user_info(identity).await? else {
+            warn!(slack_user = %identity, "Slack users.info returned no user");
+            return Ok(None);
+        };
+
+        // Bot / app accounts share emails across deployments — never resolve them by email.
+        if info.is_bot || info.is_app_user {
+            tracing::info!(
+                slack_user = %identity,
+                is_bot = info.is_bot,
+                is_app_user = info.is_app_user,
+                handle = %info.handle.as_deref().unwrap_or(""),
+                "Slack user is a bot/app account — skipping email-based user mapping"
+            );
+            return Ok(None);
+        }
+
+        let Some(email) = info.email else {
+            warn!(slack_user = %identity, "Slack API returned no email for user");
+            return Ok(None);
+        };
+
+        self.resolve_user_by_email(identity, &email, db).await
     }
+}
 
-    fn reply_instructions(&self) -> Option<String> {
-        Some(build_slack_reply_instructions(self.bot_user_id.as_deref()))
-    }
-
+impl AdapterDestinationBuilder for SlackAdapter {
     fn binding_destination_from_existing_thread(
         &self,
         source_id: &str,
@@ -820,70 +851,16 @@ impl Adapter for SlackAdapter {
         )?;
         Ok(destination.with_last_external_event_id(new_thread_info.external_thread_id.clone()))
     }
+}
 
-    fn sender_label_suffix(&self, msg: &InboundMessage) -> Option<String> {
-        let provider_user_id = msg
-            .provider_context
-            .get("user_id")
-            .and_then(serde_json::Value::as_str)
-            .filter(|value| !value.is_empty())?;
-        Some(format!(", Slack: {provider_user_id}"))
+impl AdapterOutboundContent for SlackAdapter {
+    fn supports_files(&self) -> bool {
+        true
     }
+}
 
-    fn inbound_message_prefix(&self, msg: &InboundMessage) -> Option<String> {
-        msg.provider_context
-            .get("is_bot_mentioned")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-            .then(|| {
-                "[You were @mentioned - a reply via `moat messages reply --message <id>` is required]"
-                    .to_string()
-            })
-    }
-
-    fn thread_reply_hint(&self, msg: &InboundMessage) -> Option<String> {
-        let is_bot_mentioned = msg
-            .provider_context
-            .get("is_bot_mentioned")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        if is_bot_mentioned {
-            None
-        } else {
-            Some("[New message in Slack thread]".to_string())
-        }
-    }
-
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        db: &DbPool,
-    ) -> Result<Option<String>, AdapterError> {
-        let Some(info) = self.api.get_user_info(identity).await? else {
-            warn!(slack_user = %identity, "Slack users.info returned no user");
-            return Ok(None);
-        };
-
-        // Bot / app accounts share emails across deployments — never resolve them by email.
-        if info.is_bot || info.is_app_user {
-            tracing::info!(
-                slack_user = %identity,
-                is_bot = info.is_bot,
-                is_app_user = info.is_app_user,
-                handle = %info.handle.as_deref().unwrap_or(""),
-                "Slack user is a bot/app account — skipping email-based user mapping"
-            );
-            return Ok(None);
-        }
-
-        let Some(email) = info.email else {
-            warn!(slack_user = %identity, "Slack API returned no email for user");
-            return Ok(None);
-        };
-
-        self.resolve_user_by_email(identity, &email, db).await
-    }
-
+#[async_trait::async_trait]
+impl AdapterBindingReply for SlackAdapter {
     async fn send_reply(
         &self,
         thread: &BindingContext,
@@ -970,14 +947,25 @@ impl Adapter for SlackAdapter {
         );
         self.send_reply(&thread, &config, message).await
     }
+}
 
-    /// Slack has to ask its API for the DM channel that pairs the bot with the
-    /// user before anything can be posted there.
-    async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
-        let dm_channel = self.open_dm(provider_user_id).await?;
-        Ok(Some(format!("dm:{dm_channel}")))
+#[async_trait::async_trait]
+impl AdapterMessageReply for SlackAdapter {
+    async fn reply_to_message(
+        &self,
+        binding: &TaskBinding,
+        connection: &AdapterConnection,
+        rule: Option<&SubscriptionMatch>,
+        _target_external_id: &str,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, AdapterError> {
+        self.send_reply_for_binding(binding, connection, rule, message)
+            .await
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterDirectDestination for SlackAdapter {
     async fn post_to_destination(
         &self,
         destination: &str,
@@ -1029,7 +1017,20 @@ impl Adapter for SlackAdapter {
             }),
         })
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterDirectMessage for SlackAdapter {
+    /// Slack has to ask its API for the DM channel that pairs the bot with the
+    /// user before anything can be posted there.
+    async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
+        let dm_channel = self.open_dm(provider_user_id).await?;
+        Ok(Some(format!("dm:{dm_channel}")))
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterNewThread for SlackAdapter {
     async fn send_message(
         &self,
         config: &LoopContext,
@@ -1073,7 +1074,10 @@ impl Adapter for SlackAdapter {
             }),
         })
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterReactions for SlackAdapter {
     async fn add_reaction(
         &self,
         binding: &BindingContext,
@@ -1095,6 +1099,46 @@ impl Adapter for SlackAdapter {
         let (channel, ts) = parse_slack_reaction_target(binding, target_external_id)?;
         let name = normalize_slack_emoji(emoji)?;
         self.api.remove_reaction(&channel, name, ts).await
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterInboundPresentation for SlackAdapter {
+    fn reply_instructions(&self) -> Option<String> {
+        Some(build_slack_reply_instructions(self.bot_user_id.as_deref()))
+    }
+
+    fn sender_label_suffix(&self, msg: &InboundMessage) -> Option<String> {
+        let provider_user_id = msg
+            .provider_context
+            .get("user_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())?;
+        Some(format!(", Slack: {provider_user_id}"))
+    }
+
+    fn inbound_message_prefix(&self, msg: &InboundMessage) -> Option<String> {
+        msg.provider_context
+            .get("is_bot_mentioned")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+            .then(|| {
+                "[You were @mentioned - a reply via `moat messages reply --message <id>` is required]"
+                    .to_string()
+            })
+    }
+
+    fn thread_reply_hint(&self, msg: &InboundMessage) -> Option<String> {
+        let is_bot_mentioned = msg
+            .provider_context
+            .get("is_bot_mentioned")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if is_bot_mentioned {
+            None
+        } else {
+            Some("[New message in Slack thread]".to_string())
+        }
     }
 
     async fn fetch_context(
@@ -1179,7 +1223,6 @@ impl Adapter for SlackAdapter {
 mod tests {
     use super::*;
     use crate::adapters::models::{RoutingMode, SubscriptionMatch};
-    use crate::adapters::Adapter;
     use moatless_backend_core::scope::Scope;
 
     #[test]

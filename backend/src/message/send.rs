@@ -92,11 +92,11 @@ pub async fn send_message_flow(
                 state
                     .adapters
                     .as_ref()
-                    .and_then(|providers| providers.get_by_name(provider_name))
+                    .and_then(|providers| providers.inbound_presentation_by_name(provider_name))
             })
             .map_or_else(
                 || vec![ext_id.to_string()],
-                |provider| provider.external_id_aliases(ext_id),
+                |presentation| presentation.external_id_aliases(ext_id),
             );
         let exists = state
             .messages

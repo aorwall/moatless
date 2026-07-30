@@ -1,5 +1,5 @@
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use chrono::Utc;
 use moatless_api_schemas::adapters::{
     AdapterConnectionResponse, AdapterSendRequest, AdapterSendResponse,
@@ -8,14 +8,14 @@ use moatless_api_schemas::adapters::{
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
 use super::common::{
-    adapter_connection_response, ensure_task_access, resolve_connection,
-    resolve_scope_for_adapter_create, AdapterFilter,
+    AdapterFilter, adapter_connection_response, ensure_task_access, resolve_connection,
+    resolve_scope_for_adapter_create,
 };
+use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, OutboundReply};
-use crate::adapters::AdapterKind;
 use crate::bindings::outbound::{resolve_files, truncate_text};
-use crate::bindings::runtime::{upsert_binding, ORIGIN_CONNECTED_THREAD};
+use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -166,9 +166,7 @@ pub async fn adapter_send(
         .adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("adapters not configured".into()))?;
-    let provider = providers
-        .get(req.adapter)
-        .ok_or_else(|| AdapterError::AdapterNotConfigured(req.adapter.as_str().to_string()))?;
+    let provider = providers.outbound_for_direct_destination(req.adapter)?;
 
     let files = resolve_files(&state, &req.file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
@@ -205,9 +203,11 @@ pub async fn adapter_send(
             Some(result.message_external_id.clone()),
         )
         .await?;
-        provider
-            .on_binding_created(&state, &connection, &binding, task_id)
-            .await;
+        if let Some(followup) = providers.post_binding_followup(req.adapter) {
+            followup
+                .on_binding_created(&state, &connection, &binding, task_id)
+                .await;
+        }
         Some(binding.id)
     } else {
         None
@@ -271,11 +271,10 @@ pub async fn send_user_dm(
         .adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("adapters not configured".into()))?;
-    let provider = providers
-        .get(kind)
-        .ok_or_else(|| AdapterError::AdapterNotConfigured(kind.as_str().to_string()))?;
+    let dm_provider = providers.outbound_for_direct_message(kind)?;
+    let send_provider = providers.outbound_for_direct_destination(kind)?;
 
-    let destination = provider
+    let destination = dm_provider
         .dm_destination(&provider_user_id)
         .await?
         .ok_or_else(|| {
@@ -286,7 +285,7 @@ pub async fn send_user_dm(
         })?;
 
     let reply = OutboundReply {
-        text: truncate_text(&req.text, provider.max_message_length()),
+        text: truncate_text(&req.text, send_provider.max_message_length()),
         task_url: None,
         footer: None,
         author_user_id: None,
@@ -294,7 +293,9 @@ pub async fn send_user_dm(
         files: vec![],
     };
 
-    let result = provider.post_to_destination(&destination, &reply).await?;
+    let result = send_provider
+        .post_to_destination(&destination, &reply)
+        .await?;
 
     let conversation_id = result
         .destination_config
@@ -315,7 +316,7 @@ pub async fn send_user_dm(
             &connection,
             None,
             task_id,
-            provider.connection_provider_key(),
+            send_provider.connection_provider_key(),
             result.subject_kind,
             &result.subject_key,
             result.destination_config.clone(),

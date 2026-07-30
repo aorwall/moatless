@@ -10,13 +10,17 @@ use crate::adapters::models::{
     AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
     SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::{Adapter, AdapterKind};
+use crate::adapters::{
+    Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
+    AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
+    AdapterPostBindingFollowup, AdapterUserIdentity,
+};
 use crate::db::DbPool;
 use crate::state::AppState;
 
-use super::agent_api::{default_http_client, LinearAgentApi};
-use super::status;
 use super::SUBJECT_KIND_ISSUE;
+use super::agent_api::{LinearAgentApi, default_http_client};
+use super::status;
 
 /// Linear adapter.
 pub struct LinearAdapter {
@@ -72,7 +76,7 @@ impl LinearAdapter {
     }
 
     /// Build a [`LinearAgentApi`] for the single Linear connection in
-    /// `integration_connections`. Used by [`Adapter::post_to_destination`],
+    /// `integration_connections`. Used by [`AdapterDirectDestination::post_to_destination`],
     /// which takes no connection parameter. Errors if there is no Linear
     /// connection installed, or more than one — multi-org callers must go
     /// through the typed `/api/v1/linear/*` endpoints with an explicit
@@ -104,18 +108,14 @@ impl LinearAdapter {
     }
 }
 
-#[async_trait::async_trait]
 impl Adapter for LinearAdapter {
     fn adapter_kind(&self) -> AdapterKind {
         AdapterKind::Linear
     }
+}
 
-    /// Linear comments allow generous bodies; cap well below the documented
-    /// 50k limit to leave headroom for the `Moatless task:` footer.
-    fn max_message_length(&self) -> usize {
-        50_000
-    }
-
+#[async_trait::async_trait]
+impl AdapterUserIdentity for LinearAdapter {
     async fn resolve_user(
         &self,
         identity: &str,
@@ -130,7 +130,18 @@ impl Adapter for LinearAdapter {
         .map_err(AdapterError::Db)?;
         Ok(user_id)
     }
+}
 
+impl AdapterOutboundContent for LinearAdapter {
+    /// Linear comments allow generous bodies; cap well below the documented
+    /// 50k limit to leave headroom for the `Moatless task:` footer.
+    fn max_message_length(&self) -> usize {
+        50_000
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterBindingReply for LinearAdapter {
     async fn send_reply(
         &self,
         _thread: &BindingContext,
@@ -140,65 +151,6 @@ impl Adapter for LinearAdapter {
         Err(AdapterError::BadRequest(
             "Linear outbound now goes through send_reply_for_binding (Agents API)".into(),
         ))
-    }
-
-    /// Post a comment on a Linear issue. Destination format:
-    /// `issue:<identifier-or-uuid>` (e.g. `issue:SP-123` or
-    /// `issue:bf0e…`). The single Linear connection in `integration_connections`
-    /// is used as the workspace context — multi-org callers must use the
-    /// typed `/api/v1/linear/*` endpoints instead.
-    async fn post_to_destination(
-        &self,
-        destination: &str,
-        message: &OutboundReply,
-    ) -> Result<crate::adapters::DestinationPostResult, AdapterError> {
-        let id_or_key = destination.strip_prefix("issue:").unwrap_or(destination);
-        if id_or_key.is_empty() {
-            return Err(AdapterError::BadRequest(
-                "Linear destination must be `issue:<SP-N>` or `issue:<uuid>`".into(),
-            ));
-        }
-
-        let api = self.api_for_single_workspace().await?;
-        let issue = api.get_issue(id_or_key).await?;
-        let issue_uuid = issue
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| AdapterError::AdapterApi("Linear issue payload missing id".into()))?
-            .to_string();
-        let identifier = issue
-            .get("identifier")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or(id_or_key)
-            .to_string();
-        let url = issue
-            .get("url")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-
-        let comment = api.create_comment(&issue_uuid, &message.text).await?;
-        let comment_id = comment
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                AdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
-            })?
-            .to_string();
-
-        let mut destination_config = serde_json::json!({
-            "issue_id": issue_uuid,
-            "issue_identifier": identifier,
-        });
-        if let Some(u) = url {
-            destination_config["url"] = serde_json::Value::String(u);
-        }
-
-        Ok(crate::adapters::DestinationPostResult {
-            message_external_id: format!("linear:comment:{comment_id}"),
-            subject_kind: SUBJECT_KIND_ISSUE,
-            subject_key: issue_uuid,
-            destination_config,
-        })
     }
 
     /// Reply to a bound Linear destination. Routes by `subject_kind`:
@@ -279,7 +231,87 @@ impl Adapter for LinearAdapter {
             }
         }
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterMessageReply for LinearAdapter {
+    async fn reply_to_message(
+        &self,
+        binding: &TaskBinding,
+        connection: &AdapterConnection,
+        rule: Option<&SubscriptionMatch>,
+        _target_external_id: &str,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, AdapterError> {
+        self.send_reply_for_binding(binding, connection, rule, message)
+            .await
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterDirectDestination for LinearAdapter {
+    /// Post a comment on a Linear issue. Destination format:
+    /// `issue:<identifier-or-uuid>` (e.g. `issue:SP-123` or
+    /// `issue:bf0e…`). The single Linear connection in `integration_connections`
+    /// is used as the workspace context — multi-org callers must use the
+    /// typed `/api/v1/linear/*` endpoints instead.
+    async fn post_to_destination(
+        &self,
+        destination: &str,
+        message: &OutboundReply,
+    ) -> Result<crate::adapters::DestinationPostResult, AdapterError> {
+        let id_or_key = destination.strip_prefix("issue:").unwrap_or(destination);
+        if id_or_key.is_empty() {
+            return Err(AdapterError::BadRequest(
+                "Linear destination must be `issue:<SP-N>` or `issue:<uuid>`".into(),
+            ));
+        }
+
+        let api = self.api_for_single_workspace().await?;
+        let issue = api.get_issue(id_or_key).await?;
+        let issue_uuid = issue
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| AdapterError::AdapterApi("Linear issue payload missing id".into()))?
+            .to_string();
+        let identifier = issue
+            .get("identifier")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(id_or_key)
+            .to_string();
+        let url = issue
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+
+        let comment = api.create_comment(&issue_uuid, &message.text).await?;
+        let comment_id = comment
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                AdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
+            })?
+            .to_string();
+
+        let mut destination_config = serde_json::json!({
+            "issue_id": issue_uuid,
+            "issue_identifier": identifier,
+        });
+        if let Some(u) = url {
+            destination_config["url"] = serde_json::Value::String(u);
+        }
+
+        Ok(crate::adapters::DestinationPostResult {
+            message_external_id: format!("linear:comment:{comment_id}"),
+            subject_kind: SUBJECT_KIND_ISSUE,
+            subject_key: issue_uuid,
+            destination_config,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterPostBindingFollowup for LinearAdapter {
     /// Link the moatless task back onto the issue an outbound send just bound
     /// to, so the Linear side shows a "source" pill pointing at the task.
     /// Agent-session bindings already carry that link from the session itself.
@@ -297,7 +329,10 @@ impl Adapter for LinearAdapter {
         super::agent_runtime::attach_parent_task_link(state, &api, &binding.subject_key, task_id)
             .await;
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterInboundPresentation for LinearAdapter {
     fn reply_instructions(&self) -> Option<String> {
         Some(
             "## Linear Agent Notes\n\
@@ -319,7 +354,10 @@ impl Adapter for LinearAdapter {
     fn thread_reply_hint(&self, _msg: &InboundMessage) -> Option<String> {
         Some("[Linear Agent prompt]".to_string())
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterBindingStatus for LinearAdapter {
     fn binding_status_key(&self, binding: &TaskBinding) -> Option<String> {
         status::binding_status_key(binding)
     }
@@ -353,11 +391,6 @@ impl Adapter for LinearAdapter {
             }
         }
     }
-
-    // `add_reaction` / `remove_reaction` intentionally not implemented; the
-    // default trait impl returns `BadRequest`, which is the new behavior.
-    // `fetch_context` is similarly defaulted (Linear Agents already deliver
-    // the prompt context inline via `promptContext` in the webhook).
 }
 
 #[cfg(test)]

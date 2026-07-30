@@ -7,7 +7,7 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::inbound_delivery::{admit_inbound_message, InboundDeliveryPayload};
 use crate::adapters::metrics::record_webhook;
 use crate::adapters::models::InboundMessage;
-use crate::adapters::Adapter;
+use crate::adapters::{Adapter, AdapterDestinationBuilder};
 use crate::state::AppState;
 
 /// The idempotency key for one Slack delivery.

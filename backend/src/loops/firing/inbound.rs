@@ -39,8 +39,8 @@ pub(crate) fn assemble_firing_prompt(
         parts.push(tpl.to_string());
     }
     if let Some(providers) = state.adapters.as_ref() {
-        if let Some(provider) = providers.get_by_name(provider_label) {
-            if let Some(extra) = provider.reply_instructions() {
+        if let Some(presentation) = providers.inbound_presentation_by_name(provider_label) {
+            if let Some(extra) = presentation.reply_instructions() {
                 parts.push(extra);
             }
         }

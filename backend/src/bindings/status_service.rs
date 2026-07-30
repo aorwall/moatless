@@ -1,7 +1,7 @@
 //! Live external status for task bindings.
 //!
 //! Everything adapter-specific — which subject a binding points at, how to
-//! reach it, how to normalize what comes back — lives behind the `Adapter`
+//! reach it, how to normalize what comes back — lives behind the status capability
 //! trait. What is left here is what is genuinely shared: a process-wide cache
 //! keyed by external subject, the write-through that keeps the persisted value
 //! on the binding warm, and the decision of whether a binding is worth polling
@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
-use crate::adapters::Adapter;
+use crate::adapters::AdapterBindingStatus;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::state::AppState;
 
@@ -36,14 +36,18 @@ use crate::state::AppState;
 /// a terminal status and becomes refreshable again. If that webhook is missed
 /// nothing re-polls (see ADR-0007 — a backstop poll was considered and
 /// rejected).
-pub fn should_refresh(adapter: &dyn Adapter, binding: &TaskBinding, cutoff: DateTime<Utc>) -> bool {
-    if adapter.binding_status_key(binding).is_none() {
+pub(crate) fn should_refresh(
+    status: &dyn AdapterBindingStatus,
+    binding: &TaskBinding,
+    cutoff: DateTime<Utc>,
+) -> bool {
+    if status.binding_status_key(binding).is_none() {
         return false;
     }
     let terminal = binding
         .external_state_kind
         .as_deref()
-        .is_some_and(|kind| adapter.is_terminal_state_kind(kind));
+        .is_some_and(|kind| status.is_terminal_state_kind(kind));
     if terminal {
         return false;
     }
@@ -53,7 +57,7 @@ pub fn should_refresh(adapter: &dyn Adapter, binding: &TaskBinding, cutoff: Date
 }
 
 /// Process-global cache keyed by the external subject a binding points at (see
-/// [`crate::adapters::Adapter::binding_status_key`]), so several tasks bound to
+/// [`crate::adapters::AdapterBindingStatus::binding_status_key`]), so several tasks bound to
 /// the same subject share one entry and one API call. A short TTL keeps the
 /// live fetch cheap under fan-out without holding stale status for long.
 fn cache() -> &'static Cache<String, ExternalStatus> {
@@ -78,13 +82,16 @@ pub async fn get_or_fetch(
     binding: &TaskBinding,
     created_by: &str,
 ) -> Option<ExternalStatus> {
-    let adapter = state.adapters.as_ref()?.get_by_name(&binding.provider)?;
-    let key = adapter.binding_status_key(binding)?;
+    let status = state
+        .adapters
+        .as_ref()?
+        .binding_status_by_name(&binding.provider)?;
+    let key = status.binding_status_key(binding)?;
     if let Some(cached) = cache().get(&key).await {
         return Some(cached);
     }
 
-    let fetched = adapter.fetch_binding_status(binding, created_by).await?;
+    let fetched = status.fetch_binding_status(binding, created_by).await?;
 
     cache().insert(key, fetched.clone()).await;
 
@@ -113,10 +120,7 @@ mod tests {
 
     use chrono::Duration as ChronoDuration;
 
-    use crate::adapters::error::AdapterError;
-    use crate::adapters::models::{BindingContext, LoopContext, OutboundReply};
-    use crate::adapters::AdapterKind;
-    use crate::db::DbPool;
+    use crate::adapters::AdapterBindingStatus;
 
     use super::*;
 
@@ -129,34 +133,13 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl Adapter for StubAdapter {
-        fn adapter_kind(&self) -> AdapterKind {
-            AdapterKind::Webhook
-        }
-
+    impl AdapterBindingStatus for StubAdapter {
         fn binding_status_key(&self, binding: &TaskBinding) -> Option<String> {
             self.keyed.then(|| format!("stub:{}", binding.subject_key))
         }
 
         fn is_terminal_state_kind(&self, state_kind: &str) -> bool {
             state_kind == "done"
-        }
-
-        async fn resolve_user(
-            &self,
-            _identity: &str,
-            _db: &DbPool,
-        ) -> Result<Option<String>, AdapterError> {
-            Ok(None)
-        }
-
-        async fn send_reply(
-            &self,
-            _thread: &BindingContext,
-            _config: &LoopContext,
-            _message: &OutboundReply,
-        ) -> Result<Option<String>, AdapterError> {
-            Ok(None)
         }
     }
 

@@ -21,7 +21,7 @@ use moatless_api_schemas::task_connections::{
 };
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
-use crate::adapters::Adapter;
+use crate::adapters::AdapterBindingStatus;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
 use crate::message::dao::ConnectionMessageCount;
@@ -164,7 +164,13 @@ pub async fn list_task_connections(
 
             let connections: Vec<Connection> = task_bindings
                 .iter()
-                .map(|b| decode_connection(adapter_for(&state, &b.provider), b, &count_by_binding))
+                .map(|b| {
+                    decode_connection(
+                        binding_status_for(&state, &b.provider),
+                        b,
+                        &count_by_binding,
+                    )
+                })
                 .collect();
 
             TaskConnectionRow {
@@ -261,7 +267,13 @@ pub async fn get_task_connections(
 
     let connections: Vec<Connection> = binding_refs
         .iter()
-        .map(|b| decode_connection(adapter_for(&state, &b.provider), b, &count_by_binding))
+        .map(|b| {
+            decode_connection(
+                binding_status_for(&state, &b.provider),
+                b,
+                &count_by_binding,
+            )
+        })
         .collect();
 
     Ok(Json(connections))
@@ -294,8 +306,8 @@ async fn refresh_stale_statuses(
         .iter()
         .filter(|b| {
             adapters
-                .get_by_name(&b.provider)
-                .is_some_and(|adapter| status_service::should_refresh(adapter.as_ref(), b, cutoff))
+                .binding_status_by_name(&b.provider)
+                .is_some_and(|status| status_service::should_refresh(status, b, cutoff))
         })
         .cloned()
         .collect();
@@ -422,29 +434,28 @@ fn match_counts(
 }
 
 /// The adapter that owns a binding's provider, if one is configured.
-fn adapter_for<'a>(state: &'a AppState, provider: &str) -> Option<&'a dyn Adapter> {
-    state
-        .adapters
-        .as_ref()?
-        .get_by_name(provider)
-        .map(std::convert::AsRef::as_ref)
+fn binding_status_for<'a>(
+    state: &'a AppState,
+    provider: &str,
+) -> Option<&'a dyn AdapterBindingStatus> {
+    state.adapters.as_ref()?.binding_status_by_name(provider)
 }
 
 /// Decode a binding's `destination_config` + persisted status into a typed
 /// [`Connection`].
 ///
-/// The label and URL come from the binding's adapter, which is the only thing
+/// The label and URL come from the binding's status capability, which is the only thing
 /// that knows the shape of its own destination config. `adapter` is the one
 /// resolved for this binding's provider; `None` (unconfigured or unknown
 /// provider) falls back to the same default the trait gives.
 fn decode_connection(
-    adapter: Option<&dyn Adapter>,
+    status: Option<&dyn AdapterBindingStatus>,
     b: &TaskBinding,
     counts: &HashMap<String, (i64, i64)>,
 ) -> Connection {
-    let (label, url) = adapter.map_or_else(
+    let (label, url) = status.map_or_else(
         || (b.subject_key.clone(), None),
-        |a| a.binding_label_and_url(b),
+        |status| status.binding_label_and_url(b),
     );
     let (incoming, outgoing) = counts.get(&b.id).copied().unwrap_or((0, 0));
 
@@ -479,10 +490,7 @@ fn connection_kind(subject_kind: &str) -> String {
 mod tests {
     use chrono::Utc;
 
-    use crate::adapters::error::AdapterError;
-    use crate::adapters::models::{BindingContext, LoopContext, OutboundReply};
-    use crate::adapters::{Adapter, AdapterKind};
-    use crate::db::DbPool;
+    use crate::adapters::AdapterBindingStatus;
 
     use super::*;
 
@@ -491,33 +499,12 @@ mod tests {
     struct StubAdapter;
 
     #[async_trait::async_trait]
-    impl Adapter for StubAdapter {
-        fn adapter_kind(&self) -> AdapterKind {
-            AdapterKind::Webhook
-        }
-
+    impl AdapterBindingStatus for StubAdapter {
         fn binding_label_and_url(&self, binding: &TaskBinding) -> (String, Option<String>) {
             (
                 format!("stub {}", binding.subject_key),
                 Some("https://stub.example/1".to_string()),
             )
-        }
-
-        async fn resolve_user(
-            &self,
-            _identity: &str,
-            _db: &DbPool,
-        ) -> Result<Option<String>, AdapterError> {
-            Ok(None)
-        }
-
-        async fn send_reply(
-            &self,
-            _thread: &BindingContext,
-            _config: &LoopContext,
-            _message: &OutboundReply,
-        ) -> Result<Option<String>, AdapterError> {
-            Ok(None)
         }
     }
 

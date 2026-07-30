@@ -10,7 +10,11 @@ use crate::adapters::models::{
     AdapterConnection, Audience, BindingContext, ExternalStatus, InboundMessage, LoopContext,
     OutboundReply, SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::{Adapter, AdapterKind, BindingDestination};
+use crate::adapters::{
+    Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
+    AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
+    AdapterReactions, AdapterUserIdentity, BindingDestination,
+};
 use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::github_app_registry::GitHubAppRegistry;
 use crate::auth::github_app_service::GitHubAppService;
@@ -268,7 +272,6 @@ pub struct GithubPrAdapter {
     /// Database pool — currently unused by token resolution (handled by the
     /// canonical resolver via `provider_tokens`), kept for future per-pool DB
     /// needs and to remain wire-compatible with the existing public ctor.
-    #[allow(dead_code)] // reason: held for future per-adapter DB needs
     db: DbPool,
     /// Provider-token repository — consulted by the canonical GitHub-token
     /// resolver to read the user's `provider_tokens` row.
@@ -1427,7 +1430,6 @@ pub(crate) async fn resolve_user_or_fallback(
     }
 }
 
-#[async_trait::async_trait]
 impl Adapter for GithubPrAdapter {
     fn adapter_kind(&self) -> AdapterKind {
         AdapterKind::GithubPr
@@ -1440,7 +1442,28 @@ impl Adapter for GithubPrAdapter {
     fn connection_provider_key(&self) -> &'static str {
         "github"
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterUserIdentity for GithubPrAdapter {
+    async fn resolve_user(
+        &self,
+        identity: &str,
+        db: &DbPool,
+    ) -> Result<Option<String>, AdapterError> {
+        let user_id = sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM provider_tokens WHERE provider = 'github' AND provider_login = $1 LIMIT 1",
+        )
+        .bind(identity)
+        .fetch_optional(db)
+        .await
+        .map_err(AdapterError::Db)?;
+
+        Ok(user_id)
+    }
+}
+
+impl AdapterDestinationBuilder for GithubPrAdapter {
     fn connection_scope_value_from_existing_thread(
         &self,
         source_id: &str,
@@ -1464,52 +1487,6 @@ impl Adapter for GithubPrAdapter {
 
     fn allow_wildcard_trigger_fallback(&self) -> bool {
         false
-    }
-
-    /// GitHub allows up to 65536 chars per issue/PR comment. Leave headroom for
-    /// the optional `Moatless task:` footer that `send_reply_for_binding`
-    /// appends.
-    fn max_message_length(&self) -> usize {
-        65_000
-    }
-
-    fn reply_instructions(&self) -> Option<String> {
-        Some(
-            "## GitHub PR Agent Notes\n\
-             - Always read the live PR state via the `moat gh` commands from the \
-               initial message (`pr view`, `pr diff`, `api …/comments`) — the \
-               description and comments evolve after task creation.\n\
-             - `moat gh pr reply <pr_number> <comment_id> --body \"…\"` — post a \
-               threaded reply to a specific review/inline comment by its numeric \
-               id (shown as `comment id:` in delivered messages and in \
-               `moat gh api …/pulls/<pr>/comments` output).\n\
-             - `moat gh pr comment <pr_number> --body \"…\"` — post a top-level \
-               conversation comment.\n\
-             - `moat messages reply --message <message_id> --text \"…\"` — reply \
-               to a delivered message; routes as a threaded reply when the \
-               message came from an inline review comment, top-level otherwise.\n\
-             - Task completion does NOT auto-post anything to GitHub — when you \
-               finish, post your final summary explicitly via \
-               `moat gh pr comment`.\n\
-             - Markdown is supported in all comment bodies."
-                .to_string(),
-        )
-    }
-
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        db: &DbPool,
-    ) -> Result<Option<String>, AdapterError> {
-        let user_id = sqlx::query_scalar::<_, String>(
-            "SELECT user_id FROM provider_tokens WHERE provider = 'github' AND provider_login = $1 LIMIT 1",
-        )
-        .bind(identity)
-        .fetch_optional(db)
-        .await
-        .map_err(AdapterError::Db)?;
-
-        Ok(user_id)
     }
 
     fn binding_destination_from_existing_thread(
@@ -1552,11 +1529,19 @@ impl Adapter for GithubPrAdapter {
             destination_config,
         ))
     }
+}
 
-    fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
-        super::external_id::aliases(external_id)
+impl AdapterOutboundContent for GithubPrAdapter {
+    /// GitHub allows up to 65536 chars per issue/PR comment. Leave headroom for
+    /// the optional `Moatless task:` footer that `send_reply_for_binding`
+    /// appends.
+    fn max_message_length(&self) -> usize {
+        65_000
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterBindingReply for GithubPrAdapter {
     /// Legacy thread-based outbound is not supported for GitHub. Outbound
     /// goes through `send_reply_for_binding` instead.
     async fn send_reply(
@@ -1601,7 +1586,10 @@ impl Adapter for GithubPrAdapter {
         let comment_id = api.post_comment(&owner, &repo, pr_number, &body).await?;
         Ok(Some(super::external_id::issue_comment(comment_id)))
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterMessageReply for GithubPrAdapter {
     async fn reply_to_message(
         &self,
         binding: &TaskBinding,
@@ -1645,7 +1633,10 @@ impl Adapter for GithubPrAdapter {
             }
         }
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterReactions for GithubPrAdapter {
     async fn add_reaction(
         &self,
         binding: &BindingContext,
@@ -1726,7 +1717,40 @@ impl Adapter for GithubPrAdapter {
         }
         Ok(())
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterInboundPresentation for GithubPrAdapter {
+    fn reply_instructions(&self) -> Option<String> {
+        Some(
+            "## GitHub PR Agent Notes\n\
+             - Always read the live PR state via the `moat gh` commands from the \
+               initial message (`pr view`, `pr diff`, `api …/comments`) — the \
+               description and comments evolve after task creation.\n\
+             - `moat gh pr reply <pr_number> <comment_id> --body \"…\"` — post a \
+               threaded reply to a specific review/inline comment by its numeric \
+               id (shown as `comment id:` in delivered messages and in \
+               `moat gh api …/pulls/<pr>/comments` output).\n\
+             - `moat gh pr comment <pr_number> --body \"…\"` — post a top-level \
+               conversation comment.\n\
+             - `moat messages reply --message <message_id> --text \"…\"` — reply \
+               to a delivered message; routes as a threaded reply when the \
+               message came from an inline review comment, top-level otherwise.\n\
+             - Task completion does NOT auto-post anything to GitHub — when you \
+               finish, post your final summary explicitly via \
+               `moat gh pr comment`.\n\
+             - Markdown is supported in all comment bodies."
+                .to_string(),
+        )
+    }
+
+    fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
+        super::external_id::aliases(external_id)
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterBindingStatus for GithubPrAdapter {
     fn binding_status_key(&self, binding: &TaskBinding) -> Option<String> {
         status::binding_status_key(binding)
     }
@@ -2429,7 +2453,6 @@ async fn admit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::Adapter;
 
     #[tokio::test]
     async fn provider_keys_separate_channel_and_integration_storage() {
@@ -2661,37 +2684,45 @@ mod tests {
     #[test]
     fn parse_post_merge_run_rejects_non_completed_or_non_push_or_pr_runs() {
         // not completed
-        assert!(parse_post_merge_run(&post_merge_payload(
-            "requested",
-            "push",
-            "success",
-            serde_json::json!([])
-        ))
-        .is_none());
+        assert!(
+            parse_post_merge_run(&post_merge_payload(
+                "requested",
+                "push",
+                "success",
+                serde_json::json!([])
+            ))
+            .is_none()
+        );
         // pull_request-triggered run (covered by check_run/check_suite already)
-        assert!(parse_post_merge_run(&post_merge_payload(
-            "completed",
-            "pull_request",
-            "success",
-            serde_json::json!([])
-        ))
-        .is_none());
+        assert!(
+            parse_post_merge_run(&post_merge_payload(
+                "completed",
+                "pull_request",
+                "success",
+                serde_json::json!([])
+            ))
+            .is_none()
+        );
         // push run that still lists PRs → not a base-branch merge result
-        assert!(parse_post_merge_run(&post_merge_payload(
-            "completed",
-            "push",
-            "success",
-            serde_json::json!([{"number": 7}])
-        ))
-        .is_none());
+        assert!(
+            parse_post_merge_run(&post_merge_payload(
+                "completed",
+                "push",
+                "success",
+                serde_json::json!([{"number": 7}])
+            ))
+            .is_none()
+        );
         // noise conclusion
-        assert!(parse_post_merge_run(&post_merge_payload(
-            "completed",
-            "push",
-            "skipped",
-            serde_json::json!([])
-        ))
-        .is_none());
+        assert!(
+            parse_post_merge_run(&post_merge_payload(
+                "completed",
+                "push",
+                "skipped",
+                serde_json::json!([])
+            ))
+            .is_none()
+        );
     }
 
     #[test]
@@ -3406,9 +3437,9 @@ mod tests {
             assert_eq!(
                 audience_of("pull_request_review_comment", &review_comment(Some(555))).await,
                 Some(Audience::ParentAuthor {
-                    parent_external_event_id: Some(super::super::super::external_id::review_comment(
-                        555
-                    ))
+                    parent_external_event_id: Some(
+                        super::super::super::external_id::review_comment(555)
+                    )
                 })
             );
         }

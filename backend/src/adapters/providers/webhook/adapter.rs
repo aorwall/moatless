@@ -18,7 +18,10 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     Audience, BindingContext, InboundMessage, LoopContext, OutboundReply,
 };
-use crate::adapters::{Adapter, AdapterKind};
+use crate::adapters::{
+    Adapter, AdapterBindingReply, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
+    AdapterUserIdentity,
+};
 use crate::db::DbPool;
 
 /// Inbound webhook payload.
@@ -202,12 +205,14 @@ impl Default for WebhookAdapter {
     }
 }
 
-#[async_trait::async_trait]
 impl Adapter for WebhookAdapter {
     fn adapter_kind(&self) -> AdapterKind {
         AdapterKind::Webhook
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterUserIdentity for WebhookAdapter {
     async fn resolve_user(
         &self,
         identity: &str,
@@ -216,7 +221,12 @@ impl Adapter for WebhookAdapter {
         // Webhook users are passed directly as system user IDs
         Ok(Some(identity.to_string()))
     }
+}
 
+impl AdapterOutboundContent for WebhookAdapter {}
+
+#[async_trait::async_trait]
+impl AdapterBindingReply for WebhookAdapter {
     async fn send_reply(
         &self,
         thread: &BindingContext,
@@ -273,6 +283,21 @@ impl Adapter for WebhookAdapter {
                 Err(AdapterError::provider_unreachable("Webhook callback", e))
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterMessageReply for WebhookAdapter {
+    async fn reply_to_message(
+        &self,
+        binding: &crate::adapters::models::TaskBinding,
+        connection: &crate::adapters::models::AdapterConnection,
+        rule: Option<&crate::adapters::models::SubscriptionMatch>,
+        _target_external_id: &str,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, AdapterError> {
+        self.send_reply_for_binding(binding, connection, rule, message)
+            .await
     }
 }
 

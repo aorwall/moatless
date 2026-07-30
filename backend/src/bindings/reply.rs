@@ -5,7 +5,7 @@ use crate::adapters::common::{
     binding_descriptor, ensure_task_access, load_adapter_connection_for_auth,
 };
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{OutboundReply, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, OutboundReply, TaskBinding};
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::outbound;
 use crate::message::models::{
@@ -126,9 +126,7 @@ impl<'a> ExternalReplyService<'a> {
             self.state.adapters.as_ref().ok_or_else(|| {
                 AdapterError::AdapterNotConfigured("No adapters configured".into())
             })?;
-        let adapter = providers
-            .get_by_name(&provider_key)
-            .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{provider_key}`")))?;
+        let adapter = providers.outbound_for_message_reply_by_name(&provider_key)?;
 
         // reason: delivery routing for an already read-authorized reply; public
         // tasks accept replies from non-owners, so the owner's connection row is
@@ -299,7 +297,7 @@ async fn load_binding_for_message_and_adapter(
 ) -> Result<TaskBinding, AdapterError> {
     let mut candidates: Vec<String> = vec![adapter_key.to_string()];
     if let Some(providers) = state.adapters.as_ref() {
-        if let Some(provider) = providers.get_by_name(adapter_key) {
+        if let Some(provider) = providers.identity_by_name(adapter_key) {
             let provider_key = provider.provider_key().to_string();
             let connection_key = provider.connection_provider_key().to_string();
             if !candidates.contains(&provider_key) {

@@ -7,10 +7,10 @@ use crate::message::models::{
 };
 use crate::state::AppState;
 
+use crate::adapters::Adapters;
 use crate::adapters::dao::PgAdapterConnectionRepository;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{OutboundFile, OutboundReply};
-use crate::adapters::Adapters;
 use crate::bindings::dao::PgTaskBindingRepository;
 use crate::bindings::metrics::record_outbound;
 use moatless_backend_core::scope::ScopeContext;
@@ -52,9 +52,7 @@ pub async fn direct_send_to_rule(
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(rule.connection_id.clone()))?;
 
-    let provider = providers
-        .get_by_name(&rule.provider)
-        .ok_or_else(|| AdapterError::AdapterNotConfigured(rule.provider.clone()))?;
+    let provider = providers.outbound_for_new_thread_by_name(&rule.provider)?;
     let provider_label = provider.provider_key();
 
     let files = resolve_files(state, file_ids).await;
@@ -99,7 +97,9 @@ pub async fn direct_send_to_rule(
     };
 
     if let Some(tid) = task_id {
-        let destination = provider.binding_destination_from_new_thread(&rule, &thread_info)?;
+        let destination_builder = providers.destination_builder(provider.adapter_kind())?;
+        let destination =
+            destination_builder.binding_destination_from_new_thread(&rule, &thread_info)?;
 
         crate::bindings::runtime::upsert_binding(
             state,
@@ -263,9 +263,7 @@ pub async fn send_to_binding(
         None
     };
 
-    let provider = providers
-        .get_by_name(&binding.provider)
-        .ok_or_else(|| AdapterError::AdapterNotConfigured(binding.provider.clone()))?;
+    let provider = providers.outbound_for_binding_reply_by_name(&binding.provider)?;
     let provider_label = provider.provider_key();
 
     let binding_trigger_id = binding.trigger_id.as_deref().unwrap_or("");

@@ -583,10 +583,10 @@ pub fn external_id_aliases(
     state
         .adapters
         .as_ref()
-        .and_then(|providers| providers.get_by_name(provider_label))
+        .and_then(|providers| providers.inbound_presentation_by_name(provider_label))
         .map_or_else(
             || vec![external_id.to_string()],
-            |provider| provider.external_id_aliases(external_id),
+            |presentation| presentation.external_id_aliases(external_id),
         )
 }
 
@@ -674,7 +674,7 @@ async fn deliver_to_binding(
 
     let thread_context = if msg.thread_id.is_some() {
         if let Some(ref providers) = state.adapters {
-            if let Some(provider) = providers.get_by_name(provider_label) {
+            if let Some(presentation) = providers.inbound_presentation_by_name(provider_label) {
                 let mut exclude_ids = state
                     .messages
                     .get_external_event_ids(&binding.task_id)
@@ -683,7 +683,7 @@ async fn deliver_to_binding(
                 if let Some(ref ext_id) = msg.external_event_id {
                     exclude_ids.push(ext_id.clone());
                 }
-                provider
+                presentation
                     .fetch_context(&thread, &config, 20, &exclude_ids)
                     .await
                     .unwrap_or_else(|e| {
@@ -705,16 +705,16 @@ async fn deliver_to_binding(
     if let Some(prefix) = state
         .adapters
         .as_ref()
-        .and_then(|providers| providers.get_by_name(provider_label))
-        .and_then(|provider| provider.inbound_message_prefix(msg))
+        .and_then(|providers| providers.inbound_presentation_by_name(provider_label))
+        .and_then(|presentation| presentation.inbound_message_prefix(msg))
     {
         message_text = format!("{prefix}\n\n{message_text}");
     }
 
     if msg.thread_id.is_some() {
         if let Some(providers) = state.adapters.as_ref() {
-            if let Some(provider) = providers.get_by_name(provider_label) {
-                if let Some(hint) = provider.thread_reply_hint(msg) {
+            if let Some(presentation) = providers.inbound_presentation_by_name(provider_label) {
+                if let Some(hint) = presentation.thread_reply_hint(msg) {
                     message_text = format!("{hint}\n\n{message_text}");
                 }
             }

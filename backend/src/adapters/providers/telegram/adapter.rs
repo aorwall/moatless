@@ -3,12 +3,17 @@
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{admit_inbound_message, InboundDeliveryPayload};
+use crate::adapters::inbound_delivery::{InboundDeliveryPayload, admit_inbound_message};
 use crate::adapters::models::{
     AccessDecision, AdapterConnection, Audience, BindingContext, InboundMessage, LoopContext,
     NewThreadInfo, OutboundReply, SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::{Adapter, AdapterKind, BindingDestination};
+use crate::adapters::{
+    Adapter, AdapterBindingReply, AdapterDestinationBuilder, AdapterDirectDestination,
+    AdapterDirectMessage, AdapterInboundPresentation, AdapterKind, AdapterMessageReply,
+    AdapterNewThread, AdapterOutboundContent, AdapterReactions, AdapterUserIdentity,
+    BindingDestination, DestinationPostResult,
+};
 use crate::db::DbPool;
 
 use super::access;
@@ -279,12 +284,39 @@ impl TelegramAdapter {
     }
 }
 
-#[async_trait::async_trait]
 impl Adapter for TelegramAdapter {
     fn adapter_kind(&self) -> AdapterKind {
         AdapterKind::Telegram
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterUserIdentity for TelegramAdapter {
+    async fn resolve_user(
+        &self,
+        identity: &str,
+        db: &DbPool,
+    ) -> Result<Option<String>, AdapterError> {
+        // Look up by provider_user_id in provider_tokens table
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT user_id FROM provider_tokens WHERE provider = 'telegram' AND provider_user_id = $1 LIMIT 1",
+        )
+        .bind(identity)
+        .fetch_optional(db)
+        .await
+        .map_err(AdapterError::Db)?;
+
+        if let Some((user_id,)) = row {
+            info!(telegram_user_id = %identity, user_id = %user_id, "Resolved Telegram user to system user");
+            Ok(Some(user_id))
+        } else {
+            warn!(telegram_user_id = %identity, "No system user found for Telegram user");
+            Ok(None)
+        }
+    }
+}
+
+impl AdapterDestinationBuilder for TelegramAdapter {
     fn binding_destination_from_existing_thread(
         &self,
         source_id: &str,
@@ -334,34 +366,26 @@ impl Adapter for TelegramAdapter {
         )?;
         Ok(destination.with_last_external_event_id(new_thread_info.external_thread_id.clone()))
     }
+}
 
-    fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
-        super::external_id::aliases(external_id)
+impl AdapterOutboundContent for TelegramAdapter {}
+
+fn parse_telegram_direct_destination(destination: &str) -> Result<&str, AdapterError> {
+    let raw = destination.trim();
+    let chat_id = raw.strip_prefix("chat:").ok_or_else(|| {
+        AdapterError::BadRequest("Telegram destination must be `chat:<id>`".into())
+    })?;
+    let chat_id = chat_id.trim();
+    if chat_id.is_empty() {
+        return Err(AdapterError::BadRequest(
+            "Telegram destination must include a chat id".into(),
+        ));
     }
+    Ok(chat_id)
+}
 
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        db: &DbPool,
-    ) -> Result<Option<String>, AdapterError> {
-        // Look up by provider_user_id in provider_tokens table
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT user_id FROM provider_tokens WHERE provider = 'telegram' AND provider_user_id = $1 LIMIT 1",
-        )
-        .bind(identity)
-        .fetch_optional(db)
-        .await
-        .map_err(AdapterError::Db)?;
-
-        if let Some((user_id,)) = row {
-            info!(telegram_user_id = %identity, user_id = %user_id, "Resolved Telegram user to system user");
-            Ok(Some(user_id))
-        } else {
-            warn!(telegram_user_id = %identity, "No system user found for Telegram user");
-            Ok(None)
-        }
-    }
-
+#[async_trait::async_trait]
+impl AdapterBindingReply for TelegramAdapter {
     async fn send_reply(
         &self,
         thread: &BindingContext,
@@ -436,40 +460,10 @@ impl Adapter for TelegramAdapter {
         );
         self.send_reply(&thread, &config, message).await
     }
+}
 
-    /// A Telegram user's id doubles as the id of their private chat with the
-    /// bot, so the destination needs no API call.
-    async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
-        Ok(Some(format!("chat:{provider_user_id}")))
-    }
-
-    async fn send_message(
-        &self,
-        config: &LoopContext,
-        message: &OutboundReply,
-    ) -> Result<NewThreadInfo, AdapterError> {
-        let chat_id = &config.source_id;
-
-        let mut text = message.text.clone();
-        if let Some(ref url) = message.task_url {
-            use std::fmt::Write;
-            let _ = write!(text, "\n\n[View task]({url})");
-        }
-
-        let message_id = self
-            .api
-            .send_message_returning_id(chat_id, &text, None, None)
-            .await?;
-        Ok(NewThreadInfo {
-            external_thread_id: message_id.to_string(),
-            properties: serde_json::json!({
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "forum_topic_id": serde_json::Value::Null,
-            }),
-        })
-    }
-
+#[async_trait::async_trait]
+impl AdapterMessageReply for TelegramAdapter {
     async fn reply_to_message(
         &self,
         binding: &TaskBinding,
@@ -510,7 +504,83 @@ impl Adapter for TelegramAdapter {
             .await?;
         Ok(Some(super::external_id::message(new_id)))
     }
+}
 
+#[async_trait::async_trait]
+impl AdapterDirectDestination for TelegramAdapter {
+    async fn post_to_destination(
+        &self,
+        destination: &str,
+        message: &OutboundReply,
+    ) -> Result<DestinationPostResult, AdapterError> {
+        let chat_id = parse_telegram_direct_destination(destination)?;
+
+        let mut text = message.text.clone();
+        if let Some(ref url) = message.task_url {
+            use std::fmt::Write;
+            let _ = write!(text, "\n\n[View task]({url})");
+        }
+
+        let message_id = self
+            .api
+            .send_message_returning_id(chat_id, &text, None, None)
+            .await?;
+        let external_id = super::external_id::message(message_id);
+
+        Ok(DestinationPostResult {
+            message_external_id: external_id,
+            subject_kind: "telegram_thread",
+            subject_key: format!("{chat_id}:thread:{message_id}"),
+            destination_config: serde_json::json!({
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "forum_topic_id": serde_json::Value::Null,
+            }),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterDirectMessage for TelegramAdapter {
+    /// A Telegram user's id doubles as the id of their private chat with the
+    /// bot, so the destination needs no API call.
+    async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
+        Ok(Some(format!("chat:{provider_user_id}")))
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterNewThread for TelegramAdapter {
+    async fn send_message(
+        &self,
+        config: &LoopContext,
+        message: &OutboundReply,
+    ) -> Result<NewThreadInfo, AdapterError> {
+        let chat_id = &config.source_id;
+
+        let mut text = message.text.clone();
+        if let Some(ref url) = message.task_url {
+            use std::fmt::Write;
+            let _ = write!(text, "\n\n[View task]({url})");
+        }
+
+        let message_id = self
+            .api
+            .send_message_returning_id(chat_id, &text, None, None)
+            .await?;
+        Ok(NewThreadInfo {
+            external_thread_id: message_id.to_string(),
+            properties: serde_json::json!({
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "forum_topic_id": serde_json::Value::Null,
+            }),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl AdapterReactions for TelegramAdapter {
     async fn add_reaction(
         &self,
         binding: &BindingContext,
@@ -542,8 +612,13 @@ impl Adapter for TelegramAdapter {
             .set_message_reaction(&chat_id, message_id, None)
             .await
     }
+}
 
-    // fetch_context: default no-op (Bot API doesn't support fetching chat history)
+#[async_trait::async_trait]
+impl AdapterInboundPresentation for TelegramAdapter {
+    fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
+        super::external_id::aliases(external_id)
+    }
 }
 
 /// Resolve the `(chat_id, message_id)` pair for a Telegram reaction call.
@@ -730,7 +805,8 @@ fn strip_bot_mention(text: &str, bot_username: Option<&str>) -> String {
 mod tests {
     use super::*;
     use crate::adapters::models::{RoutingMode, SubscriptionMatch};
-    use crate::adapters::Adapter;
+    use crate::adapters::test_support::stub_provider;
+    use axum::http::StatusCode;
     use moatless_backend_core::scope::Scope;
 
     #[test]
@@ -763,6 +839,67 @@ mod tests {
             strip_bot_mention("fix the bug", Some("@mybot")),
             "fix the bug"
         );
+    }
+
+    #[tokio::test]
+    async fn direct_destination_posts_to_chat_destination_and_builds_binding_shape() {
+        let base = stub_provider(StatusCode::OK, r#"{"ok":true,"result":{"message_id":77}}"#).await;
+        let provider = TelegramAdapter {
+            api: TelegramApi::with_base_url(base),
+        };
+
+        let result = provider
+            .post_to_destination(
+                "chat:999",
+                &OutboundReply {
+                    text: "hello".to_string(),
+                    task_url: None,
+                    footer: None,
+                    author_user_id: None,
+                    is_error: false,
+                    files: vec![],
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.message_external_id, "tg:m:77");
+        assert_eq!(result.subject_kind, "telegram_thread");
+        assert_eq!(result.subject_key, "999:thread:77");
+        assert_eq!(
+            result.destination_config,
+            serde_json::json!({
+                "chat_id": "999",
+                "message_id": 77,
+                "forum_topic_id": serde_json::Value::Null,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn direct_destination_rejects_non_chat_destination_shape() {
+        let provider = TelegramAdapter::new("fake_token");
+        let err = provider
+            .post_to_destination(
+                "999",
+                &OutboundReply {
+                    text: "hello".to_string(),
+                    task_url: None,
+                    footer: None,
+                    author_user_id: None,
+                    is_error: false,
+                    files: vec![],
+                },
+            )
+            .await
+            .expect_err("destination needs explicit chat prefix");
+
+        match err {
+            AdapterError::BadRequest(msg) => {
+                assert!(msg.contains("chat:<id>"), "unexpected message: {msg}");
+            }
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
     }
 
     #[tokio::test]
