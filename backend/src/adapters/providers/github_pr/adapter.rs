@@ -18,9 +18,9 @@ use crate::adapters::{
 use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
-use crate::bindings::dao::PgTaskBindingRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
+use crate::bindings::dao::PgTaskBindingDao;
 use crate::db::DbPool;
 use crate::secret::service::SecretService;
 use crate::state::AppState;
@@ -275,10 +275,10 @@ pub struct GithubPrAdapter {
     db: DbPool,
     /// Provider-token repository — consulted by the canonical GitHub-token
     /// resolver to read the user's `provider_tokens` row.
-    provider_tokens: Arc<dyn ProviderTokenRepository>,
+    provider_tokens: Arc<dyn ProviderTokenDao>,
     /// Provider-token auth repository — needed to persist refreshed GitHub App
     /// user tokens. `None` is acceptable in tests / minimal wiring.
-    provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+    provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
     /// Default GitHub App service handle — used by the resolver to refresh
     /// expiring `github_app` user tokens. `None` when no default App is
     /// configured.
@@ -302,8 +302,8 @@ impl GithubPrAdapter {
         global_bot_token: Option<String>,
         frontend_url: String,
         db: DbPool,
-        provider_tokens: Arc<dyn ProviderTokenRepository>,
-        provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
         github_app_service: Option<Arc<GitHubAppService>>,
         github_apps: Arc<GitHubAppRegistry>,
     ) -> Self {
@@ -620,7 +620,7 @@ impl GithubPrAdapter {
         let db = self.db.clone();
 
         tokio::spawn(async move {
-            let repo = PgTaskBindingRepository(db);
+            let repo = PgTaskBindingDao(db);
             let bindings = match repo
                 .find_by_subject("github", "github_pr", &subject_key)
                 .await
@@ -671,7 +671,7 @@ impl GithubPrAdapter {
         let db = self.db.clone();
 
         tokio::spawn(async move {
-            let repo = PgTaskBindingRepository(db);
+            let repo = PgTaskBindingDao(db);
             let bindings = match repo
                 .find_by_subject("github", "github_pr", &subject_key)
                 .await
@@ -1858,7 +1858,7 @@ pub(super) async fn check_pr_merge_conflict(
     let subject_key = format!("{owner}/{repo}#{pr_number}");
 
     // Skip the API poll unless some active task is actually bound to this PR.
-    if !PgTaskBindingRepository(state.db.clone())
+    if !PgTaskBindingDao(state.db.clone())
         .find_by_subject("github", "github_pr", &subject_key)
         .await?
         .iter()
@@ -2114,7 +2114,7 @@ pub(super) async fn check_post_merge_ci(
     let subject_key = format!("{owner}/{repo}#{pr_number}");
 
     // Skip unless some active task is still connected to the PR.
-    if !PgTaskBindingRepository(state.db.clone())
+    if !PgTaskBindingDao(state.db.clone())
         .find_by_subject("github", "github_pr", &subject_key)
         .await?
         .iter()
@@ -2873,8 +2873,8 @@ mod tests {
             .unwrap()
     }
 
-    fn fake_provider_tokens() -> Arc<dyn ProviderTokenRepository> {
-        Arc::new(crate::auth::provider_token_dao::PgProviderTokenRepository(
+    fn fake_provider_tokens() -> Arc<dyn ProviderTokenDao> {
+        Arc::new(crate::auth::provider_token_dao::PgProviderTokenDao(
             fake_db_pool(),
         ))
     }

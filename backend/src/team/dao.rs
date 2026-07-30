@@ -6,9 +6,9 @@ use uuid::Uuid;
 use super::models::{Team, TeamMember};
 use crate::db::DbPool;
 
-/// Repository trait for team persistence.
+/// DAO trait for team persistence.
 #[async_trait]
-pub trait TeamRepository: Send + Sync {
+pub trait TeamDao: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, sqlx::Error>;
     async fn find_by_slug(&self, slug: &str) -> Result<Option<Team>, sqlx::Error>;
     async fn find_by_external_id(
@@ -49,11 +49,11 @@ pub trait TeamRepository: Send + Sync {
     ) -> Result<Team, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`TeamRepository`].
-pub struct PgTeamRepository(pub DbPool);
+/// PostgreSQL implementation of [`TeamDao`].
+pub struct PgTeamDao(pub DbPool);
 
 #[async_trait]
-impl TeamRepository for PgTeamRepository {
+impl TeamDao for PgTeamDao {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>("SELECT * FROM teams WHERE id = $1")
             .bind(id)

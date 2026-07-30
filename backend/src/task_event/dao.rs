@@ -29,15 +29,15 @@ pub struct WorkspaceSyncUpload {
 }
 
 /// A task with an unclosed turn. The authoritative reaper query now lives on
-/// the `task_turns` table ([`crate::task_turn::dao::TaskTurnRepository::list_unclosed_active_turns`]);
-/// this module keeps the event-log-derived [`TaskEventRepository::active_turn_for_task`]
+/// the `task_turns` table ([`crate::task_turn::dao::TaskTurnDao::list_unclosed_active_turns`]);
+/// this module keeps the event-log-derived [`TaskEventDao::active_turn_for_task`]
 /// for the single-task lookup the pod watcher needs. Both share this type.
 pub use crate::task_turn::models::UnclosedTurn;
 
-/// Repository trait for task event persistence.
+/// DAO trait for task event persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait TaskEventRepository: Send + Sync {
+pub trait TaskEventDao: Send + Sync {
     /// Insert a single event.
     async fn insert_event(&self, event: &InsertTaskEvent) -> Result<(), sqlx::Error>;
 
@@ -76,7 +76,7 @@ pub trait TaskEventRepository: Send + Sync {
     /// turn context to a `turn_interrupted` event and to suppress it when no
     /// turn is in flight. The reaper's fleet-wide equivalent now reads the
     /// authoritative `task_turns` table via
-    /// [`crate::task_turn::dao::TaskTurnRepository::list_unclosed_active_turns`].
+    /// [`crate::task_turn::dao::TaskTurnDao::list_unclosed_active_turns`].
     async fn active_turn_for_task(
         &self,
         task_id: &str,
@@ -140,11 +140,11 @@ pub trait TaskEventRepository: Send + Sync {
     ) -> Result<Option<WorkspaceSyncUpload>, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`TaskEventRepository`].
-pub struct PgTaskEventRepository(pub DbPool);
+/// PostgreSQL implementation of [`TaskEventDao`].
+pub struct PgTaskEventDao(pub DbPool);
 
 #[async_trait]
-impl TaskEventRepository for PgTaskEventRepository {
+impl TaskEventDao for PgTaskEventDao {
     async fn insert_event(&self, event: &InsertTaskEvent) -> Result<(), sqlx::Error> {
         // ON CONFLICT DO NOTHING makes insertion idempotent on event_id (which
         // carries a unique index): re-delivering the same stream entry — e.g.

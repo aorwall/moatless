@@ -34,7 +34,7 @@ use moatless_vibe_backend::adapters::github_pr::adapter::{
 };
 use moatless_vibe_backend::adapters::github_pr::delivery::kind;
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
-use moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository;
+use moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenDao;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
@@ -66,7 +66,7 @@ fn replica(pool: &PgPool) -> (AppState, GithubPrAdapter) {
         None,
         "https://app.example.com".to_string(),
         pool.clone(),
-        Arc::new(PgProviderTokenRepository(pool.clone())),
+        Arc::new(PgProviderTokenDao(pool.clone())),
         None,
         None,
         Arc::new(GitHubAppRegistry::new(

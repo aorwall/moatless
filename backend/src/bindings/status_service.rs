@@ -15,7 +15,7 @@ use moka::future::Cache;
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::adapters::AdapterBindingStatus;
-use crate::bindings::dao::PgTaskBindingRepository;
+use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
 /// Whether a binding's live external status is worth fetching again.
@@ -96,7 +96,7 @@ pub async fn get_or_fetch(
     cache().insert(key, fetched.clone()).await;
 
     // Write-through so the persisted value stays warm for DB-only reads.
-    if let Err(e) = PgTaskBindingRepository(state.db.clone())
+    if let Err(e) = PgTaskBindingDao(state.db.clone())
         .update_external_status(
             &binding.id,
             fetched.status.as_deref(),

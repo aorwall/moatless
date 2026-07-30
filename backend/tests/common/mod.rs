@@ -316,7 +316,7 @@ pub fn test_app_state_with_adapters(
         moatless_vibe_backend::auth::github::service::GitHubAppService::from_config(&config)
             .map(Arc::new),
         Some(Arc::new(
-            moatless_vibe_backend::auth::github::store::PgGitHubAppStore(pool.clone()),
+            moatless_vibe_backend::auth::github::dao::PgGitHubAppDao(pool.clone()),
         )),
         moatless_vibe_backend::secret::service::LocalEnvelopeSecretCipher::from_config(
             &config.secrets,

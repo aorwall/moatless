@@ -10,7 +10,7 @@ Deep module owning durable lifecycle intent and orchestration per Task. The type
 intent/runtime effect axes, `ArchiveRetention`, classifiable
 `LifecycleError`/`RuntimeError`, `OperationGeneration`/`CorrelationMarker`), the
 `SandboxRuntime` seam (`RuntimeOperationContext` + `RuntimeOutcome`), the
-`Lifecycle` orchestrator over ports (`LifecycleStore`, `AgentStopPort`,
+`Lifecycle` orchestrator over ports (`LifecycleDao`, `AgentStopPort`,
 `LifecycleEventSink`, `LifecycleLock`, `Clock`), and the load-bearing decision
 logic as pure, unit-tested functions: `convergence` (reconciler desired/observed
 map), `classify` (watcher four-case classification), `marker` (per-class
@@ -27,7 +27,7 @@ their consumers during assembly. Every
 start/stop/restart/redeploy/remove caller — task and
 sandbox handlers, adapters, the reaper, message-send/notify, and the pod watcher's
 crash remediation — routes through it, over the
-`PgLifecycleStore`/`PgLifecycleLock` Postgres adapters, a native
+`PgLifecycleDao`/`PgLifecycleLock` Postgres adapters, a native
 `SandboxRuntime`, `GrpcAgentStop`, and the `OutboxEventSink`. Provision-plan
 construction, expected-image resolution, strict runtime-resource absence, and
 archive retention are behind lifecycle and the concrete runtime adapters.

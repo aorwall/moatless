@@ -13,7 +13,7 @@ use urlencoding;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use crate::adapters::dao::{AdapterConnectionRepository, PgAdapterConnectionRepository};
+use crate::adapters::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
 use crate::config::{AuthProvider, Config};
 use crate::db::DbPool;
 use crate::error::ErrorBody;
@@ -22,7 +22,7 @@ use crate::setup::{evaluate_setup, SetupContext};
 use moatless_backend_core::scope::ScopeContext;
 
 use super::api_key;
-use super::api_keys::ApiKeyRepository;
+use super::api_keys::ApiKeyDao;
 use super::cache::AuthCache;
 use super::cookie;
 use super::error::AuthError;
@@ -32,11 +32,11 @@ use super::identity::AuthIdentity;
 use super::jwt::{self, SessionClaims};
 use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
-use super::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
-use super::provider_tokens::ProviderTokenAuthRepository;
+use super::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
+use super::provider_tokens::ProviderTokenAuthDao;
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 
-use super::password::dao::UserCredentialRepository;
+use super::password::dao::UserCredentialDao;
 use super::password::hash;
 use super::password::throttle::LoginThrottle;
 use super::schemas::{
@@ -47,8 +47,8 @@ use super::schemas::{
     TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
 };
 use super::session;
-use super::sessions::SessionRepository;
-use super::users::UserRepository;
+use super::sessions::SessionDao;
+use super::users::UserDao;
 
 /// Type-safe container for configured OAuth providers.
 #[derive(Clone, Default)]
@@ -116,17 +116,17 @@ pub struct AuthState {
     pub config: Arc<Config>,
     pub providers: Arc<OAuthProviders>,
     pub cache: AuthCache,
-    pub sessions: Arc<dyn SessionRepository>,
-    pub api_keys: Arc<dyn ApiKeyRepository>,
-    pub users: Arc<dyn UserRepository>,
+    pub sessions: Arc<dyn SessionDao>,
+    pub api_keys: Arc<dyn ApiKeyDao>,
+    pub users: Arc<dyn UserDao>,
     /// Local password credentials (`user_credentials`).
-    pub credentials: Arc<dyn UserCredentialRepository>,
+    pub credentials: Arc<dyn UserCredentialDao>,
     /// Per-username failed-login counter for the password endpoint.
     pub login_throttle: LoginThrottle,
-    pub provider_tokens: Arc<dyn ProviderTokenAuthRepository>,
+    pub provider_tokens: Arc<dyn ProviderTokenAuthDao>,
     /// DAO for credential lookups (full-row reads, refresh persistence).
     /// Separate from `provider_tokens` (which handles upsert/metadata paths).
-    pub provider_tokens_dao: Arc<dyn ProviderTokenRepository>,
+    pub provider_tokens_dao: Arc<dyn ProviderTokenDao>,
     /// Optional GitHub App service used to refresh expiring user tokens when
     /// reporting provider connection status on `/me`. Convenience handle to
     /// `github_apps.default_service()`.
@@ -136,49 +136,49 @@ pub struct AuthState {
     /// Encrypted secret store — holds the OAuth token stashed behind a PAT
     /// override, and the validated PAT itself.
     pub secrets: Arc<SecretService>,
-    pub tasks: Option<Arc<dyn crate::task::dao::TaskRepository>>,
+    pub tasks: Option<Arc<dyn crate::task::dao::TaskDao>>,
     /// Adapter connections (`integration_connections`). The Linear OAuth
     /// callback mirrors the authorized workspace into this table so inbound
     /// Linear webhooks resolve a connection.
-    pub adapter_connections: Arc<dyn AdapterConnectionRepository>,
+    pub adapter_connections: Arc<dyn AdapterConnectionDao>,
 }
 
 impl AuthState {
-    /// Build auth state with Postgres-backed repositories.
+    /// Build auth state with Postgres-backed DAOs.
     pub fn new(pool: DbPool, config: Arc<Config>) -> Self {
-        use super::api_keys::PgApiKeyRepository;
-        use super::provider_tokens::PgProviderTokenAuthRepository;
-        use super::sessions::PgSessionRepository;
-        use super::users::PgUserRepository;
+        use super::api_keys::PgApiKeyDao;
+        use super::provider_tokens::PgProviderTokenAuthDao;
+        use super::sessions::PgSessionDao;
+        use super::users::PgUserDao;
 
         let providers = OAuthProviders::from_config(&config);
         let cache = AuthCache::new(config.auth.cache_ttl_secs);
-        let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
-            Some(Arc::new(crate::task::dao::PgTaskRepository(pool.clone())));
+        let tasks: Option<Arc<dyn crate::task::dao::TaskDao>> =
+            Some(Arc::new(crate::task::dao::PgTaskDao(pool.clone())));
         let github_apps = Arc::new(GitHubAppRegistry::new(
             super::github::service::GitHubAppService::from_config(&config).map(Arc::new),
-            Some(Arc::new(super::github::store::PgGitHubAppStore(
+            Some(Arc::new(super::github::dao::PgGitHubAppDao(
                 pool.clone(),
             ))),
             crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
         ));
         let github_app_service = github_apps.default_service();
         let secrets = Arc::new(SecretService::new(
-            Arc::new(crate::secret::dao::PgSecretRepository(pool.clone())),
-            Arc::new(crate::secret::audit::PgSecretAuditRepository(pool.clone())),
+            Arc::new(crate::secret::dao::PgSecretDao(pool.clone())),
+            Arc::new(crate::secret::audit::PgSecretAuditDao(pool.clone())),
             crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
         ));
         Self {
-            sessions: Arc::new(PgSessionRepository(pool.clone())),
-            api_keys: Arc::new(PgApiKeyRepository(pool.clone())),
-            users: Arc::new(PgUserRepository(pool.clone())),
-            credentials: Arc::new(super::password::dao::PgUserCredentialRepository(
+            sessions: Arc::new(PgSessionDao(pool.clone())),
+            api_keys: Arc::new(PgApiKeyDao(pool.clone())),
+            users: Arc::new(PgUserDao(pool.clone())),
+            credentials: Arc::new(super::password::dao::PgUserCredentialDao(
                 pool.clone(),
             )),
             login_throttle: LoginThrottle::new(),
-            provider_tokens: Arc::new(PgProviderTokenAuthRepository(pool.clone())),
-            provider_tokens_dao: Arc::new(PgProviderTokenRepository(pool.clone())),
-            adapter_connections: Arc::new(PgAdapterConnectionRepository(pool.clone())),
+            provider_tokens: Arc::new(PgProviderTokenAuthDao(pool.clone())),
+            provider_tokens_dao: Arc::new(PgProviderTokenDao(pool.clone())),
+            adapter_connections: Arc::new(PgAdapterConnectionDao(pool.clone())),
             github_app_service,
             github_apps,
             secrets,

@@ -8,7 +8,7 @@ use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
 use crate::adapters::models::AdapterConnection;
 
 #[async_trait::async_trait]
-pub trait AdapterConnectionRepository: Send + Sync {
+pub trait AdapterConnectionDao: Send + Sync {
     async fn find_by_id(
         &self,
         id: &str,
@@ -39,7 +39,7 @@ pub trait AdapterConnectionRepository: Send + Sync {
     async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error>;
 }
 
-pub struct PgAdapterConnectionRepository(pub DbPool);
+pub struct PgAdapterConnectionDao(pub DbPool);
 
 const PROVIDER_CONNECTION_SELECT: &str = r#"
     SELECT id,
@@ -57,7 +57,7 @@ const PROVIDER_CONNECTION_SELECT: &str = r#"
     FROM integration_connections
 "#;
 
-impl PgAdapterConnectionRepository {
+impl PgAdapterConnectionDao {
     pub async fn find_by_id(
         &self,
         id: &str,
@@ -226,13 +226,13 @@ impl PgAdapterConnectionRepository {
 }
 
 #[async_trait::async_trait]
-impl AdapterConnectionRepository for PgAdapterConnectionRepository {
+impl AdapterConnectionDao for PgAdapterConnectionDao {
     async fn find_by_id(
         &self,
         id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionRepository::find_by_id(self, id, ctx).await
+        PgAdapterConnectionDao::find_by_id(self, id, ctx).await
     }
 
     async fn find_by_external_account(
@@ -240,7 +240,7 @@ impl AdapterConnectionRepository for PgAdapterConnectionRepository {
         provider: &str,
         external_account_id: &str,
     ) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionRepository::find_by_external_account(self, provider, external_account_id)
+        PgAdapterConnectionDao::find_by_external_account(self, provider, external_account_id)
             .await
     }
 
@@ -249,7 +249,7 @@ impl AdapterConnectionRepository for PgAdapterConnectionRepository {
         ctx: &ScopeContext,
         provider: Option<&str>,
     ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionRepository::list(self, ctx, provider).await
+        PgAdapterConnectionDao::list(self, ctx, provider).await
     }
 
     async fn upsert(
@@ -257,10 +257,10 @@ impl AdapterConnectionRepository for PgAdapterConnectionRepository {
         row: &AdapterConnection,
         ctx: &ScopeContext,
     ) -> Result<AdapterConnection, sqlx::Error> {
-        PgAdapterConnectionRepository::upsert(self, row, ctx).await
+        PgAdapterConnectionDao::upsert(self, row, ctx).await
     }
 
     async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {
-        PgAdapterConnectionRepository::delete(self, id, ctx).await
+        PgAdapterConnectionDao::delete(self, id, ctx).await
     }
 }

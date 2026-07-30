@@ -40,8 +40,8 @@ use tracing::warn;
 
 use crate::event_handler::skeleton::{agent_message_skeleton, is_agent_message};
 use crate::events::EventPublisher;
-use crate::task_event::dao::{InsertTaskEvent, TaskEventRepository};
-use crate::task_turn::dao::{TaskTurnRepository, TurnStateEvent};
+use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
+use crate::task_turn::dao::{TaskTurnDao, TurnStateEvent};
 
 use outbox::{IngressOutbox, IngressPayload, RETRY_BASE_SECS};
 
@@ -141,8 +141,8 @@ pub struct AdmissionRequest {
 /// backend runs without a database or without Redis in some deployments; a
 /// missing path an event *needs* is a retryable failure, never a silent ack.
 pub struct EventAdmission<'a> {
-    pub task_turns: Option<&'a Arc<dyn TaskTurnRepository>>,
-    pub task_events: Option<&'a Arc<dyn TaskEventRepository>>,
+    pub task_turns: Option<&'a Arc<dyn TaskTurnDao>>,
+    pub task_events: Option<&'a Arc<dyn TaskEventDao>>,
     pub ingress_outbox: Option<&'a Arc<dyn IngressOutbox>>,
     pub publisher: Option<&'a Arc<dyn EventPublisher>>,
 }

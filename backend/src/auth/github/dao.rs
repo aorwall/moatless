@@ -139,7 +139,7 @@ pub struct GitHubAppAuditEntry<'a> {
 
 /// Durable state behind GitHub App administration.
 #[async_trait]
-pub trait GitHubAppStore: Send + Sync {
+pub trait GitHubAppDao: Send + Sync {
     async fn list(&self) -> Result<Vec<GitHubAppRecord>, AuthError>;
 
     async fn find_by_key(&self, app_key: &str) -> Result<Option<GitHubAppRecord>, AuthError>;
@@ -244,10 +244,10 @@ const INSERT_APP: &str = r#"
     ON CONFLICT (app_key) DO NOTHING
 "#;
 
-pub struct PgGitHubAppStore(pub DbPool);
+pub struct PgGitHubAppDao(pub DbPool);
 
 #[async_trait]
-impl GitHubAppStore for PgGitHubAppStore {
+impl GitHubAppDao for PgGitHubAppDao {
     async fn list(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
         let rows: Vec<GitHubAppRow> = sqlx::query_as(AssertSqlSafe(format!(
             "SELECT {SELECT_COLUMNS} FROM github_apps ORDER BY app_key"
@@ -422,13 +422,13 @@ pub mod test_support {
     use std::collections::HashMap;
     use std::sync::Mutex;
 
-    use super::{AuthError, GitHubAppAuditEntry, GitHubAppRecord, GitHubAppStore};
+    use super::{AuthError, GitHubAppAuditEntry, GitHubAppDao, GitHubAppRecord};
     use async_trait::async_trait;
 
     /// In-memory store for registry tests, which need to change what durable
     /// state says between two lookups.
     #[derive(Default)]
-    pub struct InMemoryGitHubAppStore {
+    pub struct InMemoryGitHubAppDao {
         apps: Mutex<HashMap<String, GitHubAppRecord>>,
         migrations: Mutex<Vec<String>>,
         pub reads: Mutex<usize>,
@@ -436,7 +436,7 @@ pub mod test_support {
         pub fail_writes: Mutex<bool>,
     }
 
-    impl InMemoryGitHubAppStore {
+    impl InMemoryGitHubAppDao {
         pub fn put(&self, record: GitHubAppRecord) {
             self.apps
                 .lock()
@@ -462,7 +462,7 @@ pub mod test_support {
     }
 
     #[async_trait]
-    impl GitHubAppStore for InMemoryGitHubAppStore {
+    impl GitHubAppDao for InMemoryGitHubAppDao {
         async fn list(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
             if *self.fail_reads.lock().expect("lock") {
                 return Err(AuthError::Internal("store unavailable".into()));

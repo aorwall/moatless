@@ -8,10 +8,10 @@ use moatless_api_schemas::loops::{
 use serde::Deserialize;
 
 use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
-use crate::loops::store::{LoopRecord, LoopSourceRow};
+use crate::loops::dao::{LoopRecord, LoopSourceRow};
 use crate::state::AppState;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
@@ -174,7 +174,7 @@ pub(crate) async fn load_adapter_connection_for_auth(
     ctx: &ScopeContext,
     id: &str,
 ) -> Result<AdapterConnection, AdapterError> {
-    PgAdapterConnectionRepository(state.db.clone())
+    PgAdapterConnectionDao(state.db.clone())
         .find_by_id(id, ctx)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Provider connection {id} not found")))
@@ -235,7 +235,7 @@ pub(crate) async fn resolve_connection(
         }
         return Ok(conn);
     }
-    let rows = PgAdapterConnectionRepository(state.db.clone())
+    let rows = PgAdapterConnectionDao(state.db.clone())
         .list(ctx, Some(kind.as_str()))
         .await?;
     let mut iter = rows.into_iter();

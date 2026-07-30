@@ -25,7 +25,7 @@ use crate::auth::identity::AuthIdentity;
 use crate::auth::models::UserRole;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
-use crate::task::dao::TaskRepository;
+use crate::task::dao::TaskDao;
 use crate::task_event::models::TaskEvent;
 
 /// Shared state for the live SSE firehose (`GET /api/v1/events/stream`).
@@ -37,7 +37,7 @@ pub struct SseState {
     /// non-admin client only receives events for tasks it can read. `None`
     /// when the DB is unconfigured (no filtering possible → firehose disabled
     /// for scoped users; see `sse_handler`).
-    pub tasks: Option<Arc<dyn TaskRepository>>,
+    pub tasks: Option<Arc<dyn TaskDao>>,
 }
 
 /// Per-connection access context for the firehose, resolved once from the

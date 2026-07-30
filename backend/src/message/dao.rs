@@ -136,10 +136,10 @@ pub struct InterruptedTurn {
     pub recovery_attempts: i32,
 }
 
-/// Repository trait for message persistence.
+/// DAO trait for message persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait MessageRepository: Send + Sync {
+pub trait MessageDao: Send + Sync {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error>;
 
     async fn append(
@@ -372,11 +372,11 @@ pub trait MessageRepository: Send + Sync {
     ) -> Result<i32, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`MessageRepository`].
-pub struct PgMessageRepository(pub DbPool);
+/// PostgreSQL implementation of [`MessageDao`].
+pub struct PgMessageDao(pub DbPool);
 
 #[async_trait]
-impl MessageRepository for PgMessageRepository {
+impl MessageDao for PgMessageDao {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error> {
         let (messages, contexts, blocks) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessage>(
@@ -1544,7 +1544,7 @@ pub async fn append(
     contexts: &[TaskMessageContext],
     content_blocks: &[TaskMessageContentBlock],
 ) -> Result<i32, sqlx::Error> {
-    PgMessageRepository(pool.clone())
+    PgMessageDao(pool.clone())
         .append(msg, contexts, content_blocks)
         .await
 }
@@ -1561,7 +1561,7 @@ pub async fn get_all(
     ),
     sqlx::Error,
 > {
-    PgMessageRepository(pool.clone()).get_all(task_id).await
+    PgMessageDao(pool.clone()).get_all(task_id).await
 }
 
 /// Get pending user messages (convenience wrapper).
@@ -1569,7 +1569,7 @@ pub async fn get_pending_user(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Vec<TaskMessage>, sqlx::Error> {
-    PgMessageRepository(pool.clone())
+    PgMessageDao(pool.clone())
         .get_pending_user(task_id)
         .await
 }
@@ -1578,7 +1578,7 @@ pub async fn get_pending_user(
 pub async fn tasks_with_pending_user_messages(
     pool: &DbPool,
 ) -> Result<Vec<PendingUserMessages>, sqlx::Error> {
-    PgMessageRepository(pool.clone())
+    PgMessageDao(pool.clone())
         .tasks_with_pending_user_messages()
         .await
 }
@@ -1589,7 +1589,7 @@ pub async fn set_session_id_for_task(
     task_id: &str,
     session_id: &str,
 ) -> Result<u64, sqlx::Error> {
-    PgMessageRepository(pool.clone())
+    PgMessageDao(pool.clone())
         .set_session_id_for_task(task_id, session_id)
         .await
 }
@@ -1599,7 +1599,7 @@ pub async fn get_last_result(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Option<TaskMessage>, sqlx::Error> {
-    PgMessageRepository(pool.clone())
+    PgMessageDao(pool.clone())
         .get_last_result(task_id)
         .await
 }
@@ -1609,7 +1609,7 @@ pub async fn get_last_assistant_message(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Option<TaskMessage>, sqlx::Error> {
-    PgMessageRepository(pool.clone())
+    PgMessageDao(pool.clone())
         .get_last_assistant_message(task_id)
         .await
 }
@@ -1624,7 +1624,7 @@ pub async fn backfill_last_assistant_usage(
     cache_read_input_tokens: Option<i32>,
     assistant_usage: Option<&serde_json::Value>,
 ) -> Result<bool, sqlx::Error> {
-    PgMessageRepository(pool.clone())
+    PgMessageDao(pool.clone())
         .backfill_last_assistant_usage(
             task_id,
             input_tokens,
@@ -1644,7 +1644,7 @@ pub async fn acknowledge_messages(
     session_id: &str,
     turn_number: i32,
 ) -> Result<u64, sqlx::Error> {
-    PgMessageRepository(pool.clone())
+    PgMessageDao(pool.clone())
         .acknowledge_messages(task_id, uuids, session_id, turn_number)
         .await
 }

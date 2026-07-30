@@ -23,13 +23,13 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use super::dao::{TaskPatch, TaskRepository};
+use super::dao::{TaskDao, TaskPatch};
 use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use crate::config::Config;
 use crate::event_handler::agent_handlers;
 use crate::event_handler::models::AgentEvent;
 use crate::events::EventPublisher;
-use crate::message::dao::MessageRepository;
+use crate::message::dao::MessageDao;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::lifecycle::ArchiveRetention;
@@ -64,8 +64,8 @@ enum ReaperError {
 pub fn spawn_task_reaper(
     app_state: AppState,
     k8s: K8sClient,
-    messages: Arc<dyn MessageRepository>,
-    tasks: Arc<dyn TaskRepository>,
+    messages: Arc<dyn MessageDao>,
+    tasks: Arc<dyn TaskDao>,
     events: Option<Arc<dyn EventPublisher>>,
     config: Arc<Config>,
     cancel: CancellationToken,
@@ -139,8 +139,8 @@ pub fn spawn_task_reaper(
 async fn run_reap_cycle(
     app_state: &AppState,
     k8s: &K8sClient,
-    messages: &Arc<dyn MessageRepository>,
-    tasks: &Arc<dyn TaskRepository>,
+    messages: &Arc<dyn MessageDao>,
+    tasks: &Arc<dyn TaskDao>,
     events: &Option<Arc<dyn EventPublisher>>,
     default_ttl_minutes: i32,
     default_inactive_ttl_days: i32,
@@ -219,8 +219,8 @@ struct ReaperStats {
 
 async fn load_reaper_snapshot(
     app_state: &AppState,
-    messages: &Arc<dyn MessageRepository>,
-    tasks: &Arc<dyn TaskRepository>,
+    messages: &Arc<dyn MessageDao>,
+    tasks: &Arc<dyn TaskDao>,
     sandbox_ids: &[String],
     default_ttl_minutes: i32,
     default_inactive_ttl_days: i32,
@@ -273,8 +273,8 @@ async fn load_reaper_snapshot(
 
 async fn load_latest_activity_times(
     app_state: &AppState,
-    messages: &Arc<dyn MessageRepository>,
-    tasks: &Arc<dyn TaskRepository>,
+    messages: &Arc<dyn MessageDao>,
+    tasks: &Arc<dyn TaskDao>,
     all_ids: &[String],
 ) -> Result<HashMap<String, DateTime<Utc>>, ReaperError> {
     let mut latest_times = messages.get_latest_message_times(all_ids).await?;
@@ -337,7 +337,7 @@ fn merge_newest(
     }
 }
 
-async fn load_ttl_map(tasks: &Arc<dyn TaskRepository>, all_ids: &[String]) -> HashMap<String, i32> {
+async fn load_ttl_map(tasks: &Arc<dyn TaskDao>, all_ids: &[String]) -> HashMap<String, i32> {
     tasks.get_ttl_minutes_map(all_ids).await.unwrap_or_else(|e| {
         warn!(error = %e, "Failed to fetch ttl_minutes map, falling back to default for all tasks");
         HashMap::new()
@@ -345,7 +345,7 @@ async fn load_ttl_map(tasks: &Arc<dyn TaskRepository>, all_ids: &[String]) -> Ha
 }
 
 async fn load_inactive_ttl_map(
-    tasks: &Arc<dyn TaskRepository>,
+    tasks: &Arc<dyn TaskDao>,
     all_ids: &[String],
 ) -> HashMap<String, i32> {
     tasks
@@ -377,7 +377,7 @@ async fn load_agent_lifecycle(
 
 async fn apply_reaper_decisions(
     app_state: &AppState,
-    tasks: &Arc<dyn TaskRepository>,
+    tasks: &Arc<dyn TaskDao>,
     events: &Option<Arc<dyn EventPublisher>>,
     snapshot: ReaperSnapshot,
 ) -> ReaperStats {
@@ -889,7 +889,7 @@ fn decide_close(
 async fn auto_close_task(
     app_state: &AppState,
     task_id: &str,
-    tasks: &Arc<dyn TaskRepository>,
+    tasks: &Arc<dyn TaskDao>,
     events: &Option<Arc<dyn EventPublisher>>,
 ) {
     // reason: reaper acts across all task owners; system ctx bypasses per-user scope.
@@ -937,7 +937,7 @@ async fn auto_close_task(
 
     // A closed task is terminal — deactivate its bindings so inbound comments
     // don't resurrect it. Best-effort; the runtime guards are the backstop.
-    if let Err(e) = crate::bindings::dao::PgTaskBindingRepository(app_state.db.clone())
+    if let Err(e) = crate::bindings::dao::PgTaskBindingDao(app_state.db.clone())
         .deactivate_by_task(task_id)
         .await
     {
@@ -1047,7 +1047,7 @@ async fn delete_orphaned_task_resources(k8s: &K8sClient, task_id: &str) {
 
 /// Orphan-GC pass: LIST labeled sandbox resources, then delete only resources
 /// whose Task row no longer exists. Fully best-effort.
-async fn gc_orphaned_resources(k8s: &K8sClient, tasks: &Arc<dyn TaskRepository>) {
+async fn gc_orphaned_resources(k8s: &K8sClient, tasks: &Arc<dyn TaskDao>) {
     let task_ids = collect_labeled_task_ids(k8s).await;
     if task_ids.is_empty() {
         return;

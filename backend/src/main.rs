@@ -210,31 +210,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Build router ────────────────────────────────────────────────────
 
-    // Sandbox route state keeps only authorization repositories. The pod
-    // watcher separately needs workspace and task-event repositories.
-    let sandbox_tasks: Option<Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>> =
+    // Sandbox route state keeps only authorization DAOs. The pod watcher
+    // separately needs workspace and task-event DAOs.
+    let sandbox_tasks: Option<Arc<dyn moatless_vibe_backend::task::dao::TaskDao>> =
         db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::task::dao::PgTaskRepository(
+            Arc::new(moatless_vibe_backend::task::dao::PgTaskDao(
                 p.clone(),
-            )) as Arc<dyn moatless_vibe_backend::task::dao::TaskRepository>
+            )) as Arc<dyn moatless_vibe_backend::task::dao::TaskDao>
         });
-    let sandbox_teams: Option<Arc<dyn moatless_vibe_backend::team::dao::TeamRepository>> =
+    let sandbox_teams: Option<Arc<dyn moatless_vibe_backend::team::dao::TeamDao>> =
         db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::team::dao::PgTeamRepository(
+            Arc::new(moatless_vibe_backend::team::dao::PgTeamDao(
                 p.clone(),
-            )) as Arc<dyn moatless_vibe_backend::team::dao::TeamRepository>
+            )) as Arc<dyn moatless_vibe_backend::team::dao::TeamDao>
         });
     let sandbox_workspaces: Option<
-        Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceRepository>,
+        Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceDao>,
     > = db_pool.as_ref().map(|p| {
-        Arc::new(moatless_vibe_backend::workspace::dao::PgWorkspaceRepository(p.clone()))
-            as Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceRepository>
+        Arc::new(moatless_vibe_backend::workspace::dao::PgWorkspaceDao(p.clone()))
+            as Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceDao>
     });
     let sandbox_task_events: Option<
-        Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventRepository>,
+        Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventDao>,
     > = db_pool.as_ref().map(|p| {
-        Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventRepository(p.clone()))
-            as Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventRepository>
+        Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventDao(p.clone()))
+            as Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventDao>
     });
 
     // Build the shared durable Sandbox lifecycle handle once (requires the DB).
@@ -365,7 +365,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // the adapter layer so they hit the same token cache.
         let github_apps = Arc::new(crate::auth::github::registry::GitHubAppRegistry::new(
             crate::auth::github::service::GitHubAppService::from_config(&config).map(Arc::new),
-            Some(Arc::new(crate::auth::github::store::PgGitHubAppStore(
+            Some(Arc::new(crate::auth::github::dao::PgGitHubAppDao(
                 pool.clone(),
             ))),
             crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
@@ -431,7 +431,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ui_rpc_router) = ui_rpc::router_from_env(
             config.auth.session_cookie_name.clone(),
             app_state.workspaces.clone(),
-            Arc::new(ui_rpc::dao::PgConversationRepository::new(
+            Arc::new(ui_rpc::dao::PgConversationDao::new(
                 app_state.db.clone(),
             )),
             ui_rpc::AgentModelDefaults {
@@ -464,10 +464,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // admin credential is unreachable, and continuing would produce a
         // server nobody can log into.
         if config.auth.provider == moatless_vibe_backend::config::AuthProvider::Local {
-            let credentials =
-                moatless_vibe_backend::auth::password::dao::PgUserCredentialRepository(
-                    app_state.db.clone(),
-                );
+            let credentials = moatless_vibe_backend::auth::password::dao::PgUserCredentialDao(
+                app_state.db.clone(),
+            );
             auth::password::bootstrap::ensure_local_admin(
                 app_state.users.as_ref(),
                 &credentials,
@@ -479,8 +478,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Ensure test API user + key (if configured)
         if let Some(ref key) = config.auth.test_api_key {
-            let api_keys =
-                moatless_vibe_backend::auth::api_keys::PgApiKeyRepository(app_state.db.clone());
+            let api_keys = moatless_vibe_backend::auth::api_keys::PgApiKeyDao(app_state.db.clone());
             auth::test_user::ensure_test_user(app_state.users.as_ref(), &api_keys, key).await;
         }
 

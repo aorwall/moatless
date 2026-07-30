@@ -29,14 +29,14 @@ pub struct SecretAuditInput<'a> {
 }
 
 #[async_trait]
-pub trait SecretAuditRepository: Send + Sync {
+pub trait SecretAuditDao: Send + Sync {
     async fn record(&self, input: SecretAuditInput<'_>) -> Result<(), sqlx::Error>;
 }
 
-pub struct PgSecretAuditRepository(pub DbPool);
+pub struct PgSecretAuditDao(pub DbPool);
 
 #[async_trait]
-impl SecretAuditRepository for PgSecretAuditRepository {
+impl SecretAuditDao for PgSecretAuditDao {
     async fn record(&self, input: SecretAuditInput<'_>) -> Result<(), sqlx::Error> {
         let id = uuid::Uuid::new_v4().to_string();
         sqlx::query(

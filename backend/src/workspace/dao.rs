@@ -14,7 +14,7 @@ const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR 
 /// A workspace in a widened listing, and whether the caller may actually read
 /// it.
 ///
-/// [`WorkspaceRepository::list_readable_including`] returns a union of two sets
+/// [`WorkspaceDao::list_readable_including`] returns a union of two sets
 /// with different rules behind them: the workspaces the read rule admits, and
 /// the workspaces something the caller may see happens to reference. A row from
 /// the second half is present so that a listing can render a group for it — not
@@ -55,10 +55,10 @@ pub struct WorkspacePatch {
     pub source_config_path: Option<Option<String>>,
 }
 
-/// Repository trait for workspace persistence.
+/// DAO trait for workspace persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait WorkspaceRepository: Send + Sync {
+pub trait WorkspaceDao: Send + Sync {
     /// Fetch a single active workspace, or a deleted git-origin tombstone, by
     /// id, filtered by the caller's ACL scope. Returns `None` when the row is
     /// missing, outside the scope, or a plain deleted manual workspace.
@@ -171,11 +171,11 @@ pub trait WorkspaceRepository: Send + Sync {
         -> Result<(), sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`WorkspaceRepository`].
-pub struct PgWorkspaceRepository(pub DbPool);
+/// PostgreSQL implementation of [`WorkspaceDao`].
+pub struct PgWorkspaceDao(pub DbPool);
 
 #[async_trait]
-impl WorkspaceRepository for PgWorkspaceRepository {
+impl WorkspaceDao for PgWorkspaceDao {
     async fn find_by_id(
         &self,
         id: &str,

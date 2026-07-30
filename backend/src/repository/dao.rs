@@ -23,10 +23,10 @@ pub struct RepositoryPatch {
     pub access_error: Option<Option<String>>,
 }
 
-/// Repository trait for repository persistence.
+/// DAO trait for repository persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait RepoRepository: Send + Sync {
+pub trait RepositoryDao: Send + Sync {
     /// Find by id, scoped to access control.
     async fn find_by_id(
         &self,
@@ -63,11 +63,11 @@ pub trait RepoRepository: Send + Sync {
     ) -> Result<bool, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`RepoRepository`].
-pub struct PgRepoRepository(pub DbPool);
+/// PostgreSQL implementation of [`RepositoryDao`].
+pub struct PgRepositoryDao(pub DbPool);
 
 #[async_trait]
-impl RepoRepository for PgRepoRepository {
+impl RepositoryDao for PgRepositoryDao {
     async fn find_by_id(
         &self,
         id: &str,
@@ -315,7 +315,7 @@ impl RepoRepository for PgRepoRepository {
 
 /// Insert a repository (convenience wrapper).
 pub async fn insert(pool: &DbPool, row: &Repository) -> Result<(), sqlx::Error> {
-    PgRepoRepository(pool.clone()).insert(row).await
+    PgRepositoryDao(pool.clone()).insert(row).await
 }
 
 /// Find by id scoped to access control (convenience wrapper).
@@ -324,12 +324,12 @@ pub async fn find_by_id(
     id: &str,
     ctx: &ScopeContext,
 ) -> Result<Option<Repository>, sqlx::Error> {
-    PgRepoRepository(pool.clone()).find_by_id(id, ctx).await
+    PgRepositoryDao(pool.clone()).find_by_id(id, ctx).await
 }
 
 /// List all repositories visible to user (convenience wrapper).
 pub async fn list_all(pool: &DbPool, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
-    PgRepoRepository(pool.clone()).list_all(ctx).await
+    PgRepositoryDao(pool.clone()).list_all(ctx).await
 }
 
 /// Update repository fields (convenience wrapper).
@@ -339,7 +339,7 @@ pub async fn update(
     patch: &RepositoryPatch,
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
-    PgRepoRepository(pool.clone()).update(id, patch, ctx).await
+    PgRepositoryDao(pool.clone()).update(id, patch, ctx).await
 }
 
 /// Soft-delete a repository (convenience wrapper).
@@ -348,5 +348,5 @@ pub async fn soft_delete(
     id: &str,
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
-    PgRepoRepository(pool.clone()).soft_delete(id, ctx).await
+    PgRepositoryDao(pool.clone()).soft_delete(id, ctx).await
 }

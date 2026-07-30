@@ -22,27 +22,25 @@ impl Adapters {
         db: DbPool,
         github_apps: Arc<GitHubAppRegistry>,
     ) -> Option<Self> {
-        use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
+        use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
         use crate::auth::provider_tokens::{
-            PgProviderTokenAuthRepository, ProviderTokenAuthRepository,
+            PgProviderTokenAuthDao, ProviderTokenAuthDao,
         };
-        use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
-        use crate::secret::dao::{PgSecretRepository, SecretRepository};
+        use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
+        use crate::secret::dao::{PgSecretDao, SecretDao};
         use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 
         let mut providers = Self::new();
 
-        let provider_tokens: Arc<dyn ProviderTokenRepository> =
-            Arc::new(PgProviderTokenRepository(db.clone()));
-        let provider_token_auth: Arc<dyn ProviderTokenAuthRepository> =
-            Arc::new(PgProviderTokenAuthRepository(db.clone()));
+        let provider_tokens: Arc<dyn ProviderTokenDao> = Arc::new(PgProviderTokenDao(db.clone()));
+        let provider_token_auth: Arc<dyn ProviderTokenAuthDao> =
+            Arc::new(PgProviderTokenAuthDao(db.clone()));
         let github_app_service = github_apps.default_service();
 
         // Needed so the GitHub adapter can resolve `secret_ref` provider tokens
         // (validated PATs live in `secrets`, not `provider_tokens`).
-        let secret_records: Arc<dyn SecretRepository> = Arc::new(PgSecretRepository(db.clone()));
-        let secret_audits: Arc<dyn SecretAuditRepository> =
-            Arc::new(PgSecretAuditRepository(db.clone()));
+        let secret_records: Arc<dyn SecretDao> = Arc::new(PgSecretDao(db.clone()));
+        let secret_audits: Arc<dyn SecretAuditDao> = Arc::new(PgSecretAuditDao(db.clone()));
         let secrets = Arc::new(SecretService::new(
             secret_records,
             secret_audits,

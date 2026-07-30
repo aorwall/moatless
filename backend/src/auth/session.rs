@@ -7,9 +7,9 @@ use uuid::Uuid;
 
 use super::jwt;
 use super::models::{OAuthTokens, ProviderUserInfo, UserRole};
-use super::provider_tokens::{ProviderToken, ProviderTokenAuthRepository};
-use super::sessions::{Session, SessionRepository};
-use super::users::{User, UserRepository};
+use super::provider_tokens::{ProviderToken, ProviderTokenAuthDao};
+use super::sessions::{Session, SessionDao};
+use super::users::{User, UserDao};
 
 /// Generate a cryptographically secure session ID (64 hex chars).
 fn generate_session_id() -> String {
@@ -23,9 +23,9 @@ fn generate_session_id() -> String {
 /// and returns a signed JWT for the session cookie.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_session(
-    users: &dyn UserRepository,
-    sessions: &dyn SessionRepository,
-    provider_tokens: &dyn ProviderTokenAuthRepository,
+    users: &dyn UserDao,
+    sessions: &dyn SessionDao,
+    provider_tokens: &dyn ProviderTokenAuthDao,
     secrets: Option<&crate::secret::service::SecretService>,
     user_id: Uuid,
     provider_id: &str,
@@ -222,7 +222,7 @@ pub async fn create_session(
 /// a session with `provider = "api-key"` and no token fields.
 /// Returns a signed JWT for the session cookie.
 pub async fn create_session_from_user(
-    sessions: &dyn SessionRepository,
+    sessions: &dyn SessionDao,
     user: &User,
     group_id: Option<&str>,
     session_max_age_secs: u64,
@@ -244,7 +244,7 @@ pub async fn create_session_from_user(
 /// The provider string lands in the JWT and flows through to
 /// `AuthUser.provider`, which the provider-settings handlers branch on.
 pub async fn create_session_from_user_with_provider(
-    sessions: &dyn SessionRepository,
+    sessions: &dyn SessionDao,
     user: &User,
     group_id: Option<&str>,
     session_max_age_secs: u64,
@@ -301,7 +301,7 @@ pub async fn create_session_from_user_with_provider(
 
 /// Validate a session by ID. Returns None if expired or not found.
 pub async fn validate_session(
-    sessions: &dyn SessionRepository,
+    sessions: &dyn SessionDao,
     session_id: &str,
 ) -> Result<Option<Session>, crate::auth::error::AuthError> {
     let session = sessions.get_session(session_id).await?;
@@ -325,7 +325,7 @@ pub async fn validate_session(
 
 /// Delete a session by ID.
 pub async fn delete_session_by_id(
-    sessions: &dyn SessionRepository,
+    sessions: &dyn SessionDao,
     session_id: &str,
 ) -> Result<(), crate::auth::error::AuthError> {
     sessions.delete_session(session_id).await?;

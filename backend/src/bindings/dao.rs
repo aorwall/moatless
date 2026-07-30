@@ -8,7 +8,7 @@ use crate::db::DbPool;
 use crate::adapters::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 
 #[async_trait::async_trait]
-pub trait TaskBindingRepository: Send + Sync {
+pub trait TaskBindingDao: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error>;
 
     async fn find_by_subject(
@@ -89,7 +89,7 @@ pub trait TaskBindingRepository: Send + Sync {
 
     /// The most recent tasks a loop spawned, each with its first binding (if
     /// any). Drives the loop detail view. See
-    /// [`PgTaskBindingRepository::find_recent_for_loop`] for the join semantics.
+    /// [`PgTaskBindingDao::find_recent_for_loop`] for the join semantics.
     async fn find_recent_for_loop(
         &self,
         trigger_id: &str,
@@ -97,7 +97,7 @@ pub trait TaskBindingRepository: Send + Sync {
     ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error>;
 }
 
-pub struct PgTaskBindingRepository(pub DbPool);
+pub struct PgTaskBindingDao(pub DbPool);
 
 /// Flat row returned by `find_recent_for_loop`. Binding columns are
 /// optional — schedule triggers spawn tasks without a binding.
@@ -134,9 +134,9 @@ pub struct TaskBindingInfo {
 }
 
 #[async_trait::async_trait]
-impl TaskBindingRepository for PgTaskBindingRepository {
+impl TaskBindingDao for PgTaskBindingDao {
     async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
-        PgTaskBindingRepository::find_by_id(self, id).await
+        PgTaskBindingDao::find_by_id(self, id).await
     }
 
     async fn find_by_subject(
@@ -145,7 +145,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingRepository::find_by_subject(self, provider, subject_kind, subject_key).await
+        PgTaskBindingDao::find_by_subject(self, provider, subject_kind, subject_key).await
     }
 
     async fn find_all_by_subject_excluding_task(
@@ -155,7 +155,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         subject_key: &str,
         exclude_task_id: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingRepository::find_all_by_subject_excluding_task(
+        PgTaskBindingDao::find_all_by_subject_excluding_task(
             self,
             provider,
             subject_kind,
@@ -166,7 +166,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
     }
 
     async fn find_by_task_id(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingRepository::find_by_task_id(self, task_id).await
+        PgTaskBindingDao::find_by_task_id(self, task_id).await
     }
 
     async fn find_by_task_id_and_subject(
@@ -176,7 +176,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error> {
-        PgTaskBindingRepository::find_by_task_id_and_subject(
+        PgTaskBindingDao::find_by_task_id_and_subject(
             self,
             task_id,
             provider,
@@ -192,7 +192,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error> {
-        PgTaskBindingRepository::find_provider_event_created_for_subject(
+        PgTaskBindingDao::find_provider_event_created_for_subject(
             self,
             provider,
             subject_kind,
@@ -208,7 +208,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         field_name: &str,
         field_value: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingRepository::find_active_by_destination_field(
+        PgTaskBindingDao::find_active_by_destination_field(
             self,
             provider,
             subject_kind,
@@ -219,19 +219,19 @@ impl TaskBindingRepository for PgTaskBindingRepository {
     }
 
     async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
-        PgTaskBindingRepository::upsert(self, row).await
+        PgTaskBindingDao::upsert(self, row).await
     }
 
     async fn delete(&self, id: &str) -> Result<u64, sqlx::Error> {
-        PgTaskBindingRepository::delete(self, id).await
+        PgTaskBindingDao::delete(self, id).await
     }
 
     async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
-        PgTaskBindingRepository::deactivate_by_task(self, task_id).await
+        PgTaskBindingDao::deactivate_by_task(self, task_id).await
     }
 
     async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error> {
-        PgTaskBindingRepository::touch_last_event(self, id).await
+        PgTaskBindingDao::touch_last_event(self, id).await
     }
 
     async fn touch_cursor(
@@ -239,7 +239,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         id: &str,
         last_external_event_id: &str,
     ) -> Result<(), sqlx::Error> {
-        PgTaskBindingRepository::touch_cursor(self, id, last_external_event_id).await
+        PgTaskBindingDao::touch_cursor(self, id, last_external_event_id).await
     }
 
     async fn update_external_status(
@@ -249,11 +249,11 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         state_kind: Option<&str>,
         raw: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        PgTaskBindingRepository::update_external_status(self, id, status, state_kind, raw).await
+        PgTaskBindingDao::update_external_status(self, id, status, state_kind, raw).await
     }
 
     async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingRepository::find_by_task_ids(self, task_ids).await
+        PgTaskBindingDao::find_by_task_ids(self, task_ids).await
     }
 
     async fn find_recent_for_loop(
@@ -261,7 +261,7 @@ impl TaskBindingRepository for PgTaskBindingRepository {
         trigger_id: &str,
         limit: i64,
     ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
-        PgTaskBindingRepository::find_recent_for_loop(self, trigger_id, limit).await
+        PgTaskBindingDao::find_recent_for_loop(self, trigger_id, limit).await
     }
 }
 
@@ -280,7 +280,7 @@ pub async fn get_bindings_for_tasks(
                   COALESCE(aes.source_matcher, tb.subject_key) AS source_id,
                   aes.source_name
            FROM task_bindings tb
-           -- adapter_event_trigger_sources is owned by loops::store; this is a
+           -- adapter_event_trigger_sources is owned by loops::dao; this is a
            -- read-only enrichment join (source_matcher/source_name for display).
            LEFT JOIN adapter_event_trigger_sources aes ON aes.trigger_id = tb.trigger_id
            WHERE tb.task_id = ANY($1)"#,
@@ -311,7 +311,7 @@ const TASK_BINDING_SELECT: &str = r#"
     FROM task_bindings
 "#;
 
-impl PgTaskBindingRepository {
+impl PgTaskBindingDao {
     pub async fn find_by_id(&self, id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
         sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE id = $1"

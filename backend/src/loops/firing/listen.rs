@@ -6,7 +6,7 @@
 
 use tracing::{info, warn};
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, BindingContext, SubscriptionMatch, TaskBinding};
 use crate::adapters::{AdapterDestinationBuilder, AdapterKind};
@@ -185,7 +185,7 @@ async fn resolve_connection(
     let scope_value =
         provider.connection_scope_value_from_existing_thread(source_id, thread_properties)?;
 
-    let connection_repo = PgAdapterConnectionRepository(state.db.clone());
+    let connection_repo = PgAdapterConnectionDao(state.db.clone());
     let mut connection = connection_repo
         .find_by_scope_value(provider_key, &scope_value)
         .await?;

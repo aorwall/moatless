@@ -18,7 +18,7 @@ use super::models::*;
 use super::routes::SandboxApiState;
 use super::schemas::*;
 use crate::extractors::OptionalScope;
-use crate::task::dao::TaskRepository;
+use crate::task::dao::TaskDao;
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, Task};
 use moatless_backend_core::scope::ScopeContext;
 
@@ -719,7 +719,7 @@ pub(super) async fn authorize_task_control(
 /// Core of [`authorize_task_read`] against explicit dependencies (so it can be
 /// unit-tested without runtime infrastructure).
 async fn authorize_task_read_inner(
-    tasks: Option<&dyn TaskRepository>,
+    tasks: Option<&dyn TaskDao>,
     scope: &Option<ScopeContext>,
     task_id: &str,
 ) -> Result<Task, SandboxError> {
@@ -742,7 +742,7 @@ async fn authorize_task_read_inner(
 
 /// Core of [`authorize_task_control`] against explicit dependencies.
 async fn authorize_task_control_inner(
-    tasks: Option<&dyn TaskRepository>,
+    tasks: Option<&dyn TaskDao>,
     scope: &Option<ScopeContext>,
     task_id: &str,
 ) -> Result<Task, SandboxError> {
@@ -791,7 +791,7 @@ mod authz_tests {
 
     use moatless_backend_core::scope::Scope;
 
-    use crate::task::dao::MockTaskRepository;
+    use crate::task::dao::MockTaskDao;
 
     /// Deterministic uuid for a readable test name: distinct names map to
     /// distinct ids, equal names to equal ids.
@@ -844,8 +844,8 @@ mod authz_tests {
 
     /// A task repo whose scoped `find_by_id` always yields `task` (models a task
     /// the caller can *read*); control is decided downstream by `can_control`.
-    fn tasks_returning(task: Option<Task>) -> MockTaskRepository {
-        let mut m = MockTaskRepository::new();
+    fn tasks_returning(task: Option<Task>) -> MockTaskDao {
+        let mut m = MockTaskDao::new();
         m.expect_find_by_id()
             .returning(move |_, _| Ok(task.clone()));
         m

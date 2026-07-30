@@ -7,9 +7,9 @@ use rand::RngExt;
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
-use super::api_keys::{ApiKey, ApiKeyRepository};
+use super::api_keys::{ApiKey, ApiKeyDao};
 use super::models::UserRole;
-use super::users::UserRepository;
+use super::users::UserDao;
 
 const KEY_PREFIX: &str = "mvk_";
 const KEY_BYTES: usize = 32;
@@ -37,7 +37,7 @@ pub struct ApiKeyCreateResult {
 
 /// Generate a new API key for a user.
 pub async fn generate_key(
-    api_keys: &dyn ApiKeyRepository,
+    api_keys: &dyn ApiKeyDao,
     user_id: &str,
     name: &str,
     scopes: Option<Vec<String>>,
@@ -88,8 +88,8 @@ pub async fn generate_key(
 
 /// Validate an API key. Returns payload if valid, None otherwise.
 pub async fn validate_key(
-    api_keys: Arc<dyn ApiKeyRepository>,
-    users: &dyn UserRepository,
+    api_keys: Arc<dyn ApiKeyDao>,
+    users: &dyn UserDao,
     key: &str,
 ) -> Result<Option<ApiKeyPayload>, crate::auth::error::AuthError> {
     if !key.starts_with(KEY_PREFIX) {
@@ -146,8 +146,8 @@ pub async fn validate_key(
 /// 2. Check cache by hash → return if hit (with expiry check)
 /// 3. Miss → call `validate_key()` → build `VerifyPayload` → insert cache → return
 pub async fn validate_key_cached(
-    api_keys: Arc<dyn ApiKeyRepository>,
-    users: &dyn UserRepository,
+    api_keys: Arc<dyn ApiKeyDao>,
+    users: &dyn UserDao,
     key: &str,
     cache: &crate::auth::cache::AuthCache,
 ) -> Result<Option<crate::auth::cache::VerifyPayload>, crate::auth::error::AuthError> {
@@ -193,7 +193,7 @@ pub async fn validate_key_cached(
 /// Revoke (delete) an API key. Only the owner can revoke.
 /// Returns `Some(key_hash)` on success for cache invalidation, `None` if not found.
 pub async fn revoke_key(
-    api_keys: &dyn ApiKeyRepository,
+    api_keys: &dyn ApiKeyDao,
     key_id: &str,
     user_id: &str,
 ) -> Result<Option<String>, crate::auth::error::AuthError> {
@@ -217,7 +217,7 @@ pub async fn revoke_key(
 
 /// List all API keys for a user.
 pub async fn list_keys(
-    api_keys: &dyn ApiKeyRepository,
+    api_keys: &dyn ApiKeyDao,
     user_id: &str,
 ) -> Result<Vec<ApiKey>, crate::auth::error::AuthError> {
     Ok(api_keys.list_api_keys_by_user(user_id).await?)

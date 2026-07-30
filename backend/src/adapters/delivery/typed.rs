@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use moatless_backend_core::scope::ScopeContext;
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::AdapterConnection;
 use crate::state::AppState;
@@ -102,7 +102,7 @@ async fn resolve_connection(
                   is named by an already-admitted record, not by caller input"
     )]
     let sys_ctx = ScopeContext::system();
-    PgAdapterConnectionRepository(state.db.clone())
+    PgAdapterConnectionDao(state.db.clone())
         .find_by_id(connection_id, &sys_ctx)
         .await
         .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?

@@ -16,7 +16,7 @@ use chrono::{Duration, Utc};
 use moatless_vibe_backend::task::dao::{self as task_dao};
 use moatless_vibe_backend::task::models::TaskStatus;
 use moatless_vibe_backend::task_turn::dao::{
-    PgTaskTurnRepository, TaskTurnRepository, TurnStateEvent,
+    PgTaskTurnDao, TaskTurnDao, TurnStateEvent,
 };
 use moatless_vibe_backend::task_turn::models::{TurnStatus, TurnTransition};
 use sqlx::PgPool;
@@ -68,7 +68,7 @@ fn ingress_event(
 
 #[sqlx::test]
 async fn open_then_terminal_closes_and_is_not_resurrected(pool: PgPool) {
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     let task = "task-turn-1";
 
     repo.apply_ingress_event(&ingress_event(
@@ -115,7 +115,7 @@ async fn open_then_terminal_closes_and_is_not_resurrected(pool: PgPool) {
 
 #[sqlx::test]
 async fn terminal_redelivery_preserves_first_status(pool: PgPool) {
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     let task = "task-turn-2";
 
     repo.apply_ingress_event(&ingress_event(
@@ -153,7 +153,7 @@ async fn terminal_redelivery_preserves_first_status(pool: PgPool) {
 
 #[sqlx::test]
 async fn interrupted_then_resumed(pool: PgPool) {
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     let task = "task-turn-3";
 
     repo.apply_ingress_event(&ingress_event(
@@ -194,7 +194,7 @@ async fn interrupted_then_resumed(pool: PgPool) {
 
 #[sqlx::test]
 async fn terminal_without_open_inserts_row(pool: PgPool) {
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     let task = "task-turn-4";
 
     // A lost `active` event: the terminal is the first thing we see.
@@ -214,7 +214,7 @@ async fn terminal_without_open_inserts_row(pool: PgPool) {
 
 #[sqlx::test]
 async fn ingress_writes_event_row_idempotently(pool: PgPool) {
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     let task = "task-turn-5";
 
     repo.apply_ingress_event(&ingress_event(
@@ -261,7 +261,7 @@ async fn terminal_reopens_task_but_not_when_closed(pool: PgPool) {
         .await
         .unwrap();
 
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
 
     // Task in a non-closed, non-open state → terminal flips it back to Open.
     let open_task = make_task_row("task-reopen", "user-1");
@@ -320,7 +320,7 @@ async fn terminal_reopens_task_but_not_when_closed(pool: PgPool) {
 
 #[sqlx::test]
 async fn project_turn_is_idempotent_fallback(pool: PgPool) {
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     let task = "task-turn-6";
     let now = Utc::now();
 
@@ -404,7 +404,7 @@ async fn list_unclosed_active_turns_filters_by_age_and_status(pool: PgPool) {
     seed("stale-active", 1, "active", old).await;
     seed("stale-active", 2, "completed", recent).await;
 
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     let cutoff = Utc::now() - Duration::minutes(5);
     let stuck = repo.list_unclosed_active_turns(cutoff).await.unwrap();
 
@@ -488,7 +488,7 @@ async fn seed_task(pool: &PgPool, task_id: &str) {
 #[sqlx::test]
 async fn resolve_turn_for_run_is_idempotent(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
 
     let first = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
     let second = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
@@ -509,7 +509,7 @@ async fn resolve_turn_for_run_converges_whichever_signal_lands_first(pool: PgPoo
     // The ack and `taskTurn.active` travel on unsynchronized channels, so the
     // allocator must not care which of them calls first.
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
 
     // Ack first, then the (outbox-delayed) turn-start event.
     let acked = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
@@ -524,7 +524,7 @@ async fn resolve_turn_for_run_converges_whichever_signal_lands_first(pool: PgPoo
 #[sqlx::test]
 async fn resolve_turn_for_run_closes_a_stale_open_turn(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
 
     repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
     repo.resolve_turn_for_run("task-a", "run-2").await.unwrap();
@@ -549,7 +549,7 @@ async fn resolve_turn_for_run_respects_legacy_message_turns(pool: PgPool) {
         .await
         .unwrap();
 
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     let allocated = repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
 
     assert_eq!(allocated, 48, "allocation must clear the message history");
@@ -558,7 +558,7 @@ async fn resolve_turn_for_run_respects_legacy_message_turns(pool: PgPool) {
 #[sqlx::test]
 async fn latest_turn_number_is_none_for_a_task_with_no_turns(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     assert_eq!(repo.latest_turn_number("task-a").await.unwrap(), None);
 
     repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
@@ -568,7 +568,7 @@ async fn latest_turn_number_is_none_for_a_task_with_no_turns(pool: PgPool) {
 #[sqlx::test]
 async fn increment_recovery_attempts_counts_per_turn(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
     repo.resolve_turn_for_run("task-a", "run-1").await.unwrap();
 
     assert_eq!(
@@ -586,7 +586,7 @@ async fn increment_recovery_attempts_counts_per_turn(pool: PgPool) {
 #[sqlx::test]
 async fn latest_closed_turn_status_skips_the_turn_still_running(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
 
     assert_eq!(
         repo.latest_closed_turn_status("task-a").await.unwrap(),
@@ -624,7 +624,7 @@ async fn latest_closed_turn_status_skips_the_turn_still_running(pool: PgPool) {
 #[sqlx::test]
 async fn latest_closed_turn_status_tracks_the_newest_closed_turn(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskTurnRepository(pool.clone());
+    let repo = PgTaskTurnDao(pool.clone());
 
     repo.apply_ingress_event(&ingress_event(
         "task-a",

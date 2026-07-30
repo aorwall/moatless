@@ -8,9 +8,9 @@ use chrono::Utc;
 use tracing::{info, warn};
 
 use super::api_key::hash_key;
-use super::api_keys::{ApiKey, ApiKeyRepository};
+use super::api_keys::{ApiKey, ApiKeyDao};
 use super::models::UserRole;
-use super::users::{User, UserRepository};
+use super::users::{User, UserDao};
 
 const TEST_USER_ID: &str = "test-api-user";
 const TEST_USER_LOGIN: &str = "test-api-user";
@@ -22,8 +22,8 @@ const TEST_KEY_NAME: &str = "test-api-key";
 /// Idempotent: the user is upserted and the key is skipped if the hash
 /// already exists.
 pub async fn ensure_test_user(
-    users: &dyn UserRepository,
-    api_keys: &dyn ApiKeyRepository,
+    users: &dyn UserDao,
+    api_keys: &dyn ApiKeyDao,
     raw_key: &str,
 ) {
     // Validate key format (already validated by Config, but belt-and-suspenders)

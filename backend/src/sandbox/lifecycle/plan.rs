@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 use moatless_backend_core::scope::ScopeContext;
 
-use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::db::DbPool;
-use crate::plugin::dao::PluginRepository;
-use crate::repository::dao::RepoRepository;
+use crate::plugin::dao::PluginDao;
+use crate::repository::dao::RepositoryDao;
 use crate::sandbox::auto_provision::{build_provision_request, get_server_configs_for_task};
 use crate::sandbox::models::{ProvisionRequest, ServerConfig};
-use crate::task::dao::TaskRepository;
-use crate::workspace::dao::WorkspaceRepository;
+use crate::task::dao::TaskDao;
+use crate::workspace::dao::WorkspaceDao;
 
 use super::error::RuntimeError;
 use super::runtime::map_sandbox_error;
@@ -23,25 +23,25 @@ use super::runtime::map_sandbox_error;
 /// Repositories needed to assemble fresh runtime plans and status config.
 #[derive(Clone)]
 pub struct ProvisionDeps {
-    tasks: Arc<dyn TaskRepository>,
-    repos: Arc<dyn RepoRepository>,
-    provider_tokens: Arc<dyn ProviderTokenRepository>,
-    plugins: Arc<dyn PluginRepository>,
-    workspaces: Arc<dyn WorkspaceRepository>,
+    tasks: Arc<dyn TaskDao>,
+    repos: Arc<dyn RepositoryDao>,
+    provider_tokens: Arc<dyn ProviderTokenDao>,
+    plugins: Arc<dyn PluginDao>,
+    workspaces: Arc<dyn WorkspaceDao>,
 }
 
 impl ProvisionDeps {
     pub fn from_pool(pool: &DbPool) -> Self {
         Self {
-            tasks: Arc::new(crate::task::dao::PgTaskRepository(pool.clone())),
-            repos: Arc::new(crate::repository::dao::PgRepoRepository(pool.clone())),
-            provider_tokens: Arc::new(crate::auth::provider_token_dao::PgProviderTokenRepository(
+            tasks: Arc::new(crate::task::dao::PgTaskDao(pool.clone())),
+            repos: Arc::new(crate::repository::dao::PgRepositoryDao(pool.clone())),
+            provider_tokens: Arc::new(crate::auth::provider_token_dao::PgProviderTokenDao(
                 pool.clone(),
             )),
-            plugins: Arc::new(crate::plugin::dao::PgPluginRepository(
+            plugins: Arc::new(crate::plugin::dao::PgPluginDao(
                 pool.clone(),
             )),
-            workspaces: Arc::new(crate::workspace::dao::PgWorkspaceRepository(pool.clone())),
+            workspaces: Arc::new(crate::workspace::dao::PgWorkspaceDao(pool.clone())),
         }
     }
 

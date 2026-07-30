@@ -5,7 +5,7 @@
 //! serializes per Task, invokes the runtime adapter behind the
 //! [`SandboxRuntime`] seam, records bookkeeping, publishes operation-level
 //! events, and returns a typed [`LifecycleOutcome`]. Callers never supply a
-//! provision request, repositories, an event publisher, or the runtime adapter
+//! provision request, DAOs, an event publisher, or the runtime adapter
 //! — the curated re-exports below are the whole surface, and the decision and
 //! implementation submodules are `pub(crate)` so a lifecycle mutation cannot
 //! bypass [`Lifecycle`].
@@ -98,7 +98,7 @@ pub(crate) use orchestrator::SystemWallClock;
 
 // The concrete port adapters `AppState` assembles into a `Lifecycle`.
 pub(crate) use agent_stop::GrpcAgentStop;
-pub(crate) use dao::PgLifecycleStore;
+pub(crate) use dao::PgLifecycleDao;
 pub(crate) use event_sink::OutboxEventSink;
 pub(crate) use lock::PgLifecycleLock;
 pub use plan::ProvisionDeps;

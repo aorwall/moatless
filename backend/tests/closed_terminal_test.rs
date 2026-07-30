@@ -8,7 +8,7 @@
 //! Integration tests for "Closed is terminal against automated re-open" (Fix A).
 //!
 //! Covers:
-//! - `TaskRepository::update_status_if_not_closed` — race-safe conditional flip.
+//! - `TaskDao::update_status_if_not_closed` — race-safe conditional flip.
 //! - The three agent terminal handlers (`completed` / `stopped` / `error`) no
 //!   longer resurrect a `Closed` task to `Open`.
 //! - Regression: a synthetic `agent.error` (as the orphaned-turn reaper emits)
@@ -24,11 +24,11 @@ use moatless_vibe_backend::message::dao as message_dao;
 use moatless_vibe_backend::message::models::{MessageRole, MessageType};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::task::dao::{
-    self as task_dao, PgTaskRepository, TaskPatch, TaskRepository,
+    self as task_dao, PgTaskDao, TaskDao, TaskPatch,
 };
 use moatless_vibe_backend::task::models::TaskStatus;
 use moatless_vibe_backend::task::relations::{
-    PgTaskRelationRepository, TaskRelation, TaskRelationRepository, TaskRelationType,
+    PgTaskRelationDao, TaskRelation, TaskRelationDao, TaskRelationType,
 };
 use sqlx::PgPool;
 
@@ -41,7 +41,7 @@ async fn seed_with_status(pool: &PgPool, task_id: &str, status: TaskStatus) {
     let task = make_task_row(task_id, "user-1");
     task_dao::insert_task(pool, &task).await.unwrap();
     if status != TaskStatus::Open {
-        PgTaskRepository(pool.clone())
+        PgTaskDao(pool.clone())
             .update_task(
                 task_id,
                 &TaskPatch {
@@ -71,7 +71,7 @@ async fn seed_task_pair_with_created_by(pool: &PgPool, parent_task_id: &str, chi
         TaskRelationType::CreatedBy,
         serde_json::json!({}),
     );
-    PgTaskRelationRepository(pool.clone())
+    PgTaskRelationDao(pool.clone())
         .insert(&relation)
         .await
         .unwrap();
@@ -127,7 +127,7 @@ fn terminal_event(
 #[sqlx::test]
 async fn update_status_if_not_closed_noop_on_closed(pool: PgPool) {
     seed_with_status(&pool, "task-closed", TaskStatus::Closed).await;
-    let repo = PgTaskRepository(pool.clone());
+    let repo = PgTaskDao(pool.clone());
 
     let changed = repo
         .update_status_if_not_closed("task-closed", TaskStatus::Open, &user_scope("user-1"))
@@ -140,7 +140,7 @@ async fn update_status_if_not_closed_noop_on_closed(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
-    let repo = PgTaskRepository(pool.clone());
+    let repo = PgTaskDao(pool.clone());
 
     // Open → Open still matches the predicate (status <> 'closed').
     seed_with_status(&pool, "task-open", TaskStatus::Open).await;
@@ -151,7 +151,7 @@ async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
     assert_eq!(status_of(&pool, "task-open").await, TaskStatus::Open);
 
     // Error → Open flips (preserves the start_task-from-Error path).
-    PgTaskRepository(pool.clone())
+    PgTaskDao(pool.clone())
         .update_task(
             "task-open",
             &TaskPatch {

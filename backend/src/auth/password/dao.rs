@@ -7,10 +7,10 @@ use uuid::Uuid;
 use super::models::UserCredential;
 use crate::db::DbPool;
 
-/// Repository trait for local credential persistence.
+/// DAO trait for local credential persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait UserCredentialRepository: Send + Sync {
+pub trait UserCredentialDao: Send + Sync {
     /// Look up a credential by username, case-insensitively.
     async fn find_by_username(&self, username: &str)
         -> Result<Option<UserCredential>, sqlx::Error>;
@@ -38,11 +38,11 @@ pub trait UserCredentialRepository: Send + Sync {
     async fn delete(&self, user_id: &Uuid) -> Result<bool, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`UserCredentialRepository`].
-pub struct PgUserCredentialRepository(pub DbPool);
+/// PostgreSQL implementation of [`UserCredentialDao`].
+pub struct PgUserCredentialDao(pub DbPool);
 
 #[async_trait]
-impl UserCredentialRepository for PgUserCredentialRepository {
+impl UserCredentialDao for PgUserCredentialDao {
     async fn find_by_username(
         &self,
         username: &str,

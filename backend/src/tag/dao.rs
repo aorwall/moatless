@@ -6,10 +6,10 @@ use super::models::{Tag, TaskTag};
 use crate::db::DbPool;
 use crate::task_listing;
 
-/// Repository trait for tag persistence.
+/// DAO trait for tag persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait TagRepository: Send + Sync {
+pub trait TagDao: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Tag>, sqlx::Error>;
     async fn add_task_tags(&self, task_id: &str, tag_ids: &[String]) -> Result<(), sqlx::Error>;
     async fn find_or_create_tags(&self, names: &[String]) -> Result<Vec<Tag>, sqlx::Error>;
@@ -18,11 +18,11 @@ pub trait TagRepository: Send + Sync {
     async fn get_tags_for_tasks(&self, task_ids: &[String]) -> Result<Vec<TaskTag>, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`TagRepository`].
-pub struct PgTagRepository(pub DbPool);
+/// PostgreSQL implementation of [`TagDao`].
+pub struct PgTagDao(pub DbPool);
 
 #[async_trait]
-impl TagRepository for PgTagRepository {
+impl TagDao for PgTagDao {
     async fn list_all(&self) -> Result<Vec<Tag>, sqlx::Error> {
         sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY name ASC")
             .fetch_all(&self.0)
@@ -143,12 +143,12 @@ impl TagRepository for PgTagRepository {
 
 /// List all tags (convenience wrapper).
 pub async fn list_all(pool: &DbPool) -> Result<Vec<Tag>, sqlx::Error> {
-    PgTagRepository(pool.clone()).list_all().await
+    PgTagDao(pool.clone()).list_all().await
 }
 
 /// Find or create tags by name (convenience wrapper).
 pub async fn find_or_create_tags(pool: &DbPool, names: &[String]) -> Result<Vec<Tag>, sqlx::Error> {
-    PgTagRepository(pool.clone())
+    PgTagDao(pool.clone())
         .find_or_create_tags(names)
         .await
 }
@@ -159,14 +159,14 @@ pub async fn set_task_tags(
     task_id: &str,
     tag_ids: &[String],
 ) -> Result<(), sqlx::Error> {
-    PgTagRepository(pool.clone())
+    PgTagDao(pool.clone())
         .set_task_tags(task_id, tag_ids)
         .await
 }
 
 /// Get tags for a single task (convenience wrapper).
 pub async fn get_tags_for_task(pool: &DbPool, task_id: &str) -> Result<Vec<TaskTag>, sqlx::Error> {
-    PgTagRepository(pool.clone())
+    PgTagDao(pool.clone())
         .get_tags_for_task(task_id)
         .await
 }
@@ -176,7 +176,7 @@ pub async fn get_tags_for_tasks(
     pool: &DbPool,
     task_ids: &[String],
 ) -> Result<Vec<TaskTag>, sqlx::Error> {
-    PgTagRepository(pool.clone())
+    PgTagDao(pool.clone())
         .get_tags_for_tasks(task_ids)
         .await
 }

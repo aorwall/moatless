@@ -44,8 +44,8 @@ use crate::agent::catalog::AgentKind;
 use crate::auth::identity::AuthIdentity;
 use crate::auth::models::UserRole;
 use crate::task_listing::{self, EnvironmentIdentity, Resume};
-use crate::ui_rpc::dao::ConversationRepository;
-use crate::workspace::dao::WorkspaceRepository;
+use crate::ui_rpc::dao::ConversationDao;
+use crate::workspace::dao::WorkspaceDao;
 use moatless_backend_core::scope::ScopeContext;
 
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -135,8 +135,8 @@ struct UiRpcState {
     /// the database says it is on each resume; see [`task_listing::resume`].
     environment: Arc<EnvironmentIdentity>,
     session_cookie_name: Arc<str>,
-    workspaces: Arc<dyn WorkspaceRepository>,
-    conversations: Arc<dyn ConversationRepository>,
+    workspaces: Arc<dyn WorkspaceDao>,
+    conversations: Arc<dyn ConversationDao>,
     model_defaults: Arc<AgentModelDefaults>,
 }
 
@@ -150,8 +150,8 @@ struct UiRpcState {
 /// identity, which is read from the database. See [`environment_id`].
 pub async fn router_from_env(
     session_cookie_name: String,
-    workspaces: Arc<dyn WorkspaceRepository>,
-    conversations: Arc<dyn ConversationRepository>,
+    workspaces: Arc<dyn WorkspaceDao>,
+    conversations: Arc<dyn ConversationDao>,
     model_defaults: AgentModelDefaults,
 ) -> Result<Option<Router>, UiRpcConfigError> {
     if !env_enabled("T3_UI_RPC_ENABLED")? {
@@ -337,8 +337,8 @@ async fn shell_snapshot_http(
 /// client silently drops any conversation whose project is missing from the
 /// listing, with no error and nothing logged.
 pub async fn shell_snapshot(
-    workspaces: &dyn WorkspaceRepository,
-    conversations: &dyn ConversationRepository,
+    workspaces: &dyn WorkspaceDao,
+    conversations: &dyn ConversationDao,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
 ) -> Result<ShellSnapshot, sqlx::Error> {
@@ -433,8 +433,8 @@ pub struct ShellSubscription {
 /// over records it read, and the same feed continues live. Anything left over
 /// arrives on the next poll.
 pub async fn shell_subscription(
-    workspaces: &dyn WorkspaceRepository,
-    conversations: &dyn ConversationRepository,
+    workspaces: &dyn WorkspaceDao,
+    conversations: &dyn ConversationDao,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     environment: &EnvironmentIdentity,
@@ -531,7 +531,7 @@ pub async fn shell_subscription(
 /// exists. The window is one round trip, and the cost is one row not rendered
 /// until the next rebuild rather than anything disclosed.
 async fn resume_grouping(
-    workspaces: &dyn WorkspaceRepository,
+    workspaces: &dyn WorkspaceDao,
     viewer: &ScopeContext,
 ) -> Result<Vec<String>, sqlx::Error> {
     Ok(workspaces
@@ -593,8 +593,8 @@ impl ShellSnapshot {
 /// carries. Returning the live listing here would present every conversation a
 /// person follows as archived.
 async fn archived_shell_snapshot(
-    workspaces: &dyn WorkspaceRepository,
-    conversations: &dyn ConversationRepository,
+    workspaces: &dyn WorkspaceDao,
+    conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
 ) -> Result<Value, sqlx::Error> {
     let sequence = conversations.listing_head().await?.position;
@@ -1391,8 +1391,8 @@ fn connection_defect(defect: impl Into<String>) -> Value {
 mod tests {
     use super::*;
     use crate::task_listing::ListingHead;
-    use crate::ui_rpc::dao::MockConversationRepository;
-    use crate::workspace::dao::MockWorkspaceRepository;
+    use crate::ui_rpc::dao::MockConversationDao;
+    use crate::workspace::dao::MockWorkspaceDao;
     use uuid::Uuid;
 
     /// The stub's database. Every read in these tests reports it, so nothing
@@ -1406,11 +1406,11 @@ mod tests {
     /// is a stub. What a viewer actually sees is asserted against a real
     /// database in `backend/tests/ui_rpc_shell_test.rs`.
     fn state() -> UiRpcState {
-        let mut workspaces = MockWorkspaceRepository::new();
+        let mut workspaces = MockWorkspaceDao::new();
         workspaces
             .expect_list_readable_including()
             .returning(|_, _| Ok(Vec::new()));
-        let mut conversations = MockConversationRepository::new();
+        let mut conversations = MockConversationDao::new();
         conversations
             .expect_list_followed()
             .returning(|_| Ok(Vec::new()));

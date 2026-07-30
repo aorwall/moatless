@@ -44,10 +44,10 @@ pub struct ProviderToken {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
-/// Repository trait for provider token auth persistence.
+/// DAO trait for provider token auth persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait ProviderTokenAuthRepository: Send + Sync {
+pub trait ProviderTokenAuthDao: Send + Sync {
     async fn upsert_provider_token(&self, token: &ProviderToken) -> Result<(), sqlx::Error>;
 
     /// Look up the `token_type` for a user+provider row (e.g. "pat" or "bearer").
@@ -59,11 +59,11 @@ pub trait ProviderTokenAuthRepository: Send + Sync {
     ) -> Result<Option<String>, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`ProviderTokenAuthRepository`].
-pub struct PgProviderTokenAuthRepository(pub DbPool);
+/// PostgreSQL implementation of [`ProviderTokenAuthDao`].
+pub struct PgProviderTokenAuthDao(pub DbPool);
 
 #[async_trait]
-impl ProviderTokenAuthRepository for PgProviderTokenAuthRepository {
+impl ProviderTokenAuthDao for PgProviderTokenAuthDao {
     async fn upsert_provider_token(&self, token: &ProviderToken) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"

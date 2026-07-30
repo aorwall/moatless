@@ -30,18 +30,18 @@ use crate::agent::prompt;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::models::UserRole;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
-use crate::auth::users::UserRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
+use crate::auth::users::UserDao;
 use crate::config::Config;
 use crate::credentials::{CredentialService, WriteSource};
 use crate::event_ingress::outbox::IngressOutbox;
 use crate::event_ingress::{AdmissionError, AdmissionRequest, EventAdmission};
 use crate::events::EventPublisher;
-use crate::file_storage::dao::FileRepository;
+use crate::file_storage::dao::FileDao;
 use crate::file_storage::s3 as file_s3;
-use crate::message::dao::MessageRepository;
-use crate::repository::dao::RepoRepository;
+use crate::message::dao::MessageDao;
+use crate::repository::dao::RepositoryDao;
 use crate::sandbox::event_dedup::Admission;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
@@ -50,12 +50,12 @@ use crate::sandbox::secrets::{
 };
 use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
-use crate::task::dao::TaskRepository;
-use crate::task::relations::TaskRelationRepository;
-use crate::task_event::dao::{InsertTaskEvent, TaskEventRepository};
-use crate::task_turn::dao::{TaskTurnRepository, TurnStateEvent};
+use crate::task::dao::TaskDao;
+use crate::task::relations::TaskRelationDao;
+use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
+use crate::task_turn::dao::{TaskTurnDao, TurnStateEvent};
 use crate::task_turn::models::{classify_turn_transition, TurnStatus};
-use crate::workspace::dao::WorkspaceRepository;
+use crate::workspace::dao::WorkspaceDao;
 
 /// Known credential env var names.
 ///
@@ -102,26 +102,26 @@ fn sandbox_key(prefix: &str, task_id: &str) -> String {
 /// on a slow link.
 const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_mins(15);
 
-/// gRPC server state — holds event publisher, repository trait objects, and JWT secret.
+/// gRPC server state — holds event publisher, DAO trait objects, and JWT secret.
 pub struct BackendSandboxServiceImpl {
     pub events: Option<Arc<dyn EventPublisher>>,
-    pub messages: Option<Arc<dyn MessageRepository>>,
-    pub provider_tokens: Option<Arc<dyn ProviderTokenRepository>>,
-    pub tasks: Option<Arc<dyn TaskRepository>>,
+    pub messages: Option<Arc<dyn MessageDao>>,
+    pub provider_tokens: Option<Arc<dyn ProviderTokenDao>>,
+    pub tasks: Option<Arc<dyn TaskDao>>,
     /// Authoritative turn-state writer. State-bearing events commit their turn /
     /// task-status / event rows here transactionally before being published to
     /// Redis (commit-before-fan-out ordering).
-    pub task_turns: Option<Arc<dyn TaskTurnRepository>>,
+    pub task_turns: Option<Arc<dyn TaskTurnDao>>,
     /// Event-row writer for events that bear no turn state. Commits before the
     /// Redis publish so Postgres holds the full payload even when the live tail
     /// carries a truncated stub.
-    pub task_events: Option<Arc<dyn TaskEventRepository>>,
+    pub task_events: Option<Arc<dyn TaskEventDao>>,
     /// Durable spool for the one payload kind `task_events` cannot hold in full:
     /// `agent.message` content, which ADR-0003 reduces to a skeleton there. A
     /// record is admitted here before the gRPC ack and deleted once the consumer
     /// commits `task_messages` (ADR-0006).
     pub ingress_outbox: Option<Arc<dyn IngressOutbox>>,
-    pub task_relations: Option<Arc<dyn TaskRelationRepository>>,
+    pub task_relations: Option<Arc<dyn TaskRelationDao>>,
     /// JWT signing key for *minting* the user token delivered over
     /// `GetCredentials`. Token *verification* lives entirely in `authorizer`.
     pub task_token_secret: Option<String>,
@@ -136,7 +136,7 @@ pub struct BackendSandboxServiceImpl {
     /// tokens and bot identities for bot-user `provider_tokens` rows.
     pub github_apps: Arc<GitHubAppRegistry>,
     /// Provider token auth persistence for persisting refreshed tokens.
-    pub provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+    pub provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
     /// Scoped secret resolver for global/team/user secrets.
     pub secrets: Option<Arc<SecretService>>,
     /// Generic credential service — used to route sandbox-pushed rotations
@@ -144,10 +144,10 @@ pub struct BackendSandboxServiceImpl {
     /// fan-out picks them up automatically.
     pub credentials_svc: Option<Arc<CredentialService>>,
     /// Repository DAO — used to resolve a task's repo owner for credentials.
-    pub repositories: Option<Arc<dyn RepoRepository>>,
+    pub repositories: Option<Arc<dyn RepositoryDao>>,
     /// Workspace DAO — used to load the workspace's `system_prompt` and `servers`
     /// when assembling the agent's append system prompt.
-    pub workspaces: Option<Arc<dyn WorkspaceRepository>>,
+    pub workspaces: Option<Arc<dyn WorkspaceDao>>,
     /// Backend config — supplies `frontend_url`, `proxy.domain`, `proxy.protocol`
     /// for the agent's append system prompt.
     pub backend_config: Option<Arc<Config>>,
@@ -155,7 +155,7 @@ pub struct BackendSandboxServiceImpl {
     pub s3: Option<Arc<crate::file_storage::s3::S3Storage>>,
     /// File metadata repository — supplies filename and mime type when
     /// fulfilling `download_upload` requests.
-    pub files: Option<Arc<dyn FileRepository>>,
+    pub files: Option<Arc<dyn FileDao>>,
     /// S3 bucket name (`config.s3.bucket_name`).
     pub s3_bucket: Option<String>,
     /// S3 key prefix for uploaded files (`config.s3.key_prefix`).
@@ -169,7 +169,7 @@ pub struct BackendSandboxServiceImpl {
     pub workspace_s3_prefix: String,
     /// User repository — used to render `<sent_by>` headers on pending
     /// messages so the agent sees the inbound sender's moatless login.
-    pub users: Option<Arc<dyn UserRepository>>,
+    pub users: Option<Arc<dyn UserDao>>,
     /// Ingress dedup for sandbox-published events. The sandbox outbox delivers
     /// at-least-once (retries reuse the same `event_id`); this drops retried
     /// duplicates before they reach Redis so SSE consumers don't see them twice.
@@ -225,9 +225,9 @@ pub(crate) struct SandboxAuthorizer {
     /// Accept legacy claim-less tokens via the DB fallback (rollout grace flag).
     accept_claimless: bool,
     /// Task DAO — the claim-less DB fallback and the control gate.
-    tasks: Option<Arc<dyn TaskRepository>>,
+    tasks: Option<Arc<dyn TaskDao>>,
     /// User DAO — the platform-admin lookup.
-    users: Option<Arc<dyn UserRepository>>,
+    users: Option<Arc<dyn UserDao>>,
 }
 
 impl SandboxAuthorizer {
@@ -235,8 +235,8 @@ impl SandboxAuthorizer {
     pub(crate) fn enforcing(
         secret: String,
         accept_claimless: bool,
-        tasks: Option<Arc<dyn TaskRepository>>,
-        users: Option<Arc<dyn UserRepository>>,
+        tasks: Option<Arc<dyn TaskDao>>,
+        users: Option<Arc<dyn UserDao>>,
     ) -> Self {
         Self {
             secret: Some(secret),
@@ -252,8 +252,8 @@ impl SandboxAuthorizer {
     /// without `TASK_TOKEN_SECRET` (see `Config::validate`), so it never runs
     /// there.
     pub(crate) fn dev_unauthenticated(
-        tasks: Option<Arc<dyn TaskRepository>>,
-        users: Option<Arc<dyn UserRepository>>,
+        tasks: Option<Arc<dyn TaskDao>>,
+        users: Option<Arc<dyn UserDao>>,
     ) -> Self {
         Self {
             secret: None,
@@ -268,8 +268,8 @@ impl SandboxAuthorizer {
     pub(crate) fn from_config(
         secret: Option<String>,
         accept_claimless: bool,
-        tasks: Option<Arc<dyn TaskRepository>>,
-        users: Option<Arc<dyn UserRepository>>,
+        tasks: Option<Arc<dyn TaskDao>>,
+        users: Option<Arc<dyn UserDao>>,
     ) -> Self {
         match secret {
             Some(secret) => Self::enforcing(secret, accept_claimless, tasks, users),
@@ -460,14 +460,14 @@ impl SandboxAuthorizer {
 /// unauthenticated bypass stays unconstructible from outside the crate.
 #[cfg(feature = "db-tests")]
 impl BackendSandboxServiceImpl {
-    /// Ingress wired to real Postgres repositories with token verification off.
+    /// Ingress wired to real Postgres DAOs with token verification off.
     /// Everything admission does not touch is absent, which is also the point:
     /// a test that reaches past durable admission fails on `None` rather than
     /// quietly exercising a half-wired service.
     pub fn for_ingress_tests(
         events: Option<Arc<dyn EventPublisher>>,
-        task_turns: Arc<dyn TaskTurnRepository>,
-        task_events: Arc<dyn TaskEventRepository>,
+        task_turns: Arc<dyn TaskTurnDao>,
+        task_events: Arc<dyn TaskEventDao>,
         ingress_outbox: Arc<dyn IngressOutbox>,
     ) -> Self {
         Self {
@@ -2226,8 +2226,8 @@ mod tests {
 
     use moatless_backend_core::scope::Scope;
 
-    use crate::auth::users::{MockUserRepository, User, UserRepository};
-    use crate::task::dao::{MockTaskRepository, TaskRepository};
+    use crate::auth::users::{MockUserDao, User, UserDao};
+    use crate::task::dao::{MockTaskDao, TaskDao};
     use crate::task::models::{Task, Visibility};
 
     fn epoch() -> chrono::DateTime<chrono::Utc> {
@@ -2307,9 +2307,9 @@ mod tests {
 
     /// Build a service whose authorizer has only the repositories the control
     /// gate consults wired; everything else is `None`/default.
-    fn service_with(tasks: MockTaskRepository, users: MockUserRepository) -> BackendSandboxServiceImpl {
-        let tasks: Arc<dyn TaskRepository> = Arc::new(tasks);
-        let users: Arc<dyn UserRepository> = Arc::new(users);
+    fn service_with(tasks: MockTaskDao, users: MockUserDao) -> BackendSandboxServiceImpl {
+        let tasks: Arc<dyn TaskDao> = Arc::new(tasks);
+        let users: Arc<dyn UserDao> = Arc::new(users);
         BackendSandboxServiceImpl {
             events: None,
             messages: None,
@@ -2346,22 +2346,22 @@ mod tests {
     /// Mock task repo whose scoped `find_by_id` returns `task` for any caller —
     /// i.e. "the scope filter let the read through". Pass `None` to model a
     /// task that is missing or invisible to the caller.
-    fn tasks_returning(task: Option<Task>) -> MockTaskRepository {
-        let mut m = MockTaskRepository::new();
+    fn tasks_returning(task: Option<Task>) -> MockTaskDao {
+        let mut m = MockTaskDao::new();
         m.expect_find_by_id()
             .returning(move |_, _| Ok(task.clone()));
         m
     }
 
-    fn users_regular() -> MockUserRepository {
-        let mut m = MockUserRepository::new();
+    fn users_regular() -> MockUserDao {
+        let mut m = MockUserDao::new();
         m.expect_get_user()
             .returning(|id| Ok(Some(user_fixture(id, UserRole::User))));
         m
     }
 
-    fn users_admin() -> MockUserRepository {
-        let mut m = MockUserRepository::new();
+    fn users_admin() -> MockUserDao {
+        let mut m = MockUserDao::new();
         m.expect_get_user()
             .returning(|id| Ok(Some(user_fixture(id, UserRole::Admin))));
         m

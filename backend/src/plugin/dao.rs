@@ -6,10 +6,10 @@ use uuid::Uuid;
 use super::models::{ActivationRow, Plugin, PluginSkill};
 use crate::db::DbPool;
 
-/// Repository trait for plugin persistence.
+/// DAO trait for plugin persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait PluginRepository: Send + Sync {
+pub trait PluginDao: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Plugin>, sqlx::Error>;
     async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, sqlx::Error>;
     async fn insert(&self, row: &Plugin) -> Result<(), sqlx::Error>;
@@ -56,11 +56,11 @@ pub trait PluginRepository: Send + Sync {
     ) -> Result<bool, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`PluginRepository`].
-pub struct PgPluginRepository(pub DbPool);
+/// PostgreSQL implementation of [`PluginDao`].
+pub struct PgPluginDao(pub DbPool);
 
 #[async_trait]
-impl PluginRepository for PgPluginRepository {
+impl PluginDao for PgPluginDao {
     async fn list_all(&self) -> Result<Vec<Plugin>, sqlx::Error> {
         sqlx::query_as::<_, Plugin>("SELECT * FROM plugins ORDER BY name ASC")
             .fetch_all(&self.0)

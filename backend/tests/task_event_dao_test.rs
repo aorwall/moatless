@@ -13,7 +13,7 @@ mod common;
 
 use moatless_vibe_backend::task::dao::{self as task_dao};
 use moatless_vibe_backend::task_event::dao::{
-    InsertTaskEvent, PgTaskEventRepository, TaskEventRepository,
+    InsertTaskEvent, PgTaskEventDao, TaskEventDao,
 };
 use sqlx::PgPool;
 
@@ -30,7 +30,7 @@ async fn seed_task(pool: &PgPool, task_id: &str) {
 
 /// Append an `agent` event, in call order — `id` is a bigserial, so call order
 /// is log order, which is exactly what the dedupe compares on.
-async fn log_agent_event(repo: &PgTaskEventRepository, task_id: &str, event_id: &str, sub: &str) {
+async fn log_agent_event(repo: &PgTaskEventDao, task_id: &str, event_id: &str, sub: &str) {
     repo.insert_event(&InsertTaskEvent {
         event_id: event_id.to_string(),
         task_id: task_id.to_string(),
@@ -49,7 +49,7 @@ async fn log_agent_event(repo: &PgTaskEventRepository, task_id: &str, event_id: 
 #[sqlx::test]
 async fn exactly_one_of_a_double_stop_fan_out_survives(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskEventRepository(pool.clone());
+    let repo = PgTaskEventDao(pool.clone());
 
     // One user stop, two publishers: the sandbox answering `StopAgent` and the
     // /stop handler. Both rows are in the log before either is dispatched.
@@ -75,7 +75,7 @@ async fn exactly_one_of_a_double_stop_fan_out_survives(pool: PgPool) {
 #[sqlx::test]
 async fn a_new_run_reopens_the_guard(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskEventRepository(pool.clone());
+    let repo = PgTaskEventDao(pool.clone());
 
     log_agent_event(&repo, "task-a", "started-1", "started").await;
     log_agent_event(&repo, "task-a", "stopped-1", "stopped").await;
@@ -94,7 +94,7 @@ async fn a_new_run_reopens_the_guard(pool: PgPool) {
 #[sqlx::test]
 async fn a_stop_after_the_run_completed_is_dropped(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskEventRepository(pool.clone());
+    let repo = PgTaskEventDao(pool.clone());
 
     log_agent_event(&repo, "task-a", "started-1", "started").await;
     log_agent_event(&repo, "task-a", "completed-1", "completed").await;
@@ -111,7 +111,7 @@ async fn a_stop_after_the_run_completed_is_dropped(pool: PgPool) {
 #[sqlx::test]
 async fn an_unlogged_event_fails_open(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskEventRepository(pool.clone());
+    let repo = PgTaskEventDao(pool.clone());
 
     log_agent_event(&repo, "task-a", "started-1", "started").await;
     log_agent_event(&repo, "task-a", "stopped-1", "stopped").await;
@@ -129,7 +129,7 @@ async fn an_unlogged_event_fails_open(pool: PgPool) {
 async fn other_tasks_and_non_run_state_events_are_ignored(pool: PgPool) {
     seed_task(&pool, "task-a").await;
     seed_task_only(&pool, "task-b").await;
-    let repo = PgTaskEventRepository(pool.clone());
+    let repo = PgTaskEventDao(pool.clone());
 
     log_agent_event(&repo, "task-b", "stopped-b", "stopped").await;
     log_agent_event(&repo, "task-a", "started-1", "started").await;
@@ -151,7 +151,7 @@ async fn seed_task_only(pool: &PgPool, task_id: &str) {
 }
 
 async fn log_workspace_sync(
-    repo: &PgTaskEventRepository,
+    repo: &PgTaskEventDao,
     task_id: &str,
     event_id: &str,
     direction: &str,
@@ -181,7 +181,7 @@ async fn log_workspace_sync(
 #[sqlx::test]
 async fn latest_successful_workspace_upload_ignores_downloads_and_failures(pool: PgPool) {
     seed_task(&pool, "task-a").await;
-    let repo = PgTaskEventRepository(pool.clone());
+    let repo = PgTaskEventDao(pool.clone());
 
     log_workspace_sync(&repo, "task-a", "download-ok", "download", true, 11).await;
     log_workspace_sync(&repo, "task-a", "upload-failed", "upload", false, 22).await;

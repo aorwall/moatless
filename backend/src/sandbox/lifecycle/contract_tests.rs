@@ -1,6 +1,6 @@
 //! The lifecycle contract against local Postgres.
 //!
-//! Drives the `Lifecycle` orchestrator over the real `PgLifecycleStore` and
+//! Drives the `Lifecycle` orchestrator over the real `PgLifecycleDao` and
 //! `PgLifecycleLock` with a recording runtime, exercising the Postgres half of
 //! the contract: intent persistence, deterministic completion + marker
 //! acknowledgement, genuine per-Task serialization across distinct lock pools,
@@ -19,10 +19,10 @@ use tokio::sync::Notify;
 
 use crate::task::models::SandboxStopReason;
 
-use super::dao::PgLifecycleStore;
+use super::dao::PgLifecycleDao;
 use super::events::{EventFact, LifecycleEvent};
 use super::lock::PgLifecycleLock;
-use super::orchestrator::{AgentStopPort, LifecycleEventSink, LifecycleStore};
+use super::orchestrator::{AgentStopPort, LifecycleDao, LifecycleEventSink};
 use super::runtime::{RuntimeOperationContext, RuntimeOutcome, SandboxRuntime};
 use super::test_support::seed_task_with as seed;
 use super::{
@@ -183,7 +183,7 @@ impl AgentStopPort for NoopAgentStop {
 
 struct Harness {
     lifecycle: Lifecycle,
-    store: Arc<PgLifecycleStore>,
+    store: Arc<PgLifecycleDao>,
     runtime: Arc<RecordingRuntime>,
     sink: Arc<CollectSink>,
     pool: PgPool,
@@ -195,7 +195,7 @@ fn build(
     runtime: RecordingRuntime,
     lock_attempts: u32,
 ) -> Harness {
-    let store = Arc::new(PgLifecycleStore::new(store_pool.clone()));
+    let store = Arc::new(PgLifecycleDao::new(store_pool.clone()));
     let runtime = Arc::new(runtime);
     let sink = Arc::new(CollectSink::default());
     let lifecycle = Lifecycle::new(

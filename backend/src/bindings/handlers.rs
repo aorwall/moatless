@@ -60,7 +60,7 @@ pub async fn create_task_binding(
     }
     if let Some(trigger_id) = req.trigger_id.as_deref() {
         let trigger = load_loop_for_auth(&state, &ctx, trigger_id).await?;
-        let crate::loops::store::LoopSourceRow::AdapterEvent(source) = trigger.source else {
+        let crate::loops::dao::LoopSourceRow::AdapterEvent(source) = trigger.source else {
             return Err(AdapterError::BadRequest(format!(
                 "Trigger {trigger_id} is not an adapter-event trigger"
             )));

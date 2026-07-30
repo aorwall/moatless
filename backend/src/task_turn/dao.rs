@@ -1,11 +1,11 @@
 //! Task turn DAO — authoritative per-turn lifecycle persistence.
 //!
-//! The [`TaskTurnRepository::apply_ingress_event`] method is the
+//! The [`TaskTurnDao::apply_ingress_event`] method is the
 //! commit-before-fan-out writer for turn state: it commits the event row, the
 //! turn row, and the task-status flip in ONE transaction *before* the gRPC
 //! handler publishes to Redis, so turn state is never lost to a dropped event.
 //! The Redis consumer re-applies the same projection idempotently via
-//! [`TaskTurnRepository::project_turn`] as a rollout/backstop fallback.
+//! [`TaskTurnDao::project_turn`] as a rollout/backstop fallback.
 //!
 //! This is ordering, not an outbox: nothing is spooled here and nothing relays
 //! or deletes these rows. "Transactional outbox" names only the durable
@@ -116,7 +116,7 @@ async fn record_listing_change(
 /// Repository for authoritative task-turn state.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait TaskTurnRepository: Send + Sync {
+pub trait TaskTurnDao: Send + Sync {
     /// Transactionally apply a state-bearing event at the gRPC ingress: persist
     /// the `task_events` row (idempotent on `event_id`), project the turn row,
     /// and — for terminal transitions — return the task to `Open` unless it was
@@ -212,11 +212,11 @@ const NEXT_TURN_NUMBER_SQL: &str = r#"
         COALESCE((SELECT MAX(turn_number) FROM task_messages WHERE task_id = $1), 0)
     ) + 1"#;
 
-/// PostgreSQL implementation of [`TaskTurnRepository`].
-pub struct PgTaskTurnRepository(pub DbPool);
+/// PostgreSQL implementation of [`TaskTurnDao`].
+pub struct PgTaskTurnDao(pub DbPool);
 
 #[async_trait]
-impl TaskTurnRepository for PgTaskTurnRepository {
+impl TaskTurnDao for PgTaskTurnDao {
     async fn apply_ingress_event(&self, ev: &TurnStateEvent) -> Result<(), sqlx::Error> {
         let at = Utc::now();
         let mut tx = self.0.begin().await?;

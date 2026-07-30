@@ -15,11 +15,11 @@ use tower::ServiceExt;
 
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::task::dao::{
-    self as task_dao, PgTaskRepository, TaskPatch, TaskRepository,
+    self as task_dao, PgTaskDao, TaskDao, TaskPatch,
 };
 use moatless_vibe_backend::task::models::TaskStatus;
 use moatless_vibe_backend::task::relations::{
-    PgTaskRelationRepository, TaskRelation, TaskRelationRepository, TaskRelationType,
+    PgTaskRelationDao, TaskRelation, TaskRelationDao, TaskRelationType,
 };
 use moatless_vibe_backend::task::routes::task_router;
 
@@ -214,7 +214,7 @@ async fn delete_task_handler(pool: PgPool) {
 
 /// Set an existing task to `Closed` (mirrors the close handler's DB effect).
 async fn set_closed(pool: &PgPool, task_id: &str) {
-    PgTaskRepository(pool.clone())
+    PgTaskDao(pool.clone())
         .update_task(
             task_id,
             &TaskPatch {
@@ -234,7 +234,7 @@ async fn seed_parent_and_child(pool: &PgPool) {
             .await
             .unwrap();
     }
-    PgTaskRelationRepository(pool.clone())
+    PgTaskRelationDao(pool.clone())
         .insert(&TaskRelation::new(
             "task-child",
             "task-parent",

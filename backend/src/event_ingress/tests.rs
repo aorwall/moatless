@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 
 use crate::events::EventPublisher;
-use crate::task_event::dao::MockTaskEventRepository;
-use crate::task_turn::dao::TaskTurnRepository;
+use crate::task_event::dao::MockTaskEventDao;
+use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnTransition, UnclosedTurn};
 use crate::test_support::RecordingPublisher;
 
@@ -31,7 +31,7 @@ struct RecordingTurns {
 }
 
 #[async_trait]
-impl TaskTurnRepository for RecordingTurns {
+impl TaskTurnDao for RecordingTurns {
     async fn apply_ingress_event(
         &self,
         _ev: &crate::task_turn::dao::TurnStateEvent,
@@ -257,8 +257,8 @@ fn plain_request(event_id: &str) -> AdmissionRequest {
 fn recording_events(
     rec: &Recorder,
     fail: bool,
-) -> Arc<dyn crate::task_event::dao::TaskEventRepository> {
-    let mut events = MockTaskEventRepository::new();
+) -> Arc<dyn crate::task_event::dao::TaskEventDao> {
+    let mut events = MockTaskEventDao::new();
     let rec = rec.clone();
     events.expect_insert_event().returning(move |_| {
         rec.lock().expect("recorder poisoned").push("event-row");
@@ -277,7 +277,7 @@ fn recording_events(
 #[tokio::test]
 async fn state_is_committed_before_fan_out() {
     let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
-    let turns: Arc<dyn TaskTurnRepository> = Arc::new(RecordingTurns {
+    let turns: Arc<dyn TaskTurnDao> = Arc::new(RecordingTurns {
         rec: rec.clone(),
         fail: false,
     });
@@ -305,7 +305,7 @@ async fn state_is_committed_before_fan_out() {
 #[tokio::test]
 async fn failed_state_commit_is_retryable_and_never_fans_out() {
     let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
-    let turns: Arc<dyn TaskTurnRepository> = Arc::new(RecordingTurns {
+    let turns: Arc<dyn TaskTurnDao> = Arc::new(RecordingTurns {
         rec: rec.clone(),
         fail: true,
     });

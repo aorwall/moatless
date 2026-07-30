@@ -673,7 +673,7 @@ Now persists full SDK messages to DB (both assistant and tool_result messages):
 ```
 The turn is closed as `stopped` either way, and that turn status — not the
 message row — is what suppresses `--resume` on the next run (see
-`TaskTurnRepository::latest_closed_turn_status`).
+`TaskTurnDao::latest_closed_turn_status`).
 
 #### handle_agent_error() (lines 277-361)
 ```

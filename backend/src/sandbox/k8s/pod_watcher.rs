@@ -46,10 +46,10 @@ use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERA
 use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use crate::sandbox::lifecycle::Lifecycle;
 use crate::sandbox::lifecycle::OperationGeneration;
-use crate::task::dao::{TaskPatch, TaskRepository};
+use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::{SandboxDesiredState, SandboxStopReason};
-use crate::task_event::dao::TaskEventRepository;
-use crate::workspace::dao::WorkspaceRepository;
+use crate::task_event::dao::TaskEventDao;
+use crate::workspace::dao::WorkspaceDao;
 
 /// Dependencies the watcher needs to remediate a crash-looping sandbox. The
 /// lifecycle owns plan construction and intent, so the watcher only carries the
@@ -66,12 +66,12 @@ struct WatcherDeps {
     /// (`redeploy`) through it. `None` in DB-less setups, where crash mitigation
     /// degrades to a raw scale-to-0 and auto-disable is skipped.
     lifecycle: Option<Arc<Lifecycle>>,
-    tasks: Option<Arc<dyn TaskRepository>>,
-    workspaces: Option<Arc<dyn WorkspaceRepository>>,
+    tasks: Option<Arc<dyn TaskDao>>,
+    workspaces: Option<Arc<dyn WorkspaceDao>>,
     /// Task-event repo, used to look up the active turn when a pod terminates
     /// involuntarily so `turn_interrupted` carries the right turn context (and
     /// is suppressed when no turn is in flight). `None` in DB-less setups.
-    task_events: Option<Arc<dyn TaskEventRepository>>,
+    task_events: Option<Arc<dyn TaskEventDao>>,
 }
 
 /// Pod-Pending duration after which the watcher emits `scheduling_blocked`,
@@ -212,7 +212,7 @@ impl PodObservedState {
 /// 3. If not leader, sleep and retry.
 /// 4. On watch stream error, re-enter the leadership loop.
 // reason: the watcher wires nine collaborators (client, publisher, cancel, the
-// crash threshold, archive feature gate, and four optional repositories) into
+// crash threshold, archive feature gate, and four optional DAOs) into
 // one spawned task.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_pod_lifecycle_watcher(
@@ -222,9 +222,9 @@ pub fn spawn_pod_lifecycle_watcher(
     max_crash_restart_count: i32,
     node_archive_enabled: bool,
     lifecycle: Option<Arc<Lifecycle>>,
-    tasks: Option<Arc<dyn TaskRepository>>,
-    workspaces: Option<Arc<dyn WorkspaceRepository>>,
-    task_events: Option<Arc<dyn TaskEventRepository>>,
+    tasks: Option<Arc<dyn TaskDao>>,
+    workspaces: Option<Arc<dyn WorkspaceDao>>,
+    task_events: Option<Arc<dyn TaskEventDao>>,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     metrics::describe_counter!(
@@ -1334,7 +1334,7 @@ async fn auto_disable_server(
     );
 
     // Need DB access to determine default-ness and persist the disabled set; the
-    // lifecycle owns the redeploy plan repositories.
+    // lifecycle owns the redeploy plan DAOs.
     let (Some(tasks), Some(workspaces)) = (deps.tasks.as_ref(), deps.workspaces.as_ref()) else {
         debug!(
             task_id = %task_id,

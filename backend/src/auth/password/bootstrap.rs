@@ -4,10 +4,10 @@ use chrono::Utc;
 use thiserror::Error;
 use tracing::{info, warn};
 
-use super::dao::UserCredentialRepository;
+use super::dao::UserCredentialDao;
 use super::hash::{generate_password, hash_password, PasswordHashError};
 use crate::auth::models::UserRole;
-use crate::auth::users::{User, UserRepository};
+use crate::auth::users::{User, UserDao};
 use crate::config::AuthConfig;
 
 /// Length of a generated bootstrap password.
@@ -31,8 +31,8 @@ pub enum BootstrapError {
 /// - `(None, None)` — a password is generated, stored hashed, and logged **once**
 ///   at WARN. The plaintext is never persisted.
 pub async fn ensure_local_admin(
-    users: &dyn UserRepository,
-    credentials: &dyn UserCredentialRepository,
+    users: &dyn UserDao,
+    credentials: &dyn UserCredentialDao,
     config: &AuthConfig,
 ) -> Result<(), BootstrapError> {
     let username = config.admin_username.trim();
@@ -113,9 +113,9 @@ pub async fn ensure_local_admin(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::password::dao::MockUserCredentialRepository;
+    use crate::auth::password::dao::MockUserCredentialDao;
     use crate::auth::password::hash::verify_password;
-    use crate::auth::users::MockUserRepository;
+    use crate::auth::users::MockUserDao;
     use crate::config::AuthProvider;
     use std::sync::{Arc, Mutex};
 
@@ -130,10 +130,10 @@ mod tests {
     /// Captures the arguments the bootstrap passes to `upsert`.
     type Captured = Arc<Mutex<Option<(String, String, String, bool)>>>;
 
-    fn mocks(existing: bool) -> (MockUserRepository, MockUserCredentialRepository, Captured) {
+    fn mocks(existing: bool) -> (MockUserDao, MockUserCredentialDao, Captured) {
         let captured: Captured = Arc::new(Mutex::new(None));
 
-        let mut users = MockUserRepository::new();
+        let mut users = MockUserDao::new();
         users.expect_upsert_user().returning(|_| Ok(()));
         users
             .expect_upsert_provider_id()
@@ -143,7 +143,7 @@ mod tests {
             .expect_find_user_by_provider_id()
             .returning(|_, _| Ok(None));
 
-        let mut credentials = MockUserCredentialRepository::new();
+        let mut credentials = MockUserCredentialDao::new();
         credentials
             .expect_find_by_user_id()
             .returning(move |user_id| {
@@ -231,7 +231,7 @@ mod tests {
         let mapped_id = uuid::Uuid::parse_str("fbeb5f73-28e2-4939-9cdb-b8f0107875a5").unwrap();
         let captured: Captured = Arc::new(Mutex::new(None));
 
-        let mut users = MockUserRepository::new();
+        let mut users = MockUserDao::new();
         users.expect_upsert_user().returning(|_| Ok(()));
         users
             .expect_upsert_provider_id()
@@ -255,7 +255,7 @@ mod tests {
                 }))
             });
 
-        let mut credentials = MockUserCredentialRepository::new();
+        let mut credentials = MockUserCredentialDao::new();
         credentials.expect_find_by_user_id().returning(|_| Ok(None));
         let sink = captured.clone();
         credentials

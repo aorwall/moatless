@@ -1,19 +1,19 @@
-//! Provider-token repository stub for unit tests.
+//! Provider-token DAO stub for unit tests.
 //!
-//! `ProviderTokenRepository` has no `automock` (mockall can't synthesise the
+//! `ProviderTokenDao` has no `automock` (mockall can't synthesise the
 //! `Option<&str>` / `Option<&Value>` lifetimes in its async-trait methods), so
 //! tests use this hand-written stub.
 
 use async_trait::async_trait;
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-use super::provider_token_dao::ProviderTokenRepository;
+use super::provider_token_dao::ProviderTokenDao;
 use crate::credentials::github::scope::GitHubScope;
 use crate::credentials::CodexScope;
 
 /// Canned `provider_tokens` rows at each scope. Writes are accepted and
 /// dropped. Reads honour the same `user > global` precedence as
-/// `PgProviderTokenRepository`.
+/// `PgProviderTokenDao`.
 #[derive(Default)]
 pub struct StubProviderTokens {
     /// Row returned for every user-scope lookup, regardless of user id.
@@ -83,7 +83,7 @@ fn presence(scope: &GitHubScope, row: &ProviderToken) -> GithubTokenPresence {
 }
 
 #[async_trait]
-impl ProviderTokenRepository for StubProviderTokens {
+impl ProviderTokenDao for StubProviderTokens {
     async fn find_provider_token(
         &self,
         _user_id: &str,

@@ -7,8 +7,8 @@ use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64::Engine;
 
-use super::audit::{SecretAuditInput, SecretAuditRepository};
-use super::dao::{SecretInsert, SecretReplace, SecretRepository};
+use super::audit::{SecretAuditDao, SecretAuditInput};
+use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
 use super::models::{
     is_reserved_key, is_valid_secret_key, EncryptedSecretValue, ResolvedSecret, SecretKind,
@@ -204,15 +204,15 @@ fn parse_master_key(raw: &str) -> Option<[u8; DATA_KEY_LEN]> {
 
 #[derive(Clone)]
 pub struct SecretService {
-    secrets: Arc<dyn SecretRepository>,
-    audits: Arc<dyn SecretAuditRepository>,
+    secrets: Arc<dyn SecretDao>,
+    audits: Arc<dyn SecretAuditDao>,
     cipher: Option<Arc<dyn SecretCipher>>,
 }
 
 impl SecretService {
     pub fn new(
-        secrets: Arc<dyn SecretRepository>,
-        audits: Arc<dyn SecretAuditRepository>,
+        secrets: Arc<dyn SecretDao>,
+        audits: Arc<dyn SecretAuditDao>,
         cipher: Option<Arc<dyn SecretCipher>>,
     ) -> Self {
         Self {

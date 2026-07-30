@@ -18,7 +18,7 @@ mod common;
 
 use moatless_vibe_backend::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::workspace::dao::{
-    PgWorkspaceRepository, WorkspacePatch, WorkspaceRepository,
+    PgWorkspaceDao, WorkspaceDao, WorkspacePatch,
 };
 use sqlx::PgPool;
 
@@ -38,7 +38,7 @@ fn scope_ctx(user_id: &str) -> ScopeContext {
 
 #[sqlx::test]
 async fn insert_and_find_by_id(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     let ws = make_workspace_row("ws-1", "user-1");
     repo.insert_workspace(&ws).await.unwrap();
 
@@ -58,7 +58,7 @@ async fn insert_and_find_by_id(pool: PgPool) {
 
 #[sqlx::test]
 async fn find_by_id_scoped_hides_plain_soft_deleted(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     repo.insert_workspace(&make_workspace_row("ws-del", "user-1"))
         .await
         .unwrap();
@@ -78,7 +78,7 @@ async fn find_by_id_scoped_hides_plain_soft_deleted(pool: PgPool) {
 
 #[sqlx::test]
 async fn find_and_list_keep_git_origin_tombstones_visible(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     let mut ws = make_workspace_row("ws-git-del", "user-1");
     ws.source = "git".to_string();
     ws.source_repository_id = Some("repo-1".to_string());
@@ -113,7 +113,7 @@ async fn find_and_list_keep_git_origin_tombstones_visible(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_scope_filtering(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
 
     repo.insert_workspace(&make_workspace_row("ws-user", "user-1"))
         .await
@@ -146,7 +146,7 @@ async fn list_scope_filtering(pool: PgPool) {
 
 #[sqlx::test]
 async fn update_mutates_present_fields_only(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     repo.insert_workspace(&make_workspace_row("ws-u", "user-1"))
         .await
         .unwrap();
@@ -181,7 +181,7 @@ async fn update_mutates_present_fields_only(pool: PgPool) {
 /// workspace layer (mirrors the coverage the repository DAO used to carry).
 #[sqlx::test]
 async fn update_jsonb_run_config_round_trips(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     repo.insert_workspace(&make_workspace_row("ws-json", "user-1"))
         .await
         .unwrap();
@@ -213,7 +213,7 @@ async fn update_jsonb_run_config_round_trips(pool: PgPool) {
 
 #[sqlx::test]
 async fn set_primary_keeps_exactly_one_primary(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     repo.insert_workspace(&make_workspace_row("ws-p", "user-1"))
         .await
         .unwrap();
@@ -255,7 +255,7 @@ async fn set_primary_keeps_exactly_one_primary(pool: PgPool) {
 
 #[sqlx::test]
 async fn add_repo_rejects_duplicate_mount_name(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     repo.insert_workspace(&make_workspace_row("ws-m", "user-1"))
         .await
         .unwrap();
@@ -277,7 +277,7 @@ async fn add_repo_rejects_duplicate_mount_name(pool: PgPool) {
 
 #[sqlx::test]
 async fn refresh_kind_derives_label_and_remove_repo(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     repo.insert_workspace(&make_workspace_row("ws-k", "user-1"))
         .await
         .unwrap();
@@ -331,7 +331,7 @@ async fn refresh_kind_derives_label_and_remove_repo(pool: PgPool) {
 
 #[sqlx::test]
 async fn find_repos_for_workspaces_batches_by_id(pool: PgPool) {
-    let repo = PgWorkspaceRepository(pool.clone());
+    let repo = PgWorkspaceDao(pool.clone());
     repo.insert_workspace(&make_workspace_row("ws-1", "user-1"))
         .await
         .unwrap();
@@ -382,7 +382,7 @@ async fn find_repos_for_workspaces_batches_by_id(pool: PgPool) {
 }
 
 /// Read a workspace's derived `kind` label via the scoped finder.
-async fn kind_of(repo: &PgWorkspaceRepository, id: &str) -> String {
+async fn kind_of(repo: &PgWorkspaceDao, id: &str) -> String {
     repo.find_by_id(id, &scope_ctx("user-1"))
         .await
         .unwrap()

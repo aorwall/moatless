@@ -103,7 +103,7 @@ impl StoreError {
 
 /// Durable intent persistence + generation allocation.
 #[async_trait]
-pub trait LifecycleStore: Send + Sync {
+pub trait LifecycleDao: Send + Sync {
     async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError>;
 
     /// DB-derived reconciler candidates: participating Tasks (Open/Error) that
@@ -205,7 +205,7 @@ impl WallClock for SystemWallClock {
 /// The deep lifecycle module.
 #[derive(Clone)]
 pub struct Lifecycle {
-    store: Arc<dyn LifecycleStore>,
+    store: Arc<dyn LifecycleDao>,
     runtime: Arc<dyn SandboxRuntime>,
     agent_stop: Arc<dyn AgentStopPort>,
     events: Arc<dyn LifecycleEventSink>,
@@ -219,7 +219,7 @@ pub struct Lifecycle {
 
 impl Lifecycle {
     pub(crate) fn new(
-        store: Arc<dyn LifecycleStore>,
+        store: Arc<dyn LifecycleDao>,
         runtime: Arc<dyn SandboxRuntime>,
         agent_stop: Arc<dyn AgentStopPort>,
         events: Arc<dyn LifecycleEventSink>,
@@ -928,7 +928,7 @@ mod tests {
     /// Shared ordered log so tests can assert call ordering across ports.
     type Log = Arc<Mutex<Vec<String>>>;
 
-    struct InMemoryStore {
+    struct InMemoryLifecycleDao {
         intent: Mutex<Option<TaskIntent>>,
         next_gen: Mutex<i64>,
         commits: Mutex<Vec<String>>,
@@ -937,7 +937,7 @@ mod tests {
         fail_commit: bool,
     }
 
-    impl InMemoryStore {
+    impl InMemoryLifecycleDao {
         fn with_intent(intent: TaskIntent) -> Arc<Self> {
             Arc::new(Self {
                 intent: Mutex::new(Some(intent)),
@@ -970,7 +970,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl LifecycleStore for InMemoryStore {
+    impl LifecycleDao for InMemoryLifecycleDao {
         async fn load(&self, _task_id: &str) -> Result<Option<TaskIntent>, StoreError> {
             Ok(self.intent.lock().expect("lock").clone())
         }
@@ -1290,13 +1290,13 @@ mod tests {
 
     struct Harness {
         lifecycle: Lifecycle,
-        store: Arc<InMemoryStore>,
+        store: Arc<InMemoryLifecycleDao>,
         runtime: Arc<RecordingRuntime>,
         events: Arc<RecordingEvents>,
         log: Log,
     }
 
-    fn harness_with(store: Arc<InMemoryStore>, lock: Arc<dyn LifecycleLock>) -> Harness {
+    fn harness_with(store: Arc<InMemoryLifecycleDao>, lock: Arc<dyn LifecycleLock>) -> Harness {
         let log: Log = Arc::new(Mutex::new(vec![]));
         let runtime = Arc::new(RecordingRuntime::new(log.clone()));
         let events = RecordingEvents::new();
@@ -1319,7 +1319,7 @@ mod tests {
     }
 
     fn harness(intent: TaskIntent) -> Harness {
-        harness_with(InMemoryStore::with_intent(intent), FlakyLock::free())
+        harness_with(InMemoryLifecycleDao::with_intent(intent), FlakyLock::free())
     }
 
     // ============================ Tests ============================
@@ -1402,7 +1402,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_task_is_not_found() {
-        let h = harness_with(InMemoryStore::missing(), FlakyLock::free());
+        let h = harness_with(InMemoryLifecycleDao::missing(), FlakyLock::free());
         assert!(matches!(
             h.lifecycle.start("t").await,
             Err(LifecycleError::TaskNotFound(_))
@@ -1430,7 +1430,7 @@ mod tests {
 
     #[tokio::test]
     async fn intent_write_failure_yields_no_runtime_effect() {
-        let store = Arc::new(InMemoryStore {
+        let store = Arc::new(InMemoryLifecycleDao {
             intent: Mutex::new(Some(open_stopped())),
             next_gen: Mutex::new(1),
             commits: Mutex::new(vec![]),
@@ -1449,7 +1449,7 @@ mod tests {
         // A read failure must classify as IntentLoad, not IntentWrite.
         struct FailingLoad;
         #[async_trait]
-        impl LifecycleStore for FailingLoad {
+        impl LifecycleDao for FailingLoad {
             async fn load(&self, _t: &str) -> Result<Option<TaskIntent>, StoreError> {
                 Err(StoreError::new("conn reset"))
             }
@@ -1695,7 +1695,7 @@ mod tests {
 
     #[tokio::test]
     async fn contended_lock_surfaces_operation_in_progress_with_holder_kind() {
-        let store = InMemoryStore::with_intent(open_running());
+        let store = InMemoryLifecycleDao::with_intent(open_running());
         let h = harness_with(store, FlakyLock::denying(1, OperationKind::Stop));
         let res = h.lifecycle.start("t").await;
         match res {
@@ -1710,7 +1710,7 @@ mod tests {
     #[tokio::test]
     async fn bounded_lock_retry_eventually_succeeds() {
         // Denies twice then grants; three attempts succeed.
-        let store = InMemoryStore::with_intent(open_running());
+        let store = InMemoryLifecycleDao::with_intent(open_running());
         let log: Log = Arc::new(Mutex::new(vec![]));
         let runtime = Arc::new(RecordingRuntime::new(log.clone()));
         runtime
@@ -1732,7 +1732,7 @@ mod tests {
 
     #[tokio::test]
     async fn exhausted_lock_retry_surfaces_operation_in_progress() {
-        let store = InMemoryStore::with_intent(open_running());
+        let store = InMemoryLifecycleDao::with_intent(open_running());
         let h_lock = FlakyLock::denying(10, OperationKind::Remove);
         let h = harness_with(store, h_lock);
         let res = h.lifecycle.with_lock_attempts(3).start("t").await;
@@ -1785,7 +1785,7 @@ mod tests {
     async fn completion_commit_failure_propagates_and_does_not_publish() {
         // Durability: a failed completion transaction must not publish the event
         // nor report success; intent + marker survive for the reconciler.
-        let store = Arc::new(InMemoryStore {
+        let store = Arc::new(InMemoryLifecycleDao {
             intent: Mutex::new(Some(open_running())),
             next_gen: Mutex::new(1),
             commits: Mutex::new(vec![]),
@@ -1862,7 +1862,7 @@ mod tests {
         // allocate a fresh generation nor take the caller's DeleteArchives.
         let prior_marker =
             CorrelationMarker::new(OperationKind::Remove, OperationGeneration(5), fixed_now());
-        let store = Arc::new(InMemoryStore {
+        let store = Arc::new(InMemoryLifecycleDao {
             intent: Mutex::new(Some(intent(
                 TaskStatus::Open,
                 SandboxDesiredState::Removed,

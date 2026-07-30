@@ -10,7 +10,7 @@
 mod common;
 
 use moatless_vibe_backend::message::dao::{
-    self as message_dao, MessageRepository, PgMessageRepository,
+    self as message_dao, MessageDao, PgMessageDao,
 };
 use moatless_vibe_backend::message::models::{
     ContentBlockType, MessageRole, MessageType, TaskMessageContentBlock, TaskMessageContext,
@@ -460,7 +460,7 @@ async fn set_external_source_metadata_writes_all_columns_and_is_idempotent(pool:
     let msg = make_message_row("task-1", "tag-msg-1");
     message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     let updated = repo
         .set_external_source_metadata(
             "tag-msg-1",
@@ -515,7 +515,7 @@ async fn find_task_id_by_any_external_event_id_matches_globally(pool: PgPool) {
     let msg2 = make_message_row("task-2", "tag-origin-2");
     message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     repo.set_external_source_metadata(
         "tag-origin-1",
         "github:ic:555",
@@ -577,7 +577,7 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     ]);
     message_dao::append(&pool, &system, &[], &[]).await.unwrap();
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     let found = repo
         .find_tool_call("task-1", "tu-123")
         .await
@@ -651,7 +651,7 @@ async fn get_message_for_assembly_resolves_affected_parent(pool: PgPool) {
         .await
         .unwrap();
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
 
     // The folded tool_result row resolves to the parent assistant Message.
     let ((messages, _ctx, _blocks), target) = repo
@@ -807,7 +807,7 @@ async fn find_interrupted_turn_returns_acknowledged_unfinished_turn(pool: PgPool
     seed_task(&pool, "task-1", "user-1").await;
     seed_acknowledged_turn(&pool, "task-1", "interrupted-user", 1).await;
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     let interrupted = repo
         .find_interrupted_turn("task-1")
         .await
@@ -824,7 +824,7 @@ async fn find_interrupted_turn_suppresses_terminal_agent_event(pool: PgPool) {
     seed_acknowledged_turn(&pool, "task-1", "agent-completed-user", 1).await;
     seed_turn_event(&pool, "task-1", "agent", "completed", 1).await;
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     assert!(repo
         .find_interrupted_turn("task-1")
         .await
@@ -838,7 +838,7 @@ async fn find_interrupted_turn_suppresses_terminal_task_turn_event(pool: PgPool)
     seed_acknowledged_turn(&pool, "task-1", "turn-completed-user", 1).await;
     seed_turn_event(&pool, "task-1", "taskTurn", "completed", 1).await;
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     assert!(repo
         .find_interrupted_turn("task-1")
         .await
@@ -852,7 +852,7 @@ async fn find_interrupted_turn_suppresses_explicit_sandbox_stop(pool: PgPool) {
     seed_acknowledged_turn(&pool, "task-1", "sandbox-stopped-user", 1).await;
     seed_turn_event(&pool, "task-1", "sandbox", "stopped", 1).await;
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     assert!(repo
         .find_interrupted_turn("task-1")
         .await
@@ -881,7 +881,7 @@ fn make_assistant_row(
 #[sqlx::test]
 async fn last_message_is_completed_reply_detects_final_assistant(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
 
     // No messages yet — not a completed reply.
     assert!(!repo
@@ -921,7 +921,7 @@ async fn last_message_is_completed_reply_detects_final_assistant(pool: PgPool) {
 #[sqlx::test]
 async fn last_message_is_completed_reply_ignores_mid_tool_interruption(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
 
     // An assistant message that stopped to call a tool is NOT a final reply —
     // the turn was cut off mid-tool and stays a genuine orphan.
@@ -952,7 +952,7 @@ async fn last_message_is_completed_reply_ignores_mid_tool_interruption(pool: PgP
 #[sqlx::test]
 async fn last_message_is_completed_reply_is_scoped_to_turn(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
 
     // Turn 1 was cut off mid-tool (no final reply); turn 2 later finished.
     let turn1_tool = make_assistant_row(
@@ -992,7 +992,7 @@ async fn last_message_is_completed_reply_is_scoped_to_turn(pool: PgPool) {
 #[sqlx::test]
 async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
 
     // Turn 1 was part of the same sandbox batch, but lifecycle/result events
     // were attributed to turn 2 by current-turn resolution. Because turn 1 has
@@ -1065,7 +1065,7 @@ async fn find_interrupted_turn_aggregates_sibling_user_messages(pool: PgPool) {
         message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
     }
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     let interrupted = repo
         .find_interrupted_turn("task-1")
         .await
@@ -1089,7 +1089,7 @@ async fn find_interrupted_turn_reads_recovery_attempts_from_task_turns(pool: PgP
     .await
     .unwrap();
 
-    let repo = PgMessageRepository(pool.clone());
+    let repo = PgMessageDao(pool.clone());
     let interrupted = repo
         .find_interrupted_turn("task-1")
         .await

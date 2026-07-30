@@ -7,16 +7,16 @@ use tracing::warn;
 
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
-use crate::auth::users::UserRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
+use crate::auth::users::UserDao;
 use crate::credentials::CredentialService;
 use crate::repository::access::resolve_repository_github_token_with;
-use crate::repository::dao::RepoRepository;
+use crate::repository::dao::RepositoryDao;
 use crate::repository::models::Repository;
 use crate::secret::models::is_reserved_key;
 use crate::secret::service::SecretService;
-use crate::task::dao::TaskRepository;
+use crate::task::dao::TaskDao;
 
 pub const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
 pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
@@ -32,9 +32,9 @@ pub struct TaskCredentialInputs<'a> {
     pub task_id: &'a str,
     pub user_id: &'a str,
     pub secrets: Option<&'a Arc<SecretService>>,
-    pub provider_tokens: Option<&'a Arc<dyn ProviderTokenRepository>>,
+    pub provider_tokens: Option<&'a Arc<dyn ProviderTokenDao>>,
     pub github_app_service: Option<&'a Arc<GitHubAppService>>,
-    pub provider_token_auth: Option<&'a Arc<dyn ProviderTokenAuthRepository>>,
+    pub provider_token_auth: Option<&'a Arc<dyn ProviderTokenAuthDao>>,
     /// Registry consulted when the effective user's `provider_tokens` row has
     /// `auth_method = 'github_app_installation'`.
     pub github_apps: Option<&'a Arc<GitHubAppRegistry>>,
@@ -43,7 +43,7 @@ pub struct TaskCredentialInputs<'a> {
     /// User repository — read to source `GIT_USER_NAME` / `GIT_USER_EMAIL`
     /// from `users.login` / `users.email`. Bots get both; human users get
     /// their account email when set (name still resolves via the GitHub API).
-    pub users: Option<&'a Arc<dyn UserRepository>>,
+    pub users: Option<&'a Arc<dyn UserDao>>,
     /// Credential service used to refresh codex tokens just-in-time before
     /// handing the blob to the sandbox. When `None`, the codex branch falls
     /// back to a raw provider_tokens read.
@@ -181,8 +181,8 @@ pub async fn resolve_server_env(
 
 /// Resolve the persisted repository attached to a task.
 pub(crate) async fn resolve_task_repository(
-    tasks: Option<&Arc<dyn TaskRepository>>,
-    repositories: Option<&Arc<dyn RepoRepository>>,
+    tasks: Option<&Arc<dyn TaskDao>>,
+    repositories: Option<&Arc<dyn RepositoryDao>>,
     task_id: &str,
 ) -> Option<Repository> {
     let tasks = tasks?;
@@ -219,11 +219,11 @@ async fn resolve_scoped_secrets(
 #[allow(clippy::too_many_arguments)]
 async fn fill_provider_tokens(
     credentials: &mut HashMap<String, String>,
-    provider_tokens: Option<&Arc<dyn ProviderTokenRepository>>,
+    provider_tokens: Option<&Arc<dyn ProviderTokenDao>>,
     secrets: Option<&Arc<SecretService>>,
     user_id: &str,
     github_app_service: Option<&Arc<GitHubAppService>>,
-    provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
+    provider_token_auth: Option<&Arc<dyn ProviderTokenAuthDao>>,
     github_apps: Option<&Arc<GitHubAppRegistry>>,
     repository: Option<&Repository>,
     credentials_svc: Option<&Arc<CredentialService>>,
@@ -264,11 +264,11 @@ async fn fill_provider_tokens(
 // only move the argument count to the call site.
 async fn fill_github(
     credentials: &mut HashMap<String, String>,
-    provider_tokens: &Arc<dyn ProviderTokenRepository>,
+    provider_tokens: &Arc<dyn ProviderTokenDao>,
     secrets: Option<&Arc<SecretService>>,
     user_id: &str,
     github_app_service: Option<&Arc<GitHubAppService>>,
-    provider_token_auth: Option<&Arc<dyn ProviderTokenAuthRepository>>,
+    provider_token_auth: Option<&Arc<dyn ProviderTokenAuthDao>>,
     github_apps: Option<&Arc<GitHubAppRegistry>>,
     repository: Option<&Repository>,
 ) {
@@ -317,7 +317,7 @@ async fn fill_github(
 /// no-DB) — there we walk the same chain via raw DAO reads with no refresh.
 async fn fill_codex(
     credentials: &mut HashMap<String, String>,
-    provider_tokens: &Arc<dyn ProviderTokenRepository>,
+    provider_tokens: &Arc<dyn ProviderTokenDao>,
     credentials_svc: Option<&Arc<CredentialService>>,
     user_id: &str,
     current_task_id: Option<&str>,
@@ -365,7 +365,7 @@ async fn fill_codex(
 
 async fn fill_user_provider_tokens(
     credentials: &mut HashMap<String, String>,
-    provider_tokens: &Arc<dyn ProviderTokenRepository>,
+    provider_tokens: &Arc<dyn ProviderTokenDao>,
     user_id: &str,
 ) {
     // GitHub is resolved through `fill_github`; intentionally not handled here.
@@ -422,7 +422,7 @@ async fn fill_user_provider_tokens(
 /// the sandbox, which `configure_git` applies with highest precedence.
 async fn fill_git_identity(
     credentials: &mut HashMap<String, String>,
-    users: Option<&Arc<dyn UserRepository>>,
+    users: Option<&Arc<dyn UserDao>>,
     user_id: &str,
 ) {
     let Some(users) = users else { return };
@@ -554,7 +554,7 @@ mod tests {
 
     /// Inputs with only the pieces `resolve_task_github_token` reads.
     fn github_inputs<'a>(
-        provider_tokens: &'a Arc<dyn ProviderTokenRepository>,
+        provider_tokens: &'a Arc<dyn ProviderTokenDao>,
         secrets: Option<&'a Arc<SecretService>>,
         repository: &'a Repository,
     ) -> TaskCredentialInputs<'a> {
@@ -574,8 +574,7 @@ mod tests {
 
     #[tokio::test]
     async fn standalone_provider_token_secret_cannot_bypass_repository_scope() {
-        let tokens: Arc<dyn ProviderTokenRepository> =
-            Arc::new(StubProviderTokens::with_user_row(None));
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -594,8 +593,7 @@ mod tests {
     async fn env_kind_secret_cannot_bypass_repository_scope() {
         // A plain `env` GITHUB_TOKEN is never injected into a repository
         // sandbox, so preflight and runtime delivery cannot disagree.
-        let tokens: Arc<dyn ProviderTokenRepository> =
-            Arc::new(StubProviderTokens::with_user_row(None));
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -612,10 +610,9 @@ mod tests {
 
     #[tokio::test]
     async fn provider_tokens_row_still_wins_over_the_secret() {
-        let tokens: Arc<dyn ProviderTokenRepository> =
-            Arc::new(StubProviderTokens::with_user_row(Some(
-                crate::auth::test_support::github_row("oauth", "gho_from_row"),
-            )));
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
+            crate::auth::test_support::github_row("oauth", "gho_from_row"),
+        )));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -634,7 +631,7 @@ mod tests {
     async fn secret_ref_row_resolves_via_the_secret_not_the_sentinel() {
         // No App registry wired: the fallback dispatch still has to honour
         // `secret_ref`, or the sandbox would receive the sentinel string.
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(
             Some(crate::auth::test_support::github_row(
                 AUTH_METHOD_SECRET_REF,
                 crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
@@ -660,7 +657,7 @@ mod tests {
         // account not connected": with no secret service the sentinel cannot be
         // dereferenced, and the error is swallowed into an absent credential.
         // Callers must wire `secrets` — see `preflight_validate_github_token`.
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(StubProviderTokens::with_user_row(
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(
             Some(crate::auth::test_support::github_row(
                 AUTH_METHOD_SECRET_REF,
                 crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
@@ -676,7 +673,7 @@ mod tests {
 
     #[tokio::test]
     async fn global_github_token_does_not_backstop_user_scope() {
-        let tokens: Arc<dyn ProviderTokenRepository> = Arc::new(
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(
             StubProviderTokens::default()
                 .with_global_row(crate::auth::test_support::github_row("manual", "ghp_org")),
         );
@@ -715,9 +712,9 @@ mod tests {
         name: Option<&'static str>,
         email: Option<&'static str>,
         is_bot: bool,
-    ) -> Arc<dyn UserRepository> {
-        use crate::auth::users::MockUserRepository;
-        let mut mock = MockUserRepository::new();
+    ) -> Arc<dyn UserDao> {
+        use crate::auth::users::MockUserDao;
+        let mut mock = MockUserDao::new();
         mock.expect_get_user()
             .returning(move |_| Ok(Some(make_user(login, name, email, is_bot))));
         Arc::new(mock)

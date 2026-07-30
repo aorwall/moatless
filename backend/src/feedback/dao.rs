@@ -5,10 +5,10 @@ use async_trait::async_trait;
 use super::models::Feedback;
 use crate::db::DbPool;
 
-/// Repository trait for feedback persistence.
+/// DAO trait for feedback persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait FeedbackRepository: Send + Sync {
+pub trait FeedbackDao: Send + Sync {
     /// Insert a new feedback row.
     async fn insert(&self, row: &Feedback) -> Result<(), sqlx::Error>;
     /// Find a feedback row by its public `feedback_id`.
@@ -17,11 +17,11 @@ pub trait FeedbackRepository: Send + Sync {
     async fn list_for_task(&self, task_id: &str) -> Result<Vec<Feedback>, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`FeedbackRepository`].
-pub struct PgFeedbackRepository(pub DbPool);
+/// PostgreSQL implementation of [`FeedbackDao`].
+pub struct PgFeedbackDao(pub DbPool);
 
 #[async_trait]
-impl FeedbackRepository for PgFeedbackRepository {
+impl FeedbackDao for PgFeedbackDao {
     async fn insert(&self, row: &Feedback) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO feedback (

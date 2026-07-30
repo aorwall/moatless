@@ -11,7 +11,7 @@ mod common;
 
 use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::task::dao::{
-    self as task_dao, PgTaskRepository, TaskFilter, TaskPatch, TaskRepository,
+    self as task_dao, PgTaskDao, TaskDao, TaskFilter, TaskPatch,
 };
 use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
 use sqlx::PgPool;
@@ -202,7 +202,7 @@ async fn list_tasks_exclude_status_filter(pool: PgPool) {
         parent_task_id: None,
         followed_by: None,
     };
-    let (rows, total) = PgTaskRepository(pool).list_tasks(&filter).await.unwrap();
+    let (rows, total) = PgTaskDao(pool).list_tasks(&filter).await.unwrap();
 
     assert_eq!(total, 2);
     let ids: Vec<&str> = rows.iter().map(|r| r.task_id.as_str()).collect();
@@ -351,7 +351,7 @@ async fn follow_unfollow_and_list_followed(pool: PgPool) {
     row.visibility = Visibility::Public;
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    let repo = PgTaskRepository(pool.clone());
+    let repo = PgTaskDao(pool.clone());
 
     // Initially the follower follows nothing.
     let followed = repo
@@ -453,7 +453,7 @@ async fn list_tasks_multiple_tags_contribute_one_row_and_one_count(pool: PgPool)
         .unwrap();
     tag_task(&pool, "task-many-tags", &["bug", "urgent", "backend"]).await;
 
-    let repo = PgTaskRepository(pool.clone());
+    let repo = PgTaskDao(pool.clone());
 
     // Unfiltered: the three tags must not fan the task out into three counted
     // rows — two tasks exist, so the total is two.
@@ -494,7 +494,7 @@ async fn list_tasks_offset_past_end_returns_empty_page_with_true_total(pool: PgP
     // Tags on one task would inflate a join-fanned count.
     tag_task(&pool, "task-off-0", &["bug", "urgent"]).await;
 
-    let repo = PgTaskRepository(pool.clone());
+    let repo = PgTaskDao(pool.clone());
 
     // Offset exactly at the end.
     let filter = TaskFilter {
@@ -563,7 +563,7 @@ async fn list_tasks_acl_predicate_constrains_page_and_total(pool: PgPool) {
         .await
         .unwrap();
 
-    let repo = PgTaskRepository(pool.clone());
+    let repo = PgTaskDao(pool.clone());
 
     let (rows, total) = repo.list_tasks(&base_filter(other)).await.unwrap();
     let ids: Vec<&str> = rows.iter().map(|r| r.task_id.as_str()).collect();
@@ -599,7 +599,7 @@ async fn list_tasks_acl_predicate_constrains_page_and_total(pool: PgPool) {
 #[sqlx::test]
 async fn list_tasks_parent_relation_filter_counts_tagged_child_once(pool: PgPool) {
     use moatless_vibe_backend::task::relations::{
-        PgTaskRelationRepository, TaskRelation, TaskRelationRepository, TaskRelationType,
+        PgTaskRelationDao, TaskRelation, TaskRelationDao, TaskRelationType,
     };
 
     let user = "user-1";
@@ -612,7 +612,7 @@ async fn list_tasks_parent_relation_filter_counts_tagged_child_once(pool: PgPool
     }
     tag_task(&pool, "task-child-a", &["bug", "urgent", "backend"]).await;
 
-    let relations = PgTaskRelationRepository(pool.clone());
+    let relations = PgTaskRelationDao(pool.clone());
     for child in ["task-child-a", "task-child-b"] {
         relations
             .insert(&TaskRelation::new(
@@ -625,7 +625,7 @@ async fn list_tasks_parent_relation_filter_counts_tagged_child_once(pool: PgPool
             .unwrap();
     }
 
-    let repo = PgTaskRepository(pool.clone());
+    let repo = PgTaskDao(pool.clone());
 
     let filter = TaskFilter {
         parent_task_id: Some("task-parent".to_string()),
@@ -667,7 +667,7 @@ async fn list_tasks_followed_by_and_status_filters_count_tagged_task_once(pool: 
     tag_task(&pool, "task-followed-open", &["bug", "urgent", "backend"]).await;
     tag_task(&pool, "task-followed-closed", &["bug", "urgent"]).await;
 
-    let repo = PgTaskRepository(pool.clone());
+    let repo = PgTaskDao(pool.clone());
     for id in ["task-followed-open", "task-followed-closed"] {
         repo.follow_task(user, id).await.unwrap();
     }

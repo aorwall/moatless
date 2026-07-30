@@ -8,17 +8,17 @@ use crate::credentials::codex::scope::CodexScope;
 use crate::credentials::github::scope::GitHubScope;
 use crate::db::DbPool;
 
-/// Repository trait for provider token credential resolution.
+/// DAO trait for provider token credential resolution.
 ///
 /// Note: `automock` is intentionally omitted — mockall cannot synthesise
 /// correct lifetimes for `Option<&str>` / `Option<&Value>` in async-trait
-/// methods.  Tests use `PgProviderTokenRepository` via `#[sqlx::test]`.
+/// methods.  Tests use `PgProviderTokenDao` via `#[sqlx::test]`.
 // reason: provider-token upserts already pass 7+ atomic columns; wrapping
 // into a struct would require touching every call-site and impl for no real
 // readability gain.
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
-pub trait ProviderTokenRepository: Send + Sync {
+pub trait ProviderTokenDao: Send + Sync {
     /// Find a provider token (access_token only) by user_id and provider name.
     async fn find_provider_token(
         &self,
@@ -37,7 +37,7 @@ pub trait ProviderTokenRepository: Send + Sync {
     /// `auth_method = 'manual'` and leaves an existing row's `auth_method`
     /// untouched — use [`upsert_token_with_auth_method`] to set it explicitly.
     ///
-    /// [`upsert_token_with_auth_method`]: ProviderTokenRepository::upsert_token_with_auth_method
+    /// [`upsert_token_with_auth_method`]: ProviderTokenDao::upsert_token_with_auth_method
     async fn upsert_token(
         &self,
         user_id: &str,
@@ -122,11 +122,11 @@ pub trait ProviderTokenRepository: Send + Sync {
     ) -> Result<Option<GithubTokenPresence>, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`ProviderTokenRepository`].
-pub struct PgProviderTokenRepository(pub DbPool);
+/// PostgreSQL implementation of [`ProviderTokenDao`].
+pub struct PgProviderTokenDao(pub DbPool);
 
 #[async_trait]
-impl ProviderTokenRepository for PgProviderTokenRepository {
+impl ProviderTokenDao for PgProviderTokenDao {
     async fn find_provider_token(
         &self,
         user_id: &str,

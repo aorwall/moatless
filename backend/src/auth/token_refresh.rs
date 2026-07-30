@@ -9,8 +9,8 @@ use tracing::{info, warn};
 
 use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
 
 /// Ensure the GitHub token for a user is fresh.
 ///
@@ -30,8 +30,8 @@ use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 /// `crate::credentials::CredentialService::ensure_fresh`, which wraps this
 /// with a per-`(user, key)` mutex.
 pub async fn ensure_fresh_token(
-    token_dao: &dyn ProviderTokenRepository,
-    token_auth: &dyn ProviderTokenAuthRepository,
+    token_dao: &dyn ProviderTokenDao,
+    token_auth: &dyn ProviderTokenAuthDao,
     github_app_service: &GitHubAppService,
     user_id: &str,
 ) -> Result<String, AuthError> {
@@ -42,8 +42,8 @@ pub async fn ensure_fresh_token(
 /// acquired the per-`(user, key)` mutex. Callers outside the service should
 /// prefer the public `ensure_fresh_token` to keep the call-site uniform.
 pub async fn ensure_fresh_token_with_dao(
-    token_dao: &dyn ProviderTokenRepository,
-    token_auth: &dyn ProviderTokenAuthRepository,
+    token_dao: &dyn ProviderTokenDao,
+    token_auth: &dyn ProviderTokenAuthDao,
     github_app_service: &GitHubAppService,
     user_id: &str,
 ) -> Result<String, AuthError> {

@@ -39,10 +39,10 @@ pub struct UserProviderAccount {
     pub created_at: DateTime<Utc>,
 }
 
-/// Repository trait for user persistence.
+/// DAO trait for user persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait UserRepository: Send + Sync {
+pub trait UserDao: Send + Sync {
     async fn get_user(&self, user_id: &Uuid) -> Result<Option<User>, sqlx::Error>;
     async fn get_user_by_login(&self, login: &str) -> Result<Option<User>, sqlx::Error>;
     async fn get_users_by_ids(&self, user_ids: &[Uuid]) -> Result<Vec<User>, sqlx::Error>;
@@ -95,11 +95,11 @@ pub trait UserRepository: Send + Sync {
     ) -> Result<Vec<UserProviderAccount>, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`UserRepository`].
-pub struct PgUserRepository(pub DbPool);
+/// PostgreSQL implementation of [`UserDao`].
+pub struct PgUserDao(pub DbPool);
 
 #[async_trait]
-impl UserRepository for PgUserRepository {
+impl UserDao for PgUserDao {
     async fn get_user(&self, user_id: &Uuid) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(user_id)

@@ -50,7 +50,7 @@ graph TD
     Transcript[MessageService]
     Commands[TaskCommandGateway]
     Storage[(TaskMetadataStorage)]
-    TranscriptStore[(TaskMessageRepository)]
+    TranscriptStore[(TaskMessageDao)]
   end
 
   subgraph Other Features
@@ -138,7 +138,7 @@ apps/backend/src/features/tasks/
 | `TaskExecutionCoordinator` | Orchestrate agent execution and workspace management. Send messages/commands to tasks. Start tasks and wait for first event. Provision workspaces and validate readiness. Execute agents in background with error handling. Resume logic for continuing iterations. Handles workspace setup during task creation. | `TaskMetadataStorage`, `TaskIterationService`, `MessageService`, `WorkspaceCoordinator`, `FileGateway`, `AgentController`, `EventService`, `RepositoryService`, `CommandService`, `UploadService` |
 | `TaskEventProjector` | Reactive event handler for task state updates. Subscribe to `EventService` and reconcile task state based on agent events (`agent.completed`, `agent.error`, `agent.message`). Update context tokens and agent session IDs. Trigger post-processing workflows. | `EventService`, `TaskMetadataStorage`, `TaskIterationService` |
 | `TaskCommandGateway` | Filter available commands based on task and workspace state. Build command context from git status and iteration history. Apply command condition filtering using `filterAvailableCommands()` utility. Reads tasks directly from storage (no enrichment needed). | `CommandService`, `FileGateway`, `TaskMetadataStorage` |
-| `MessageService` | Persist user/assistant/tool messages in SQLite via the task message repository. Fetch and transform transcripts for UI consumption. Stitch contexts and file attachments for display. Handle message deduplication. | `TaskMessageRepository`, `UploadService`, `TaskMetadataStorage` |
+| `MessageService` | Persist user/assistant/tool messages in SQLite via the task message repository. Fetch and transform transcripts for UI consumption. Stitch contexts and file attachments for display. Handle message deduplication. | `TaskMessageDao`, `UploadService`, `TaskMetadataStorage` |
 
 ## Storage & Persistence Strategy
 
@@ -148,7 +148,7 @@ Each logical collection is backed by a dedicated adapter per `docs/patterns/feat
   - Uses `InfrastructureStorageSymbol` for storage abstraction
   - Methods: `save()`, `get()`, `delete()`, `exists()`, `listTaskKeys()`
 
-- **`TaskMessageRepository`** → `task_messages` SQLite table via Drizzle ORM
+- **`TaskMessageDao`** → `task_messages` SQLite table via Drizzle ORM
   - Uses `DatabaseSymbol` to access the shared Drizzle connection
   - Methods: `getMessages()`, `append()`, `appendMany()`, `deleteByTask()`, `hasMessages()`
   - Stores full `AgentMessage` payloads (including tools, attachments, contexts) as JSON columns with chronological indexing
@@ -177,7 +177,7 @@ export class TaskMetadataStorage {
 **Container Bindings**:
 ```ts
 container.bind(TaskMetadataStorage).toSelf().inSingletonScope()
-container.bind(TaskMessageRepository).toSelf().inSingletonScope()
+container.bind(TaskMessageDao).toSelf().inSingletonScope()
 ```
 
 The adapters keep feature services free from infrastructure knowledge. Tests use mocked `Storage` implementations following the pattern doc.
@@ -281,7 +281,7 @@ classDiagram
     }
 
     class MessageService {
-      -TaskMessageRepository transcriptRepository
+      -TaskMessageDao transcriptRepository
       -UploadService uploadService
       +getTaskMessages(taskId: string): Promise<Message[]>
       +saveUserMessage(taskId: string, message: string, options: TranscriptOptions): Promise<void>
@@ -305,7 +305,7 @@ classDiagram
       +listTaskKeys(): Promise<string[]>
     }
 
-    class TaskMessageRepository {
+    class TaskMessageDao {
       -Database database
       +getMessages(taskId: string): Promise<AgentMessage[]>
       +append(taskId: string, message: AgentMessage): Promise<void>
@@ -327,7 +327,7 @@ classDiagram
     TaskExecutionCoordinator --> AgentService
     TaskEventProjector --> TaskIterationService
     TaskEventProjector --> MessageService
-    MessageService --> TaskMessageRepository
+    MessageService --> TaskMessageDao
     TaskCommandGateway --> TaskMetadataStorage
 ```
 

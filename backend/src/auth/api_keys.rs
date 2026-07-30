@@ -19,10 +19,10 @@ pub struct ApiKey {
     pub created_at: DateTime<Utc>,
 }
 
-/// Repository trait for API key persistence.
+/// DAO trait for API key persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait ApiKeyRepository: Send + Sync {
+pub trait ApiKeyDao: Send + Sync {
     async fn insert_api_key(&self, key: &ApiKey) -> Result<(), sqlx::Error>;
     async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, sqlx::Error>;
     async fn get_api_key_by_id(&self, key_id: &str) -> Result<Option<ApiKey>, sqlx::Error>;
@@ -31,11 +31,11 @@ pub trait ApiKeyRepository: Send + Sync {
     async fn update_last_used(&self, key_id: &str) -> Result<(), sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`ApiKeyRepository`].
-pub struct PgApiKeyRepository(pub DbPool);
+/// PostgreSQL implementation of [`ApiKeyDao`].
+pub struct PgApiKeyDao(pub DbPool);
 
 #[async_trait]
-impl ApiKeyRepository for PgApiKeyRepository {
+impl ApiKeyDao for PgApiKeyDao {
     async fn insert_api_key(&self, key: &ApiKey) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"

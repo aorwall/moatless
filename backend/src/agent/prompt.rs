@@ -12,8 +12,8 @@ use tracing::warn;
 use crate::config::Config;
 use crate::sandbox::models::ServerConfig;
 use crate::task::models::Task;
-use crate::task::relations::TaskRelationRepository;
-use crate::workspace::dao::WorkspaceRepository;
+use crate::task::relations::TaskRelationDao;
+use crate::workspace::dao::WorkspaceDao;
 
 /// Inputs needed to build the append-system-prompt for one task.
 pub struct PromptInputs<'a> {
@@ -137,8 +137,8 @@ Available `moat` commands:
 pub async fn build_for_task(
     task_id: &str,
     task: Option<&Task>,
-    workspaces: Option<&Arc<dyn WorkspaceRepository>>,
-    task_relations: Option<&Arc<dyn TaskRelationRepository>>,
+    workspaces: Option<&Arc<dyn WorkspaceDao>>,
+    task_relations: Option<&Arc<dyn TaskRelationDao>>,
     config: Option<&Arc<Config>>,
 ) -> String {
     // reason: prompt assembly runs in the agent's background flow; the

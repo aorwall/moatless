@@ -17,9 +17,9 @@ use super::error::AuthError;
 use super::github::registry::GitHubAppRegistry;
 use super::github::service::GitHubAppService;
 use super::models::ProviderToken;
-use super::provider_token_dao::ProviderTokenRepository;
+use super::provider_token_dao::ProviderTokenDao;
 use super::provider_tokens::{
-    ProviderTokenAuthRepository, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
+    ProviderTokenAuthDao, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
 };
 use super::token_refresh::ensure_fresh_token;
 use crate::credentials::github::scope::GitHubScope;
@@ -48,8 +48,8 @@ use moatless_backend_core::scope::{Scope, ScopeContext};
 /// Returns `Ok(None)` only when there is no `provider_tokens` row at any scope
 /// reachable from `user_id` — including the org-wide global row.
 pub async fn resolve_user_github_token(
-    provider_tokens: &dyn ProviderTokenRepository,
-    provider_token_auth: Option<&dyn ProviderTokenAuthRepository>,
+    provider_tokens: &dyn ProviderTokenDao,
+    provider_token_auth: Option<&dyn ProviderTokenAuthDao>,
     github_app_service: Option<&GitHubAppService>,
     github_apps: &GitHubAppRegistry,
     secrets: Option<&SecretService>,
@@ -85,8 +85,8 @@ pub struct ResolvedGithubToken {
 // reason: mirrors `resolve_user_github_token`'s dependency list; bundling
 // would only move the argument count to the call sites.
 pub async fn resolve_github_token_for_scopes(
-    provider_tokens: &dyn ProviderTokenRepository,
-    provider_token_auth: Option<&dyn ProviderTokenAuthRepository>,
+    provider_tokens: &dyn ProviderTokenDao,
+    provider_token_auth: Option<&dyn ProviderTokenAuthDao>,
     github_app_service: Option<&GitHubAppService>,
     github_apps: &GitHubAppRegistry,
     secrets: Option<&SecretService>,
@@ -145,8 +145,8 @@ pub async fn resolve_github_token_for_scopes(
 // reason: the dependency list is the union of every branch's needs; bundling it
 // into a struct would only move the argument count to the construction site.
 async fn resolve_github_row_token(
-    provider_tokens: &dyn ProviderTokenRepository,
-    provider_token_auth: Option<&dyn ProviderTokenAuthRepository>,
+    provider_tokens: &dyn ProviderTokenDao,
+    provider_token_auth: Option<&dyn ProviderTokenAuthDao>,
     github_app_service: Option<&GitHubAppService>,
     github_apps: &GitHubAppRegistry,
     secrets: Option<&SecretService>,
@@ -187,8 +187,8 @@ async fn resolve_github_row_token(
 #[allow(clippy::too_many_arguments)]
 // reason: mirrors the canonical row resolver's infrastructure dependencies.
 pub(crate) async fn resolve_repository_github_scope_token(
-    provider_tokens: &dyn ProviderTokenRepository,
-    provider_token_auth: Option<&dyn ProviderTokenAuthRepository>,
+    provider_tokens: &dyn ProviderTokenDao,
+    provider_token_auth: Option<&dyn ProviderTokenAuthDao>,
     github_app_service: Option<&GitHubAppService>,
     github_apps: &GitHubAppRegistry,
     secrets: Option<&SecretService>,

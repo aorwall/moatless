@@ -18,8 +18,8 @@ use super::access::{SandboxConnector, SandboxObserver};
 use super::file_handlers;
 use super::handlers;
 use super::lifecycle::Lifecycle;
-use crate::task::dao::TaskRepository;
-use crate::team::dao::TeamRepository;
+use crate::task::dao::TaskDao;
+use crate::team::dao::TeamDao;
 
 /// State shared across sandbox API handlers.
 #[derive(Clone)]
@@ -32,10 +32,10 @@ pub struct SandboxApiState {
     /// those handlers return a clean "unavailable" error.
     pub lifecycle: Option<Arc<Lifecycle>>,
     /// Optional task repository for per-task authorization in handlers.
-    pub tasks: Option<Arc<dyn TaskRepository>>,
+    pub tasks: Option<Arc<dyn TaskDao>>,
     /// Optional team repository — enables team-role resolution for the
     /// task-control authorization checks.
-    pub teams: Option<Arc<dyn TeamRepository>>,
+    pub teams: Option<Arc<dyn TeamDao>>,
 }
 
 #[derive(OpenApi)]

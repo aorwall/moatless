@@ -15,20 +15,20 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use super::api_key::validate_key_cached;
-use super::api_keys::ApiKeyRepository;
+use super::api_keys::ApiKeyDao;
 use super::cache::AuthCache;
 use super::cookie::get_all_cookie_values;
 use super::identity::AuthIdentity;
 use super::jwt;
-use super::users::UserRepository;
+use super::users::UserDao;
 use crate::config::Config;
 use crate::error::ErrorBody;
 
 /// Shared state for the auth middleware layer.
 #[derive(Clone)]
 pub struct AuthMiddlewareState {
-    pub api_keys: Arc<dyn ApiKeyRepository>,
-    pub users: Arc<dyn UserRepository>,
+    pub api_keys: Arc<dyn ApiKeyDao>,
+    pub users: Arc<dyn UserDao>,
     pub cache: AuthCache,
     pub config: Arc<Config>,
 }

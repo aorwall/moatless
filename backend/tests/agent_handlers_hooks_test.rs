@@ -17,12 +17,12 @@
 mod common;
 
 use chrono::Utc;
-use moatless_vibe_backend::adapters::dao::PgAdapterConnectionRepository;
+use moatless_vibe_backend::adapters::dao::PgAdapterConnectionDao;
 use moatless_vibe_backend::adapters::models::{AdapterConnection, RoutingMode, SubscriptionMatch};
-use moatless_vibe_backend::bindings::dao::PgTaskBindingRepository;
+use moatless_vibe_backend::bindings::dao::PgTaskBindingDao;
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_vibe_backend::event_handler::models::AgentEvent;
-use moatless_vibe_backend::loops::store::LoopStore;
+use moatless_vibe_backend::loops::dao::LoopDao;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::task::dao as task_dao;
@@ -50,7 +50,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         user_id: "user-1".to_string(),
         is_admin: false,
     };
-    PgAdapterConnectionRepository(pool.clone())
+    PgAdapterConnectionDao(pool.clone())
         .upsert(&connection, &ctx)
         .await
         .unwrap();
@@ -82,7 +82,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         created_at: now,
         updated_at: now,
     };
-    LoopStore::new(pool.clone())
+    LoopDao::new(pool.clone())
         .upsert_subscription(&subscription)
         .await
         .unwrap();
@@ -178,7 +178,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
 
     // 3. Verify a task_bindings row was created for this task pointing at
     //    the seeded org connection and repo trigger.
-    let connection = PgAdapterConnectionRepository(pool.clone())
+    let connection = PgAdapterConnectionDao(pool.clone())
         .find_by_scope_value("github", "foo")
         .await
         .unwrap()
@@ -190,7 +190,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
         .unwrap()
         .expect("seeded github trigger");
 
-    let bindings = PgTaskBindingRepository(pool.clone())
+    let bindings = PgTaskBindingDao(pool.clone())
         .find_by_task_id(task_id)
         .await
         .unwrap();

@@ -150,10 +150,10 @@ async fn seed_task(pool: &PgPool, task_id: &str) {
 fn ingress(pool: &PgPool, transport: Option<Arc<dyn EventPublisher>>) -> BackendSandboxServiceImpl {
     BackendSandboxServiceImpl::for_ingress_tests(
         transport,
-        Arc::new(moatless_vibe_backend::task_turn::dao::PgTaskTurnRepository(
+        Arc::new(moatless_vibe_backend::task_turn::dao::PgTaskTurnDao(
             pool.clone(),
         )),
-        Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventRepository(pool.clone())),
+        Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventDao(pool.clone())),
         Arc::new(PgIngressOutbox(pool.clone())),
     )
 }

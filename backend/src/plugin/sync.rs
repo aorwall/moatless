@@ -21,13 +21,13 @@ use moka::future::Cache;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
-use super::dao::PluginRepository;
+use super::dao::PluginDao;
 use super::models::{Plugin, PluginSkill};
 use crate::auth::credentials::resolve_repository_github_scope_token;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::credentials::github::scope::GitHubScope;
 use crate::repository::access::parse_github_owner_repo;
 use crate::secret::service::SecretService;
@@ -38,10 +38,10 @@ use crate::skill::scanner;
 
 /// Syncs plugin content into stored skills, and reads them back.
 pub struct PluginSyncService {
-    plugins: Arc<dyn PluginRepository>,
+    plugins: Arc<dyn PluginDao>,
     fetcher: Arc<dyn SkillFetcher>,
-    provider_tokens: Arc<dyn ProviderTokenRepository>,
-    provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+    provider_tokens: Arc<dyn ProviderTokenDao>,
+    provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     github_app_service: Option<Arc<GitHubAppService>>,
     github_apps: Arc<GitHubAppRegistry>,
     secrets: Arc<SecretService>,
@@ -56,10 +56,10 @@ impl PluginSyncService {
     // reason: mirrors the credential-resolution dependencies every GitHub
     // caller in this codebase takes; constructed once from AppState::new.
     pub fn new(
-        plugins: Arc<dyn PluginRepository>,
+        plugins: Arc<dyn PluginDao>,
         fetcher: Arc<dyn SkillFetcher>,
-        provider_tokens: Arc<dyn ProviderTokenRepository>,
-        provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
         github_app_service: Option<Arc<GitHubAppService>>,
         github_apps: Arc<GitHubAppRegistry>,
         secrets: Arc<SecretService>,
@@ -216,7 +216,7 @@ mod tests {
 
     use super::super::models::ActivationRow;
     use super::*;
-    use crate::auth::provider_tokens::MockProviderTokenAuthRepository;
+    use crate::auth::provider_tokens::MockProviderTokenAuthDao;
     use crate::auth::test_support::StubProviderTokens;
     use crate::secret::test_support::service_with;
     use crate::skill::fetcher::FetchedSkillFile;
@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl PluginRepository for StubPlugins {
+    impl PluginDao for StubPlugins {
         async fn list_all(&self) -> Result<Vec<Plugin>, sqlx::Error> {
             unimplemented!()
         }
@@ -381,7 +381,7 @@ mod tests {
     }
 
     fn service(
-        plugins: Arc<dyn PluginRepository>,
+        plugins: Arc<dyn PluginDao>,
         fetcher: Arc<dyn SkillFetcher>,
     ) -> PluginSyncService {
         PluginSyncService::new(
@@ -391,7 +391,7 @@ mod tests {
             // fetch goes out unauthenticated, which is not what these tests
             // are about.
             Arc::new(StubProviderTokens::with_user_row(None)),
-            Arc::new(MockProviderTokenAuthRepository::new()),
+            Arc::new(MockProviderTokenAuthDao::new()),
             None,
             Arc::new(GitHubAppRegistry::default()),
             Arc::new(service_with(vec![])),

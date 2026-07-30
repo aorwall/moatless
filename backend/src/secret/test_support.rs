@@ -1,13 +1,13 @@
 //! In-memory secret store for unit tests.
 //!
-//! `SecretRepository` has no `automock` (mockall can't synthesise the borrowed
+//! `SecretDao` has no `automock` (mockall can't synthesise the borrowed
 //! `SecretInsert<'_>` / `SecretReplace<'_>` lifetimes), so tests that need a
 //! `SecretService` build one over this hand-written stub.
 
 use std::sync::Arc;
 
-use super::audit::{SecretAuditInput, SecretAuditRepository};
-use super::dao::{SecretInsert, SecretReplace, SecretRepository};
+use super::audit::{SecretAuditDao, SecretAuditInput};
+use super::dao::{SecretDao, SecretInsert, SecretReplace};
 use super::error::SecretError;
 use super::models::{EncryptedSecretValue, SecretRecord};
 use super::service::{SecretCipher, SecretService};
@@ -15,12 +15,12 @@ use moatless_backend_core::scope::ScopeContext;
 
 /// Read-only in-memory store. Write methods are unimplemented — tests that
 /// exercise writes should use the real DAO via `#[sqlx::test]`.
-pub struct InMemorySecretStore {
+pub struct InMemorySecretDao {
     pub records: Vec<SecretRecord>,
 }
 
 #[async_trait::async_trait]
-impl SecretRepository for InMemorySecretStore {
+impl SecretDao for InMemorySecretDao {
     async fn list(
         &self,
         _ctx: &ScopeContext,
@@ -58,7 +58,7 @@ impl SecretRepository for InMemorySecretStore {
     }
 
     async fn insert(&self, _input: SecretInsert<'_>) -> Result<SecretRecord, sqlx::Error> {
-        unimplemented!("InMemorySecretStore is read-only")
+        unimplemented!("InMemorySecretDao is read-only")
     }
 
     async fn replace(
@@ -66,11 +66,11 @@ impl SecretRepository for InMemorySecretStore {
         _input: SecretReplace<'_>,
         _ctx: &ScopeContext,
     ) -> Result<Option<SecretRecord>, sqlx::Error> {
-        unimplemented!("InMemorySecretStore is read-only")
+        unimplemented!("InMemorySecretDao is read-only")
     }
 
     async fn delete(&self, _id: &str, _ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        unimplemented!("InMemorySecretStore is read-only")
+        unimplemented!("InMemorySecretDao is read-only")
     }
 
     async fn mark_used(&self, _id: &str) -> Result<(), sqlx::Error> {
@@ -82,7 +82,7 @@ impl SecretRepository for InMemorySecretStore {
 pub struct NoopAudits;
 
 #[async_trait::async_trait]
-impl SecretAuditRepository for NoopAudits {
+impl SecretAuditDao for NoopAudits {
     async fn record(&self, _input: SecretAuditInput<'_>) -> Result<(), sqlx::Error> {
         Ok(())
     }
@@ -149,7 +149,7 @@ pub fn secret(
 /// Build a `SecretService` backed by `records` and the plaintext cipher.
 pub fn service_with(records: Vec<SecretRecord>) -> SecretService {
     SecretService::new(
-        Arc::new(InMemorySecretStore { records }),
+        Arc::new(InMemorySecretDao { records }),
         Arc::new(NoopAudits),
         Some(Arc::new(PlaintextCipher)),
     )

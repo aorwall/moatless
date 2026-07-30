@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use super::github::GithubTokenRequirement;
 use super::schemas::{SetupRequirement, SetupRequirementStatus, SetupSeverity, SetupStatus};
-use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::secret::service::SecretService;
 
 /// Everything a requirement check may read.
@@ -18,7 +18,7 @@ use crate::secret::service::SecretService;
 pub struct SetupContext<'a> {
     pub user_id: &'a str,
     pub is_admin: bool,
-    pub provider_tokens: &'a dyn ProviderTokenRepository,
+    pub provider_tokens: &'a dyn ProviderTokenDao,
     pub secrets: Option<&'a SecretService>,
 }
 

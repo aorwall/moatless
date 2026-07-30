@@ -65,7 +65,7 @@ impl TaskRelation {
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait TaskRelationRepository: Send + Sync {
+pub trait TaskRelationDao: Send + Sync {
     /// Insert a relation. `ON CONFLICT (from, to, relation_type) DO NOTHING`.
     async fn insert(&self, row: &TaskRelation) -> Result<(), sqlx::Error>;
 
@@ -93,7 +93,7 @@ pub trait TaskRelationRepository: Send + Sync {
     ) -> Result<std::collections::HashMap<String, String>, sqlx::Error>;
 }
 
-pub struct PgTaskRelationRepository(pub DbPool);
+pub struct PgTaskRelationDao(pub DbPool);
 
 const TASK_RELATION_SELECT: &str = r#"
     SELECT id, from_task_id, to_task_id, relation_type, context, created_at
@@ -101,7 +101,7 @@ const TASK_RELATION_SELECT: &str = r#"
 "#;
 
 #[async_trait]
-impl TaskRelationRepository for PgTaskRelationRepository {
+impl TaskRelationDao for PgTaskRelationDao {
     async fn insert(&self, row: &TaskRelation) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO task_relations
@@ -184,7 +184,7 @@ impl TaskRelationRepository for PgTaskRelationRepository {
 /// where the task itself was already created successfully and we don't want
 /// to fail the whole request because the linkage couldn't be stored.
 pub async fn record_created_by(
-    repo: &dyn TaskRelationRepository,
+    repo: &dyn TaskRelationDao,
     from_task_id: &str,
     parent: &CreatedByParent,
 ) {
@@ -209,7 +209,7 @@ pub async fn record_created_by(
 /// that discover a peer task via shared bindings, where the peer is not a
 /// parent.
 pub async fn record_related_to(
-    repo: &dyn TaskRelationRepository,
+    repo: &dyn TaskRelationDao,
     from_task_id: &str,
     related: &RelatedTask,
 ) {

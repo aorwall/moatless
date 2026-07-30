@@ -8,7 +8,7 @@
 //! Integration tests for `feedback_dao`.
 
 use chrono::Utc;
-use moatless_vibe_backend::feedback::dao::{FeedbackRepository, PgFeedbackRepository};
+use moatless_vibe_backend::feedback::dao::{FeedbackDao, PgFeedbackDao};
 use moatless_vibe_backend::feedback::models::Feedback;
 use sqlx::PgPool;
 
@@ -29,7 +29,7 @@ fn sample(feedback_id: &str, task_id: &str, surface: &str) -> Feedback {
 
 #[sqlx::test]
 async fn insert_and_find_round_trips(pool: PgPool) {
-    let dao = PgFeedbackRepository(pool);
+    let dao = PgFeedbackDao(pool);
     let row = sample("fb-1", "task-1", "task");
     dao.insert(&row).await.expect("insert");
 
@@ -45,7 +45,7 @@ async fn insert_and_find_round_trips(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_for_task_filters_and_orders(pool: PgPool) {
-    let dao = PgFeedbackRepository(pool);
+    let dao = PgFeedbackDao(pool);
 
     let mut a1 = sample("fb-a1", "task-A", "task");
     a1.created_at = Utc::now() - chrono::Duration::seconds(60);
@@ -70,7 +70,7 @@ async fn list_for_task_filters_and_orders(pool: PgPool) {
 
 #[sqlx::test]
 async fn metadata_round_trips(pool: PgPool) {
-    let dao = PgFeedbackRepository(pool);
+    let dao = PgFeedbackDao(pool);
     let mut row = sample("fb-meta", "task-meta", "preview_failure");
     row.metadata = Some(serde_json::json!({"preview_error": "boom"}));
     dao.insert(&row).await.unwrap();

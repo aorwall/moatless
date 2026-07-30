@@ -30,18 +30,18 @@ use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
 use crate::events::EventPublisher;
-use crate::repository::dao::RepoRepository;
+use crate::repository::dao::RepositoryDao;
 use crate::repository::models::Repository;
 use crate::sandbox::preflight::{
     preflight_validate_github_token, GithubValidator, PreflightCredentials, PreflightError,
 };
 use crate::shared_models::{AgentMode, AgentType};
-use crate::tag::dao::TagRepository;
-use crate::task::dao::TaskRepository;
+use crate::tag::dao::TagDao;
+use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
 use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::task::relations::{
-    record_created_by, record_related_to, CreatedByParent, RelatedTask, TaskRelationRepository,
+    record_created_by, record_related_to, CreatedByParent, RelatedTask, TaskRelationDao,
 };
 use crate::task::schemas::MessageContextInput;
 
@@ -198,25 +198,25 @@ impl From<TaskCreationError> for TaskError {
 /// dependencies only — no `&AppState` anywhere — so it is unit-testable without
 /// a database.
 pub struct TaskCreationService {
-    tasks: Arc<dyn TaskRepository>,
-    tags: Arc<dyn TagRepository>,
-    relations: Arc<dyn TaskRelationRepository>,
-    repositories: Arc<dyn RepoRepository>,
+    tasks: Arc<dyn TaskDao>,
+    tags: Arc<dyn TagDao>,
+    relations: Arc<dyn TaskRelationDao>,
+    repositories: Arc<dyn RepositoryDao>,
     events: Option<Arc<dyn EventPublisher>>,
     starter: Arc<dyn SandboxStarter>,
     preflight: Arc<dyn PreflightPort>,
 }
 
 impl TaskCreationService {
-    // reason: independent injected collaborators (four repositories, the event
+    // reason: independent injected collaborators (four DAOs, the event
     // publisher, the provision seam, the preflight seam); bundling them behind a
     // one-use struct only shuffles the same fields.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        tasks: Arc<dyn TaskRepository>,
-        tags: Arc<dyn TagRepository>,
-        relations: Arc<dyn TaskRelationRepository>,
-        repositories: Arc<dyn RepoRepository>,
+        tasks: Arc<dyn TaskDao>,
+        tags: Arc<dyn TagDao>,
+        relations: Arc<dyn TaskRelationDao>,
+        repositories: Arc<dyn RepositoryDao>,
         events: Option<Arc<dyn EventPublisher>>,
         starter: Arc<dyn SandboxStarter>,
         preflight: Arc<dyn PreflightPort>,
@@ -426,11 +426,11 @@ impl TaskCreationService {
 mod tests {
     use super::*;
 
-    use crate::repository::dao::MockRepoRepository;
+    use crate::repository::dao::MockRepositoryDao;
     use crate::repository::models::{Repository, RepositoryKind};
-    use crate::tag::dao::MockTagRepository;
-    use crate::task::dao::MockTaskRepository;
-    use crate::task::relations::MockTaskRelationRepository;
+    use crate::tag::dao::MockTagDao;
+    use crate::task::dao::MockTaskDao;
+    use crate::task::relations::MockTaskRelationDao;
     use crate::test_support::RecordingPublisher;
 
     /// What `insert_task` resolves for a request that names no workspace: the
@@ -500,14 +500,14 @@ mod tests {
     async fn no_message(_: String, _: FirstMessage) {}
 
     fn service(
-        tasks: MockTaskRepository,
+        tasks: MockTaskDao,
         starter: MockSandboxStarter,
         preflight: Arc<dyn PreflightPort>,
         publisher: Arc<RecordingPublisher>,
     ) -> TaskCreationService {
-        let tags = MockTagRepository::new();
-        let relations = MockTaskRelationRepository::new();
-        let mut repos = MockRepoRepository::new();
+        let tags = MockTagDao::new();
+        let relations = MockTaskRelationDao::new();
+        let mut repos = MockRepositoryDao::new();
         repos
             .expect_find_by_id()
             .returning(|_, _| Ok(Some(sample_repo())));
@@ -524,7 +524,7 @@ mod tests {
 
     #[tokio::test]
     async fn happy_path_inserts_open_row_and_publishes_created_event() {
-        let mut tasks = MockTaskRepository::new();
+        let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
@@ -553,7 +553,7 @@ mod tests {
     /// publishes a task whose workspace no client can name.
     #[tokio::test]
     async fn the_returned_row_carries_the_workspace_the_insert_resolved() {
-        let mut tasks = MockTaskRepository::new();
+        let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
@@ -576,7 +576,7 @@ mod tests {
 
     #[tokio::test]
     async fn preflight_failure_marks_errored_publishes_error_event_and_skips_provision() {
-        let mut tasks = MockTaskRepository::new();
+        let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
@@ -608,7 +608,7 @@ mod tests {
 
     #[tokio::test]
     async fn provision_failure_still_succeeds_and_publishes_sandbox_error() {
-        let mut tasks = MockTaskRepository::new();
+        let mut tasks = MockTaskDao::new();
         tasks.expect_exists_by_short_id().returning(|_| Ok(false));
         tasks
             .expect_insert_task()
@@ -636,7 +636,7 @@ mod tests {
 
     #[tokio::test]
     async fn short_id_retries_on_collision() {
-        let mut tasks = MockTaskRepository::new();
+        let mut tasks = MockTaskDao::new();
         let mut seq = mockall::Sequence::new();
         tasks
             .expect_exists_by_short_id()

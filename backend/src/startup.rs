@@ -16,25 +16,25 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use crate::auth::github::registry::GitHubAppRegistry;
-use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
-use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
-use crate::auth::users::{PgUserRepository, UserRepository};
+use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
+use crate::auth::provider_tokens::{PgProviderTokenAuthDao, ProviderTokenAuthDao};
+use crate::auth::users::{PgUserDao, UserDao};
 use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
-use crate::file_storage::dao::{FileRepository, PgFileRepository};
-use crate::message::dao::{MessageRepository, PgMessageRepository};
+use crate::file_storage::dao::{FileDao, PgFileDao};
+use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::metrics;
-use crate::repository::dao::{PgRepoRepository, RepoRepository};
+use crate::repository::dao::{PgRepositoryDao, RepositoryDao};
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
 use crate::sandbox::k8s::client::K8sClient;
-use crate::secret::audit::{PgSecretAuditRepository, SecretAuditRepository};
-use crate::secret::dao::{PgSecretRepository, SecretRepository};
+use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
+use crate::secret::dao::{PgSecretDao, SecretDao};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
 use crate::sse::consumer::RedisStreamConsumer;
 use crate::sse::routes::SseState;
-use crate::task::dao::{PgTaskRepository, TaskRepository};
+use crate::task::dao::{PgTaskDao, TaskDao};
 
 // =========================================================================
 // Logging
@@ -205,8 +205,8 @@ pub async fn init_sse(
 
     // Per-tenant firehose filtering resolves each event's task against the
     // caller's scope. Without a DB the firehose can't authorize scoped users.
-    let tasks: Option<Arc<dyn TaskRepository>> =
-        db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
+    let tasks: Option<Arc<dyn TaskDao>> =
+        db_pool.map(|pool| Arc::new(PgTaskDao(pool.clone())) as _);
 
     let consumer_handle = if let Some(ref redis_url) = config.redis.url {
         let client = redis::Client::open(redis_url.as_str())?;
@@ -278,32 +278,32 @@ pub fn spawn_grpc_server(
     connector: Arc<dyn crate::sandbox::access::SandboxConnector>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
-    let messages: Option<Arc<dyn MessageRepository>> =
-        db_pool.map(|pool| Arc::new(PgMessageRepository(pool.clone())) as _);
-    let files: Option<Arc<dyn FileRepository>> =
-        db_pool.map(|pool| Arc::new(PgFileRepository(pool.clone())) as _);
-    let provider_tokens: Option<Arc<dyn ProviderTokenRepository>> =
-        db_pool.map(|pool| Arc::new(PgProviderTokenRepository(pool.clone())) as _);
-    let tasks: Option<Arc<dyn TaskRepository>> =
-        db_pool.map(|pool| Arc::new(PgTaskRepository(pool.clone())) as _);
-    let task_turns: Option<Arc<dyn crate::task_turn::dao::TaskTurnRepository>> = db_pool
-        .map(|pool| Arc::new(crate::task_turn::dao::PgTaskTurnRepository(pool.clone())) as _);
-    let grpc_task_events: Option<Arc<dyn crate::task_event::dao::TaskEventRepository>> = db_pool
-        .map(|pool| Arc::new(crate::task_event::dao::PgTaskEventRepository(pool.clone())) as _);
+    let messages: Option<Arc<dyn MessageDao>> =
+        db_pool.map(|pool| Arc::new(PgMessageDao(pool.clone())) as _);
+    let files: Option<Arc<dyn FileDao>> =
+        db_pool.map(|pool| Arc::new(PgFileDao(pool.clone())) as _);
+    let provider_tokens: Option<Arc<dyn ProviderTokenDao>> =
+        db_pool.map(|pool| Arc::new(PgProviderTokenDao(pool.clone())) as _);
+    let tasks: Option<Arc<dyn TaskDao>> =
+        db_pool.map(|pool| Arc::new(PgTaskDao(pool.clone())) as _);
+    let task_turns: Option<Arc<dyn crate::task_turn::dao::TaskTurnDao>> = db_pool
+        .map(|pool| Arc::new(crate::task_turn::dao::PgTaskTurnDao(pool.clone())) as _);
+    let grpc_task_events: Option<Arc<dyn crate::task_event::dao::TaskEventDao>> = db_pool
+        .map(|pool| Arc::new(crate::task_event::dao::PgTaskEventDao(pool.clone())) as _);
     let ingress_outbox: Option<Arc<dyn crate::event_ingress::outbox::IngressOutbox>> = db_pool
         .map(|pool| Arc::new(crate::event_ingress::outbox::PgIngressOutbox(pool.clone())) as _);
-    let task_relations: Option<Arc<dyn crate::task::relations::TaskRelationRepository>> = db_pool
+    let task_relations: Option<Arc<dyn crate::task::relations::TaskRelationDao>> = db_pool
         .map(|pool| {
-            Arc::new(crate::task::relations::PgTaskRelationRepository(
+            Arc::new(crate::task::relations::PgTaskRelationDao(
                 pool.clone(),
             )) as _
         });
-    let repositories: Option<Arc<dyn RepoRepository>> =
-        db_pool.map(|pool| Arc::new(PgRepoRepository(pool.clone())) as _);
-    let grpc_workspaces: Option<Arc<dyn crate::workspace::dao::WorkspaceRepository>> = db_pool
-        .map(|pool| Arc::new(crate::workspace::dao::PgWorkspaceRepository(pool.clone())) as _);
-    let users: Option<Arc<dyn UserRepository>> =
-        db_pool.map(|pool| Arc::new(PgUserRepository(pool.clone())) as _);
+    let repositories: Option<Arc<dyn RepositoryDao>> =
+        db_pool.map(|pool| Arc::new(PgRepositoryDao(pool.clone())) as _);
+    let grpc_workspaces: Option<Arc<dyn crate::workspace::dao::WorkspaceDao>> = db_pool
+        .map(|pool| Arc::new(crate::workspace::dao::PgWorkspaceDao(pool.clone())) as _);
+    let users: Option<Arc<dyn UserDao>> =
+        db_pool.map(|pool| Arc::new(PgUserDao(pool.clone())) as _);
     let backend_config = Arc::new(config.clone());
     let port = config.server.grpc_port;
     let token_secret = config.sandbox.task_token_secret.clone();
@@ -311,9 +311,9 @@ pub fn spawn_grpc_server(
     let s3_key_prefix = config.s3.key_prefix.clone();
     let transcript_s3_prefix = config.s3.transcript_prefix.clone();
     let workspace_s3_prefix = config.s3.workspace_prefix.clone();
-    let github_app_store: Option<Arc<dyn crate::auth::github::store::GitHubAppStore>> = db_pool
+    let github_app_store: Option<Arc<dyn crate::auth::github::dao::GitHubAppDao>> = db_pool
         .map(|pool| {
-            Arc::new(crate::auth::github::store::PgGitHubAppStore(pool.clone())) as _
+            Arc::new(crate::auth::github::dao::PgGitHubAppDao(pool.clone())) as _
         });
     let github_apps = Arc::new(GitHubAppRegistry::new(
         crate::auth::github::service::GitHubAppService::from_config(config).map(Arc::new),
@@ -321,12 +321,11 @@ pub fn spawn_grpc_server(
         LocalEnvelopeSecretCipher::from_config(&config.secrets),
     ));
     let github_app_service = github_apps.default_service();
-    let provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>> =
-        db_pool.map(|pool| Arc::new(PgProviderTokenAuthRepository(pool.clone())) as _);
+    let provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>> =
+        db_pool.map(|pool| Arc::new(PgProviderTokenAuthDao(pool.clone())) as _);
     let secrets = db_pool.map(|pool| {
-        let secret_records: Arc<dyn SecretRepository> = Arc::new(PgSecretRepository(pool.clone()));
-        let secret_audits: Arc<dyn SecretAuditRepository> =
-            Arc::new(PgSecretAuditRepository(pool.clone()));
+        let secret_records: Arc<dyn SecretDao> = Arc::new(PgSecretDao(pool.clone()));
+        let secret_audits: Arc<dyn SecretAuditDao> = Arc::new(PgSecretAuditDao(pool.clone()));
         Arc::new(SecretService::new(
             secret_records,
             secret_audits,

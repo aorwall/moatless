@@ -12,19 +12,19 @@ use tracing::{info, warn};
 
 use moatless_backend_core::scope::ScopeContext;
 
-use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::plugin::activation;
-use crate::plugin::dao::PluginRepository;
-use crate::repository::dao::RepoRepository;
+use crate::plugin::dao::PluginDao;
+use crate::repository::dao::RepositoryDao;
 use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{
     derive_mount_name, sanitize_mount_name, ProvisionRequest, RepoCheckout, RepoConfig, ServerConfig,
 };
 use moatless_api_schemas::plugin::PluginDelivery;
-use crate::task::dao::TaskRepository;
+use crate::task::dao::TaskDao;
 use crate::task::models::Task;
-use crate::workspace::dao::WorkspaceRepository;
+use crate::workspace::dao::WorkspaceDao;
 
 // Re-export the workspace-sourced config builders from k8s/auto_provision. They
 // are shared by lifecycle plan construction and pod-watcher parsing.
@@ -44,11 +44,11 @@ pub use crate::sandbox::k8s::auto_provision::{
 /// 3. Assemble the ProvisionRequest. Runtime credentials are fetched later
 ///    over gRPC by the sandbox.
 pub async fn build_provision_request(
-    tasks: &dyn TaskRepository,
-    repos: &dyn RepoRepository,
-    _provider_tokens: &dyn ProviderTokenRepository,
-    plugins: &dyn PluginRepository,
-    workspaces: &dyn WorkspaceRepository,
+    tasks: &dyn TaskDao,
+    repos: &dyn RepositoryDao,
+    _provider_tokens: &dyn ProviderTokenDao,
+    plugins: &dyn PluginDao,
+    workspaces: &dyn WorkspaceDao,
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read task from DB
@@ -273,8 +273,8 @@ struct ResolvedPlacement {
 /// rather than failing the whole provision: the workspace still has a usable
 /// primary, and a dangling placement is a config problem, not a runtime one.
 async fn resolve_placements(
-    repos: &dyn RepoRepository,
-    workspaces: &dyn WorkspaceRepository,
+    repos: &dyn RepositoryDao,
+    workspaces: &dyn WorkspaceDao,
     task_id: &str,
     workspace_id: Option<&str>,
 ) -> Option<Vec<ResolvedPlacement>> {
@@ -446,7 +446,7 @@ fn unique_mount_name(requested: String, used: &HashSet<String>) -> String {
 /// Phase A a task's shadow workspace has exactly one primary repo equal to
 /// `repository_id`, so the resolved repository is unchanged.
 async fn resolve_primary_repository_id(
-    workspaces: &dyn WorkspaceRepository,
+    workspaces: &dyn WorkspaceDao,
     task: &Task,
 ) -> String {
     let Some(workspace_id) = task.workspace_id.as_deref() else {
@@ -478,7 +478,7 @@ async fn resolve_primary_repository_id(
 /// What a task's owner gets: their effective plugins, each with the skills the
 /// sandbox is to keep.
 async fn resolve_plugin_deliveries(
-    plugins: &dyn PluginRepository,
+    plugins: &dyn PluginDao,
     owner_user_id: Option<uuid::Uuid>,
 ) -> Result<Vec<PluginDelivery>, sqlx::Error> {
     Ok(activation::resolve_for_user(plugins, owner_user_id)
@@ -517,8 +517,8 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
 /// Convenience wrapper that handles the Option<Arc<dyn Repo>> pattern
 /// used throughout handlers.
 pub async fn get_server_configs_for_task(
-    tasks: &dyn TaskRepository,
-    workspaces: &dyn WorkspaceRepository,
+    tasks: &dyn TaskDao,
+    workspaces: &dyn WorkspaceDao,
     task_id: &str,
 ) -> Vec<ServerConfig> {
     match resolve_server_configs(tasks, workspaces, task_id).await {
@@ -535,8 +535,8 @@ pub async fn get_server_configs_for_task(
 /// Resolves task_id → task → workspace → `build_server_configs_from_workspace`.
 /// Returns `Err` on DB failures or missing rows so callers can log.
 async fn resolve_server_configs(
-    tasks: &dyn TaskRepository,
-    workspaces: &dyn WorkspaceRepository,
+    tasks: &dyn TaskDao,
+    workspaces: &dyn WorkspaceDao,
     task_id: &str,
 ) -> Result<Vec<ServerConfig>, String> {
     // reason: server config resolution reads across all task owners for pod watcher

@@ -7,7 +7,7 @@ use tracing::info;
 
 use crate::adapters::error::AdapterError;
 use crate::db::DbPool;
-use crate::loops::store::LoopStore;
+use crate::loops::dao::LoopDao;
 
 use super::config::TelegramAdapterConfig;
 
@@ -164,7 +164,7 @@ pub async fn approve_request(
     .map_err(AdapterError::Db)?;
 
     // Read current provider_config and append user to dm_allowlist
-    let store = LoopStore::new(db.clone());
+    let store = LoopDao::new(db.clone());
     let current_config = store
         .get_adapter_config(trigger_id)
         .await

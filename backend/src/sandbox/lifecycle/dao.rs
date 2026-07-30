@@ -1,4 +1,4 @@
-//! Postgres [`LifecycleStore`] — durable intent, generation allocation, and the
+//! Postgres [`LifecycleDao`] — durable intent, generation allocation, and the
 //! commit-before-publication completion commit.
 //!
 //! The atomic intent write collapses desired state, stop reason, archive
@@ -17,17 +17,17 @@ use crate::task::models::{
 };
 
 use super::events::LifecycleEvent;
-use super::orchestrator::{IntentWrite, LifecycleStore, StoreError, TaskIntent};
+use super::orchestrator::{IntentWrite, LifecycleDao, StoreError, TaskIntent};
 use super::types::{
     ArchiveRetention, CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
 };
 
 /// Postgres-backed lifecycle store over the main pool.
-pub struct PgLifecycleStore {
+pub struct PgLifecycleDao {
     pool: DbPool,
 }
 
-impl PgLifecycleStore {
+impl PgLifecycleDao {
     pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
@@ -126,7 +126,7 @@ pub(crate) async fn load_sandbox_intent_views(
 }
 
 #[async_trait]
-impl LifecycleStore for PgLifecycleStore {
+impl LifecycleDao for PgLifecycleDao {
     async fn load(&self, task_id: &str) -> Result<Option<TaskIntent>, StoreError> {
         // Left join: a Task with no Sandbox row is not TaskNotFound — it reads as
         // converged Stopped (never requested) with an epoch intent timestamp.
@@ -407,7 +407,7 @@ mod db_tests {
     #[sqlx::test]
     async fn allocate_generation_is_monotonic(pool: PgPool) {
         seed(&pool, "t1").await;
-        let store = PgLifecycleStore::new(pool);
+        let store = PgLifecycleDao::new(pool);
         assert_eq!(
             store.allocate_generation("t1").await.unwrap(),
             OperationGeneration(1)
@@ -425,7 +425,7 @@ mod db_tests {
     #[sqlx::test]
     async fn persist_intent_change_then_unchanged_and_load_round_trips(pool: PgPool) {
         seed(&pool, "t1").await;
-        let store = PgLifecycleStore::new(pool);
+        let store = PgLifecycleDao::new(pool);
         let write = IntentWrite {
             desired_state: SandboxDesiredState::Stopped,
             stop_reason: Some(SandboxStopReason::User),
@@ -458,7 +458,7 @@ mod db_tests {
     #[sqlx::test]
     async fn remove_persists_retention_and_fact_commit_clears_marker(pool: PgPool) {
         seed(&pool, "t1").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         store
             .persist_intent(
                 "t1",
@@ -507,7 +507,7 @@ mod db_tests {
     #[sqlx::test]
     async fn clear_marker_only_clears_the_matching_generation(pool: PgPool) {
         seed(&pool, "t1").await;
-        let store = PgLifecycleStore::new(pool);
+        let store = PgLifecycleDao::new(pool);
         store
             .persist_intent(
                 "t1",
@@ -542,7 +542,7 @@ mod db_tests {
     #[sqlx::test]
     async fn late_fact_commit_does_not_clear_a_newer_generation(pool: PgPool) {
         seed(&pool, "t1").await;
-        let store = PgLifecycleStore::new(pool);
+        let store = PgLifecycleDao::new(pool);
         store
             .persist_intent(
                 "t1",
@@ -590,7 +590,7 @@ mod db_tests {
         // Desired Stopped + Open → not a candidate on the desired-Running branch…
         seed_task_with(&pool, "stopped-open", "open", "stopped").await;
         // …until it carries an incomplete operation marker (a crashed stop/remove).
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         store
             .persist_intent(
                 "stopped-open",
@@ -612,7 +612,7 @@ mod db_tests {
     #[sqlx::test]
     async fn toward_running_persist_stamps_started_at_and_non_running_preserves_it(pool: PgPool) {
         seed(&pool, "t1").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         let started_at = |pool: PgPool| async move {
             sqlx::query_scalar::<_, Option<chrono::DateTime<Utc>>>(
                 "SELECT started_at FROM sandboxes WHERE task_id = 't1'",
@@ -683,7 +683,7 @@ mod db_tests {
             "no row before any operation"
         );
 
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         let effect = store
             .persist_intent(
                 "t1",
@@ -714,7 +714,7 @@ mod db_tests {
         // with an epoch intent timestamp (so any Message supersedes it), and the
         // Task is not a reconciler candidate.
         seed_bare_task(&pool, "t1", "open").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
 
         let intent = store.load("t1").await.unwrap().expect("task exists");
         assert_eq!(intent.desired_state, SandboxDesiredState::Stopped);
@@ -735,7 +735,7 @@ mod db_tests {
     #[sqlx::test]
     async fn generation_allocation_births_a_no_intent_row_at_epoch(pool: PgPool) {
         seed_bare_task(&pool, "t1", "open").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
 
         assert_eq!(
             store.allocate_generation("t1").await.unwrap(),
@@ -782,7 +782,7 @@ mod db_tests {
     #[sqlx::test]
     async fn intent_records_a_listing_change_only_when_it_actually_moves(pool: PgPool) {
         seed(&pool, "t1").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         // `seed` leaves the Sandbox running, so stopping it is the move.
         let write = IntentWrite {
             desired_state: SandboxDesiredState::Stopped,
@@ -821,7 +821,7 @@ mod db_tests {
     }
 
     /// `record_change`'s "call this last", for the one mutation site an
-    /// integration test cannot reach: `PgLifecycleStore` is `pub(crate)`, so the
+    /// integration test cannot reach: `PgLifecycleDao` is `pub(crate)`, so the
     /// loop in `tests/task_listing_position_test.rs` cannot name it.
     ///
     /// Same shape as that loop. Someone holds the `sandboxes` row this write
@@ -842,7 +842,7 @@ mod db_tests {
             .await
             .unwrap();
 
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         let write = tokio::spawn(async move {
             store
                 .persist_intent(

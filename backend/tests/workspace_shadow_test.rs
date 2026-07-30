@@ -20,7 +20,7 @@ use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::task::dao as task_dao;
 use moatless_vibe_backend::workspace::dao::{
-    ensure_shadow_workspace, PgWorkspaceRepository, WorkspaceRepository,
+    ensure_shadow_workspace, PgWorkspaceDao, WorkspaceDao,
 };
 use sqlx::PgPool;
 
@@ -46,7 +46,7 @@ async fn ensure_shadow_workspace_creates_shadow_and_primary_placement(pool: PgPo
     assert_eq!(ws_id, "ws_repo-shadow");
 
     // Workspace copies the repository's identity/ACL columns 1:1 with kind=single.
-    let ws_repo = PgWorkspaceRepository(pool.clone());
+    let ws_repo = PgWorkspaceDao(pool.clone());
     let ws = ws_repo
         .find_by_id(&ws_id, &scope_ctx("user-1"))
         .await
@@ -77,7 +77,7 @@ async fn ensure_shadow_workspace_is_idempotent(pool: PgPool) {
     assert_eq!(first, second);
 
     // No duplicate workspace or placement rows after a second call.
-    let ws_repo = PgWorkspaceRepository(pool.clone());
+    let ws_repo = PgWorkspaceDao(pool.clone());
     let placements = ws_repo.find_repos("ws_repo-idem").await.unwrap();
     assert_eq!(placements.len(), 1, "placement is not duplicated");
 }
@@ -104,7 +104,7 @@ async fn insert_task_derives_shadow_workspace_id_when_unset(pool: PgPool) {
     assert_eq!(stored.workspace_id.as_deref(), Some("ws_repo-1"));
 
     // ...and that shadow workspace was actually created.
-    let ws_repo = PgWorkspaceRepository(pool.clone());
+    let ws_repo = PgWorkspaceDao(pool.clone());
     assert!(ws_repo
         .find_by_id("ws_repo-1", &scope_ctx("user-1"))
         .await
@@ -119,7 +119,7 @@ async fn insert_task_respects_explicit_workspace_id(pool: PgPool) {
 
     // A caller that already resolved a (real, multi-repo) workspace keeps it —
     // insert_task must not overwrite an explicit workspace_id with the shadow.
-    let ws_repo = PgWorkspaceRepository(pool.clone());
+    let ws_repo = PgWorkspaceDao(pool.clone());
     ws_repo
         .insert_workspace(&common::make_workspace_row("ws-explicit", "user-1"))
         .await

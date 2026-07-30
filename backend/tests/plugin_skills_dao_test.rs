@@ -11,7 +11,7 @@
 //! read them out of git, so these run against a real database rather than the
 //! in-memory stub used by the sync unit tests.
 
-use moatless_vibe_backend::plugin::dao::{PgPluginRepository, PluginRepository};
+use moatless_vibe_backend::plugin::dao::{PgPluginDao, PluginDao};
 use moatless_vibe_backend::plugin::models::{ActivationRow, Plugin, PluginSkill};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -38,7 +38,7 @@ fn skill(plugin_id: &str, name: &str) -> PluginSkill {
 
 #[sqlx::test]
 async fn stored_skills_outlive_the_reader_that_fetched_them(pool: PgPool) {
-    let dao = PgPluginRepository(pool.clone());
+    let dao = PgPluginDao(pool.clone());
     dao.insert(&plugin("p1")).await.expect("insert plugin");
 
     dao.replace_skills(
@@ -51,7 +51,7 @@ async fn stored_skills_outlive_the_reader_that_fetched_them(pool: PgPool) {
 
     // A second DAO over the same database stands in for the next process:
     // nothing is carried over in memory.
-    let reader = PgPluginRepository(pool);
+    let reader = PgPluginDao(pool);
     let stored = reader.list_skills("p1").await.expect("read skills");
 
     assert_eq!(
@@ -73,7 +73,7 @@ async fn stored_skills_outlive_the_reader_that_fetched_them(pool: PgPool) {
 
 #[sqlx::test]
 async fn a_resync_replaces_the_previous_snapshot_rather_than_adding_to_it(pool: PgPool) {
-    let dao = PgPluginRepository(pool);
+    let dao = PgPluginDao(pool);
     dao.insert(&plugin("p1")).await.expect("insert plugin");
 
     dao.replace_skills(
@@ -103,7 +103,7 @@ async fn a_resync_replaces_the_previous_snapshot_rather_than_adding_to_it(pool: 
 
 #[sqlx::test]
 async fn deleting_a_plugin_takes_its_skills_with_it(pool: PgPool) {
-    let dao = PgPluginRepository(pool);
+    let dao = PgPluginDao(pool);
     dao.insert(&plugin("p1")).await.expect("insert plugin");
     dao.replace_skills("p1", Some("sha-1".to_string()), &[skill("p1", "dev-loop")])
         .await
@@ -119,7 +119,7 @@ async fn deleting_a_plugin_takes_its_skills_with_it(pool: PgPool) {
 
 #[sqlx::test]
 async fn skills_are_scoped_to_their_own_plugin(pool: PgPool) {
-    let dao = PgPluginRepository(pool);
+    let dao = PgPluginDao(pool);
     dao.insert(&plugin("p1")).await.expect("insert p1");
     dao.insert(&plugin("p2")).await.expect("insert p2");
 
@@ -166,7 +166,7 @@ async fn user(pool: &PgPool, login: &str) -> Uuid {
 
 #[sqlx::test]
 async fn one_plugin_holds_at_most_one_global_record(pool: PgPool) {
-    let dao = PgPluginRepository(pool);
+    let dao = PgPluginDao(pool);
     dao.insert(&plugin("p1")).await.expect("insert plugin");
 
     let on = ActivationRow {
@@ -197,7 +197,7 @@ async fn one_plugin_holds_at_most_one_global_record(pool: PgPool) {
 
 #[sqlx::test]
 async fn resolution_sees_global_records_plus_only_its_own(pool: PgPool) {
-    let dao = PgPluginRepository(pool.clone());
+    let dao = PgPluginDao(pool.clone());
     dao.insert(&plugin("p1")).await.expect("insert plugin");
     let alice_id = user(&pool, "alice").await;
     let bob_id = user(&pool, "bob").await;
@@ -235,7 +235,7 @@ async fn resolution_sees_global_records_plus_only_its_own(pool: PgPool) {
 
 #[sqlx::test]
 async fn clearing_a_record_is_not_the_same_as_turning_it_off(pool: PgPool) {
-    let dao = PgPluginRepository(pool.clone());
+    let dao = PgPluginDao(pool.clone());
     dao.insert(&plugin("p1")).await.expect("insert plugin");
     let alice_id = user(&pool, "alice").await;
 
@@ -271,7 +271,7 @@ async fn clearing_a_record_is_not_the_same_as_turning_it_off(pool: PgPool) {
 
 #[sqlx::test]
 async fn a_skill_record_and_a_plugin_record_coexist(pool: PgPool) {
-    let dao = PgPluginRepository(pool);
+    let dao = PgPluginDao(pool);
     dao.insert(&plugin("p1")).await.expect("insert plugin");
 
     dao.set_activation(&ActivationRow {
@@ -310,7 +310,7 @@ async fn a_skill_record_and_a_plugin_record_coexist(pool: PgPool) {
 
 #[sqlx::test]
 async fn deleting_a_plugin_takes_its_activations_with_it(pool: PgPool) {
-    let dao = PgPluginRepository(pool);
+    let dao = PgPluginDao(pool);
     dao.insert(&plugin("p1")).await.expect("insert plugin");
     dao.set_activation(&ActivationRow {
         plugin_id: "p1".into(),

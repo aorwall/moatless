@@ -10,8 +10,8 @@ use moatless_backend_core::scope::{Scope, ScopeContext};
 
 use crate::adapters::models::AdapterConnection;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::github::store::{
-    GitHubAppAuditEntry, GitHubAppRecord, GitHubAppStore, NewGitHubApp,
+use crate::auth::github::dao::{
+    GitHubAppAuditEntry, GitHubAppDao, GitHubAppRecord, NewGitHubApp,
 };
 use crate::auth::credentials::{
     read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
@@ -357,7 +357,7 @@ async fn bot_users_by_app_key(
 }
 
 /// The durable store and the cipher an App's signing key is sealed with.
-type AppAdministration<'a> = (&'a Arc<dyn GitHubAppStore>, &'a Arc<dyn SecretCipher>);
+type AppAdministration<'a> = (&'a Arc<dyn GitHubAppDao>, &'a Arc<dyn SecretCipher>);
 
 /// Everything needed to register or rotate an App: the durable store and the
 /// cipher its signing key is sealed with.
@@ -647,7 +647,7 @@ fn not_registered(app_key: &str) -> ProviderSettingsError {
 /// worth reviewing later — a key that GitHub would not accept, a name already
 /// taken — only exist as refusals.
 fn audit_refusal(
-    store: &Arc<dyn GitHubAppStore>,
+    store: &Arc<dyn GitHubAppDao>,
     app_key: &str,
     actor_id: &str,
     action: &str,
@@ -673,7 +673,7 @@ fn audit_refusal(
 /// already been stored or refused by this point, and turning a bookkeeping
 /// failure into a 500 would leave the admin unsure which happened.
 async fn record_app_audit(
-    store: &dyn GitHubAppStore,
+    store: &dyn GitHubAppDao,
     github_app_id: Option<&str>,
     app_key: &str,
     actor_id: &str,

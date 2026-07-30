@@ -24,21 +24,21 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
-use moatless_vibe_backend::message::dao::{MessageRepository, PgMessageRepository};
+use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::scope::ScopeContext;
-use moatless_vibe_backend::tag::dao::{PgTagRepository, TagRepository};
-use moatless_vibe_backend::task::dao::{PgTaskRepository, TaskPatch, TaskRepository};
+use moatless_vibe_backend::tag::dao::{PgTagDao, TagDao};
+use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
 use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
 use moatless_vibe_backend::task_listing::{
     changes_after, current_head, current_position, prune_changes, record_change, resume,
     ChangeSubject, ListingHead, Resume, RESUME_WINDOW, RETAINED_CHANGES,
 };
 use moatless_vibe_backend::task_turn::dao::{
-    PgTaskTurnRepository, TaskTurnRepository, TurnStateEvent,
+    PgTaskTurnDao, TaskTurnDao, TurnStateEvent,
 };
 use moatless_vibe_backend::task_turn::models::{TurnStatus, TurnTransition};
 use moatless_vibe_backend::workspace::dao::{
-    PgWorkspaceRepository, WorkspacePatch, WorkspaceRepository,
+    PgWorkspaceDao, WorkspaceDao, WorkspacePatch,
 };
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -519,7 +519,7 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
     // the `tasks` row the rename is holding.
     let ingress_pool = wide.clone();
     let ingress = tokio::spawn(async move {
-        PgTaskTurnRepository(ingress_pool)
+        PgTaskTurnDao(ingress_pool)
             .apply_ingress_event(&TurnStateEvent {
                 event_id: "ev-1".to_string(),
                 task_id: "task-a".to_string(),
@@ -585,7 +585,7 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
 /// that probe blocks until the holder lets go, which is one half of the cycle.
 ///
 /// One change kind is missing here and covered in-crate instead: the Sandbox's
-/// intent write goes through `PgLifecycleStore`, which is `pub(crate)` and
+/// intent write goes through `PgLifecycleDao`, which is `pub(crate)` and
 /// invisible to an integration test. Its case lives beside it in
 /// `sandbox/lifecycle/dao.rs`.
 struct Mutation {
@@ -603,11 +603,11 @@ struct Mutation {
 /// A subject already in the deployment: one Task and one Workspace under the
 /// same id, both owned by the user the mutations run as.
 async fn seed_subject(pool: &PgPool, subject: &str) {
-    PgWorkspaceRepository(pool.clone())
+    PgWorkspaceDao(pool.clone())
         .insert_workspace(&make_workspace_row(subject, USER_1))
         .await
         .unwrap();
-    PgTaskRepository(pool.clone())
+    PgTaskDao(pool.clone())
         .insert_task(&make_task_row(subject, USER_1))
         .await
         .unwrap();
@@ -645,7 +645,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     let row = make_task_row(&format!("{subject}-new"), USER_1);
-                    PgTaskRepository(pool).insert_task(&row).await.unwrap();
+                    PgTaskDao(pool).insert_task(&row).await.unwrap();
                 })
             },
         },
@@ -666,7 +666,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
                         ttl_minutes: Some(120),
                         ..TaskPatch::default()
                     };
-                    PgTaskRepository(pool)
+                    PgTaskDao(pool)
                         .update_task(&subject, &patch, &owner())
                         .await
                         .unwrap();
@@ -679,7 +679,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: HOLD_TASK_ROW,
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTaskRepository(pool)
+                    PgTaskDao(pool)
                         .update_status_if_not_closed(&subject, TaskStatus::Closed, &owner())
                         .await
                         .unwrap();
@@ -692,7 +692,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: HOLD_TASK_ROW,
             run: |pool, subject| {
                 Box::pin(async move {
-                    assert!(PgTaskRepository(pool)
+                    assert!(PgTaskDao(pool)
                         .delete_task(&subject, &owner())
                         .await
                         .unwrap());
@@ -710,7 +710,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     let msg = make_message_row(&subject, &format!("{subject}-msg"));
-                    PgMessageRepository(pool).append(&msg, &[], &[]).await.unwrap();
+                    PgMessageDao(pool).append(&msg, &[], &[]).await.unwrap();
                 })
             },
         },
@@ -723,7 +723,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "INSERT INTO task_tags (task_id, tag_id) VALUES ($1, 'tag-1')",
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTagRepository(pool)
+                    PgTagDao(pool)
                         .add_task_tags(&subject, &["tag-1".to_string()])
                         .await
                         .unwrap();
@@ -736,7 +736,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "SELECT id FROM task_tags WHERE task_id = $1 FOR UPDATE",
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTagRepository(pool)
+                    PgTagDao(pool)
                         .set_task_tags(&subject, &["tag-1".to_string()])
                         .await
                         .unwrap();
@@ -749,7 +749,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "INSERT INTO task_follows (user_id, task_id) VALUES ('user-x', $1)",
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTaskRepository(pool)
+                    PgTaskDao(pool)
                         .follow_task("user-x", &subject)
                         .await
                         .unwrap();
@@ -764,7 +764,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: "SELECT task_id FROM task_follows WHERE task_id = $1 FOR UPDATE",
             run: |pool, subject| {
                 Box::pin(async move {
-                    PgTaskRepository(pool)
+                    PgTaskDao(pool)
                         .unfollow_task(USER_1, &subject)
                         .await
                         .unwrap();
@@ -779,7 +779,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     let row = make_workspace_row(&format!("{subject}-new"), USER_1);
-                    PgWorkspaceRepository(pool)
+                    PgWorkspaceDao(pool)
                         .insert_workspace(&row)
                         .await
                         .unwrap();
@@ -796,7 +796,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
                         name: Some("renamed".to_string()),
                         ..WorkspacePatch::default()
                     };
-                    assert!(PgWorkspaceRepository(pool)
+                    assert!(PgWorkspaceDao(pool)
                         .update(&subject, &patch, &owner())
                         .await
                         .unwrap());
@@ -809,7 +809,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: HOLD_WORKSPACE_ROW,
             run: |pool, subject| {
                 Box::pin(async move {
-                    assert!(PgWorkspaceRepository(pool)
+                    assert!(PgWorkspaceDao(pool)
                         .soft_delete(&subject, &owner())
                         .await
                         .unwrap());

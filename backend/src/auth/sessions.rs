@@ -25,10 +25,10 @@ pub struct Session {
     pub expires_at: DateTime<Utc>,
 }
 
-/// Repository trait for session persistence.
+/// DAO trait for session persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait SessionRepository: Send + Sync {
+pub trait SessionDao: Send + Sync {
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>, sqlx::Error>;
     async fn insert_session(&self, session: &Session) -> Result<(), sqlx::Error>;
     async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
@@ -43,11 +43,11 @@ pub trait SessionRepository: Send + Sync {
     ) -> Result<(), sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`SessionRepository`].
-pub struct PgSessionRepository(pub DbPool);
+/// PostgreSQL implementation of [`SessionDao`].
+pub struct PgSessionDao(pub DbPool);
 
 #[async_trait]
-impl SessionRepository for PgSessionRepository {
+impl SessionDao for PgSessionDao {
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>, sqlx::Error> {
         sqlx::query_as::<_, Session>("SELECT * FROM sessions WHERE id = $1")
             .bind(session_id)

@@ -32,10 +32,10 @@ pub struct TaskFilter {
     pub followed_by: Option<String>,
 }
 
-/// Repository trait for task persistence.
+/// DAO trait for task persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait TaskRepository: Send + Sync {
+pub trait TaskDao: Send + Sync {
     /// Find by task_id, scoped to access control.
     async fn find_by_id(
         &self,
@@ -161,11 +161,11 @@ pub trait TaskRepository: Send + Sync {
     ) -> Result<Vec<String>, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`TaskRepository`].
-pub struct PgTaskRepository(pub DbPool);
+/// PostgreSQL implementation of [`TaskDao`].
+pub struct PgTaskDao(pub DbPool);
 
 #[async_trait]
-impl TaskRepository for PgTaskRepository {
+impl TaskDao for PgTaskDao {
     async fn find_by_id(
         &self,
         task_id: &str,
@@ -908,12 +908,12 @@ impl TaskPatch {
 // =========================================================================
 //
 // Integration tests in `tests/` call these as `task_dao::insert_task(&pool, &row)`.
-// Each wrapper constructs a `PgTaskRepository` and delegates to the trait method.
+// Each wrapper constructs a `PgTaskDao` and delegates to the trait method.
 
 /// Insert a task (convenience wrapper). Returns the workspace id the row was
 /// persisted with, as the trait method does.
 pub async fn insert_task(pool: &DbPool, row: &Task) -> Result<String, sqlx::Error> {
-    PgTaskRepository(pool.clone()).insert_task(row).await
+    PgTaskDao(pool.clone()).insert_task(row).await
 }
 
 /// Find by task_id scoped to access control (convenience wrapper).
@@ -922,7 +922,7 @@ pub async fn find_by_id(
     task_id: &str,
     ctx: &ScopeContext,
 ) -> Result<Option<Task>, sqlx::Error> {
-    PgTaskRepository(pool.clone())
+    PgTaskDao(pool.clone())
         .find_by_id(task_id, ctx)
         .await
 }
@@ -952,7 +952,7 @@ pub async fn list_tasks(
         parent_task_id: parent_task_id.map(String::from),
         followed_by: None,
     };
-    PgTaskRepository(pool.clone()).list_tasks(&filter).await
+    PgTaskDao(pool.clone()).list_tasks(&filter).await
 }
 
 /// Update task fields (convenience wrapper).
@@ -962,7 +962,7 @@ pub async fn update_task(
     patch: &TaskPatch,
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
-    PgTaskRepository(pool.clone())
+    PgTaskDao(pool.clone())
         .update_task(task_id, patch, ctx)
         .await
 }
@@ -973,14 +973,14 @@ pub async fn delete_task(
     task_id: &str,
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
-    PgTaskRepository(pool.clone())
+    PgTaskDao(pool.clone())
         .delete_task(task_id, ctx)
         .await
 }
 
 /// Check if a task with the given short_id exists (convenience wrapper).
 pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, sqlx::Error> {
-    PgTaskRepository(pool.clone())
+    PgTaskDao(pool.clone())
         .exists_by_short_id(short_id)
         .await
 }

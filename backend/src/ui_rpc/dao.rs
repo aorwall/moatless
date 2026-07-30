@@ -83,10 +83,10 @@ pub struct Conversation {
 /// viewer follows, re-read the ones a change names, and read the position.
 ///
 /// A trait because the module's transport tests stub it; the only production
-/// implementation is [`PgConversationRepository`].
+/// implementation is [`PgConversationDao`].
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait ConversationRepository: Send + Sync {
+pub trait ConversationDao: Send + Sync {
     /// Every Task the viewer follows **and** may still read, newest first.
     ///
     /// The two rules are deliberately different and both are load-bearing.
@@ -129,7 +129,7 @@ pub trait ConversationRepository: Send + Sync {
 /// by task id and do not take this permit. This reserves the rest of the main
 /// pool for task control, ingress, and reconciliation under shell overload.
 #[derive(Clone)]
-pub struct PgConversationRepository {
+pub struct PgConversationDao {
     pool: DbPool,
     full_listing: Arc<Semaphore>,
 }
@@ -144,7 +144,7 @@ const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejections_total";
 const QUESTION_TOOL: &str = "AskUserQuestion";
 const PLAN_TOOL: &str = "ExitPlanMode";
 
-impl PgConversationRepository {
+impl PgConversationDao {
     pub fn new(pool: DbPool) -> Self {
         metrics::describe_histogram!(
             LISTING_DURATION,
@@ -383,7 +383,7 @@ impl PgConversationRepository {
 }
 
 #[async_trait]
-impl ConversationRepository for PgConversationRepository {
+impl ConversationDao for PgConversationDao {
     async fn list_followed(
         &self,
         viewer: &ScopeContext,

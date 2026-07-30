@@ -23,8 +23,8 @@ use tracing::{info, warn};
 
 use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::github::store::{
-    GitHubAppRecord, GitHubAppStore, NewGitHubApp, ENV_CARRY_OVER,
+use crate::auth::github::dao::{
+    GitHubAppDao, GitHubAppRecord, NewGitHubApp, ENV_CARRY_OVER,
 };
 use crate::config::GitHubAppConfig;
 use crate::secret::service::SecretCipher;
@@ -49,7 +49,7 @@ pub struct GitHubAppRegistry {
     login_app: Option<Arc<GitHubAppService>>,
     /// Durable state for admin-registered Apps. Absent in minimal wiring
     /// (no database), where only the login App exists.
-    store: Option<Arc<dyn GitHubAppStore>>,
+    store: Option<Arc<dyn GitHubAppDao>>,
     /// Needed to open a stored signing key. Absent when the installation has
     /// no encryption configured, which makes stored Apps unusable — loudly.
     cipher: Option<Arc<dyn SecretCipher>>,
@@ -66,7 +66,7 @@ impl GitHubAppRegistry {
     /// `store` at the moment it is asked for.
     pub fn new(
         login_app: Option<Arc<GitHubAppService>>,
-        store: Option<Arc<dyn GitHubAppStore>>,
+        store: Option<Arc<dyn GitHubAppDao>>,
         cipher: Option<Arc<dyn SecretCipher>>,
     ) -> Self {
         Self {
@@ -201,7 +201,7 @@ impl GitHubAppRegistry {
     }
 
     /// Durable state behind admin-registered Apps, when this wiring has any.
-    pub fn store(&self) -> Option<&Arc<dyn GitHubAppStore>> {
+    pub fn store(&self) -> Option<&Arc<dyn GitHubAppDao>> {
         self.store.as_ref()
     }
 
@@ -320,8 +320,8 @@ impl GitHubAppRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::github::store::test_support::InMemoryGitHubAppStore;
-    use crate::auth::github::store::{GitHubAppRecord, NewGitHubApp};
+    use crate::auth::github::dao::test_support::InMemoryGitHubAppDao;
+    use crate::auth::github::dao::{GitHubAppRecord, NewGitHubApp};
     use crate::config::SecretsConfig;
     use crate::secret::service::LocalEnvelopeSecretCipher;
 
@@ -353,7 +353,7 @@ mod tests {
         .expect("seal")
     }
 
-    fn registry(store: Arc<InMemoryGitHubAppStore>, cipher: Arc<dyn SecretCipher>) -> GitHubAppRegistry {
+    fn registry(store: Arc<InMemoryGitHubAppDao>, cipher: Arc<dyn SecretCipher>) -> GitHubAppRegistry {
         GitHubAppRegistry {
             login_app: None,
             store: Some(store),
@@ -373,7 +373,7 @@ mod tests {
     #[tokio::test]
     async fn an_app_registered_after_the_registry_was_built_is_found() {
         // The whole point of decision 2: no restart, no reload call.
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let cipher = cipher();
         let registry = registry(Arc::clone(&store), Arc::clone(&cipher));
 
@@ -386,7 +386,7 @@ mod tests {
     async fn an_unchanged_record_keeps_the_same_live_service() {
         // Obtained tokens live inside the service, so an unchanged record must
         // return the same instance rather than a fresh one.
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let cipher = cipher();
         let registry = registry(Arc::clone(&store), Arc::clone(&cipher));
         store.put(record("reviewer", cipher.as_ref()));
@@ -398,7 +398,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_edited_record_replaces_only_its_own_service() {
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let cipher = cipher();
         let registry = registry(Arc::clone(&store), Arc::clone(&cipher));
         store.put(record("reviewer", cipher.as_ref()));
@@ -422,7 +422,7 @@ mod tests {
         // a different record that also starts at revision 1. Keying the cache
         // on the revision alone would go on minting tokens with the deleted
         // signing key.
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let cipher = cipher();
         let registry = registry(Arc::clone(&store), Arc::clone(&cipher));
         store.put(record("reviewer", cipher.as_ref()));
@@ -443,7 +443,7 @@ mod tests {
         // Recording the move as done before the Apps are written would lose
         // them permanently: the environment variable is still set, and nothing
         // would ever read it again.
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let registry = registry(Arc::clone(&store), cipher());
         *store.fail_writes.lock().expect("lock") = true;
 
@@ -465,7 +465,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_removed_app_stops_answering_even_though_it_was_cached() {
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let cipher = cipher();
         let registry = registry(Arc::clone(&store), Arc::clone(&cipher));
         store.put(record("reviewer", cipher.as_ref()));
@@ -479,7 +479,7 @@ mod tests {
     async fn an_unreadable_store_is_an_error_not_an_absent_app() {
         // Collapsing these two would tell an admin to register an App that is
         // already there, every time the database hiccups.
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let cipher = cipher();
         let registry = registry(Arc::clone(&store), Arc::clone(&cipher));
         store.put(record("reviewer", cipher.as_ref()));
@@ -490,7 +490,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stored_app_without_encryption_configured_fails_loudly() {
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let cipher = cipher();
         store.put(record("reviewer", cipher.as_ref()));
         let registry = GitHubAppRegistry {
@@ -508,7 +508,7 @@ mod tests {
 
     #[tokio::test]
     async fn require_names_the_apps_that_do_exist() {
-        let store = Arc::new(InMemoryGitHubAppStore::default());
+        let store = Arc::new(InMemoryGitHubAppDao::default());
         let cipher = cipher();
         let registry = registry(Arc::clone(&store), Arc::clone(&cipher));
         store.put(record("reviewer", cipher.as_ref()));

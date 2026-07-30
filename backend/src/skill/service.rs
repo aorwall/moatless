@@ -22,22 +22,22 @@ use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::error::AuthError;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::extractors::AuthUser;
-use crate::plugin::dao::PluginRepository;
+use crate::plugin::dao::PluginDao;
 use crate::plugin::models::Plugin;
 use crate::plugin::sync::PluginSyncService;
-use crate::repository::dao::RepoRepository;
+use crate::repository::dao::RepositoryDao;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::secret::service::SecretService;
 
 /// Orchestrates skill discovery across workspace + plugins.
 pub struct SkillService {
-    repositories: Arc<dyn RepoRepository>,
-    plugins: Arc<dyn PluginRepository>,
-    provider_tokens: Arc<dyn ProviderTokenRepository>,
-    provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+    repositories: Arc<dyn RepositoryDao>,
+    plugins: Arc<dyn PluginDao>,
+    provider_tokens: Arc<dyn ProviderTokenDao>,
+    provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     github_app_service: Option<Arc<GitHubAppService>>,
     github_apps: Arc<GitHubAppRegistry>,
     secrets: Arc<SecretService>,
@@ -51,10 +51,10 @@ impl SkillService {
     // reason: this service fans out to four DAOs plus the GitHub App service,
     // and the constructor is called once from AppState::new.
     pub fn new(
-        repositories: Arc<dyn RepoRepository>,
-        plugins: Arc<dyn PluginRepository>,
-        provider_tokens: Arc<dyn ProviderTokenRepository>,
-        provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+        repositories: Arc<dyn RepositoryDao>,
+        plugins: Arc<dyn PluginDao>,
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
         github_app_service: Option<Arc<GitHubAppService>>,
         github_apps: Arc<GitHubAppRegistry>,
         secrets: Arc<SecretService>,

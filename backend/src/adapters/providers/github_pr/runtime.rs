@@ -5,14 +5,14 @@ use std::fmt::Write as _;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AdapterConnection, Audience, InboundMessage, SubscriptionMatch, TaskBinding,
     ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
 };
 use crate::adapters::AdapterKind;
-use crate::bindings::dao::PgTaskBindingRepository;
+use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recently_sent::RecentlySent;
 use crate::sandbox::lifecycle::ArchiveRetention;
@@ -53,7 +53,7 @@ pub async fn resolve_provider_event(
     org: &str,
     repo_full_name: &str,
 ) -> Result<Option<(AdapterConnection, Option<SubscriptionMatch>)>, AdapterError> {
-    let connection = PgAdapterConnectionRepository(state.db.clone())
+    let connection = PgAdapterConnectionDao(state.db.clone())
         .find_by_scope_value(ADAPTER, org)
         .await?;
     let Some(connection) = connection else {
@@ -158,7 +158,7 @@ pub async fn route_inbound_message(
     }
 
     let subject_key = subject_key_from_thread_properties(&msg.thread_properties)?;
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let binding_repo = PgTaskBindingDao(state.db.clone());
 
     // Provenance: who wrote this event, where it can be named. The
     // `Moatless task:` footer link `<frontend_url>/tasks/<id>` the adapter
@@ -408,7 +408,7 @@ pub async fn record_merge_state_and_notify(
     pr_is_open: bool,
     conflict_msg: &InboundMessage,
 ) {
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let binding_repo = PgTaskBindingDao(state.db.clone());
     let bindings = match binding_repo
         .find_by_subject(ADAPTER, SUBJECT_KIND, subject_key)
         .await
@@ -496,7 +496,7 @@ pub async fn close_tasks_for_pr(
     let pr_number = info.pr_number;
     let subject_key = format!("{owner}/{repo}#{pr_number}");
 
-    let bindings_repo = PgTaskBindingRepository(state.db.clone());
+    let bindings_repo = PgTaskBindingDao(state.db.clone());
     // Only auto-close tasks that were *created by* this PR trigger
     // (origin = ingress). Tasks merely connected to the PR (origin =
     // connected_thread, e.g. an agent on a UI-created task ran `gh pr create`)
@@ -790,7 +790,7 @@ async fn append_to_binding(
     // Logged once at the transport boundary by `AdapterError::into_response`.
     .map_err(AdapterError::MessageDelivery)?;
 
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let binding_repo = PgTaskBindingDao(state.db.clone());
     if let Some(ref ext_id) = msg.external_event_id {
         if let Err(e) = binding_repo.touch_cursor(&binding.id, ext_id).await {
             warn!(

@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::file_storage::dao::FileRepository;
+use crate::file_storage::dao::FileDao;
 use crate::task::schemas::MessageContextInput;
 
 /// Content block for agent request.
@@ -23,7 +23,7 @@ pub struct ContentBlock {
 /// The primary text block has `show_in_ui = true`; all context and file
 /// blocks have `show_in_ui = false` (they appear only in the agent request).
 pub async fn build_content_blocks(
-    files: &dyn FileRepository,
+    files: &dyn FileDao,
     config: &Config,
     text: &str,
     contexts: &[MessageContextInput],
@@ -82,7 +82,7 @@ pub async fn build_content_blocks(
 /// advertises the resulting on-disk path so the agent can read the file
 /// directly with no network round-trip.
 async fn build_file_attachment_block(
-    files: &dyn FileRepository,
+    files: &dyn FileDao,
     file_id: &str,
     file_mount_path: &str,
 ) -> Option<ContentBlock> {
@@ -112,12 +112,12 @@ async fn build_file_attachment_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file_storage::dao::MockFileRepository;
+    use crate::file_storage::dao::MockFileDao;
     use crate::file_storage::models::FileMetadata;
 
     #[tokio::test]
     async fn file_attachment_block_renders_on_disk_path() {
-        let mut mock = MockFileRepository::new();
+        let mut mock = MockFileDao::new();
         mock.expect_find_by_id().returning(|file_id| {
             Ok(Some(FileMetadata {
                 file_id: file_id.to_string(),
@@ -150,7 +150,7 @@ mod tests {
 
     #[tokio::test]
     async fn file_attachment_block_trims_trailing_mount_slash() {
-        let mut mock = MockFileRepository::new();
+        let mut mock = MockFileDao::new();
         mock.expect_find_by_id().returning(|file_id| {
             Ok(Some(FileMetadata {
                 file_id: file_id.to_string(),

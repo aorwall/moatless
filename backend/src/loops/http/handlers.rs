@@ -19,7 +19,7 @@ use crate::adapters::common::{
 use crate::adapters::error::AdapterError;
 use crate::bindings::dao::LoopRecentTaskRow;
 use crate::extractors::AuthUser;
-use crate::loops::store::{
+use crate::loops::dao::{
     AdapterSourceUpdate, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource, NewLoop,
     NewLoopConfig, NewLoopSource, NewScheduleSource, UpdateLoopSource as StoreUpdateSource,
 };

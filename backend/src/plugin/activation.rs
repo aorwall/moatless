@@ -165,7 +165,7 @@ pub fn resolve_rows(
 /// used to decide could be, and a plugin-level record already covers skills
 /// added since it was written.
 pub async fn resolve_for_user(
-    plugins: &dyn crate::plugin::dao::PluginRepository,
+    plugins: &dyn crate::plugin::dao::PluginDao,
     user_id: Option<uuid::Uuid>,
 ) -> Result<Vec<(crate::plugin::models::Plugin, Vec<String>)>, sqlx::Error> {
     let registered = plugins.list_all().await?;

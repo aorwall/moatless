@@ -69,7 +69,7 @@ sequenceDiagram
     autonumber
     participant Linear
     participant Dispatcher as handlers::dispatch_webhook
-    participant ConnRepo as PgAdapterConnectionRepository
+    participant ConnRepo as PgAdapterConnectionDao
     participant Sig as signature::verify_signature
     participant Delivery as adapter_delivery (durable)
     participant Worker as adapter-delivery-worker
@@ -135,7 +135,7 @@ sequenceDiagram
     participant Runtime as agent_runtime::handle_session_created
     participant API as LinearAgentApi
     participant Tasks as state.tasks
-    participant BindingRepo as PgTaskBindingRepository
+    participant BindingRepo as PgTaskBindingDao
     participant Sandbox as state.sandbox
     participant MsgFlow as message::send::send_message_flow
 
@@ -181,7 +181,7 @@ sequenceDiagram
     autonumber
     participant Linear
     participant Runtime as agent_runtime::handle_session_prompted
-    participant BindingRepo as PgTaskBindingRepository
+    participant BindingRepo as PgTaskBindingDao
     participant API as LinearAgentApi
     participant MsgFlow as message::send::send_message_flow
     participant Sandbox as sandbox::notify::ensure_sandbox_and_notify
@@ -234,7 +234,7 @@ sequenceDiagram
     autonumber
     participant Linear
     participant Runtime as agent_runtime::handle_comment_created
-    participant BindingRepo as PgTaskBindingRepository
+    participant BindingRepo as PgTaskBindingDao
     participant Resolver as bindings::recipients::resolve_recipients
     participant API as LinearAgentApi
     participant MsgFlow as message::send::send_message_flow
@@ -281,7 +281,7 @@ sequenceDiagram
     participant Linear
     participant Runtime as agent_runtime::handle_issue_update
     participant Rules as PgTaskTriggerRouteRepository
-    participant BindingRepo as PgTaskBindingRepository
+    participant BindingRepo as PgTaskBindingDao
     participant MsgFlow as message::send::send_message_flow
     participant API as LinearAgentApi
     participant Tasks as state.tasks
@@ -354,7 +354,7 @@ emission point per outcome:
 
 | Outcome | Hook | Activity | Body |
 | --- | --- | --- | --- |
-| Success | `event_handler::agent_handlers::handle_agent_completed` | `response` | Concatenated text blocks from the task's last `assistant` message (resolved via `MessageRepository::get_last_assistant_message`). |
+| Success | `event_handler::agent_handlers::handle_agent_completed` | `response` | Concatenated text blocks from the task's last `assistant` message (resolved via `MessageDao::get_last_assistant_message`). |
 | Agent error | `event_handler::consumer` (`AgentSubType::Error`) | `error` | `payload.error` (or `payload.message`) string. |
 | Sandbox error | `event_handler::consumer` (`SandboxSubType::Error`) | `error` | `payload.message` string. |
 | External close | `agent_runtime::close_active_bindings_for_issue` (Linear issue moved to terminal state) | `response` | `"Linear issue {identifier} transitioned to {state}; closing this task."` |
@@ -371,7 +371,7 @@ sequenceDiagram
     autonumber
     participant Consumer as event consumer (Redis Streams)
     participant Hook as agent_handlers::handle_agent_completed
-    participant DAO as MessageRepository
+    participant DAO as MessageDao
     participant Notify as agent_runtime::notify_linear_status
     participant API as LinearAgentApi
 
@@ -399,7 +399,7 @@ and `user` messages back through two sibling helpers in `agent_runtime`:
   command text, `"Edit"` → the file path).
 - `notify_linear_tool_results` (user messages carrying `tool_result`
   blocks) — looks up the matching `tool_use_id` via
-  `MessageRepository::find_tool_call` and emits a **non-ephemeral**
+  `MessageDao::find_tool_call` and emits a **non-ephemeral**
   completed `action` carrying the same `tool_name` + `summarize_tool_input`
   parameter, with the truncated result attached. The ephemeral pending
   action is visually replaced; the completed one persists.
@@ -413,7 +413,7 @@ sequenceDiagram
     participant Consumer as event consumer (claude-code SDK)
     participant Assistant as agent_runtime::notify_linear_message_activities
     participant Results as agent_runtime::notify_linear_tool_results
-    participant Repo as MessageRepository
+    participant Repo as MessageDao
     participant API as LinearAgentApi
 
     Consumer->>Assistant: assistant message (text + tool_use blocks)

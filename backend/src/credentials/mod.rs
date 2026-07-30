@@ -25,9 +25,9 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{
-    ProviderTokenAuthRepository, AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER,
+    ProviderTokenAuthDao, AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER,
 };
 use crate::auth::token_refresh::ensure_fresh_token_with_dao;
 use crate::db::DbPool;
@@ -36,7 +36,7 @@ use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
-use crate::task::dao::TaskRepository;
+use crate::task::dao::TaskDao;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
 pub use self::codex::CodexScope;
@@ -87,13 +87,13 @@ pub(crate) fn credential_key_to_provider(key: &str) -> Option<&'static str> {
 /// without spinning up real K8s/Docker plumbing.
 pub struct BroadcastContext {
     pub connector: Arc<dyn SandboxConnector>,
-    pub tasks: Arc<dyn TaskRepository>,
+    pub tasks: Arc<dyn TaskDao>,
 }
 
 /// Generic credential gating point.
 pub struct CredentialService {
-    pub(in crate::credentials) provider_tokens: Arc<dyn ProviderTokenRepository>,
-    provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+    pub(in crate::credentials) provider_tokens: Arc<dyn ProviderTokenDao>,
+    provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
     github_app_service: Option<Arc<GitHubAppService>>,
     /// Encrypted secret store. Required to read or rotate a `secret_ref`
     /// GitHub token; `None` in tests / minimal wiring.
@@ -116,8 +116,8 @@ impl CredentialService {
     /// still persists but skips broadcasting (used in tests and by the gRPC
     /// server which constructs its own state without a sandbox provider).
     pub fn new(
-        provider_tokens: Arc<dyn ProviderTokenRepository>,
-        provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>>,
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
         github_app_service: Option<Arc<GitHubAppService>>,
         broadcast_ctx: Option<BroadcastContext>,
     ) -> Self {
@@ -468,7 +468,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// In-memory ProviderTokenRepository for tests.
+    /// In-memory ProviderTokenDao for tests.
     struct InMemoryTokens {
         tokens: tokio::sync::Mutex<HashMap<(String, String), String>>,
         upsert_count: AtomicUsize,
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl ProviderTokenRepository for InMemoryTokens {
+    impl ProviderTokenDao for InMemoryTokens {
         async fn find_provider_token(
             &self,
             user_id: &str,
@@ -602,7 +602,7 @@ mod tests {
         }
     }
 
-    fn make_service(repo: Arc<dyn ProviderTokenRepository>) -> CredentialService {
+    fn make_service(repo: Arc<dyn ProviderTokenDao>) -> CredentialService {
         CredentialService::new(repo, None, None, None)
     }
 

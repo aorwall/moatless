@@ -16,7 +16,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::auth::error::AuthError;
-use crate::auth::github::store::GitHubAppRecord;
+use crate::auth::github::dao::GitHubAppRecord;
 use crate::auth::models::OAuthTokens;
 use crate::config::{Config, GitHubAppConfig};
 

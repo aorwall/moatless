@@ -24,9 +24,9 @@ use tracing::warn;
 
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
-use crate::auth::users::UserRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
+use crate::auth::users::UserDao;
 use crate::credentials::CredentialService;
 use crate::repository::access::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
@@ -43,11 +43,11 @@ use crate::task::models::Task;
 #[derive(Clone)]
 pub struct PreflightCredentials {
     pub secrets: Arc<SecretService>,
-    pub provider_tokens: Arc<dyn ProviderTokenRepository>,
+    pub provider_tokens: Arc<dyn ProviderTokenDao>,
     pub github_app_service: Option<Arc<GitHubAppService>>,
-    pub provider_token_auth: Arc<dyn ProviderTokenAuthRepository>,
+    pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     pub github_apps: Arc<GitHubAppRegistry>,
-    pub users: Arc<dyn UserRepository>,
+    pub users: Arc<dyn UserDao>,
     pub credentials_svc: Arc<CredentialService>,
 }
 

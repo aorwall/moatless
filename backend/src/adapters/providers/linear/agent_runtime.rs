@@ -13,12 +13,12 @@ use std::fmt::Write as _;
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AdapterConnection, Audience, SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN,
 };
-use crate::bindings::dao::PgTaskBindingRepository;
+use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::recipients::{resolve_recipients, EventProvenance};
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
@@ -239,7 +239,7 @@ pub async fn handle_session_prompted(
     activity_id: &str,
     body: &str,
 ) -> Result<(), AdapterError> {
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let binding_repo = PgTaskBindingDao(state.db.clone());
     let bindings: Vec<TaskBinding> = binding_repo
         .find_by_subject(ADAPTER, SUBJECT_KIND, session_id)
         .await?
@@ -483,7 +483,7 @@ async fn comment_delivery_bindings(
     connection: &AdapterConnection,
     issue_id: &str,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let binding_repo = PgTaskBindingDao(state.db.clone());
     let mut rows = Vec::new();
     for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
         rows.extend(
@@ -707,7 +707,7 @@ async fn provision_issue_task(
     cfg: &LinearRuleConfig,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
-    let existing = PgTaskBindingRepository(state.db.clone())
+    let existing = PgTaskBindingDao(state.db.clone())
         .find_active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
         .await?;
     if existing.iter().any(|b| {
@@ -944,7 +944,7 @@ async fn persist_issue_status(
     connection: &AdapterConnection,
     issue: &IssuePayload,
 ) {
-    let repo = PgTaskBindingRepository(state.db.clone());
+    let repo = PgTaskBindingDao(state.db.clone());
     let status = super::status::linear_external_status(
         issue.state_name(),
         issue.state_kind(),
@@ -999,7 +999,7 @@ async fn notify_bindings_of_state_change(
     issue: &IssuePayload,
     delivered_at: i64,
 ) {
-    let bindings = match PgTaskBindingRepository(state.db.clone())
+    let bindings = match PgTaskBindingDao(state.db.clone())
         .find_active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
         .await
     {
@@ -1064,7 +1064,7 @@ async fn close_active_bindings_for_issue(
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let binding_repo = PgTaskBindingDao(state.db.clone());
     let rows = load_issue_close_bindings(state, issue).await?;
 
     for binding in rows {
@@ -1106,7 +1106,7 @@ async fn load_issue_close_bindings(
 
 async fn binding_is_close_eligible(
     state: &AppState,
-    binding_repo: &PgTaskBindingRepository,
+    binding_repo: &PgTaskBindingDao,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
     binding: &TaskBinding,
@@ -1130,7 +1130,7 @@ async fn binding_is_close_eligible(
 }
 
 async fn sole_binding_for_task(
-    binding_repo: &PgTaskBindingRepository,
+    binding_repo: &PgTaskBindingDao,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) -> bool {
@@ -1186,7 +1186,7 @@ async fn task_can_be_closed(state: &AppState, issue: &IssuePayload, binding: &Ta
 async fn close_linear_bound_task(
     state: &AppState,
     api: &LinearAgentApi,
-    binding_repo: &PgTaskBindingRepository,
+    binding_repo: &PgTaskBindingDao,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) {
@@ -1280,7 +1280,7 @@ async fn remove_sandbox_after_linear_close(state: &AppState, binding: &TaskBindi
 }
 
 async fn deactivate_linear_task_bindings(
-    binding_repo: &PgTaskBindingRepository,
+    binding_repo: &PgTaskBindingDao,
     binding: &TaskBinding,
 ) {
     if let Err(e) = binding_repo.deactivate_by_task(&binding.task_id).await {
@@ -1325,7 +1325,7 @@ async fn provision_session_task(
     // what makes the *execution* converge. Return early rather than creating a
     // second task. Keyed on session id, so multiple *distinct* sessions on the
     // same issue still each get their own task.
-    match PgTaskBindingRepository(state.db.clone())
+    match PgTaskBindingDao(state.db.clone())
         .find_by_subject(ADAPTER, SUBJECT_KIND, &session.id)
         .await
     {
@@ -1352,7 +1352,7 @@ async fn provision_session_task(
     // The lookup uses destination_config.issue_id so it matches both
     // `linear_agent_session` and `linear_issue` bindings. The new task is
     // linked as `related_to` — a peer sharing the issue, not a child.
-    let related = match PgTaskBindingRepository(state.db.clone())
+    let related = match PgTaskBindingDao(state.db.clone())
         .find_active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
         .await
     {
@@ -1725,7 +1725,7 @@ async fn resolve_linear_sessions_for_task(
         // reason: session routing for an agent-side notification; no caller identity
         #[allow(clippy::disallowed_methods)]
         let sys = ScopeContext::system();
-        let connection = match PgAdapterConnectionRepository(state.db.clone())
+        let connection = match PgAdapterConnectionDao(state.db.clone())
             .find_by_id(&binding.connection_id, &sys)
             .await
         {

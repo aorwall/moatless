@@ -1,4 +1,4 @@
-//! `LoopStore` — the single home for every read and write of the four tables
+//! `LoopDao` — the single home for every read and write of the four tables
 //! that persist a Loop: `triggers`, `trigger_rules`,
 //! `adapter_event_trigger_sources`, and `schedule_trigger_sources`.
 //!
@@ -340,15 +340,15 @@ pub struct ManagedLoopUpsert {
 }
 
 // =============================================================================
-// LoopStore
+// LoopDao
 // =============================================================================
 
 /// The single owner of persistence for the four Loop tables.
-pub struct LoopStore {
+pub struct LoopDao {
     db: DbPool,
 }
 
-impl LoopStore {
+impl LoopDao {
     pub fn new(db: DbPool) -> Self {
         Self { db }
     }

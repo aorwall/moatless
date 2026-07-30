@@ -8,10 +8,10 @@ use crate::message::models::{
 use crate::state::AppState;
 
 use crate::adapters::Adapters;
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{OutboundFile, OutboundReply};
-use crate::bindings::dao::PgTaskBindingRepository;
+use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use moatless_backend_core::scope::ScopeContext;
 
@@ -47,7 +47,7 @@ pub async fn direct_send_to_rule(
 
     #[allow(clippy::disallowed_methods)] // reason: webhook routing path has no caller identity
     let sys = ScopeContext::system();
-    let connection = PgAdapterConnectionRepository(state.db.clone())
+    let connection = PgAdapterConnectionDao(state.db.clone())
         .find_by_id(&rule.connection_id, &sys)
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(rule.connection_id.clone()))?;
@@ -232,7 +232,7 @@ pub async fn send_to_binding(
     text: &str,
     file_ids: &[String],
 ) -> Result<(u32, Vec<String>), AdapterError> {
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let binding_repo = PgTaskBindingDao(state.db.clone());
     let binding = binding_repo
         .find_by_id(binding_id)
         .await?
@@ -247,7 +247,7 @@ pub async fn send_to_binding(
     #[allow(clippy::disallowed_methods)]
     // reason: outbound reply path runs as background system, no caller identity
     let sys = ScopeContext::system();
-    let connection = PgAdapterConnectionRepository(state.db.clone())
+    let connection = PgAdapterConnectionDao(state.db.clone())
         .find_by_id(&binding.connection_id, &sys)
         .await?
         .ok_or_else(|| {

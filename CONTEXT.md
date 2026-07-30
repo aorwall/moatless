@@ -260,7 +260,7 @@ tool call (`parent_tool_use_id`).
 **Plugin**:
 A git repository of agent capabilities — skills, commands, agents — registered
 once by an admin and thereafter available to everyone. One word, everywhere: the
-table is `plugins`, the DAO is `PluginRepository`, the API is `/api/v1/plugins`,
+table is `plugins`, the DAO is `PluginDao`, the API is `/api/v1/plugins`,
 and the admin page is Plugins.
 _Avoid_: plugin repo, plugin_repo, marketplace
 

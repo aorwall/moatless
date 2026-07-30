@@ -322,7 +322,7 @@ pub async fn update_repository(
 }
 
 async fn ensure_unique_remote_url(
-    repositories: &dyn super::dao::RepoRepository,
+    repositories: &dyn super::dao::RepositoryDao,
     repository_id: Option<&str>,
     remote_url: Option<&str>,
     scope: Scope,
@@ -419,7 +419,7 @@ pub async fn verify_access(
 }
 
 async fn persist_access_verification(
-    repositories: &dyn super::dao::RepoRepository,
+    repositories: &dyn super::dao::RepositoryDao,
     repository: &Repository,
     status: AccessStatus,
     checked_at: chrono::DateTime<chrono::Utc>,
@@ -1158,7 +1158,7 @@ pub(crate) async fn sync_repo_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::dao::MockRepoRepository;
+    use crate::repository::dao::MockRepositoryDao;
 
     fn repository(scope: Scope, owner_user_id: Option<&str>) -> Repository {
         Repository {
@@ -1220,7 +1220,7 @@ mod tests {
     #[tokio::test]
     async fn access_verification_persists_status_time_and_error() {
         use moatless_backend_core::scope::ScopeContext;
-        let mut mock = MockRepoRepository::new();
+        let mut mock = MockRepositoryDao::new();
         let checked_at = chrono::Utc::now();
         mock.expect_update()
             .withf(move |id, patch, _ctx| {

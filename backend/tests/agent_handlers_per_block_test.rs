@@ -20,7 +20,7 @@ mod common;
 
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_vibe_backend::event_handler::models::AgentEvent;
-use moatless_vibe_backend::message::dao::{MessageRepository, PgMessageRepository};
+use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::transform::{transform_subagent_transcript, transform_to_ui};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::task::dao as task_dao;
@@ -386,7 +386,7 @@ async fn paginated_read_folds_per_block_rows_into_one_message(pool: PgPool) {
 
     // The keyset-paginated read returns the same assembled Message and its full
     // derived block set — per-block rows fold within the page, not across it.
-    let (rows, _contexts, blocks) = PgMessageRepository(pool.clone())
+    let (rows, _contexts, blocks) = PgMessageDao(pool.clone())
         .get_paginated(task_id, None, 50)
         .await
         .unwrap();

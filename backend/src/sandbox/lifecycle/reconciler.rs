@@ -22,12 +22,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn};
 
-use crate::message::dao::MessageRepository;
+use crate::message::dao::MessageDao;
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
 use super::attempt::AttemptBudget;
 use super::convergence::{ReconcileAction, SandboxObservedStatus};
-use super::orchestrator::{Lifecycle, LifecycleStore, WallClock};
+use super::orchestrator::{Lifecycle, LifecycleDao, WallClock};
 use super::reconcile::{decide, ReconcileInput};
 use super::types::{ArchiveRetention, OperationGeneration};
 
@@ -166,8 +166,8 @@ impl TaskRetry {
 /// The desired-state reconciler.
 pub struct Reconciler {
     lifecycle: Lifecycle,
-    store: Arc<dyn LifecycleStore>,
-    messages: Arc<dyn MessageRepository>,
+    store: Arc<dyn LifecycleDao>,
+    messages: Arc<dyn MessageDao>,
     observer: Arc<dyn FleetObserver>,
     notify: Arc<dyn NotifyPort>,
     clock: Arc<dyn WallClock>,
@@ -178,8 +178,8 @@ pub struct Reconciler {
 impl Reconciler {
     pub(crate) fn new(
         lifecycle: Lifecycle,
-        store: Arc<dyn LifecycleStore>,
-        messages: Arc<dyn MessageRepository>,
+        store: Arc<dyn LifecycleDao>,
+        messages: Arc<dyn MessageDao>,
         observer: Arc<dyn FleetObserver>,
         notify: Arc<dyn NotifyPort>,
         clock: Arc<dyn WallClock>,
@@ -578,9 +578,9 @@ mod db_tests {
 
     use sqlx::PgPool;
 
-    use crate::message::dao::PgMessageRepository;
+    use crate::message::dao::PgMessageDao;
 
-    use super::super::dao::PgLifecycleStore;
+    use super::super::dao::PgLifecycleDao;
     use super::super::events::{EventFact, LifecycleEvent};
     use super::super::lock::PgLifecycleLock;
     use super::super::orchestrator::{
@@ -778,7 +778,7 @@ mod db_tests {
         clock: Arc<dyn WallClock>,
         config: ReconcilerConfig,
     ) -> (Reconciler, Arc<CollectSink>) {
-        let store = Arc::new(PgLifecycleStore::new(pool.clone()));
+        let store = Arc::new(PgLifecycleDao::new(pool.clone()));
         let sink = Arc::new(CollectSink::default());
         let lifecycle = Lifecycle::new(
             store.clone(),
@@ -791,7 +791,7 @@ mod db_tests {
         let reconciler = Reconciler::new(
             lifecycle,
             store,
-            Arc::new(PgMessageRepository(pool)),
+            Arc::new(PgMessageDao(pool)),
             observer,
             notify,
             clock,
@@ -1084,7 +1084,7 @@ mod db_tests {
     async fn removes_when_desired_removed_and_still_live(pool: PgPool) {
         seed(&pool, "t1", "closed", "removed").await;
         // Persist a Removed intent with a marker so it is a DB candidate.
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         store
             .persist_intent(
                 "t1",
@@ -1160,7 +1160,7 @@ mod db_tests {
     #[sqlx::test]
     async fn replacement_generation_ready_acknowledges_edge_marker(pool: PgPool) {
         seed(&pool, "t1", "open", "running").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         store
             .persist_intent(
                 "t1",
@@ -1204,7 +1204,7 @@ mod db_tests {
     #[sqlx::test]
     async fn fresh_edge_marker_retains_suppression_and_is_not_replayed(pool: PgPool) {
         seed(&pool, "t1", "open", "running").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         store
             .persist_intent(
                 "t1",
@@ -1245,7 +1245,7 @@ mod db_tests {
     #[sqlx::test]
     async fn stale_edge_persists_error_before_clearing_marker(pool: PgPool) {
         seed(&pool, "t1", "open", "running").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         store
             .persist_intent(
                 "t1",
@@ -1293,7 +1293,7 @@ mod db_tests {
     #[sqlx::test]
     async fn edge_between_suppression_and_abandonment_bounds_is_retained(pool: PgPool) {
         seed(&pool, "t1", "open", "running").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         store
             .persist_intent(
                 "t1",
@@ -1334,7 +1334,7 @@ mod db_tests {
     #[sqlx::test]
     async fn old_edge_with_matching_replacement_still_starting_is_retained(pool: PgPool) {
         seed(&pool, "t1", "open", "running").await;
-        let store = PgLifecycleStore::new(pool.clone());
+        let store = PgLifecycleDao::new(pool.clone());
         store
             .persist_intent(
                 "t1",

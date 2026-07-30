@@ -7,10 +7,10 @@
 use chrono::Utc;
 use moatless_vibe_backend::auth::models::UserRole;
 use moatless_vibe_backend::auth::password::dao::{
-    PgUserCredentialRepository, UserCredentialRepository,
+    PgUserCredentialDao, UserCredentialDao,
 };
-use moatless_vibe_backend::auth::users::{PgUserRepository, User, UserRepository};
-use moatless_vibe_backend::team::dao::{PgTeamRepository, TeamRepository};
+use moatless_vibe_backend::auth::users::{PgUserDao, User, UserDao};
+use moatless_vibe_backend::team::dao::{PgTeamDao, TeamDao};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -36,7 +36,7 @@ fn make_user(id: Uuid, login: &str, provider: &str, provider_user_id: &str) -> U
 /// by `provider_user_id` alone. `github`/`github_app` collapse to one key.
 #[sqlx::test]
 async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
-    let repo = PgUserRepository(pool.clone());
+    let repo = PgUserDao(pool.clone());
 
     // GitHub OAuth user: internal uuid + preserved numeric provider id.
     let gh = Uuid::new_v4();
@@ -168,9 +168,9 @@ async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
 /// FK rejects an unknown user.
 #[sqlx::test]
 async fn native_uuid_foreign_keys_resolve_and_enforce(pool: PgPool) {
-    let users = PgUserRepository(pool.clone());
-    let teams = PgTeamRepository(pool.clone());
-    let creds = PgUserCredentialRepository(pool.clone());
+    let users = PgUserDao(pool.clone());
+    let teams = PgTeamDao(pool.clone());
+    let creds = PgUserCredentialDao(pool.clone());
 
     let uid = Uuid::new_v4();
     let uid_s = uid.to_string();

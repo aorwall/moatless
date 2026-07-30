@@ -4,13 +4,13 @@
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AdapterConnection, Audience, BindingContext, InboundMessage, LoopContext, RoutingMode,
     SubscriptionMatch, TaskBinding,
 };
-use crate::bindings::dao::PgTaskBindingRepository;
+use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{resolve_recipients, EventProvenance};
 use crate::loops::firing::inbound;
@@ -83,7 +83,7 @@ pub async fn resolve_chat_provider_event(
     scope_value: &str,
     source_id: &str,
 ) -> Result<Option<(AdapterConnection, SubscriptionMatch)>, AdapterError> {
-    let connection_repo = PgAdapterConnectionRepository(state.db.clone());
+    let connection_repo = PgAdapterConnectionDao(state.db.clone());
     // Look up exactly the requested scope_value. We deliberately do not fall
     // back to the "default" connection when scope_value is unknown — that would
     // silently route a tenant A event to tenant B's connection. Callers that
@@ -160,7 +160,7 @@ pub async fn route_inbound_message(
         return Err(AdapterError::ConfigNotFound(rule.id.clone()));
     }
 
-    let binding_repo = PgTaskBindingRepository(state.db.clone());
+    let binding_repo = PgTaskBindingDao(state.db.clone());
     // Provenance: the task an adapter recovered from the event's own body (the
     // `Moatless task:` footer), else the task an already-recorded event
     // identifier names. Never an identity.
@@ -395,7 +395,7 @@ pub async fn fan_out(
     let active_bindings = bindings.len();
     let mut passed_over: Vec<(String, &'static str)> = Vec::new();
     let mut delivered_task_id = None;
-    let receipts = crate::loops::firing::receipts::PgEventReceiptRepository(state.db.clone());
+    let receipts = crate::loops::firing::receipts::PgEventReceiptDao(state.db.clone());
     for binding in bindings {
         // Two ways to be passed over, and only one of them means this task
         // already has the event.
@@ -656,7 +656,7 @@ pub async fn upsert_binding(
         active: true,
         deactivated_at: None,
     };
-    Ok(PgTaskBindingRepository(state.db.clone())
+    Ok(PgTaskBindingDao(state.db.clone())
         .upsert(&binding)
         .await?)
 }
@@ -759,7 +759,7 @@ async fn deliver_to_binding(
     .await
     .map_err(AdapterError::MessageDelivery)?;
 
-    let repo = PgTaskBindingRepository(state.db.clone());
+    let repo = PgTaskBindingDao(state.db.clone());
     if let Some(ref ext_id) = msg.external_event_id {
         repo.touch_cursor(&binding.id, ext_id).await?;
     } else {

@@ -46,7 +46,7 @@ const SECRET_COLUMNS: &str = r#"id, scope, owner_user_id, key, kind, provider,
                       last_used_at, version, enabled"#;
 
 #[async_trait]
-pub trait SecretRepository: Send + Sync {
+pub trait SecretDao: Send + Sync {
     async fn list(
         &self,
         ctx: &ScopeContext,
@@ -81,10 +81,10 @@ pub trait SecretRepository: Send + Sync {
     async fn mark_used(&self, id: &str) -> Result<(), sqlx::Error>;
 }
 
-pub struct PgSecretRepository(pub DbPool);
+pub struct PgSecretDao(pub DbPool);
 
 #[async_trait]
-impl SecretRepository for PgSecretRepository {
+impl SecretDao for PgSecretDao {
     async fn list(
         &self,
         ctx: &ScopeContext,

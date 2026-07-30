@@ -23,10 +23,10 @@ use self::fetcher::{GitHubLoopFetcher, LoopFetcher};
 use self::models::{LoopFrontmatter, ParsedLoop};
 pub use self::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::models::RoutingMode;
 use crate::extractors::AuthUser;
-use crate::loops::store::{ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
+use crate::loops::dao::{ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
 use crate::repository::access::{parse_github_owner_repo, resolve_repository_github_token};
 use crate::repository::models::{Repository, RepositoryProvider};
 use crate::state::AppState;
@@ -227,7 +227,7 @@ async fn resolve_loop(
                     "cannot parse owner/repo from {remote_url}"
                 )));
             };
-            let Some(connection) = PgAdapterConnectionRepository(state.db.clone())
+            let Some(connection) = PgAdapterConnectionDao(state.db.clone())
                 .find_by_external_account("github", &owner)
                 .await?
             else {
@@ -259,7 +259,7 @@ async fn resolve_loop(
             // Resolve the slack connection from `teamId`, or fall back to the
             // single configured slack connection when unambiguous.
             let connection = if let Some(team) = fm.team_id.as_deref() {
-                let Some(connection) = PgAdapterConnectionRepository(state.db.clone())
+                let Some(connection) = PgAdapterConnectionDao(state.db.clone())
                     .find_by_external_account("slack", team)
                     .await?
                 else {
@@ -269,7 +269,7 @@ async fn resolve_loop(
                 };
                 connection
             } else {
-                let conns = PgAdapterConnectionRepository(state.db.clone())
+                let conns = PgAdapterConnectionDao(state.db.clone())
                     .list_by_provider("slack")
                     .await?;
                 match conns.as_slice() {
@@ -313,7 +313,7 @@ async fn resolve_loop(
             // workspace/organization id), or fall back to the single configured
             // Linear connection when unambiguous.
             let connection = if let Some(org) = fm.team_id.as_deref() {
-                let Some(connection) = PgAdapterConnectionRepository(state.db.clone())
+                let Some(connection) = PgAdapterConnectionDao(state.db.clone())
                     .find_by_external_account("linear", org)
                     .await?
                 else {
@@ -323,7 +323,7 @@ async fn resolve_loop(
                 };
                 connection
             } else {
-                let conns = PgAdapterConnectionRepository(state.db.clone())
+                let conns = PgAdapterConnectionDao(state.db.clone())
                     .list_by_provider("linear")
                     .await?;
                 match conns.as_slice() {
@@ -526,7 +526,7 @@ pub(crate) fn resolve_run_as_user_id(
 /// id preserved in `user_provider_ids.provider_user_id` — to the internal uuid.
 /// Returns `None` when it names no known user.
 async fn resolve_run_as_to_internal_id(
-    users: &dyn crate::auth::users::UserRepository,
+    users: &dyn crate::auth::users::UserDao,
     raw: &str,
 ) -> Option<String> {
     if let Ok(uid) = raw.parse::<uuid::Uuid>() {

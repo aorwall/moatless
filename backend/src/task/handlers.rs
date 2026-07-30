@@ -23,7 +23,7 @@ use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource};
 
 use crate::repository::models::{RepositoryKind, RepositoryProvider};
 
-use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingRepository};
+use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingDao};
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;
@@ -598,7 +598,7 @@ pub async fn update_task_metadata(
 /// sandbox and resurrect the task. Logs on failure but never blocks the
 /// close/delete; the runtime guards in `ensure_sandbox_and_notify` and
 /// `send_message_flow` are the backstop if this doesn't run.
-async fn deactivate_task_bindings(bindings: &dyn TaskBindingRepository, task_id: &str) {
+async fn deactivate_task_bindings(bindings: &dyn TaskBindingDao, task_id: &str) {
     match bindings.deactivate_by_task(task_id).await {
         Ok(0) => {}
         Ok(n) => tracing::info!(task_id, deactivated = n, "Deactivated task bindings"),
@@ -1802,7 +1802,7 @@ mod tests {
     use crate::adapters::models::TaskBinding;
     use crate::bindings::dao::LoopRecentTaskRow;
 
-    /// `TaskBindingRepository` fake that only answers `deactivate_by_task`.
+    /// `TaskBindingDao` fake that only answers `deactivate_by_task`.
     ///
     /// It records the task ids it was asked to deactivate and replays a queued
     /// outcome, which is everything [`deactivate_task_bindings`] can observe.
@@ -1827,7 +1827,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl TaskBindingRepository for FakeBindings {
+    impl TaskBindingDao for FakeBindings {
         async fn deactivate_by_task(&self, task_id: &str) -> Result<u64, sqlx::Error> {
             self.deactivated
                 .lock()

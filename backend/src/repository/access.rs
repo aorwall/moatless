@@ -4,8 +4,8 @@ use moatless_backend_core::scope::Scope;
 
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenRepository;
-use crate::auth::provider_tokens::ProviderTokenAuthRepository;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::credentials::github::scope::GitHubScope;
 use crate::secret::service::SecretService;
 use crate::state::AppState;
@@ -57,8 +57,8 @@ pub(crate) async fn resolve_repository_github_token(
 #[allow(clippy::too_many_arguments)]
 // reason: this is the repository credential boundary shared by AppState and gRPC.
 pub(crate) async fn resolve_repository_github_token_with(
-    provider_tokens: &dyn ProviderTokenRepository,
-    provider_token_auth: Option<&dyn ProviderTokenAuthRepository>,
+    provider_tokens: &dyn ProviderTokenDao,
+    provider_token_auth: Option<&dyn ProviderTokenAuthDao>,
     github_app_service: Option<&GitHubAppService>,
     github_apps: &GitHubAppRegistry,
     secrets: Option<&SecretService>,

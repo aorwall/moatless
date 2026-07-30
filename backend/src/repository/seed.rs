@@ -2,7 +2,7 @@
 
 use tracing::info;
 
-use super::dao::RepoRepository;
+use super::dao::RepositoryDao;
 use super::handlers::normalize_remote_url;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use moatless_backend_core::scope::Scope;
@@ -11,13 +11,13 @@ use moatless_backend_core::scope::Scope;
 ///
 /// Called once during startup. Idempotent — skips if a row with the
 /// same canonical URL and access owner already exists.
-pub async fn seed_default_repositories(repos: &dyn RepoRepository) {
+pub async fn seed_default_repositories(repos: &dyn RepositoryDao) {
     if let Err(e) = seed_moatable(repos).await {
         tracing::warn!(error = %e, "Failed to seed default Moatable repository");
     }
 }
 
-async fn seed_moatable(repos: &dyn RepoRepository) -> Result<(), sqlx::Error> {
+async fn seed_moatable(repos: &dyn RepositoryDao) -> Result<(), sqlx::Error> {
     const MOATABLE_URL: &str = "https://github.com/aorwall/moatable";
 
     // Check including soft-deleted rows so we don't re-create a repo the user removed.

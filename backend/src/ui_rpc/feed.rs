@@ -19,10 +19,10 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{json, Value};
 use tracing::{debug, warn};
 
-use super::dao::ConversationRepository;
+use super::dao::ConversationDao;
 use super::{projection, AgentModelDefaults};
 use crate::task_listing::{ChangeSubject, EnvironmentIdentity};
-use crate::workspace::dao::WorkspaceRepository;
+use crate::workspace::dao::WorkspaceDao;
 use moatless_backend_core::scope::ScopeContext;
 
 /// How many recorded changes one poll reads. A cap rather than a limit — the
@@ -107,8 +107,8 @@ impl ShellFeed {
     /// Decision 7's third place the check has to run.
     pub async fn poll(
         &mut self,
-        workspaces: &dyn WorkspaceRepository,
-        conversations: &dyn ConversationRepository,
+        workspaces: &dyn WorkspaceDao,
+        conversations: &dyn ConversationDao,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {
@@ -295,8 +295,8 @@ impl ShellFeed {
     /// silence until it got there.
     async fn rebuild(
         &mut self,
-        workspaces: &dyn WorkspaceRepository,
-        conversations: &dyn ConversationRepository,
+        workspaces: &dyn WorkspaceDao,
+        conversations: &dyn ConversationDao,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {
@@ -317,8 +317,8 @@ impl ShellFeed {
     /// without comparing positions.
     async fn resynchronize(
         &mut self,
-        workspaces: &dyn WorkspaceRepository,
-        conversations: &dyn ConversationRepository,
+        workspaces: &dyn WorkspaceDao,
+        conversations: &dyn ConversationDao,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {

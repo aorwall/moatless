@@ -99,7 +99,7 @@ pub fn classify_turn_transition(event_type: &str, sub_type: &str) -> Option<Turn
 
 /// A task whose most recent turn is still open (`active` or `interrupted`) and
 /// older than a cutoff — the reaper's stuck-turn backstop. Surfaced by
-/// [`crate::task_turn::dao::TaskTurnRepository::list_unclosed_active_turns`]
+/// [`crate::task_turn::dao::TaskTurnDao::list_unclosed_active_turns`]
 /// (and, for a single task, by the event-log based `active_turn_for_task`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnclosedTurn {

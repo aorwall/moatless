@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use super::models::FileMetadata;
 use crate::db::DbPool;
 
-/// Repository trait for file metadata persistence.
+/// DAO trait for file metadata persistence.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait FileRepository: Send + Sync {
+pub trait FileDao: Send + Sync {
     async fn insert_metadata(&self, row: &FileMetadata) -> Result<(), sqlx::Error>;
     async fn find_by_id(&self, file_id: &str) -> Result<Option<FileMetadata>, sqlx::Error>;
     async fn find_by_ids(
@@ -20,11 +20,11 @@ pub trait FileRepository: Send + Sync {
     async fn delete_metadata(&self, file_id: &str) -> Result<bool, sqlx::Error>;
 }
 
-/// PostgreSQL implementation of [`FileRepository`].
-pub struct PgFileRepository(pub DbPool);
+/// PostgreSQL implementation of [`FileDao`].
+pub struct PgFileDao(pub DbPool);
 
 #[async_trait]
-impl FileRepository for PgFileRepository {
+impl FileDao for PgFileDao {
     async fn insert_metadata(&self, row: &FileMetadata) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO file_metadata (

@@ -79,7 +79,7 @@ use moatless_backend_core::scope::ScopeContext;
 use sha2::{Digest, Sha256};
 use tracing::info;
 
-use crate::adapters::dao::PgAdapterConnectionRepository;
+use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::{
     AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
     register_typed_delivery,
@@ -179,7 +179,7 @@ impl DeliveryContext {
         // by caller input.
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
-        let connection = PgAdapterConnectionRepository(state.db.clone())
+        let connection = PgAdapterConnectionDao(state.db.clone())
             .find_by_id(&self.connection_id, &sys_ctx)
             .await
             .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?

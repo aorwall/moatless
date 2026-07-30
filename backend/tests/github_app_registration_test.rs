@@ -27,8 +27,8 @@ use axum::routing::get;
 use axum::Json;
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::auth::github::service::GitHubAppService;
-use moatless_vibe_backend::auth::github::store::{
-    GitHubAppAuditEntry, GitHubAppRecord, GitHubAppStore, NewGitHubApp, PgGitHubAppStore,
+use moatless_vibe_backend::auth::github::dao::{
+    GitHubAppAuditEntry, GitHubAppDao, GitHubAppRecord, NewGitHubApp, PgGitHubAppDao,
     ENV_CARRY_OVER,
 };
 use moatless_vibe_backend::config::{GitHubAppConfig, SecretsConfig};
@@ -78,7 +78,7 @@ fn cipher() -> Arc<dyn SecretCipher> {
 fn registry(pool: &PgPool) -> GitHubAppRegistry {
     GitHubAppRegistry::new(
         None,
-        Some(Arc::new(PgGitHubAppStore(pool.clone()))),
+        Some(Arc::new(PgGitHubAppDao(pool.clone()))),
         Some(cipher()),
     )
 }
@@ -117,7 +117,7 @@ async fn register(pool: &PgPool, key: &str, app_id: u64) -> GitHubAppRecord {
         None,
     )
     .expect("seal");
-    PgGitHubAppStore(pool.clone())
+    PgGitHubAppDao(pool.clone())
         .insert(&record, "admin-1")
         .await
         .expect("insert");
@@ -132,7 +132,7 @@ async fn a_proved_app_is_stored_with_the_identity_github_reported(pool: PgPool) 
     assert_eq!(record.slug, "reviewer");
     assert_eq!(record.bot_login, "reviewer[bot]");
 
-    let stored = PgGitHubAppStore(pool.clone())
+    let stored = PgGitHubAppDao(pool.clone())
         .find_by_key("review-bot")
         .await
         .unwrap()
@@ -155,7 +155,7 @@ async fn a_key_that_names_a_different_app_is_refused_and_nothing_is_stored(pool:
         .expect_err("a mismatched App id must be refused");
 
     assert!(error.to_string().contains("different App"), "{error}");
-    assert!(PgGitHubAppStore(pool)
+    assert!(PgGitHubAppDao(pool)
         .find_by_key("review-bot")
         .await
         .unwrap()
@@ -167,7 +167,7 @@ async fn a_second_registration_under_the_same_name_is_a_conflict(pool: PgPool) {
     let record = register(&pool, "review-bot", 4242).await;
 
     // Overwriting would silently repoint every bot user naming the key.
-    let error = PgGitHubAppStore(pool)
+    let error = PgGitHubAppDao(pool)
         .insert(&record, "admin-2")
         .await
         .expect_err("a taken name must conflict");
@@ -197,7 +197,7 @@ async fn re_registering_a_removed_key_does_not_keep_the_deleted_signing_key_aliv
     let removed = register(&pool, "review-bot", 4242).await;
     let before = backend.get("review-bot").await.unwrap().expect("app");
 
-    assert!(PgGitHubAppStore(pool.clone())
+    assert!(PgGitHubAppDao(pool.clone())
         .delete("review-bot")
         .await
         .unwrap());
@@ -232,7 +232,7 @@ async fn a_rotation_on_one_backend_reaches_another_without_coordination(pool: Pg
         Some(record.id.clone()),
     )
     .expect("seal");
-    assert!(PgGitHubAppStore(pool.clone())
+    assert!(PgGitHubAppDao(pool.clone())
         .replace(&rotated, "admin-1")
         .await
         .unwrap());
@@ -243,7 +243,7 @@ async fn a_rotation_on_one_backend_reaches_another_without_coordination(pool: Pg
     assert!(!Arc::ptr_eq(&before_a, &after_a));
     assert!(!Arc::ptr_eq(&before_b, &after_b));
 
-    let stored = PgGitHubAppStore(pool)
+    let stored = PgGitHubAppDao(pool)
         .find_by_key("review-bot")
         .await
         .unwrap()
@@ -260,7 +260,7 @@ async fn removing_an_app_stops_it_answering_everywhere(pool: PgPool) {
     assert!(backend_a.get("review-bot").await.unwrap().is_some());
     assert!(backend_b.get("review-bot").await.unwrap().is_some());
 
-    assert!(PgGitHubAppStore(pool.clone())
+    assert!(PgGitHubAppDao(pool.clone())
         .delete("review-bot")
         .await
         .unwrap());
@@ -283,7 +283,7 @@ async fn the_carry_over_produces_one_record_when_several_backends_run_it(pool: P
     )
     .await;
 
-    let stored = PgGitHubAppStore(pool.clone()).list().await.unwrap();
+    let stored = PgGitHubAppDao(pool.clone()).list().await.unwrap();
     assert_eq!(stored.len(), 1, "expected exactly one carried-over App");
     assert_eq!(stored[0].app_key, "env-bot");
     assert_eq!(stored[0].bot_login, "reviewer[bot]");
@@ -295,7 +295,7 @@ async fn a_deleted_carried_over_app_is_not_resurrected_by_a_restart(pool: PgPool
     let entries = vec![app_config("env-bot", 4242)];
 
     registry(&pool).carry_over_env_apps(&entries).await;
-    assert!(PgGitHubAppStore(pool.clone())
+    assert!(PgGitHubAppDao(pool.clone())
         .delete("env-bot")
         .await
         .unwrap());
@@ -304,7 +304,7 @@ async fn a_deleted_carried_over_app_is_not_resurrected_by_a_restart(pool: PgPool
     // restart with the variable still set does not undo the deletion.
     registry(&pool).carry_over_env_apps(&entries).await;
 
-    assert!(PgGitHubAppStore(pool.clone())
+    assert!(PgGitHubAppDao(pool.clone())
         .find_by_key("env-bot")
         .await
         .unwrap()
@@ -321,7 +321,7 @@ async fn a_deleted_carried_over_app_is_not_resurrected_by_a_restart(pool: PgPool
 #[sqlx::test]
 async fn administration_is_recorded_against_whoever_did_it(pool: PgPool) {
     let record = register(&pool, "review-bot", 4242).await;
-    let store = PgGitHubAppStore(pool.clone());
+    let store = PgGitHubAppDao(pool.clone());
     store
         .record_audit(GitHubAppAuditEntry {
             github_app_id: Some(&record.id),
