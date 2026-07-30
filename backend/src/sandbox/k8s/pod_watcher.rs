@@ -33,19 +33,19 @@ use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
 use super::pod_observation_policy::{
-    ObservationContext, PodObservationPolicy, should_emit_scheduling_blocked,
-    should_emit_startup_slow, should_gc_failed_pod,
+    should_emit_scheduling_blocked, should_emit_startup_slow, should_gc_failed_pod,
+    ObservationContext, PodObservationPolicy,
 };
 use super::pod_status::{
-    DEFAULT_SERVER_READINESS_TIMEOUT_SECS, extract_container_observed_statuses,
-    is_sandbox_container_ready,
+    extract_container_observed_statuses, is_sandbox_container_ready,
+    DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
 use crate::events::EventPublisher;
+use crate::sandbox::lifecycle::classify::ObservedTransition;
+use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
+use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use crate::sandbox::lifecycle::Lifecycle;
 use crate::sandbox::lifecycle::OperationGeneration;
-use crate::sandbox::lifecycle::classify::ObservedTransition;
-use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
-use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
 use crate::task::dao::{TaskPatch, TaskRepository};
 use crate::task::models::{SandboxDesiredState, SandboxStopReason};
 use crate::task_event::dao::TaskEventRepository;
@@ -373,6 +373,10 @@ fn sibling_pods_for_task<'a>(
 }
 
 /// Process a single watcher event and detect state transitions.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "Kubernetes watch adapter still coordinates Sandbox observation, publication, and cleanup intent until the Sandbox observation module lands"
+)]
 async fn process_watcher_event(
     k8s: &K8sClient,
     event: &watcher::Event<Pod>,

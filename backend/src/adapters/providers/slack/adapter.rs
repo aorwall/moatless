@@ -291,6 +291,10 @@ impl SlackAdapter {
     /// When `is_tracked_thread` is true, the trigger filter is bypassed for
     /// `message` events — this allows thread replies to outbound-created threads
     /// to be processed regardless of the config's trigger mode.
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Slack Sender admission still coordinates verification, trigger, access, identity, and message construction until the shared Adapter delivery admission module lands"
+    )]
     pub async fn parse_event(
         &self,
         headers: &HeaderMap,

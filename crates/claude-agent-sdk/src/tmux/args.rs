@@ -21,20 +21,20 @@ pub(crate) fn build_tmux_cli_args(
     options: &ClaudeOptions,
     settings_json: Option<&str>,
 ) -> Vec<String> {
-    let mut args = Vec::with_capacity(24);
+    warn_ignored_options(options);
 
-    // Always bypass permissions in tmux mode — there is no SDK-side
-    // permission handler.
-    args.push("--dangerously-skip-permissions".to_string());
+    let mut args = TmuxArgs::new();
+    args.push_base(settings_json);
+    args.push_session(options);
+    args.push_tooling(options);
+    args.push_prompts(options);
+    args.push_mcp(options);
+    args.push_agents(options);
+    args.push_extra(options);
+    args.into_vec()
+}
 
-    // `--verbose` is accepted in interactive mode (it just overrides config).
-    args.push("--verbose".to_string());
-
-    if let Some(json) = settings_json {
-        args.push("--settings".to_string());
-        args.push(json.to_string());
-    }
-
+fn warn_ignored_options(options: &ClaudeOptions) {
     if options.can_use_tool.is_some() {
         warn!(
             "tmux mode ignores ClaudeOptions.can_use_tool — \
@@ -74,127 +74,151 @@ pub(crate) fn build_tmux_cli_args(
     if options.persist_session == Some(false) {
         warn!("tmux mode ignores persist_session=false (only works with --print)");
     }
+}
 
-    if let Some(model) = &options.model {
-        args.push("--model".to_string());
-        args.push(model.clone());
-    }
+struct TmuxArgs {
+    args: Vec<String>,
+}
 
-    // Session resume
-    if let Some(session) = &options.resume {
-        args.push("--resume".to_string());
-        args.push(session.clone());
-    }
-    if options.continue_conversation == Some(true) {
-        args.push("--continue".to_string());
-    }
-    if options.fork_session == Some(true) {
-        args.push("--fork-session".to_string());
-    }
-
-    if let Some(turns) = options.max_turns {
-        args.push("--max-turns".to_string());
-        args.push(turns.to_string());
-    }
-
-    if let Some(tools) = &options.allowed_tools {
-        if !tools.is_empty() {
-            args.push("--allowedTools".to_string());
-            args.push(tools.join(","));
-        }
-    }
-    if let Some(tools) = &options.disallowed_tools {
-        if !tools.is_empty() {
-            args.push("--disallowedTools".to_string());
-            args.push(tools.join(","));
+impl TmuxArgs {
+    fn new() -> Self {
+        Self {
+            args: Vec::with_capacity(24),
         }
     }
 
-    if let Some(dirs) = &options.additional_directories {
-        for dir in dirs {
-            args.push("--add-dir".to_string());
-            args.push(dir.clone());
+    fn into_vec(self) -> Vec<String> {
+        self.args
+    }
+
+    fn push_flag(&mut self, flag: &str) {
+        self.args.push(flag.to_string());
+    }
+
+    fn push_pair(&mut self, flag: &str, value: impl Into<String>) {
+        self.push_flag(flag);
+        self.args.push(value.into());
+    }
+
+    fn push_optional_pair(&mut self, flag: &str, value: &Option<String>) {
+        if let Some(value) = value {
+            self.push_pair(flag, value.clone());
         }
     }
 
-    if let Some(sources) = &options.setting_sources {
-        if !sources.is_empty() {
-            args.push("--setting-sources".to_string());
-            args.push(
-                sources
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(","),
-            );
-        }
-    }
-
-    if let Some(prompt) = &options.system_prompt {
-        match prompt {
-            SystemPrompt::Replace(text) => {
-                args.push("--system-prompt".to_string());
-                args.push(text.clone());
+    fn push_joined<T: ToString>(&mut self, flag: &str, values: Option<&[T]>) {
+        if let Some(values) = values {
+            if !values.is_empty() {
+                self.push_pair(
+                    flag,
+                    values
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(","),
+                );
             }
-            SystemPrompt::Preset { append, .. } => {
-                if let Some(append_text) = append {
-                    args.push("--append-system-prompt".to_string());
-                    args.push(append_text.clone());
+        }
+    }
+
+    fn push_json<T: serde::Serialize>(&mut self, flag: &str, value: &T) {
+        if let Ok(json) = serde_json::to_string(value) {
+            self.push_pair(flag, json);
+        }
+    }
+
+    fn push_base(&mut self, settings_json: Option<&str>) {
+        // Always bypass permissions in tmux mode — there is no SDK-side
+        // permission handler.
+        self.push_flag("--dangerously-skip-permissions");
+        // `--verbose` is accepted in interactive mode (it just overrides config).
+        self.push_flag("--verbose");
+
+        if let Some(json) = settings_json {
+            self.push_pair("--settings", json);
+        }
+    }
+
+    fn push_session(&mut self, options: &ClaudeOptions) {
+        self.push_optional_pair("--model", &options.model);
+        self.push_optional_pair("--resume", &options.resume);
+
+        if options.continue_conversation == Some(true) {
+            self.push_flag("--continue");
+        }
+        if options.fork_session == Some(true) {
+            self.push_flag("--fork-session");
+        }
+        if let Some(turns) = options.max_turns {
+            self.push_pair("--max-turns", turns.to_string());
+        }
+    }
+
+    fn push_tooling(&mut self, options: &ClaudeOptions) {
+        self.push_joined("--allowedTools", options.allowed_tools.as_deref());
+        self.push_joined("--disallowedTools", options.disallowed_tools.as_deref());
+
+        if let Some(dirs) = &options.additional_directories {
+            for dir in dirs {
+                self.push_pair("--add-dir", dir.clone());
+            }
+        }
+
+        self.push_joined("--setting-sources", options.setting_sources.as_deref());
+
+        if let Some(plugins) = &options.plugins {
+            for plugin in plugins {
+                self.push_pair("--plugin-dir", plugin.path.clone());
+            }
+        }
+    }
+
+    fn push_prompts(&mut self, options: &ClaudeOptions) {
+        if let Some(prompt) = &options.system_prompt {
+            match prompt {
+                SystemPrompt::Replace(text) => self.push_pair("--system-prompt", text.clone()),
+                SystemPrompt::Preset {
+                    append: Some(text), ..
+                } => self.push_pair("--append-system-prompt", text.clone()),
+                SystemPrompt::Preset { append: None, .. } => {}
+            }
+        }
+    }
+
+    fn push_mcp(&mut self, options: &ClaudeOptions) {
+        if let Some(servers) = options
+            .mcp_servers
+            .as_ref()
+            .filter(|servers| !servers.is_empty())
+        {
+            let wrapper = serde_json::json!({ "mcpServers": servers });
+            self.push_json("--mcp-config", &wrapper);
+        }
+
+        if options.strict_mcp_config == Some(true) {
+            self.push_flag("--strict-mcp-config");
+        }
+    }
+
+    fn push_agents(&mut self, options: &ClaudeOptions) {
+        self.push_joined("--betas", options.betas.as_deref());
+        self.push_optional_pair("--agent", &options.agent);
+
+        if let Some(agents) = options.agents.as_ref().filter(|agents| !agents.is_empty()) {
+            self.push_json("--agents", agents);
+        }
+    }
+
+    fn push_extra(&mut self, options: &ClaudeOptions) {
+        if let Some(extra) = &options.extra_args {
+            for (key, value) in extra {
+                self.push_flag(&format!("--{key}"));
+                if let Some(value) = value {
+                    self.args.push(value.clone());
                 }
             }
         }
     }
-
-    if let Some(plugins) = &options.plugins {
-        for plugin in plugins {
-            args.push("--plugin-dir".to_string());
-            args.push(plugin.path.clone());
-        }
-    }
-
-    if let Some(servers) = &options.mcp_servers {
-        if !servers.is_empty() {
-            let wrapper = serde_json::json!({ "mcpServers": servers });
-            if let Ok(json) = serde_json::to_string(&wrapper) {
-                args.push("--mcp-config".to_string());
-                args.push(json);
-            }
-        }
-    }
-    if options.strict_mcp_config == Some(true) {
-        args.push("--strict-mcp-config".to_string());
-    }
-
-    if let Some(betas) = &options.betas {
-        if !betas.is_empty() {
-            args.push("--betas".to_string());
-            args.push(betas.join(","));
-        }
-    }
-
-    if let Some(agent) = &options.agent {
-        args.push("--agent".to_string());
-        args.push(agent.clone());
-    }
-    if let Some(agents) = &options.agents {
-        if !agents.is_empty() {
-            if let Ok(json) = serde_json::to_string(agents) {
-                args.push("--agents".to_string());
-                args.push(json);
-            }
-        }
-    }
-
-    if let Some(extra) = &options.extra_args {
-        for (key, value) in extra {
-            args.push(format!("--{key}"));
-            if let Some(val) = value {
-                args.push(val.clone());
-            }
-        }
-    }
-
-    args
 }
 
 #[cfg(test)]

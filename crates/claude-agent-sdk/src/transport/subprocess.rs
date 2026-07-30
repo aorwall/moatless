@@ -546,147 +546,12 @@ fn log_exit_status(status: std::process::ExitStatus, stderr_lines: &[String]) {
 /// Log a parsed stdout message at the appropriate level with human-readable formatting.
 fn log_stdout_message(msg: &RawStdoutMessage) {
     match msg {
-        RawStdoutMessage::Sdk(sdk_msg) => match sdk_msg.as_ref() {
-            SdkMessage::Assistant(m) => {
-                let uuid_short = short_id(&m.uuid);
-                let blocks = format_content_blocks(&m.message.content);
-                debug!("CLI stdout: assistant (uuid={})\n{}", uuid_short, blocks);
-            }
-            SdkMessage::User(m) => {
-                let blocks = format_content_blocks(&m.message.content);
-                debug!("CLI stdout: user\n{}", blocks);
-            }
-            SdkMessage::UserReplay(m) => {
-                let uuid_short = short_id(&m.uuid);
-                let blocks = format_content_blocks(&m.message.content);
-                debug!("CLI stdout: user_replay (uuid={})\n{}", uuid_short, blocks);
-            }
-            SdkMessage::Result(ResultMessage::Success(r)) => {
-                let dur = r.duration_ms as f64 / 1000.0;
-                let text = indent(&r.result, "  ");
-                debug!(
-                    "CLI stdout: result success turns={} duration={:.1}s cost=${:.4}\n{}",
-                    r.num_turns, dur, r.total_cost_usd, text
-                );
-            }
-            SdkMessage::Result(ResultMessage::Error(r)) => {
-                let dur = r.duration_ms as f64 / 1000.0;
-                let errors = r.errors.join("; ");
-                debug!(
-                    "CLI stdout: result error subtype={} turns={} duration={:.1}s cost=${:.4} errors={}",
-                    r.subtype, r.num_turns, dur, r.total_cost_usd, errors
-                );
-            }
-            SdkMessage::System(m) => {
-                let session_short = short_id(&m.session_id);
-                info!(
-                    "CLI stdout: system init session={} model={} tools={}",
-                    session_short,
-                    m.model,
-                    m.tools.len()
-                );
-            }
-            SdkMessage::Status(m) => {
-                let status = m.status.as_ref().map(std::string::ToString::to_string);
-                debug!("CLI stdout: status={}", status.as_deref().unwrap_or("?"));
-            }
-            SdkMessage::CompactBoundary(m) => {
-                debug!(
-                    "CLI stdout: compact_boundary trigger={} pre_tokens={}",
-                    m.compact_metadata.trigger, m.compact_metadata.pre_tokens
-                );
-            }
-            SdkMessage::HookStarted(m) => {
-                debug!(
-                    "CLI stdout: hook_started id={} name={} event={}",
-                    m.hook_id, m.hook_name, m.hook_event
-                );
-            }
-            SdkMessage::HookProgress(m) => {
-                debug!(
-                    "CLI stdout: hook_progress id={} name={}",
-                    m.hook_id, m.hook_name
-                );
-            }
-            SdkMessage::HookResponse(m) => {
-                debug!(
-                    "CLI stdout: hook_response id={} name={} outcome={}",
-                    m.hook_id, m.hook_name, m.outcome
-                );
-            }
-            SdkMessage::TaskNotification(m) => {
-                debug!(
-                    "CLI stdout: task_notification task={} status={}",
-                    m.task_id, m.status
-                );
-            }
-            SdkMessage::FilesPersisted(m) => {
-                debug!(
-                    "CLI stdout: files_persisted files={} failed={}",
-                    m.files.len(),
-                    m.failed.len()
-                );
-            }
-            SdkMessage::StreamEvent(_) => {
-                trace!("CLI stdout: stream_event");
-            }
-            SdkMessage::ToolProgress(m) => {
-                trace!(
-                    "CLI stdout: tool_progress tool={} elapsed={:.1}s",
-                    m.tool_name,
-                    m.elapsed_time_seconds
-                );
-            }
-            SdkMessage::AuthStatus(m) => {
-                debug!(
-                    "CLI stdout: auth_status authenticating={}",
-                    m.is_authenticating
-                );
-            }
-            SdkMessage::ToolUseSummary(m) => {
-                debug!("CLI stdout: tool_use_summary {}", truncate(&m.summary, 120));
-            }
-        },
+        RawStdoutMessage::Sdk(sdk_msg) => log_sdk_message(sdk_msg.as_ref()),
         RawStdoutMessage::IncomingControlRequest {
             request_id,
             request,
-        } => match request {
-            IncomingControlRequestInner::CanUseTool {
-                tool_name, input, ..
-            } => {
-                let input_summary = format_tool_input(tool_name, input);
-                debug!(
-                    "CLI stdout: control_request can_use_tool req={}\n  tool: {}\n{}",
-                    request_id, tool_name, input_summary
-                );
-            }
-            IncomingControlRequestInner::HookCallback { callback_id, .. } => {
-                debug!(
-                    "CLI stdout: control_request hook_callback req={} callback={}",
-                    request_id, callback_id
-                );
-            }
-            IncomingControlRequestInner::McpMessage { server_name, .. } => {
-                debug!(
-                    "CLI stdout: control_request mcp_message req={} server={}",
-                    request_id, server_name
-                );
-            }
-        },
-        RawStdoutMessage::ControlResponse(resp) => match resp {
-            ControlResponseInner::Success { request_id, .. } => {
-                debug!("CLI stdout: control_response success req={}", request_id);
-            }
-            ControlResponseInner::Error {
-                request_id, error, ..
-            } => {
-                debug!(
-                    "CLI stdout: control_response error req={} error={}",
-                    request_id,
-                    truncate(error, 200)
-                );
-            }
-        },
+        } => log_control_request(request_id, request),
+        RawStdoutMessage::ControlResponse(resp) => log_control_response(resp),
         RawStdoutMessage::ControlCancelRequest { request_id } => {
             debug!("CLI stdout: control_cancel req={}", request_id);
         }
@@ -696,6 +561,161 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
         RawStdoutMessage::Unknown(value) => {
             let type_str = value.get("type").and_then(|v| v.as_str()).unwrap_or("?");
             debug!(raw = %value, "CLI stdout: unknown type={}", type_str);
+        }
+    }
+}
+
+fn log_sdk_message(msg: &SdkMessage) {
+    match msg {
+        SdkMessage::Assistant(m) => {
+            log_content_message("assistant", Some(&m.uuid), &m.message.content);
+        }
+        SdkMessage::User(m) => log_content_message("user", None, &m.message.content),
+        SdkMessage::UserReplay(m) => {
+            log_content_message("user_replay", Some(&m.uuid), &m.message.content);
+        }
+        SdkMessage::Result(result) => log_result_message(result),
+        SdkMessage::System(m) => {
+            let session_short = short_id(&m.session_id);
+            info!(
+                "CLI stdout: system init session={} model={} tools={}",
+                session_short,
+                m.model,
+                m.tools.len()
+            );
+        }
+        SdkMessage::Status(m) => {
+            let status = m.status.as_ref().map(std::string::ToString::to_string);
+            debug!("CLI stdout: status={}", status.as_deref().unwrap_or("?"));
+        }
+        SdkMessage::CompactBoundary(m) => {
+            debug!(
+                "CLI stdout: compact_boundary trigger={} pre_tokens={}",
+                m.compact_metadata.trigger, m.compact_metadata.pre_tokens
+            );
+        }
+        SdkMessage::HookStarted(m) => {
+            debug!(
+                "CLI stdout: hook_started id={} name={} event={}",
+                m.hook_id, m.hook_name, m.hook_event
+            );
+        }
+        SdkMessage::HookProgress(m) => {
+            debug!(
+                "CLI stdout: hook_progress id={} name={}",
+                m.hook_id, m.hook_name
+            );
+        }
+        SdkMessage::HookResponse(m) => {
+            debug!(
+                "CLI stdout: hook_response id={} name={} outcome={}",
+                m.hook_id, m.hook_name, m.outcome
+            );
+        }
+        SdkMessage::TaskNotification(m) => {
+            debug!(
+                "CLI stdout: task_notification task={} status={}",
+                m.task_id, m.status
+            );
+        }
+        SdkMessage::FilesPersisted(m) => {
+            debug!(
+                "CLI stdout: files_persisted files={} failed={}",
+                m.files.len(),
+                m.failed.len()
+            );
+        }
+        SdkMessage::StreamEvent(_) => {
+            trace!("CLI stdout: stream_event");
+        }
+        SdkMessage::ToolProgress(m) => {
+            trace!(
+                "CLI stdout: tool_progress tool={} elapsed={:.1}s",
+                m.tool_name,
+                m.elapsed_time_seconds
+            );
+        }
+        SdkMessage::AuthStatus(m) => {
+            debug!(
+                "CLI stdout: auth_status authenticating={}",
+                m.is_authenticating
+            );
+        }
+        SdkMessage::ToolUseSummary(m) => {
+            debug!("CLI stdout: tool_use_summary {}", truncate(&m.summary, 120));
+        }
+    }
+}
+
+fn log_content_message(kind: &str, uuid: Option<&str>, content: &[ContentBlock]) {
+    let blocks = format_content_blocks(content);
+    if let Some(uuid) = uuid {
+        debug!("CLI stdout: {} (uuid={})\n{}", kind, short_id(uuid), blocks);
+    } else {
+        debug!("CLI stdout: {}\n{}", kind, blocks);
+    }
+}
+
+fn log_result_message(result: &ResultMessage) {
+    match result {
+        ResultMessage::Success(r) => {
+            let dur = r.duration_ms as f64 / 1000.0;
+            let text = indent(&r.result, "  ");
+            debug!(
+                "CLI stdout: result success turns={} duration={:.1}s cost=${:.4}\n{}",
+                r.num_turns, dur, r.total_cost_usd, text
+            );
+        }
+        ResultMessage::Error(r) => {
+            let dur = r.duration_ms as f64 / 1000.0;
+            let errors = r.errors.join("; ");
+            debug!(
+                "CLI stdout: result error subtype={} turns={} duration={:.1}s cost=${:.4} errors={}",
+                r.subtype, r.num_turns, dur, r.total_cost_usd, errors
+            );
+        }
+    }
+}
+
+fn log_control_request(request_id: &str, request: &IncomingControlRequestInner) {
+    match request {
+        IncomingControlRequestInner::CanUseTool {
+            tool_name, input, ..
+        } => {
+            let input_summary = format_tool_input(tool_name, input);
+            debug!(
+                "CLI stdout: control_request can_use_tool req={}\n  tool: {}\n{}",
+                request_id, tool_name, input_summary
+            );
+        }
+        IncomingControlRequestInner::HookCallback { callback_id, .. } => {
+            debug!(
+                "CLI stdout: control_request hook_callback req={} callback={}",
+                request_id, callback_id
+            );
+        }
+        IncomingControlRequestInner::McpMessage { server_name, .. } => {
+            debug!(
+                "CLI stdout: control_request mcp_message req={} server={}",
+                request_id, server_name
+            );
+        }
+    }
+}
+
+fn log_control_response(response: &ControlResponseInner) {
+    match response {
+        ControlResponseInner::Success { request_id, .. } => {
+            debug!("CLI stdout: control_response success req={}", request_id);
+        }
+        ControlResponseInner::Error {
+            request_id, error, ..
+        } => {
+            debug!(
+                "CLI stdout: control_response error req={} error={}",
+                request_id,
+                truncate(error, 200)
+            );
         }
     }
 }

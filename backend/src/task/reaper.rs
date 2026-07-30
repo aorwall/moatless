@@ -25,7 +25,6 @@ use tracing::{debug, info, warn};
 
 use super::dao::{TaskPatch, TaskRepository};
 use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
-use moatless_backend_core::scope::ScopeContext;
 use crate::config::Config;
 use crate::event_handler::agent_handlers;
 use crate::event_handler::models::AgentEvent;
@@ -36,6 +35,7 @@ use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
+use moatless_backend_core::scope::ScopeContext;
 use moatless_events::EventType;
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
@@ -179,6 +179,52 @@ async fn run_reap_cycle(
         gc_orphaned_resources(k8s, tasks).await;
     }
 
+    let Some(snapshot) = load_reaper_snapshot(
+        app_state,
+        messages,
+        tasks,
+        &sandbox_ids,
+        default_ttl_minutes,
+        default_inactive_ttl_days,
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let stats = apply_reaper_decisions(app_state, tasks, events, snapshot).await;
+    log_reaper_stats(stats);
+
+    Ok(())
+}
+
+struct ReaperSnapshot {
+    all_ids: Vec<String>,
+    sandbox_ids: Vec<String>,
+    open_ids: Vec<String>,
+    latest_times: HashMap<String, DateTime<Utc>>,
+    ttl_map: HashMap<String, i32>,
+    inactive_map: HashMap<String, i32>,
+    agent_lifecycle: HashMap<String, (String, DateTime<Utc>)>,
+    default_ttl_minutes: i32,
+    default_inactive_ttl_days: i32,
+    now: DateTime<Utc>,
+}
+
+#[derive(Clone, Copy)]
+struct ReaperStats {
+    stopped_count: u32,
+    closed_count: u32,
+}
+
+async fn load_reaper_snapshot(
+    app_state: &AppState,
+    messages: &Arc<dyn MessageRepository>,
+    tasks: &Arc<dyn TaskRepository>,
+    sandbox_ids: &[String],
+    default_ttl_minutes: i32,
+    default_inactive_ttl_days: i32,
+) -> Result<Option<ReaperSnapshot>, ReaperError> {
     let open_ids = match tasks.list_open_task_ids().await {
         Ok(ids) => ids,
         Err(e) => {
@@ -195,7 +241,7 @@ async fn run_reap_cycle(
 
     if all_ids_set.is_empty() {
         debug!("No running sandboxes and no open tasks");
-        return Ok(());
+        return Ok(None);
     }
 
     let all_ids: Vec<String> = all_ids_set.iter().cloned().collect();
@@ -206,31 +252,38 @@ async fn run_reap_cycle(
         "Task reaper considering tasks"
     );
 
-    // Build the latest-activity map: messages → agent tool-call activity →
-    // sandbox_started_at → created_at_db, keeping the newest across all sources.
-    let mut latest_times = messages.get_latest_message_times(&all_ids).await?;
+    let latest_times = load_latest_activity_times(app_state, messages, tasks, &all_ids).await?;
+    let ttl_map = load_ttl_map(tasks, &all_ids).await;
+    let inactive_map = load_inactive_ttl_map(tasks, &all_ids).await;
+    let agent_lifecycle = load_agent_lifecycle(app_state, sandbox_ids).await;
 
-    let merge_newest = |latest_times: &mut HashMap<String, DateTime<Utc>>,
-                        entries: HashMap<String, DateTime<Utc>>| {
-        for (task_id, ts) in entries {
-            latest_times
-                .entry(task_id)
-                .and_modify(|existing| {
-                    if ts > *existing {
-                        *existing = ts;
-                    }
-                })
-                .or_insert(ts);
-        }
-    };
+    Ok(Some(ReaperSnapshot {
+        all_ids,
+        sandbox_ids: sandbox_ids.to_vec(),
+        open_ids,
+        latest_times,
+        ttl_map,
+        inactive_map,
+        agent_lifecycle,
+        default_ttl_minutes,
+        default_inactive_ttl_days,
+        now: Utc::now(),
+    }))
+}
 
-    // Fold in agent activity (tool calls + streamed chunks). A single long turn
-    // emits no new conversation message and no lifecycle transition, so without
-    // this the idle floor freezes at the last user message / sandbox start and
-    // the reaper stops a working agent mid tool call.
+async fn load_latest_activity_times(
+    app_state: &AppState,
+    messages: &Arc<dyn MessageRepository>,
+    tasks: &Arc<dyn TaskRepository>,
+    all_ids: &[String],
+) -> Result<HashMap<String, DateTime<Utc>>, ReaperError> {
+    let mut latest_times = messages.get_latest_message_times(all_ids).await?;
+
+    // A single long turn emits no new conversation message and no lifecycle
+    // transition, so agent activity keeps the idle floor fresh during tool calls.
     match app_state
         .task_events
-        .get_latest_agent_activity(&all_ids)
+        .get_latest_agent_activity(all_ids)
         .await
     {
         Ok(activity_times) => merge_newest(&mut latest_times, activity_times),
@@ -239,7 +292,7 @@ async fn run_reap_cycle(
         }
     }
 
-    match tasks.get_sandbox_started_times(&all_ids).await {
+    match tasks.get_sandbox_started_times(all_ids).await {
         Ok(started_times) => merge_newest(&mut latest_times, started_times),
         Err(e) => {
             warn!(error = %e, "Failed to fetch sandbox start times, using message times only");
@@ -265,50 +318,89 @@ async fn run_reap_cycle(
         }
     }
 
-    // Per-task TTL maps. Missing entries fall back to the global defaults.
-    let ttl_map = tasks.get_ttl_minutes_map(&all_ids).await.unwrap_or_else(|e| {
+    Ok(latest_times)
+}
+
+fn merge_newest(
+    latest_times: &mut HashMap<String, DateTime<Utc>>,
+    entries: HashMap<String, DateTime<Utc>>,
+) {
+    for (task_id, ts) in entries {
+        latest_times
+            .entry(task_id)
+            .and_modify(|existing| {
+                if ts > *existing {
+                    *existing = ts;
+                }
+            })
+            .or_insert(ts);
+    }
+}
+
+async fn load_ttl_map(tasks: &Arc<dyn TaskRepository>, all_ids: &[String]) -> HashMap<String, i32> {
+    tasks.get_ttl_minutes_map(all_ids).await.unwrap_or_else(|e| {
         warn!(error = %e, "Failed to fetch ttl_minutes map, falling back to default for all tasks");
         HashMap::new()
-    });
-    let inactive_map = tasks
-        .get_inactive_ttl_days_map(&all_ids)
+    })
+}
+
+async fn load_inactive_ttl_map(
+    tasks: &Arc<dyn TaskRepository>,
+    all_ids: &[String],
+) -> HashMap<String, i32> {
+    tasks
+        .get_inactive_ttl_days_map(all_ids)
         .await
         .unwrap_or_else(|e| {
             warn!(error = %e, "Failed to fetch inactive_ttl_days map, falling back to default for all tasks");
             HashMap::new()
-        });
+        })
+}
 
+async fn load_agent_lifecycle(
+    app_state: &AppState,
+    sandbox_ids: &[String],
+) -> HashMap<String, (String, DateTime<Utc>)> {
     // Latest agent run-state per sandbox task, used to date the idle-stop floor
     // from when the agent last stopped (and to never reap a running agent).
     // Only sandbox tasks reach the reap branch, so query just those. Falls back
     // to the activity floor on error.
-    let agent_lifecycle = app_state
+    app_state
         .task_events
-        .get_latest_agent_lifecycle(&sandbox_ids)
+        .get_latest_agent_lifecycle(sandbox_ids)
         .await
         .unwrap_or_else(|e| {
             warn!(error = %e, "Failed to fetch agent lifecycle events, reaper falls back to activity floor");
             HashMap::new()
-        });
+        })
+}
 
-    let sandbox_set: HashSet<&str> = sandbox_ids.iter().map(String::as_str).collect();
-    let open_set: HashSet<&str> = open_ids.iter().map(String::as_str).collect();
+async fn apply_reaper_decisions(
+    app_state: &AppState,
+    tasks: &Arc<dyn TaskRepository>,
+    events: &Option<Arc<dyn EventPublisher>>,
+    snapshot: ReaperSnapshot,
+) -> ReaperStats {
+    let sandbox_set: HashSet<&str> = snapshot.sandbox_ids.iter().map(String::as_str).collect();
+    let open_set: HashSet<&str> = snapshot.open_ids.iter().map(String::as_str).collect();
 
-    let now = Utc::now();
-    let mut stopped_count = 0u32;
-    let mut closed_count = 0u32;
+    let mut stats = ReaperStats {
+        stopped_count: 0,
+        closed_count: 0,
+    };
 
-    for task_id in &all_ids {
-        let latest_at = latest_times.get(task_id).copied();
-        let inactive_ttl_days = inactive_map
+    for task_id in &snapshot.all_ids {
+        let latest_at = snapshot.latest_times.get(task_id).copied();
+        let inactive_ttl_days = snapshot
+            .inactive_map
             .get(task_id)
             .copied()
-            .unwrap_or(default_inactive_ttl_days);
+            .unwrap_or(snapshot.default_inactive_ttl_days);
 
         // Close supersedes stop — `auto_close_task` calls `cleanup`, which
         // tears down the Deployment regardless of whether it was scaled to 0.
         if open_set.contains(task_id.as_str())
-            && decide_close(inactive_ttl_days, latest_at, now) == CloseDecision::Close
+            && decide_close(inactive_ttl_days, latest_at, snapshot.now) == CloseDecision::Close
         {
             info!(
                 task_id = %task_id,
@@ -317,7 +409,7 @@ async fn run_reap_cycle(
                 "Auto-closing inactive task"
             );
             auto_close_task(app_state, task_id, tasks, events).await;
-            closed_count += 1;
+            stats.closed_count += 1;
             continue;
         }
 
@@ -327,86 +419,101 @@ async fn run_reap_cycle(
 
         // Fold the agent run-state into the idle-stop floor so a running agent
         // is never reaped and a stopped agent's TTL counts from when it stopped.
-        let reap_floor = compute_reap_floor(agent_lifecycle.get(task_id), latest_at, now);
+        let reap_floor = compute_reap_floor(
+            snapshot.agent_lifecycle.get(task_id),
+            latest_at,
+            snapshot.now,
+        );
 
-        let ttl_minutes = ttl_map.get(task_id).copied().unwrap_or(default_ttl_minutes);
-        match decide_reap(ttl_minutes, reap_floor, now) {
+        let ttl_minutes = snapshot
+            .ttl_map
+            .get(task_id)
+            .copied()
+            .unwrap_or(snapshot.default_ttl_minutes);
+        match decide_reap(ttl_minutes, reap_floor, snapshot.now) {
             ReapDecision::Skip(reason) => {
                 debug!(task_id = %task_id, reason, "Skipping sandbox reap");
             }
             ReapDecision::Keep => {}
             ReapDecision::Stop => {
-                // Defense in depth: the activity floor can go stale (dropped
-                // events, watcher failover, delivery lag), so ask the agent
-                // itself before pulling the plug. A positive "running" answer
-                // skips the stop, and live background processes (e.g. a
-                // `run_in_background` build that outlived the turn) defer it
-                // up to the capped busy-extension window. An unreadable
-                // status (no client, gRPC error) falls through, otherwise a
-                // sandbox with a broken gRPC path could never be reaped.
-                // Costs one gRPC call per reap candidate per cycle, against
-                // a sandbox that is up.
-                if let Some(status) =
-                    agent_status_snapshot(app_state.agent_status.as_ref(), task_id).await
-                {
-                    if !matches!(status.status.as_str(), "idle" | "stopped") {
-                        info!(
-                            task_id = %task_id,
-                            ttl_minutes,
-                            last_activity = ?latest_at,
-                            "Idle floor expired but agent reports running, skipping stop"
-                        );
-                        continue;
-                    }
-                    if status.busy_processes
-                        && busy_extension_active(
-                            reap_floor,
-                            now,
-                            app_state.config.sandbox.busy_extension_max_hours,
-                        )
-                    {
-                        info!(
-                            task_id = %task_id,
-                            ttl_minutes,
-                            last_activity = ?latest_at,
-                            "Idle floor expired but sandbox reports live background processes, deferring stop"
-                        );
-                        continue;
-                    }
-                }
-                info!(
-                    task_id = %task_id,
-                    ttl_minutes,
-                    last_activity = ?latest_at,
-                    "Stopping idle sandbox"
-                );
-                // lifecycle.stop issues the graceful agent stop, scales compute
-                // down, persists the Stopped intent + reason, and publishes the
-                // idle-tagged Stopped event (`idle_reaped`/`reaper`).
-                match app_state
-                    .sandbox
-                    .stop(task_id, SandboxStopReason::IdleReaper)
-                    .await
-                {
-                    Ok(_) => {
-                        info!(task_id = %task_id, "Idle sandbox stopped successfully");
-                        stopped_count += 1;
-                    }
-                    Err(e) => {
-                        warn!(task_id = %task_id, error = %e, "Failed to stop idle sandbox");
-                    }
+                if stop_idle_sandbox(app_state, task_id, ttl_minutes, latest_at, reap_floor).await {
+                    stats.stopped_count += 1;
                 }
             }
         }
     }
 
-    if stopped_count > 0 || closed_count > 0 {
-        info!(stopped_count, closed_count, "Task reaper cycle complete");
+    stats
+}
+
+async fn stop_idle_sandbox(
+    app_state: &AppState,
+    task_id: &str,
+    ttl_minutes: i32,
+    latest_at: Option<DateTime<Utc>>,
+    reap_floor: Option<DateTime<Utc>>,
+) -> bool {
+    // Defense in depth: the activity floor can go stale, so ask the agent
+    // itself before pulling the plug. An unreadable status falls through.
+    if let Some(status) = agent_status_snapshot(app_state.agent_status.as_ref(), task_id).await {
+        if !matches!(status.status.as_str(), "idle" | "stopped") {
+            info!(
+                task_id = %task_id,
+                ttl_minutes,
+                last_activity = ?latest_at,
+                "Idle floor expired but agent reports running, skipping stop"
+            );
+            return false;
+        }
+        if status.busy_processes
+            && busy_extension_active(
+                reap_floor,
+                Utc::now(),
+                app_state.config.sandbox.busy_extension_max_hours,
+            )
+        {
+            info!(
+                task_id = %task_id,
+                ttl_minutes,
+                last_activity = ?latest_at,
+                "Idle floor expired but sandbox reports live background processes, deferring stop"
+            );
+            return false;
+        }
+    }
+
+    info!(
+        task_id = %task_id,
+        ttl_minutes,
+        last_activity = ?latest_at,
+        "Stopping idle sandbox"
+    );
+    match app_state
+        .sandbox
+        .stop(task_id, SandboxStopReason::IdleReaper)
+        .await
+    {
+        Ok(_) => {
+            info!(task_id = %task_id, "Idle sandbox stopped successfully");
+            true
+        }
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "Failed to stop idle sandbox");
+            false
+        }
+    }
+}
+
+fn log_reaper_stats(stats: ReaperStats) {
+    if stats.stopped_count > 0 || stats.closed_count > 0 {
+        info!(
+            stopped_count = stats.stopped_count,
+            closed_count = stats.closed_count,
+            "Task reaper cycle complete"
+        );
     } else {
         debug!("Task reaper cycle complete, nothing to do");
     }
-
-    Ok(())
 }
 
 /// Reconcile turns stuck open because their terminal event was lost.

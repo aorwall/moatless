@@ -1060,19 +1060,33 @@ async fn notify_bindings_of_state_change(
 async fn close_active_bindings_for_issue(
     state: &AppState,
     api: &LinearAgentApi,
-    connection: &AdapterConnection,
+    _connection: &AdapterConnection,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
     let binding_repo = PgTaskBindingRepository(state.db.clone());
-    // Look up every active binding tied to this issue — both `@mention`/
-    // assignment sessions (`linear_agent_session`) and status-entry tasks
-    // (`linear_issue`), so either kind auto-closes when the issue goes terminal.
+    let rows = load_issue_close_bindings(state, issue).await?;
+
+    for binding in rows {
+        if !binding_is_close_eligible(state, &binding_repo, rule, issue, &binding).await {
+            continue;
+        }
+        close_linear_bound_task(state, api, &binding_repo, issue, &binding).await;
+    }
+
+    Ok(())
+}
+
+async fn load_issue_close_bindings(
+    state: &AppState,
+    issue: &IssuePayload,
+) -> Result<Vec<TaskBinding>, AdapterError> {
     let subject_kinds = vec![
         SUBJECT_KIND.to_string(),
         super::SUBJECT_KIND_ISSUE.to_string(),
     ];
-    let rows = sqlx::query_as::<_, TaskBinding>(
+
+    sqlx::query_as::<_, TaskBinding>(
         "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
                 trigger_id, destination_config, metadata, last_external_event_id, \
                 origin, created_at, last_event_at \
@@ -1087,150 +1101,208 @@ async fn close_active_bindings_for_issue(
     .bind(&issue.id)
     .fetch_all(&state.db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(AdapterError::Db)
+}
 
-    for binding in rows {
-        // Sibling guard: only close if this is the sole binding for the task.
-        let siblings_count = match binding_repo.find_by_task_id(&binding.task_id).await {
-            Ok(rows) => rows.len(),
-            Err(e) => {
-                warn!(
-                    task_id = %binding.task_id,
-                    issue = %issue.identifier,
-                    error = %e,
-                    "Failed to look up sibling bindings — skipping auto-close"
-                );
-                continue;
-            }
-        };
-        if siblings_count > 1 {
-            info!(
-                task_id = %binding.task_id,
-                issue = %issue.identifier,
-                other_binding_count = siblings_count - 1,
-                "Linear issue closed but task has other connected bindings — leaving task open"
-            );
-            continue;
-        }
+async fn binding_is_close_eligible(
+    state: &AppState,
+    binding_repo: &PgTaskBindingRepository,
+    rule: &SubscriptionMatch,
+    issue: &IssuePayload,
+    binding: &TaskBinding,
+) -> bool {
+    if !sole_binding_for_task(binding_repo, issue, binding).await {
+        return false;
+    }
 
-        // Only auto-close tasks created by THIS trigger.
-        if binding.origin != ADAPTER_EVENT_BINDING_ORIGIN
-            || binding.trigger_id.as_deref() != Some(rule.id.as_str())
-        {
-            debug!(
-                task_id = %binding.task_id,
-                issue = %issue.identifier,
-                "Binding not eligible for auto-close (different origin or rule)"
-            );
-            continue;
-        }
-
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "Linear issue-close handler runs as background system, no caller identity"
-        )]
-        let sys = ScopeContext::system();
-        match state.tasks.find_by_id(&binding.task_id, &sys).await {
-            Ok(Some(task)) if task.status == TaskStatus::Closed => {
-                debug!(task_id = %binding.task_id, issue = %issue.identifier, "Task already closed, skipping");
-                continue;
-            }
-            Ok(None) => {
-                warn!(task_id = %binding.task_id, issue = %issue.identifier, "Task not found for close");
-                continue;
-            }
-            Err(e) => {
-                warn!(task_id = %binding.task_id, error = %e, "Failed to fetch task for close");
-                continue;
-            }
-            _ => {}
-        }
-
-        let session_id = binding
-            .destination_config
-            .get("session_id")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-
-        let mut text = format!(
-            "Linear issue {} transitioned to {}; closing this task.",
-            issue.identifier,
-            issue.state_name()
+    if binding.origin != ADAPTER_EVENT_BINDING_ORIGIN
+        || binding.trigger_id.as_deref() != Some(rule.id.as_str())
+    {
+        debug!(
+            task_id = %binding.task_id,
+            issue = %issue.identifier,
+            "Binding not eligible for auto-close (different origin or rule)"
         );
-        if let Some(ref url) = issue.url {
-            let _ = write!(text, "\n\n{url}");
-        }
-        // Append the `Moatless task:` footer so this comment is recognised and
-        // dropped by the inbound echo filter (`handle_comment_created`) when
-        // Linear webhooks it back, rather than being re-forwarded into the task.
-        if let Some(footer) =
-            crate::adapters::footer::task_comment_footer(state, &binding.task_id).await
-        {
-            text.push_str(&footer);
-        }
+        return false;
+    }
 
-        if !session_id.is_empty() {
-            if let Err(e) = api
-                .agent_activity_create(session_id, ActivityKind::Response, &text, false)
-                .await
-            {
-                warn!(session_id, error = %e, "Failed to emit close response activity");
-            }
-        }
+    task_can_be_closed(state, issue, binding).await
+}
 
-        if let Err(e) = state
-            .tasks
-            .update_task(
-                &binding.task_id,
-                &TaskPatch {
-                    status: Some(TaskStatus::Closed),
-                    ..Default::default()
-                },
-                &sys,
-            )
-            .await
-        {
-            warn!(task_id = %binding.task_id, error = %e, "Failed to close task");
-            continue;
+async fn sole_binding_for_task(
+    binding_repo: &PgTaskBindingRepository,
+    issue: &IssuePayload,
+    binding: &TaskBinding,
+) -> bool {
+    let siblings_count = match binding_repo.find_by_task_id(&binding.task_id).await {
+        Ok(rows) => rows.len(),
+        Err(e) => {
+            warn!(
+                task_id = %binding.task_id,
+                issue = %issue.identifier,
+                error = %e,
+                "Failed to look up sibling bindings — skipping auto-close"
+            );
+            return false;
         }
+    };
 
-        // Remove the sandbox (best-effort, Closed already committed). Lifecycle
-        // issues the graceful agent stop and retains S3 archives per config.
-        let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
-        if let Err(e) = state.sandbox.remove(&binding.task_id, retention).await {
-            warn!(task_id = %binding.task_id, error = %e, "Failed to remove sandbox on Linear close");
-        }
-
-        // A closed task is terminal — deactivate its bindings so later comments
-        // on the issue don't resurrect it. Best-effort.
-        if let Err(e) = binding_repo.deactivate_by_task(&binding.task_id).await {
-            warn!(task_id = %binding.task_id, error = %e, "Failed to deactivate bindings on Linear close");
-        }
-
-        if let Some(ref events) = state.events {
-            events
-                .publish_task_event(
-                    &binding.task_id,
-                    moatless_events::TaskSubType::Closed,
-                    Some("claude-code"),
-                    serde_json::json!({
-                        "reason": "linear_state_terminal",
-                        "issue_identifier": issue.identifier,
-                        "state_name": issue.state_name(),
-                    }),
-                )
-                .await;
-        }
-
+    if siblings_count > 1 {
         info!(
             task_id = %binding.task_id,
             issue = %issue.identifier,
-            "Task closed due to Linear issue terminal state"
+            other_binding_count = siblings_count - 1,
+            "Linear issue closed but task has other connected bindings — leaving task open"
         );
+        return false;
     }
 
-    let _ = connection;
-    Ok(())
+    true
+}
+
+async fn task_can_be_closed(state: &AppState, issue: &IssuePayload, binding: &TaskBinding) -> bool {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Linear issue-close handler runs as background system, no caller identity"
+    )]
+    let sys = ScopeContext::system();
+    match state.tasks.find_by_id(&binding.task_id, &sys).await {
+        Ok(Some(task)) if task.status == TaskStatus::Closed => {
+            debug!(task_id = %binding.task_id, issue = %issue.identifier, "Task already closed, skipping");
+            false
+        }
+        Ok(None) => {
+            warn!(task_id = %binding.task_id, issue = %issue.identifier, "Task not found for close");
+            false
+        }
+        Err(e) => {
+            warn!(task_id = %binding.task_id, error = %e, "Failed to fetch task for close");
+            false
+        }
+        _ => true,
+    }
+}
+
+async fn close_linear_bound_task(
+    state: &AppState,
+    api: &LinearAgentApi,
+    binding_repo: &PgTaskBindingRepository,
+    issue: &IssuePayload,
+    binding: &TaskBinding,
+) {
+    emit_linear_close_response(state, api, issue, binding).await;
+
+    if !mark_task_closed(state, binding).await {
+        return;
+    }
+
+    remove_sandbox_after_linear_close(state, binding).await;
+    deactivate_linear_task_bindings(binding_repo, binding).await;
+    publish_linear_task_closed(state, issue, binding).await;
+
+    info!(
+        task_id = %binding.task_id,
+        issue = %issue.identifier,
+        "Task closed due to Linear issue terminal state"
+    );
+}
+
+async fn emit_linear_close_response(
+    state: &AppState,
+    api: &LinearAgentApi,
+    issue: &IssuePayload,
+    binding: &TaskBinding,
+) {
+    let session_id = binding
+        .destination_config
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    if session_id.is_empty() {
+        return;
+    }
+
+    let mut text = format!(
+        "Linear issue {} transitioned to {}; closing this task.",
+        issue.identifier,
+        issue.state_name()
+    );
+    if let Some(ref url) = issue.url {
+        let _ = write!(text, "\n\n{url}");
+    }
+    // Append the `Moatless task:` footer so the inbound echo filter drops the
+    // resulting webhook instead of forwarding it back into the task.
+    if let Some(footer) =
+        crate::adapters::footer::task_comment_footer(state, &binding.task_id).await
+    {
+        text.push_str(&footer);
+    }
+
+    if let Err(e) = api
+        .agent_activity_create(session_id, ActivityKind::Response, &text, false)
+        .await
+    {
+        warn!(session_id, error = %e, "Failed to emit close response activity");
+    }
+}
+
+async fn mark_task_closed(state: &AppState, binding: &TaskBinding) -> bool {
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Linear issue-close handler runs as background system, no caller identity"
+    )]
+    let sys = ScopeContext::system();
+    match state
+        .tasks
+        .update_task(
+            &binding.task_id,
+            &TaskPatch {
+                status: Some(TaskStatus::Closed),
+                ..Default::default()
+            },
+            &sys,
+        )
+        .await
+    {
+        Ok(_) => true,
+        Err(e) => {
+            warn!(task_id = %binding.task_id, error = %e, "Failed to close task");
+            false
+        }
+    }
+}
+
+async fn remove_sandbox_after_linear_close(state: &AppState, binding: &TaskBinding) {
+    let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
+    if let Err(e) = state.sandbox.remove(&binding.task_id, retention).await {
+        warn!(task_id = %binding.task_id, error = %e, "Failed to remove sandbox on Linear close");
+    }
+}
+
+async fn deactivate_linear_task_bindings(
+    binding_repo: &PgTaskBindingRepository,
+    binding: &TaskBinding,
+) {
+    if let Err(e) = binding_repo.deactivate_by_task(&binding.task_id).await {
+        warn!(task_id = %binding.task_id, error = %e, "Failed to deactivate bindings on Linear close");
+    }
+}
+
+async fn publish_linear_task_closed(state: &AppState, issue: &IssuePayload, binding: &TaskBinding) {
+    if let Some(ref events) = state.events {
+        events
+            .publish_task_event(
+                &binding.task_id,
+                moatless_events::TaskSubType::Closed,
+                Some("claude-code"),
+                serde_json::json!({
+                    "reason": "linear_state_terminal",
+                    "issue_identifier": issue.identifier,
+                    "state_name": issue.state_name(),
+                }),
+            )
+            .await;
+    }
 }
 
 async fn provision_session_task(

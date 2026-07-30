@@ -667,6 +667,10 @@ impl CoordinatorService {
     /// commands all run inside a single `select!`.
     ///
     /// Returns when `Stop` is received or the harness signal stream closes.
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Coordinator event loop still dispatches Agent harness signals and commands until Run and Turn transition policy is extracted"
+    )]
     pub(crate) async fn run(
         mut self,
         mut command_rx: mpsc::UnboundedReceiver<AgentCommand>,
