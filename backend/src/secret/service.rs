@@ -33,6 +33,20 @@ pub trait SecretCipher: Send + Sync {
         secret_id: &str,
         plaintext: &str,
     ) -> Result<EncryptedSecretValue, SecretError>;
+
+    /// Decrypt an envelope-encrypted value that is not a `secrets` row.
+    ///
+    /// `aad` is the additional authenticated data the value was encrypted
+    /// under — the owning record's id, so ciphertext cannot be moved between
+    /// records. A GitHub App's signing key uses this: it lives on the App
+    /// record rather than in `secrets`, but must not invent a second
+    /// encryption scheme to do so.
+    fn decrypt_value(
+        &self,
+        aad: &str,
+        value: &EncryptedSecretValue,
+    ) -> Result<String, SecretError>;
+
     fn decrypt(&self, record: &SecretRecord) -> Result<String, SecretError>;
 }
 
@@ -111,14 +125,35 @@ impl SecretCipher for LocalEnvelopeSecretCipher {
     }
 
     fn decrypt(&self, record: &SecretRecord) -> Result<String, SecretError> {
-        if record.encryption_version != ENCRYPTION_VERSION {
+        let (Some(value_ciphertext), Some(encryption_nonce), Some(encrypted_data_key)) = (
+            record.value_ciphertext.clone(),
+            record.encryption_nonce.clone(),
+            record.encrypted_data_key.clone(),
+        ) else {
+            return Err(SecretError::DecryptionFailed);
+        };
+        self.decrypt_value(
+            &record.id,
+            &EncryptedSecretValue {
+                value_ciphertext,
+                encryption_nonce,
+                encrypted_data_key,
+                kms_key_id: record.kms_key_id.clone().unwrap_or_default(),
+                encryption_version: record.encryption_version,
+            },
+        )
+    }
+
+    fn decrypt_value(
+        &self,
+        aad: &str,
+        value: &EncryptedSecretValue,
+    ) -> Result<String, SecretError> {
+        if value.encryption_version != ENCRYPTION_VERSION {
             return Err(SecretError::DecryptionFailed);
         }
 
-        let encrypted_data_key = record
-            .encrypted_data_key
-            .as_deref()
-            .ok_or(SecretError::DecryptionFailed)?;
+        let encrypted_data_key = value.encrypted_data_key.as_slice();
         if encrypted_data_key.len() <= NONCE_LEN {
             return Err(SecretError::DecryptionFailed);
         }
@@ -138,20 +173,13 @@ impl SecretCipher for LocalEnvelopeSecretCipher {
 
         let value_cipher =
             Aes256Gcm::new_from_slice(&data_key).map_err(|_| SecretError::DecryptionFailed)?;
-        let nonce = record
-            .encryption_nonce
-            .as_deref()
-            .ok_or(SecretError::DecryptionFailed)?;
-        let ciphertext = record
-            .value_ciphertext
-            .as_deref()
-            .ok_or(SecretError::DecryptionFailed)?;
         let plaintext = value_cipher
             .decrypt(
-                &Nonce::try_from(nonce).map_err(|_| SecretError::DecryptionFailed)?,
+                &Nonce::try_from(value.encryption_nonce.as_slice())
+                    .map_err(|_| SecretError::DecryptionFailed)?,
                 Payload {
-                    msg: ciphertext,
-                    aad: record.id.as_bytes(),
+                    msg: value.value_ciphertext.as_slice(),
+                    aad: aad.as_bytes(),
                 },
             )
             .map_err(|_| SecretError::DecryptionFailed)?;

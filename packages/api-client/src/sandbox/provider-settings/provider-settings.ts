@@ -32,12 +32,16 @@ import type {
   ErrorBody,
   ExchangeTokenRequest,
   ExchangeTokenResponse,
+  GitHubAppRegistrationResponse,
   GitHubAppsResponse,
   GitHubConfigResponse,
   GitHubInstallationBindingRequest,
   GitHubInstallationBindingResponse,
   GitnessConfigResponse,
   OAuthUrlResponse,
+  RegisterGitHubAppRequest,
+  RemoveGitHubAppResponse,
+  RotateGitHubAppKeyRequest,
   SaveCodexAuthRequest,
   SaveGitnessPATRequest,
   SavePatRequest
@@ -377,7 +381,296 @@ export const prefetchAdminListGithubAppsQuery = async <TData = Awaited<ReturnTyp
 
 
 
-export type adminGetGlobalGithubInstallationResponse200 = {
+export type adminRegisterGithubAppResponse201 = {
+  data: GitHubAppRegistrationResponse
+  status: 201
+}
+
+export type adminRegisterGithubAppResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminRegisterGithubAppResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminRegisterGithubAppResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminRegisterGithubAppResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+    
+export type adminRegisterGithubAppResponseSuccess = (adminRegisterGithubAppResponse201) & {
+  headers: Headers;
+};
+export type adminRegisterGithubAppResponseError = (adminRegisterGithubAppResponse400 | adminRegisterGithubAppResponse401 | adminRegisterGithubAppResponse403 | adminRegisterGithubAppResponse409) & {
+  headers: Headers;
+};
+
+export type adminRegisterGithubAppResponse = (adminRegisterGithubAppResponseSuccess | adminRegisterGithubAppResponseError)
+
+export const getAdminRegisterGithubAppUrl = () => {
+
+
+  
+
+  return `/api/v1/admin/settings/github/apps`
+}
+
+export const adminRegisterGithubApp = async (registerGitHubAppRequest: RegisterGitHubAppRequest, options?: RequestInit): Promise<adminRegisterGithubAppResponse> => {
+  
+  return customInstance<adminRegisterGithubAppResponse>(getAdminRegisterGithubAppUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      registerGitHubAppRequest,)
+  }
+);}
+
+
+
+
+export const getAdminRegisterGithubAppMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRegisterGithubApp>>, TError,{data: RegisterGitHubAppRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRegisterGithubApp>>, TError,{data: RegisterGitHubAppRequest}, TContext> => {
+
+const mutationKey = ['adminRegisterGithubApp'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRegisterGithubApp>>, {data: RegisterGitHubAppRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminRegisterGithubApp(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRegisterGithubAppMutationResult = NonNullable<Awaited<ReturnType<typeof adminRegisterGithubApp>>>
+    export type AdminRegisterGithubAppMutationBody = RegisterGitHubAppRequest
+    export type AdminRegisterGithubAppMutationError = ErrorType<ErrorBody>
+
+    export const useAdminRegisterGithubApp = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRegisterGithubApp>>, TError,{data: RegisterGitHubAppRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminRegisterGithubApp>>,
+        TError,
+        {data: RegisterGitHubAppRequest},
+        TContext
+      > => {
+      return useMutation(getAdminRegisterGithubAppMutationOptions(options), queryClient);
+    }
+    export type adminRemoveGithubAppResponse200 = {
+  data: RemoveGitHubAppResponse
+  status: 200
+}
+
+export type adminRemoveGithubAppResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminRemoveGithubAppResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminRemoveGithubAppResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type adminRemoveGithubAppResponseSuccess = (adminRemoveGithubAppResponse200) & {
+  headers: Headers;
+};
+export type adminRemoveGithubAppResponseError = (adminRemoveGithubAppResponse401 | adminRemoveGithubAppResponse403 | adminRemoveGithubAppResponse404) & {
+  headers: Headers;
+};
+
+export type adminRemoveGithubAppResponse = (adminRemoveGithubAppResponseSuccess | adminRemoveGithubAppResponseError)
+
+export const getAdminRemoveGithubAppUrl = (githubAppKey: string,) => {
+
+
+  
+
+  return `/api/v1/admin/settings/github/apps/${githubAppKey}`
+}
+
+export const adminRemoveGithubApp = async (githubAppKey: string, options?: RequestInit): Promise<adminRemoveGithubAppResponse> => {
+  
+  return customInstance<adminRemoveGithubAppResponse>(getAdminRemoveGithubAppUrl(githubAppKey),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getAdminRemoveGithubAppMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRemoveGithubApp>>, TError,{githubAppKey: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRemoveGithubApp>>, TError,{githubAppKey: string}, TContext> => {
+
+const mutationKey = ['adminRemoveGithubApp'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRemoveGithubApp>>, {githubAppKey: string}> = (props) => {
+          const {githubAppKey} = props ?? {};
+
+          return  adminRemoveGithubApp(githubAppKey,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRemoveGithubAppMutationResult = NonNullable<Awaited<ReturnType<typeof adminRemoveGithubApp>>>
+    
+    export type AdminRemoveGithubAppMutationError = ErrorType<ErrorBody>
+
+    export const useAdminRemoveGithubApp = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRemoveGithubApp>>, TError,{githubAppKey: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminRemoveGithubApp>>,
+        TError,
+        {githubAppKey: string},
+        TContext
+      > => {
+      return useMutation(getAdminRemoveGithubAppMutationOptions(options), queryClient);
+    }
+    export type adminRotateGithubAppKeyResponse200 = {
+  data: GitHubAppRegistrationResponse
+  status: 200
+}
+
+export type adminRotateGithubAppKeyResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type adminRotateGithubAppKeyResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type adminRotateGithubAppKeyResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type adminRotateGithubAppKeyResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type adminRotateGithubAppKeyResponseSuccess = (adminRotateGithubAppKeyResponse200) & {
+  headers: Headers;
+};
+export type adminRotateGithubAppKeyResponseError = (adminRotateGithubAppKeyResponse400 | adminRotateGithubAppKeyResponse401 | adminRotateGithubAppKeyResponse403 | adminRotateGithubAppKeyResponse404) & {
+  headers: Headers;
+};
+
+export type adminRotateGithubAppKeyResponse = (adminRotateGithubAppKeyResponseSuccess | adminRotateGithubAppKeyResponseError)
+
+export const getAdminRotateGithubAppKeyUrl = (githubAppKey: string,) => {
+
+
+  
+
+  return `/api/v1/admin/settings/github/apps/${githubAppKey}/key`
+}
+
+export const adminRotateGithubAppKey = async (githubAppKey: string,
+    rotateGitHubAppKeyRequest: RotateGitHubAppKeyRequest, options?: RequestInit): Promise<adminRotateGithubAppKeyResponse> => {
+  
+  return customInstance<adminRotateGithubAppKeyResponse>(getAdminRotateGithubAppKeyUrl(githubAppKey),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      rotateGitHubAppKeyRequest,)
+  }
+);}
+
+
+
+
+export const getAdminRotateGithubAppKeyMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRotateGithubAppKey>>, TError,{githubAppKey: string;data: RotateGitHubAppKeyRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRotateGithubAppKey>>, TError,{githubAppKey: string;data: RotateGitHubAppKeyRequest}, TContext> => {
+
+const mutationKey = ['adminRotateGithubAppKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRotateGithubAppKey>>, {githubAppKey: string;data: RotateGitHubAppKeyRequest}> = (props) => {
+          const {githubAppKey,data} = props ?? {};
+
+          return  adminRotateGithubAppKey(githubAppKey,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRotateGithubAppKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminRotateGithubAppKey>>>
+    export type AdminRotateGithubAppKeyMutationBody = RotateGitHubAppKeyRequest
+    export type AdminRotateGithubAppKeyMutationError = ErrorType<ErrorBody>
+
+    export const useAdminRotateGithubAppKey = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRotateGithubAppKey>>, TError,{githubAppKey: string;data: RotateGitHubAppKeyRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof adminRotateGithubAppKey>>,
+        TError,
+        {githubAppKey: string;data: RotateGitHubAppKeyRequest},
+        TContext
+      > => {
+      return useMutation(getAdminRotateGithubAppKeyMutationOptions(options), queryClient);
+    }
+    export type adminGetGlobalGithubInstallationResponse200 = {
   data: GitHubInstallationBindingResponse
   status: 200
 }

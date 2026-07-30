@@ -586,7 +586,10 @@ pub struct AuthConfig {
     pub github_app_default_installation_id: Option<u64>,
 
     /// Additional GitHub Apps registered as bot identities (e.g. `dev-bot`,
-    /// `review-bot`). Loaded from the `GITHUB_APPS_JSON` env var which holds a
+    /// `review-bot`). Loaded from the `GITHUB_APPS_JSON` env var, which is now
+    /// a one-time upgrade path only: the first start after upgrading copies
+    /// each entry into `github_apps` and the variable is ignored from then on
+    /// (see `GitHubAppRegistry::carry_over_env_apps`). It holds a
     /// JSON array of [`GitHubAppConfig`] entries. A bot user's
     /// `provider_tokens` row stores the matching `key` in `provider_user_id`,
     /// so credential resolution picks the right App.

@@ -121,6 +121,23 @@ A configured, credentialed installation of an Adapter (webhook secret, transport
 config). Stored in the `integration_connections` table.
 _Avoid_: integration connection (the table name), bare "connection"
 
+**GitHub App**:
+A machine identity registered at GitHub, holding a signing key this installation
+stores, from which short-lived tokens are minted per account it is installed on.
+One is configured by the deployment and used for signing in; the rest are
+registered by admins so work can run as a bot. Referenced by its App key — the
+short stable name chosen at registration, which an Adapter connection and a Bot
+user both point at.
+_Avoid_: bare "app", integration, GitHub App connection. Never a bare "key" for
+the identifier — that already means a Secret's name and an API key.
+
+**Bot user**:
+A user representing a GitHub App's bot identity, which work is attributed to. It
+never signs in and holds no personal credential; its usable token is minted from
+its App on demand, and its name and address are what commits, pull requests and
+comments carry.
+_Avoid_: service account, machine user, bare "bot"
+
 **Binding**:
 The live tie between a Task and an external subject — a GitHub PR, a Slack thread,
 or a Linear issue — reached through an Adapter. Tracks the subject and whether

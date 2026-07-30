@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::super::capabilities::{Adapter, AdapterIdentity};
 use super::Adapters;
 use crate::adapters::error::AdapterError;
-use crate::auth::github_app_registry::GitHubAppRegistry;
+use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::test_support::StubProviderTokens;
 use crate::db::DbPool;
 use moatless_api_schemas::enums::AdapterKind;

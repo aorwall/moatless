@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
+use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::config::{
     AuthConfig, AuthProvider, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig,
     GithubPrConfig, LinearConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
@@ -312,7 +312,16 @@ pub fn test_app_state_with_adapters(
     adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
 ) -> AppState {
     let config = test_config();
-    let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
+    let github_apps = Arc::new(GitHubAppRegistry::new(
+        moatless_vibe_backend::auth::github::service::GitHubAppService::from_config(&config)
+            .map(Arc::new),
+        Some(Arc::new(
+            moatless_vibe_backend::auth::github::store::PgGitHubAppStore(pool.clone()),
+        )),
+        moatless_vibe_backend::secret::service::LocalEnvelopeSecretCipher::from_config(
+            &config.secrets,
+        ),
+    ));
     let connector: Arc<dyn SandboxConnector> = Arc::new(MockSandboxConnector);
     let lifecycle = build_lifecycle(
         pool.clone(),

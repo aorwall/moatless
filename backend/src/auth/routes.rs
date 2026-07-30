@@ -26,8 +26,8 @@ use super::api_keys::ApiKeyRepository;
 use super::cache::AuthCache;
 use super::cookie;
 use super::error::AuthError;
-use super::github_app_registry::GitHubAppRegistry;
-use super::github_app_service::GitHubAppService;
+use super::github::registry::GitHubAppRegistry;
+use super::github::service::GitHubAppService;
 use super::identity::AuthIdentity;
 use super::jwt::{self, SessionClaims};
 use super::models::UserRole;
@@ -155,7 +155,13 @@ impl AuthState {
         let cache = AuthCache::new(config.auth.cache_ttl_secs);
         let tasks: Option<Arc<dyn crate::task::dao::TaskRepository>> =
             Some(Arc::new(crate::task::dao::PgTaskRepository(pool.clone())));
-        let github_apps = Arc::new(GitHubAppRegistry::from_config(&config));
+        let github_apps = Arc::new(GitHubAppRegistry::new(
+            super::github::service::GitHubAppService::from_config(&config).map(Arc::new),
+            Some(Arc::new(super::github::store::PgGitHubAppStore(
+                pool.clone(),
+            ))),
+            crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
+        ));
         let github_app_service = github_apps.default_service();
         let secrets = Arc::new(SecretService::new(
             Arc::new(crate::secret::dao::PgSecretRepository(pool.clone())),
@@ -1793,12 +1799,7 @@ async fn create_user_handler(
     let app_key = req.github_app_key.as_deref().ok_or_else(|| {
         AuthError::BadRequest("githubAppKey is required when isBot is true".into())
     })?;
-    let app = state.github_apps.get(app_key).ok_or_else(|| {
-        AuthError::BadRequest(format!(
-            "Unknown github_app key '{app_key}'. Configured keys: {:?}",
-            state.github_apps.keys()
-        ))
-    })?;
+    let app = state.github_apps.require(app_key).await?;
     let bot_identity = app
         .get_bot_identity()
         .await

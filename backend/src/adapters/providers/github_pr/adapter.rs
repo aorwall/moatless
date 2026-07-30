@@ -16,8 +16,8 @@ use crate::adapters::{
     AdapterReactions, AdapterUserIdentity, BindingDestination,
 };
 use crate::auth::credentials::resolve_user_github_token;
-use crate::auth::github_app_registry::GitHubAppRegistry;
-use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::github::registry::GitHubAppRegistry;
+use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 use crate::bindings::dao::PgTaskBindingRepository;

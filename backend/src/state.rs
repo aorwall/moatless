@@ -9,8 +9,8 @@ use crate::adapters::dao::{AdapterConnectionRepository, PgAdapterConnectionRepos
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::Adapters;
-use crate::auth::github_app_registry::GitHubAppRegistry;
-use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::github::registry::GitHubAppRegistry;
+use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
@@ -85,7 +85,7 @@ pub struct AppState {
     /// through `github_apps` instead.
     pub github_app_service: Option<Arc<GitHubAppService>>,
     /// Registry of all configured GitHub Apps (the default user-auth App plus
-    /// any additional bot Apps from `GITHUB_APPS_JSON`). Bot users' provider
+    /// any admin-registered bot Apps, read from storage). Bot users' provider
     /// tokens reference an App by `key` (stored in `provider_user_id`).
     pub github_apps: Arc<GitHubAppRegistry>,
     /// Generic credential service — serializes refreshes per `(user, key)` and

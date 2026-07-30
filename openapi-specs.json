@@ -1526,6 +1526,216 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_register_github_app",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterGitHubAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "App proved against GitHub and registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppRegistrationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The App could not be proved, or the name is unusable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "That name is already in use",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/settings/github/apps/{github_app_key}": {
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_remove_github_app",
+        "parameters": [
+          {
+            "name": "github_app_key",
+            "in": "path",
+            "description": "App name chosen at registration",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "App removed installation-wide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveGitHubAppResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No App is registered under that name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/settings/github/apps/{github_app_key}/key": {
+      "put": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_rotate_github_app_key",
+        "parameters": [
+          {
+            "name": "github_app_key",
+            "in": "path",
+            "description": "App name chosen at registration",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateGitHubAppKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "New key proved and stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAppRegistrationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The new key could not be proved; the App is unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No App is registered under that name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/settings/github/installation": {
@@ -10531,6 +10741,24 @@
           "installations"
         ],
         "properties": {
+          "botLogin": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The bot login this App would have, as GitHub reported it when the App\nwas last proved."
+          },
+          "botUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Bot user staffing this App, when one has been created."
+          },
+          "deploymentConfigured": {
+            "type": "boolean",
+            "description": "True for the App the deployment configures for signing in. It is listed\nso admins can see it, and it cannot be rotated or removed from here."
+          },
           "githubAppKey": {
             "type": "string"
           },
@@ -10543,7 +10771,49 @@
               "$ref": "#/components/schemas/GitHubInstallationOption"
             }
           },
+          "keyFingerprint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Short digest of the stored signing key. Enough to tell two keys apart;\nthe key itself is never returned. Absent for the login App, whose key\nis not stored."
+          },
           "name": {
+            "type": "string"
+          }
+        }
+      },
+      "GitHubAppRegistrationResponse": {
+        "type": "object",
+        "description": "What GitHub confirmed about an App that was just registered or rotated.",
+        "required": [
+          "githubAppKey",
+          "appId",
+          "name",
+          "slug",
+          "botLogin",
+          "keyFingerprint"
+        ],
+        "properties": {
+          "appId": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "botLogin": {
+            "type": "string",
+            "description": "The bot login this App would have. Creating the Bot user is a separate\nact — an App that only reaches repositories never runs as anyone."
+          },
+          "githubAppKey": {
+            "type": "string"
+          },
+          "keyFingerprint": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
             "type": "string"
           }
         }
@@ -12126,6 +12396,57 @@
           }
         }
       },
+      "RegisterGitHubAppRequest": {
+        "type": "object",
+        "required": [
+          "githubAppKey",
+          "appId",
+          "privateKeyPem"
+        ],
+        "properties": {
+          "appId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "GitHub's own numeric id for the App.",
+            "minimum": 0
+          },
+          "defaultInstallationId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "githubAppKey": {
+            "type": "string",
+            "description": "Short stable name the App will be known by, chosen at registration."
+          },
+          "privateKeyPem": {
+            "type": "string",
+            "description": "PEM-encoded signing key. Proved against GitHub before anything is\nstored, and never returned by any read path afterwards."
+          }
+        }
+      },
+      "RemoveGitHubAppResponse": {
+        "type": "object",
+        "required": [
+          "githubAppKey",
+          "orphanedBotUsers"
+        ],
+        "properties": {
+          "githubAppKey": {
+            "type": "string"
+          },
+          "orphanedBotUsers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Bot users that named this App and can no longer obtain a token. They\nare left in place so past work stays attributed, and named here so the\nconsequence is not silent."
+          }
+        }
+      },
       "ReplyTargetDescriptor": {
         "type": "object",
         "description": "One outbound destination returned by task reply APIs.",
@@ -12569,6 +12890,18 @@
           },
           "uuid": {
             "type": "string"
+          }
+        }
+      },
+      "RotateGitHubAppKeyRequest": {
+        "type": "object",
+        "required": [
+          "privateKeyPem"
+        ],
+        "properties": {
+          "privateKeyPem": {
+            "type": "string",
+            "description": "The replacement signing key. Proved before the stored one is replaced,\nso a bad key leaves the App exactly as it was."
           }
         }
       },

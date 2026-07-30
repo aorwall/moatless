@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::auth::github_app_registry::GitHubAppRegistry;
+use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::provider_token_dao::{PgProviderTokenRepository, ProviderTokenRepository};
 use crate::auth::provider_tokens::{PgProviderTokenAuthRepository, ProviderTokenAuthRepository};
 use crate::auth::users::{PgUserRepository, UserRepository};
@@ -311,7 +311,15 @@ pub fn spawn_grpc_server(
     let s3_key_prefix = config.s3.key_prefix.clone();
     let transcript_s3_prefix = config.s3.transcript_prefix.clone();
     let workspace_s3_prefix = config.s3.workspace_prefix.clone();
-    let github_apps = Arc::new(GitHubAppRegistry::from_config(config));
+    let github_app_store: Option<Arc<dyn crate::auth::github::store::GitHubAppStore>> = db_pool
+        .map(|pool| {
+            Arc::new(crate::auth::github::store::PgGitHubAppStore(pool.clone())) as _
+        });
+    let github_apps = Arc::new(GitHubAppRegistry::new(
+        crate::auth::github::service::GitHubAppService::from_config(config).map(Arc::new),
+        github_app_store,
+        LocalEnvelopeSecretCipher::from_config(&config.secrets),
+    ));
     let github_app_service = github_apps.default_service();
     let provider_token_auth: Option<Arc<dyn ProviderTokenAuthRepository>> =
         db_pool.map(|pool| Arc::new(PgProviderTokenAuthRepository(pool.clone())) as _);

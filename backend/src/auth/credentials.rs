@@ -14,8 +14,8 @@
 use tracing::warn;
 
 use super::error::AuthError;
-use super::github_app_registry::GitHubAppRegistry;
-use super::github_app_service::GitHubAppService;
+use super::github::registry::GitHubAppRegistry;
+use super::github::service::GitHubAppService;
 use super::models::ProviderToken;
 use super::provider_token_dao::ProviderTokenRepository;
 use super::provider_tokens::{
@@ -427,7 +427,7 @@ async fn mint_installation_token(
                 "Cannot mint repository-restricted installation token for '{owner}': no repository name in context"
             ))
         })?;
-        let app = github_apps.get(app_key).ok_or_else(|| {
+        let app = github_apps.get(app_key).await?.ok_or_else(|| {
             AuthError::Config(format!(
                 "Unknown GitHub App key '{app_key}' in installation binding"
             ))
@@ -437,7 +437,7 @@ async fn mint_installation_token(
             .await;
     }
 
-    let app = github_apps.get(app_key).ok_or_else(|| {
+    let app = github_apps.get(app_key).await?.ok_or_else(|| {
         AuthError::Config(format!(
             "Bot user '{}' references unknown GitHub App key '{app_key}'",
             row.user_id

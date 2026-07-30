@@ -8,8 +8,29 @@
 import type { GitHubInstallationOption } from './gitHubInstallationOption';
 
 export interface GitHubAppOption {
+  /**
+   * The bot login this App would have, as GitHub reported it when the App
+was last proved.
+   * @nullable
+   */
+  botLogin?: string | null;
+  /**
+   * The Bot user staffing this App, when one has been created.
+   * @nullable
+   */
+  botUserId?: string | null;
+  /** True for the App the deployment configures for signing in. It is listed
+so admins can see it, and it cannot be rotated or removed from here. */
+  deploymentConfigured?: boolean;
   githubAppKey: string;
   installUrl: string;
   installations: GitHubInstallationOption[];
+  /**
+   * Short digest of the stored signing key. Enough to tell two keys apart;
+the key itself is never returned. Absent for the login App, whose key
+is not stored.
+   * @nullable
+   */
+  keyFingerprint?: string | null;
   name: string;
 }

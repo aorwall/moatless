@@ -8,7 +8,7 @@ use chrono::Utc;
 use tracing::{info, warn};
 
 use crate::auth::error::AuthError;
-use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::ProviderTokenAuthRepository;
 

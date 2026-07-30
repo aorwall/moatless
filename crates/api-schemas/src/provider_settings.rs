@@ -64,6 +64,22 @@ pub struct GitHubAppOption {
     pub name: String,
     pub install_url: String,
     pub installations: Vec<GitHubInstallationOption>,
+    /// True for the App the deployment configures for signing in. It is listed
+    /// so admins can see it, and it cannot be rotated or removed from here.
+    #[serde(default)]
+    pub deployment_configured: bool,
+    /// Short digest of the stored signing key. Enough to tell two keys apart;
+    /// the key itself is never returned. Absent for the login App, whose key
+    /// is not stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_fingerprint: Option<String>,
+    /// The bot login this App would have, as GitHub reported it when the App
+    /// was last proved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_login: Option<String>,
+    /// The Bot user staffing this App, when one has been created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_user_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,6 +87,56 @@ pub struct GitHubAppOption {
 #[serde(rename_all = "camelCase")]
 pub struct GitHubAppsResponse {
     pub apps: Vec<GitHubAppOption>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterGitHubAppRequest {
+    /// Short stable name the App will be known by, chosen at registration.
+    pub github_app_key: String,
+    /// GitHub's own numeric id for the App.
+    pub app_id: u64,
+    /// PEM-encoded signing key. Proved against GitHub before anything is
+    /// stored, and never returned by any read path afterwards.
+    pub private_key_pem: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_installation_id: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RotateGitHubAppKeyRequest {
+    /// The replacement signing key. Proved before the stored one is replaced,
+    /// so a bad key leaves the App exactly as it was.
+    pub private_key_pem: String,
+}
+
+/// What GitHub confirmed about an App that was just registered or rotated.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubAppRegistrationResponse {
+    pub github_app_key: String,
+    pub app_id: u64,
+    pub name: String,
+    pub slug: String,
+    /// The bot login this App would have. Creating the Bot user is a separate
+    /// act — an App that only reaches repositories never runs as anyone.
+    pub bot_login: String,
+    pub key_fingerprint: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveGitHubAppResponse {
+    pub github_app_key: String,
+    /// Bot users that named this App and can no longer obtain a token. They
+    /// are left in place so past work stays attributed, and named here so the
+    /// consequence is not silent.
+    pub orphaned_bot_users: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

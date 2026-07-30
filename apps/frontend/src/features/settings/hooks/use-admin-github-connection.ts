@@ -1,6 +1,10 @@
 import type {
+  CreateUserResponse,
+  GitHubAppRegistrationResponse,
   GitHubInstallationBindingRequest,
   GitHubInstallationBindingResponse,
+  RegisterGitHubAppRequest,
+  RemoveGitHubAppResponse,
 } from '@moatless/api-client/sandbox/model'
 import {
   type QueryClient,
@@ -53,6 +57,68 @@ export function useSaveAdminGitHubInstallation(
   return useMutation({
     ...options,
     mutationFn: (request) => adminGithubConnectionApi.saveGlobalInstallation(request),
+    onSuccess: async (...args) => {
+      await invalidate()
+      await options?.onSuccess?.(...args)
+    },
+  })
+}
+
+export function useRegisterAdminGitHubApp(
+  options?: UseMutationOptions<GitHubAppRegistrationResponse, ApiError, RegisterGitHubAppRequest>,
+) {
+  const invalidate = useInvalidateGitHubInstallation()
+  return useMutation({
+    ...options,
+    mutationFn: (request) => adminGithubConnectionApi.registerApp(request),
+    onSuccess: async (...args) => {
+      await invalidate()
+      await options?.onSuccess?.(...args)
+    },
+  })
+}
+
+export function useRotateAdminGitHubAppKey(
+  options?: UseMutationOptions<
+    GitHubAppRegistrationResponse,
+    ApiError,
+    { githubAppKey: string; privateKeyPem: string }
+  >,
+) {
+  const invalidate = useInvalidateGitHubInstallation()
+  return useMutation({
+    ...options,
+    mutationFn: ({ githubAppKey, privateKeyPem }) =>
+      adminGithubConnectionApi.rotateAppKey(githubAppKey, { privateKeyPem }),
+    onSuccess: async (...args) => {
+      await invalidate()
+      await options?.onSuccess?.(...args)
+    },
+  })
+}
+
+export function useRemoveAdminGitHubApp(
+  options?: UseMutationOptions<RemoveGitHubAppResponse, ApiError, string>,
+) {
+  const invalidate = useInvalidateGitHubInstallation()
+  return useMutation({
+    ...options,
+    mutationFn: (githubAppKey) => adminGithubConnectionApi.removeApp(githubAppKey),
+    onSuccess: async (...args) => {
+      await invalidate()
+      await options?.onSuccess?.(...args)
+    },
+  })
+}
+
+// Staff a registered App with its Bot user, so work can be attributed to it.
+export function useCreateAdminGitHubBotUser(
+  options?: UseMutationOptions<CreateUserResponse, ApiError, string>,
+) {
+  const invalidate = useInvalidateGitHubInstallation()
+  return useMutation({
+    ...options,
+    mutationFn: (githubAppKey) => adminGithubConnectionApi.createBotUser(githubAppKey),
     onSuccess: async (...args) => {
       await invalidate()
       await options?.onSuccess?.(...args)

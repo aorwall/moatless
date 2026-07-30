@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::auth::github_app_registry::GitHubAppRegistry;
+use crate::auth::github::registry::GitHubAppRegistry;
 use crate::db::DbPool;
 
 use super::Adapters;

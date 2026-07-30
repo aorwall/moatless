@@ -33,7 +33,7 @@ use moatless_vibe_backend::adapters::github_pr::adapter::{
     resolve_and_process_github_webhook, GithubPrAdapter, GithubWebhookOutcome,
 };
 use moatless_vibe_backend::adapters::github_pr::delivery::kind;
-use moatless_vibe_backend::auth::github_app_registry::GitHubAppRegistry;
+use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::auth::provider_token_dao::PgProviderTokenRepository;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::state::AppState;
@@ -69,7 +69,14 @@ fn replica(pool: &PgPool) -> (AppState, GithubPrAdapter) {
         Arc::new(PgProviderTokenRepository(pool.clone())),
         None,
         None,
-        Arc::new(GitHubAppRegistry::from_config(&test_config())),
+        Arc::new(GitHubAppRegistry::new(
+            moatless_vibe_backend::auth::github::service::GitHubAppService::from_config(
+                &test_config(),
+            )
+            .map(Arc::new),
+            None,
+            None,
+        )),
     );
     (state, adapter)
 }

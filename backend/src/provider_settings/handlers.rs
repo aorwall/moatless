@@ -1,11 +1,18 @@
 //! Provider settings HTTP handlers (GitHub, Gitness, Codex).
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use axum::extract::State;
 use axum::Json;
 
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
 use crate::adapters::models::AdapterConnection;
+use crate::auth::github::service::GitHubAppService;
+use crate::auth::github::store::{
+    GitHubAppAuditEntry, GitHubAppRecord, GitHubAppStore, NewGitHubApp,
+};
 use crate::auth::credentials::{
     read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
 };
@@ -20,6 +27,7 @@ use crate::credentials::WriteSource;
 use crate::extractors::AuthUser;
 use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
+use crate::secret::service::SecretCipher;
 use crate::secret::schemas::PutSecretRequest;
 use crate::state::AppState;
 
@@ -152,13 +160,10 @@ async fn save_installation_binding(
     req: GitHubInstallationBindingRequest,
     created_by: &str,
 ) -> Result<GitHubInstallationBindingResponse, ProviderSettingsError> {
-    let app = state.github_apps.get(&req.github_app_key).ok_or_else(|| {
-        ProviderSettingsError::BadRequest(format!(
-            "Unknown GitHub App key '{}'. Configured keys: {:?}",
-            req.github_app_key,
-            state.github_apps.keys()
-        ))
-    })?;
+    let app = state
+        .github_apps
+        .require(&req.github_app_key)
+        .await?;
     let installation = app
         .get_installation(req.installation_id)
         .await
@@ -281,8 +286,23 @@ pub async fn admin_list_github_apps(
 ) -> Result<Json<GitHubAppsResponse>, ProviderSettingsError> {
     require_admin(&auth, "read")?;
 
+    let entries = state.github_apps.entries().await?;
+    // Whatever the registry holds that storage does not know about is the
+    // deployment-configured login App — the one row this page cannot edit.
+    let stored_apps: HashMap<String, GitHubAppRecord> =
+        match state.github_apps.store() {
+            Some(store) => store
+                .list()
+                .await?
+                .into_iter()
+                .map(|record| (record.app_key.clone(), record))
+                .collect(),
+            None => HashMap::new(),
+        };
+    let bot_users = bot_users_by_app_key(&state.db).await?;
+
     let mut apps = Vec::new();
-    for (github_app_key, app) in state.github_apps.entries() {
+    for (github_app_key, app) in entries {
         let (name, install_url) = app
             .app_listing()
             .await
@@ -298,14 +318,385 @@ pub async fn admin_list_github_apps(
                 account_type: installation.account.account_type,
             })
             .collect();
+        let stored = stored_apps.get(&github_app_key);
         apps.push(GitHubAppOption {
-            github_app_key,
+            github_app_key: github_app_key.clone(),
             name,
             install_url,
             installations,
+            deployment_configured: stored.is_none(),
+            key_fingerprint: stored.map(|record| record.key_fingerprint.clone()),
+            bot_login: stored.map(|record| record.bot_login.clone()),
+            bot_user_id: bot_users.get(&github_app_key).cloned(),
         });
     }
     Ok(Json(GitHubAppsResponse { apps }))
+}
+
+/// Bot user id per App key, for every App that has been staffed.
+///
+/// Bot user creation writes the App key into the user's provider identity as
+/// `bot:<key>`, so this is the whole relation — there is no join to make.
+async fn bot_users_by_app_key(
+    db: &crate::db::DbPool,
+) -> Result<HashMap<String, String>, ProviderSettingsError> {
+    let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+        "SELECT id, provider_user_id FROM users \
+         WHERE is_bot = true AND provider_user_id LIKE 'bot:%'",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, provider_user_id)| {
+            provider_user_id
+                .strip_prefix("bot:")
+                .map(|app_key| (app_key.to_string(), id.to_string()))
+        })
+        .collect())
+}
+
+/// The durable store and the cipher an App's signing key is sealed with.
+type AppAdministration<'a> = (&'a Arc<dyn GitHubAppStore>, &'a Arc<dyn SecretCipher>);
+
+/// Everything needed to register or rotate an App: the durable store and the
+/// cipher its signing key is sealed with.
+///
+/// Both are absent on an installation with no database or no encryption
+/// configured. Refusing here, by name, is the whole answer to open question 1:
+/// such an installation starts and serves normally, and says plainly why it
+/// cannot store an App the moment someone tries.
+fn app_administration(state: &AppState) -> Result<AppAdministration<'_>, ProviderSettingsError> {
+    let registry = &state.github_apps;
+    let (Some(store), Some(cipher)) = (registry.store(), registry.cipher()) else {
+        return Err(ProviderSettingsError::BadRequest(
+            "This installation cannot store GitHub Apps: it has no encryption configured. \
+             Set SECRETS_ENCRYPTION_KEY and try again."
+                .to_string(),
+        ));
+    };
+    Ok((store, cipher))
+}
+
+/// The App key names the App everywhere — in bot user identities, in Adapter
+/// connection configuration, in Loop configuration — so it is constrained to
+/// what all of those can carry, and matches the storage constraint exactly.
+fn validate_app_key(app_key: &str) -> Result<(), ProviderSettingsError> {
+    if app_key == GitHubAppService::DEFAULT_KEY {
+        return Err(ProviderSettingsError::BadRequest(format!(
+            "'{}' names the App this deployment signs in with and cannot be registered",
+            GitHubAppService::DEFAULT_KEY
+        )));
+    }
+    let valid = !app_key.is_empty()
+        && app_key.len() <= 64
+        && app_key.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && app_key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !valid {
+        return Err(ProviderSettingsError::BadRequest(format!(
+            "'{app_key}' is not a usable App name: use letters, digits, '-' and '_', \
+             starting with a letter or digit, at most 64 characters"
+        )));
+    }
+    Ok(())
+}
+
+/// Prove a signing key against GitHub, as the App id given.
+///
+/// Nothing is stored until this returns. The messages are the admin-facing
+/// ones: which part failed, and that nothing was kept.
+async fn prove_signing_key(
+    app_key: &str,
+    app_id: u64,
+    private_key_pem: &str,
+    default_installation_id: Option<u64>,
+) -> Result<crate::auth::github::service::ProvedApp, ProviderSettingsError> {
+    let entry = crate::config::GitHubAppConfig {
+        key: app_key.to_string(),
+        app_id,
+        private_key: private_key_pem.to_string(),
+        client_id: None,
+        client_secret: None,
+        default_installation_id,
+    };
+    let service = GitHubAppService::from_app_config(&entry).ok_or_else(|| {
+        ProviderSettingsError::BadRequest(
+            "The signing key could not be read as a private key. Nothing was stored.".to_string(),
+        )
+    })?;
+    Ok(service.prove().await?)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/settings/github/apps",
+    tag = "provider-settings",
+    request_body = RegisterGitHubAppRequest,
+    responses(
+        (status = 201, description = "App proved against GitHub and registered", body = GitHubAppRegistrationResponse),
+        (status = 400, description = "The App could not be proved, or the name is unusable", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
+        (status = 409, description = "That name is already in use", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_register_github_app(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(req): Json<RegisterGitHubAppRequest>,
+) -> Result<(axum::http::StatusCode, Json<GitHubAppRegistrationResponse>), ProviderSettingsError> {
+    require_admin(&auth, "register")?;
+    let (store, cipher) = app_administration(&state)?;
+    let actor = auth.user_id.to_string();
+    validate_app_key(&req.github_app_key)
+        .map_err(|e| audit_refusal(store, &req.github_app_key, &actor, "register", e))?;
+
+    let proved = match prove_signing_key(
+        &req.github_app_key,
+        req.app_id,
+        &req.private_key_pem,
+        req.default_installation_id,
+    )
+    .await
+    {
+        Ok(proved) => proved,
+        Err(e) => return Err(audit_refusal(store, &req.github_app_key, &actor, "register", e)),
+    };
+
+    let record = GitHubAppRecord::seal(
+        NewGitHubApp {
+            app_key: req.github_app_key.clone(),
+            app_id: proved.app_id,
+            name: proved.name.clone(),
+            slug: proved.slug.clone(),
+            bot_login: proved.bot_login.clone(),
+            private_key_pem: req.private_key_pem,
+            default_installation_id: req.default_installation_id,
+        },
+        cipher.as_ref(),
+        None,
+    )?;
+    if let Err(e) = store.insert(&record, &actor).await {
+        return Err(audit_refusal(
+            store,
+            &req.github_app_key,
+            &actor,
+            "register",
+            e.into(),
+        ));
+    }
+    record_app_audit(store.as_ref(), Some(&record.id), &req.github_app_key, &actor, "register", "ok", None)
+        .await;
+
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(GitHubAppRegistrationResponse {
+            github_app_key: req.github_app_key,
+            app_id: proved.app_id,
+            name: proved.name,
+            slug: proved.slug,
+            bot_login: proved.bot_login,
+            key_fingerprint: record.key_fingerprint,
+        }),
+    ))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/settings/github/apps/{github_app_key}/key",
+    tag = "provider-settings",
+    params(("github_app_key" = String, Path, description = "App name chosen at registration")),
+    request_body = RotateGitHubAppKeyRequest,
+    responses(
+        (status = 200, description = "New key proved and stored", body = GitHubAppRegistrationResponse),
+        (status = 400, description = "The new key could not be proved; the App is unchanged", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
+        (status = 404, description = "No App is registered under that name", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_rotate_github_app_key(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    axum::extract::Path(github_app_key): axum::extract::Path<String>,
+    Json(req): Json<RotateGitHubAppKeyRequest>,
+) -> Result<Json<GitHubAppRegistrationResponse>, ProviderSettingsError> {
+    require_admin(&auth, "rotate a key for")?;
+    let (store, cipher) = app_administration(&state)?;
+    let actor = auth.user_id.to_string();
+
+    let existing = store
+        .find_by_key(&github_app_key)
+        .await?
+        .ok_or_else(|| not_registered(&github_app_key))?;
+
+    // Proved as the App id already on record: a rotation replaces a key, never
+    // repoints the name at a different App.
+    let proved = match prove_signing_key(
+        &github_app_key,
+        existing.app_id,
+        &req.private_key_pem,
+        existing.default_installation_id,
+    )
+    .await
+    {
+        Ok(proved) => proved,
+        Err(e) => return Err(audit_refusal(store, &github_app_key, &actor, "rotate", e)),
+    };
+
+    let record = GitHubAppRecord::seal(
+        NewGitHubApp {
+            app_key: github_app_key.clone(),
+            app_id: proved.app_id,
+            name: proved.name.clone(),
+            slug: proved.slug.clone(),
+            bot_login: proved.bot_login.clone(),
+            private_key_pem: req.private_key_pem,
+            default_installation_id: existing.default_installation_id,
+        },
+        cipher.as_ref(),
+        Some(existing.id.clone()),
+    )?;
+    if !store.replace(&record, &actor).await? {
+        return Err(not_registered(&github_app_key));
+    }
+    // This backend would otherwise serve its own tokens from the old key until
+    // it next noticed the revision move.
+    state.github_apps.forget(&github_app_key).await;
+    record_app_audit(store.as_ref(), Some(&record.id), &github_app_key, &actor, "rotate", "ok", None)
+        .await;
+
+    Ok(Json(GitHubAppRegistrationResponse {
+        github_app_key,
+        app_id: proved.app_id,
+        name: proved.name,
+        slug: proved.slug,
+        bot_login: proved.bot_login,
+        key_fingerprint: record.key_fingerprint,
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/settings/github/apps/{github_app_key}",
+    tag = "provider-settings",
+    params(("github_app_key" = String, Path, description = "App name chosen at registration")),
+    responses(
+        (status = 200, description = "App removed installation-wide", body = RemoveGitHubAppResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
+        (status = 404, description = "No App is registered under that name", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_remove_github_app(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    axum::extract::Path(github_app_key): axum::extract::Path<String>,
+) -> Result<Json<RemoveGitHubAppResponse>, ProviderSettingsError> {
+    require_admin(&auth, "remove")?;
+    let (store, _) = app_administration(&state)?;
+    let actor = auth.user_id.to_string();
+
+    let existing = store
+        .find_by_key(&github_app_key)
+        .await?
+        .ok_or_else(|| not_registered(&github_app_key))?;
+
+    // Bot users are left in place: past work is attributed to them, and
+    // deleting the identity would make that history unreadable. What they lose
+    // is the ability to obtain a token, so they are named in the response
+    // rather than quietly broken.
+    let orphaned_bot_users: Vec<String> = bot_users_by_app_key(&state.db)
+        .await?
+        .remove(&github_app_key)
+        .into_iter()
+        .collect();
+
+    if !store.delete(&github_app_key).await? {
+        return Err(not_registered(&github_app_key));
+    }
+    state.github_apps.forget(&github_app_key).await;
+    record_app_audit(
+        store.as_ref(),
+        Some(&existing.id),
+        &github_app_key,
+        &actor,
+        "remove",
+        "ok",
+        (!orphaned_bot_users.is_empty())
+            .then(|| format!("{} bot user(s) left without a key", orphaned_bot_users.len()))
+            .as_deref(),
+    )
+    .await;
+
+    Ok(Json(RemoveGitHubAppResponse {
+        github_app_key,
+        orphaned_bot_users,
+    }))
+}
+
+fn not_registered(app_key: &str) -> ProviderSettingsError {
+    ProviderSettingsError::NotFound(format!("No GitHub App is registered as '{app_key}'"))
+}
+
+/// Record a refused administration attempt and hand the error back unchanged.
+///
+/// A refusal is as much a thing an admin did as a success, and the failures
+/// worth reviewing later — a key that GitHub would not accept, a name already
+/// taken — only exist as refusals.
+fn audit_refusal(
+    store: &Arc<dyn GitHubAppStore>,
+    app_key: &str,
+    actor_id: &str,
+    action: &str,
+    error: ProviderSettingsError,
+) -> ProviderSettingsError {
+    let store = Arc::clone(store);
+    let (app_key, actor_id, action, detail) = (
+        app_key.to_string(),
+        actor_id.to_string(),
+        action.to_string(),
+        error.to_string(),
+    );
+    tokio::spawn(async move {
+        record_app_audit(store.as_ref(), None, &app_key, &actor_id, &action, "refused", Some(&detail))
+            .await;
+    });
+    error
+}
+
+/// Write an audit row, or log why it could not be written.
+///
+/// A failed audit write never fails the operation it describes: the App has
+/// already been stored or refused by this point, and turning a bookkeeping
+/// failure into a 500 would leave the admin unsure which happened.
+async fn record_app_audit(
+    store: &dyn GitHubAppStore,
+    github_app_id: Option<&str>,
+    app_key: &str,
+    actor_id: &str,
+    action: &str,
+    result: &str,
+    detail: Option<&str>,
+) {
+    let entry = GitHubAppAuditEntry {
+        github_app_id,
+        app_key,
+        actor_id,
+        action,
+        result,
+        detail,
+    };
+    if let Err(e) = store.record_audit(entry).await {
+        tracing::warn!(
+            app_key = %app_key,
+            action = %action,
+            error = %e,
+            "Could not record GitHub App audit event"
+        );
+    }
 }
 
 #[utoipa::path(

@@ -142,10 +142,16 @@ enum SharedCommands {
         #[command(subcommand)]
         action: commands::users::UserAction,
     },
-    /// Bot user management — provision users backed by a configured GitHub App.
+    /// Bot user management — provision users backed by a registered GitHub App.
     Bot {
         #[command(subcommand)]
         action: commands::bots::BotAction,
+    },
+    /// GitHub App administration — register, rotate a signing key, remove.
+    #[command(name = "github-app")]
+    GithubApp {
+        #[command(subcommand)]
+        action: commands::github_apps::GitHubAppAction,
     },
     /// Send a message — drive a task, DM a user, or pass through an adapter
     /// destination (Slack channel/DM/thread, Linear issue, ...). Replies and
@@ -454,6 +460,9 @@ async fn run_shared(
         }
         SharedCommands::Bot { action } => {
             commands::bots::run(moat, action, json).await?;
+        }
+        SharedCommands::GithubApp { action } => {
+            commands::github_apps::run(moat, action, json).await?;
         }
         SharedCommands::Send(args) => {
             commands::send::run(moat, *args, cfg, json).await?;

@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::auth::error::AuthError;
+use crate::auth::github::store::GitHubAppRecord;
 use crate::auth::models::OAuthTokens;
 use crate::config::{Config, GitHubAppConfig};
 
@@ -100,8 +101,20 @@ pub struct InstallationAccount {
 struct AppMetadata {
     slug: String,
     #[serde(default)]
-    #[allow(dead_code)]
     name: Option<String>,
+    /// GitHub's numeric id for the App the signing key actually belongs to.
+    /// Absent from older recorded fixtures, which is why it is optional.
+    #[serde(default)]
+    id: Option<u64>,
+}
+
+/// What GitHub confirmed about an App when its signing key was proved.
+#[derive(Clone, Debug)]
+pub struct ProvedApp {
+    pub app_id: u64,
+    pub name: String,
+    pub slug: String,
+    pub bot_login: String,
 }
 
 #[derive(Deserialize)]
@@ -147,6 +160,23 @@ impl GitHubAppService {
             entry.client_id.clone(),
             entry.client_secret.clone(),
             entry.default_installation_id,
+        )
+    }
+
+    /// Create from a stored App registration, whose signing key has already
+    /// been decrypted. A bot App carries no OAuth client credentials: it never
+    /// authorizes a person, so it has nothing to authorize them with.
+    ///
+    /// Returns `None` only when the stored key no longer parses, which means
+    /// the record was written by a version that did not prove keys.
+    pub fn from_record(record: &GitHubAppRecord, private_key_pem: &str) -> Option<Self> {
+        Self::build(
+            record.app_key.clone(),
+            record.app_id,
+            private_key_pem,
+            None,
+            None,
+            record.default_installation_id,
         )
     }
 
@@ -411,6 +441,75 @@ impl GitHubAppService {
         }
         resp.json().await.map_err(|e| {
             AuthError::OAuth(format!("Failed to parse GitHub installation response: {e}"))
+        })
+    }
+
+    /// Prove that this signing key works, and that it belongs to the App the
+    /// admin named.
+    ///
+    /// Run before an App is stored and before a rotated key replaces the one
+    /// in place, so a stored App is always one that has already worked. The
+    /// error messages are the ones an admin reads, so they name which part
+    /// failed and never suggest something was saved.
+    pub async fn prove(&self) -> Result<ProvedApp, AuthError> {
+        let app_jwt = self.generate_app_jwt()?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/app",
+                crate::adapters::github_pr::api::api_base()
+            ))
+            .header("Authorization", format!("Bearer {app_jwt}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "moatless-vibe-backend")
+            .send()
+            .await
+            .map_err(|e| {
+                AuthError::BadRequest(format!(
+                    "GitHub could not be reached, so the App was not stored: {e}"
+                ))
+            })?;
+
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+            || resp.status() == reqwest::StatusCode::FORBIDDEN
+        {
+            return Err(AuthError::BadRequest(
+                "GitHub did not accept this key for this App. Nothing was stored.".to_string(),
+            ));
+        }
+        if !resp.status().is_success() {
+            let status = resp.status();
+            return Err(AuthError::BadRequest(format!(
+                "GitHub refused the request with {status}, so the App was not stored."
+            )));
+        }
+
+        let metadata: AppMetadata = resp.json().await.map_err(|e| {
+            AuthError::BadRequest(format!("GitHub's response could not be read: {e}"))
+        })?;
+
+        // A key that signs successfully still proves nothing about *which*
+        // App it is, and storing it under the wrong id produces a bot that
+        // authenticates as somebody else.
+        if let Some(actual) = metadata.id {
+            if actual != self.app_id {
+                return Err(AuthError::BadRequest(format!(
+                    "This key belongs to a different App — '{}' (id {actual}), not id {}. \
+                     Nothing was stored.",
+                    metadata.name.as_deref().unwrap_or(&metadata.slug),
+                    self.app_id
+                )));
+            }
+        }
+
+        Ok(ProvedApp {
+            app_id: self.app_id,
+            name: metadata
+                .name
+                .clone()
+                .unwrap_or_else(|| metadata.slug.clone()),
+            bot_login: format!("{}[bot]", metadata.slug),
+            slug: metadata.slug,
         })
     }
 

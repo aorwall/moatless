@@ -6,6 +6,7 @@ pub mod docker;
 pub mod events;
 pub mod feedback;
 pub mod gh;
+pub mod github_apps;
 pub mod info;
 pub mod k8s;
 pub mod linear;

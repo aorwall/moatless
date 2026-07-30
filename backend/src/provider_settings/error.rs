@@ -67,6 +67,9 @@ pub enum ProviderSettingsError {
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 
@@ -86,12 +89,32 @@ pub enum ProviderSettingsError {
     Secret(#[from] crate::secret::error::SecretError),
 }
 
+impl From<crate::auth::error::AuthError> for ProviderSettingsError {
+    /// Naming an App that is not registered is the caller's mistake; failing to
+    /// read what *is* registered is ours. Both arrive as an `AuthError`, and
+    /// folding them together would answer "bad gateway" to a typo.
+    fn from(error: crate::auth::error::AuthError) -> Self {
+        use crate::auth::error::AuthError;
+        match error {
+            AuthError::BadRequest(message) => Self::BadRequest(message),
+            AuthError::NotFound(message) => Self::NotFound(message),
+            // A name already in use is an ordinary admin conflict, not a
+            // provider outage — 502 here would send the UI and CLI looking for
+            // a GitHub problem that does not exist.
+            AuthError::Conflict(message) => Self::Conflict(message),
+            AuthError::Forbidden => Self::Forbidden("Access denied".to_string()),
+            other => Self::GitHubApp(other),
+        }
+    }
+}
+
 impl IntoResponse for ProviderSettingsError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
             Self::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
+            Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             Self::Db(e) => {
                 error!(error = %e, "Provider settings database error");
                 (

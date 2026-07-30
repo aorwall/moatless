@@ -100,6 +100,15 @@ impl SecretCipher for PlaintextCipher {
         unimplemented!("PlaintextCipher does not encrypt")
     }
 
+    fn decrypt_value(
+        &self,
+        _aad: &str,
+        value: &EncryptedSecretValue,
+    ) -> Result<String, SecretError> {
+        Ok(String::from_utf8(value.value_ciphertext.clone())
+            .expect("test ciphertext is valid utf8"))
+    }
+
     fn decrypt(&self, record: &SecretRecord) -> Result<String, SecretError> {
         let bytes = record.value_ciphertext.clone().unwrap_or_default();
         Ok(String::from_utf8(bytes).expect("test ciphertext is valid utf8"))

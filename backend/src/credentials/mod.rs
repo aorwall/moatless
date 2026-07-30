@@ -24,7 +24,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use crate::auth::github_app_service::GitHubAppService;
+use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenRepository;
 use crate::auth::provider_tokens::{
     ProviderTokenAuthRepository, AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER,

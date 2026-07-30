@@ -363,8 +363,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(pool) = db_pool {
         // Build the GitHub App registry once and share it between AppState and
         // the adapter layer so they hit the same token cache.
-        let github_apps =
-            Arc::new(crate::auth::github_app_registry::GitHubAppRegistry::from_config(&config));
+        let github_apps = Arc::new(crate::auth::github::registry::GitHubAppRegistry::new(
+            crate::auth::github::service::GitHubAppService::from_config(&config).map(Arc::new),
+            Some(Arc::new(crate::auth::github::store::PgGitHubAppStore(
+                pool.clone(),
+            ))),
+            crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
+        ));
+        // Off the boot path: carrying over proves each App against GitHub, and
+        // the API must not wait on GitHub to start answering.
+        tokio::spawn({
+            let github_apps = github_apps.clone();
+            let entries = config.auth.github_apps.clone();
+            async move { github_apps.carry_over_env_apps(&entries).await }
+        });
         let adapter_registry =
             adapters::Adapters::from_config(&config, pool.clone(), github_apps.clone()).await;
         // The shared lifecycle was built above; it is present whenever the DB is.
