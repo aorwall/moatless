@@ -26,9 +26,9 @@
 # workflow (.github/workflows/build-dev-image.yml), run manually — NOT part of
 # the push-to-main cd-ecr.yml flow.
 #   - FROM the already-published moatless-sandbox image (passed as the
-#     SANDBOX_IMAGE build-arg, tag configurable, defaults to latest) — so the
-#     whole soap sandbox overlay (Rust toolchain, protoc, JDK, kubectl, AWS CLI,
-#     the sandbox/moat binaries) is inherited, not rebuilt.
+#     SANDBOX_IMAGE build-arg, tag configurable, defaults to latest) — so its
+#     tooling (Rust toolchain, protoc, kubectl, AWS CLI, Node/Bun, the
+#     sandbox/moat binaries) is inherited, not rebuilt.
 #   - The BuildKit target cache mount reuses compiled deps run-to-run, so the
 #     one in-image compile stays incremental across CI runs.
 #

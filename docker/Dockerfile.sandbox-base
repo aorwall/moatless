@@ -100,6 +100,14 @@ RUN ARCH=$(dpkg --print-architecture) && \
     /tmp/aws/install && \
     rm -rf /tmp/aws /tmp/awscliv2.zip
 
+# kubectl — pinned. v1.36 is compiled with Go 1.24+ which clears the critical
+# go/stdlib CVEs flagged by AWS Inspector for older kubectl builds.
+# renovate: datasource=github-releases depName=kubernetes/kubernetes
+ARG KUBECTL_VERSION=v1.36.2
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
+    chmod +x /usr/local/bin/kubectl
+
 # Taskfile CLI (`task`) for repositories that use Taskfile.yml.
 COPY --from=task-builder /go/bin/task /usr/local/bin/task
 RUN chmod +x /usr/local/bin/task \
