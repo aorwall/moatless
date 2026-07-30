@@ -72,7 +72,23 @@ struct UiRpcConfig {
     environment_id: String,
     label: String,
     server_version: String,
-    allowed_origins: Vec<String>,
+    allowed_origins: Vec<AllowedOrigin>,
+}
+
+/// One entry of `T3_UI_RPC_ALLOWED_ORIGINS`.
+///
+/// An entry whose host is `*.<domain>` admits any host under that domain on the
+/// same scheme. Sandbox previews are reached at a per-workspace hostname that
+/// only exists once the workspace does, so naming each one is not something a
+/// deployment can do in advance.
+///
+/// The wildcard is a host suffix and nothing more: it never spans a scheme, and
+/// a port makes the origin a different one it does not cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AllowedOrigin {
+    Exact(String),
+    /// `prefix` is `<scheme>://`, `suffix` is `.<domain>`.
+    Subdomain { prefix: String, suffix: String },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -152,7 +168,7 @@ pub async fn router_from_env(
             .split(',')
             .map(str::trim)
             .filter(|origin| !origin.is_empty())
-            .map(String::from)
+            .map(AllowedOrigin::parse)
             .collect(),
     };
     config.validate()?;
@@ -240,7 +256,7 @@ impl UiRpcConfig {
         }
         if self.allowed_origins.is_empty() {
             return Err(UiRpcConfigError::Invalid(
-                "T3_UI_RPC_ALLOWED_ORIGINS must contain at least one exact origin".into(),
+                "T3_UI_RPC_ALLOWED_ORIGINS must contain at least one origin".into(),
             ));
         }
         Ok(())
@@ -623,11 +639,39 @@ async fn websocket_upgrade(
         .on_upgrade(move |socket| serve_websocket(socket, state, identity))
 }
 
-fn origin_allowed(headers: &HeaderMap, allowed_origins: &[String]) -> bool {
+fn origin_allowed(headers: &HeaderMap, allowed_origins: &[AllowedOrigin]) -> bool {
     headers
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|origin| allowed_origins.iter().any(|allowed| allowed == origin))
+        .is_some_and(|origin| allowed_origins.iter().any(|allowed| allowed.matches(origin)))
+}
+
+impl AllowedOrigin {
+    fn parse(entry: &str) -> Self {
+        match entry.split_once("://*.") {
+            Some((scheme, domain)) if !scheme.is_empty() && !domain.is_empty() => Self::Subdomain {
+                prefix: format!("{scheme}://"),
+                suffix: format!(".{domain}"),
+            },
+            _ => Self::Exact(entry.to_string()),
+        }
+    }
+
+    fn matches(&self, origin: &str) -> bool {
+        match self {
+            Self::Exact(allowed) => allowed == origin,
+            Self::Subdomain { prefix, suffix } => origin
+                .strip_prefix(prefix.as_str())
+                // A browser sends a host and nothing else, but this header is
+                // attacker-controlled: without these, `https://evil.example/
+                // x.preview.moatless.xyz` ends with the suffix and passes.
+                .is_some_and(|host| {
+                    host.len() > suffix.len()
+                        && host.ends_with(suffix.as_str())
+                        && !host.contains(['/', '\\', '?', '#', '@', ':'])
+                }),
+        }
+    }
 }
 
 /// Serve one connection: answer what the client asks, and send what a
@@ -1346,7 +1390,7 @@ mod tests {
                 environment_id: environment_id("moatless-test", &stub_identity()),
                 label: "Moatless Test".into(),
                 server_version: "0.0.28".into(),
-                allowed_origins: vec!["http://localhost:5733".into()],
+                allowed_origins: vec![AllowedOrigin::parse("http://localhost:5733")],
             }),
             environment: Arc::new(stub_identity()),
             session_cookie_name: Arc::from("moatless_session"),
@@ -1537,13 +1581,71 @@ mod tests {
 
     #[test]
     fn origin_check_is_exact_and_requires_origin() {
-        let allowed = vec!["http://localhost:5733".to_string()];
+        let allowed = vec![AllowedOrigin::parse("http://localhost:5733")];
         let mut headers = HeaderMap::new();
         assert!(!origin_allowed(&headers, &allowed));
         headers.insert(header::ORIGIN, "http://localhost:5733".parse().unwrap());
         assert!(origin_allowed(&headers, &allowed));
         headers.insert(header::ORIGIN, "http://attacker.example".parse().unwrap());
         assert!(!origin_allowed(&headers, &allowed));
+    }
+
+    #[test]
+    fn wildcard_entry_admits_hosts_under_its_domain() {
+        let allowed = AllowedOrigin::parse("https://*.preview.moatless.xyz");
+        assert_eq!(
+            allowed,
+            AllowedOrigin::Subdomain {
+                prefix: "https://".into(),
+                suffix: ".preview.moatless.xyz".into(),
+            }
+        );
+        for origin in [
+            "https://8d38cf39-4659-4a5e-92b1-49e8dfc9efb1--5733.preview.moatless.xyz",
+            "https://anything.preview.moatless.xyz",
+            "https://deeper.nested.preview.moatless.xyz",
+        ] {
+            assert!(allowed.matches(origin), "{origin} should be admitted");
+        }
+    }
+
+    #[test]
+    fn wildcard_entry_refuses_everything_outside_its_domain() {
+        let allowed = AllowedOrigin::parse("https://*.preview.moatless.xyz");
+        for origin in [
+            // the domain itself, which the wildcard label does not stand for
+            "https://preview.moatless.xyz",
+            // an empty label
+            "https://.preview.moatless.xyz",
+            // the parent domain, and a lookalike registered elsewhere
+            "https://moatless.xyz",
+            "https://evil-preview.moatless.xyz",
+            "https://preview.moatless.xyz.evil.example",
+            // a scheme the entry does not name
+            "http://a.preview.moatless.xyz",
+            // a port makes it a different origin
+            "https://a.preview.moatless.xyz:8443",
+            // a path or userinfo smuggling the suffix past a bare ends_with
+            "https://evil.example/x.preview.moatless.xyz",
+            "https://evil.example@x.preview.moatless.xyz",
+            "https://evil.example?.preview.moatless.xyz",
+            "https://evil.example#.preview.moatless.xyz",
+            "https://evil.example\\.preview.moatless.xyz",
+        ] {
+            assert!(!allowed.matches(origin), "{origin} should be refused");
+        }
+    }
+
+    #[test]
+    fn entry_without_a_wildcard_label_stays_exact() {
+        assert_eq!(
+            AllowedOrigin::parse("https://moatless.xyz"),
+            AllowedOrigin::Exact("https://moatless.xyz".into())
+        );
+        // A `*` that is not the whole leading label is not a wildcard.
+        let partial = AllowedOrigin::parse("https://*preview.moatless.xyz");
+        assert!(matches!(partial, AllowedOrigin::Exact(_)));
+        assert!(!partial.matches("https://a.preview.moatless.xyz"));
     }
 
     #[test]

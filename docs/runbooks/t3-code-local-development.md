@@ -92,8 +92,11 @@ T3_UI_RPC_ALLOWED_ORIGINS=http://localhost:5733,http://localhost:8080
 ```
 
 The second allowed origin accounts for dev-proxy implementations that rewrite
-`Origin` to their target. The backend still requires an exact match and a valid
-Moatless cookie, preventing cross-site WebSocket use.
+`Origin` to their target. Each entry is matched exactly and a valid Moatless
+cookie is still required, preventing cross-site WebSocket use. An entry may
+instead name a host of the form `*.<domain>`, admitting any host under that
+domain on the same scheme — a deployment serving each sandbox at its own
+hostname needs that, a local checkout does not.
 
 `T3_UI_RPC_ENVIRONMENT_ID` is not the id the backend publishes. The published
 `environmentId` is this value with a digest of the database's identity appended

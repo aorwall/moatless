@@ -108,8 +108,12 @@ position without dropping one (`backend/src/ui_rpc/feed.rs:218`).
 
 ## WebSocket Protocol
 
-The WebSocket route requires a valid Moatless identity and an exact Origin match
-against `T3_UI_RPC_ALLOWED_ORIGINS` (`backend/src/ui_rpc/mod.rs:603`).
+The WebSocket route requires a valid Moatless identity and an Origin that one
+entry of `T3_UI_RPC_ALLOWED_ORIGINS` admits (`backend/src/ui_rpc/mod.rs:603`).
+An entry matches exactly, unless its host is `*.<domain>` — then it admits any
+host under that domain on the same scheme and default port, which is how a
+deployment covers per-workspace sandbox preview hostnames that do not exist
+until the workspace does.
 
 The frame handler accepts T3 JSON RPC envelopes, validates request ids, supports
 ping/ack/interrupt/eof, and starts long-lived subscription producers
