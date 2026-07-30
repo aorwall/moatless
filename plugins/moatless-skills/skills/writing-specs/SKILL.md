@@ -66,9 +66,25 @@ An interview that only asks ranked decisions produces a decision table and nothi
 
 **The stopping test is sufficiency, not slot-filling:** could someone build this without asking you anything? A page where every section has content but no statement of what the thing does is not finished.
 
+### What changes — the three lists the planned solution opens with
+
+Immediately under `## Planned solution`, before `### Problem` and before any other heading. **It carries no heading of its own** — `Planned solution` is its heading, and a `### What changes` above it would read as a section rather than as the summary of the ones below.
+
+- **New** — what does not exist today.
+- **Changes materially** — what exists and behaves differently afterwards. Not "touched": a call site updated for a renamed argument is not a material change.
+- **Untouched** — what a reader would reasonably expect to be affected and is not. **This is the list that earns the lead-in its place.** It is the only place in either surface that says what the change does not do, and it is what stops a reviewer assuming the blast radius is wider than it is.
+
+All three are written every time. An empty **New** is a statement worth making; an empty **Untouched** means the boundary was not worked out.
+
+**Named as things on the page, as paths in the markdown.** "Repository sync stops carrying authority" for a person; `backend/src/sync/mod.rs:161` for the agent. Same list, same order, both surfaces.
+
+**`Untouched` is not `Out of scope`.** Out of scope is work someone might want and is not being done. Untouched is part of the system that keeps behaving exactly as it does today. A reader checking whether their own feature is at risk reads Untouched; a reader asking what else was considered reads Out of scope.
+
 ### The sections, and when each is included
 
-Include a section when **any** of its triggers applies. A section whose triggers are all unmet is **left out of both surfaces** — not stubbed, not "n/a". Every section that is present names the trigger that admitted it, in one line, so a section that did not need to be there is visibly unjustified rather than merely long.
+Include a section when **any** of its triggers applies. A section whose triggers are all unmet is **left out of both surfaces** — not stubbed, not "n/a".
+
+**Every section is a named heading**, carrying its own name from the table below. The triggers are how *you* decide whether to write it; they are not content. Neither surface carries a line justifying a section's presence — "included because", "always included", or a restatement of the trigger. A reader who has the section in front of them does not need to be told it qualified.
 
 | Section | Include when |
 |---|---|
@@ -94,6 +110,8 @@ Include a section when **any** of its triggers applies. A section whose triggers
 **Key flows go here, not in a section of their own.** Include a flow when ordering matters, several components participate, a transaction or consistency boundary matters, work is asynchronous, data crosses a trust, process or network boundary, side effects happen, requests may be duplicated or reordered, or cache invalidation or propagation matters.
 
 Do not document every flow. Document **the main successful flow, each material failure flow, and one flow per materially different consistency or security boundary** — each naming the rule that admitted it.
+
+This section is per-module and detailed. The system-wide view is the three lists the planned solution opens with, and the two are written at different resolutions. The lead-in answers "which parts of the system does this touch at all". Architecture answers "what does this module become responsible for".
 
 ### Data model
 
@@ -138,6 +156,7 @@ Written at step 5, in one pass, with no interview left to run. Headings in this 
 
 ## Current solution   — how the affected area behaved before this change
 ## Planned solution   — what gets built
+<the three lists — new · changes materially · untouched — with no heading of their own>
 ### Problem           — from the perspective of whoever feels it
 ### Behaviour         — user stories or Given/When/Then, grouped by actor
 ### Architecture and key flows    — conditional; triggers above
@@ -151,7 +170,7 @@ Written at step 5, in one pass, with no interview left to run. Headings in this 
 ## Ticket breakdown   — only when /to-tickets has run; "None." otherwise
 ```
 
-**The unconditional headings may not be reordered or renamed.** The five conditional ones are omitted when their triggers are unmet — an omitted section is a statement, an empty one is a gap. Each one that appears opens by naming the trigger that admitted it.
+**The unconditional headings may not be reordered or renamed.** The five conditional ones are omitted when their triggers are unmet — an omitted section is a statement, an empty one is a gap.
 
 ### Rules for the spec
 

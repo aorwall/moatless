@@ -16,15 +16,27 @@ The page is `scratchpad/<slug>.html`, one file at one URL. `/writing-specs` says
 
 **3. Planned solution** — what gets built, growing through the interview. Not a restatement of the decision table: the table says what was chosen, this says what the thing does.
 
-It carries the same sections as the spec — see `/writing-specs`, "The sections, and when each is included" — at **high level**, each one naming the trigger that admitted it:
+**It opens with the three lists** — new, changes materially, untouched — side by side, named as things rather than files, with **no heading of their own**: the `Planned solution` heading is theirs. See `/writing-specs`, "What changes". They are the summary of everything below them, so they come before the first `<h3>`, and **untouched** is the list the reviewer checks their own assumptions against. It does not repeat the lede's out-of-scope list: that one is about work nobody is doing, this one is about behaviour nobody should worry about.
 
-| Section | On the page |
+Then the same sections as the spec — see `/writing-specs`, "The sections, and when each is included" — at **high level**. Each one is a heading with its own name, then **one** element in the form below. **No line justifying the section**: not "included because", not "always included".
+
+| Section | The form it takes on the page |
 |---|---|
-| Architecture and key flows | One after-picture. What is new, what changes materially, what is untouched — named as things, not files. **One** key flow, the one that decides whether the design works, with the rest named in a sentence |
-| Data model | The model as a diagram, then why each field exists, in sentences |
-| Interfaces and contracts | What each actor can do and where, and what is promised. Internal boundaries appear only as *not* promises, or not at all |
-| Failure, safety and recovery | What the person must be able to work out in each failure, and which rows are fixed wording rather than meaning. Plus what still works while a dependency is down |
-| Testing and verification | Only what a person has to judge, and the acceptance criteria they are approving |
+| Architecture and key flows | The affected components, named as things — what each one becomes responsible for, one line each. Then **one** key flow as a `sequenceDiagram`: the one that decides whether the design works. The other flows are named in a sentence, not drawn |
+| Data model | **A field table** — one row per field of each **stored entity**, name and type in their own columns, **coloured by what the change does to that field**: new, meaning changes, or read-and-unchanged. A `classDiagram` instead when the relations are the point — [DESIGN.md](DESIGN.md), "The data model". Then one short block per entity in the logical vocabulary. A model is a marked-up table or a diagram; a list of five labelled bullets is neither |
+| Interfaces and contracts | One table — **actor · what they can do · on which surface · when it takes effect** — then the promises as a list. **Internal interfaces do not appear**, beyond at most one line saying module names and signatures are in the spec and are not promises. A bullet about how a worker checks a flag is internal and belongs in the markdown |
+| Failure, safety and recovery | One table — **when this happens · what the person must be able to work out · is the wording fixed** — then what still works while a dependency is down, and what rolling the change back would do |
+| Testing and verification | Two lists side by side: what only a person can judge, and the acceptance criteria being approved. No commands, no test names |
+
+**Only what is stored gets a box** — states and flags are fields on an entity, and a file that is read but never persisted is not in the model at all. See [DESIGN.md](DESIGN.md), "Choosing a diagram form".
+
+**The marking is the reason this section exists.** A person approving a data model is asking which fields move; three states answer it before they read a word, and the entity blocks underneath explain why. An unmarked field list is the schema retyped.
+
+**The data model is the one place the page uses the real names.** Elsewhere it says "the App record"; here it says `github_apps.app_key`, because a person approving a data model is approving the entity and the column, and "the record" does not say what changes.
+
+**Use the same labels the spec uses.** A data model on the page is described with the logical-model vocabulary — entity meaning, ownership, identity, lifecycle, invariants, relationships — not with labels invented for one spec.
+
+**No two sections take the same form.** Five cards each holding five bullets are indistinguishable, and the reader loses which section they are in. Every section above has a different shape for that reason.
 
 **One element per section.** Five sections with a table *and* a diagram each is three screens of scroll; the page is capped by attention and the markdown is where the rest goes.
 
