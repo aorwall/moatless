@@ -33,8 +33,11 @@ pub mod dao;
 mod feed;
 pub mod files;
 pub mod ports;
+mod preview;
+pub mod preview_tabs;
 mod projection;
 mod providers;
+mod servers;
 
 pub use feed::{ShellFeed, ThreadFeed};
 
@@ -61,11 +64,15 @@ use crate::agent::catalog::AgentKind;
 use crate::auth::identity::{AuthIdentity, AuthMethod};
 use crate::auth::models::UserRole;
 use crate::auth::pairing::DevicePairing;
-use crate::sandbox::access::SandboxConnector;
+use crate::sandbox::access::{SandboxConnector, SandboxIntentReader, SandboxObserver};
+use crate::task::dao::TaskDao;
 use crate::task_conversation::{self, ConversationHead};
 use crate::task_listing::{self, EnvironmentIdentity, Resume};
 use crate::ui_rpc::dao::ConversationDao;
 use crate::ui_rpc::files::FileAccessError;
+use crate::ui_rpc::preview::{PreviewError, PreviewState};
+use crate::ui_rpc::preview_tabs::PreviewTabDao;
+use crate::ui_rpc::servers::{ServersError, ServersState};
 use crate::workspace::dao::WorkspaceDao;
 use moatless_backend_core::scope::ScopeContext;
 
@@ -179,6 +186,12 @@ struct UiRpcState {
     /// behind this module that is not a database read: a checkout exists inside
     /// its Sandbox and nowhere else.
     sandboxes: Arc<dyn SandboxConnector>,
+    /// What a Task's servers are doing. Distinct from `sandboxes`, which
+    /// reaches *into* a Sandbox; this only observes one from outside.
+    servers: ServersState,
+    /// The browser tabs open on a Task, and the fan-out that tells every
+    /// replica when one changes.
+    preview: PreviewState,
     model_defaults: Arc<AgentModelDefaults>,
     /// The agent catalog, as this deployment can actually run it. Read on every
     /// config request because credentials come and go without a restart.
@@ -209,6 +222,10 @@ pub async fn router_from_env(
         workspaces,
         conversations,
         sandboxes,
+        observer,
+        tasks,
+        intent,
+        preview_tabs,
         model_defaults,
         agents,
         commands,
@@ -241,6 +258,15 @@ pub async fn router_from_env(
         workspaces,
         conversations,
         sandboxes,
+        servers: ServersState {
+            observer,
+            tasks: tasks.clone(),
+            intent,
+        },
+        preview: PreviewState {
+            tabs: preview_tabs,
+            tasks,
+        },
         model_defaults: Arc::new(model_defaults),
         agents,
         commands,
@@ -263,6 +289,14 @@ pub struct UiRpcDependencies {
     pub conversations: Arc<dyn ConversationDao>,
     /// Reaches a conversation's Sandbox, which is where its checkout lives.
     pub sandboxes: Arc<dyn SandboxConnector>,
+    /// Reports what a Task's servers are doing, without reaching inside.
+    pub observer: Arc<dyn SandboxObserver>,
+    /// Authorizes every `servers.*` and `preview.*` call: a scoped read that
+    /// finds nothing is the same answer as a Task that does not exist.
+    pub tasks: Arc<dyn TaskDao>,
+    /// The desired state a status read is resolved against.
+    pub intent: Arc<dyn SandboxIntentReader>,
+    pub preview_tabs: Arc<dyn PreviewTabDao>,
     pub model_defaults: AgentModelDefaults,
     /// Which agents this viewer can run, and with which models.
     pub agents: Arc<dyn ports::AgentCatalogSource>,
@@ -1426,7 +1460,98 @@ impl ProtocolSession {
                 }),
             )],
             "preview.list" => {
-                vec![success_exit(&id, json!({ "sessions": [] }))]
+                preview_answer(&id, preview::list(&state.preview, &viewer_scope(identity), &payload).await)
+            }
+            "preview.open" => {
+                preview_answer(&id, preview::open(&state.preview, &viewer_scope(identity), &payload).await)
+            }
+            "preview.navigate" => preview_answer(
+                &id,
+                preview::navigate(&state.preview, &viewer_scope(identity), &payload).await,
+            ),
+            "preview.resize" => preview_answer(
+                &id,
+                preview::resize(&state.preview, &viewer_scope(identity), &payload).await,
+            ),
+            // The three void methods answer `null` rather than a snapshot,
+            // matching the contract's declared success type.
+            "preview.refresh" => preview_answer(
+                &id,
+                preview::refresh(&state.preview, &viewer_scope(identity), &payload)
+                    .await
+                    .map(|()| Value::Null),
+            ),
+            "preview.reportStatus" => preview_answer(
+                &id,
+                preview::report_status(&state.preview, &viewer_scope(identity), &payload)
+                    .await
+                    .map(|()| Value::Null),
+            ),
+            "preview.close" => preview_answer(
+                &id,
+                preview::close(&state.preview, &viewer_scope(identity), &payload)
+                    .await
+                    .map(|()| Value::Null),
+            ),
+            "servers.list" => {
+                let viewer = viewer_scope(identity);
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    return vec![failure_exit(&id, "servers.list requires a threadId")];
+                };
+                match servers::list(&state.servers, &viewer, task_id).await {
+                    Ok(listing) => vec![success_exit(&id, listing)],
+                    Err(error) => vec![servers_failure_exit(&id, &error, identity)],
+                }
+            }
+            "subscribeServerStatus" => {
+                let viewer = viewer_scope(identity);
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    return vec![failure_exit(&id, "subscribeServerStatus requires a threadId")];
+                };
+                let task_id = task_id.to_string();
+                // Seed from the same read the poller makes, so the panel has a
+                // list before the first interval elapses rather than after it.
+                let seeded = match servers::list(&state.servers, &viewer, &task_id).await {
+                    Ok(listing) => json!({
+                        "threadId": task_id,
+                        "servers": listing.get("servers").cloned().unwrap_or(json!([])),
+                        "observedAt": chrono::Utc::now().to_rfc3339(),
+                    }),
+                    Err(error) => return vec![servers_failure_exit(&id, &error, identity)],
+                };
+                let producer = tokio::spawn(servers::watch_status(
+                    id.clone(),
+                    state.servers.clone(),
+                    viewer,
+                    task_id,
+                    self.frames.clone(),
+                ));
+                self.start_produced_stream(&id, Some(vec![seeded]), producer)
+            }
+            "servers.subscribeLogs" => {
+                let viewer = viewer_scope(identity);
+                let (Some(task_id), Some(name)) = (
+                    payload.get("threadId").and_then(Value::as_str),
+                    payload.get("name").and_then(Value::as_str),
+                ) else {
+                    return vec![failure_exit(
+                        &id,
+                        "servers.subscribeLogs requires a threadId and a name",
+                    )];
+                };
+                let producer = tokio::spawn(servers::watch_logs(
+                    id.clone(),
+                    state.servers.clone(),
+                    viewer,
+                    task_id.to_string(),
+                    name.to_string(),
+                    payload
+                        .get("previous")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    self.frames.clone(),
+                ));
+                self.start_produced_stream(&id, None, producer)
             }
             "projects.listEntries" => {
                 let Some(cwd) = workspace_cwd(&payload) else {
@@ -1550,14 +1675,7 @@ impl ProtocolSession {
                     viewer,
                     frames,
                 ));
-                let started = self.start_stream(&id, Some(values));
-                if let Some(stream) = self.streams.get_mut(id.as_str()) {
-                    stream.producer = Some(producer);
-                } else {
-                    // The stream limit refused it; nothing will read its frames.
-                    producer.abort();
-                }
-                started
+                self.start_produced_stream(&id, Some(values), producer)
             }
             "orchestration.subscribeThread" => {
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
@@ -1614,14 +1732,7 @@ impl ProtocolSession {
                     viewer,
                     frames,
                 ));
-                let started = self.start_stream(&id, Some(values));
-                if let Some(stream) = self.streams.get_mut(id.as_str()) {
-                    stream.producer = Some(producer);
-                } else {
-                    // The stream limit refused it; nothing will read its frames.
-                    producer.abort();
-                }
-                started
+                self.start_produced_stream(&id, Some(values), producer)
             }
             // Every asset T3 asks this environment for is a file on a machine
             // it can reach, and Moatless projects are not directories on this
@@ -1684,10 +1795,18 @@ impl ProtocolSession {
                     }
                 })]),
             ),
+            "subscribePreviewEvents" => {
+                let producer = tokio::spawn(Self::watch_preview_events(
+                    id.clone(),
+                    state.clone(),
+                    viewer_scope(identity),
+                    self.frames.clone(),
+                ));
+                self.start_produced_stream(&id, None, producer)
+            }
             "subscribeVcsStatus"
             | "subscribeTerminalEvents"
             | "subscribeTerminalMetadata"
-            | "subscribePreviewEvents"
             | "subscribeDiscoveredLocalServers" => self.start_stream(&id, None),
             _ => vec![unsupported_exit(&id, &tag)],
         }
@@ -1829,6 +1948,83 @@ impl ProtocolSession {
                 return;
             }
         }
+    }
+
+    /// Send every preview event the viewer is allowed to see.
+    ///
+    /// The subscription is environment-wide — the contract's payload is empty
+    /// and the client filters by thread itself — so this is the one place a
+    /// tab opened on a Task the viewer cannot read would otherwise reach them.
+    /// Each Task is authorized once per subscription and the answer is
+    /// remembered: tab events are rare, and a scoped read per event would put
+    /// a database round trip on a fan-out path.
+    async fn watch_preview_events(
+        request_id: RequestId,
+        state: UiRpcState,
+        viewer: ScopeContext,
+        frames: mpsc::Sender<Value>,
+    ) {
+        let mut events = state.preview.tabs.subscribe();
+        let mut readable: HashMap<String, bool> = HashMap::new();
+        loop {
+            let event = match events.recv().await {
+                Ok(event) => event,
+                // Lagged: this subscriber fell behind and lost events. It is
+                // not a reason to end the stream — the client reconciles
+                // against `preview.list` on the next event it does see.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                    warn!(missed, user_id = %viewer.user_id, "A preview event subscriber lagged");
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            };
+            let Some(task_id) = event.get("threadId").and_then(Value::as_str) else {
+                continue;
+            };
+            let allowed = if let Some(allowed) = readable.get(task_id) {
+                *allowed
+            } else {
+                let allowed = match state.preview.tasks.find_by_id(task_id, &viewer).await {
+                    Ok(task) => task.is_some(),
+                    Err(error) => {
+                        warn!(%error, task_id, "Could not authorize a preview event");
+                        continue;
+                    }
+                };
+                readable.insert(task_id.to_string(), allowed);
+                allowed
+            };
+            if !allowed {
+                continue;
+            }
+            let chunk = json!({
+                "_tag": "Chunk",
+                "requestId": request_id.wire(),
+                "values": [event]
+            });
+            if frames.send(chunk).await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Register a stream and hand it the task that produces its frames.
+    ///
+    /// The two are registered together because the stream limit can refuse the
+    /// registration, and a producer nothing will read has to be aborted rather
+    /// than left polling on behalf of nobody.
+    fn start_produced_stream(
+        &mut self,
+        id: &RequestId,
+        values: Option<Vec<Value>>,
+        producer: JoinHandle<()>,
+    ) -> Vec<Value> {
+        let started = self.start_stream(id, values);
+        match self.streams.get_mut(id.as_str()) {
+            Some(stream) => stream.producer = Some(producer),
+            None => producer.abort(),
+        }
+        started
     }
 
     fn start_stream(&mut self, id: &RequestId, values: Option<Vec<Value>>) -> Vec<Value> {
@@ -2079,6 +2275,43 @@ fn shell_failure_status(error: &sqlx::Error) -> StatusCode {
     }
 }
 
+/// Answer a `preview.*` call, in the client's own terms where the contract
+/// gives it terms.
+///
+/// An unknown tab is a `PreviewSessionLookupError` the panel renders; a store
+/// that cannot be reached is a defect, because it is not one of the method's
+/// declared outcomes and pretending otherwise would present an outage as a
+/// missing tab.
+fn preview_answer(request_id: &RequestId, result: Result<Value, PreviewError>) -> Vec<Value> {
+    match result {
+        Ok(value) => vec![success_exit(request_id, value)],
+        Err(error) => {
+            if let Some(typed) = preview::typed_error(&error) {
+                vec![typed_failure_exit(request_id, typed)]
+            } else {
+                warn!(%error, "A T3 UI preview call failed");
+                vec![failure_exit(request_id, error.to_string())]
+            }
+        }
+    }
+}
+
+/// The client is told the servers could not be read; the cause is logged once
+/// here rather than shipped to the browser.
+fn servers_failure_exit(
+    request_id: &RequestId,
+    error: &ServersError,
+    identity: &AuthIdentity,
+) -> Value {
+    match error {
+        ServersError::NotFound => failure_exit(request_id, "Conversation not found"),
+        error => {
+            error!(%error, user_id = %identity.user_id, "Failed to read a Task's servers");
+            failure_exit(request_id, "Failed to read the conversation's servers")
+        }
+    }
+}
+
 fn unsupported_exit(request_id: &RequestId, tag: &str) -> Value {
     failure_exit(
         request_id,
@@ -2124,11 +2357,16 @@ mod tests {
 
     /// A deployment whose Sandboxes are all unreachable.
     ///
-    /// Every file request these tests make is refused before it would reach a
-    /// Sandbox — by the `cwd`, or by a listing that contains no conversations —
-    /// so the connector exists to be held, not called. What a reachable Sandbox
-    /// answers is a gRPC round trip and belongs in an integration test.
+    /// Every file, server and log request these tests make is refused before it
+    /// would reach a Sandbox — by the `cwd`, by a listing that contains no
+    /// conversations, or by a scoped Task read that finds nothing — so these
+    /// seams exist to be held, not called. What a reachable Sandbox answers is
+    /// a gRPC or K8s round trip and belongs in an integration test.
     struct UnreachableSandboxes;
+
+    fn unreachable(task_id: &str) -> crate::sandbox::error::SandboxError {
+        crate::sandbox::error::SandboxError::NotReady(task_id.to_string())
+    }
 
     #[async_trait]
     impl SandboxConnector for UnreachableSandboxes {
@@ -2136,9 +2374,58 @@ mod tests {
             &self,
             task_id: &str,
         ) -> Result<crate::sandbox::client::SandboxClient, crate::sandbox::error::SandboxError> {
-            Err(crate::sandbox::error::SandboxError::NotReady(
-                task_id.to_string(),
-            ))
+            Err(unreachable(task_id))
+        }
+    }
+
+    #[async_trait]
+    impl crate::sandbox::access::SandboxIntentReader for UnreachableSandboxes {
+        async fn desired_state(
+            &self,
+            task_id: &str,
+        ) -> Result<crate::task::models::SandboxDesiredState, crate::sandbox::error::SandboxError>
+        {
+            Err(unreachable(task_id))
+        }
+    }
+
+    #[async_trait]
+    impl SandboxObserver for UnreachableSandboxes {
+        async fn sandbox_status(
+            &self,
+            task_id: &str,
+            _task_status: crate::task::models::TaskStatus,
+            _desired_state: crate::task::models::SandboxDesiredState,
+        ) -> Result<
+            crate::sandbox::schemas::SandboxStatusFullResponse,
+            crate::sandbox::error::SandboxError,
+        > {
+            Err(unreachable(task_id))
+        }
+
+        async fn live_status(
+            &self,
+            task_id: &str,
+            _task_status: crate::task::models::TaskStatus,
+            _desired_state: crate::task::models::SandboxDesiredState,
+        ) -> Result<crate::sandbox::live_status::LiveStatus, crate::sandbox::error::SandboxError>
+        {
+            Err(unreachable(task_id))
+        }
+
+        async fn server_logs(
+            &self,
+            task_id: &str,
+            _server_name: &str,
+            _options: crate::sandbox::access::LogOptions,
+        ) -> Result<
+            futures::stream::BoxStream<
+                'static,
+                Result<String, crate::sandbox::error::SandboxError>,
+            >,
+            crate::sandbox::error::SandboxError,
+        > {
+            Err(unreachable(task_id))
         }
     }
 
@@ -2268,6 +2555,15 @@ mod tests {
             workspaces: Arc::new(workspaces),
             conversations: Arc::new(conversations),
             sandboxes: Arc::new(UnreachableSandboxes),
+            servers: ServersState {
+                observer: Arc::new(UnreachableSandboxes),
+                tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
+                intent: Arc::new(UnreachableSandboxes),
+            },
+            preview: PreviewState {
+                tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),
+                tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
+            },
             agents: Arc::new(StubAgents),
             commands: Arc::new(UnreachableCommands),
             model_defaults: Arc::new(AgentModelDefaults::default()),

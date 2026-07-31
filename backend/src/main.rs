@@ -322,7 +322,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let sandbox_state = sandbox::routes::SandboxApiState {
-        observer: sandbox_observer,
+        observer: sandbox_observer.clone(),
         connector: sandbox_connector.clone(),
         lifecycle: lifecycle.clone(),
         tasks: sandbox_tasks,
@@ -398,6 +398,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             github_apps,
         );
 
+        // The browser tabs open on each Task. Built at the composition root
+        // because the choice between Redis and this process is a deployment
+        // fact, and its subscriber task is the root supervisor's to own.
+        let (preview_tabs, preview_event_forwarder) = ui_rpc::preview_tabs::build(
+            config.redis.url.as_deref(),
+            ui_rpc::preview_tabs::PreviewTabTtl(std::time::Duration::from_secs(
+                config.sandbox.idle_timeout_minutes * 60,
+            )),
+        )
+        .await;
+        if let Some(handle) = preview_event_forwarder {
+            supervisor.supervise(
+                "preview-event-subscriber",
+                // Optional: without it this replica still serves every tab
+                // read and write, and only stops hearing about tabs opened on
+                // the other replica.
+                Criticality::Optional,
+                handle,
+            );
+        }
+
         let modules = vec![
             agent::routes::agent_router(app_state.clone()),
             task::routes::task_router(app_state.clone()),
@@ -436,6 +457,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             workspaces: app_state.workspaces.clone(),
             conversations: Arc::new(ui_rpc::dao::PgConversationDao::new(app_state.db.clone())),
             sandboxes: sandbox_connector.clone(),
+            observer: sandbox_observer.clone(),
+            tasks: app_state.tasks.clone(),
+            intent: app_state.sandbox.clone(),
+            preview_tabs: preview_tabs.clone(),
             agents: Arc::new(ui_rpc::backend::AppStateAgents(app_state.clone())),
             commands: Arc::new(ui_rpc::backend::AppStateCommands(app_state.clone())),
             model_defaults: ui_rpc::AgentModelDefaults {

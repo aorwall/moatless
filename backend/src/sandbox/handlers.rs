@@ -8,7 +8,7 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::Json;
-use futures::stream::Stream;
+use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
@@ -402,7 +402,7 @@ pub async fn server_logs_handler(
     Query(query): Query<LogsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, SandboxError>>>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
-    let stream = state
+    let lines = state
         .observer
         .server_logs(
             &task_id,
@@ -414,7 +414,11 @@ pub async fn server_logs_handler(
             },
         )
         .await?;
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    // The observer produces lines; SSE framing is this boundary's business and
+    // not the observer's, because the same lines also leave over the T3 RPC
+    // socket as chunk values.
+    let events = lines.map(|line| line.map(|line| Event::default().data(line)));
+    Ok(Sse::new(events).keep_alive(KeepAlive::default()))
 }
 
 // =============================================================================

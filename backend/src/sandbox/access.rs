@@ -6,7 +6,6 @@
 //! [`SandboxConnector`].
 
 use async_trait::async_trait;
-use axum::response::sse::Event;
 use futures::stream::BoxStream;
 
 use super::client::SandboxClient;
@@ -55,12 +54,37 @@ pub trait SandboxObserver: Send + Sync {
         desired_state: SandboxDesiredState,
     ) -> Result<LiveStatus, SandboxError>;
 
+    /// One value per log line, and nothing about how a line is delivered.
+    ///
+    /// The SSE route frames each line at its own boundary and the T3 RPC
+    /// producer sends it as a chunk value; an `axum` SSE `Event` is write-only
+    /// and could not be re-emitted over the second transport.
     async fn server_logs(
         &self,
         task_id: &str,
         server_name: &str,
         options: LogOptions,
-    ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError>;
+    ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError>;
+}
+
+/// The durable Sandbox intent recorded for a Task, as a read.
+///
+/// A status read has to be resolved against desired state — "stopped" and
+/// "never asked for" are different answers — and `Lifecycle` is where that
+/// state lives. This is the one thing a caller outside the Sandbox module
+/// needs from it, so it is the only thing this seam offers: taking the whole
+/// orchestrator would hand a read-only consumer every mutation on it, which is
+/// the same reason [`SandboxObserver`] and [`SandboxConnector`] are separate.
+#[async_trait]
+pub trait SandboxIntentReader: Send + Sync {
+    async fn desired_state(&self, task_id: &str) -> Result<SandboxDesiredState, SandboxError>;
+}
+
+#[async_trait]
+impl SandboxIntentReader for super::lifecycle::Lifecycle {
+    async fn desired_state(&self, task_id: &str) -> Result<SandboxDesiredState, SandboxError> {
+        Ok(Self::desired_state(self, task_id).await?)
+    }
 }
 
 /// The only construction path for a task-addressed [`SandboxClient`].

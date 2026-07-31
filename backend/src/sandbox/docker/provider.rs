@@ -5,7 +5,6 @@
 //! gRPC, resolved by container name as hostname on the Docker network.
 
 use async_trait::async_trait;
-use axum::response::sse::Event;
 use bollard::models::{
     ContainerCreateBody, ContainerInspectResponse, EndpointSettings, NetworkConnectRequest,
     NetworkingConfig,
@@ -618,7 +617,7 @@ impl SandboxObserver for DockerSandboxAdapter {
         _task_id: &str,
         _server_name: &str,
         _options: crate::sandbox::access::LogOptions,
-    ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
+    ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
         Err(SandboxError::NotReady(
             "Server logs not available in Docker mode".to_string(),
         ))

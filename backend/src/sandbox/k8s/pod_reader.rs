@@ -3,7 +3,6 @@
 //! These functions perform K8s API reads against sandbox pods — listing pods
 //! by task label, extracting container statuses, and streaming container logs.
 
-use axum::response::sse::Event;
 use futures::stream::BoxStream;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams, LogParams};
@@ -143,7 +142,7 @@ pub async fn fetch_pod_runtime_events(k8s: &K8sClient, task_id: &str) -> Vec<Run
     }
 }
 
-/// Stream server container logs via K8s API, converted to SSE events.
+/// Stream server container logs via K8s API, one value per line.
 ///
 /// When live streaming fails (e.g. container terminated), falls back to
 /// fetching previous container logs (`previous: true`).
@@ -152,7 +151,7 @@ pub async fn stream_container_logs_k8s(
     task_id: &str,
     container_name: &str,
     options: LogOptions,
-) -> Result<BoxStream<'static, Result<Event, crate::sandbox::error::SandboxError>>, LogStreamError>
+) -> Result<BoxStream<'static, Result<String, crate::sandbox::error::SandboxError>>, LogStreamError>
 {
     let LogOptions {
         previous,
@@ -194,17 +193,17 @@ pub async fn stream_container_logs_k8s(
                 }
             })?;
 
-        let event_stream = async_stream::stream! {
+        let line_stream = async_stream::stream! {
             use futures::AsyncBufReadExt;
             let mut lines = prev_stream.lines();
             while let Some(line_result) = futures::StreamExt::next(&mut lines).await {
                 match line_result {
-                    Ok(line) => yield Ok(Event::default().data(line)),
+                    Ok(line) => yield Ok(line),
                     Err(_) => break,
                 }
             }
         };
-        return Ok(Box::pin(event_stream));
+        return Ok(Box::pin(line_stream));
     }
 
     // Try the live container first. With `follow` the stream stays open; without
@@ -219,17 +218,17 @@ pub async fn stream_container_logs_k8s(
 
     match pods_api.log_stream(&pod_name, &live_params).await {
         Ok(log_stream) => {
-            let event_stream = async_stream::stream! {
+            let line_stream = async_stream::stream! {
                 use futures::AsyncBufReadExt;
                 let mut lines = log_stream.lines();
                 while let Some(line_result) = futures::StreamExt::next(&mut lines).await {
                     match line_result {
-                        Ok(line) => yield Ok(Event::default().data(line)),
+                        Ok(line) => yield Ok(line),
                         Err(_) => break,
                     }
                 }
             };
-            Ok(Box::pin(event_stream))
+            Ok(Box::pin(line_stream))
         }
         Err(live_err) => {
             // Live streaming failed (container may be terminated) — try previous logs.
@@ -262,17 +261,17 @@ pub async fn stream_container_logs_k8s(
                     }
                 })?;
 
-            let event_stream = async_stream::stream! {
+            let line_stream = async_stream::stream! {
                 use futures::AsyncBufReadExt;
                 let mut lines = prev_stream.lines();
                 while let Some(line_result) = futures::StreamExt::next(&mut lines).await {
                     match line_result {
-                        Ok(line) => yield Ok(Event::default().data(line)),
+                        Ok(line) => yield Ok(line),
                         Err(_) => break,
                     }
                 }
             };
-            Ok(Box::pin(event_stream))
+            Ok(Box::pin(line_stream))
         }
     }
 }

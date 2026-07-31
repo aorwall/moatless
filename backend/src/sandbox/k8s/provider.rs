@@ -1,7 +1,6 @@
 //! Kubernetes Sandbox runtime, observer, and connector adapter.
 
 use async_trait::async_trait;
-use axum::response::sse::Event;
 use futures::stream::BoxStream;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
@@ -710,7 +709,7 @@ impl SandboxObserver for K8sSandboxAdapter {
         task_id: &str,
         server_name: &str,
         options: crate::sandbox::access::LogOptions,
-    ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
+    ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
         let container_name = if server_name == "sandbox" {
             "sandbox".to_string()
         } else {
