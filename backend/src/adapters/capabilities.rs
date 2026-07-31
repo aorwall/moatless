@@ -115,6 +115,15 @@ impl<T: Adapter + ?Sized> AdapterIdentity for T {
 /// Resolve Adapter-side identities into Moatless user identities.
 #[async_trait::async_trait]
 pub(crate) trait AdapterUserIdentity: Send + Sync {
+    #[expect(
+        dead_code,
+        reason = "registered by every Adapter and reachable through \
+                  `Adapters::user_identity`, which carries the same allow — but \
+                  nothing dispatches through it. Telegram's normalization was the \
+                  last caller and now calls `telegram::auth::resolve_sender` \
+                  directly, since it resolves the sender without holding the \
+                  Adapter; Slack's breakup does the same."
+    )]
     async fn resolve_user(
         &self,
         identity: &str,

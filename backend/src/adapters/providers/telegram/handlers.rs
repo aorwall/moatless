@@ -1,3 +1,6 @@
+//! The webhook route. Transport only: read the request, hand the body and the
+//! secret header to [`super::ingress::receive`], turn the outcome into a status.
+
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -7,7 +10,7 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
-use super::adapter::TelegramUpdateOutcome;
+use super::ingress::{self, IngressError, Outcome, Transport};
 
 #[utoipa::path(
     post,
@@ -20,9 +23,7 @@ pub async fn telegram_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<axum::response::Response, AdapterError> {
-    use axum::response::IntoResponse;
-
+) -> Result<StatusCode, AdapterError> {
     let providers = state
         .adapters
         .as_ref()
@@ -34,60 +35,21 @@ pub async fn telegram_webhook(
 
     info!("Telegram webhook received");
 
-    let payload: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|e| AdapterError::BadRequest(format!("Invalid JSON: {e}")))?;
+    let transport = Transport::Webhook {
+        secret_header: headers
+            .get("x-telegram-bot-api-secret-token")
+            .and_then(|v| v.to_str().ok()),
+    };
 
-    let message = payload
-        .get("message")
-        .or_else(|| payload.get("channel_post"));
-    if let Some(chat_id) = message
-        .and_then(|m| m.pointer("/chat/id"))
-        .and_then(serde_json::Value::as_i64)
-    {
-        let source_id = chat_id.to_string();
-        let chat_type = message
-            .and_then(|m| m.pointer("/chat/type"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-        let is_private_chat = chat_type == "private";
-
-        let rule = crate::bindings::runtime::resolve_chat_provider_event(
-            &state,
-            "telegram",
-            "default",
-            if is_private_chat { "*" } else { &source_id },
-        )
-        .await?
-        .map(|(_, rule)| rule);
-
-        if let Some(ref cfg) = rule {
-            let expected_secret = cfg
-                .provider_config
-                .as_ref()
-                .and_then(|c| c.get("secret_token"))
-                .and_then(|v| v.as_str());
-
-            if let Some(expected) = expected_secret {
-                let provided = headers
-                    .get("x-telegram-bot-api-secret-token")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-
-                if provided != expected {
-                    return Err(AdapterError::SignatureInvalid);
-                }
-            }
-        }
-    }
-
-    match super::adapter::resolve_and_process_telegram_update(&state, telegram_provider, &body)
-        .await
-    {
+    match ingress::receive(&state, telegram_provider, &body, transport).await {
         // Routing is durably owned now; its outcome is recorded by the work
         // handler when it actually runs. Recording "success" here would count
         // an outcome this path no longer knows.
-        Ok(TelegramUpdateOutcome::Admitted) => {}
-        Ok(TelegramUpdateOutcome::Ignored) => {
+        Ok(Outcome::Admitted) => {}
+        Ok(Outcome::Ignored { reason }) => {
+            info!(reason, "Telegram update ignored");
+            // The typed reason is logged, not metered: `not_routable` stays the
+            // one label Telegram's dashboards query (spec Decision 9).
             record_webhook("telegram", "ignored", "not_routable", "", "", "");
         }
         Err(e) => {
@@ -95,9 +57,13 @@ pub async fn telegram_webhook(
             warn!(error = %e, "Telegram webhook processing error");
             // Nothing durable was written, so this delivery is still Telegram's.
             // Acknowledging it here is what used to lose the update outright.
-            return Err(e);
+            return Err(match e {
+                IngressError::NotAdmitted(e) => AdapterError::from(e),
+                IngressError::Unidentifiable(message) => AdapterError::BadRequest(message),
+                IngressError::Ingress(e) => e,
+            });
         }
     }
 
-    Ok(StatusCode::OK.into_response())
+    Ok(StatusCode::OK)
 }

@@ -1,97 +1,74 @@
 //! Telegram access control — DM and group policies.
 
-use tracing::{debug, info};
+use tracing::debug;
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AccessDecision, LoopContext, SourceAccessPolicy};
-use crate::db::DbPool;
+use crate::adapters::models::{AccessDecision, SourceAccessPolicy};
 
-use super::api::TelegramApi;
 use super::config::TelegramAdapterConfig;
-use super::pairing;
 
-/// Context about the Telegram sender for DM access enforcement.
-pub struct DmAccessContext<'a> {
-    pub tg_config: &'a TelegramAdapterConfig,
-    pub from_id: i64,
-    pub from_username: Option<&'a str>,
-    pub from_first_name: Option<&'a str>,
-    pub from_last_name: Option<&'a str>,
-    pub config: &'a LoopContext,
-    pub api: &'a TelegramApi,
-    pub chat_id: i64,
-    pub db: &'a DbPool,
+/// Who sent the private message, as the DM policy needs to see them.
+pub(super) struct DmSender<'a> {
+    pub(super) tg_config: &'a TelegramAdapterConfig,
+    pub(super) from_id: i64,
+    pub(super) from_username: Option<&'a str>,
+    pub(super) from_first_name: Option<&'a str>,
+    pub(super) from_last_name: Option<&'a str>,
 }
 
-/// Enforce DM access policy. May send a pairing message to the user.
-pub async fn enforce_dm_access(ctx: &DmAccessContext<'_>) -> Result<AccessDecision, AdapterError> {
-    let from_id_str = ctx.from_id.to_string();
+/// What the DM policy decided.
+///
+/// [`AccessDecision`] cannot express the third case, because raising a pairing
+/// request is work rather than a verdict — and this function no longer does
+/// work. The caller turns it into a
+/// [`super::webhook::Effect::RequestPairing`].
+pub(super) enum DmDecision {
+    Allowed,
+    Blocked,
+    /// An unknown sender under a `Pairing` policy. `meta` is what the pairing
+    /// request records about them.
+    RequestPairing {
+        meta: serde_json::Value,
+    },
+}
 
-    let from_id = ctx.from_id;
+/// Enforce DM access policy.
+pub(super) fn enforce_dm_access(sender: &DmSender<'_>) -> DmDecision {
+    let from_id = sender.from_id;
+    let from_id_str = from_id.to_string();
 
-    match ctx.tg_config.dm_access_policy {
+    match sender.tg_config.dm_access_policy {
         SourceAccessPolicy::Disabled => {
             debug!(from_id, "DM blocked: dm_access_policy=disabled");
-            Ok(AccessDecision::Blocked)
+            DmDecision::Blocked
         }
-        SourceAccessPolicy::Open => Ok(AccessDecision::Allowed),
+        SourceAccessPolicy::Open => DmDecision::Allowed,
         SourceAccessPolicy::Allowlist => {
-            if ctx.tg_config.dm_allowlist.contains(&from_id_str) {
-                Ok(AccessDecision::Allowed)
+            if sender.tg_config.dm_allowlist.contains(&from_id_str) {
+                DmDecision::Allowed
             } else {
                 debug!(from_id, "DM blocked: user not in dm_allowlist");
-                Ok(AccessDecision::Blocked)
+                DmDecision::Blocked
             }
         }
         SourceAccessPolicy::Pairing => {
             // Check allowlist first — already-approved users pass through
-            if ctx.tg_config.dm_allowlist.contains(&from_id_str) {
-                return Ok(AccessDecision::Allowed);
+            if sender.tg_config.dm_allowlist.contains(&from_id_str) {
+                return DmDecision::Allowed;
             }
 
-            // Build meta for the pairing request
-            let meta = serde_json::json!({
-                "username": ctx.from_username,
-                "first_name": ctx.from_first_name,
-                "last_name": ctx.from_last_name,
-            });
-
-            let req =
-                pairing::upsert_pairing_request(ctx.db, &ctx.config.id, &from_id_str, Some(meta))
-                    .await?;
-
-            // Send pairing message
-            let message = format!(
-                "Your Telegram user ID: `{from_id}`\n\n\
-                 Pairing code: `{code}`\n\n\
-                 Ask your admin to approve this code.",
-                code = req.code,
-            );
-
-            let chat_id_str = ctx.chat_id.to_string();
-            if let Err(e) = ctx
-                .api
-                .send_message(&chat_id_str, &message, None, None)
-                .await
-            {
-                // Best-effort — log but don't fail the whole flow
-                info!(from_id, error = %e, "Failed to send pairing message");
+            DmDecision::RequestPairing {
+                meta: serde_json::json!({
+                    "username": sender.from_username,
+                    "first_name": sender.from_first_name,
+                    "last_name": sender.from_last_name,
+                }),
             }
-
-            info!(
-                from_id,
-                code = %req.code,
-                trigger_id = %ctx.config.id,
-                "Pairing code sent to Telegram user"
-            );
-
-            Ok(AccessDecision::PairingSent)
         }
     }
 }
 
 /// Enforce group access policy (synchronous, no DB/API needed).
-pub fn enforce_group_access(
+pub(super) fn enforce_group_access(
     tg_config: &TelegramAdapterConfig,
     chat_id: i64,
     text: &str,
@@ -240,31 +217,53 @@ mod tests {
         ));
     }
 
-    // -- DM policy tests (synchronous checks only) --
+    // -- DM policy tests --
+    //
+    // These call the policy now. Before the decision was split from the pairing
+    // write they could only assert the config they were given back, because
+    // reaching the function meant a database and a Bot API client.
+
+    fn decide(cfg: &TelegramAdapterConfig, from_id: i64) -> DmDecision {
+        enforce_dm_access(&DmSender {
+            tg_config: cfg,
+            from_id,
+            from_username: Some("ada"),
+            from_first_name: Some("Ada"),
+            from_last_name: None,
+        })
+    }
 
     #[test]
     fn dm_open_allows() {
         let cfg = make_config(SourceAccessPolicy::Open, vec![]);
-        assert_eq!(cfg.dm_access_policy, SourceAccessPolicy::Open);
+        assert!(matches!(decide(&cfg, 123), DmDecision::Allowed));
     }
 
     #[test]
     fn dm_disabled_policy() {
         let cfg = make_config(SourceAccessPolicy::Disabled, vec![]);
-        assert_eq!(cfg.dm_access_policy, SourceAccessPolicy::Disabled);
+        assert!(matches!(decide(&cfg, 123), DmDecision::Blocked));
     }
 
     #[test]
     fn dm_allowlist_contains_check() {
         let cfg = make_config(SourceAccessPolicy::Allowlist, vec!["123", "456"]);
-        assert!(cfg.dm_allowlist.contains(&"123".to_string()));
-        assert!(!cfg.dm_allowlist.contains(&"789".to_string()));
+        assert!(matches!(decide(&cfg, 123), DmDecision::Allowed));
+        assert!(matches!(decide(&cfg, 789), DmDecision::Blocked));
     }
 
     #[test]
     fn dm_pairing_checks_allowlist_first() {
         let cfg = make_config(SourceAccessPolicy::Pairing, vec!["123"]);
         // User 123 is in allowlist → should be allowed even with pairing policy
-        assert!(cfg.dm_allowlist.contains(&"123".to_string()));
+        assert!(matches!(decide(&cfg, 123), DmDecision::Allowed));
+
+        // Anyone else gets a pairing request carrying what is known about them.
+        let DmDecision::RequestPairing { meta } = decide(&cfg, 789) else {
+            panic!("an unlisted sender under a pairing policy is asked to pair");
+        };
+        assert_eq!(meta["username"], "ada");
+        assert_eq!(meta["first_name"], "Ada");
+        assert_eq!(meta["last_name"], serde_json::Value::Null);
     }
 }

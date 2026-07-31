@@ -5,6 +5,9 @@
 > **Vocabulary:** CONTEXT.md
 > **Predecessor:** `.plans/smarter-github-pr-adapter-breakup.md` (delivered by PR #156)
 > **Related:** `.plans/cognitive-complexity-refactor.md`, `.plans/adapter-capability-interfaces.md`
+> **Expanded by:** `.plans/slack-telegram-adapter-breakup.md` — stages 02–09 (Slack and Telegram) at
+> ticket level: move maps, target module interfaces, and the effect vocabulary. Read that document
+> before starting any of those stages; it supersedes their one-line rows below.
 
 ## Current solution
 
@@ -300,6 +303,31 @@ It gains the two enums and nothing else.
 
 Each Adapter's `receive` stays its own function, because every step inside it is Adapter policy.
 
+**The shared type must not carry a blanket `#[from] AdapterError` on its retryable variant.** Telegram
+shipped one and it silently reclassified a permanently malformed envelope — no `chat.id`, no
+`message_id` — from the class its poller drops into the class its poller holds the offset back for,
+which wedges the poller on that update and blocks every update queued behind it. The conversion has
+to be a `.map_err` at each call site so the class is a decision someone types, and the mapping from a
+provider-raised `AdapterError` belongs at the raise site (Telegram's `ingress::classify_normalization`)
+rather than inside the poller's redelivery rule, which must stay a match on the three variants and
+nothing else. Slack and GitHub PR are immune today only because neither polls: with no offset to
+hold back, both classes reach the same status code. The hoist is what would spread the trap.
+
+**`NotAdmitted` is unreachable for every Adapter that admits through `admit_inbound_message`, and the
+hoist must fix that before it ships the variant.** Two admission paths exist. GitHub PR, Linear and —
+after ticket 01 — Slack call `adapters::ingress::admit_delivery`, which returns `AdmitError` and so
+reaches the variant. Telegram and Webhook call `inbound_delivery::admit_inbound_message`, which does
+`.admit(..).await?` internally (`inbound_delivery.rs:218`) and converts `AdmitError` into
+`AdapterError` before any ingress sees it — so their admission failures land in the retryable variant
+instead. Nothing behaves differently today: `AtCapacity` becomes `Overloaded` and `Store` becomes
+`Db` (`delivery/mod.rs:153`), both non-2xx, and both classes hold a poller's offset back. But a
+shared `IngressError` whose `NotAdmitted` is dead for some of its Adapters is worse than no variant
+at all, because the next reader will assume admission failures are typed when they are not — and a
+test that constructs the variant by hand to assert its status mapping will read as coverage of a path
+that cannot happen. Fix it upstream, in the same ticket as the hoist: have `admit_inbound_message`
+propagate `AdmitError` and let each `receive` convert, or move its two remaining callers onto
+`admit_delivery`. The helper is shared, which is why neither Adapter ticket could do it.
+
 ### 3. Normalization returns effects, it does not perform them
 
 The predecessor plan allowed exactly one I/O call during normalization: sender lookup.
@@ -418,7 +446,7 @@ and `cargo test -p moatless-vibe-backend`, and `task test:integration` when anyt
 | Stage | Change | Acceptance criteria |
 |---|---|---|
 | 00 | Clean up after PR #156 and make CI able to see test code: fix the `type_complexity` error and the 55 `--all-targets` warnings (11 `unreadable_literal`, 11 `duration_suboptimal_units`, 6 `manual_string_new`, 4 `unchecked_time_subtraction`, the rest singletons across ~25 files), delete the orphaned `bindings/metrics.rs` test support or restore its caller, drop the unused `_db` field, add `--all-targets` to the backend Clippy step in `ci.yml`, move the recording HTTP stub into `adapters/test_support.rs` with constructor injection, and record the `shell_reconcile.rs` verdict in this document. | `cargo clippy -p moatless-vibe-backend --all-targets -- -D warnings` is green and runs in CI; the lib test build emits no `dead_code` warnings; no GitHub test sets a process-global env var; the verdict is written down. |
-| 01 | Hoist the shared ingress `Outcome` and `IngressError` and migrate GitHub PR and Linear onto them. | No behavior change; both Adapters' acknowledgment classes and metric labels are unchanged; the enums have exactly the three transport treatments named above. |
+| 01 | Hoist the shared ingress `Outcome` and `IngressError`, migrate all four Adapters onto them, and make `admit_inbound_message` propagate `AdmitError` so `NotAdmitted` is reachable from every one of them. | No behavior change; every Adapter's acknowledgment classes and metric labels are unchanged; the enums have exactly the three transport treatments named above; the retryable variant has no blanket `From<AdapterError>`, so each construction names its class; `NotAdmitted` is produced by all four `receive`s, not just GitHub PR's. |
 | 02 | Slack: characterization tests. | No production change; every Slack row in both tables above has an executable assertion; the unmapped-sender notice is asserted against a stubbed Slack API. |
 | 03 | Slack: `subject.rs` and `auth.rs`. | All destination and reaction parsing goes through one fallible type; identity precedence and bot attribution are covered; no raw `sqlx` in `adapter.rs`. |
 | 04 | Slack: capability implementations into `outbound.rs`, `reactions.rs`, `context.rs`, `text.rs`. | Traits implemented in owning modules; `adapter.rs` has no delegating methods; request counts match the budgets. |

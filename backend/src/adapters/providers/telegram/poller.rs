@@ -8,11 +8,10 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::adapters::error::AdapterError;
 use crate::adapters::Adapters;
 use crate::state::AppState;
 
-use super::adapter::resolve_and_process_telegram_update;
+use super::ingress::{self, IngressError, Transport};
 
 const POLL_TIMEOUT_SECS: u32 = 30;
 const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
@@ -31,21 +30,21 @@ fn advance(offset: &mut Option<i64>, update_id: Option<i64>) {
 /// Whether asking Telegram for this update again could produce a different
 /// outcome.
 ///
-/// A refused admission or a database blip could; a malformed update never will,
-/// and holding the offset back for one would wedge the poller on it forever
-/// rather than delivering the updates queued behind it.
+/// A refused admission or a database blip could; an update missing a field no
+/// re-delivery supplies never will, and holding the offset back for one would
+/// wedge the poller on it forever rather than delivering the updates queued
+/// behind it.
 ///
-/// The narrow `false` arm is deliberate and depends on a fact about the path
-/// behind it: everything `resolve_and_process_telegram_update` reaches raises
-/// [`AdapterError::BadRequest`] for exactly the unfixable cases — a malformed
-/// envelope — and answers an unmapped sender or a denied access decision with
-/// `Ignore` rather than an error. This is narrower than the four variants
-/// `inbound_delivery::classify` calls permanent, and that is correct *here* and not
-/// in general. If a fifth error kind is ever raised on this path, check it
-/// against this arm: an unfixable failure landing in the `true` branch wedges
-/// the poller on one update and blocks every update queued behind it.
-fn is_worth_redelivering(error: &AdapterError) -> bool {
-    !matches!(error, AdapterError::BadRequest(_))
+/// This is the whole rule, and it is a match on [`IngressError`] rather than a
+/// guess about which errors that path happens to raise — which is why the
+/// variants were made to carry the distinction (spec Decision 6). Which class
+/// a rejection lands in is decided where it is raised: see
+/// `ingress::classify_normalization`.
+const fn is_worth_redelivering(error: &IngressError) -> bool {
+    match error {
+        IngressError::NotAdmitted(_) | IngressError::Ingress(_) => true,
+        IngressError::Unidentifiable(_) => false,
+    }
 }
 
 /// Wait out the current backoff, then double it up to [`MAX_BACKOFF`].
@@ -126,7 +125,9 @@ pub fn spawn_telegram_poller(
                             }
                         };
 
-                        match resolve_and_process_telegram_update(&state, telegram_provider, &body)
+                        // Long polling carries no secret, so there is nothing
+                        // for this transport to verify.
+                        match ingress::receive(&state, telegram_provider, &body, Transport::Poll)
                             .await
                         {
                             Ok(_) => {}
@@ -233,19 +234,40 @@ mod tests {
         );
     }
 
+    /// The offset *is* the acknowledgment, so it may only ever move to one past
+    /// an update the poller is done with — and an update Telegram sent without
+    /// an id cannot be acknowledged at all.
+    #[test]
+    fn the_offset_acknowledges_exactly_the_update_it_moves_past() {
+        let mut offset = None;
+        advance(&mut offset, Some(41));
+        assert_eq!(offset, Some(42));
+
+        advance(&mut offset, Some(50));
+        assert_eq!(offset, Some(51));
+
+        advance(&mut offset, None);
+        assert_eq!(offset, Some(51), "an idless update acknowledges nothing");
+    }
+
     /// The offset is held back only for failures a re-delivery could survive.
-    /// A malformed update must be dropped instead, or the poller wedges on it
-    /// and everything queued behind it stops.
+    /// An update no re-delivery can fix must be dropped instead, or the poller
+    /// wedges on it and everything queued behind it stops.
     #[test]
     fn only_a_fixable_failure_holds_the_offset_back() {
-        assert!(is_worth_redelivering(&AdapterError::Overloaded));
-        assert!(is_worth_redelivering(&AdapterError::Db(
-            sqlx::Error::PoolTimedOut
+        use crate::adapters::delivery::AdmitError;
+        use crate::adapters::error::AdapterError;
+
+        assert!(is_worth_redelivering(&IngressError::NotAdmitted(
+            AdmitError::AtCapacity { limit: 100 }
         )));
-        assert!(is_worth_redelivering(&AdapterError::Internal(
-            "sandbox refused".into()
+        assert!(is_worth_redelivering(&IngressError::Ingress(
+            AdapterError::Db(sqlx::Error::PoolTimedOut)
         )));
-        assert!(!is_worth_redelivering(&AdapterError::BadRequest(
+        assert!(is_worth_redelivering(&IngressError::Ingress(
+            AdapterError::Internal("sandbox refused".into())
+        )));
+        assert!(!is_worth_redelivering(&IngressError::Unidentifiable(
             "Missing update_id".into()
         )));
     }

@@ -172,7 +172,7 @@ impl TelegramApi {
     /// * `timeout` — how many seconds Telegram should hold the connection open.
     ///
     /// Returns the raw `result` array from the response so callers can feed each
-    /// element into `TelegramAdapter::parse_update()`.
+    /// element into [`super::ingress::receive`].
     pub async fn get_updates(
         &self,
         offset: Option<i64>,
@@ -224,6 +224,7 @@ impl TelegramApi {
     }
 
     /// Send a chat action indicator (e.g., "typing").
+    #[expect(dead_code, reason = "no caller since the module stopped being `pub`")]
     pub async fn send_chat_action(&self, chat_id: &str, action: &str) -> Result<(), AdapterError> {
         let body = serde_json::json!({
             "chat_id": chat_id,
@@ -286,6 +287,7 @@ impl TelegramApi {
     }
 
     /// Get chat info (for validation/discovery).
+    #[expect(dead_code, reason = "no caller since the module stopped being `pub`")]
     pub async fn get_chat(&self, chat_id: &str) -> Result<serde_json::Value, AdapterError> {
         let resp = self
             .client

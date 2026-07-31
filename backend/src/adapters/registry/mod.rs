@@ -198,7 +198,7 @@ impl Adapters {
         self.linear = Some(provider);
     }
 
-    pub fn register_slack(&mut self, provider: Arc<super::slack::adapter::SlackAdapter>) {
+    pub(crate) fn register_slack(&mut self, provider: Arc<super::slack::adapter::SlackAdapter>) {
         let kind = AdapterKind::Slack;
         self.register_trait_object(provider.clone());
         self.register_identity(provider.clone());
@@ -214,7 +214,10 @@ impl Adapters {
         self.slack = Some(provider);
     }
 
-    pub fn register_telegram(&mut self, provider: Arc<super::telegram::adapter::TelegramAdapter>) {
+    pub(crate) fn register_telegram(
+        &mut self,
+        provider: Arc<super::telegram::adapter::TelegramAdapter>,
+    ) {
         let kind = AdapterKind::Telegram;
         self.register_trait_object(provider.clone());
         self.register_identity(provider.clone());
@@ -244,7 +247,7 @@ impl Adapters {
     }
 
     /// Typed handle to the Telegram adapter, for code inside its own module.
-    pub fn telegram(&self) -> Option<&super::telegram::adapter::TelegramAdapter> {
+    pub(crate) fn telegram(&self) -> Option<&super::telegram::adapter::TelegramAdapter> {
         self.telegram.as_deref()
     }
 

@@ -78,10 +78,14 @@ impl Drop for GithubApiStub {
     }
 }
 
+/// Shared responder closure — aliased because the bare `Arc<dyn Fn(..)>` trips
+/// the workspace-denied `clippy::type_complexity`.
+type StubResponder = Arc<dyn Fn(Method, &str, &str) -> StubResponse + Send + Sync>;
+
 #[derive(Clone)]
 struct StubState {
     requests: Arc<Mutex<Vec<RecordedGithubRequest>>>,
-    responder: Arc<dyn Fn(Method, &str, &str) -> StubResponse + Send + Sync>,
+    responder: StubResponder,
 }
 
 pub(super) async fn start_github_api_stub<F>(responder: F) -> GithubApiStub

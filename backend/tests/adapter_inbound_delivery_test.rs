@@ -110,11 +110,11 @@ async fn count(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
         .unwrap()
 }
 
-/// Register both providers exactly as `main` does, then run the worker until
+/// Register every provider exactly as `main` does, then run the worker until
 /// every named record is terminal or the budget runs out.
 ///
-/// Registration goes through the real registrars so the test also pins that
-/// each provider claims its own kind — the property that keeps two provider
+/// Registration goes through the real registrar so the test also pins that each
+/// provider claims its own kind — the property that keeps two provider
 /// migrations from contending for one name.
 async fn run_worker_until_terminal(
     state: &AppState,
@@ -123,8 +123,10 @@ async fn run_worker_until_terminal(
     budget: Duration,
 ) {
     let mut handlers = AdapterDeliveryHandlers::new();
-    moatless_vibe_backend::adapters::slack::delivery::register(&mut handlers, state);
-    moatless_vibe_backend::adapters::telegram::delivery::register(&mut handlers, state);
+    moatless_vibe_backend::adapters::delivery::register_builtin_delivery_handlers(
+        &mut handlers,
+        state,
+    );
 
     let cancel = CancellationToken::new();
     let handle = spawn_adapter_delivery_worker(
