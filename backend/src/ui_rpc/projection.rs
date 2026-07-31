@@ -43,13 +43,23 @@ const NOMINAL_ROOT_PREFIX: &str = "/moatless/workspaces";
 /// says what it does.
 const SCRIPT_ICON: &str = "play";
 
-/// Where a Sandbox checks a conversation's repositories out.
+/// Prefix of the nominal worktree path reported for each conversation.
 ///
-/// The same string for every conversation, because it is the sandbox image's
-/// `WORKSPACE_DIR` rather than anything per-Task. Unlike a project's root this
-/// is a label and not an identity — the client only ever displays it — so
-/// reporting one shared value collapses nothing.
-const SANDBOX_WORKSPACE_DIR: &str = "/opt/moatless/workspace";
+/// A conversation's checkout lives in its own Sandbox, at the sandbox image's
+/// `WORKSPACE_DIR` — the same string for every conversation, because it is a
+/// property of the image rather than of the Task. That was reported verbatim
+/// while this path was only ever displayed.
+///
+/// It is now an identity as well. The client sends a thread's `worktreePath`
+/// back as the `cwd` of every workspace-file request it makes for that thread
+/// (`ChatView.tsx`: `activeThread.worktreePath ?? activeProject.workspaceRoot`),
+/// so one shared string would name every conversation's files at once and
+/// resolve to none of them. A distinct path is synthesized per Task instead,
+/// and [`files`](super::files) reverses it. It sits in its own namespace rather
+/// than under [`NOMINAL_ROOT_PREFIX`]: a Sandbox checkout is not a directory
+/// inside its Workspace, and nesting one nominal path inside another would
+/// claim it is.
+const NOMINAL_WORKTREE_PREFIX: &str = "/moatless/tasks";
 
 /// The runtime mode every conversation reports.
 ///
@@ -854,14 +864,47 @@ fn session_status(conversation: &Conversation, desired_state: SandboxDesiredStat
 
 /// The working copy's location, or null when there is none.
 ///
-/// A removed Sandbox has had its working copy reclaimed, so it reports none.
+/// A removed Sandbox has had its working copy reclaimed, so it reports none —
+/// and null is also what tells the client there are no files to ask for, since
+/// it falls back to the project's root and gets an answer saying so.
 fn worktree_path(conversation: &Conversation) -> Value {
     match conversation.sandbox_desired_state {
         Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {
-            json!(SANDBOX_WORKSPACE_DIR)
+            json!(nominal_worktree(&conversation.task_id))
         }
         Some(SandboxDesiredState::Removed) | None => Value::Null,
     }
+}
+
+/// A distinct, stable, nominal worktree path for one conversation.
+fn nominal_worktree(task_id: &str) -> String {
+    format!("{NOMINAL_WORKTREE_PREFIX}/{task_id}")
+}
+
+/// The conversation whose files a `cwd` names, if it names one.
+///
+/// The exact inverse of [`nominal_worktree`], and the reason both live here:
+/// the client only ever sends back a path this module gave it, so the two have
+/// to be read together to stay each other's inverse. A `cwd` with a further
+/// path segment is deliberately refused rather than truncated — the contract
+/// has no notion of opening a subdirectory as the workspace root, so one is a
+/// path this module never issued.
+pub(super) fn task_id_from_cwd(cwd: &str) -> Option<&str> {
+    cwd.strip_prefix(NOMINAL_WORKTREE_PREFIX)?
+        .strip_prefix('/')
+        .filter(|task_id| !task_id.is_empty() && !task_id.contains('/'))
+}
+
+/// Whether a `cwd` is a project's root rather than a conversation's worktree.
+///
+/// The client falls back to the project root for a thread reporting no
+/// worktree, so this is what a request for a conversation with no Sandbox
+/// arrives as. Worth telling apart from an unrecognized path: one is a state
+/// the person can change, the other is a bug.
+pub(super) fn is_project_root(cwd: &str) -> bool {
+    cwd.strip_prefix(NOMINAL_ROOT_PREFIX)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
 /// The model the conversation is running, on the provider instance that runs it.

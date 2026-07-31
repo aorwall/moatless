@@ -51,10 +51,19 @@ const SKIP_DIRS: &[&str] = &[".git", "node_modules"];
 ///
 /// When `recursive` is true, walks subdirectories. Directories are
 /// suffixed with `/` in the output. Skips `.git` and `node_modules`.
+///
+/// `respect_gitignore` additionally drops whatever the repositories in the walk
+/// ignore. Off by default, and deliberately: a caller reading the workspace to
+/// find a build artifact needs to see one. It is on for callers presenting the
+/// workspace as a *repository* to a person, where a recursive walk otherwise
+/// returns mostly `target/`, `dist/` and `.venv` — tens of thousands of paths
+/// that bury the source they are derived from. Ignore rules only apply inside a
+/// git repository, so a workspace that is not one is walked whole either way.
 pub async fn list_files(
     workspace_dir: &str,
     relative_path: &str,
     recursive: bool,
+    respect_gitignore: bool,
 ) -> Result<Vec<String>, std::io::Error> {
     let workspace = std::path::Path::new(workspace_dir);
     let full_path = if relative_path == "." || relative_path.is_empty() {
@@ -73,8 +82,68 @@ pub async fn list_files(
         p
     };
 
+    if respect_gitignore {
+        // The `ignore` walker is synchronous and reads a `.gitignore` per
+        // directory it descends into, so it runs off the async workers — the
+        // same boundary `search_files_by_name` puts it behind.
+        return tokio::task::spawn_blocking(move || {
+            walk_respecting_ignores(&full_path, &base_prefix, recursive)
+        })
+        .await
+        .map_err(|e| std::io::Error::other(format!("list join failed: {e}")))?;
+    }
+
     let mut files = Vec::new();
     walk_dir(&full_path, &base_prefix, recursive, &mut files).await?;
+    files.sort();
+    Ok(files)
+}
+
+/// The same listing as [`walk_dir`], with each repository's ignore rules applied.
+///
+/// The two produce the same strings for a path both of them yield: a directory
+/// with a trailing slash, a file without, relative to the walk's root and
+/// prefixed by it. That is the whole of the contract between them, and it is
+/// what lets one flag choose between them.
+fn walk_respecting_ignores(
+    root: &std::path::Path,
+    base_prefix: &str,
+    recursive: bool,
+) -> Result<Vec<String>, std::io::Error> {
+    let mut builder = ignore::WalkBuilder::new(root);
+    builder
+        // Dotfiles are workspace content — `.github/`, `.cargo/config.toml`.
+        // The two directories that are not are skipped by name below, exactly
+        // as the plain walk skips them; `.git` in particular is not hidden
+        // enough for this walker to leave alone on its own.
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .parents(true)
+        .filter_entry(|entry| !SKIP_DIRS.contains(&&*entry.file_name().to_string_lossy()));
+    if !recursive {
+        builder.max_depth(Some(1));
+    }
+
+    let mut files = Vec::new();
+    for entry in builder.build() {
+        let entry = entry.map_err(|e| std::io::Error::other(format!("walk failed: {e}")))?;
+        let Ok(relative) = entry.path().strip_prefix(root) else {
+            continue;
+        };
+        let relative = relative.to_string_lossy();
+        // The walker yields its own root first, as the empty relative path.
+        if relative.is_empty() {
+            continue;
+        }
+        let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
+        files.push(if is_dir {
+            format!("{base_prefix}{relative}/")
+        } else {
+            format!("{base_prefix}{relative}")
+        });
+    }
     files.sort();
     Ok(files)
 }
@@ -287,7 +356,7 @@ pub async fn get_file_tree_with_changes(
     root_path: &str,
     recursive: bool,
 ) -> Result<(Vec<FileTreeNode>, GitSummary), std::io::Error> {
-    let all_files = list_files(workspace_dir, root_path, recursive).await?;
+    let all_files = list_files(workspace_dir, root_path, recursive, false).await?;
     let git_diff = git::get_git_diff_detailed(workspace_dir).await;
 
     let mut git_file_map: HashMap<String, GitFileInfo> = HashMap::new();
@@ -459,6 +528,8 @@ mod tests {
         assert_eq!(tree[2].name, "z_file.txt");
     }
 
+    /// Both walks, because the ignore-aware one is only a drop-in for the plain
+    /// one if it yields the same strings for the paths they agree on.
     #[tokio::test]
     async fn list_files_basic() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -467,17 +538,27 @@ mod tests {
         std::fs::create_dir(dir.join("sub")).unwrap();
         std::fs::write(dir.join("sub/b.txt"), "world").unwrap();
 
-        // Non-recursive
-        let files = list_files(dir.to_str().unwrap(), ".", false).await.unwrap();
-        assert!(files.contains(&"a.txt".to_string()));
-        assert!(files.contains(&"sub/".to_string()));
-        assert!(!files.contains(&"sub/b.txt".to_string()));
+        for respect_gitignore in [false, true] {
+            // Non-recursive
+            let files = list_files(dir.to_str().unwrap(), ".", false, respect_gitignore)
+                .await
+                .unwrap();
+            assert_eq!(
+                files,
+                vec!["a.txt".to_string(), "sub/".to_string()],
+                "respect_gitignore={respect_gitignore}"
+            );
 
-        // Recursive
-        let files = list_files(dir.to_str().unwrap(), ".", true).await.unwrap();
-        assert!(files.contains(&"a.txt".to_string()));
-        assert!(files.contains(&"sub/".to_string()));
-        assert!(files.contains(&"sub/b.txt".to_string()));
+            // Recursive
+            let files = list_files(dir.to_str().unwrap(), ".", true, respect_gitignore)
+                .await
+                .unwrap();
+            assert_eq!(
+                files,
+                vec!["a.txt".to_string(), "sub/".to_string(), "sub/b.txt".to_string()],
+                "respect_gitignore={respect_gitignore}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -490,7 +571,71 @@ mod tests {
         std::fs::write(dir.join("node_modules/pkg"), "").unwrap();
         std::fs::write(dir.join("index.js"), "").unwrap();
 
-        let files = list_files(dir.to_str().unwrap(), ".", true).await.unwrap();
-        assert_eq!(files, vec!["index.js".to_string()]);
+        for respect_gitignore in [false, true] {
+            let files = list_files(dir.to_str().unwrap(), ".", true, respect_gitignore)
+                .await
+                .unwrap();
+            assert_eq!(
+                files,
+                vec!["index.js".to_string()],
+                "respect_gitignore={respect_gitignore}"
+            );
+        }
+    }
+
+    /// The listing a person is shown of a checkout that has been built in.
+    ///
+    /// The flag is what keeps the build tree out. Without it the walk returns
+    /// the artifacts too — which is right for a caller looking for one, and is
+    /// why this is a flag rather than the walk's new behaviour.
+    #[tokio::test]
+    async fn list_files_respecting_gitignore_drops_what_the_repository_ignores() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        // A real repository, because ignore rules only apply inside one.
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir)
+            .status()
+            .unwrap();
+        std::fs::write(dir.join(".gitignore"), "target/\n*.log\n").unwrap();
+        std::fs::write(dir.join("main.rs"), "").unwrap();
+        std::fs::write(dir.join("build.log"), "").unwrap();
+        std::fs::create_dir(dir.join("target")).unwrap();
+        std::fs::write(dir.join("target/binary"), "").unwrap();
+
+        let files = list_files(dir.to_str().unwrap(), ".", true, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            files,
+            vec![".gitignore".to_string(), "main.rs".to_string()],
+            "an ignored file and a whole ignored directory both stay out"
+        );
+
+        let whole = list_files(dir.to_str().unwrap(), ".", true, false)
+            .await
+            .unwrap();
+        assert!(whole.contains(&"target/binary".to_string()));
+        assert!(whole.contains(&"build.log".to_string()));
+    }
+
+    /// A workspace that is not a repository has no rules to honour, and is
+    /// walked whole either way. This is the state a Sandbox is in before its
+    /// clone finishes.
+    #[tokio::test]
+    async fn list_files_respecting_gitignore_outside_a_repository_hides_nothing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        std::fs::write(dir.join(".gitignore"), "secret.txt\n").unwrap();
+        std::fs::write(dir.join("secret.txt"), "").unwrap();
+
+        let files = list_files(dir.to_str().unwrap(), ".", true, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            files,
+            vec![".gitignore".to_string(), "secret.txt".to_string()]
+        );
     }
 }

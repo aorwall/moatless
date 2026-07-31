@@ -273,6 +273,7 @@ impl SandboxClient {
         &self,
         path: &str,
         recursive: bool,
+        respect_gitignore: bool,
     ) -> Result<Vec<String>, tonic::Status> {
         let mut client = self.client.clone();
         let result = tokio::time::timeout(Duration::from_secs(10), async {
@@ -280,6 +281,7 @@ impl SandboxClient {
                 .list_files(ListFilesRequest {
                     path: path.to_string(),
                     recursive,
+                    respect_gitignore,
                 })
                 .await
         })

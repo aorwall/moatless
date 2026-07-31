@@ -524,6 +524,10 @@ message WriteFileResponse {}
 message ListFilesRequest {
   string path = 1;      // relative to workspace, default "."
   bool recursive = 2;
+  // Drop what the repositories in the walk ignore. A sandbox built before this
+  // field existed ignores it and returns the whole walk, which is what every
+  // caller asked for until now.
+  bool respect_gitignore = 3;
 }
 
 message ListFilesResponse {

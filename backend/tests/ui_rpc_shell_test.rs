@@ -26,6 +26,9 @@ use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
 use moatless_vibe_backend::message::models::{MessageType, TaskMessage};
+use moatless_vibe_backend::sandbox::access::SandboxConnector;
+use moatless_vibe_backend::sandbox::client::SandboxClient;
+use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::tag::dao::{PgTagDao, TagDao};
@@ -43,7 +46,7 @@ use moatless_vibe_backend::ui_rpc::dao::{
     Conversation, ConversationDao, PgConversationDao, ThreadRevision, Transcript,
 };
 use moatless_vibe_backend::ui_rpc::{
-    router_from_env, shell_snapshot, shell_subscription, AgentModelDefaults, ShellFeed,
+    files, router_from_env, shell_snapshot, shell_subscription, AgentModelDefaults, ShellFeed,
     UiRpcDependencies,
 };
 use moatless_vibe_backend::auth::api_keys::PgApiKeyDao;
@@ -82,6 +85,20 @@ fn defaults() -> AgentModelDefaults {
     }
 }
 
+/// A deployment with no Sandboxes running.
+///
+/// The routes this suite drives — the shell listing and the public descriptor —
+/// never reach a Sandbox. What one answers is a gRPC round trip against a pod,
+/// which no test here has.
+struct NoSandboxes;
+
+#[async_trait::async_trait]
+impl SandboxConnector for NoSandboxes {
+    async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+}
+
 /// The compatibility router's dependencies, as `main` assembles them. Pairing
 /// itself is asserted in `backend/tests/device_pairing_test.rs`; here it is
 /// wired only because the router carries it.
@@ -95,6 +112,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         )),
         workspaces: Arc::new(PgWorkspaceDao(pool.clone())),
         conversations: Arc::new(PgConversationDao::new(pool.clone())),
+        sandboxes: Arc::new(NoSandboxes),
         model_defaults: defaults(),
     }
 }
@@ -1197,7 +1215,9 @@ async fn a_conversation_that_has_run_reports_its_turn_session_and_model(pool: Pg
     // What the agent said it was running beats any configured default.
     assert_eq!(thread["modelSelection"]["model"], "claude-opus-4-5-20260101");
     assert_eq!(thread["modelSelection"]["instanceId"], "claudeAgent");
-    assert_eq!(thread["worktreePath"], "/opt/moatless/workspace");
+    // Distinct per conversation, because the client sends it straight back as
+    // the `cwd` of every file request it makes for this thread.
+    assert_eq!(thread["worktreePath"], "/moatless/tasks/t-live");
     assert_eq!(thread["runtimeMode"], "full-access");
     assert_eq!(thread["hasPendingApprovals"], false);
 }
@@ -1404,6 +1424,112 @@ async fn every_listed_conversation_decodes(pool: PgPool) {
             "every row hangs under a project in the same snapshot"
         );
     }
+}
+
+// =========================================================================
+// Addressing a conversation's files
+// =========================================================================
+//
+// The client asks for files by the `cwd` it holds, and the only `cwd` it has
+// for a conversation is the `worktreePath` this module put in the listing. So
+// the two have to be each other's inverse, and the round trip is only real
+// against a database: the reverse direction re-reads the conversation through
+// the same follow and access filters the listing applies, which are SQL.
+//
+// What a Sandbox answers is a gRPC round trip against a pod, which no test here
+// has. These stop where that begins — at the point the request has been
+// addressed and authorized and is about to leave for the Sandbox — because
+// everything before it is this module's and everything after it is not.
+
+/// The `worktreePath` in a viewer's listing is the `cwd` that reaches that same
+/// conversation's Sandbox, and only for a viewer whose listing contains it.
+#[sqlx::test]
+async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgPool) {
+    PgWorkspaceDao(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-files", "user-1"))
+        .await
+        .unwrap();
+    seed_task(&pool, "t-files", "user-1", Some("ws-files")).await;
+    seed_sandbox(&pool, "t-files", "running", true).await;
+
+    let owner = viewer("user-1");
+    let cwd = thread(&pool, &owner, "t-files").await["worktreePath"]
+        .as_str()
+        .expect("a running sandbox reports a worktree")
+        .to_string();
+
+    // Reached the Sandbox: the stub is the only thing that refused it.
+    let error = files::list_entries(
+        &PgConversationDao::new(pool.clone()),
+        &NoSandboxes,
+        &owner,
+        &cwd,
+    )
+    .await
+    .expect_err("the stub connector has no sandbox to answer with");
+    assert_eq!(
+        error.message(),
+        "The sandbox for this conversation is not running.",
+        "the cwd resolved to the conversation and the viewer was allowed it"
+    );
+
+    // Same path, a viewer whose listing does not contain the conversation. A
+    // `cwd` is a string the client sends, so this is the only thing standing
+    // between a guessed Task id and someone else's repository.
+    let outsider = ScopeContext {
+        user_id: "user-2".into(),
+        is_admin: false,
+    };
+    let error = files::read_file(
+        &PgConversationDao::new(pool.clone()),
+        &NoSandboxes,
+        &outsider,
+        &cwd,
+        "README.md",
+    )
+    .await
+    .expect_err("a conversation they do not follow is not theirs to read");
+    assert_eq!(
+        error.message(),
+        "This conversation's files are not available.",
+        "and it must not say whether the conversation exists"
+    );
+}
+
+/// A conversation with no Sandbox reports no worktree, so the client falls back
+/// to the project's root — and that has to come back as the state it is rather
+/// than as a path nothing recognizes.
+#[sqlx::test]
+async fn a_project_root_is_answered_as_a_conversation_with_no_sandbox(pool: PgPool) {
+    PgWorkspaceDao(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-bare", "user-1"))
+        .await
+        .unwrap();
+    seed_task(&pool, "t-bare", "user-1", Some("ws-bare")).await;
+
+    let owner = viewer("user-1");
+    let listing = snapshot(&pool, &owner).await;
+    assert!(
+        listing["threads"][0]["worktreePath"].is_null(),
+        "no sandbox was ever asked for"
+    );
+    let cwd = listing["projects"][0]["workspaceRoot"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let error = files::list_entries(
+        &PgConversationDao::new(pool.clone()),
+        &NoSandboxes,
+        &owner,
+        &cwd,
+    )
+    .await
+    .expect_err("a project has no files of its own");
+    assert_eq!(
+        error.message(),
+        "This conversation has no sandbox, so it has no files yet."
+    );
 }
 
 // =========================================================================

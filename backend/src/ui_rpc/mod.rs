@@ -26,6 +26,7 @@
 mod auth;
 pub mod dao;
 mod feed;
+pub mod files;
 mod projection;
 
 pub use feed::{ShellFeed, ThreadFeed};
@@ -53,8 +54,10 @@ use crate::agent::catalog::AgentKind;
 use crate::auth::identity::{AuthIdentity, AuthMethod};
 use crate::auth::models::UserRole;
 use crate::auth::pairing::DevicePairing;
+use crate::sandbox::access::SandboxConnector;
 use crate::task_listing::{self, EnvironmentIdentity, Resume};
 use crate::ui_rpc::dao::ConversationDao;
+use crate::ui_rpc::files::FileAccessError;
 use crate::workspace::dao::WorkspaceDao;
 use moatless_backend_core::scope::ScopeContext;
 
@@ -164,6 +167,10 @@ struct UiRpcState {
     pairing: Arc<DevicePairing>,
     workspaces: Arc<dyn WorkspaceDao>,
     conversations: Arc<dyn ConversationDao>,
+    /// How a conversation's files are reached. The only piece of Moatless
+    /// behind this module that is not a database read: a checkout exists inside
+    /// its Sandbox and nowhere else.
+    sandboxes: Arc<dyn SandboxConnector>,
     model_defaults: Arc<AgentModelDefaults>,
 }
 
@@ -188,6 +195,7 @@ pub async fn router_from_env(
         pairing,
         workspaces,
         conversations,
+        sandboxes,
         model_defaults,
     } = dependencies;
     let environment = conversations.listing_head().await?.identity;
@@ -217,6 +225,7 @@ pub async fn router_from_env(
         pairing,
         workspaces,
         conversations,
+        sandboxes,
         model_defaults: Arc::new(model_defaults),
     })))
 }
@@ -235,6 +244,8 @@ pub struct UiRpcDependencies {
     pub pairing: Arc<DevicePairing>,
     pub workspaces: Arc<dyn WorkspaceDao>,
     pub conversations: Arc<dyn ConversationDao>,
+    /// Reaches a conversation's Sandbox, which is where its checkout lives.
+    pub sandboxes: Arc<dyn SandboxConnector>,
     pub model_defaults: AgentModelDefaults,
 }
 
@@ -781,6 +792,21 @@ async fn resume_grouping(
         .collect())
 }
 
+/// The workspace root a file request addresses.
+///
+/// The contract types `cwd` as a trimmed non-empty string, so a payload
+/// carrying anything else did not come from a client encoding against it. It is
+/// refused rather than defaulted: every value this module could substitute
+/// names somebody's conversation.
+fn workspace_cwd(payload: &Value) -> Option<String> {
+    payload
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|cwd| !cwd.is_empty())
+        .map(str::to_owned)
+}
+
 /// The position a client says it already holds.
 ///
 /// The contract types `afterSequence` as an optional `NonNegativeInt`, so a
@@ -1288,6 +1314,55 @@ impl ProtocolSession {
             "preview.list" => {
                 vec![success_exit(&id, json!({ "sessions": [] }))]
             }
+            "projects.listEntries" => {
+                let Some(cwd) = workspace_cwd(&payload) else {
+                    return vec![file_failure_exit(
+                        &id,
+                        &tag,
+                        &FileAccessError::Unaddressable,
+                        identity,
+                    )];
+                };
+                match files::list_entries(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer_scope(identity),
+                    &cwd,
+                )
+                .await
+                {
+                    Ok(listing) => vec![success_exit(&id, listing)],
+                    Err(error) => vec![file_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
+            "projects.readFile" => {
+                let relative_path = payload
+                    .get("relativePath")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|path| !path.is_empty());
+                let (Some(cwd), Some(relative_path)) = (workspace_cwd(&payload), relative_path)
+                else {
+                    return vec![file_failure_exit(
+                        &id,
+                        &tag,
+                        &FileAccessError::Unaddressable,
+                        identity,
+                    )];
+                };
+                match files::read_file(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer_scope(identity),
+                    &cwd,
+                    relative_path,
+                )
+                .await
+                {
+                    Ok(file) => vec![success_exit(&id, file)],
+                    Err(error) => vec![file_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
             "cloud.getRelayClientStatus" => vec![success_exit(
                 &id,
                 json!({
@@ -1455,16 +1530,6 @@ impl ProtocolSession {
                     }),
                 )]
             }
-            // Same fact, different question: there is no filesystem behind a
-            // project here to read `t3.json` or anything else out of.
-            "projects.readFile" => vec![typed_failure_exit(
-                &id,
-                json!({
-                    "_tag": "ProjectReadFileError",
-                    "message": "Moatless projects have no filesystem on this environment",
-                    "failure": "operation_failed"
-                }),
-            )],
             // Which client is focused decides whether *T3* keeps background
             // work running on its own host. Moatless runs its agents in
             // Sandboxes that no browser tab is attached to, so the report is
@@ -1831,6 +1896,54 @@ fn typed_failure_exit(request_id: &RequestId, error: Value) -> Value {
     })
 }
 
+/// A workspace-file request the client is told about in its own terms.
+///
+/// This is one of the failures [`typed_failure_exit`] exists for, and the
+/// difference from a `Die` is what the person sees. Each of these methods
+/// declares a tagged error in the contract, and the client renders that
+/// error's `message` in the file panel; a `Die` reaches the same panel as
+/// nothing but *"Workspace query failed."*, because the defect never decodes
+/// into an `Error` for it to read a message off
+/// (`projectFilesQueryState.ts:errorMessage`). Refusing to open a file is a
+/// normal outcome here — no sandbox, a binary file, a stopped pod — and each of
+/// those is worth saying out loud.
+///
+/// The tag names which error type the method declares, since the client decodes
+/// the cause against that method's own union and a mismatch would land back as
+/// an undecodable defect. Causes stay in the log: the `message` is written for
+/// the person, and the sqlx or gRPC failure behind it is not.
+fn file_failure_exit(
+    request_id: &RequestId,
+    tag: &str,
+    error: &FileAccessError,
+    identity: &AuthIdentity,
+) -> Value {
+    let error_tag = match tag {
+        "projects.readFile" => "ProjectReadFileError",
+        _ => "ProjectListEntriesError",
+    };
+    match error {
+        FileAccessError::Database(cause) => {
+            error!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
+        }
+        FileAccessError::Sandbox(cause) => {
+            warn!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
+        }
+        // A sandbox that is not up is the ordinary state of most conversations,
+        // so this one is not a warning about the deployment.
+        FileAccessError::NotRunning(cause) => {
+            debug!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
+        }
+        FileAccessError::NoWorktree | FileAccessError::Unaddressable => {
+            debug!(?error, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
+        }
+    }
+    typed_failure_exit(
+        request_id,
+        json!({ "_tag": error_tag, "message": error.message() }),
+    )
+}
+
 /// The client is told the listing could not be built; the cause is logged once
 /// here rather than shipped to the browser.
 fn shell_failure_exit(
@@ -1888,6 +2001,7 @@ mod tests {
     use crate::task_listing::ListingHead;
     use crate::ui_rpc::dao::MockConversationDao;
     use crate::workspace::dao::MockWorkspaceDao;
+    use async_trait::async_trait;
     use uuid::Uuid;
 
     /// The stub's database. Every read in these tests reports it, so nothing
@@ -1895,6 +2009,26 @@ mod tests {
     /// is in `backend/tests/ui_rpc_shell_test.rs`.
     fn stub_identity() -> EnvironmentIdentity {
         EnvironmentIdentity::new("7667539899605483559:16384")
+    }
+
+    /// A deployment whose Sandboxes are all unreachable.
+    ///
+    /// Every file request these tests make is refused before it would reach a
+    /// Sandbox — by the `cwd`, or by a listing that contains no conversations —
+    /// so the connector exists to be held, not called. What a reachable Sandbox
+    /// answers is a gRPC round trip and belongs in an integration test.
+    struct UnreachableSandboxes;
+
+    #[async_trait]
+    impl SandboxConnector for UnreachableSandboxes {
+        async fn sandbox_client(
+            &self,
+            task_id: &str,
+        ) -> Result<crate::sandbox::client::SandboxClient, crate::sandbox::error::SandboxError> {
+            Err(crate::sandbox::error::SandboxError::NotReady(
+                task_id.to_string(),
+            ))
+        }
     }
 
     /// These tests are about the envelope encoding, so the listing behind it
@@ -1941,6 +2075,7 @@ mod tests {
             )),
             workspaces: Arc::new(workspaces),
             conversations: Arc::new(conversations),
+            sandboxes: Arc::new(UnreachableSandboxes),
             model_defaults: Arc::new(AgentModelDefaults::default()),
         }
     }
@@ -2363,6 +2498,64 @@ mod tests {
         let partial = AllowedOrigin::parse("https://*preview.moatless.xyz");
         assert!(matches!(partial, AllowedOrigin::Exact(_)));
         assert!(!partial.matches("https://a.preview.moatless.xyz"));
+    }
+
+    /// Both file methods answer in the shape their own contract declares, and
+    /// not as a defect. A `Die` reaches the file panel as "Workspace query
+    /// failed." with the reason stripped, so a refusal the person can act on —
+    /// no sandbox — has to arrive as a `Fail` carrying the sentence to show.
+    #[tokio::test]
+    async fn a_refused_file_request_fails_with_the_method_s_own_error() {
+        for (tag, payload, error_tag) in [
+            (
+                "projects.listEntries",
+                json!({ "cwd": "/moatless/workspaces/ws-a" }),
+                "ProjectListEntriesError",
+            ),
+            (
+                "projects.readFile",
+                json!({ "cwd": "/moatless/workspaces/ws-a", "relativePath": "README.md" }),
+                "ProjectReadFileError",
+            ),
+        ] {
+            let mut session = session();
+            let output = session
+                .handle_json(&request("7", tag, payload), &state(), &viewer())
+                .await;
+            let exit = &output.frames[0]["exit"];
+            assert_eq!(exit["_tag"], "Failure", "{tag}");
+            assert_eq!(exit["cause"][0]["_tag"], "Fail", "{tag}");
+            assert_eq!(exit["cause"][0]["error"]["_tag"], error_tag);
+            assert_eq!(
+                exit["cause"][0]["error"]["message"],
+                "This conversation has no sandbox, so it has no files yet.",
+                "a project root is the cwd a thread with no worktree sends"
+            );
+        }
+    }
+
+    /// A `cwd` naming a conversation the viewer's listing does not contain is
+    /// answered the same way as one naming nothing at all. The stub listing is
+    /// empty, so this is every conversation.
+    #[tokio::test]
+    async fn a_cwd_outside_the_viewer_s_listing_is_indistinguishable_from_an_unknown_one() {
+        for cwd in ["/moatless/tasks/task-a", "/somewhere/else", "/moatless/tasks/"] {
+            let mut session = session();
+            let output = session
+                .handle_json(
+                    &request("8", "projects.listEntries", json!({ "cwd": cwd })),
+                    &state(),
+                    &viewer(),
+                )
+                .await;
+            let exit = &output.frames[0]["exit"];
+            assert_eq!(exit["cause"][0]["_tag"], "Fail", "{cwd}");
+            assert_eq!(
+                exit["cause"][0]["error"]["message"],
+                "This conversation's files are not available.",
+                "{cwd} must not report whether the conversation exists"
+            );
+        }
     }
 
     #[test]

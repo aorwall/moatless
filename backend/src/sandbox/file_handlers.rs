@@ -170,7 +170,8 @@ pub async fn list_files_handler(
     let recursive = query.recursive.unwrap_or(false);
     let client = state.connector.sandbox_client(&task_id).await?;
     let files = client
-        .list_files(path, recursive)
+        // The whole walk, which is what this endpoint has always returned.
+        .list_files(path, recursive, false)
         .await
         .map_err(|e| classify_grpc_error(e, "list_files"))?;
     Ok(Json(ListFilesResponse { files }))

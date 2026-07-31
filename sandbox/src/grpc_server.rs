@@ -397,7 +397,7 @@ impl SandboxService for SandboxServiceImpl {
         let root_dir = &self.state.config.workspace_dir;
         let path = if req.path.is_empty() { "." } else { &req.path };
 
-        let files = files::tree::list_files(root_dir, path, req.recursive)
+        let files = files::tree::list_files(root_dir, path, req.recursive, req.respect_gitignore)
             .await
             .map_err(|e| Status::internal(format!("Failed to list files: {e}")))?;
 
