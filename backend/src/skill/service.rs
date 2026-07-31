@@ -147,6 +147,7 @@ impl SkillService {
                 Some(self.secrets.as_ref()),
                 repo,
                 remote_url,
+                None,
             )
             .await
             .map_err(SkillError::RepositoryToken)?

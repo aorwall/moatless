@@ -263,6 +263,50 @@ pub(crate) async fn resolve_repository_github_scope_token(
     .map(Some)
 }
 
+/// Resolve the GitHub credential belonging to a task's run-as user, with no
+/// scope walk — the global row is never consulted.
+///
+/// `Ok(None)` means the user holds no row of their own, leaving the caller to
+/// decide whether to fall back. A bot row carries no `installation_id`, so it
+/// mints an owner-wide installation token and the sandbox reaches every repo
+/// the App is installed on rather than only the task's own repository.
+#[allow(clippy::too_many_arguments)]
+// reason: mirrors the canonical row resolver's infrastructure dependencies.
+pub(crate) async fn resolve_run_as_user_github_token(
+    provider_tokens: &dyn ProviderTokenDao,
+    provider_token_auth: Option<&dyn ProviderTokenAuthDao>,
+    github_app_service: Option<&GitHubAppService>,
+    github_apps: &GitHubAppRegistry,
+    secrets: Option<&SecretService>,
+    user_id: &str,
+    repo_owner: &str,
+    repo_name: &str,
+) -> Result<Option<String>, AuthError> {
+    let scope = GitHubScope::user(user_id);
+    let Some(row) = provider_tokens
+        .find_github_row(&scope)
+        .await
+        .map_err(AuthError::Database)?
+    else {
+        return Ok(None);
+    };
+
+    resolve_github_row_token(
+        provider_tokens,
+        provider_token_auth,
+        github_app_service,
+        github_apps,
+        secrets,
+        &row,
+        &scope,
+        user_id,
+        Some(repo_owner),
+        Some(repo_name),
+    )
+    .await
+    .map(Some)
+}
+
 /// Map a token scope onto the secret scope holding its encrypted value.
 pub(crate) fn secret_scope_for(scope: &GitHubScope) -> (Scope, Option<&str>) {
     match scope {

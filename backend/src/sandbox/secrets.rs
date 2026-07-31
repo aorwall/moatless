@@ -38,7 +38,8 @@ pub struct TaskCredentialInputs<'a> {
     /// Registry consulted when the effective user's `provider_tokens` row has
     /// `auth_method = 'github_app_installation'`.
     pub github_apps: Option<&'a Arc<GitHubAppRegistry>>,
-    /// Persisted repository whose scope exclusively selects GitHub access.
+    /// Persisted repository — supplies the remote URL whose owner and name the
+    /// run-as user's credential is minted against.
     pub repository: Option<&'a Repository>,
     /// User repository — read to source `GIT_USER_NAME` / `GIT_USER_EMAIL`
     /// from `users.login` / `users.email`. Bots get both; human users get
@@ -92,8 +93,8 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
 
 /// Resolve only the GitHub token a task's sandbox would receive.
 ///
-/// Uses only the persisted repository scope, matching runtime credential
-/// delivery exactly.
+/// Goes through the same run-as-user resolution as runtime credential
+/// delivery, so preflight and the sandbox never disagree.
 pub async fn resolve_task_github_token(input: TaskCredentialInputs<'_>) -> Option<String> {
     let provider_tokens = input.provider_tokens?;
     let mut credentials: HashMap<String, String> = HashMap::new();
@@ -257,8 +258,10 @@ async fn fill_provider_tokens(
 
 /// Resolve `GITHUB_TOKEN` for this task.
 ///
-/// Delegates to the repository-aware resolver. No cross-scope fallback is
-/// allowed because the repository row is the credential authority.
+/// `user_id` is the task's run-as identity and is the sole credential
+/// authority: a sandbox gets GitHub access only through that user's own row,
+/// never the repository's or the global one. A user holding no row leaves the
+/// slot empty, and preflight refuses to start the sandbox.
 #[allow(clippy::too_many_arguments)]
 // reason: mirrors `fill_user_provider_tokens`' dependency list; bundling would
 // only move the argument count to the call site.
@@ -296,6 +299,7 @@ async fn fill_github(
         secrets.map(Arc::as_ref),
         repository,
         remote_url,
+        Some(user_id),
     )
     .await
     {
@@ -625,6 +629,43 @@ mod tests {
         let token =
             resolve_task_github_token(github_inputs(&tokens, Some(&secrets), &repository)).await;
         assert_eq!(token, Some("gho_from_row".to_string()));
+    }
+
+    #[tokio::test]
+    async fn run_as_user_row_wins_over_a_global_scoped_repository() {
+        // A trigger's run_as_user owns the credential: their own row is used
+        // even though the repository is Global-scoped and a global binding
+        // exists. Without this the sandbox silently ran as the global App.
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(
+            StubProviderTokens::with_user_row(Some(crate::auth::test_support::github_row(
+                "oauth",
+                "gho_run_as_user",
+            )))
+            .with_global_row(crate::auth::test_support::github_row(
+                "oauth",
+                "gho_global_binding",
+            )),
+        );
+
+        let repository = github_repository(moatless_backend_core::scope::Scope::Global);
+        let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;
+        assert_eq!(token, Some("gho_run_as_user".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_run_as_user_with_no_row_never_reaches_the_global_token() {
+        // The sandbox's run-as user holds nothing, so the slot stays empty even
+        // with a global row sitting there. Preflight turns this into a
+        // NoGithubToken naming the user rather than starting the sandbox.
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(
+            StubProviderTokens::with_user_row(None).with_global_row(
+                crate::auth::test_support::github_row("oauth", "gho_global_binding"),
+            ),
+        );
+
+        let repository = github_repository(moatless_backend_core::scope::Scope::Global);
+        let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;
+        assert_eq!(token, None);
     }
 
     #[tokio::test]

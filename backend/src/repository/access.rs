@@ -31,11 +31,8 @@ fn github_credential_scope(repository: &Repository) -> Result<GitHubScope, Repos
     }
 }
 
-/// Resolve a GitHub token for an operation on `remote_url`.
-///
-/// The URL owner and repository name are passed through to the canonical
-/// resolver so Team/Global bindings can validate their installation account
-/// and mint a token restricted to this repository.
+/// Resolve a GitHub token for an operation on `remote_url`, with no run-as
+/// identity in play — the repository's persisted scope selects the credential.
 pub(crate) async fn resolve_repository_github_token(
     state: &AppState,
     repository: &Repository,
@@ -49,11 +46,29 @@ pub(crate) async fn resolve_repository_github_token(
         Some(state.secrets.as_ref()),
         repository,
         remote_url,
+        None,
     )
     .await
 }
 
 /// Dependency-injected form used by sandbox credential delivery.
+///
+/// `run_as_user_id` is the identity the work is attributed to (a trigger's
+/// `run_as_user_id`, carried on the task). Naming one makes that user the sole
+/// credential authority: their own GitHub row is the only thing consulted, and
+/// holding none yields `Ok(None)` rather than borrowing the repository's
+/// credential. Callers with no run-as identity fall to the repository's
+/// `scope` column as before.
+///
+/// The strictness is the point — a task must run with the GitHub access its
+/// own identity was granted, so a missing or unmintable credential surfaces
+/// as "this user cannot reach GitHub" instead of quietly running with someone
+/// else's token. `preflight_validate_github_token` turns the `None` into a
+/// `NoGithubToken` that names the user and stops the sandbox from starting.
+///
+/// The URL owner and repository name are passed through to the canonical
+/// resolver so Global bindings can validate their installation account and mint
+/// a token restricted to this repository.
 #[allow(clippy::too_many_arguments)]
 // reason: this is the repository credential boundary shared by AppState and gRPC.
 pub(crate) async fn resolve_repository_github_token_with(
@@ -64,10 +79,31 @@ pub(crate) async fn resolve_repository_github_token_with(
     secrets: Option<&SecretService>,
     repository: &Repository,
     remote_url: &str,
+    run_as_user_id: Option<&str>,
 ) -> Result<Option<String>, RepositoryError> {
     let (repo_owner, repo_name) = parse_github_owner_repo(remote_url).ok_or_else(|| {
         RepositoryError::BadRequest(format!("Cannot parse GitHub URL: {remote_url}"))
     })?;
+
+    if let Some(user_id) = run_as_user_id {
+        return crate::auth::credentials::resolve_run_as_user_github_token(
+            provider_tokens,
+            provider_token_auth,
+            github_app_service,
+            github_apps,
+            secrets,
+            user_id,
+            &repo_owner,
+            &repo_name,
+        )
+        .await
+        .map_err(|e| {
+            RepositoryError::ProviderError(format!(
+                "GitHub token resolution failed for run-as user '{user_id}': {e}"
+            ))
+        });
+    }
+
     let scope = github_credential_scope(repository)?;
 
     crate::auth::credentials::resolve_repository_github_scope_token(
@@ -173,6 +209,41 @@ mod tests {
         let err = github_credential_scope(&repo)
             .expect_err("ownerless user-scoped row must not use caller credentials");
         assert!(matches!(err, RepositoryError::ProviderError(_)));
+    }
+
+    #[tokio::test]
+    async fn a_run_as_user_without_a_row_gets_nothing_rather_than_the_repository_credential() {
+        // Naming a run-as user makes them the only authority. The same inputs
+        // without one still fall to the repository's scope, so the two results
+        // differing is what pins the absence of a fallback.
+        let tokens = crate::auth::test_support::StubProviderTokens::with_user_row(None)
+            .with_global_row(crate::auth::test_support::github_row("oauth", "gho_global"));
+        let registry = GitHubAppRegistry::default();
+        let repo = repository(Scope::Global, None);
+        let url = "https://github.com/acme/repo.git";
+
+        let strict = resolve_repository_github_token_with(
+            &tokens,
+            None,
+            None,
+            &registry,
+            None,
+            &repo,
+            url,
+            Some("u1"),
+        )
+        .await
+        .expect("a user holding no row is an absent credential, not an error");
+        assert_eq!(strict, None);
+
+        let repo_scoped = resolve_repository_github_token_with(
+            &tokens, None, None, &registry, None, &repo, url, None,
+        )
+        .await;
+        assert!(
+            repo_scoped.is_err(),
+            "the repository path reaches the Global row and rejects a non-installation binding"
+        );
     }
 
     #[test]
