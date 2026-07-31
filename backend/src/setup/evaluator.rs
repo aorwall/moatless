@@ -56,7 +56,7 @@ mod tests {
     use super::*;
     use crate::auth::test_support::{github_row, StubProviderTokens};
 
-    fn context<'a>(tokens: &'a StubProviderTokens, is_admin: bool) -> SetupContext<'a> {
+    fn context(tokens: &StubProviderTokens, is_admin: bool) -> SetupContext<'_> {
         SetupContext {
             user_id: "u1",
             is_admin,

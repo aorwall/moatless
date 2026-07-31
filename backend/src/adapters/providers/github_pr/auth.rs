@@ -25,6 +25,14 @@ pub(super) struct GithubPrAuth {
     github_app_service: Option<Arc<GitHubAppService>>,
     github_apps: Arc<GitHubAppRegistry>,
     secrets: Option<Arc<SecretService>>,
+    /// REST root every client below is built against, when a test injected one.
+    ///
+    /// Unlike Slack and Telegram there is no single client to hand in: a token
+    /// is selected per call, so the injection point is the base URL rather than
+    /// the client. Test-only, because production reads
+    /// [`super::api::api_base`] and has no second root to point at.
+    #[cfg(test)]
+    api_base: Option<String>,
 }
 
 pub(super) struct AuthenticatedGithub {
@@ -47,11 +55,36 @@ impl GithubPrAuth {
             github_app_service,
             github_apps,
             secrets: None,
+            #[cfg(test)]
+            api_base: None,
         }
     }
 
     pub(super) fn set_secrets(&mut self, secrets: Arc<SecretService>) {
         self.secrets = Some(secrets);
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_api_base(&mut self, base_url: impl Into<String>) {
+        self.api_base = Some(base_url.into());
+    }
+
+    /// The one place a REST client is built, so the injected root reaches every
+    /// use case without each of them knowing a test root exists.
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::unused_self,
+            reason = "the injected base URL is the only state read here, and it \
+                      exists only in test builds"
+        )
+    )]
+    fn client(&self, token: &str) -> GithubPrApi {
+        #[cfg(test)]
+        if let Some(base_url) = &self.api_base {
+            return GithubPrApi::with_base_url(token, base_url);
+        }
+        GithubPrApi::new(token)
     }
 
     pub(super) async fn client_for_durable_work(
@@ -89,7 +122,7 @@ impl GithubPrAuth {
         repository_owner: &str,
     ) -> Result<GithubPrApi, AdapterError> {
         let token = self.reaction_token(binding, repository_owner).await?;
-        Ok(GithubPrApi::new(&token))
+        Ok(self.client(&token))
     }
 
     async fn reaction_token(
@@ -129,7 +162,7 @@ impl GithubPrAuth {
         let token = self
             .resolve_token_for_user(user_id, Some(repository_owner))
             .await?;
-        Ok(GithubPrApi::new(&token))
+        Ok(self.client(&token))
     }
 
     async fn resolve_token_for_user(

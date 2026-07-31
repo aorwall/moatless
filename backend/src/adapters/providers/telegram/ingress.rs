@@ -9,7 +9,8 @@
 use tracing::{debug, info};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{admit_inbound_message, InboundDeliveryPayload};
+use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::SubscriptionMatch;
 use crate::adapters::AdapterDestinationBuilder;
 use crate::db::DbPool;
@@ -28,53 +29,14 @@ pub(super) enum Transport<'a> {
     Poll,
 }
 
-/// What [`receive`] did with one update.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Outcome {
-    /// Routing is durably owned as an Adapter delivery — either admitted by
-    /// this delivery or already admitted by an earlier one.
-    Admitted,
-    /// Nothing to route: no chat, no Subscription, an unsupported update, a
-    /// command answered inline, or an access decision. Acknowledging is safe
-    /// because there is no work left to lose.
-    ///
-    /// `reason` is logged, not metered — `not_routable` stays the one label
-    /// Telegram's dashboards query (spec Decision 9).
-    Ignored { reason: &'static str },
-}
-
-/// Why an update did not reach an [`Outcome`].
+/// Telegram's ignore, which carries no event type.
 ///
-/// The three variants exist because they get three different transport
-/// treatments, and getting the class wrong is how a delivery is lost.
-#[derive(Debug, thiserror::Error)]
-pub(super) enum IngressError {
-    /// Durable admission did not commit, so nothing was written and the update
-    /// is still Telegram's — do not acknowledge.
-    #[error("Telegram update was not admitted")]
-    NotAdmitted(#[from] crate::adapters::delivery::AdmitError),
-    /// A field no re-delivery supplies: a body that is not JSON, an envelope
-    /// with no `update_id` to be identified by, or one normalization rejected
-    /// as malformed. `400`.
-    #[error("{0}")]
-    Unidentifiable(String),
-    /// Everything the ingress path itself rejected: a refused secret, a
-    /// database read, a failed sender lookup.
-    ///
-    /// The spec's shared block calls this variant "acknowledged". Telegram is
-    /// the exception and keeps returning the error to its caller — see the
-    /// amendment under Decision 1 — because today's handler answers every one
-    /// of these with a non-2xx, and turning them into `200`s would be a second
-    /// behaviour change in a ticket that is allowed exactly one.
-    ///
-    /// Deliberately **not** `#[from]`. This is the class the poller retries
-    /// forever, so a `?` that reached it by inference — rather than because
-    /// someone decided this failure is worth another delivery — wedges the
-    /// poller on one update and blocks every update queued behind it. Every
-    /// construction below is written out, and every new step in [`receive`]
-    /// has to write one too.
-    #[error(transparent)]
-    Ingress(AdapterError),
+/// The Adapter has never labelled its webhook metric with one — `not_routable`
+/// is the single label its dashboards query (spec Decision 9) — so the shared
+/// [`Outcome`]'s `event_type` stays empty and `reason` is carried for the log
+/// line the handler and the poller write.
+fn ignored(reason: &'static str) -> Outcome {
+    Outcome::ignored("", reason)
 }
 
 /// Verify, resolve, normalize, apply effects, and durably admit one update.
@@ -118,7 +80,7 @@ pub(super) async fn receive(
 
     let Some(chat_id) = chat_id else {
         debug!("Telegram update has no chat.id, ignoring");
-        return Ok(Outcome::Ignored { reason: "no_chat" });
+        return Ok(ignored("no_chat"));
     };
 
     let source_id = chat_id.to_string();
@@ -145,9 +107,7 @@ pub(super) async fn receive(
             source_id,
             is_private_chat, "Telegram message ignored: no task trigger for this chat"
         );
-        return Ok(Outcome::Ignored {
-            reason: "no_subscription",
-        });
+        return Ok(ignored("no_subscription"));
     };
 
     // The secret belongs to the Subscription the delivery routes under, so it
@@ -192,20 +152,7 @@ pub(super) async fn receive(
                 )
                 .map_err(IngressError::Ingress)?;
 
-            // The routing runs in the Adapter delivery worker, which is also where
-            // the webhook outcome metric is recorded. Failing here propagates:
-            // nothing durable was written, so the caller must not acknowledge.
-            //
-            // `Ingress`, not `NotAdmitted`: the shared inbound helper converts
-            // `AdmitError` into `AdapterError` before it gets here, so this path
-            // never sees the typed admission error that GitHub PR's `receive`
-            // does. Both classes hold the poller's offset back and answer the
-            // webhook the same way, so nothing behaves differently — but
-            // whoever hoists one `IngressError` for all four Adapters has to
-            // decide whether `admit_inbound_message` should propagate
-            // `AdmitError` instead of flattening it.
-            let admission = admit_inbound_message(
-                state,
+            let request = inbound_delivery_request(
                 super::delivery::ADAPTER,
                 super::delivery::INBOUND_MESSAGE,
                 update_id.to_string(),
@@ -222,21 +169,28 @@ pub(super) async fn receive(
                     message: msg,
                 },
             )
-            .await
             .map_err(IngressError::Ingress)?;
+
+            // The routing runs in the Adapter delivery worker, which is also where
+            // the webhook outcome metric is recorded. Failing here propagates:
+            // nothing durable was written, so the caller must not acknowledge.
+            let admission =
+                crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
             debug!(
                 update_id,
                 admission = admission.as_str(),
                 "Telegram update admitted for routing"
             );
-            Ok(Outcome::Admitted)
+            Ok(Outcome::Processed {
+                event_type: String::new(),
+            })
         }
         Normalization::Ignored { reason, effects } => {
             apply_effects(adapter.api(), &state.db, &config.id, effects)
                 .await
                 .map_err(IngressError::Ingress)?;
             debug!(update_id, reason, "Telegram update ignored by provider");
-            Ok(Outcome::Ignored { reason })
+            Ok(ignored(reason))
         }
     }
 }

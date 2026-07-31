@@ -48,7 +48,7 @@ These are small and are folded into Ticket 00 rather than left implicit.
 | CI cannot see either | `.github/workflows/ci.yml:133` runs `cargo clippy -p moatless-vibe-backend -- -D warnings` with no `--all-targets`, so no `#[cfg(test)]` code is ever linted — not even for lints the workspace denies. | The predecessor plan's own verification commands inherit the same blind spot. |
 | Unused injected dependency | `providers/github_pr/adapter.rs:27` keeps `_db: DbPool` "for future per-pool DB needs". | Nothing enforces the repository's no-speculative-code rule at review time. |
 | Test isolation regressed against the rest of the tree | `providers/github_pr/test_support.rs` stubs GitHub by setting the process-global `GITHUB_API_BASE_URL` behind a global mutex, serializing every GitHub stub test. Slack and Telegram already inject a base URL through `SlackApi::with_base_url` / `TelegramApi::with_base_url`. | The predecessor plan named "a local HTTP stub" without naming the injection point. |
-| `shell_reconcile.rs` was excluded | 1,836 lines — now the largest file in `github_pr/`, larger than the `adapter.rs` the breakup targeted. | Explicitly out of scope in the predecessor plan; the exclusion was never revisited. |
+| `shell_reconcile.rs` was excluded | 1,836 lines — now the largest file in `github_pr/`, larger than the `adapter.rs` the breakup targeted. | Explicitly out of scope in the predecessor plan; the exclusion was never revisited. **Revisited in ticket 01 — Decision 8 carries the verdict: 692 of those lines are tests, and the exclusion stands.** |
 
 ### Current module ownership, by Adapter
 
@@ -328,6 +328,35 @@ that cannot happen. Fix it upstream, in the same ticket as the hoist: have `admi
 propagate `AdmitError` and let each `receive` convert, or move its two remaining callers onto
 `admit_delivery`. The helper is shared, which is why neither Adapter ticket could do it.
 
+**Amendment (ticket 01, the hoist itself).** Four things this decision could not have known, recorded
+where the next ticket will look for them:
+
+1. **`admit_inbound_message` is gone; its two callers moved onto `admit_delivery`.** The other half of
+   the choice — propagate `AdmitError` — cannot be written, because that helper had a second failure
+   of its own: the payload serialization, an `AdapterError::Internal`. A `Result<_, AdmitError>`
+   has nowhere to put it, `AdmitError` being `AtCapacity | Store`, so propagating would have meant
+   inventing a third error type for one function. What was worth sharing was the payload shape and
+   that one serialization error, which is what is left: `inbound_delivery_request(adapter, kind,
+   event_id, payload) -> Result<AdapterDeliveryRequest, AdapterError>`, a pure builder. Admission is
+   the caller's own `admit_delivery(..).await?`, so `NotAdmitted` is now reachable from all four.
+   Slack's duplicate of the serialize step (`slack/ingress.rs:363`) went with it.
+2. **`admit_delivery` takes `&AdapterDeliveryStore`, not `&AppState`.** It only ever used that one
+   field, and the narrower parameter is what makes the reachability of `NotAdmitted` assertable at
+   all: a test can build a store over a pool whose database is not there and watch a real refused
+   admission land in the variant. No test can build an `AppState`, so with the old signature the
+   criterion could only have been restated in a comment.
+3. **Slack's `Challenge` stays out of the shared `Outcome`.** It is a third transport treatment for a
+   `2xx` — the response *body* carries the challenge string — and exactly one Adapter has it. In the
+   shared enum it becomes an arm no GitHub, Linear, or Telegram delivery can reach in three
+   handlers, which is the shape #174 deleted from `slack/handlers.rs:154`. Slack keeps a local
+   wrapper one level out, `enum Received { Challenge(String), Delivery(Outcome) }`, and the shared
+   vocabulary keeps describing what every Adapter has.
+4. **Webhook got the admission change and nothing else.** It has no `receive` to hold an `Outcome` —
+   its handler answers with `AdapterError` and its own body type — so it moved onto
+   `inbound_delivery_request` + `admit_delivery` and flattens the `AdmitError` itself, at the call
+   site, via the same `From` impl the helper used to apply. Giving it the shared enums means giving
+   it an `ingress.rs`, which is stage 10.
+
 ### 3. Normalization returns effects, it does not perform them
 
 The predecessor plan allowed exactly one I/O call during normalization: sender lookup.
@@ -390,8 +419,36 @@ Ticket 00 answers one question with evidence: does `shell_reconcile.rs` contain 
 belong in `routing.rs`, `outbound.rs`, or `external_id.rs`, or is it one coherent workflow that is
 merely long?
 
-The answer is recorded in this document, and either a ticket is added or the exclusion is restated
-with a reason.
+**Verdict: one coherent workflow that is merely long. The exclusion stands, and no ticket is
+added.** Measured on the ticket-01 branch, 1,836 lines is 692 lines of tests and ~1,141 of
+production, and the production half answers one question in four shapes: *the agent just changed
+GitHub from its own shell — claim the event that change is about to produce, before the webhook
+carrying it arrives.* One entry point (`reconcile_shell_command`, reached only from
+`message/hooks.rs:101`), one shared effect (`record_claim`), four recognisers.
+
+Against the three named modules:
+
+| Candidate owner | Evidence | Verdict |
+|---|---|---|
+| `routing.rs` | Owns inbound delivery → Binding and Task. `shell_reconcile` runs *before* any delivery exists and writes only `recently_sent` plus one message-row tag; it never resolves a Subscription, a Binding, or a Task from an event. | No overlap. |
+| `outbound.rs` | Owns the reply capabilities. `shell_reconcile`'s one GitHub write is `try_append_task_footer` (`:233`) — a `get_pr` + `update_pr_body` on a PR the *agent* created, not a reply to a subject. | No overlap, with one seam note below. |
+| `external_id.rs` | Already owns it. All six external ids the module needs are formatted by `super::external_id::*` (`:219`, `:327`, `:390`–`:392`, `:514`); none is built inline. | Already correct. |
+
+Two observations recorded rather than acted on:
+
+- **Where a split would go, if one is ever wanted.** Lines `:664`–`:1141` — command recognition,
+  shell tokenizing, and output parsing — are 478 lines containing no `AppState` and no `.await`.
+  They are the natural `shell_parse.rs`, and they are also the half that is already fully covered by
+  the 692 lines of tests below them. Splitting them out moves well-tested pure functions away from
+  the four callers that give them meaning; it buys navigability, not testability. Not worth a ticket
+  on its own.
+- **One credential path bypasses `auth.rs`.** `try_append_task_footer` resolves a token through
+  `resolve_task_repository_github_token` (`:536`) and builds `GithubPrApi::new` directly, rather than
+  going through `GithubPrAuth`, which is otherwise the Adapter's single client-construction seam
+  (ticket 01 routes every one of its use cases through one private `client()`). It is the only
+  remaining GitHub client built outside `auth.rs` apart from `api_routes.rs:339`. Real, pre-existing,
+  and not caused by file length — noted here so whoever consolidates credential selection knows the
+  two sites.
 
 ## Seams and testing
 
@@ -445,16 +502,9 @@ and `cargo test -p moatless-vibe-backend`, and `task test:integration` when anyt
 
 | Stage | Change | Acceptance criteria |
 |---|---|---|
-| 00 | Clean up after PR #156 and make CI able to see test code: fix the `type_complexity` error and the 55 `--all-targets` warnings (11 `unreadable_literal`, 11 `duration_suboptimal_units`, 6 `manual_string_new`, 4 `unchecked_time_subtraction`, the rest singletons across ~25 files), delete the orphaned `bindings/metrics.rs` test support or restore its caller, drop the unused `_db` field, add `--all-targets` to the backend Clippy step in `ci.yml`, move the recording HTTP stub into `adapters/test_support.rs` with constructor injection, and record the `shell_reconcile.rs` verdict in this document. | `cargo clippy -p moatless-vibe-backend --all-targets -- -D warnings` is green and runs in CI; the lib test build emits no `dead_code` warnings; no GitHub test sets a process-global env var; the verdict is written down. |
-| 01 | Hoist the shared ingress `Outcome` and `IngressError`, migrate all four Adapters onto them, and make `admit_inbound_message` propagate `AdmitError` so `NotAdmitted` is reachable from every one of them. | No behavior change; every Adapter's acknowledgment classes and metric labels are unchanged; the enums have exactly the three transport treatments named above; the retryable variant has no blanket `From<AdapterError>`, so each construction names its class; `NotAdmitted` is produced by all four `receive`s, not just GitHub PR's. |
-| 02 | Slack: characterization tests. | No production change; every Slack row in both tables above has an executable assertion; the unmapped-sender notice is asserted against a stubbed Slack API. |
-| 03 | Slack: `subject.rs` and `auth.rs`. | All destination and reaction parsing goes through one fallible type; identity precedence and bot attribution are covered; no raw `sqlx` in `adapter.rs`. |
-| 04 | Slack: capability implementations into `outbound.rs`, `reactions.rs`, `context.rs`, `text.rs`. | Traits implemented in owning modules; `adapter.rs` has no delegating methods; request counts match the budgets. |
-| 05 | Slack: `webhook.rs` normalization. | Parsing exists only in `webhook.rs`; it makes no Slack write call; the `cognitive_complexity` expectation is deleted, not moved. |
-| 06 | Slack: `ingress.rs`, handler becomes transport-only, dead public methods and the unreachable `Challenge` arm are removed, visibility narrows. | One signature verification and one resolution per delivery; reasons and labels unchanged; `mod.rs` exports only what the route composition root and registry need. |
-| 07 | Telegram: characterization tests, including today's double-resolution behavior. | As stage 02, for Telegram. |
-| 08 | Telegram: `subject.rs`, `auth.rs`, capability implementations, `webhook.rs`. | As stages 03–05, for Telegram. |
-| 09 | Telegram: `ingress.rs` shared by the handler and the poller; Decision 6 applied. | Both entry points call one `receive`; the secret is verified against the routing Subscription; the ignore metric fires once; the behavior change is called out in the PR body. |
+| 00 | Clean up after PR #156 and make CI able to see test code: fix the `--all-targets` warnings (counted at 55 before #174 — 11 `unreadable_literal`, 11 `duration_suboptimal_units`, 6 `manual_string_new`, 4 `unchecked_time_subtraction`, the rest singletons across ~25 files — recount at `HEAD`, do not trust that number), delete the orphaned `bindings/metrics.rs` test support or restore its caller, drop the unused `_db` field, add `--all-targets` to the backend Clippy step in `ci.yml`, replace `github_pr/test_support.rs`'s `GITHUB_API_BASE_URL` process-global with constructor injection, and record the `shell_reconcile.rs` verdict in this document. Two items already landed inside #174 and are **not** in scope: the `type_complexity` error (fixed as a one-line borrow) and moving the recording HTTP stub into `adapters/test_support.rs`. | `cargo clippy -p moatless-vibe-backend --all-targets -- -D warnings` is green and runs in CI; the lib test build emits no `dead_code` warnings; no GitHub test sets a process-global env var; the verdict is written down. |
+| 01 | Hoist the shared ingress `Outcome` and `IngressError`, migrate all four Adapters onto them, and reach `NotAdmitted` from every one of them. **Shipped:** `admit_inbound_message` was replaced by the pure builder `inbound_delivery_request`, its callers admit through `admit_delivery` themselves, and `admit_delivery` narrowed to `&AdapterDeliveryStore` so the variant's reachability is testable — see the amendment under Decision 2 for why the propagate-instead option could not be written. | No behavior change; every Adapter's acknowledgment classes and metric labels are unchanged; the enums have exactly the three transport treatments named above; the retryable variant has no blanket `From<AdapterError>`, so each construction names its class; `NotAdmitted` is produced by all four `receive`s, not just GitHub PR's. |
+| 02–09 | **Shipped in #174.** Slack (02–06) and Telegram (07–09), expanded into their own spec and archived at `.plans/completed/slack-telegram-adapter-breakup.md`. | Met. `slack/adapter.rs` 1,397 → 91 lines, `telegram/adapter.rs` 1,134 → ~90. Three deliberate behavior changes, all named there: Telegram verifies the routing Subscription's secret, its ignore metric fires once, and Slack reads `users.id` as the `uuid` it is. |
 | 10 | Webhook: `inbound.rs`, `subject.rs`, visibility. | The subject key has one owner; `adapter.rs` holds only the type and its capability implementations; no new modules beyond the two. |
 | 11 | Linear: characterization tests across all five kinds, close eligibility, and activity emission. | As stage 02, for Linear; `LinearAgentApi` gains base-URL injection so the tests can run offline. |
 | 12 | Linear: `subject.rs`, `auth.rs`, `external_id.rs`, `text.rs`. | Both subject kinds parse through one type; credential selection has one home; no external id is formatted inline. |
@@ -462,7 +512,15 @@ and `cargo test -p moatless-vibe-backend`, and `task test:integration` when anyt
 | 14 | Linear: `activity.rs`, and the event pipeline depends on it rather than on `agent_runtime`. | `event_handler` imports only `activity`; turn gating and truncation are covered by tests. |
 | 15 | Linear: `ingress.rs`, handler becomes transport-only, `agent_runtime.rs` is deleted, visibility narrows. | `agent_runtime.rs` does not exist; `mod.rs` exports only real crate consumers; no coverage is lost. |
 
-Stages 02–06, 07–09, 10, and 11–15 are independent stacks. Stages 00 and 01 gate all of them.
+Stages 10 and 11–15 are independent stacks. **Stages 00 and 01 were written as gates on everything
+else, and events falsified that.** Slack and Telegram shipped without either, and the cost was
+visible rather than fatal: the Slack ticket had to borrow one line of stage 00's `type_complexity`
+fix just to make `cargo clippy --all-targets` compile at all, and both tickets declared their own
+copy of `Outcome` and `IngressError` because two children writing `adapters/ingress.rs` in parallel
+would have conflicted in precisely the code that decides whether a delivery is acknowledged. So 00
+and 01 are not gates; they are cleanup that gets cheaper the longer it waits and duplication that
+gets more expensive. Do them next, before Webhook and Linear repeat the workaround a third and
+fourth time.
 
 ## Out of scope
 
@@ -481,7 +539,7 @@ Stages 02–06, 07–09, 10, and 11–15 are independent stacks. Stages 00 and 0
 
 | # | Question | Needed before |
 |---|---|---|
-| 1 | Does `shell_reconcile.rs` contain workflows owned by `routing.rs` / `outbound.rs`, or is it one long coherent workflow? | Ticket 00 answers it; nothing else depends on it. |
+| 1 | Does `shell_reconcile.rs` contain workflows owned by `routing.rs` / `outbound.rs`, or is it one long coherent workflow? | **Answered: one long coherent workflow.** The exclusion stands with a reason; see Decision 8. |
 | 2 | Is the Telegram ignore-metric halving in Decision 6 acceptable to whoever reads those dashboards? | Stage 09. |
 | 3 | Should stages 02–06 land as one consolidated PR, as #156 did, or as five? #156 consolidated seven stacked PRs into one 6,434-line merge, which delivered the architecture but collapsed the per-stage review boundary the predecessor plan promised. | Stage 02. |
 
@@ -508,7 +566,7 @@ and only the lint fix gates the `ci.yml` change.
 |---|---|---|
 | 00 | Post-#156 cleanup and `--all-targets` Clippy in CI. | Lints, dead code, and test support only; no production behavior. |
 | 01 | Shared ingress outcome and error vocabulary. | Two enums and two call sites; no behavior. |
-| 02–06 | Slack: characterize, then subject/auth, capabilities, normalization, ingress. | One Adapter; no shared-module changes. |
-| 07–09 | Telegram: the same sequence, plus the deliberate resolution fix. | One Adapter; one named behavior change. |
+| ~~02–06~~ | ~~Slack~~ — shipped in #174. | — |
+| ~~07–09~~ | ~~Telegram~~ — shipped in #174. | — |
 | 10 | Webhook: `inbound.rs` and `subject.rs`. | Two file moves and visibility. |
 | 11–15 | Linear: characterize, then subject/auth/ids/text, five workflow modules, activity, ingress, delete `agent_runtime.rs`. | One Adapter; the event-pipeline import change is its own stage. |

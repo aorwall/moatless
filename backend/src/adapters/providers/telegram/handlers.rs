@@ -7,10 +7,11 @@ use axum::http::{HeaderMap, StatusCode};
 use tracing::{info, warn};
 
 use crate::adapters::error::AdapterError;
+use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
-use super::ingress::{self, IngressError, Outcome, Transport};
+use super::ingress::{self, Transport};
 
 #[utoipa::path(
     post,
@@ -45,8 +46,8 @@ pub async fn telegram_webhook(
         // Routing is durably owned now; its outcome is recorded by the work
         // handler when it actually runs. Recording "success" here would count
         // an outcome this path no longer knows.
-        Ok(Outcome::Admitted) => {}
-        Ok(Outcome::Ignored { reason }) => {
+        Ok(Outcome::Processed { .. }) => {}
+        Ok(Outcome::Ignored { reason, .. }) => {
             info!(reason, "Telegram update ignored");
             // The typed reason is logged, not metered: `not_routable` stays the
             // one label Telegram's dashboards query (spec Decision 9).
@@ -57,13 +58,68 @@ pub async fn telegram_webhook(
             warn!(error = %e, "Telegram webhook processing error");
             // Nothing durable was written, so this delivery is still Telegram's.
             // Acknowledging it here is what used to lose the update outright.
-            return Err(match e {
-                IngressError::NotAdmitted(e) => AdapterError::from(e),
-                IngressError::Unidentifiable(message) => AdapterError::BadRequest(message),
-                IngressError::Ingress(e) => e,
-            });
+            return Err(refusal(e));
         }
     }
 
     Ok(StatusCode::OK)
+}
+
+/// How each ingress class is refused. Every one of them is a non-2xx: Telegram
+/// re-sends what it was not told we own.
+fn refusal(error: IngressError) -> AdapterError {
+    match error {
+        IngressError::NotAdmitted(e) => AdapterError::from(e),
+        IngressError::Unidentifiable(message) => AdapterError::BadRequest(message),
+        IngressError::Ingress(e) => e,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    use crate::adapters::delivery::AdmitError;
+    use crate::adapters::error::AdapterError;
+    use crate::adapters::ingress::IngressError;
+    use crate::adapters::test_support::response_snapshot;
+
+    use super::refusal;
+
+    /// The acknowledgment class of each failure this route raises.
+    ///
+    /// The two `NotAdmitted` rows are the ones this Adapter could not reach
+    /// before the shared vocabulary landed: `receive` admitted through a helper
+    /// that flattened `AdmitError` into `AdapterError` first, so a refused
+    /// admission arrived as an ingress rejection. It now admits through
+    /// `crate::adapters::ingress::admit_delivery` — see the test beside that
+    /// function — and this pins that the class it produces is still refused
+    /// rather than acknowledged, and with the same statuses the flattened one
+    /// produced.
+    #[tokio::test]
+    async fn no_failure_on_the_telegram_webhook_path_is_acknowledged() {
+        for (error, expected) in [
+            (
+                IngressError::Ingress(AdapterError::SignatureInvalid),
+                StatusCode::UNAUTHORIZED,
+            ),
+            (
+                IngressError::Unidentifiable("Missing update_id".into()),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                IngressError::NotAdmitted(AdmitError::AtCapacity { limit: 10 }),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                IngressError::NotAdmitted(AdmitError::Store(sqlx::Error::PoolTimedOut)),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ] {
+            let (status, _) = response_snapshot(refusal(error).into_response()).await;
+            assert_eq!(status, expected);
+            assert_ne!(status, StatusCode::OK, "a failure must not acknowledge");
+        }
+    }
 }

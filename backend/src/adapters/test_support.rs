@@ -1,9 +1,19 @@
-//! `#[cfg(test)]` helpers for driving adapter HTTP clients without the network.
+//! Test-only helpers for driving adapter HTTP clients without the network.
 //!
 //! Adapter error classification only means something if the real request path
 //! produces it, so these helpers give the clients somewhere local to talk to:
 //! an address nothing listens on (transport failure) or a stub that answers
 //! with a body of our choosing (rejection / undecodable payload).
+
+// Compiled for two consumers — in-crate `#[cfg(test)]` modules and the
+// `db-tests` integration binaries — and neither uses all of it. Under the
+// `db-tests` feature this module is part of the library rather than the test
+// binary, so the library's lints apply to it and have to be waived here.
+#![allow(dead_code, reason = "shared across two test tiers; each uses a subset")]
+#![allow(
+    clippy::expect_used,
+    reason = "a broken test fixture should fail the test loudly, not be handled"
+)]
 
 use std::sync::{Arc, Mutex};
 
@@ -16,11 +26,11 @@ use axum::{Json, Router};
 /// An address on loopback that nothing is listening on. Connecting is refused
 /// immediately, so this exercises the "we could not reach the provider" path
 /// deterministically and offline.
-pub(crate) const UNREACHABLE_BASE: &str = "http://127.0.0.1:1";
+pub const UNREACHABLE_BASE: &str = "http://127.0.0.1:1";
 
 /// Serve `status` + `body` on a loopback port for every path, and return the
 /// base URL. The server lives as long as the test process.
-pub(crate) async fn stub_provider(status: StatusCode, body: &'static str) -> String {
+pub async fn stub_provider(status: StatusCode, body: &'static str) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind loopback");
@@ -34,14 +44,14 @@ pub(crate) async fn stub_provider(status: StatusCode, body: &'static str) -> Str
 
 /// One request a [`ProviderStub`] answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RecordedRequest {
-    pub(crate) method: String,
+pub struct RecordedRequest {
+    pub method: String,
     /// Path only, e.g. `/users.info`.
-    pub(crate) path: String,
+    pub path: String,
     /// Raw query string, empty when the request carried none.
-    pub(crate) query: String,
+    pub query: String,
     /// Request body as text, empty for bodyless requests.
-    pub(crate) body: String,
+    pub body: String,
 }
 
 /// The per-path responder, aliased so the `Arc<dyn Fn(..)>` field stays under
@@ -60,7 +70,7 @@ struct StubState {
 /// Unlike [`stub_provider`] it distinguishes endpoints, which is what makes the
 /// per-workflow API-call budgets assertable: the recorded paths *are* the calls
 /// the code under test made.
-pub(crate) struct ProviderStub {
+pub struct ProviderStub {
     base_url: String,
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
 }
@@ -68,7 +78,7 @@ pub(crate) struct ProviderStub {
 impl ProviderStub {
     /// Serve `responder(path)` as a JSON body on every route. The server lives
     /// as long as the test process.
-    pub(crate) async fn start<F>(responder: F) -> Self
+    pub async fn start<F>(responder: F) -> Self
     where
         F: Fn(&str) -> serde_json::Value + Send + Sync + 'static,
     {
@@ -114,11 +124,11 @@ impl ProviderStub {
         }
     }
 
-    pub(crate) fn base_url(&self) -> &str {
+    pub fn base_url(&self) -> &str {
         &self.base_url
     }
 
-    pub(crate) fn requests(&self) -> Vec<RecordedRequest> {
+    pub fn requests(&self) -> Vec<RecordedRequest> {
         self.requests
             .lock()
             .expect("stub request log is not poisoned")
@@ -126,16 +136,56 @@ impl ProviderStub {
     }
 
     /// The paths hit, in order — the API-call budget of whatever just ran.
-    pub(crate) fn paths(&self) -> Vec<String> {
+    pub fn paths(&self) -> Vec<String> {
         self.requests()
             .into_iter()
             .map(|request| request.path)
             .collect()
     }
+
+    /// The GraphQL operations invoked, in order.
+    ///
+    /// [`Self::paths`] cannot express the budget of a GraphQL sender: every
+    /// call is `POST /graphql`, so a workflow that made three round trips and
+    /// one that made one look identical. The operation is the only thing that
+    /// distinguishes them, and it is in the body — the top-level field of the
+    /// `query` document, which is `issue` for a read and the mutation name for
+    /// a write. Requests that carry no recognisable document are reported by
+    /// their path rather than dropped — an OAuth token refresh is a real round
+    /// trip, and a budget that hid it would understate what the workflow cost.
+    pub fn graphql_operations(&self) -> Vec<String> {
+        self.requests()
+            .into_iter()
+            .map(|request| {
+                serde_json::from_str::<serde_json::Value>(&request.body)
+                    .ok()
+                    .as_ref()
+                    .and_then(|body| body.get("query"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(graphql_operation_name)
+                    .unwrap_or_else(|| format!("{} {}", request.method, request.path))
+            })
+            .collect()
+    }
+}
+
+/// The top-level field of a GraphQL document — `issueUpdate` in
+/// `mutation IssueUpdate($id: String!) { issueUpdate(...) { ... } }`, `issue`
+/// in `query ($id: String!) { issue(id: $id) { ... } }`.
+///
+/// Deliberately a scan rather than a parse: the documents this reads are the
+/// literal strings in `agent_api.rs`, and a budget assertion that failed
+/// because a query gained a whitespace would be worse than useless.
+fn graphql_operation_name(document: &str) -> Option<String> {
+    let body = document.split_once('{')?.1;
+    let field = body
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .find(|token| !token.is_empty())?;
+    Some(field.to_string())
 }
 
 /// A genuine [`reqwest::Error`] from a refused connection.
-pub(crate) async fn transport_error() -> reqwest::Error {
+pub async fn transport_error() -> reqwest::Error {
     reqwest::Client::new()
         .get(UNREACHABLE_BASE)
         .send()
@@ -144,7 +194,7 @@ pub(crate) async fn transport_error() -> reqwest::Error {
 }
 
 /// Walk `Error::source` and collect each link's `Display`.
-pub(crate) fn source_chain(err: &dyn std::error::Error) -> Vec<String> {
+pub fn source_chain(err: &dyn std::error::Error) -> Vec<String> {
     let mut chain = Vec::new();
     let mut current = err.source();
     while let Some(e) = current {
@@ -155,7 +205,7 @@ pub(crate) fn source_chain(err: &dyn std::error::Error) -> Vec<String> {
 }
 
 /// Read an `IntoResponse` result into `(status, body)` for response snapshots.
-pub(crate) async fn response_snapshot(response: axum::response::Response) -> (StatusCode, String) {
+pub async fn response_snapshot(response: axum::response::Response) -> (StatusCode, String) {
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await

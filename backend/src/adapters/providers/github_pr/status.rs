@@ -367,7 +367,6 @@ mod tests {
             None,
             Some("wrong-global-token".to_string()),
             "https://app.example.com".to_string(),
-            fake_db_pool(),
             Arc::new(StubProviderTokens::with_user_row_for(
                 "owner-user",
                 github_row("manual", "owner-token"),
@@ -375,7 +374,8 @@ mod tests {
             None,
             None,
             Arc::new(GitHubAppRegistry::default()),
-        );
+        )
+        .with_api_base(stub.base_url());
         let status = provider
             .fetch_binding_status(
                 &binding_with_config(serde_json::json!({
@@ -389,26 +389,11 @@ mod tests {
             .expect("one live PR read returns status");
         assert_eq!(status.state_kind.as_deref(), Some("open"));
 
+        // Every request below was provoked by this test: the stub is reached
+        // only by the client this Adapter built against it.
         let recorded = stub.recorded_requests().await;
         let selected_status_token = Some("Bearer owner-token");
-        // A `/app` probe with the selected status token belongs to this
-        // status path, not to unrelated concurrent credential discovery.
-        let selected_token_app_requests: Vec<_> = recorded
-            .iter()
-            .filter(|request| {
-                request.uri == "/app" && request.authorization.as_deref() == selected_status_token
-            })
-            .collect();
-        assert!(
-            selected_token_app_requests.is_empty(),
-            "status refresh must not probe the GitHub App endpoint with the selected status token: {recorded:?}"
-        );
-        // The env-based GitHub API stub can receive unrelated App probes from
-        // concurrent credential tests; keep this assertion scoped to status.
-        let status_requests: Vec<_> = recorded
-            .iter()
-            .filter(|request| request.uri != "/app")
-            .collect();
+        let status_requests: Vec<_> = recorded.iter().collect();
         let observed: Vec<(&str, &str)> = status_requests
             .iter()
             .map(|request| (request.method.as_str(), request.uri.as_str()))
@@ -420,12 +405,5 @@ mod tests {
                 .all(|request| request.authorization.as_deref() == selected_status_token),
             "status refresh keeps its selected user token: {recorded:?}"
         );
-    }
-
-    fn fake_db_pool() -> crate::db::DbPool {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy("postgres://fake:fake@localhost:1/fake")
-            .unwrap()
     }
 }

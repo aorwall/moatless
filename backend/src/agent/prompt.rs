@@ -327,7 +327,7 @@ fn build_parent_task_section(parent_task_id: &str) -> String {
 mod tests {
     use super::*;
 
-    fn base_inputs<'a>(task_id: &'a str) -> PromptInputs<'a> {
+    fn base_inputs(task_id: &str) -> PromptInputs<'_> {
         PromptInputs {
             task_id,
             task_name: None,

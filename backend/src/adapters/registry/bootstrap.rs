@@ -79,7 +79,6 @@ impl Adapters {
                 config.github_pr.webhook_secret.clone(),
                 config.github_pr.bot_token.clone(),
                 config.auth.frontend_url.clone(),
-                db.clone(),
                 provider_tokens.clone(),
                 Some(provider_token_auth.clone()),
                 github_app_service.clone(),
@@ -94,12 +93,8 @@ impl Adapters {
         // flow (provider_tokens, team_id=<linear org uuid>). OAuth client
         // credentials are needed to refresh expired access tokens.
         {
-            let linear = crate::adapters::linear::adapter::LinearAdapter::new(
-                config.linear.webhook_secret.clone(),
-                config.linear.oauth_client_id.clone(),
-                config.linear.oauth_client_secret.clone(),
-                db,
-            );
+            let linear =
+                crate::adapters::linear::adapter::LinearAdapter::new(&config.linear, db);
             providers.register_linear(Arc::new(linear));
             tracing::info!("Linear adapter configured");
         }

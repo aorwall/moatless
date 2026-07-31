@@ -197,7 +197,7 @@ mod tests {
         })
         .await;
 
-        let provider = provider();
+        let provider = provider(stub.base_url());
         let binding = binding_context(Some("owner-user"));
 
         assert_eq!(
@@ -213,26 +213,11 @@ mod tests {
             .await
             .unwrap();
 
+        // Every request below was provoked by this test: the stub is reached
+        // only by the client this Adapter built against it.
         let recorded = stub.recorded_requests().await;
         let selected_reaction_token = Some("Bearer owner-token");
-        // A `/app` probe with the selected reaction token belongs to this
-        // reaction path, not to unrelated concurrent credential discovery.
-        let selected_token_app_requests: Vec<_> = recorded
-            .iter()
-            .filter(|request| {
-                request.uri == "/app" && request.authorization.as_deref() == selected_reaction_token
-            })
-            .collect();
-        assert!(
-            selected_token_app_requests.is_empty(),
-            "reaction calls must not probe the GitHub App endpoint with the selected reaction token: {recorded:?}"
-        );
-        // The env-based GitHub API stub can receive unrelated App probes from
-        // concurrent credential tests; keep this assertion scoped to reactions.
-        let reaction_requests: Vec<_> = recorded
-            .iter()
-            .filter(|request| request.uri != "/app")
-            .collect();
+        let reaction_requests: Vec<_> = recorded.iter().collect();
         let observed: Vec<(&str, &str)> = reaction_requests
             .iter()
             .map(|request| (request.method.as_str(), request.uri.as_str()))
@@ -260,12 +245,11 @@ mod tests {
         );
     }
 
-    fn provider() -> GithubPrAdapter {
+    fn provider(api_base: &str) -> GithubPrAdapter {
         GithubPrAdapter::new(
             None,
             Some("wrong-global-token".to_string()),
             "https://app.example.com".to_string(),
-            fake_db_pool(),
             Arc::new(StubProviderTokens::with_user_row_for(
                 "owner-user",
                 github_row("manual", "owner-token"),
@@ -274,13 +258,7 @@ mod tests {
             None,
             Arc::new(GitHubAppRegistry::default()),
         )
-    }
-
-    fn fake_db_pool() -> crate::db::DbPool {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy("postgres://fake:fake@localhost:1/fake")
-            .unwrap()
+        .with_api_base(api_base)
     }
 
     fn binding_context(filter_user_id: Option<&str>) -> BindingContext {

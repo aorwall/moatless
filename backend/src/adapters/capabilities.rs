@@ -115,7 +115,9 @@ impl<T: Adapter + ?Sized> AdapterIdentity for T {
 /// Resolve Adapter-side identities into Moatless user identities.
 #[async_trait::async_trait]
 pub(crate) trait AdapterUserIdentity: Send + Sync {
-    #[expect(
+    // `allow`, not `expect`: `slack::auth`'s tests still call this directly, so
+    // the lint fires in the lib build and not in the test build.
+    #[allow(
         dead_code,
         reason = "registered by every Adapter and reachable through \
                   `Adapters::user_identity`, which carries the same allow — but \

@@ -306,7 +306,6 @@ mod tests {
             None,
             None,
             "https://app.example.com".to_string(),
-            fake_db_pool(),
             fake_provider_tokens(),
             None,
             None,

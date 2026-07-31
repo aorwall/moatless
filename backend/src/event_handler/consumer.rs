@@ -444,7 +444,7 @@ impl EventHandlerConsumer {
                     if let Some(message) = event.payload.get("message").cloned() {
                         if self.state.linear_active_turns.is_open(&event.task_id) {
                             tokio::spawn(
-                                crate::adapters::linear::agent_runtime::notify_linear_message_activities(
+                                crate::adapters::linear::activity::notify_linear_message_activities(
                                     self.state.clone(),
                                     event.task_id.clone(),
                                     message,
@@ -456,7 +456,7 @@ impl EventHandlerConsumer {
                     if let Some(message) = event.payload.get("message").cloned() {
                         if self.state.linear_active_turns.is_open(&event.task_id) {
                             tokio::spawn(
-                                crate::adapters::linear::agent_runtime::notify_linear_tool_results(
+                                crate::adapters::linear::activity::notify_linear_tool_results(
                                     self.state.clone(),
                                     event.task_id.clone(),
                                     message,
@@ -496,10 +496,10 @@ impl EventHandlerConsumer {
                     .unwrap_or("Agent error")
                     .to_string();
                 if self.state.linear_active_turns.is_open(&event.task_id) {
-                    tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                    tokio::spawn(crate::adapters::linear::activity::notify_linear_status(
                         self.state.clone(),
                         event.task_id.clone(),
-                        crate::adapters::linear::agent_api::ActivityKind::Error,
+                        crate::adapters::linear::activity::ActivityKind::Error,
                         body,
                         false,
                     ));
@@ -529,10 +529,10 @@ impl EventHandlerConsumer {
                     .unwrap_or("Sandbox error")
                     .to_string();
                 if self.state.linear_active_turns.is_open(&event.task_id) {
-                    tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_status(
+                    tokio::spawn(crate::adapters::linear::activity::notify_linear_status(
                         self.state.clone(),
                         event.task_id.clone(),
-                        crate::adapters::linear::agent_api::ActivityKind::Error,
+                        crate::adapters::linear::activity::ActivityKind::Error,
                         body,
                         false,
                     ));
@@ -549,7 +549,7 @@ impl EventHandlerConsumer {
                 | SandboxStatus::Stopped),
             ) => {
                 if self.state.linear_active_turns.is_open(&event.task_id) {
-                    tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
+                    tokio::spawn(crate::adapters::linear::activity::notify_linear_action(
                         self.state.clone(),
                         event.task_id.clone(),
                         "Sandbox".to_string(),
@@ -566,7 +566,7 @@ impl EventHandlerConsumer {
             // agent restarts mid-session).
             EventKey::Agent(AgentSubType::Started) => {
                 self.state.linear_active_turns.open(&event.task_id);
-                tokio::spawn(crate::adapters::linear::agent_runtime::notify_linear_action(
+                tokio::spawn(crate::adapters::linear::activity::notify_linear_action(
                     self.state.clone(),
                     event.task_id.clone(),
                     "Agent".to_string(),

@@ -271,15 +271,13 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
         body.push_str(&footer);
     }
 
-    tokio::spawn(
-        crate::adapters::linear::agent_runtime::notify_linear_status(
-            state.clone(),
-            task_id.to_string(),
-            crate::adapters::linear::agent_api::ActivityKind::Response,
-            body,
-            false,
-        ),
-    );
+    tokio::spawn(crate::adapters::linear::activity::notify_linear_status(
+        state.clone(),
+        task_id.to_string(),
+        crate::adapters::linear::activity::ActivityKind::Response,
+        body,
+        false,
+    ));
 }
 
 /// Concatenate every `text` block from a `message_content` JSON array into a

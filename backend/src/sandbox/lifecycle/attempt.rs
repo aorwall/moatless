@@ -170,7 +170,7 @@ mod tests {
         b.begin(gen(1));
         b.record_failure();
         assert_eq!(
-            b.backoff(Duration::from_secs(1), Duration::from_secs(60)),
+            b.backoff(Duration::from_secs(1), Duration::from_mins(1)),
             Duration::from_secs(2)
         );
     }

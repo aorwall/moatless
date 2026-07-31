@@ -276,7 +276,7 @@ mod tests {
         let m = marker(OperationKind::Remove);
         // Even a very old marker is not stale-cleared: acknowledge takes no age
         // input, and is_stale is only a recovery signal.
-        assert!(is_stale(&m, at(1_000_000), Duration::from_secs(60)));
+        assert!(is_stale(&m, at(1_000_000), Duration::from_mins(1)));
         // Acknowledgement with an unmet obligation still retains.
         assert_eq!(
             acknowledge(
@@ -349,13 +349,13 @@ mod tests {
         assert!(edge_suppression_active(
             &m,
             at(1_030),
-            Duration::from_secs(60)
+            Duration::from_mins(1)
         ));
         // Stale (age 120s > 60s) → suppression disabled.
         assert!(!edge_suppression_active(
             &m,
             at(1_120),
-            Duration::from_secs(60)
+            Duration::from_mins(1)
         ));
     }
 
@@ -368,7 +368,7 @@ mod tests {
         ] {
             let m = marker(kind);
             assert!(
-                !edge_suppression_active(&m, at(1_010), Duration::from_secs(60)),
+                !edge_suppression_active(&m, at(1_010), Duration::from_mins(1)),
                 "{kind:?}"
             );
         }
@@ -378,6 +378,6 @@ mod tests {
     fn clock_skew_marker_is_not_stale() {
         let m = marker(OperationKind::Start);
         // now < started_at → negative age → not stale.
-        assert!(!is_stale(&m, at(500), Duration::from_secs(60)));
+        assert!(!is_stale(&m, at(500), Duration::from_mins(1)));
     }
 }

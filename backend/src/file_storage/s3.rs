@@ -262,11 +262,11 @@ mod tests {
 
     #[tokio::test]
     async fn effective_presign_ttl_uses_requested_ttl_without_expiring_credentials() {
-        let ttl = effective_presign_ttl(None, Duration::from_secs(900))
+        let ttl = effective_presign_ttl(None, Duration::from_mins(15))
             .await
             .unwrap();
 
-        assert_eq!(ttl, Duration::from_secs(900));
+        assert_eq!(ttl, Duration::from_mins(15));
     }
 
     #[tokio::test]
@@ -275,12 +275,12 @@ mod tests {
             "AKID",
             "SECRET",
             None,
-            Some(SystemTime::now() + Duration::from_secs(120)),
+            Some(SystemTime::now() + Duration::from_mins(2)),
             "test",
         );
         let provider = SharedCredentialsProvider::new(credentials);
 
-        let ttl = effective_presign_ttl(Some(&provider), Duration::from_secs(900))
+        let ttl = effective_presign_ttl(Some(&provider), Duration::from_mins(15))
             .await
             .unwrap();
 
@@ -299,7 +299,7 @@ mod tests {
         );
         let provider = SharedCredentialsProvider::new(credentials);
 
-        let err = effective_presign_ttl(Some(&provider), Duration::from_secs(900))
+        let err = effective_presign_ttl(Some(&provider), Duration::from_mins(15))
             .await
             .unwrap_err();
 

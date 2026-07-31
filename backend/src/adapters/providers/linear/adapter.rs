@@ -19,7 +19,8 @@ use crate::db::DbPool;
 use crate::state::AppState;
 
 use super::SUBJECT_KIND_ISSUE;
-use super::agent_api::{LinearAgentApi, default_http_client};
+use super::agent_api::LinearAgentApi;
+use super::auth::LinearCredentials;
 use super::status;
 
 /// Linear adapter.
@@ -27,11 +28,10 @@ pub struct LinearAdapter {
     /// Global webhook secret from env (`LINEAR_CHANNEL_WEBHOOK_SECRET`).
     /// Used as a fallback when the connection has no `webhook_secret` set.
     pub(crate) global_webhook_secret: Option<String>,
-    /// OAuth client_id used by the Linear Agents API client to refresh
-    /// workspace tokens. `None` disables the OAuth refresh path.
-    oauth_client_id: Option<String>,
-    /// OAuth client_secret used by the Linear Agents API client for refresh.
-    oauth_client_secret: Option<String>,
+    /// How this Adapter's outbound calls authenticate, and which host they
+    /// reach. Owned by [`auth`](super::auth), which is the only module that
+    /// reads them.
+    credentials: LinearCredentials,
     /// Database pool for looking up workspace tokens.
     db: DbPool,
 }
@@ -40,7 +40,7 @@ pub struct LinearAdapter {
 /// optional `Moatless task:` footer linking back to the moatless task. The
 /// footer URL doubles as the echo-filter source — when the comment's own
 /// webhook echo arrives, the authoring task id is recovered from that link
-/// (see `agent_runtime::handle_comment_created`).
+/// (see `comments::handle_comment_created`).
 fn build_comment_body(message: &OutboundReply) -> String {
     let mut body = message.text.clone();
     if let Some(ref footer) = message.footer {
@@ -50,56 +50,33 @@ fn build_comment_body(message: &OutboundReply) -> String {
 }
 
 impl LinearAdapter {
-    pub fn new(
-        global_webhook_secret: Option<String>,
-        oauth_client_id: Option<String>,
-        oauth_client_secret: Option<String>,
-        db: DbPool,
-    ) -> Self {
+    /// Build the Adapter from the one place its credentials come from.
+    ///
+    /// Taking [`LinearConfig`] rather than three loose `Option<String>`s is
+    /// what makes the Adapter's credentials provably the same ones the
+    /// `AppState`-side paths use — the two used to be assembled separately,
+    /// and nothing checked they agreed. It is also the injection seam: a test
+    /// builds a `LinearConfig` with `api_base_url` pointed at a loopback stub
+    /// and gets an Adapter whose outbound calls never leave the machine,
+    /// through the same constructor production calls.
+    pub fn new(config: &crate::config::LinearConfig, db: DbPool) -> Self {
         Self {
-            global_webhook_secret,
-            oauth_client_id,
-            oauth_client_secret,
+            global_webhook_secret: config.webhook_secret.clone(),
+            credentials: LinearCredentials::from(config),
             db,
         }
     }
 
     /// Build a Linear Agents API client for the given workspace.
     pub(crate) fn agent_api_for_org(&self, org_id: &str) -> LinearAgentApi {
-        LinearAgentApi::new(
-            default_http_client(),
-            self.db.clone(),
-            org_id.to_string(),
-            self.oauth_client_id.clone(),
-            self.oauth_client_secret.clone(),
-        )
+        self.credentials.api_for_org(self.db.clone(), org_id)
     }
 
-    /// Build a [`LinearAgentApi`] for the single Linear connection in
-    /// `integration_connections`. Used by [`AdapterDirectDestination::post_to_destination`],
-    /// which takes no connection parameter. Errors if there is no Linear
-    /// connection installed, or more than one — multi-org callers must go
-    /// through the typed `/api/v1/linear/*` endpoints with an explicit
-    /// `connectionId`.
-    async fn api_for_single_workspace(&self) -> Result<LinearAgentApi, AdapterError> {
-        let rows = sqlx::query_scalar::<_, String>(
-            "SELECT scope_value FROM integration_connections \
-             WHERE provider = 'linear' LIMIT 2",
-        )
-        .fetch_all(&self.db)
-        .await
-        .map_err(AdapterError::Db)?;
-        match rows.len() {
-            0 => Err(AdapterError::AdapterNotConfigured(
-                "No Linear workspace installed — run the Linear OAuth install first".into(),
-            )),
-            1 => Ok(self.agent_api_for_org(&rows[0])),
-            _ => Err(AdapterError::BadRequest(
-                "Multiple Linear workspaces installed — use the /api/v1/linear/* \
-                 endpoints with an explicit connectionId"
-                    .into(),
-            )),
-        }
+    /// The pool [`auth`](super::auth) reads workspace rows from. Exposed to the
+    /// sibling module rather than the query being written here — the Adapter
+    /// type owns construction and identity, not database access.
+    pub(super) fn db(&self) -> &DbPool {
+        &self.db
     }
 
     /// Exposed accessor for the dispatcher in `handlers.rs`.
@@ -121,14 +98,7 @@ impl AdapterUserIdentity for LinearAdapter {
         identity: &str,
         db: &DbPool,
     ) -> Result<Option<String>, AdapterError> {
-        let user_id = sqlx::query_scalar::<_, String>(
-            "SELECT user_id FROM provider_tokens WHERE provider = 'linear' AND provider_login = $1 LIMIT 1",
-        )
-        .bind(identity)
-        .fetch_optional(db)
-        .await
-        .map_err(AdapterError::Db)?;
-        Ok(user_id)
+        super::auth::resolve_user(identity, db).await
     }
 }
 
@@ -184,7 +154,7 @@ impl AdapterBindingReply for LinearAdapter {
                 .ok_or_else(|| {
                     AdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
                 })?;
-            return Ok(Some(format!("linear:comment:{comment_id}")));
+            return Ok(Some(super::external_id::comment(comment_id)));
         }
 
         // AgentSession binding: post the reply as a comment on the bound
@@ -218,7 +188,7 @@ impl AdapterBindingReply for LinearAdapter {
                     .get("id")
                     .and_then(serde_json::Value::as_str)
                     .map(str::to_string);
-                Ok(comment_id.map(|cid| format!("linear:comment:{cid}")))
+                Ok(comment_id.as_deref().map(super::external_id::comment))
             }
             Err(e) => {
                 warn!(
@@ -267,7 +237,7 @@ impl AdapterDirectDestination for LinearAdapter {
             ));
         }
 
-        let api = self.api_for_single_workspace().await?;
+        let api = super::auth::api_for_single_workspace(self).await?;
         let issue = api.get_issue(id_or_key).await?;
         let issue_uuid = issue
             .get("id")
@@ -302,7 +272,7 @@ impl AdapterDirectDestination for LinearAdapter {
         }
 
         Ok(crate::adapters::DestinationPostResult {
-            message_external_id: format!("linear:comment:{comment_id}"),
+            message_external_id: super::external_id::comment(&comment_id),
             subject_kind: SUBJECT_KIND_ISSUE,
             subject_key: issue_uuid,
             destination_config,
@@ -326,7 +296,7 @@ impl AdapterPostBindingFollowup for LinearAdapter {
             return;
         }
         let api = self.agent_api_for_org(&connection.scope_value);
-        super::agent_runtime::attach_parent_task_link(state, &api, &binding.subject_key, task_id)
+        super::issues::attach_parent_task_link(state, &api, &binding.subject_key, task_id)
             .await;
     }
 }

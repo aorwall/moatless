@@ -801,6 +801,15 @@ pub struct LinearConfig {
     pub oauth_client_secret: Option<String>,
     /// OAuth redirect_uri registered on the Linear OAuth2 app.
     pub oauth_callback_url: Option<String>,
+    /// API host every Linear client built by this adapter talks to, GraphQL and
+    /// OAuth token exchange alike. `None` means Linear itself.
+    ///
+    /// This is the Adapter's injection seam: `LinearAgentApi` is constructed
+    /// deep inside webhook and worker paths that hold only an `AppState`, so
+    /// pointing the clients somewhere else has to be something an `AppState`
+    /// carries. A test builds its own, which is why it cannot be a
+    /// process-global. Env: `LINEAR_API_BASE_URL`.
+    pub api_base_url: Option<String>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -817,6 +826,7 @@ impl fmt::Debug for LinearConfig {
                 &self.oauth_client_secret.as_ref().map(|_| "[REDACTED]"),
             )
             .field("oauth_callback_url", &self.oauth_callback_url)
+            .field("api_base_url", &self.api_base_url)
             .finish()
     }
 }
@@ -1174,6 +1184,7 @@ impl Config {
                 oauth_client_id: env_opt("LINEAR_OAUTH_CLIENT_ID"),
                 oauth_client_secret: env_opt("LINEAR_OAUTH_CLIENT_SECRET"),
                 oauth_callback_url: env_opt("LINEAR_OAUTH_CALLBACK_URL"),
+                api_base_url: env_opt("LINEAR_API_BASE_URL"),
             },
 
             skill: SkillConfig {
@@ -1443,14 +1454,14 @@ impl Config {
                 github_client_id: None,
                 github_client_secret: None,
                 github_callback_url: None,
-                github_oauth_scope: "".into(),
+                github_oauth_scope: String::new(),
                 github_required_org: None,
                 auth0_domain: None,
                 auth0_client_id: None,
                 auth0_client_secret: None,
                 auth0_callback_url: None,
                 auth0_audience: None,
-                auth0_groups_claim: "".into(),
+                auth0_groups_claim: String::new(),
                 session_max_age_secs: 3600,
                 frontend_url: "http://localhost:3000".into(),
                 cookie_domain: None,
@@ -1495,6 +1506,7 @@ impl Config {
                 oauth_client_id: None,
                 oauth_client_secret: None,
                 oauth_callback_url: None,
+                api_base_url: None,
             },
             skill: SkillConfig { cache_ttl_secs: 60 },
             secrets: SecretsConfig {

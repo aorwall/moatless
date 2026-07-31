@@ -7,7 +7,6 @@ use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
-use crate::db::DbPool;
 use crate::secret::service::SecretService;
 
 use super::auth::GithubPrAuth;
@@ -21,24 +20,15 @@ pub(crate) struct GithubPrAdapter {
     /// `Moatless task:` footer link on outbound comments and to recover the
     /// authoring task id from that link on inbound echoes / context backfill.
     frontend_url: String,
-    /// Database pool — currently unused by token resolution (handled by the
-    /// canonical resolver via `provider_tokens`), kept for future per-pool DB
-    /// needs and to remain wire-compatible with the existing public ctor.
-    _db: DbPool,
     /// GitHub identity selection and credential materialization.
     auth: GithubPrAuth,
 }
 
 impl GithubPrAdapter {
-    // reason: wiring ctor — each arg is a distinct injected dependency
-    // (secrets, frontend URL, db pool, token repos, App registry) with no
-    // natural grouping; a params struct would only add indirection.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         global_webhook_secret: Option<String>,
         global_bot_token: Option<String>,
         frontend_url: String,
-        db: DbPool,
         provider_tokens: Arc<dyn ProviderTokenDao>,
         provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
         github_app_service: Option<Arc<GitHubAppService>>,
@@ -47,7 +37,6 @@ impl GithubPrAdapter {
         Self {
             global_webhook_secret,
             frontend_url,
-            _db: db,
             auth: GithubPrAuth::new(
                 global_bot_token,
                 provider_tokens,
@@ -62,6 +51,21 @@ impl GithubPrAdapter {
     #[must_use]
     pub(crate) fn with_secrets(mut self, secrets: Arc<SecretService>) -> Self {
         self.auth.set_secrets(secrets);
+        self
+    }
+
+    /// Point every REST client this Adapter builds at a caller-supplied root.
+    ///
+    /// [`Self::new`] resolves the root from the process environment, which
+    /// leaves a test nowhere to put a stub except a process-global — and a
+    /// process-global is shared with every other test in the binary. This is
+    /// GitHub's form of `SlackAdapter::with_api` / `TelegramAdapter::with_api`:
+    /// the root is injected because the client cannot be, tokens being selected
+    /// per call.
+    #[cfg(test)]
+    #[must_use]
+    pub(super) fn with_api_base(mut self, base_url: impl Into<String>) -> Self {
+        self.auth.set_api_base(base_url);
         self
     }
 
@@ -190,7 +194,6 @@ mod tests {
             None,
             None,
             "https://app.example.com".to_string(),
-            fake_db_pool(),
             fake_provider_tokens(),
             None,
             None,

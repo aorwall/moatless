@@ -181,6 +181,12 @@ pub struct AgentSessionComment {
 pub struct AgentActivityPayload {
     pub id: String,
     /// `prompt` | `response` | `thought` | `elicitation` | `action` | `error`.
+    ///
+    /// Deserialized but never read: the `prompted` action is what routes the
+    /// delivery, not the activity's own type. Surfaced by narrowing `mod.rs` in
+    /// stage 15 of the Linear breakup; kept because dropping a field changes
+    /// what the payload records.
+    #[allow(dead_code, reason = "see the doc comment")]
     #[serde(default, rename = "type")]
     pub kind: String,
     #[serde(default)]

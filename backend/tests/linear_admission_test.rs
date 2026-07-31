@@ -37,7 +37,9 @@ use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
 use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::state::AppState;
 
-use common::{drain_linear_adapter_delivery, test_app_state_with_adapters, USER_1};
+use common::{
+    drain_linear_adapter_delivery, linear_config, test_app_state_with_config, test_config, USER_1,
+};
 
 const SECRET: &str = "linear-webhook-secret";
 const ORG: &str = "org-1";
@@ -51,13 +53,10 @@ type HmacSha256 = Hmac<Sha256>;
 /// between deliveries — everything that survives one is in the database.
 fn replica(pool: &PgPool) -> AppState {
     let mut adapters = Adapters::new();
-    adapters.register_linear(Arc::new(LinearAdapter::new(
-        Some(SECRET.to_string()),
-        None,
-        None,
-        pool.clone(),
-    )));
-    test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)))
+    let mut config = test_config();
+    config.linear = linear_config(Some(SECRET), None);
+    adapters.register_linear(Arc::new(LinearAdapter::new(&config.linear, pool.clone())));
+    test_app_state_with_config(pool.clone(), Some(Arc::new(adapters)), config)
 }
 
 /// Deliver a signed envelope the way Linear does, and return whatever the

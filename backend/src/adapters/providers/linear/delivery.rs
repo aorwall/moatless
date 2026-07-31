@@ -15,7 +15,7 @@
 //!
 //! # Idempotency key
 //!
-//! `event_id` is the *existing* [`dedup_key`](super::handlers) string —
+//! `event_id` is the *existing* [`dedup_key`](super::ingress) string —
 //! `{event_type}:{action}:{resource_id}` with the documented fallback chain
 //! ending at `webhook_id:webhook_timestamp`. It is deliberately not a new
 //! scheme: Linear's `webhookId` is the stable webhook-*configuration* id,
@@ -70,7 +70,7 @@
 use tracing::{debug, info, warn};
 
 use crate::adapters::delivery::{
-    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest, AdmitError,
+    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
     ConnectionDeliveryPayload, register_connection_delivery,
 };
 use crate::adapters::error::AdapterError;
@@ -136,33 +136,6 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         state,
         execute_notification,
     );
-}
-
-/// Why a Linear webhook did not reach a normal outcome.
-///
-/// The variants get opposite transport treatment. [`Self::NotAdmitted`] and
-/// [`Self::Unidentifiable`] both mean nothing was written, so Linear must not
-/// be told the delivery is ours; [`Self::Ingress`] keeps the long-standing
-/// behaviour of a logged, metered `200`.
-#[derive(Debug, thiserror::Error)]
-pub enum LinearWebhookError {
-    /// Durable admission did not commit.
-    #[error("Linear webhook work was not admitted")]
-    NotAdmitted(#[from] AdmitError),
-    /// The delivery carries work, but not the field that would tell that work
-    /// apart from the next delivery like it.
-    ///
-    /// Admitting anyway is the one outcome that is worse than refusing.
-    /// A colliding identity does not lose *this* delivery, it loses the *next*
-    /// one — silently, cluster-wide, and for the whole retention period,
-    /// because the durable unique index would recognise a genuinely different
-    /// event as a duplicate of this one. Refusing keeps the loss where an
-    /// operator can see it.
-    #[error("Linear delivery is missing {0}, so its work cannot be told apart from the next")]
-    Unidentifiable(&'static str),
-    /// Everything the dispatch path itself rejected or failed on.
-    #[error(transparent)]
-    Ingress(#[from] AdapterError),
 }
 
 /// Everything the provisioning handler needs to redo the work from scratch.
@@ -399,7 +372,7 @@ async fn execute_session_provision(
                 .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
         })
         .unwrap_or_default();
-    let rules = super::agent_runtime::resolve_rules_for_team(&state, &connection, &team_id)
+    let rules = super::ingress::resolve_rules_for_team(&state, &connection, &team_id)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     if rules.is_empty() {
@@ -411,8 +384,8 @@ async fn execute_session_provision(
         return Ok(());
     }
 
-    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
-    super::agent_runtime::provision_selected_session_task(
+    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    super::sessions::provision_selected_session_task(
         &state,
         &api,
         &connection,
@@ -429,11 +402,10 @@ async fn execute_session_prompt(
     connection: AdapterConnection,
     payload: SessionPromptDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
-    super::agent_runtime::handle_session_prompted(
+    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    super::sessions::handle_session_prompted(
         &state,
         &api,
-        &connection,
         &payload.session_id,
         &payload.activity_id,
         &payload.body,
@@ -452,7 +424,7 @@ async fn execute_issue_update(
     // handler re-resolves: a rule disabled between admission and execution
     // should stop the work, which is what disabling it means.
     let team_id = payload.issue.resolved_team_id().unwrap_or_default();
-    let rules = super::agent_runtime::resolve_rules_for_team(&state, &connection, team_id)
+    let rules = super::ingress::resolve_rules_for_team(&state, &connection, team_id)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     if rules.is_empty() {
@@ -464,8 +436,8 @@ async fn execute_issue_update(
         return Ok(());
     }
 
-    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
-    super::agent_runtime::handle_issue_update(
+    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    super::issues::handle_issue_update(
         &state,
         &api,
         &connection,
@@ -484,8 +456,8 @@ async fn execute_comment(
     connection: AdapterConnection,
     payload: CommentDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
-    super::agent_runtime::handle_comment_created(
+    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    super::comments::handle_comment_created(
         &state,
         &api,
         &connection,
@@ -517,8 +489,8 @@ async fn execute_notification(
         return Ok(());
     }
 
-    let api = super::agent_runtime::agent_api(&state, &connection.scope_value);
-    super::agent_runtime::handle_issue_status_notification(
+    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    super::notifications::handle_issue_status_notification(
         &state,
         &api,
         &connection,

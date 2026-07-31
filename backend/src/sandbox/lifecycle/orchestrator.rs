@@ -1700,7 +1700,7 @@ mod tests {
         let res = h.lifecycle.start("t").await;
         match res {
             Err(LifecycleError::OperationInProgress { kind }) => {
-                assert_eq!(kind, OperationKind::Stop)
+                assert_eq!(kind, OperationKind::Stop);
             }
             other => panic!("expected OperationInProgress, got {other:?}"),
         }

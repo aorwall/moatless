@@ -896,7 +896,7 @@ pub(crate) async fn attach_moatless_task(
         warn!(task_id = %task_id, "attach_moatless_task: issue missing id");
         return;
     };
-    super::agent_runtime::attach_parent_task_link(state, api, issue_uuid, task_id).await;
+    super::issues::attach_parent_task_link(state, api, issue_uuid, task_id).await;
 }
 
 #[cfg(test)]

@@ -47,8 +47,8 @@ use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{
-    drain_linear_adapter_delivery, make_repository_row, make_task_row, seed_team,
-    test_app_state_with_adapters, USER_1,
+    drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row, seed_team,
+    test_app_state_with_config, test_config, USER_1,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -66,13 +66,10 @@ type HmacSha256 = Hmac<Sha256>;
 /// restarted between them.
 fn replica(pool: &PgPool) -> AppState {
     let mut adapters = Adapters::new();
-    adapters.register_linear(Arc::new(LinearAdapter::new(
-        Some(SECRET.to_string()),
-        None,
-        None,
-        pool.clone(),
-    )));
-    test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)))
+    let mut config = test_config();
+    config.linear = linear_config(Some(SECRET), None);
+    adapters.register_linear(Arc::new(LinearAdapter::new(&config.linear, pool.clone())));
+    test_app_state_with_config(pool.clone(), Some(Arc::new(adapters)), config)
 }
 
 /// Deliver a signed envelope the way Linear does, and return the status the

@@ -152,7 +152,7 @@ mod tests {
     fn group_open_allows() {
         let cfg = make_group_config(SourceAccessPolicy::Open, vec![], false);
         assert!(matches!(
-            enforce_group_access(&cfg, -100123, "hello"),
+            enforce_group_access(&cfg, -100_123, "hello"),
             AccessDecision::Allowed
         ));
     }
@@ -161,7 +161,7 @@ mod tests {
     fn group_disabled_blocks() {
         let cfg = make_group_config(SourceAccessPolicy::Disabled, vec![], false);
         assert!(matches!(
-            enforce_group_access(&cfg, -100123, "hello"),
+            enforce_group_access(&cfg, -100_123, "hello"),
             AccessDecision::Blocked
         ));
     }
@@ -170,7 +170,7 @@ mod tests {
     fn group_allowlist_allows_listed() {
         let cfg = make_group_config(SourceAccessPolicy::Allowlist, vec!["-100123"], false);
         assert!(matches!(
-            enforce_group_access(&cfg, -100123, "hello"),
+            enforce_group_access(&cfg, -100_123, "hello"),
             AccessDecision::Allowed
         ));
     }
@@ -179,7 +179,7 @@ mod tests {
     fn group_allowlist_blocks_unlisted() {
         let cfg = make_group_config(SourceAccessPolicy::Allowlist, vec!["-100999"], false);
         assert!(matches!(
-            enforce_group_access(&cfg, -100123, "hello"),
+            enforce_group_access(&cfg, -100_123, "hello"),
             AccessDecision::Blocked
         ));
     }
@@ -188,7 +188,7 @@ mod tests {
     fn group_require_mention_blocks_without_mention() {
         let cfg = make_group_config(SourceAccessPolicy::Open, vec![], true);
         assert!(matches!(
-            enforce_group_access(&cfg, -100123, "hello world"),
+            enforce_group_access(&cfg, -100_123, "hello world"),
             AccessDecision::Blocked
         ));
     }
@@ -197,7 +197,7 @@ mod tests {
     fn group_require_mention_allows_with_mention() {
         let cfg = make_group_config(SourceAccessPolicy::Open, vec![], true);
         assert!(matches!(
-            enforce_group_access(&cfg, -100123, "hello @testbot fix this"),
+            enforce_group_access(&cfg, -100_123, "hello @testbot fix this"),
             AccessDecision::Allowed
         ));
     }
@@ -207,12 +207,12 @@ mod tests {
         let cfg = make_group_config(SourceAccessPolicy::Allowlist, vec!["-100123"], true);
         // In allowlist but no mention → blocked
         assert!(matches!(
-            enforce_group_access(&cfg, -100123, "hello"),
+            enforce_group_access(&cfg, -100_123, "hello"),
             AccessDecision::Blocked
         ));
         // In allowlist and has mention → allowed
         assert!(matches!(
-            enforce_group_access(&cfg, -100123, "@testbot hello"),
+            enforce_group_access(&cfg, -100_123, "@testbot hello"),
             AccessDecision::Allowed
         ));
     }

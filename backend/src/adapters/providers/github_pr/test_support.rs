@@ -1,4 +1,11 @@
-use std::ffi::OsString;
+//! A local GitHub REST stub that records what the Adapter sent it.
+//!
+//! The stub's address reaches the Adapter through
+//! [`super::adapter::GithubPrAdapter::with_api_base`], not through the
+//! `GITHUB_API_BASE_URL` process-global this used to write: a global is shared
+//! with every other test in the binary, so the stub both saw requests it never
+//! provoked and serialized every GitHub stub test behind one mutex.
+
 use std::sync::Arc;
 
 use axum::extract::{Request, State};
@@ -6,11 +13,8 @@ use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Json, Router};
-use tokio::sync::{Mutex, MutexGuard, oneshot};
+use tokio::sync::{oneshot, Mutex};
 use tokio::task::JoinHandle;
-
-static GITHUB_API_ENV_LOCK: std::sync::LazyLock<Mutex<()>> =
-    std::sync::LazyLock::new(|| Mutex::new(()));
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordedGithubRequest {
@@ -51,14 +55,18 @@ impl IntoResponse for StubResponse {
 }
 
 pub(super) struct GithubApiStub {
+    base_url: String,
     requests: Arc<Mutex<Vec<RecordedGithubRequest>>>,
-    previous_base_url: Option<OsString>,
     shutdown: Option<oneshot::Sender<()>>,
     handle: JoinHandle<()>,
-    _env_lock: MutexGuard<'static, ()>,
 }
 
 impl GithubApiStub {
+    /// Hand this to [`super::adapter::GithubPrAdapter::with_api_base`].
+    pub(super) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     pub(super) async fn recorded_requests(&self) -> Vec<RecordedGithubRequest> {
         self.requests.lock().await.clone()
     }
@@ -66,11 +74,6 @@ impl GithubApiStub {
 
 impl Drop for GithubApiStub {
     fn drop(&mut self) {
-        if let Some(value) = self.previous_base_url.take() {
-            std::env::set_var("GITHUB_API_BASE_URL", value);
-        } else {
-            std::env::remove_var("GITHUB_API_BASE_URL");
-        }
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -113,12 +116,9 @@ where
         (state.responder)(method, &path, &uri).into_response()
     }
 
-    let env_lock = GITHUB_API_ENV_LOCK.lock().await;
     let requests = Arc::new(Mutex::new(Vec::new()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let previous_base_url = std::env::var_os("GITHUB_API_BASE_URL");
-    std::env::set_var("GITHUB_API_BASE_URL", format!("http://{addr}"));
 
     let state = StubState {
         requests: requests.clone(),
@@ -136,10 +136,9 @@ where
     });
 
     GithubApiStub {
+        base_url: format!("http://{addr}"),
         requests,
-        previous_base_url,
         shutdown: Some(shutdown),
         handle,
-        _env_lock: env_lock,
     }
 }

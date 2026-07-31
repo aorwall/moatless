@@ -5,10 +5,11 @@ use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
 use crate::adapters::error::AdapterError;
+use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
-use super::ingress::{IngressError, Outcome, WebhookRequest};
+use super::ingress::{Received, WebhookRequest};
 
 #[utoipa::path(
     post,
@@ -39,19 +40,19 @@ pub async fn slack_webhook(
 
     match super::ingress::receive(&state, slack_provider, request).await {
         // Slack's endpoint check wants the challenge echoed in the body.
-        Ok(Outcome::Challenge(challenge)) => Ok((StatusCode::OK, challenge).into_response()),
+        Ok(Received::Challenge(challenge)) => Ok((StatusCode::OK, challenge).into_response()),
         // No metric: the delivery worker records the outcome of the work that
         // was just admitted, and recording one here would double-count it.
-        Ok(Outcome::Processed { event_type }) => {
+        Ok(Received::Delivery(Outcome::Processed { event_type })) => {
             debug!(event_type, "Slack webhook admitted for routing");
             Ok(StatusCode::OK.into_response())
         }
-        Ok(Outcome::Ignored {
+        Ok(Received::Delivery(Outcome::Ignored {
             event_type,
             reason,
             rule_id,
             connection_id,
-        }) => {
+        })) => {
             record_webhook(
                 "slack",
                 "ignored",
@@ -88,9 +89,8 @@ mod tests {
 
     use crate::adapters::delivery::AdmitError;
     use crate::adapters::error::AdapterError;
+    use crate::adapters::ingress::IngressError;
     use crate::adapters::test_support::response_snapshot;
-
-    use super::super::ingress::IngressError;
 
     /// The acknowledgment class of each failure the Slack webhook path raises.
     /// An ingress rejection and an admission failure both leave the request
@@ -98,8 +98,7 @@ mod tests {
     ///
     /// Every row is reachable: `receive` admits through `admit_delivery`, which
     /// hands back `AdmitError` unflattened, so both `NotAdmitted` rows are
-    /// states a real at-capacity or failed write produces — see
-    /// [`IngressError::NotAdmitted`] for why that is not true of every Adapter.
+    /// states a real at-capacity or failed write produces.
     #[tokio::test]
     async fn no_failure_on_the_slack_webhook_path_is_acknowledged() {
         for (error, expected) in [

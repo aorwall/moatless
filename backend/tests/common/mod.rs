@@ -121,6 +121,24 @@ impl NotifyPort for MockNotify {
 // Config + AppState factories
 // =========================================================================
 
+/// The Linear half of a test config.
+///
+/// `api_base_url` is the injection seam: `LinearAgentApi` is built deep inside
+/// webhook and worker paths that hold only an `AppState`, so the only way to
+/// point a workflow's Linear calls at a loopback stub is to hand it in here.
+/// Pass a stub's base and no test in this file can reach `api.linear.app`;
+/// pass `None` and the client is production's.
+#[allow(dead_code)]
+pub fn linear_config(webhook_secret: Option<&str>, api_base_url: Option<&str>) -> LinearConfig {
+    LinearConfig {
+        webhook_secret: webhook_secret.map(str::to_string),
+        oauth_client_id: None,
+        oauth_client_secret: None,
+        oauth_callback_url: None,
+        api_base_url: api_base_url.map(str::to_string),
+    }
+}
+
 /// Minimal Config for tests — no env vars needed.
 #[allow(dead_code)]
 pub fn test_config() -> Config {
@@ -275,12 +293,7 @@ pub fn test_config() -> Config {
             webhook_secret: None,
             bot_token: None,
         },
-        linear: LinearConfig {
-            webhook_secret: None,
-            oauth_client_id: None,
-            oauth_client_secret: None,
-            oauth_callback_url: None,
-        },
+        linear: linear_config(None, None),
         skill: SkillConfig { cache_ttl_secs: 60 },
         secrets: SecretsConfig {
             encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
@@ -312,7 +325,25 @@ pub fn test_app_state_with_adapters(
     pool: PgPool,
     adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
 ) -> AppState {
-    let config = test_config();
+    test_app_state_with_config(pool, adapters, test_config())
+}
+
+/// [`test_app_state_with_adapters`] with the config chosen by the caller.
+///
+/// The Adapter-side seams that decide which host an outbound call reaches live
+/// on `Config` — `linear.api_base_url` is the one this exists for. A workflow
+/// that builds its API client from `state.config` cannot be pointed at a stub
+/// any other way, and a workflow test that cannot be pointed at a stub reaches
+/// the real sender.
+#[allow(
+    dead_code,
+    reason = "this module is compiled into every test binary; each one uses a subset of it"
+)]
+pub fn test_app_state_with_config(
+    pool: PgPool,
+    adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
+    config: Config,
+) -> AppState {
     let github_apps = Arc::new(GitHubAppRegistry::new(
         moatless_vibe_backend::auth::github::service::GitHubAppService::from_config(&config)
             .map(Arc::new),

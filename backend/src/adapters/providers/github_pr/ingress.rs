@@ -10,6 +10,7 @@ use tracing::{debug, warn};
 use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryRequest;
 use crate::adapters::error::AdapterError;
+use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch};
 use crate::state::AppState;
 
@@ -41,39 +42,14 @@ impl<'a> WebhookRequest<'a> {
     }
 }
 
-/// Outcome surfaced so the HTTP handler can emit stable webhook metrics.
-#[derive(Debug)]
-pub(crate) enum WebhookOutcome {
-    Processed {
-        event_type: String,
-    },
-    Ignored {
-        event_type: String,
-        reason: &'static str,
-    },
-}
-
-/// Why a GitHub webhook did not reach a normal outcome.
+/// Reject one ingress-path failure as worth another delivery.
 ///
-/// The two variants get opposite transport treatment, which is the whole reason
-/// they are distinguished: [`Self::NotAdmitted`] means the work was never taken
-/// on and must not be acknowledged, while [`Self::Ingress`] keeps the
-/// pre-existing behaviour of a logged, metered `200`.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum WebhookError {
-    /// Durable admission did not commit, so the backend owns nothing and a
-    /// `200` would be a lie.
-    ///
-    /// Unlike Linear, GitHub does not retry a failed delivery on its own: the
-    /// non-2xx marks it failed in the delivery log, where it stays redeliverable
-    /// by an operator for 30 days. That is a recorded, recoverable loss instead
-    /// of a silent one, which is the whole difference this variant buys.
-    #[error("GitHub webhook work was not admitted")]
-    NotAdmitted(#[from] crate::adapters::delivery::AdmitError),
-    /// Everything the ingress path itself rejected: a missing header, an
-    /// unparseable body, a failed signature, a database read.
-    #[error(transparent)]
-    Ingress(#[from] AdapterError),
+/// GitHub does not retry a failed delivery on its own: a non-2xx marks it
+/// failed in the delivery log, where it stays redeliverable by an operator for
+/// 30 days. Everything this path rejects is therefore [`IngressError::Ingress`]
+/// — a recorded, recoverable loss instead of a silent one.
+fn ingress(e: AdapterError) -> IngressError {
+    IngressError::Ingress(e)
 }
 
 /// Verify, normalize, plan, and durably admit one GitHub webhook.
@@ -81,7 +57,7 @@ pub(crate) async fn receive(
     state: &AppState,
     github_provider: &GithubPrAdapter,
     request: WebhookRequest<'_>,
-) -> Result<WebhookOutcome, WebhookError> {
+) -> Result<Outcome, IngressError> {
     let WebhookRequest {
         event_type,
         delivery_id,
@@ -90,16 +66,22 @@ pub(crate) async fn receive(
     } = request;
 
     if event_type.is_empty() {
-        return Err(AdapterError::BadRequest("Missing X-GitHub-Event header".into()).into());
+        return Err(ingress(AdapterError::BadRequest(
+            "Missing X-GitHub-Event header".into(),
+        )));
     }
 
     let payload: serde_json::Value = serde_json::from_slice(body)
-        .map_err(|e| AdapterError::BadRequest(format!("Invalid JSON: {e}")))?;
+        .map_err(|e| ingress(AdapterError::BadRequest(format!("Invalid JSON: {e}"))))?;
 
     let repo_full_name = payload
         .pointer("/repository/full_name")
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| AdapterError::BadRequest("Missing repository.full_name".into()))?;
+        .ok_or_else(|| {
+            ingress(AdapterError::BadRequest(
+                "Missing repository.full_name".into(),
+            ))
+        })?;
 
     debug!(
         event_type,
@@ -112,19 +94,22 @@ pub(crate) async fn receive(
         .pointer("/repository/owner/login")
         .and_then(serde_json::Value::as_str)
         .or_else(|| repo_full_name.split('/').next())
-        .ok_or_else(|| AdapterError::BadRequest("Missing repository.owner.login".into()))?;
+        .ok_or_else(|| {
+            ingress(AdapterError::BadRequest(
+                "Missing repository.owner.login".into(),
+            ))
+        })?;
 
-    let resolved = resolve_provider_event(state, owner_login, repo_full_name).await?;
+    let resolved = resolve_provider_event(state, owner_login, repo_full_name)
+        .await
+        .map_err(ingress)?;
     let Some((connection, rule)) = resolved else {
         debug!(
             repo = repo_full_name,
             owner = owner_login,
             "GitHub webhook ignored: no provider_connection"
         );
-        return Ok(WebhookOutcome::Ignored {
-            event_type: event_type.to_string(),
-            reason: "no_connection",
-        });
+        return Ok(Outcome::ignored(event_type, "no_connection"));
     };
 
     // An *inactive* trigger suppresses delivery. A *missing* trigger does not —
@@ -135,10 +120,7 @@ pub(crate) async fn receive(
             repo = repo_full_name,
             "GitHub webhook ignored: task trigger inactive"
         );
-        return Ok(WebhookOutcome::Ignored {
-            event_type: event_type.to_string(),
-            reason: "inactive",
-        });
+        return Ok(Outcome::ignored(event_type, "inactive"));
     }
 
     // Verify webhook signature against the org connection's secret.
@@ -148,16 +130,15 @@ pub(crate) async fn receive(
         .or(github_provider.global_webhook_secret());
 
     if let Some(secret) = secret {
-        super::signature::verify_signature(secret, body, signature)?;
+        super::signature::verify_signature(secret, body, signature).map_err(ingress)?;
     } else if !signature.is_empty() {
         warn!(
             repo = repo_full_name,
             "GitHub webhook has signature but no secret configured on connection, refusing"
         );
-        return Err(AdapterError::BadRequest(
+        return Err(ingress(AdapterError::BadRequest(
             "Webhook signature provided but no secret configured for connection".into(),
-        )
-        .into());
+        )));
     }
 
     // No delivery-level gate here on purpose. A GitHub redelivery reuses the
@@ -190,25 +171,21 @@ pub(crate) async fn receive(
             event_type,
             "GitHub webhook ignored: event filtered by trigger"
         );
-        return Ok(WebhookOutcome::Ignored {
-            event_type: event_type.to_string(),
-            reason: "event_filtered",
-        });
+        return Ok(Outcome::ignored(event_type, "event_filtered"));
     }
     if rule_config.is_ignored_sender(sender_login) {
         debug!(
             sender_login,
             event_type, "GitHub webhook ignored: sender in ignored_senders"
         );
-        return Ok(WebhookOutcome::Ignored {
-            event_type: event_type.to_string(),
-            reason: "ignored_sender",
-        });
+        return Ok(Outcome::ignored(event_type, "ignored_sender"));
     }
 
-    let (owner, repo) = repo_full_name
-        .split_once('/')
-        .ok_or_else(|| AdapterError::BadRequest("Missing repository.full_name".into()))?;
+    let (owner, repo) = repo_full_name.split_once('/').ok_or_else(|| {
+        ingress(AdapterError::BadRequest(
+            "Missing repository.full_name".into(),
+        ))
+    })?;
     let normalized = super::webhook::normalize(
         event_type,
         &payload,
@@ -230,7 +207,7 @@ pub(crate) async fn receive(
     for observation in normalized.status_observations {
         super::status::apply_webhook_observation(state.db.clone(), observation);
     }
-    let primary = normalized.primary?;
+    let primary = normalized.primary.map_err(ingress)?;
 
     let delivery_context = super::delivery::DeliveryContext {
         connection_id: connection.id.clone(),
@@ -242,14 +219,17 @@ pub(crate) async fn receive(
 
     match primary {
         PrimaryWebhook::Message(msg) => {
-            plan.push(super::delivery::request(
-                super::delivery::kind::PR_MESSAGE,
-                event_id.clone(),
-                &super::delivery::PrMessageDelivery {
-                    context: delivery_context.clone(),
-                    message: *msg,
-                },
-            )?);
+            plan.push(
+                super::delivery::request(
+                    super::delivery::kind::PR_MESSAGE,
+                    event_id.clone(),
+                    &super::delivery::PrMessageDelivery {
+                        context: delivery_context.clone(),
+                        message: *msg,
+                    },
+                )
+                .map_err(ingress)?,
+            );
         }
         PrimaryWebhook::CloseTask(info) => {
             // Auto-close only applies to trigger-created tasks; with no trigger
@@ -259,18 +239,21 @@ pub(crate) async fn receive(
                     repo = repo_full_name,
                     "PR closed but no trigger for this repo — nothing to auto-close"
                 );
-                return Ok(WebhookOutcome::Processed {
+                return Ok(Outcome::Processed {
                     event_type: event_type.to_string(),
                 });
             }
-            plan.push(super::delivery::request(
-                super::delivery::kind::CLOSE,
-                event_id.clone(),
-                &super::delivery::CloseDelivery {
-                    context: delivery_context.clone(),
-                    close: info,
-                },
-            )?);
+            plan.push(
+                super::delivery::request(
+                    super::delivery::kind::CLOSE,
+                    event_id.clone(),
+                    &super::delivery::CloseDelivery {
+                        context: delivery_context.clone(),
+                        close: info,
+                    },
+                )
+                .map_err(ingress)?,
+            );
         }
         PrimaryWebhook::Ignore(reason) => {
             debug!(
@@ -287,22 +270,25 @@ pub(crate) async fn receive(
     // Admitted rather than run here because it makes several GitHub API calls;
     // deduped per run id downstream.
     if let Some(run) = normalized.post_merge_candidate {
-        plan.push(super::delivery::request(
-            super::delivery::kind::POST_MERGE,
-            event_id.clone(),
-            &super::delivery::PostMergeDelivery {
-                context: delivery_context.clone(),
-                execution: super::post_merge::Execution {
-                    // Kept alongside `repo_full_name` because the ingress path
-                    // historically split these facts before admission; the
-                    // durable payload must retain the same stored values.
-                    owner: owner.to_string(),
-                    repo: repo.to_string(),
-                    run,
-                    sender_login: sender_login.to_string(),
+        plan.push(
+            super::delivery::request(
+                super::delivery::kind::POST_MERGE,
+                event_id.clone(),
+                &super::delivery::PostMergeDelivery {
+                    context: delivery_context.clone(),
+                    execution: super::post_merge::Execution {
+                        // Kept alongside `repo_full_name` because the ingress path
+                        // historically split these facts before admission; the
+                        // durable payload must retain the same stored values.
+                        owner: owner.to_string(),
+                        repo: repo.to_string(),
+                        run,
+                        sender_login: sender_login.to_string(),
+                    },
                 },
-            },
-        )?);
+            )
+            .map_err(ingress)?,
+        );
     }
 
     // Merge-conflict check, independent of the primary event's outcome: any
@@ -311,24 +297,27 @@ pub(crate) async fn receive(
     // webhook. Deduped per head sha downstream, and a no-op when no task is
     // bound to the PR.
     if let Some(candidate) = normalized.merge_conflict_candidate {
-        plan.push(super::delivery::request(
-            super::delivery::kind::MERGE_CONFLICT,
-            event_id,
-            &super::delivery::MergeConflictDelivery {
-                context: delivery_context,
-                execution: super::merge_conflict::Execution {
-                    owner: owner.to_string(),
-                    repo: repo.to_string(),
-                    pr_number: candidate.pr_number,
-                    sender_login: sender_login.to_string(),
+        plan.push(
+            super::delivery::request(
+                super::delivery::kind::MERGE_CONFLICT,
+                event_id,
+                &super::delivery::MergeConflictDelivery {
+                    context: delivery_context,
+                    execution: super::merge_conflict::Execution {
+                        owner: owner.to_string(),
+                        repo: repo.to_string(),
+                        pr_number: candidate.pr_number,
+                        sender_login: sender_login.to_string(),
+                    },
                 },
-            },
-        )?);
+            )
+            .map_err(ingress)?,
+        );
     }
 
     admit_sequentially(state, plan).await?;
 
-    Ok(WebhookOutcome::Processed {
+    Ok(Outcome::Processed {
         event_type: event_type.to_string(),
     })
 }
@@ -384,11 +373,12 @@ fn delivery_event_id(delivery_id: &str, body: &[u8]) -> String {
 async fn admit_sequentially(
     state: &AppState,
     plan: Vec<AdapterDeliveryRequest>,
-) -> Result<(), WebhookError> {
+) -> Result<(), IngressError> {
     for request in plan {
         let kind = request.kind;
         let event_id = request.event_id.clone();
-        let admission = crate::adapters::ingress::admit_delivery(state, request).await?;
+        let admission =
+            crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
         super::delivery::log_admission(kind, &event_id, admission);
     }
     Ok(())

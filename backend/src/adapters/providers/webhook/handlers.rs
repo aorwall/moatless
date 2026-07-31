@@ -5,7 +5,8 @@ use axum::Json;
 use tracing::{debug, info};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{admit_inbound_message, InboundDeliveryPayload};
+use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::ingress::admit_delivery;
 use crate::state::AppState;
 
 use super::adapter::{WebhookAccepted, WebhookAdapter};
@@ -76,8 +77,7 @@ pub async fn webhook_inbound(
     // into an acknowledgment. The routing itself now runs in the Adapter
     // delivery worker, which is also where the webhook outcome metric is
     // recorded.
-    let admission = admit_inbound_message(
-        &state,
+    let request = inbound_delivery_request(
         ADAPTER,
         INBOUND_MESSAGE,
         delivery.delivery_id.clone(),
@@ -90,8 +90,13 @@ pub async fn webhook_inbound(
             event_type: String::new(),
             message,
         },
-    )
-    .await?;
+    )?;
+    // This handler has no `receive` to hold the shared `Outcome`/`IngressError`
+    // — it answers with `AdapterError` directly and its own body type — so the
+    // `AdmitError` is flattened here, by the same `From` impl that used to do it
+    // inside the admitting helper. Giving it the shared vocabulary means giving
+    // it an ingress module, which is stage 10's job, not this one's.
+    let admission = admit_delivery(&state.adapter_delivery, request).await?;
 
     debug!(
         trigger_id = %trigger_id,

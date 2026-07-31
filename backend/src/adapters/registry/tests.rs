@@ -57,7 +57,6 @@ fn registry_with_all_current_adapters() -> Adapters {
             None,
             None,
             "http://localhost".to_string(),
-            lazy_pool(),
             Arc::new(StubProviderTokens::default()),
             None,
             None,
@@ -65,9 +64,7 @@ fn registry_with_all_current_adapters() -> Adapters {
         ),
     ));
     providers.register_linear(Arc::new(super::super::linear::adapter::LinearAdapter::new(
-        None,
-        None,
-        None,
+        &crate::config::Config::test_minimal().linear,
         lazy_pool(),
     )));
     providers.register_webhook(Arc::new(

@@ -6,9 +6,9 @@
 
 use tracing::{debug, warn};
 
-use crate::adapters::delivery::{AdapterDeliveryRequest, AdmitError};
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::InboundDeliveryPayload;
+use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{InboundMessage, LoopContext};
 use crate::adapters::{Adapter, BindingDestination};
 use crate::db::DbPool;
@@ -25,55 +25,19 @@ pub(super) struct WebhookRequest<'a> {
     pub(super) body: &'a [u8],
 }
 
-/// Outcome surfaced so the HTTP handler can answer and emit stable webhook
-/// metrics.
-pub(super) enum Outcome {
+/// What [`receive`] made of one request: the shared [`Outcome`], or the one
+/// thing Slack answers that no other Adapter has.
+///
+/// Slack's endpoint check is answered with the challenge string in the response
+/// body, which is a *third* transport treatment for a `2xx` and belongs to
+/// exactly one Adapter. Putting it in the shared enum would put an arm no
+/// GitHub, Linear, or Telegram delivery can ever reach into all three of their
+/// handlers — the shape #174 deleted from this file. It stays here, one level
+/// out, so the shared vocabulary keeps describing what every Adapter has.
+pub(super) enum Received {
     /// Slack's endpoint check: answer with the challenge string it sent.
     Challenge(String),
-    Processed {
-        event_type: String,
-    },
-    Ignored {
-        event_type: String,
-        reason: &'static str,
-        /// The routing pair the ignore is attributed to, empty when the event
-        /// was dropped before one was resolved.
-        rule_id: String,
-        connection_id: String,
-    },
-}
-
-/// Why a Slack webhook did not reach a normal outcome.
-///
-/// The variants get different transport treatment, which is the whole reason
-/// they are distinguished. Written to match `github_pr`'s and Telegram's copies
-/// variant for variant (spec Decision 1), so hoisting all four onto one
-/// vocabulary later is a deletion rather than a redesign.
-#[derive(Debug, thiserror::Error)]
-pub(super) enum IngressError {
-    /// Durable admission did not commit, so the backend owns nothing and a
-    /// `200` would be a lie. Slack re-delivers on a non-2xx, so the delivery is
-    /// not lost.
-    ///
-    /// Reached because [`receive`] admits through [`admit_delivery`], which
-    /// returns `AdmitError` unflattened, as `github_pr` and Linear also do.
-    /// Telegram and Webhook still go through `admit_inbound_message`, which
-    /// converts to `AdapterError` first (`inbound_delivery.rs:218`) and can
-    /// therefore never raise this variant — the difference is invisible from
-    /// outside, since `AtCapacity` is `Overloaded` and `Store` is `Db` either
-    /// way (`delivery/mod.rs:153`).
-    ///
-    /// [`admit_delivery`]: crate::adapters::ingress::admit_delivery
-    #[error("Slack webhook work was not admitted")]
-    NotAdmitted(#[from] AdmitError),
-    /// The request carried no event this Adapter could name — today, a body
-    /// that is not JSON. No retry supplies the missing field, so it is a `400`.
-    #[error("Slack webhook is unidentifiable: {0}")]
-    Unidentifiable(String),
-    /// Everything else the ingress path rejected: a failed signature, a
-    /// database read.
-    #[error(transparent)]
-    Ingress(#[from] AdapterError),
+    Delivery(Outcome),
 }
 
 /// What resolution made of one request, before its signature was checked.
@@ -297,7 +261,7 @@ pub(super) async fn receive(
     state: &AppState,
     adapter: &SlackAdapter,
     request: WebhookRequest<'_>,
-) -> Result<Outcome, IngressError> {
+) -> Result<Received, IngressError> {
     let payload = parse_body(request.body)?;
 
     let event_type = payload
@@ -307,22 +271,20 @@ pub(super) async fn receive(
         .to_string();
     debug!(event_type, "Slack webhook received");
 
-    let verifiable = match resolve(state, adapter, &payload, &event_type).await? {
+    let verifiable = match resolve(state, adapter, &payload, &event_type)
+        .await
+        .map_err(IngressError::Ingress)?
+    {
         Routing::Dropped(reason) => {
-            return Ok(Outcome::Ignored {
-                event_type,
-                reason,
-                rule_id: String::new(),
-                connection_id: String::new(),
-            })
+            return Ok(Received::Delivery(Outcome::ignored(event_type, reason)))
         }
         Routing::Verifiable(verifiable) => verifiable,
     };
 
-    verify(adapter, &request)?;
+    verify(adapter, &request).map_err(IngressError::Ingress)?;
 
     let routed = match verifiable {
-        Verifiable::Challenge(challenge) => return Ok(Outcome::Challenge(challenge)),
+        Verifiable::Challenge(challenge) => return Ok(Received::Challenge(challenge)),
         Verifiable::Routed(routed) => *routed,
     };
     let Routed {
@@ -335,49 +297,46 @@ pub(super) async fn receive(
     } = routed;
 
     let normalization =
-        normalize_and_apply(adapter, &config, &state.db, &payload, is_tracked_thread).await?;
+        normalize_and_apply(adapter, &config, &state.db, &payload, is_tracked_thread)
+            .await
+            .map_err(IngressError::Ingress)?;
 
     let message = match normalization {
         Normalization::Ignored { reason, .. } => {
             debug!(source_id, reason, "Slack event ignored by provider");
-            return Ok(Outcome::Ignored {
+            return Ok(Received::Delivery(Outcome::Ignored {
                 event_type,
                 reason,
                 rule_id,
                 connection_id,
-            });
+            }));
         }
         Normalization::Message { message, .. } => *message,
     };
 
     let event_id = admission_event_id(&payload, &message);
-    let work = InboundDeliveryPayload {
-        connection_id,
-        rule_id,
-        subject_kind: destination.subject_kind.to_string(),
-        subject_key: destination.subject_key,
-        destination_config: destination.destination_config,
-        event_type: event_type.clone(),
-        message,
-    };
-    let work = serde_json::to_value(work).map_err(|e| {
-        AdapterError::Internal(format!("Failed to serialize inbound delivery payload: {e}"))
-    })?;
+    let request = inbound_delivery_request(
+        super::delivery::ADAPTER,
+        super::delivery::INBOUND_MESSAGE,
+        event_id.clone(),
+        InboundDeliveryPayload {
+            connection_id,
+            rule_id,
+            subject_kind: destination.subject_kind.to_string(),
+            subject_key: destination.subject_key,
+            destination_config: destination.destination_config,
+            event_type: event_type.clone(),
+            message,
+        },
+    )
+    .map_err(IngressError::Ingress)?;
 
     // Everything below the 200 depends on this write: a failure here must reach
     // Slack as a failure so it re-delivers, and must never be swallowed into an
     // acknowledgment. The routing itself runs in the Adapter delivery worker,
     // which is also where the webhook outcome metric is recorded.
-    let admission = crate::adapters::ingress::admit_delivery(
-        state,
-        AdapterDeliveryRequest {
-            adapter: super::delivery::ADAPTER,
-            kind: super::delivery::INBOUND_MESSAGE,
-            event_id: event_id.clone(),
-            payload: work,
-        },
-    )
-    .await?;
+    let admission =
+        crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
     debug!(
         source_id,
         event_id = %event_id,
@@ -385,7 +344,7 @@ pub(super) async fn receive(
         "Slack inbound message admitted for routing"
     );
 
-    Ok(Outcome::Processed { event_type })
+    Ok(Received::Delivery(Outcome::Processed { event_type }))
 }
 
 /// Characterization of Slack ingress, pinned before the module split and
@@ -560,14 +519,17 @@ mod characterization {
         is_tracked_thread: bool,
     ) -> Result<Parsed, IngressError> {
         let payload = parse_body(body.as_bytes())?;
-        verify(adapter, &request(headers, body.as_bytes()))?;
+        verify(adapter, &request(headers, body.as_bytes())).map_err(IngressError::Ingress)?;
 
         if payload.get("type").and_then(serde_json::Value::as_str) == Some("url_verification") {
             return Ok(Parsed::Challenge(challenge(&payload)));
         }
 
         Ok(
-            match normalize_and_apply(adapter, config, db, &payload, is_tracked_thread).await? {
+            match normalize_and_apply(adapter, config, db, &payload, is_tracked_thread)
+                .await
+                .map_err(IngressError::Ingress)?
+            {
                 Normalization::Message { message, .. } => Parsed::Message(message),
                 Normalization::Ignored { reason, .. } => Parsed::Ignore(reason),
             },

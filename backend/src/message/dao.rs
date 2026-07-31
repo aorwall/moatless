@@ -1,4 +1,16 @@
 //! Message DAO — queries for task message data access.
+//!
+//! `mockall::automock` mirrors every trait signature below into a mock whose
+//! matcher parameters trip lints on argument shapes we chose deliberately. The
+//! generated item lands in this module, so this is the only scope that can
+//! carry the suppression.
+#![cfg_attr(
+    test,
+    expect(
+        clippy::ref_option_ref,
+        reason = "mockall turns each `Option<&T>` argument into a `&Option<&T>` matcher"
+    )
+)]
 
 use std::collections::HashMap;
 

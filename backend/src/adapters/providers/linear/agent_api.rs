@@ -23,14 +23,24 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_api_call;
 use crate::db::DbPool;
 
-const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
-const LINEAR_TOKEN_URL: &str = "https://api.linear.app/oauth/token";
+/// Linear's API host. Every endpoint this client speaks to hangs off it, so
+/// replacing this one value points the whole client — GraphQL and the OAuth
+/// token exchange alike — somewhere else. That is what
+/// [`LinearAgentApi::with_base_url`] exists for: without it no test can drive
+/// the real request path, and an API-call budget cannot be asserted at all.
+const LINEAR_API_BASE: &str = "https://api.linear.app";
 const PROVIDER: &str = "linear";
 /// Refresh tokens whose expiry is within this window.
 const REFRESH_LEEWAY_SECS: i64 = 5 * 60;
 
 /// Authenticated viewer information (agent identity from OAuth).
 #[derive(Debug, Clone, Deserialize)]
+#[allow(
+    dead_code,
+    reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
+              15 of the Linear breakup surfaced it. Kept rather than deleted because \
+              `agent_api.rs` internals are out of scope for that plan — see the PR."
+)]
 pub struct ViewerInfo {
     pub id: String,
     #[serde(default)]
@@ -46,6 +56,12 @@ pub enum ActivityKind {
     Thought,
     Action,
     Response,
+    #[allow(
+        dead_code,
+        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
+                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
+                  `agent_api.rs` internals are out of scope for that plan — see the PR."
+    )]
     Elicitation,
     Error,
 }
@@ -74,6 +90,9 @@ pub struct LinearAgentApi {
     /// GraphQL endpoint. A field rather than a constant so tests can drive the
     /// real request path against a local address.
     graphql_url: String,
+    /// OAuth token endpoint, derived from the same base as `graphql_url` so a
+    /// redirected client cannot end up refreshing against the real Linear.
+    token_url: String,
     /// Linear organization (workspace) UUID. Used as `team_id` in
     /// `provider_tokens` for the OAuth row.
     org_id: String,
@@ -83,6 +102,12 @@ pub struct LinearAgentApi {
 }
 
 impl LinearAgentApi {
+    #[allow(
+        dead_code,
+        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
+                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
+                  `agent_api.rs` internals are out of scope for that plan — see the PR."
+    )]
     pub fn new(
         http: Client,
         db: DbPool,
@@ -90,27 +115,64 @@ impl LinearAgentApi {
         oauth_client_id: Option<String>,
         oauth_client_secret: Option<String>,
     ) -> Self {
+        Self::with_base_url(
+            http,
+            db,
+            org_id,
+            oauth_client_id,
+            oauth_client_secret,
+            LINEAR_API_BASE,
+        )
+    }
+
+    /// [`Self::new`] with Linear's host replaced, so the real request path can
+    /// be driven against a local address.
+    ///
+    /// Both endpoints are derived from `base_url` rather than only the GraphQL
+    /// one: a client pointed at a stub that then refreshed its token against
+    /// `api.linear.app` would be reaching the network from a test.
+    pub(crate) fn with_base_url(
+        http: Client,
+        db: DbPool,
+        org_id: String,
+        oauth_client_id: Option<String>,
+        oauth_client_secret: Option<String>,
+        base_url: &str,
+    ) -> Self {
+        let base = base_url.trim_end_matches('/');
         Self {
             http,
             db,
-            graphql_url: LINEAR_GRAPHQL_URL.to_string(),
+            graphql_url: format!("{base}/graphql"),
+            token_url: format!("{base}/oauth/token"),
             org_id,
             oauth_client_id,
             oauth_client_secret,
         }
     }
 
-    /// Point the GraphQL client at a caller-supplied endpoint. Tests only.
-    #[cfg(test)]
-    pub(crate) fn with_graphql_url(db: DbPool, graphql_url: impl Into<String>) -> Self {
-        Self {
-            http: Client::new(),
+    /// The one construction every caller in this Adapter goes through.
+    ///
+    /// Callers hold their credentials in different shapes — an `AppState`, the
+    /// Adapter type, a route handler — but they all answer the same three
+    /// questions, and `base_url` is the one whose default must not be decided
+    /// per call site: a caller that forgot it would reach `api.linear.app`
+    /// from a test that believed it was pointed at a stub.
+    pub(crate) fn for_org(
+        db: DbPool,
+        org_id: &str,
+        oauth_client_id: Option<&str>,
+        oauth_client_secret: Option<&str>,
+        base_url: Option<&str>,
+    ) -> Self {
+        Self::with_base_url(
+            default_http_client(),
             db,
-            graphql_url: graphql_url.into(),
-            org_id: "test-org".to_string(),
-            oauth_client_id: None,
-            oauth_client_secret: None,
-        }
+            org_id.to_string(),
+            oauth_client_id.map(str::to_string),
+            oauth_client_secret.map(str::to_string),
+            base_url.unwrap_or(LINEAR_API_BASE),
+        )
     }
 
     /// Resolve a fresh access token for this organization, refreshing if the
@@ -271,7 +333,7 @@ impl LinearAgentApi {
 
         let resp = self
             .http
-            .post(LINEAR_TOKEN_URL)
+            .post(&self.token_url)
             .form(&form)
             .send()
             .await
@@ -306,6 +368,12 @@ impl LinearAgentApi {
 
     /// Variant for the OAuth-install code path: the access token is in hand
     /// from a token-exchange response but hasn't been persisted yet.
+    #[allow(
+        dead_code,
+        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
+                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
+                  `agent_api.rs` internals are out of scope for that plan — see the PR."
+    )]
     pub async fn graphql_with_token(
         &self,
         access_token: &str,
@@ -531,6 +599,12 @@ impl LinearAgentApi {
 
     /// Fetch the authenticated viewer (used at OAuth install time to record
     /// the agent's identity).
+    #[allow(
+        dead_code,
+        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
+                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
+                  `agent_api.rs` internals are out of scope for that plan — see the PR."
+    )]
     pub async fn viewer(&self) -> Result<ViewerInfo, AdapterError> {
         let value = self
             .graphql(serde_json::json!({
@@ -542,6 +616,12 @@ impl LinearAgentApi {
 
     /// Variant used during OAuth install where the access token is held in
     /// memory and hasn't been persisted yet.
+    #[allow(
+        dead_code,
+        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
+                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
+                  `agent_api.rs` internals are out of scope for that plan — see the PR."
+    )]
     pub async fn viewer_with_token(&self, access_token: &str) -> Result<ViewerInfo, AdapterError> {
         let value = self
             .graphql_with_token(
@@ -912,6 +992,12 @@ fn require_mutation_success(
     Ok(())
 }
 
+#[allow(
+    dead_code,
+    reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
+              15 of the Linear breakup surfaced it. Kept rather than deleted because \
+              `agent_api.rs` internals are out of scope for that plan — see the PR."
+)]
 fn parse_viewer(value: &serde_json::Value) -> Result<ViewerInfo, AdapterError> {
     let viewer = value
         .pointer("/data/viewer")
@@ -1079,9 +1165,22 @@ mod error_source_tests {
         DbPool::connect_lazy("postgres://linear:linear@127.0.0.1:1/linear").expect("lazy pool")
     }
 
+    /// A client whose whole API host is `base`, built the way production builds
+    /// one — same constructor, same fields, only the host replaced.
+    fn api_at(base: impl AsRef<str>) -> LinearAgentApi {
+        LinearAgentApi::with_base_url(
+            Client::new(),
+            offline_pool(),
+            "test-org".to_string(),
+            None,
+            None,
+            base.as_ref(),
+        )
+    }
+
     #[tokio::test]
     async fn unreachable_linear_keeps_transport_source() {
-        let api = LinearAgentApi::with_graphql_url(offline_pool(), UNREACHABLE_BASE);
+        let api = api_at(UNREACHABLE_BASE);
 
         let err = api
             .graphql_with_token(
@@ -1106,7 +1205,7 @@ mod error_source_tests {
     #[tokio::test]
     async fn undecodable_linear_body_keeps_serde_source() {
         let base = stub_provider(StatusCode::OK, "<html>not json</html>").await;
-        let api = LinearAgentApi::with_graphql_url(offline_pool(), base);
+        let api = api_at(base);
 
         let err = api
             .graphql_with_token(
@@ -1135,7 +1234,7 @@ mod error_source_tests {
     #[tokio::test]
     async fn linear_401_stays_unauthorized() {
         let base = stub_provider(StatusCode::UNAUTHORIZED, r#"{"error":"invalid token"}"#).await;
-        let api = LinearAgentApi::with_graphql_url(offline_pool(), base);
+        let api = api_at(base);
 
         let err = api
             .graphql_with_token(

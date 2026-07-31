@@ -79,6 +79,30 @@ add an unreasoned local suppression.
 Use the smallest visibility required by real consumers. Do not expose an item
 publicly in anticipation of a future caller.
 
+### Format single files, never the crate
+
+Do not run `cargo fmt -p <crate>`. No crate here has a `rustfmt.toml`, and
+`backend`, `sandbox` and every crate under `crates/` except `codex-sdk` declare
+`edition = "2021"` — so `cargo fmt` formats them to the 2021 style edition,
+while newer modules inside them are written in the 2024 one. The two disagree on
+import ordering, so a crate-wide run rewrites unrelated files underneath your
+change. On `moatless-vibe-backend` today that is 249 diff hunks; one refactor
+lost real time unpicking 72 rewritten files out of its diff.
+
+`crates/codex-sdk` is already `edition = "2024"` and does not have this split.
+
+Format the files you actually touched:
+
+```bash
+rustfmt --edition 2021 --style-edition 2024 <file>...
+```
+
+That is a no-op on already-2024 modules such as
+`backend/src/adapters/providers/github_pr/`, which is the shape to match.
+
+If a `--check` run reports diffs in files you did not touch, that is the split
+above, not your change. Leave them.
+
 ## Completion Check
 
 Before declaring the Rust change complete:

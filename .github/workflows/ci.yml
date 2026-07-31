@@ -135,7 +135,10 @@ jobs:
 
       - name: Clippy (deny warnings)
         run: |
-          cargo clippy -p moatless-vibe-backend -- -D warnings
+          # --all-targets so `#[cfg(test)]` code is linted too. Without it the
+          # step compiles no test target at all, and lints the workspace denies
+          # never reach a single test module.
+          cargo clippy -p moatless-vibe-backend --all-targets -- -D warnings
           cargo clippy -p moatless-sandbox -- -D warnings
           cargo clippy -p claude-agent-sdk -- -D warnings
           cargo clippy -p moatless-events -- -D warnings

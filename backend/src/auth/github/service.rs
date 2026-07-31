@@ -799,7 +799,7 @@ mod tests {
         let error = refusal(
             reqwest::StatusCode::NOT_FOUND,
             INTEGRATION_NOT_FOUND,
-            150038583,
+            150_038_583,
         );
 
         let message = error.to_string();

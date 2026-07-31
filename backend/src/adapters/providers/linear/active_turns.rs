@@ -102,7 +102,9 @@ mod tests {
         gate.open("task-1");
         {
             let mut guard = gate.inner.lock().unwrap();
-            let stale = Instant::now() - (TTL + Duration::from_secs(1));
+            let stale = Instant::now()
+                .checked_sub(TTL + Duration::from_secs(1))
+                .expect("the process has been up longer than the TTL");
             guard.insert("task-1".to_string(), stale);
         }
         // Stale: TTL sweep drops it on is_open().
@@ -118,7 +120,9 @@ mod tests {
         gate.open("task-1");
         {
             let mut guard = gate.inner.lock().unwrap();
-            let stale = Instant::now() - (TTL + Duration::from_secs(1));
+            let stale = Instant::now()
+                .checked_sub(TTL + Duration::from_secs(1))
+                .expect("the process has been up longer than the TTL");
             guard.insert("task-1".to_string(), stale);
         }
         assert!(!gate.is_open("task-1"));

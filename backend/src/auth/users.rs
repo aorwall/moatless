@@ -1,4 +1,17 @@
 //! User table queries.
+//!
+//! `mockall::automock` mirrors every trait signature below into a mock whose
+//! matcher parameters trip lints on argument shapes we chose deliberately. The
+//! generated item lands in this module, so this is the only scope that can
+//! carry the suppression.
+#![cfg_attr(
+    test,
+    expect(
+        clippy::option_option,
+        reason = "`update_user_profile_and_role` takes the PATCH body's tri-state \
+                  (absent, null, value); mockall mirrors it into the mock"
+    )
+)]
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -54,6 +67,11 @@ pub trait UserDao: Send + Sync {
         name: Option<String>,
         email: Option<String>,
     ) -> Result<Option<User>, sqlx::Error>;
+    /// `Option<Option<_>>` is the tri-state the PATCH body carries, not an
+    /// accident: absent leaves the column alone, `null` clears it, a value sets
+    /// it. The impl below binds `is_some()` and `flatten()` separately for
+    /// exactly that reason. Collapsing it needs a patch type on the request
+    /// body, which is a different change from a lint sweep.
     async fn update_user_profile_and_role(
         &self,
         user_id: &Uuid,

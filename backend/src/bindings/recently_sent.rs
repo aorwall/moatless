@@ -156,7 +156,9 @@ mod tests {
         {
             let mut guard = cache.inner.lock().unwrap();
             let key = key("task-1", "github:ic:42");
-            let stale = Instant::now() - (TTL + Duration::from_secs(1));
+            let stale = Instant::now()
+                .checked_sub(TTL + Duration::from_secs(1))
+                .expect("the process has been up longer than the TTL");
             guard.insert(key, stale);
         }
         assert!(!cache.contains("task-1", "github:ic:42"));
@@ -217,7 +219,9 @@ mod tests {
         cache.note_commit("task-1", "7fc0612");
         {
             let mut guard = cache.commits.lock().unwrap();
-            let stale = Instant::now() - (TTL + Duration::from_secs(1));
+            let stale = Instant::now()
+                .checked_sub(TTL + Duration::from_secs(1))
+                .expect("the process has been up longer than the TTL");
             guard.insert("task-1".to_string(), vec![("7fc0612".to_string(), stale)]);
         }
         assert!(!cache.contains_commit("task-1", FULL_SHA));

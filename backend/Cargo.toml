@@ -146,7 +146,8 @@ http-body-util = "0.1"
 mockall = "0.15"
 tempfile = "3"
 # Thread-local recorder + snapshotter, so a test can assert what a code path
-# actually wrote to a counter rather than that it compiled.
+# actually wrote to a counter rather than that it compiled. Used by
+# `tests/telegram_ingress_test.rs`, which only builds under `db-tests`.
 metrics-util = { version = "0.20", features = ["debugging"], default-features = false }
 
 [[example]]

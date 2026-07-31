@@ -8,10 +8,11 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
+use crate::adapters::ingress::IngressError;
 use crate::adapters::Adapters;
 use crate::state::AppState;
 
-use super::ingress::{self, IngressError, Transport};
+use super::ingress::{self, Transport};
 
 const POLL_TIMEOUT_SECS: u32 = 30;
 const INITIAL_BACKOFF: Duration = Duration::from_secs(1);

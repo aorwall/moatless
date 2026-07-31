@@ -4,10 +4,11 @@ use axum::http::{HeaderMap, StatusCode};
 use tracing::warn;
 
 use crate::adapters::error::AdapterError;
+use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
-use super::ingress::{WebhookError, WebhookRequest};
+use super::ingress::WebhookRequest;
 
 #[utoipa::path(
     post,
@@ -39,11 +40,23 @@ pub async fn github_webhook(
     );
 
     match super::ingress::receive(&state, github_pr_provider, request).await {
-        Ok(super::ingress::WebhookOutcome::Processed { event_type }) => {
+        Ok(Outcome::Processed { event_type }) => {
             record_webhook("github_pr", "success", "", &event_type, "", "");
         }
-        Ok(super::ingress::WebhookOutcome::Ignored { event_type, reason }) => {
-            record_webhook("github_pr", "ignored", reason, &event_type, "", "");
+        Ok(Outcome::Ignored {
+            event_type,
+            reason,
+            rule_id,
+            connection_id,
+        }) => {
+            record_webhook(
+                "github_pr",
+                "ignored",
+                reason,
+                &event_type,
+                &rule_id,
+                &connection_id,
+            );
         }
         // The one failure that must not be acknowledged. Nothing was written,
         // so a 200 would tell GitHub the work is ours while no record of it
@@ -51,15 +64,26 @@ pub async fn github_webhook(
         // write. GitHub does not retry a delivery on its own, so what this buys
         // is a delivery recorded as failed — redeliverable by an operator for 30
         // days, and alertable here via the `not_admitted` reason.
-        Err(WebhookError::NotAdmitted(e)) => {
+        Err(IngressError::NotAdmitted(e)) => {
             record_webhook("github_pr", "error", "not_admitted", event_type, "", "");
             warn!(error = %e, "GitHub PR webhook work was not admitted; delivery left unacknowledged");
             return Err(AdapterError::from(e));
         }
+        // Not constructed by `receive` today: GitHub's own unidentifiable
+        // deliveries (no `repository.full_name`, no `X-GitHub-Event`) are raised
+        // as `Ingress` and acknowledged, which is what they did before the
+        // vocabulary was shared and is not changed here. The arm gives the class
+        // its transport treatment so a step that starts raising it gets a `400`
+        // rather than inheriting the metered `200` below.
+        Err(IngressError::Unidentifiable(missing)) => {
+            record_webhook("github_pr", "error", "unidentifiable", event_type, "", "");
+            warn!(%missing, "GitHub PR webhook could not be identified");
+            return Err(AdapterError::BadRequest(missing));
+        }
         // Every other failure keeps the long-standing behaviour: log it, meter
         // it, and acknowledge. These are rejections of the delivery itself
         // (bad header, bad JSON, bad signature), which a redelivery cannot fix.
-        Err(WebhookError::Ingress(e)) => {
+        Err(IngressError::Ingress(e)) => {
             record_webhook("github_pr", "error", "delivery_failed", event_type, "", "");
             warn!(error = %e, "GitHub PR webhook processing error");
         }

@@ -21,7 +21,6 @@ use serde::{Deserialize, Serialize};
 use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryRequest,
-    Admission,
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
@@ -189,34 +188,33 @@ async fn resolve(
     Ok((connection, rule))
 }
 
-/// Take durable ownership of one inbound message, keyed by the sender's own
-/// delivery id.
+/// Build the durable request for one inbound message, keyed by the sender's
+/// own delivery id.
 ///
-/// Returning `Ok` is the point the caller may acknowledge its sender:
-/// [`Admission::Admitted`] means the routing is owned by the backend,
-/// [`Admission::Duplicate`] means it already was. An `Err` must reach the
-/// sender as a failure — the delivery is still theirs, and swallowing it into
-/// a 200 is exactly the lost-webhook bug this path exists to remove.
-pub(crate) async fn admit_inbound_message(
-    state: &AppState,
+/// Admitting it is [`crate::adapters::ingress::admit_delivery`], which every
+/// caller reaches separately. That split is deliberate: this function used to
+/// admit as well, and flattened the `AdmitError` into an `AdapterError` on the
+/// way out (`.admit(..).await?`), which made
+/// [`IngressError::NotAdmitted`](crate::adapters::ingress::IngressError::NotAdmitted)
+/// unreachable for every Adapter that went through it — a shared variant three
+/// of its four users could not produce. What is left here is the part worth
+/// sharing: the payload shape and the one serialization error, spelled once
+/// instead of at each of the three call sites.
+pub(crate) fn inbound_delivery_request(
     adapter: &'static str,
     kind: &'static str,
     event_id: String,
     payload: InboundDeliveryPayload,
-) -> Result<Admission, AdapterError> {
+) -> Result<AdapterDeliveryRequest, AdapterError> {
     let payload = serde_json::to_value(payload).map_err(|e| {
         AdapterError::Internal(format!("Failed to serialize inbound delivery payload: {e}"))
     })?;
-    let admission = state
-        .adapter_delivery
-        .admit(AdapterDeliveryRequest {
-            adapter,
-            kind,
-            event_id,
-            payload,
-        })
-        .await?;
-    Ok(admission)
+    Ok(AdapterDeliveryRequest {
+        adapter,
+        kind,
+        event_id,
+        payload,
+    })
 }
 
 #[cfg(test)]

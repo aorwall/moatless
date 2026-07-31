@@ -1,0 +1,108 @@
+//! The external-id formats this Adapter persists.
+//!
+//! An external id is written to `task_messages.external_event_id` and to a
+//! Binding's `last_external_event_id`, and both echo filtering and
+//! de-duplication read it back. That makes a format a *data* format: changing
+//! one does not migrate the rows already written under the old spelling, it
+//! makes them unrecognisable — a message delivered twice, or an agent hearing
+//! its own comment back. Extend through `external_id_aliases` rather than
+//! editing a function here.
+//!
+//! One function per format, one definition each. `linear:comment:` used to be
+//! spelled out at five call sites across two files (defect D3), which is five
+//! chances for one of them to drift from the other four — and the inbound and
+//! outbound spellings of *that* format are exactly the pair the echo filter
+//! compares.
+
+/// A Linear comment, inbound or outbound.
+///
+/// Written on both sides of the echo filter: `handle_comment_created` builds it
+/// from the webhook's comment id, and `LinearAdapter::send_reply_for_binding`
+/// builds it from the id `commentCreate` returned. The filter recognises the
+/// agent's own comment by the two agreeing, so they are one function.
+pub(super) fn comment(comment_id: &str) -> String {
+    format!("linear:comment:{comment_id}")
+}
+
+/// A follow-up prompt, named by the Linear activity carrying it.
+///
+/// Every other format here names the Linear resource it came from, and this one
+/// does too. It used to be composed with the current time, which made every
+/// attempt at one prompt a fresh identity: a retry was delivered to the Agent a
+/// second time and nothing downstream could recognise it, because nothing
+/// downstream ever saw the same id twice.
+pub(super) fn prompt(activity_id: &str) -> String {
+    format!("linear:prompt:{activity_id}")
+}
+
+/// An issue state change, named by the issue and Linear's own delivery
+/// timestamp — the same identity the dispatcher derives for the delivery (see
+/// `handlers::dedup_key`).
+///
+/// It used to name the state the issue moved *into*, which is not an identity:
+/// an issue that leaves a state and later returns to it produces two changes a
+/// person made separately under one id, and the second was dropped as a
+/// duplicate. A retry repeats the timestamp, so a redelivery still collapses.
+pub(super) fn issue_state(issue_id: &str, delivered_at: i64) -> String {
+    format!("linear:issue-state:{issue_id}:{delivered_at}")
+}
+
+/// The inbound prompt of a task spawned from a mention or assignment.
+pub(super) fn session_created(session_id: &str) -> String {
+    format!("linear:session:created:{session_id}")
+}
+
+/// The inbound prompt of a task spawned from an issue entering a trigger state.
+pub(super) fn issue_created(issue_id: &str) -> String {
+    format!("linear:issue:created:{issue_id}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The five formats, as literal strings.
+    ///
+    /// Asserted against literals rather than against each other: a test that
+    /// compared two functions would still pass if both changed together, which
+    /// is precisely the change that breaks every row already in the database.
+    #[test]
+    fn every_format_is_pinned_to_its_literal() {
+        assert_eq!(comment("cmt-1"), "linear:comment:cmt-1");
+        assert_eq!(prompt("act-1"), "linear:prompt:act-1");
+        assert_eq!(
+            issue_state("issue-1", 1_700_000_000_000),
+            "linear:issue-state:issue-1:1700000000000"
+        );
+        assert_eq!(
+            session_created("session-1"),
+            "linear:session:created:session-1"
+        );
+        assert_eq!(issue_created("issue-1"), "linear:issue:created:issue-1");
+    }
+
+    /// No two formats collide on a shared prefix.
+    ///
+    /// They share a namespace and are compared as whole strings, so a format
+    /// that prefixes another would make one resource's id parse as another's if
+    /// a parser is ever added. `linear:issue:created:` and
+    /// `linear:issue-state:` are the near miss.
+    #[test]
+    fn no_format_is_a_prefix_of_another() {
+        let ids = [
+            comment("x"),
+            prompt("x"),
+            issue_state("x", 1),
+            session_created("x"),
+            issue_created("x"),
+        ];
+        for (i, a) in ids.iter().enumerate() {
+            for (j, b) in ids.iter().enumerate() {
+                assert!(
+                    i == j || !b.starts_with(a),
+                    "{a} is a prefix of {b}: two resources would share one identity"
+                );
+            }
+        }
+    }
+}
