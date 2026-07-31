@@ -22,6 +22,9 @@
 #                              node_modules from cache offline instead of
 #                              downloading, so the frontend dev server starts fast.
 #
+# It also pins Vite+ (`vp`), which sandbox-base installs but an older
+# SANDBOX_IMAGE tag may predate — see the layer below.
+#
 # Published on demand as moatless-dev:latest by the `Build dev sandbox image`
 # workflow (.github/workflows/build-dev-image.yml), run manually — NOT part of
 # the push-to-main cd-ecr.yml flow.
@@ -87,8 +90,21 @@ RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/bun bash \
     && cd /tmp/moatless-vibe-src \
     && /opt/bun/bin/bun install --no-progress --ignore-scripts
 
+# Vite+ (`vp`) — https://viteplus.dev/guide/. sandbox-base installs it, but this
+# image builds FROM whatever moatless-sandbox tag the workflow is handed, which
+# may predate that layer; reinstalling the pin here keeps `vp` independent of the
+# base tag. Same rationale as the CLI reinstalls in Dockerfile.sandbox-soap.
+# The /usr/local/bin symlink is what puts it on PATH — re-declaring ENV PATH
+# would just duplicate the entry the base already has.
+# renovate: datasource=npm depName=vite-plus
+ARG VITE_PLUS_VERSION=0.2.7
+ENV VP_HOME=/opt/vite-plus
+RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MANAGER=no bash \
+    && test -x "$VP_HOME/bin/vp" \
+    && ln -sf "$VP_HOME/bin/vp" /usr/local/bin/vp
+
 # Drop the sources and hand the warm caches to the runtime user.
 RUN rm -rf /tmp/moatless-vibe-src \
-    && chown -R moatless:moatless /opt/cargo-target /opt/cargo /opt/bun-cache /opt/bun
+    && chown -R moatless:moatless /opt/cargo-target /opt/cargo /opt/bun-cache /opt/bun /opt/vite-plus
 
 USER moatless
