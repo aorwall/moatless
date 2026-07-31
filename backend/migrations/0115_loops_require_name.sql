@@ -21,6 +21,11 @@ WHERE "name" IS NULL OR btrim("name") = '';
 ALTER TABLE "triggers"
     ALTER COLUMN "name" SET NOT NULL;
 
+-- Dropped first so the statement also lands on a database that already carries
+-- the constraint from an out-of-band apply.
+ALTER TABLE "triggers"
+    DROP CONSTRAINT IF EXISTS "triggers_name_not_blank_check";
+
 ALTER TABLE "triggers"
     ADD CONSTRAINT "triggers_name_not_blank_check"
     CHECK (btrim("name") <> '');
