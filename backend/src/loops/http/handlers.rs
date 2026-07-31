@@ -34,6 +34,15 @@ fn require_admin(auth: &AuthUser) -> Result<(), AdapterError> {
     }
 }
 
+/// Every Loop carries a name, so whitespace is not one.
+fn require_name(name: &str) -> Result<String, AdapterError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(AdapterError::BadRequest("A Loop needs a name".to_string()));
+    }
+    Ok(trimmed.to_string())
+}
+
 async fn resolve_run_as_user(state: &AppState, requested: &str) -> Result<String, AdapterError> {
     let user = match requested.parse::<uuid::Uuid>() {
         Ok(id) => state.users.get_user(&id).await?,
@@ -145,6 +154,7 @@ pub async fn create_loop(
 ) -> Result<Json<Loop>, AdapterError> {
     require_admin(&auth)?;
     let ctx = auth.scope_context();
+    let name = require_name(&req.name)?;
     ensure_repository_exists(&state, &ctx, &req.config.repository_id).await?;
     let run_as_user_id = match req.config.run_as_user_id.as_deref() {
         Some(requested) => Some(resolve_run_as_user(&state, requested).await?),
@@ -235,7 +245,7 @@ pub async fn create_loop(
         .loops
         .create(NewLoop {
             id: id.clone(),
-            name: req.name.clone(),
+            name,
             kind: req.kind.as_str().to_string(),
             active,
             scope: resolved.scope,
@@ -290,6 +300,11 @@ pub async fn update_loop(
             "Git-synced Loops are read-only; override the Loop before editing it".to_string(),
         ));
     }
+
+    let next_name = match req.name.as_deref() {
+        Some(name) => require_name(name)?,
+        None => current.trigger.name.clone(),
+    };
 
     if let Some(rule) = &req.config {
         if let Some(repository_id) = rule.repository_id.as_deref() {
@@ -424,7 +439,7 @@ pub async fn update_loop(
         .update(
             &id,
             LoopUpdate {
-                name: req.name.unwrap_or_else(|| current.trigger.name.clone()),
+                name: next_name,
                 scope: next_scope,
                 owner_user_id: next_owner,
             },

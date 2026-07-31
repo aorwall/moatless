@@ -29,7 +29,7 @@ use crate::db::DbPool;
 #[derive(Debug, Clone)]
 pub struct LoopRow {
     pub id: String,
-    pub name: Option<String>,
+    pub name: String,
     pub kind: String,
     pub active: bool,
     pub scope: Scope,
@@ -101,7 +101,7 @@ pub struct LoopRecord {
 #[derive(sqlx::FromRow)]
 struct JoinedLoopRecordRow {
     id: String,
-    name: Option<String>,
+    name: String,
     kind: String,
     active: bool,
     scope: Scope,
@@ -265,7 +265,7 @@ const LOOP_RECORD_SELECT: &str = r#"
 /// A fully-resolved new Loop, ready to insert.
 pub struct NewLoop {
     pub id: String,
-    pub name: Option<String>,
+    pub name: String,
     pub kind: String,
     pub active: bool,
     pub scope: Scope,
@@ -316,7 +316,7 @@ pub struct NewScheduleSource {
 
 /// Resolved `triggers` columns to update (identity + scope, not the rule/source).
 pub struct LoopUpdate {
-    pub name: Option<String>,
+    pub name: String,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
 }
@@ -345,7 +345,7 @@ pub struct ManagedLoopUpsert {
     pub source_repository_id: String,
     pub source_key: String,
     pub source_config_path: String,
-    pub trigger_name: Option<String>,
+    pub trigger_name: String,
     pub kind: String,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
@@ -886,7 +886,9 @@ impl LoopDao {
                    updated_at      = EXCLUDED.updated_at"#,
         )
         .bind(&row.id)
-        .bind(&row.source_name)
+        // `triggers.name` is NOT NULL; an unnamed subscription falls back to
+        // the matcher it listens on.
+        .bind(row.source_name.as_deref().unwrap_or(&row.source_matcher))
         .bind("adapter_event")
         .bind(row.active)
         .bind(row.scope)

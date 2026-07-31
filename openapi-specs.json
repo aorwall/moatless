@@ -9863,6 +9863,7 @@
       "CreateLoopRequest": {
         "type": "object",
         "required": [
+          "name",
           "kind",
           "rule",
           "source"
@@ -9878,10 +9879,8 @@
             "$ref": "#/components/schemas/LoopKind"
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string",
+            "description": "Human-readable name. Required and must not be blank."
           },
           "rule": {
             "$ref": "#/components/schemas/CreateLoopConfig"
@@ -11778,6 +11777,7 @@
         "type": "object",
         "required": [
           "id",
+          "name",
           "kind",
           "active",
           "scope",
@@ -11817,10 +11817,8 @@
             "$ref": "#/components/schemas/LoopKind"
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string",
+            "description": "Human-readable name. Required on every Loop — for Git-declared Loops it\ncomes from the `name` frontmatter of `.moatless/loops/<dir>/LOOP.md`."
           },
           "ownerUserId": {
             "type": [
@@ -15969,7 +15967,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Rename the Loop. Omit to keep the current name; a name cannot be cleared."
           },
           "rule": {
             "oneOf": [

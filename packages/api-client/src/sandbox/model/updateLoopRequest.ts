@@ -10,7 +10,10 @@ import type { UpdateLoopConfig } from './updateLoopConfig';
 import type { UpdateLoopSource } from './updateLoopSource';
 
 export interface UpdateLoopRequest {
-  /** @nullable */
+  /**
+   * Rename the Loop. Omit to keep the current name; a name cannot be cleared.
+   * @nullable
+   */
   name?: string | null;
   rule?: null | UpdateLoopConfig;
   scope?: null | Scope;

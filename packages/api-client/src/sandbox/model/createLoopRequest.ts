@@ -14,8 +14,8 @@ export interface CreateLoopRequest {
   /** @nullable */
   active?: boolean | null;
   kind: LoopKind;
-  /** @nullable */
-  name?: string | null;
+  /** Human-readable name. Required and must not be blank. */
+  name: string;
   rule: CreateLoopConfig;
   scope?: null | Scope;
   source: CreateLoopSource;

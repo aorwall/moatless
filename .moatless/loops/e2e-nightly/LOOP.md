@@ -1,5 +1,6 @@
 ---
 on: schedule
+name: Nightly E2E
 tags:
   - e2e-nightly
 inactiveTtlDays: 1

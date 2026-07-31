@@ -47,6 +47,7 @@ describe('loopsApi', () => {
   it('uses generated unified loop handlers', async () => {
     const loopRequest: CreateLoopRequest = {
       kind: LoopKind.adapter_event,
+      name: 'Slack triage',
       active: true,
       rule: {
         repositoryId: 'repo-1',
@@ -67,7 +68,7 @@ describe('loopsApi', () => {
     const loopResponse: Loop = {
       id: 'loop-1',
       kind: LoopKind.adapter_event,
-      name: null,
+      name: 'Slack triage',
       active: true,
       configSource: LoopConfigSource.manual,
       createdBy: 'user-1',

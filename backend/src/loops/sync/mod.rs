@@ -67,10 +67,10 @@ pub async fn sync_repo_loops(
     let mut parse_skips = Vec::new();
     for file in files {
         match parse_loop(&file.content, &file.dir_name) {
-            Some(loop_) => parsed.push(loop_),
-            None => parse_skips.push(LoopSyncSkip {
+            Ok(loop_) => parsed.push(loop_),
+            Err(reason) => parse_skips.push(LoopSyncSkip {
                 loop_name: file.dir_name,
-                reason: "malformed LOOP.md; existing Loop preserved".to_string(),
+                reason: format!("{reason}; existing Loop preserved"),
             }),
         }
     }
@@ -112,9 +112,8 @@ pub async fn reset_repo_loop(
             git_url: remote_url.to_string(),
             message: format!("Loop directory `{source_key}` no longer exists"),
         })?;
-    let parsed = parse_loop(&file.content, source_key).ok_or_else(|| {
-        LoopError::Internal(format!("Loop `{source_key}` has malformed frontmatter"))
-    })?;
+    let parsed = parse_loop(&file.content, source_key)
+        .map_err(|reason| LoopError::Internal(format!("Loop `{source_key}`: {reason}")))?;
     let resolved = match resolve_loop(state, repo, &parsed).await? {
         ResolveOutcome::Resolved(resolved) => resolved,
         ResolveOutcome::Skipped(reason) => return Err(LoopError::Internal(reason)),
@@ -139,7 +138,7 @@ pub async fn sync_loops(
 ) -> Result<LoopSyncSummary, LoopError> {
     let present = loops
         .iter()
-        .map(|loop_| loop_.name.clone())
+        .map(|loop_| loop_.dir_name.clone())
         .collect::<HashSet<_>>();
     sync_loops_snapshot(state, repo, auth, loops, present, Vec::new()).await
 }
@@ -161,14 +160,14 @@ async fn sync_loops_snapshot(
     for parsed in &loops {
         if parsed.frontmatter.active.is_some() {
             summary.warnings.push(LoopSyncWarning {
-                loop_name: parsed.name.clone(),
+                loop_name: parsed.dir_name.clone(),
                 field: "active".to_string(),
                 message: "ignored: Git cannot approve Loop execution".to_string(),
             });
         }
         if parsed.frontmatter.run_as_user_id.is_some() {
             summary.warnings.push(LoopSyncWarning {
-                loop_name: parsed.name.clone(),
+                loop_name: parsed.dir_name.clone(),
                 field: "runAsUserId".to_string(),
                 message: "ignored: select the run-as user during administrator activation"
                     .to_string(),
@@ -176,9 +175,9 @@ async fn sync_loops_snapshot(
         }
         match resolve_loop(state, repo, parsed).await? {
             ResolveOutcome::Skipped(reason) => {
-                debug!(repository_id = %repo.id, loop = %parsed.name, %reason, "Skipping loop");
+                debug!(repository_id = %repo.id, loop = %parsed.dir_name, %reason, "Skipping loop");
                 summary.skipped.push(LoopSyncSkip {
-                    loop_name: parsed.name.clone(),
+                    loop_name: parsed.dir_name.clone(),
                     reason,
                 });
             }
@@ -219,8 +218,8 @@ async fn sync_loops_snapshot(
 /// Resolved values for one loop, ready to write to the trigger tables.
 struct ResolvedLoop {
     kind: LoopKind,
-    /// Display name override for `triggers.name` (defaults to the loop dir name).
-    name: Option<String>,
+    /// Display name for `triggers.name`, from the required `name` frontmatter.
+    name: String,
     routing_mode: RoutingMode,
     agent_type: String,
     prompt: Option<String>,
@@ -458,7 +457,7 @@ async fn resolve_loop(
                 .unwrap_or_else(|| "UTC".to_string());
             let message_template = sched
                 .and_then(|s| s.message.clone())
-                .unwrap_or_else(|| default_schedule_message(&parsed.name));
+                .unwrap_or_else(|| default_schedule_message(&fm.name));
             (
                 LoopKind::Schedule,
                 None,
@@ -501,7 +500,6 @@ fn managed_loop_input(
         .created_by
         .clone()
         .unwrap_or_else(|| auth.user_id.to_string());
-    let trigger_name = resolved.name.clone().or_else(|| Some(parsed.name.clone()));
 
     let adapter = resolved.adapter.as_ref().map(|a| NewAdapterEventSource {
         adapter_kind: a.adapter_kind.clone(),
@@ -523,9 +521,9 @@ fn managed_loop_input(
 
     ManagedLoopUpsert {
         source_repository_id: repo.id.clone(),
-        source_key: parsed.name.clone(),
-        source_config_path: format!(".moatless/loops/{}/LOOP.md", parsed.name),
-        trigger_name,
+        source_key: parsed.dir_name.clone(),
+        source_config_path: format!(".moatless/loops/{}/LOOP.md", parsed.dir_name),
+        trigger_name: resolved.name.clone(),
         kind: resolved.kind.as_str().to_string(),
         scope: repo.scope,
         owner_user_id: repo.owner_user_id.clone(),
@@ -635,7 +633,7 @@ mod tests {
     ) -> LoopFrontmatter {
         LoopFrontmatter {
             on: "linear".to_string(),
-            name: None,
+            name: "Ready Pool".to_string(),
             agent_type: None,
             routing_mode: None,
             tags: None,

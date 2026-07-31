@@ -523,14 +523,14 @@ and routes matching events into a task on the chosen repo.
 | `--allow-direct-send` | No | Bool — allow direct (non-task) outbound messages |
 | `--close-task-on-close` | No | Bool — close the task when the upstream subject closes (default true) |
 | `--notify-on-success` | No | Bool — emit a notification when the agent finishes |
-| `--name` | No | Trigger display name |
+| `--name` | Yes | What the loop is called in the list. The matcher prints beside it, so `#general` beats `Slack C0123456789` — but qualify names that repeat across repos (`PR review — owner/repo`) |
 | `--team-id` | No | Scope to a team |
 
 ```bash
 # Slack channel → repo
 moat triggers create-adapter-event \
   --adapter slack --connection-id <conn-id> \
-  --source-matcher C0123456789 \
+  --source-matcher C0123456789 --name "#general" \
   --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
 
 # GitHub PRs from a repo → repo, attributed to moatless-soap
@@ -539,7 +539,7 @@ moat triggers create-adapter-event \
   --source-matcher "soaplabs/my-service" \
   --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code \
   --run-as-user-id 225125419 \
-  --name "PR review – soaplabs/my-service"
+  --name "PR review — soaplabs/my-service"
 ```
 
 ### `moat triggers create-schedule`
@@ -554,13 +554,14 @@ Create a cron-driven trigger that fires on a schedule.
 | `--repository-id` | Yes | Repo to route the scheduled task into |
 | `--routing-mode` | No | Default `by_subject` |
 | `--agent-type` | No | Default `claude-code` |
-| `--prompt`, `--task-name`, `--tag`, `--run-as-user-id`, `--name`, `--team-id` | No | Same semantics as `create-adapter-event` |
+| `--name` | Yes | What the loop is called in the list. The cron prints beside it — name the job, not the schedule |
+| `--prompt`, `--task-name`, `--tag`, `--run-as-user-id`, `--team-id` | No | Same semantics as `create-adapter-event` |
 
 ```bash
 moat triggers create-schedule \
   --cron-expression "0 0 6 * * MON-FRI *" \
   --timezone "Europe/Stockholm" \
-  --message-template "Run daily check" \
+  --message-template "Run daily check" --name "Daily Check" \
   --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
 ```
 
@@ -572,7 +573,7 @@ have a paired `--clear-<field>` flag for explicitly clearing them.
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--id` | Yes | Trigger ID |
-| `--name` / `--clear-name` | No | Update or clear the name |
+| `--name` | No | Rename the loop. A loop always has a name, so there is no `--clear-name` |
 | `--active` | No | Bool — enable/disable |
 | `--repository-id`, `--routing-mode`, `--ongoing-task-id` / `--clear-ongoing-task-id` | No | Rule fields |
 | `--prompt` / `--clear-prompt`, `--task-name` / `--clear-task-name`, `--tag` / `--clear-tags` | No | Rule fields |

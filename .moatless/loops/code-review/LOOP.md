@@ -1,5 +1,6 @@
 ---
 on: github_pr
+name: Full-Repo Code Review
 agentType: codex
 runAsUserId: "bot:reviewer"
 inactiveTtlDays: 1

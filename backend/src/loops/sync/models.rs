@@ -5,17 +5,17 @@ use serde::Deserialize;
 /// YAML frontmatter of a `LOOP.md`. Field names mirror the authoring surface
 /// documented for `.moatless/loops/<name>/LOOP.md` (camelCase keys).
 ///
-/// `on` is the only required field; everything else has a default applied
-/// during sync. Unknown keys are ignored so the format can grow without
+/// `on` and `name` are the required fields; everything else has a default
+/// applied during sync. Unknown keys are ignored so the format can grow without
 /// breaking older backends.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopFrontmatter {
     /// Event source: `github_pr`, `schedule`, `slack`, or `linear`.
     pub on: String,
-    /// Optional override for `triggers.name` (defaults to the loop dir name).
-    #[serde(default)]
-    pub name: Option<String>,
+    /// Human-readable name (`triggers.name`). Required — the directory name is
+    /// the reconciliation key, not a name anybody chose.
+    pub name: String,
     /// Agent type (`trigger_rules.agent_type`, default `claude-code`).
     #[serde(default)]
     pub agent_type: Option<String>,
@@ -99,9 +99,12 @@ pub struct LoopSchedule {
 /// A parsed `LOOP.md`: the directory name (stable upsert key), its parsed
 /// frontmatter, and the markdown body (used as the agent's
 /// `append_system_prompt`).
+///
+/// The directory name identifies the Loop across syncs; the name it is
+/// displayed under is `frontmatter.name` and may change freely.
 #[derive(Debug, Clone)]
 pub struct ParsedLoop {
-    pub name: String,
+    pub dir_name: String,
     pub frontmatter: LoopFrontmatter,
     pub prompt_body: String,
 }

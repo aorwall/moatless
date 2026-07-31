@@ -162,6 +162,9 @@ function makeInitialForm(loop: Loop | null | undefined, adapters: string[]): Loo
 }
 
 function validateForm(form: LoopFormState): string | null {
+  if (!form.name.trim()) {
+    return 'Enter a name'
+  }
   if (!form.repositoryId) {
     return 'Select a repository'
   }
@@ -307,7 +310,7 @@ function LoopFormFields({
     }
 
     try {
-      const name = form.name.trim() || null
+      const name = form.name.trim()
 
       if (isEditing && loop) {
         await updateLoop.mutateAsync({
@@ -339,6 +342,7 @@ function LoopFormFields({
 
   const submitDisabled =
     isPending ||
+    !form.name.trim() ||
     !form.repositoryId ||
     (form.kind === LoopKind.adapter_event &&
       (!(form.connectionId && form.sourceMatcher.trim()) || connectionItems.length === 0)) ||
@@ -369,7 +373,7 @@ function LoopFormFields({
           <Input
             value={form.name}
             onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-            placeholder="Optional display name"
+            placeholder="What to call this loop"
           />
         </div>
       </div>

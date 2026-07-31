@@ -1,45 +1,23 @@
-import type { AdapterConnectionResponse, Loop } from '@moatless/api-client'
+import type { Loop } from '@moatless/api-client'
 import { Link } from '@tanstack/react-router'
 import { Plus, Repeat } from 'lucide-react'
 import { useState } from 'react'
-import { useIntegrationConnections } from '@/features/integrations/hooks/use-integrations'
 import { useLoops } from '@/features/loops/hooks/use-loops'
-import {
-  getLoopKindLabel,
-  getSourceLabel,
-  isAdapterEventSource,
-  isScheduleSource,
-} from '@/features/loops/utils/loop-display'
+import { getSourceLabel } from '@/features/loops/utils/loop-display'
 import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { ListDetailSidebar } from '@/lib/components/ui/list-detail-sidebar'
 import { useListFilter } from '@/lib/hooks/use-list-filter'
 
-const getSearchText = (loop: Loop) => [getSourceLabel(loop), loop.name, loop.kind]
-const sortByLabel = (a: Loop, b: Loop) => getSourceLabel(a).localeCompare(getSourceLabel(b))
-
-function sourceSubtitle(
-  loop: Loop,
-  connectionsById: Map<string, AdapterConnectionResponse>,
-): string {
-  const source = loop.source
-  if (isAdapterEventSource(source)) {
-    return connectionsById.get(source.connectionId)?.externalAccountId ?? 'Missing connection'
-  }
-  if (isScheduleSource(source)) {
-    return source.cronExpression
-  }
-  return 'Manual'
-}
+// Searchable by what the Loop is called and by where it listens, so typing
+// "slack" or a channel id finds it without knowing its name.
+const getSearchText = (loop: Loop) => [loop.name, getSourceLabel(loop)]
+const sortByLabel = (a: Loop, b: Loop) => a.name.localeCompare(b.name)
 
 export function AdminLoopsSidebar() {
   const { data: loops, isLoading, error } = useLoops()
-  const { data: connections } = useIntegrationConnections()
   const [search, setSearch] = useState('')
 
-  const connectionsById = new Map(
-    (connections ?? []).map((connection) => [connection.id, connection]),
-  )
   const items = useListFilter(loops, search, getSearchText, sortByLabel)
 
   return (
@@ -69,11 +47,9 @@ export function AdminLoopsSidebar() {
           to="/admin/loops/$loop-id"
           params={{ 'loop-id': loop.id }}
           primary={
-            <span className={loop.active ? undefined : 'text-muted-foreground'}>
-              {getSourceLabel(loop)}
-            </span>
+            <span className={loop.active ? undefined : 'text-muted-foreground'}>{loop.name}</span>
           }
-          secondary={sourceSubtitle(loop, connectionsById)}
+          secondary={getSourceLabel(loop)}
           trailing={
             <span className="flex items-center gap-1">
               <Badge variant="outline" className="h-4 px-1 text-[10px]">
@@ -85,9 +61,6 @@ export function AdminLoopsSidebar() {
               </Badge>
               <Badge variant="outline" className="h-4 px-1 text-[10px]">
                 {loop.syncedFromGit ? 'git' : 'manual'}
-              </Badge>
-              <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-                {getLoopKindLabel(loop)}
               </Badge>
             </span>
           }

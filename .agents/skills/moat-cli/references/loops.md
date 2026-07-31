@@ -9,10 +9,11 @@ Code's `SKILL.md`.
 ```markdown
 ---
 on: github_pr            # event source; also: schedule, slack, linear
+name: Java Review        # required — what the loop is called in the UI and CLI
 agentType: claude-code   # optional, default claude-code
 routingMode: by_subject  # optional, default by_subject
 tags: [review]           # optional
-# optional: name, runAsUserId, sourceMatcher, teamId, eventFilter, adapterConfig, active, inactiveTtlDays
+# optional: runAsUserId, sourceMatcher, teamId, eventFilter, adapterConfig, active, inactiveTtlDays
 ---
 
 Review this pull request using the java-review skill. Post inline comments.
@@ -21,6 +22,7 @@ Review this pull request using the java-review skill. Post inline comments.
 ```markdown
 ---
 on: schedule
+name: Daily Health Check
 schedule:
   cron: "0 0 6 * * MON-FRI *"     # 7-field cron (sec min hour dom mon dow year)
   timezone: Europe/Stockholm
@@ -33,6 +35,7 @@ Run the daily-health-check skill and file a Linear ticket for any regressions.
 ```markdown
 ---
 on: slack
+name: CI Failure Triage
 sourceMatcher: C0000000001      # the channel id to listen on (required for slack)
 teamId: T0000000001             # Slack workspace id; omit if only one slack connection exists
 routingMode: ongoing            # one long-lived task instead of one-per-subject
@@ -47,6 +50,7 @@ Monitor this channel for CI failures and triage them in-thread.
 ```markdown
 ---
 on: linear
+name: Ready Pool
 sourceMatcher: <linear-team-uuid>   # the Linear TEAM whose issues to watch (required)
 teamId: <linear-org-id>             # Linear workspace/org id; omit if only one linear connection exists
 triggerStates: [Ready]              # spawn a task when an issue ENTERS one of these state names
@@ -64,6 +68,20 @@ moat triggers list --repository-id <repo-id>      # synced loops show up here
 ```
 
 Notes:
+- `on` and `name` are the two required keys. The **directory name** is the sync
+  key (rename the directory and you get a new loop); `name` is what the loop is
+  displayed as, and can be reworded freely. A `LOOP.md` without a `name` is
+  **skipped** with `missing \`name\` field`, and any loop already synced from that
+  directory is left untouched — nothing that was firing stops firing.
+- The Loop list prints the source beside the name (`Slack · C0000000001`,
+  `Schedule · 0 0 6 * * MON-FRI *`), so the name never has to carry the id. What
+  reads well depends on `on`: for `slack`, the channel as people say it
+  (`#general`); for `github_pr`, the job plus the repo, since nearly every repo
+  declares one and the list otherwise fills with identical rows (`PR review —
+  soaplabs/my-service`); for `schedule`, the job rather than the cron (`Daily
+  Health Check`); for `linear`, what the loop picks up (`Ready Pool`). A name like
+  `Slack C0000000001` is the one to avoid — it stutters against the line below it
+  and goes stale the moment the channel changes.
 - Synced loops are tracked as triggers with `managed_by = 'repo_loop'`, keyed by
   `(repository, loop dir name)`. Re-running `sync-config` upserts them and removes
   loops whose directory was deleted. Manually-created triggers are never touched.

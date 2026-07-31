@@ -1,42 +1,33 @@
 //! `LOOP.md` frontmatter + body parser.
 //!
 //! Mirrors [`crate::skill::scanner`] but keeps the markdown body after the
-//! closing `---` as the loop's prompt. Individual parse failures are logged and
-//! returned as `None` so one malformed file doesn't tank the whole sync.
-
-use tracing::warn;
+//! closing `---` as the loop's prompt. Individual parse failures are returned
+//! as an `Err` reason so one malformed file doesn't tank the whole sync — and
+//! so the author is told which field is wrong instead of "malformed".
 
 use super::models::{LoopFrontmatter, ParsedLoop};
 
 /// Parse a `LOOP.md` body into a [`ParsedLoop`].
 ///
-/// Returns `None` (after logging a warning) when the frontmatter is missing,
-/// malformed, or omits the required `on` field. `dir_name` becomes the loop's
-/// stable name.
-pub fn parse_loop(content: &str, dir_name: &str) -> Option<ParsedLoop> {
-    let (yaml, body) = match split_frontmatter(content) {
-        Ok(parts) => parts,
-        Err(e) => {
-            warn!(dir_name, error = %e, "Skipping loop: malformed frontmatter");
-            return None;
-        }
-    };
+/// Returns `Err(reason)` when the frontmatter is missing, malformed, or omits a
+/// required field (`on`, `name`). `dir_name` is the loop's stable sync key; the
+/// name it is displayed under comes from the frontmatter.
+pub fn parse_loop(content: &str, dir_name: &str) -> Result<ParsedLoop, String> {
+    let (yaml, body) = split_frontmatter(content)?;
 
-    let frontmatter: LoopFrontmatter = match serde_yaml::from_str(&yaml) {
-        Ok(fm) => fm,
-        Err(e) => {
-            warn!(dir_name, error = %e, "Skipping loop: invalid frontmatter");
-            return None;
-        }
-    };
+    let mut frontmatter: LoopFrontmatter =
+        serde_yaml::from_str(&yaml).map_err(|e| format!("invalid frontmatter: {e}"))?;
 
     if frontmatter.on.trim().is_empty() {
-        warn!(dir_name, "Skipping loop: missing `on` field");
-        return None;
+        return Err("missing `on` field".to_string());
+    }
+    frontmatter.name = frontmatter.name.trim().to_string();
+    if frontmatter.name.is_empty() {
+        return Err("missing `name` field".to_string());
     }
 
-    Some(ParsedLoop {
-        name: dir_name.to_string(),
+    Ok(ParsedLoop {
+        dir_name: dir_name.to_string(),
         frontmatter,
         prompt_body: body.trim().to_string(),
     })
@@ -79,9 +70,11 @@ mod tests {
 
     #[test]
     fn parses_github_pr_loop_with_body() {
-        let content = "---\non: github_pr\ntags: [review]\n---\n\nReview this PR.\n";
+        let content =
+            "---\non: github_pr\nname: Java Review\ntags: [review]\n---\n\nReview this PR.\n";
         let loop_ = parse_loop(content, "java-review").expect("valid loop parses");
-        assert_eq!(loop_.name, "java-review");
+        assert_eq!(loop_.dir_name, "java-review");
+        assert_eq!(loop_.frontmatter.name, "Java Review");
         assert_eq!(loop_.frontmatter.on, "github_pr");
         assert_eq!(
             loop_.frontmatter.tags.as_deref(),
@@ -94,14 +87,14 @@ mod tests {
 
     #[test]
     fn parses_inactive_ttl_days() {
-        let content = "---\non: github_pr\ninactiveTtlDays: 1\n---\n\nbody\n";
+        let content = "---\non: github_pr\nname: Java Review\ninactiveTtlDays: 1\n---\n\nbody\n";
         let loop_ = parse_loop(content, "java-review").expect("valid loop parses");
         assert_eq!(loop_.frontmatter.inactive_ttl_days, Some(1));
     }
 
     #[test]
     fn parses_schedule_loop() {
-        let content = "---\non: schedule\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the health check.\"\n---\n\nRun the daily-health-check skill.\n";
+        let content = "---\non: schedule\nname: Daily Health Check\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the health check.\"\n---\n\nRun the daily-health-check skill.\n";
         let loop_ = parse_loop(content, "daily-health-check").expect("schedule loop parses");
         assert_eq!(loop_.frontmatter.on, "schedule");
         let sched = loop_.frontmatter.schedule.as_ref().expect("schedule block");
@@ -113,7 +106,7 @@ mod tests {
 
     #[test]
     fn parses_slack_loop() {
-        let content = "---\non: slack\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nMonitor CI failures and triage them.\n";
+        let content = "---\non: slack\nname: E2E Triage\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nMonitor CI failures and triage them.\n";
         let loop_ = parse_loop(content, "e2e-triage").expect("slack loop parses");
         assert_eq!(loop_.frontmatter.on, "slack");
         assert_eq!(
@@ -141,7 +134,7 @@ mod tests {
 
     #[test]
     fn parses_linear_loop() {
-        let content = "---\non: linear\nsourceMatcher: team-uuid-123\ntriggerStates: [Ready]\nprojectIds: [proj-abc]\nrequireLabels: [agent]\n---\n\nPick up the ticket and implement it.\n";
+        let content = "---\non: linear\nname: Ready Pool\nsourceMatcher: team-uuid-123\ntriggerStates: [Ready]\nprojectIds: [proj-abc]\nrequireLabels: [agent]\n---\n\nPick up the ticket and implement it.\n";
         let loop_ = parse_loop(content, "ready-pool").expect("linear loop parses");
         assert_eq!(loop_.frontmatter.on, "linear");
         assert_eq!(
@@ -166,33 +159,58 @@ mod tests {
     #[test]
     fn skips_loop_missing_on() {
         // `on` is required by serde — missing key fails deserialization.
-        let content = "---\nagentType: claude-code\n---\n\nbody\n";
-        assert!(parse_loop(content, "no-on").is_none());
+        let content = "---\nname: No On\nagentType: claude-code\n---\n\nbody\n";
+        assert!(parse_loop(content, "no-on").is_err());
+    }
+
+    #[test]
+    fn skips_loop_missing_name() {
+        // The directory name is the sync key, not a name somebody chose — a
+        // Loop that never says what to call it does not sync.
+        let content = "---\non: github_pr\n---\n\nbody\n";
+        let reason = parse_loop(content, "no-name").expect_err("name is required");
+        assert!(reason.contains("name"), "reason names the field: {reason}");
+    }
+
+    #[test]
+    fn skips_loop_with_blank_name() {
+        let content = "---\non: github_pr\nname: \"   \"\n---\n\nbody\n";
+        assert_eq!(
+            parse_loop(content, "blank-name").expect_err("blank name is no name"),
+            "missing `name` field"
+        );
+    }
+
+    #[test]
+    fn trims_surrounding_whitespace_from_name() {
+        let content = "---\non: github_pr\nname: \"  Java Review  \"\n---\n\nbody\n";
+        let loop_ = parse_loop(content, "java-review").expect("valid loop parses");
+        assert_eq!(loop_.frontmatter.name, "Java Review");
     }
 
     #[test]
     fn skips_loop_without_frontmatter() {
-        assert!(parse_loop("# just markdown\n", "no-fm").is_none());
+        assert!(parse_loop("# just markdown\n", "no-fm").is_err());
     }
 
     #[test]
     fn skips_loop_with_unclosed_frontmatter() {
-        assert!(parse_loop("---\non: github_pr\nbody without close", "broken").is_none());
+        assert!(parse_loop("---\non: github_pr\nbody without close", "broken").is_err());
     }
 
     #[test]
     fn tolerates_bom_and_crlf() {
-        let content =
-            "\u{feff}---\r\non: github_pr\r\nagentType: claude-code\r\n---\r\n\r\nBody here.\r\n";
+        let content = "\u{feff}---\r\non: github_pr\r\nname: BOM Loop\r\nagentType: claude-code\r\n---\r\n\r\nBody here.\r\n";
         let loop_ = parse_loop(content, "bom").expect("bom+crlf parses");
         assert_eq!(loop_.frontmatter.on, "github_pr");
+        assert_eq!(loop_.frontmatter.name, "BOM Loop");
         assert_eq!(loop_.frontmatter.agent_type.as_deref(), Some("claude-code"));
         assert_eq!(loop_.prompt_body, "Body here.");
     }
 
     #[test]
     fn ignores_unknown_frontmatter_fields() {
-        let content = "---\non: github_pr\nfutureField: 123\n---\nbody\n";
+        let content = "---\non: github_pr\nname: Extra\nfutureField: 123\n---\nbody\n";
         let loop_ = parse_loop(content, "extra").expect("unknown fields ignored");
         assert_eq!(loop_.frontmatter.on, "github_pr");
     }
@@ -220,8 +238,9 @@ mod tests {
                 .expect("loop directory name")
                 .to_string();
             let content = std::fs::read_to_string(&file).expect("readable LOOP.md");
-            let parsed = parse_loop(&content, &name)
-                .unwrap_or_else(|| panic!("{name}/LOOP.md does not parse — the loop never syncs"));
+            let parsed = parse_loop(&content, &name).unwrap_or_else(|reason| {
+                panic!("{name}/LOOP.md does not parse ({reason}) — the loop never syncs")
+            });
             assert!(
                 !parsed.prompt_body.trim().is_empty(),
                 "{name}/LOOP.md has no body, so the agent it spawns is told nothing"
@@ -260,7 +279,7 @@ mod tests {
 
     #[test]
     fn empty_body_is_allowed() {
-        let content = "---\non: github_pr\n---\n";
+        let content = "---\non: github_pr\nname: No Body\n---\n";
         let loop_ = parse_loop(content, "no-body").expect("loop with empty body parses");
         assert_eq!(loop_.prompt_body, "");
     }

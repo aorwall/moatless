@@ -249,7 +249,9 @@ pub enum UpdateLoopSource {
 #[serde(rename_all = "camelCase")]
 pub struct Loop {
     pub id: String,
-    pub name: Option<String>,
+    /// Human-readable name. Required on every Loop — for Git-declared Loops it
+    /// comes from the `name` frontmatter of `.moatless/loops/<dir>/LOOP.md`.
+    pub name: String,
     pub kind: LoopKind,
     pub active: bool,
     pub scope: Scope,
@@ -273,7 +275,8 @@ pub struct Loop {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateLoopRequest {
-    pub name: Option<String>,
+    /// Human-readable name. Required and must not be blank.
+    pub name: String,
     pub kind: LoopKind,
     pub active: Option<bool>,
     pub scope: Option<Scope>,
@@ -286,7 +289,8 @@ pub struct CreateLoopRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateLoopRequest {
-    pub name: Option<Option<String>>,
+    /// Rename the Loop. Omit to keep the current name; a name cannot be cleared.
+    pub name: Option<String>,
     pub scope: Option<Scope>,
     #[serde(rename = "rule")]
     pub config: Option<UpdateLoopConfig>,

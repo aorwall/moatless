@@ -22,7 +22,6 @@ import {
 } from '@/features/loops/hooks/use-loops'
 import {
   getAdapterLabel,
-  getSourceLabel,
   isAdapterEventSource,
   isScheduleSource,
 } from '@/features/loops/utils/loop-display'
@@ -396,7 +395,7 @@ function LoopDetailPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <DetailHeader
-        title={getSourceLabel(loop)}
+        title={loop.name}
         subtitle={`${loop.kind} loop`}
         badges={
           <div className="flex gap-2">
@@ -441,7 +440,7 @@ function LoopDetailPage() {
         <h2 className="mb-4 text-sm font-semibold">Loop</h2>
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <DetailItem label="Kind" value={loop.kind} />
-          <DetailItem label="Name" value={loop.name ?? '-'} />
+          <DetailItem label="Name" value={loop.name} />
           <DetailItem label="Scope" value={loop.scope} />
           <DetailItem label="Configuration source" value={loop.configSource} />
           <DetailItem label="Git source key" value={loop.sourceKey ?? '-'} />
@@ -468,8 +467,8 @@ function LoopDetailPage() {
             <AlertDialogTitle>Delete Loop</AlertDialogTitle>
             <AlertDialogDescription>
               {loop.sourceRepositoryId
-                ? `Delete Loop "${getSourceLabel(loop)}"? Its Git provenance will be kept so an administrator can restore it explicitly.`
-                : `Delete Loop "${getSourceLabel(loop)}"? This cannot be undone.`}
+                ? `Delete Loop "${loop.name}"? Its Git provenance will be kept so an administrator can restore it explicitly.`
+                : `Delete Loop "${loop.name}"? This cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -81,8 +81,9 @@ pub enum LoopsAction {
         notify_on_success: bool,
         #[command(flatten)]
         rule: CreateRuleArgs,
+        /// Human-readable name for the loop
         #[arg(long)]
-        name: Option<String>,
+        name: String,
     },
     /// Create a schedule loop
     CreateSchedule {
@@ -94,8 +95,9 @@ pub enum LoopsAction {
         message_template: String,
         #[command(flatten)]
         rule: CreateRuleArgs,
+        /// Human-readable name for the loop
         #[arg(long)]
-        name: Option<String>,
+        name: String,
         /// Create it paused, so it fires only once you activate it
         #[arg(long)]
         active: Option<bool>,
@@ -126,10 +128,9 @@ pub enum LoopsAction {
     Update {
         #[arg(long)]
         id: String,
+        /// Rename the loop. A loop always has a name, so it cannot be cleared.
         #[arg(long)]
         name: Option<String>,
-        #[arg(long)]
-        clear_name: bool,
         #[arg(long)]
         repository_id: Option<String>,
         #[arg(long)]
@@ -338,7 +339,6 @@ pub async fn run_loops(
         LoopsAction::Update {
             id,
             name,
-            clear_name,
             repository_id,
             routing_mode,
             ongoing_task_id,
@@ -415,7 +415,7 @@ pub async fn run_loops(
                 message_template,
             )?;
             let req = UpdateLoopRequest {
-                name: fold_clearable(name, clear_name, "name")?,
+                name,
                 scope,
                 config: rule,
                 source,

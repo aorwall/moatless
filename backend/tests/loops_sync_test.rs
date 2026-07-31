@@ -113,10 +113,10 @@ async fn insert_manual_trigger(pool: &PgPool, repo_id: &str) {
 }
 
 const GITHUB_LOOP: &str =
-    "---\non: github_pr\nagentType: claude-code\ntags: [review]\n---\n\nReview this PR.\n";
-const SCHEDULE_LOOP: &str = "---\non: schedule\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the daily check.\"\n---\n\nDaily health check.\n";
-const SLACK_LOOP: &str = "---\non: slack\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nTriage CI failures posted to #notifications-cicd.\n";
-const LINEAR_LOOP: &str = "---\non: linear\nsourceMatcher: team-uuid-eng\ntriggerStates: [Ready]\nprojectIds: [proj-launch]\nstartState: In Progress\n---\n\nPick up the Linear ticket and implement it.\n";
+    "---\non: github_pr\nname: Java Review\nagentType: claude-code\ntags: [review]\n---\n\nReview this PR.\n";
+const SCHEDULE_LOOP: &str = "---\non: schedule\nname: Daily Health Check\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the daily check.\"\n---\n\nDaily health check.\n";
+const SLACK_LOOP: &str = "---\non: slack\nname: E2E Triage\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nTriage CI failures posted to #notifications-cicd.\n";
+const LINEAR_LOOP: &str = "---\non: linear\nname: Ready Pool\nsourceMatcher: team-uuid-eng\ntriggerStates: [Ready]\nprojectIds: [proj-launch]\nstartState: In Progress\n---\n\nPick up the Linear ticket and implement it.\n";
 
 async fn count_manual_triggers(pool: &PgPool) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM triggers WHERE config_source = 'manual'")
@@ -167,8 +167,9 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     .unwrap();
     assert_eq!(gh.get::<String, _>("kind"), "adapter_event");
     assert_eq!(
-        gh.get::<Option<String>, _>("name").as_deref(),
-        Some("java-review")
+        gh.get::<String, _>("name"),
+        "Java Review",
+        "the trigger is named by the frontmatter, not by its directory"
     );
     assert_eq!(gh.get::<String, _>("agent_type"), "claude-code");
     assert_eq!(

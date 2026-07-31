@@ -17,16 +17,18 @@ export function isScheduleSource(
   return 'cronExpression' in source
 }
 
+/**
+ * Where a Loop listens, as one line: the provider it fires on and the subject it
+ * watches there. The name says what the Loop is for, so it never has to repeat
+ * the provider.
+ */
 export function getSourceLabel(loop: Loop): string {
-  if (isAdapterEventSource(loop.source)) {
-    return loop.source.sourceName || loop.source.sourceMatcher
+  const source = loop.source
+  if (isAdapterEventSource(source)) {
+    return `${getAdapterLabel(source.adapterKind)} · ${source.sourceName || source.sourceMatcher}`
   }
-  if (isScheduleSource(loop.source)) {
-    return loop.name || loop.source.cronExpression
+  if (isScheduleSource(source)) {
+    return `Schedule · ${source.cronExpression}`
   }
-  return loop.name || loop.id
-}
-
-export function getLoopKindLabel(loop: Loop): string {
-  return isAdapterEventSource(loop.source) ? getAdapterLabel(loop.source.adapterKind) : 'Schedule'
+  return 'Manual'
 }

@@ -21,8 +21,9 @@ export interface Loop {
   executionState: LoopExecutionState;
   id: string;
   kind: LoopKind;
-  /** @nullable */
-  name?: string | null;
+  /** Human-readable name. Required on every Loop — for Git-declared Loops it
+comes from the `name` frontmatter of `.moatless/loops/<dir>/LOOP.md`. */
+  name: string;
   /** @nullable */
   ownerUserId?: string | null;
   rule: LoopConfig;

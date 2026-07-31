@@ -151,14 +151,14 @@ moat adapters connections create --adapter slack --external-account-id T01234567
 # → returns <conn-id>
 moat triggers create-adapter-event \
   --adapter slack --connection-id <conn-id> \
-  --source-matcher C0123456789 \
+  --source-matcher C0123456789 --name "#general" \
   --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
 
 # Telegram — all DMs to a repo (wildcard matcher)
 moat adapters connections create --adapter telegram --external-account-id <bot-id>
 moat triggers create-adapter-event \
   --adapter telegram --connection-id <conn-id> \
-  --source-matcher '*' \
+  --source-matcher '*' --name "Telegram DMs" \
   --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
 
 # GitHub PR — each PR becomes a task (full walkthrough in soap-plugin skill)
@@ -167,7 +167,7 @@ moat adapters connections create --adapter github --external-account-id <org-or-
   --webhook-secret "$WEBHOOK_SECRET"
 moat triggers create-adapter-event \
   --adapter github --connection-id <conn-id> \
-  --source-matcher "owner/repo" \
+  --source-matcher "owner/repo" --name "PR review — owner/repo" \
   --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code \
   --run-as-user-id <gh-connected-user-id>
 
@@ -176,7 +176,7 @@ moat triggers create-adapter-event \
 moat triggers create-schedule \
   --cron-expression "0 0 6 * * MON-FRI *" \
   --timezone "Europe/Stockholm" \
-  --message-template "Run daily check" \
+  --message-template "Run daily check" --name "Daily Check" \
   --repository-id <repo-id> --routing-mode by_subject --agent-type claude-code
 
 # Listing
@@ -190,9 +190,18 @@ moat bindings list --task <task-id>               # destinations a task is bound
 > `routing-mode` defaults to `by_subject`. The old `moat channels defaults`
 > command has no replacement — add a trigger per repo instead.
 
+> `--name` is what the Loop is called in the list, with its source (`Slack ·
+> C0123456789`) printed underneath — so the name never has to carry the id. What
+> reads well depends on the source:
+> - **slack** — the channel as people say it: `#general`
+> - **telegram** — the matcher is usually `*`, so name the audience: `Telegram DMs`
+> - **github** — nearly every repo gets one, so qualify it or the list fills with
+>   identical rows: `PR review — owner/repo`
+> - **schedule** — name the job, never the cron: `Daily Health Check`
+
 ### Declare automations in the repo ("loops")
 
-A repo can declare automations in git under `.moatless/loops/<loop-name>/LOOP.md`; `moat repos sync-config <repo-id>` reconciles them into triggers. YAML frontmatter = config, markdown body = the agent prompt. Sources: `github_pr`, `schedule`, `slack`, `linear`. Full frontmatter reference, per-source examples, and connection-resolution rules: [references/loops.md](references/loops.md).
+A repo can declare automations in git under `.moatless/loops/<loop-name>/LOOP.md`; `moat repos sync-config <repo-id>` reconciles them into triggers. YAML frontmatter = config (`on` and `name` are required), markdown body = the agent prompt. Sources: `github_pr`, `schedule`, `slack`, `linear`. Full frontmatter reference, per-source examples, and connection-resolution rules: [references/loops.md](references/loops.md).
 
 ### Configure settings
 
