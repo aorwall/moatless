@@ -58,6 +58,13 @@ pub async fn perform_shutdown(
     // turn ends now, instead of being SIGKILLed at grace-period end.
     // `AgentNotRunning` (an idle agent) is expected on a routine idle-down and
     // is ignored.
+    //
+    // This cancels via the token rather than an `AgentCommand::Stop`, and that
+    // distinction is load-bearing: the coordinator reads the absent stop source
+    // as "the pod is going away under a turn nobody asked to end" and closes the
+    // turn as `turn_interrupted` instead of `stopped`. A `stopped` here would be
+    // a terminal event, and `find_interrupted_turn` would tell the replacement
+    // pod there is nothing to resume.
     match agent.stop().await {
         Ok(()) => info!("Shutdown: stopped running agent"),
         Err(e) => info!(error = %e, "Shutdown: no running agent to stop (continuing)"),

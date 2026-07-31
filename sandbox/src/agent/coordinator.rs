@@ -474,6 +474,25 @@ fn new_run_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// Payload for the `taskTurn.turn_interrupted` published when the pod's own
+/// shutdown cancels a Turn nobody asked to end (SIGTERM from a node drain, spot
+/// reclaim, eviction, or a lifecycle restart).
+///
+/// It deliberately does **not** publish `agent.stopped`: a terminal
+/// `agent`/`taskTurn` `completed`/`error`/`stopped` row is exactly what
+/// `find_interrupted_turn` treats as "this Turn ended", so publishing one here
+/// would tell the replacement pod there is nothing to resume — the Turn would
+/// sit half-finished until a human noticed and said "carry on". Mirrors the
+/// message the pod watcher emits for the ungraceful (SIGKILL) case, so both
+/// interruption paths read the same in the UI.
+fn interrupted_turn_payload() -> Value {
+    json!({
+        "message": "Turn interrupted — the sandbox pod was shut down mid-turn. \
+                    Resuming when it reschedules.",
+        "reason": "sandbox_shutdown",
+    })
+}
+
 /// Extract a [`WakeupJob`] from a canonical Source block when it is a
 /// `ScheduleWakeup` tool_use.
 fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option<WakeupJob> {
@@ -613,8 +632,10 @@ pub(crate) struct CoordinatorService {
     /// terminal event. `None` when the stop carried no ack (shutdown path).
     pending_stop_ack: Option<oneshot::Sender<()>>,
     /// Who initiated the in-flight stop, echoed on the terminal `Stopped`
-    /// event. `None` when no `AgentCommand::Stop` set one (a shutdown-initiated
-    /// self-cancel), which publishes as `system`.
+    /// event. `None` when no `AgentCommand::Stop` set one — a shutdown-initiated
+    /// self-cancel, which closes the Turn as `turn_interrupted` (resumable)
+    /// rather than `stopped` (terminal). `AgentCommand::Stop` is the only writer,
+    /// so `None` at a `Cancelled` outcome *is* the shutdown signature.
     pending_stop_source: Option<StopSource>,
     /// Whether a harness execution is currently in flight (set on
     /// `ExecutionStarted`, cleared on the terminal outcome). Lets the Stop
@@ -812,25 +833,42 @@ impl CoordinatorService {
                                     self.consecutive_errors = 0;
                                     // A cancelled Turn arms nothing; drop any buffered wakeup.
                                     self.pending_wakeup = None;
-                                    // The cancellation source owns Turn closure. A
-                                    // cancelled execution — whether from a user Stop
-                                    // (AgentCommand::Stop) or a shutdown-initiated
-                                    // `AgentState::stop()` — closes the Run and Turn
-                                    // with exactly one `Stopped`, published here.
+                                    // The cancellation source owns Turn closure, and
+                                    // it also decides *whether the Turn is closed at
+                                    // all*. An `AgentCommand::Stop` carries a source
+                                    // and is a real stop: it closes the Run and Turn
+                                    // with exactly one `Stopped`. A shutdown-initiated
+                                    // `AgentState::stop()` carries none — the pod is
+                                    // being torn down under a Turn nobody asked to
+                                    // end — so it publishes `turn_interrupted`
+                                    // instead, leaving the Turn open for the
+                                    // replacement pod's `recover_interrupted_run` to
+                                    // resume. See `interrupted_turn_payload`.
                                     self.agent_state.set_stopped().await;
-                                    let source = self
-                                        .pending_stop_source
-                                        .take()
-                                        .unwrap_or(StopSource::System);
-                                    self.coordinator
+                                    let run_events = self
+                                        .coordinator
                                         .events
-                                        .for_run(self.coordinator.current_run_id())
-                                        .publish_agent_event(
-                                            &task_id,
-                                            AgentSubType::Stopped,
-                                            json!({"source": source.as_str()}),
-                                        )
-                                        .await;
+                                        .for_run(self.coordinator.current_run_id());
+                                    match self.pending_stop_source.take() {
+                                        Some(source) => {
+                                            run_events
+                                                .publish_agent_event(
+                                                    &task_id,
+                                                    AgentSubType::Stopped,
+                                                    json!({"source": source.as_str()}),
+                                                )
+                                                .await;
+                                        }
+                                        None => {
+                                            run_events
+                                                .publish_task_turn_event(
+                                                    &task_id,
+                                                    TaskTurnSubType::Interrupted,
+                                                    interrupted_turn_payload(),
+                                                )
+                                                .await;
+                                        }
+                                    }
                                     // Resolve a waiting gRPC stop only after the
                                     // terminal event is enqueued.
                                     if let Some(ack) = self.pending_stop_ack.take() {

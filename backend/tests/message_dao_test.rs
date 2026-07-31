@@ -846,6 +846,29 @@ async fn find_interrupted_turn_suppresses_terminal_task_turn_event(pool: PgPool)
         .is_none());
 }
 
+/// `taskTurn.turn_interrupted` is the marker a pod leaves when it is torn down
+/// mid-turn — a node drain, spot reclaim, or eviction. It must NOT suppress
+/// recovery: it is precisely the signal that the replacement pod has a turn to
+/// resume. Adding it to the terminal list would put the sandbox back to
+/// publishing a turn nobody can resume, which is the bug this pair of behaviors
+/// exists to prevent.
+#[sqlx::test]
+async fn find_interrupted_turn_survives_the_interrupted_marker(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_turn(&pool, "task-1", "turn-interrupted-user", 1).await;
+    seed_turn_event(&pool, "task-1", "taskTurn", "turn_interrupted", 1).await;
+
+    let repo = PgMessageDao(pool.clone());
+    let interrupted = repo
+        .find_interrupted_turn("task-1")
+        .await
+        .unwrap()
+        .expect("an interrupted turn is recoverable, not terminal");
+
+    assert_eq!(interrupted.turn_number, 1);
+    assert_eq!(interrupted.session_id, "session-1");
+}
+
 #[sqlx::test]
 async fn find_interrupted_turn_suppresses_explicit_sandbox_stop(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;

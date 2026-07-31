@@ -332,6 +332,15 @@ by lifecycle and the reconciler.
   explicit sandbox-stop events and the task still desires a running sandbox.
   A new user message is the wake-up path after stop/error: the durable pending
   row lets the reconciler request Running when causal precedence permits it.
+  Which is why a pod being torn down mid-turn must **not** close the turn: the
+  sandbox's SIGTERM handler cancels the in-flight run and publishes
+  `taskTurn/turn_interrupted` (`sandbox/src/agent/coordinator.rs`), never
+  `agent/stopped`. `agent/stopped` is reserved for an explicit `StopAgent`,
+  which carries a stop source; a graceful drain that published one would tell
+  the replacement pod the turn had ended and leave the work half-finished.
+  The ungraceful (SIGKILL) case has no publisher, so the pod watcher emits the
+  same marker on the backend side, and either way an unclosed turn is what
+  `find_interrupted_turn` looks for.
 - **Backend deploys**: sandbox pods are independent Deployments; a backend
   rollout changes leaders (Lease-based) but doesn't touch running sandboxes.
 

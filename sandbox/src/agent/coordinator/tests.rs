@@ -1403,10 +1403,13 @@ async fn coordinator_service_duplicate_stop_emits_exactly_one_stopped() {
 }
 
 /// The shutdown path: cancelling via `AgentState::stop()` (the token) — not an
-/// `AgentCommand::Stop` — must still deliver exactly one `stopped` and close the
-/// Turn, proving cancellation-token delivery drives Turn closure.
+/// `AgentCommand::Stop` — closes the Turn as `turn_interrupted`, never
+/// `stopped`. A `stopped` row is terminal, and the backend's
+/// `find_interrupted_turn` reads a terminal row as "this Turn ended": publishing
+/// one on a pod teardown is what leaves the replacement pod idle instead of
+/// resuming the interrupted run.
 #[tokio::test]
-async fn coordinator_service_cancel_token_delivers_single_stopped() {
+async fn coordinator_service_cancel_token_publishes_turn_interrupted_not_stopped() {
     use crate::agent::types::AgentStatus;
 
     let cancel = CancellationToken::new();
@@ -1437,12 +1440,12 @@ async fn coordinator_service_cancel_token_delivers_single_stopped() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         flush(&events).await;
-        if sub_types(&received).contains(&"stopped".to_string()) {
+        if sub_types(&received).contains(&"turn_interrupted".to_string()) {
             break;
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "stopped not published within 5 s; got {:?}",
+            "turn_interrupted not published within 5 s; got {:?}",
             sub_types(&received)
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -1450,9 +1453,17 @@ async fn coordinator_service_cancel_token_delivers_single_stopped() {
     flush(&events).await;
 
     assert_eq!(
-        count_sub_type(&received, "stopped"),
+        count_sub_type(&received, "turn_interrupted"),
         1,
-        "exactly one stopped; got {:?}",
+        "exactly one turn_interrupted; got {:?}",
+        sub_types(&received)
+    );
+    // The turn must stay resumable: no terminal row for the backend to read as
+    // "this Turn ended".
+    assert_eq!(
+        count_sub_type(&received, "stopped"),
+        0,
+        "a shutdown self-cancel must not publish a terminal stopped; got {:?}",
         sub_types(&received)
     );
     assert_eq!(agent_state.status().await, AgentStatus::Stopped);
