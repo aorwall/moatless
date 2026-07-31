@@ -210,15 +210,25 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # and code execution, all fixed by 11.8.0).
 RUN npm install -g pnpm@11.9.0 yarn typescript tsx
 
-# Install Playwright browsers (~300MB) plus xvfb/dbus so headed-mode runs work in
+# Install Playwright browsers (~650MB) plus xvfb/dbus so headed-mode runs work in
 # headless containers via the `playwright-cli` wrapper below. Browsers are owned
 # by moatless and world-readable+executable so root and other users can also use them.
+#
+# The version is PINNED to the one this repo's e2e suite resolves (`playwright`
+# in package.json / bun.lock). Playwright keys its browsers by its own build
+# number, so an unpinned `npx playwright install` bakes whatever is latest at
+# image-build time and the suite then downloads its own copy anyway: measured in
+# a live sandbox, the image carried chromium-1234 (playwright 1.62.1) while the
+# suite wanted chromium-1194 (playwright 1.56.1). Keep this ARG in step with
+# package.json — Renovate tracks both under the same `playwright` depName.
+# renovate: datasource=npm depName=playwright
+ARG PLAYWRIGHT_VERSION=1.56.1
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN apt-get update \
     && apt-get install -y --no-install-recommends xvfb dbus \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /usr/share/moatless-plugins \
-    && npx playwright install --with-deps chromium \
+    && npx playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium \
     && chown -R $USERNAME:$USERNAME /opt/playwright-browsers /usr/share/moatless-skills /usr/share/moatless-plugins \
     && chmod -R o+rx /opt/playwright-browsers \
     && printf '#!/bin/sh\nexec xvfb-run --auto-servernum npx playwright "$@"\n' > /usr/local/bin/playwright-cli \

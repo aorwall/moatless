@@ -24,8 +24,24 @@ REPO_ROOT="$(pwd)"
 # we skip that initial rebuild entirely and start the backend immediately. Falls
 # back to the in-tree `target/` when unset (plain sandbox image).
 TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
-BIN="${TARGET_DIR}/release/moatless-vibe-backend"
-SOURCE_STAMP="${TARGET_DIR}/.moatless-vibe-source-commit"
+
+# Cargo profile to build the shadow backend with. `release` (the default, and
+# what the dev image bakes) takes ~4m34s to relink after a one-file backend
+# edit; `dev` takes ~21s and shares its artifacts with `cargo test`/`cargo
+# clippy`, so an agent iterating on the backend pays for one build instead of
+# two. `ci` (release opts, no LTO) sits in between. See README.md.
+PROFILE="${SHADOW_CARGO_PROFILE:-release}"
+# `dev` is the one profile whose artifacts do not land in target/<profile>/.
+if [ "$PROFILE" = "dev" ]; then PROFILE_DIR="debug"; else PROFILE_DIR="$PROFILE"; fi
+BIN="${TARGET_DIR}/${PROFILE_DIR}/moatless-vibe-backend"
+# The dev image bakes a *release* binary and stamps its commit at the target
+# root. On any other profile there is no baked binary, so the check below must
+# never match — an empty stamp path makes it fail fast.
+if [ "$PROFILE" = "release" ]; then
+  SOURCE_STAMP="${TARGET_DIR}/.moatless-vibe-source-commit"
+else
+  SOURCE_STAMP=""
+fi
 ENV_FILE="${SHADOW_ENV_FILE:-/opt/moatless/data/shadow/backend.env}"
 TRIGGER="${SHADOW_TRIGGER:-/opt/moatless/data/shadow/rebuild.trigger}"
 BAKED_COMMIT=""
@@ -35,15 +51,16 @@ echo "==> Syncing backend env from the cluster"
 scripts/shadow/sync-env.sh "$ENV_FILE"
 
 build() {
-  if [ -d "${TARGET_DIR}/release/deps" ]; then
-    echo "==> Building moatless-vibe-backend (release, warm cache: ${TARGET_DIR})"
+  if [ -d "${TARGET_DIR}/${PROFILE_DIR}/deps" ]; then
+    echo "==> Building moatless-vibe-backend (${PROFILE}, warm cache: ${TARGET_DIR})"
   else
-    echo "==> Building moatless-vibe-backend (release, COLD - no baked cache at ${TARGET_DIR})"
+    echo "==> Building moatless-vibe-backend (${PROFILE}, COLD - no baked cache at ${TARGET_DIR})"
   fi
-  cargo build --release -p moatless-vibe-backend
+  cargo build --profile "$PROFILE" -p moatless-vibe-backend
 }
 
 baked_binary_matches_checkout() {
+  [ -n "$SOURCE_STAMP" ] || return 1
   [ -x "$BIN" ] || return 1
   [ -f "$SOURCE_STAMP" ] || return 1
 

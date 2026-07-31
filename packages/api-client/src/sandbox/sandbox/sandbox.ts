@@ -1612,8 +1612,10 @@ export const useUpdateServerConfigHandler = <TError = ErrorType<ErrorBody>,
     }
     /**
  * Returns a Server-Sent Events stream of log lines for the given server.
-Pass `?previous=true` to fetch logs from a crashed/restarted container.
-The response body cannot be represented in OpenAPI (SSE streaming).
+Pass `?previous=true` to fetch logs from a crashed/restarted container, and
+`?follow=false` to end the stream after the buffered lines instead of
+waiting for more. The response body cannot be represented in OpenAPI (SSE
+streaming).
  * @summary Stream server logs via SSE.
  */
 export type serverLogsHandlerResponse200 = {

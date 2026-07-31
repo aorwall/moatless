@@ -617,7 +617,7 @@ impl SandboxObserver for DockerSandboxAdapter {
         &self,
         _task_id: &str,
         _server_name: &str,
-        _previous: bool,
+        _options: crate::sandbox::access::LogOptions,
     ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
         Err(SandboxError::NotReady(
             "Server logs not available in Docker mode".to_string(),

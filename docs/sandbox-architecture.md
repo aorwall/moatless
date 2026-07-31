@@ -58,19 +58,15 @@ recovers, and destroys sandboxes — see [Sandbox Lifecycle & Handling](./sandbo
 │   │   ├── preview-server.pid           # Server process ID
 │   │   └── preview-server.log           # Server stdout/stderr
 │   ├── .claude/                         # Claude Code configuration
-│   │   └── skills -> /usr/share/moatless-skills  # Symlinked at startup
+│   │   └── skills/                      # Staged image skills + the repo's own, copied at startup
+│   ├── .codex/
+│   │   └── skills/                      # Same set, for Codex
 │   └── bin/
 │       └── preview-server               # Shell script for server lifecycle
 │
-├── usr/share/moatless-skills/           # Skills baked into image
-│   ├── preview-server/
-│   │   └── SKILL.md
-│   ├── sandbox-browser/
-│   │   ├── SKILL.md
-│   │   ├── references/
-│   │   └── scripts/
-│   │       └── browser-client.ts
-│   └── skill-rules.json
+├── usr/share/moatless-skills/           # Skills staged by downstream images (empty in the base image)
+│   └── <skill-name>/
+│       └── SKILL.md
 ```
 
 **Volume Mount Consideration**: The workspace directory (`/opt/moatless/repo`) may be volume-mounted for persistent storage. The sandbox binary lives at `/usr/local/bin/sandbox` to avoid being overwritten by workspace volume mounts.
@@ -573,57 +569,32 @@ The provisioning is performed by the entrypoint script before the sandbox applic
 
 ## Skills System
 
-Skills provide Claude Code agents with domain-specific knowledge and tooling guidance. They are baked into the Docker image and symlinked to the Claude config directory at startup.
+Skills give agents domain-specific knowledge and tooling guidance. Sandbox init
+**copies** two sets into the home-level skill directories both agents already
+read — `$CLAUDE_CONFIG_DIR/skills` and `$CODEX_HOME/skills`. Copies, not
+symlinks, so they survive the workspace volume mount.
 
-### Location
+### Sources
 
-- **Image path**: `/usr/share/moatless-skills/`
-- **Symlinked to**: `$CLAUDE_CONFIG_DIR/skills`
-- **Activation rules**: `skill-rules.json`
+| Source | Installed by | Notes |
+| --- | --- | --- |
+| `/usr/share/moatless-skills/` | `init/dirs.rs` | Staged into the image by downstream Dockerfiles (`COPY`). Empty in the base image. |
+| The primary repo's `.claude/skills/` and `.agents/skills/` | `init/home_skills.rs` | Both roots are scanned and merged, `.claude/skills` first. `is_dir()` follows symlinks, so a `.claude/skills` that points at `.agents/skills` is copied through. |
 
-### Available Skills
+A name already present is never overwritten, so a staged image skill wins over a
+repo skill of the same name, and the merge of the two repo roots copies each
+skill once. Only skills are bridged — `CLAUDE.md`/`AGENTS.md` are deliberately
+left in the repo.
 
-#### preview-server
+**Multi-repo limitation**: `install_repo_skills_to_home` takes `repo_dir`, which
+is the workspace's *primary* checkout. Skills shipped by a secondary repo in a
+multi-repo workspace are not installed.
 
-**Activation triggers**: Keywords like "preview server", "dev server", "start server", "server logs"; patterns like `(start|stop|restart).*server`
+### Selection
 
-**Provides**:
-- Shell script commands for managing the preview server
-- Filesystem artifact paths and formats
-- Config file format reference
-- Troubleshooting guide
-- Rules: Always use the shell script, never start servers manually
-
-#### sandbox-browser
-
-**Activation triggers**: Keywords like "browser automation", "playwright", "screenshot"; patterns like `(take|get).*screenshot`
-
-**Provides**:
-- `BrowserClient` TypeScript API (`/opt/moatless/.claude/skills/sandbox-browser/scripts/browser-client.ts`)
-- CDP access patterns
-- Common automation examples (navigation, form filling, screenshots)
-- Import path and usage instructions
-
-### skill-rules.json
-
-Defines activation conditions for each skill:
-
-```json
-[
-  {
-    "name": "preview-server",
-    "keywords": ["preview server", "dev server", ...],
-    "intentPatterns": ["(start|stop|restart).*server", ...],
-    "priority": "HIGH"
-  },
-  {
-    "name": "sandbox-browser",
-    "keywords": ["browser automation", "playwright", ...],
-    "intentPatterns": ["(take|get).*screenshot", ...],
-    "priority": "MEDIUM"
-  }
-]
-```
+Skills are **model-invoked**: the agent picks one by reading the `description`
+in each `SKILL.md` frontmatter. There is no activation-rules file and no
+keyword-matching hook — write the `description` so it names the triggers.
 
 ---
 

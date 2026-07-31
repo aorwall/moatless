@@ -13,6 +13,7 @@ use tracing::{debug, warn};
 
 use super::client::K8sClient;
 use super::pod_status::{extract_all_container_statuses, extract_container_observed_statuses};
+use crate::sandbox::access::LogOptions;
 use crate::sandbox::models::ContainerObservedStatus;
 use crate::sandbox::schemas::RuntimeEvent;
 
@@ -150,10 +151,14 @@ pub async fn stream_container_logs_k8s(
     k8s: &K8sClient,
     task_id: &str,
     container_name: &str,
-    tail_lines: i64,
-    previous: bool,
+    options: LogOptions,
 ) -> Result<BoxStream<'static, Result<Event, crate::sandbox::error::SandboxError>>, LogStreamError>
 {
+    let LogOptions {
+        previous,
+        follow,
+        tail_lines,
+    } = options;
     let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
@@ -202,10 +207,12 @@ pub async fn stream_container_logs_k8s(
         return Ok(Box::pin(event_stream));
     }
 
-    // Try live (follow) streaming first.
+    // Try the live container first. With `follow` the stream stays open; without
+    // it K8s returns what is buffered and closes, which is what ends the SSE
+    // response for a caller that only wants a snapshot.
     let live_params = LogParams {
         container: Some(container_name.to_string()),
-        follow: true,
+        follow,
         tail_lines: Some(tail_lines),
         ..Default::default()
     };

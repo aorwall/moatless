@@ -106,6 +106,14 @@ bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, 
 
   It still talks to the **shared dev Postgres/S3**, so be aware you are
   reading/writing real dev data.
+- **Local browser origins:** `T3_UI_RPC_ALLOWED_ORIGINS` is synced from the live
+  Deployment, which admits only the preview domain. A browser on
+  `http://localhost:5733` then fails the UI-RPC WebSocket upgrade with **403**
+  while HTTP through the vite proxy keeps working — so the T3 app renders a
+  convincing empty "No projects yet" state instead of an auth error.
+  `sync-env.sh` keeps the synced value and appends
+  `http://localhost:5733,http://127.0.0.1:5733`. Widening it here touches only
+  the shadow; the real backend's allowlist is untouched.
 - **Extra overrides:** drop `KEY=value` lines in
   `/opt/moatless/data/shadow/overrides.env` (e.g. `RUST_LOG=debug`); they win over
   the synced values.
@@ -113,6 +121,40 @@ bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, 
 **Limit:** with the default `moatless-sandbox` SA the shadow backend can serve the
 whole API (auth, tasks, repos, messages, SSE, read-only K8s) but **cannot create
 new sandbox pods** — that needs Phase 2.
+
+## Build profile — `SHADOW_CARGO_PROFILE`
+
+Both `up.sh` and `rebuild.sh` build with `--profile "${SHADOW_CARGO_PROFILE:-release}"`.
+The default is unchanged (`release`, what the dev image bakes), but the release
+profile is a poor fit for an edit→run loop. Measured in a sandbox, one edit
+under `backend/src/ui_rpc/`:
+
+| `SHADOW_CARGO_PROFILE` | Rebuild after one backend edit | Binary lands in |
+| --- | --- | --- |
+| `release` (default) | **4 m 34 s** | `target/release/` |
+| `ci` (release opts, `lto = false`, `codegen-units = 16`) | in between | `target/ci/` |
+| `dev` | **21 s** | `target/debug/` |
+
+The release profile also shares **no** artifacts with the dev profile that
+`cargo test` and `cargo clippy` build, so iterating on the backend while
+running checks costs two independent builds of the same crate. `dev` collapses
+that to one. That is a disk problem as well as a time one: a sandbox on the
+default per-repo workspace gets a 10Gi `workspace-data` EmptyDir, and a
+`target/` holding both profiles overruns it — `Usage of EmptyDir volume
+"workspace-data" exceeds the limit "10Gi"` evicts the pod mid-build. Run Rust
+work on a workspace with real storage configured, and keep `CARGO_TARGET_DIR`
+off that volume when you only need a throwaway build.
+
+```bash
+export SHADOW_CARGO_PROFILE=dev
+bash scripts/shadow/rebuild.sh
+```
+
+> Set it in **both** places or not at all: the `backend` server's env (so
+> `up.sh` runs the right binary) *and* your shell (so `rebuild.sh` compiles the
+> one it runs). Mismatched, `rebuild.sh` builds a profile `up.sh` never starts
+> and the backend silently keeps serving the old code. The baked-binary
+> fast path only applies to `release`; any other profile always builds.
 
 ## Fast rebuilds — precompiled dev image
 

@@ -133,6 +133,12 @@ pub enum TaskAction {
         /// Fetch logs from previous (crashed/restarted) container instance
         #[arg(long)]
         previous: bool,
+        /// Print what is buffered and exit instead of following the stream
+        #[arg(long)]
+        no_follow: bool,
+        /// Number of trailing lines to print
+        #[arg(long, default_value = "500")]
+        tail: i64,
     },
     /// Diagnose sandbox issues (status + container diagnostics + recent errors)
     Diagnose {
@@ -464,9 +470,11 @@ pub async fn run(
             task_id,
             server,
             previous,
+            no_follow,
+            tail,
         } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            stream_logs(client, &task_id, &server, previous).await?;
+            stream_logs(client, &task_id, &server, previous, !no_follow, tail).await?;
         }
         TaskAction::Diagnose { task_id, limit } => {
             let task_id = resolve_task_id(client, &task_id).await?;
@@ -1182,21 +1190,30 @@ async fn run_diagnose(
 }
 
 /// Stream server logs via SSE.
+///
+/// With `follow` the stream stays open until Ctrl+C; without it the backend
+/// ends the response after the buffered lines and this returns normally, so a
+/// caller does not have to wrap the command in `timeout` and lose the tail of
+/// its output.
 async fn stream_logs(
     client: &MoatClient,
     task_id: &str,
     server: &str,
     previous: bool,
+    follow: bool,
+    tail: i64,
 ) -> Result<(), ClientError> {
-    let mut path = format!("/api/sandbox/v1/tasks/{task_id}/servers/{server}/logs");
-    if previous {
-        path.push_str("?previous=true");
-    }
+    let path = format!(
+        "/api/sandbox/v1/tasks/{task_id}/servers/{server}/logs\
+         ?previous={previous}&follow={follow}&tail={tail}"
+    );
     let resp = client.raw_get_stream(&path).await?;
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();
 
-    eprintln!("Streaming logs for {server} (Ctrl+C to stop)...");
+    if follow {
+        eprintln!("Streaming logs for {server} (Ctrl+C to stop)...");
+    }
 
     loop {
         tokio::select! {

@@ -226,8 +226,12 @@ moat tasks diagnose <task-id>
 moat tasks logs <task-id> --server sandbox --previous
 moat tasks logs <task-id> --server preview --previous
 
-# 3. Stream live server logs
-moat tasks logs <task-id> --server preview
+# 3. Read server logs. `--no-follow` prints what is buffered and exits;
+#    `--tail N` (default 500) sets how far back. Without --no-follow it streams
+#    until Ctrl+C, so don't reach for `timeout` — that truncates the output.
+moat tasks logs <task-id> --server preview --no-follow
+moat tasks logs <task-id> --server preview --no-follow --tail 2000
+moat tasks logs <task-id> --server preview            # follow live
 
 # 4. Check and fix repo config if needed
 moat repos get <repo-id>                           # review server config

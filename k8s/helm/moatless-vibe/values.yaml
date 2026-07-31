@@ -660,13 +660,18 @@ kubernetes:
   # Each entry shares ONE node-local NVMe-backed hostPath volume (rooted at
   # /mnt/cache); a privileged `nvme-setup` init container formats/mounts the
   # instance-store NVMe and creates a per-cache subdir. Each entry caches a
-  # tool's DOWNLOAD cache/store (maven local repo, npm _cacache, bun cache,
-  # playwright browsers) — never per-project node_modules, which must not be
-  # shared across repos.
+  # tool's DOWNLOAD cache/store (maven local repo, npm _cacache, bun cache) —
+  # never per-project node_modules, which must not be shared across repos.
   # Empty (default) keeps sandbox pods hardened: no privileged init container,
   # no hostPath. Adding a new package manager is one more entry — no code change.
   # Requires sandbox nodes with local NVMe (the moatless-egress pool pinned to a
-  # `d`-family instance, e.g. c5d). Example:
+  # `d`-family instance, e.g. c5d).
+  # Only cache what no image already bakes. An entry whose `env` repoints a tool
+  # at an empty node-local dir makes the image's copy invisible and the first
+  # sandbox on each node re-download it — which is what a `playwright` entry
+  # setting PLAYWRIGHT_BROWSERS_PATH did: the sandbox image bakes the browsers
+  # at /opt/playwright-browsers (docker/Dockerfile.sandbox-base), so do not add
+  # one back. Example:
   #   sandboxCacheVolumes:
   #     - name: maven
   #       mountPath: /maven-cache
@@ -680,10 +685,6 @@ kubernetes:
   #       mountPath: /npm-cache
   #       env:
   #         npm_config_cache: /npm-cache
-  #     - name: playwright
-  #       mountPath: /playwright-cache
-  #       env:
-  #         PLAYWRIGHT_BROWSERS_PATH: /playwright-cache
   sandboxCacheVolumes: []
   # -- Host root for node-local sandbox caches and best-effort hostPath storage
   # (`workspaces/<task-id>` and `docker/<task-id>`). When node archive

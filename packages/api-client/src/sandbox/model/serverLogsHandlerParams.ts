@@ -11,4 +11,12 @@ export type ServerLogsHandlerParams = {
  * Fetch logs from previous container instance
  */
 previous: boolean;
+/**
+ * Keep the stream open for new lines (default true)
+ */
+follow?: boolean;
+/**
+ * Number of trailing lines to start from (default 500)
+ */
+tail?: number;
 };

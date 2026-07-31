@@ -28,9 +28,16 @@ Work in three beats. The override is a **scratchpad**; the repo config is the
 ```bash
 moat tasks status  $TASK_ID --json        # servers[] + containerDiagnostics[]
 moat tasks servers $TASK_ID list          # status + the override in effect
-moat tasks logs    $TASK_ID --server dev  # `--server <name>`, not `<name>-server`
-moat tasks logs    $TASK_ID --server dev --previous   # the instance that died
+moat tasks logs    $TASK_ID --server dev --no-follow   # `--server <name>`, not `<name>-server`
+moat tasks logs    $TASK_ID --server dev --no-follow --tail 2000   # more history
+moat tasks logs    $TASK_ID --server dev --previous    # the instance that died
+moat tasks logs    $TASK_ID --server dev               # follow live, until Ctrl+C
 ```
+
+Use `--no-follow` unless you actually want to watch. The bare form streams
+until something kills it; wrapping it in `timeout` truncates at an arbitrary
+point and loses the *start* of a build, which is usually where the error is.
+`--tail N` (default 500) sets how far back it starts.
 
 `containerDiagnostics[]` is your process view: `restartCount`, `lastExitCode`,
 `lastTerminatedReason`. A rising `restartCount` with `lastExitCode != 0` is a
@@ -86,7 +93,7 @@ After each one, read the logs before changing anything else:
 
 ```bash
 moat tasks servers $TASK_ID set dev --start-command "..." && sleep 5 && \
-  moat tasks logs $TASK_ID --server dev
+  moat tasks logs $TASK_ID --server dev --no-follow
 ```
 
 Change one thing per cycle. Two changes and a still-broken server tells you

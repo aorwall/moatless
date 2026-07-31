@@ -12,6 +12,7 @@ use futures::stream::Stream;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
+use super::access::LogOptions;
 use super::error::SandboxError;
 use super::lifecycle::{ArchiveRetention, Lifecycle};
 use super::models::*;
@@ -354,13 +355,30 @@ pub struct LogsQuery {
     /// Fetch logs from the previous container instance (useful for crashed containers).
     #[serde(default)]
     pub previous: bool,
+    /// Hold the stream open and append new lines. Defaults to true, which is
+    /// what every caller got before the parameter existed.
+    #[serde(default = "default_follow")]
+    pub follow: bool,
+    /// How many lines back from the end to start.
+    #[serde(default = "default_tail")]
+    pub tail: i64,
+}
+
+fn default_follow() -> bool {
+    LogOptions::default().follow
+}
+
+fn default_tail() -> i64 {
+    LogOptions::default().tail_lines
 }
 
 /// Stream server logs via SSE.
 ///
 /// Returns a Server-Sent Events stream of log lines for the given server.
-/// Pass `?previous=true` to fetch logs from a crashed/restarted container.
-/// The response body cannot be represented in OpenAPI (SSE streaming).
+/// Pass `?previous=true` to fetch logs from a crashed/restarted container, and
+/// `?follow=false` to end the stream after the buffered lines instead of
+/// waiting for more. The response body cannot be represented in OpenAPI (SSE
+/// streaming).
 #[utoipa::path(
     get,
     path = "/api/sandbox/v1/tasks/{task_id}/servers/{server_name}/logs",
@@ -368,7 +386,9 @@ pub struct LogsQuery {
     params(
         ("task_id" = String, Path, description = "Task identifier"),
         ("server_name" = String, Path, description = "Server name"),
-        ("previous" = bool, Query, description = "Fetch logs from previous container instance")
+        ("previous" = bool, Query, description = "Fetch logs from previous container instance"),
+        ("follow" = Option<bool>, Query, description = "Keep the stream open for new lines (default true)"),
+        ("tail" = Option<i64>, Query, description = "Number of trailing lines to start from (default 500)")
     ),
     responses(
         (status = 200, description = "SSE stream of server log lines"),
@@ -384,7 +404,15 @@ pub async fn server_logs_handler(
     authorize_task_read(&state, &scope, &task_id).await?;
     let stream = state
         .observer
-        .server_logs(&task_id, &server_name, query.previous)
+        .server_logs(
+            &task_id,
+            &server_name,
+            LogOptions {
+                previous: query.previous,
+                follow: query.follow,
+                tail_lines: query.tail,
+            },
+        )
         .await?;
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }

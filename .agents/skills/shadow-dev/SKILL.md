@@ -65,8 +65,8 @@ sandboxes; it needs the Helm `shadowDev.enabled=true` RBAC deployed (see
 
 Create a task on the **`moatless-vibe (shadow)`** repo. Provisioning builds a
 `backend-server` container (runs `up.sh`) plus the `dev` frontend. `up.sh`:
-syncs the live backend env → `cargo build --release` → runs the binary on `:8080`,
-restarting on rebuilds.
+syncs the live backend env → `cargo build --profile "${SHADOW_CARGO_PROFILE:-release}"`
+→ runs the binary on `:8080`, restarting on rebuilds.
 
 Open the **`--3000`** preview URL for the full app (frontend proxies `/api` to
 the sibling backend); **`--8080`** hits the backend directly.
@@ -76,7 +76,7 @@ Verify (from any container in the pod):
 ```bash
 curl -s -o /dev/null -w "backend :8080/health -> %{http_code}\n" http://localhost:8080/health
 curl -s -o /dev/null -w "proxy   :3000/api    -> %{http_code}\n" http://localhost:3000/api/v1/repositories
-moat tasks logs $TASK_ID --server backend      # follow the build/run logs
+moat tasks logs $TASK_ID --server backend --no-follow   # print and exit; drop it to follow live
 ```
 
 Healthy backend logs `API server started port=8080`.
@@ -84,9 +84,19 @@ Healthy backend logs `API server started port=8080`.
 ## 3. Rebuild loop
 
 ```bash
+export SHADOW_CARGO_PROFILE=dev       # see below — 21s instead of 4m34s
 bash scripts/shadow/rebuild.sh        # compile + signal up.sh to restart the binary
 ```
 
+- **Build profile**: `up.sh`/`rebuild.sh` build with
+  `--profile "${SHADOW_CARGO_PROFILE:-release}"`. Measured after one edit under
+  `backend/src/ui_rpc/`: `release` **4 m 34 s**, `dev` **21 s** (`ci` — release
+  opts without LTO — sits in between). `release` also shares no artifacts with
+  the dev profile `cargo test`/`cargo clippy` use, so iterating while running
+  checks costs two full builds of the same crate; `dev` costs one. Set it on
+  **both** the `backend` server's env and your shell, or not at all — mismatched,
+  `rebuild.sh` builds a binary `up.sh` never starts. `dev` lands the binary in
+  `target/debug/`, and only `release` can use the dev image's baked binary.
 - **Frontend edits** hot-reload — no rebuild.
 - **Env changed** on the real Deployment? `bash scripts/shadow/sync-env.sh` then `rebuild.sh`.
 - **Extra overrides**: add `KEY=value` lines to `/opt/moatless/data/shadow/overrides.env` (e.g. `RUST_LOG=debug`).
@@ -133,9 +143,9 @@ need new schema).
 
 | Symptom | Fix |
 | --- | --- |
-| `backend-server` never ready | `moat tasks logs $TASK_ID --server backend` — usually still compiling (ensure `startupTimeoutSeconds: 600`) or panicked on boot. |
+| `backend-server` never ready | `moat tasks logs $TASK_ID --server backend --no-follow --tail 2000` — usually still compiling (ensure `startupTimeoutSeconds: 600`) or panicked on boot. Without `--no-follow` the command streams until killed, and the compile error is at the *start* of the log. |
 | `/health` never 200 | Check the logs for a build error or a bad synced env var. |
-| Build errors | Run `cargo build --release -p moatless-vibe-backend` directly for full output. |
+| Build errors | Run `cargo build -p moatless-vibe-backend` directly for full output (dev profile — fastest, and shares artifacts with clippy/test). |
 | Proxy `/api/...` 404 | Use a real path (`/api/v1/repositories`); confirm `:8080` is up first. |
 | `sync-env.sh` fails | Needs `get deployments`/`get secrets` in `moatless`: `kubectl auth can-i get secrets -n moatless`. |
 | Can't provision sandboxes | Needs the Helm `shadowDev` RBAC + `--sandbox-service-account moatless-dev`. |

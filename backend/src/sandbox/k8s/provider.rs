@@ -709,7 +709,7 @@ impl SandboxObserver for K8sSandboxAdapter {
         &self,
         task_id: &str,
         server_name: &str,
-        previous: bool,
+        options: crate::sandbox::access::LogOptions,
     ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError> {
         let container_name = if server_name == "sandbox" {
             "sandbox".to_string()
@@ -717,14 +717,8 @@ impl SandboxObserver for K8sSandboxAdapter {
             format!("{server_name}-server")
         };
 
-        match pod_reader::stream_container_logs_k8s(
-            &self.k8s,
-            task_id,
-            &container_name,
-            500,
-            previous,
-        )
-        .await
+        match pod_reader::stream_container_logs_k8s(&self.k8s, task_id, &container_name, options)
+            .await
         {
             Ok(stream) => Ok(stream),
             Err(

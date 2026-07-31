@@ -11,8 +11,12 @@ cd "$(dirname "$0")/../.."
 TRIGGER="${SHADOW_TRIGGER:-/opt/moatless/data/shadow/rebuild.trigger}"
 mkdir -p "$(dirname "$TRIGGER")"
 
-echo "==> Building moatless-vibe-backend (release)"
-cargo build --release -p moatless-vibe-backend
+# Must match the profile up.sh runs from, or this rebuilds one binary while the
+# backend keeps running the other. Defaults to `release`; `dev` is ~13x faster.
+PROFILE="${SHADOW_CARGO_PROFILE:-release}"
+
+echo "==> Building moatless-vibe-backend (${PROFILE})"
+cargo build --profile "$PROFILE" -p moatless-vibe-backend
 
 # Bump the trigger's mtime so up.sh restarts the process.
 touch "$TRIGGER"

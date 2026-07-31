@@ -15,6 +15,29 @@ use super::live_status::LiveStatus;
 use super::schemas::SandboxStatusFullResponse;
 use crate::task::models::{SandboxDesiredState, TaskStatus};
 
+/// Which slice of a server container's log to read.
+#[derive(Debug, Clone, Copy)]
+pub struct LogOptions {
+    /// Read the previous (crashed/restarted) container instance instead of the
+    /// live one. Implies no follow — that instance is gone.
+    pub previous: bool,
+    /// Hold the stream open and append lines as the container writes them.
+    /// `false` returns what is already buffered and ends the stream.
+    pub follow: bool,
+    /// How many lines back from the end to start.
+    pub tail_lines: i64,
+}
+
+impl Default for LogOptions {
+    fn default() -> Self {
+        Self {
+            previous: false,
+            follow: true,
+            tail_lines: 500,
+        }
+    }
+}
+
 /// Live runtime observation used by status and diagnostics routes.
 #[async_trait]
 pub trait SandboxObserver: Send + Sync {
@@ -36,7 +59,7 @@ pub trait SandboxObserver: Send + Sync {
         &self,
         task_id: &str,
         server_name: &str,
-        previous: bool,
+        options: LogOptions,
     ) -> Result<BoxStream<'static, Result<Event, SandboxError>>, SandboxError>;
 }
 

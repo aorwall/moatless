@@ -828,7 +828,7 @@
           "sandbox"
         ],
         "summary": "Stream server logs via SSE.",
-        "description": "Returns a Server-Sent Events stream of log lines for the given server.\nPass `?previous=true` to fetch logs from a crashed/restarted container.\nThe response body cannot be represented in OpenAPI (SSE streaming).",
+        "description": "Returns a Server-Sent Events stream of log lines for the given server.\nPass `?previous=true` to fetch logs from a crashed/restarted container, and\n`?follow=false` to end the stream after the buffered lines instead of\nwaiting for more. The response body cannot be represented in OpenAPI (SSE\nstreaming).",
         "operationId": "server_logs_handler",
         "parameters": [
           {
@@ -856,6 +856,25 @@
             "required": true,
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "follow",
+            "in": "query",
+            "description": "Keep the stream open for new lines (default true)",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "tail",
+            "in": "query",
+            "description": "Number of trailing lines to start from (default 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
             }
           }
         ],
