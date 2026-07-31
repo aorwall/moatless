@@ -369,6 +369,10 @@ pub struct SandboxConfig {
     pub file_mount_path: String,
     /// Whether the idle sandbox reaper is enabled (default: true)
     pub idle_reaper_enabled: bool,
+    /// Whether the cron scheduler is enabled. A shadow backend shares the real
+    /// deployment's database and Leases, so it must not fire scheduled jobs.
+    /// Env `CRON_SCHEDULER_ENABLED` (default: true).
+    pub cron_scheduler_enabled: bool,
     /// Whether to attach a liveness probe to the sandbox container so K8s
     /// restarts a hung-but-alive pod (agent actor wedged while `/health` still
     /// reports Ready). Default OFF: a false-positive restart kills an in-flight
@@ -995,6 +999,7 @@ impl Config {
                 accept_claimless_tokens: env_bool("SANDBOX_ACCEPT_CLAIMLESS_TOKENS", true),
                 file_mount_path: env_str("SANDBOX_FILE_MOUNT_PATH", "/mnt/uploads"),
                 idle_reaper_enabled: env_bool("SANDBOX_IDLE_REAPER_ENABLED", true),
+                cron_scheduler_enabled: env_bool("CRON_SCHEDULER_ENABLED", true),
                 liveness_enabled: env_bool("K8S_SANDBOX_LIVENESS_ENABLED", false),
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
                 busy_extension_max_hours: env_or("SANDBOX_BUSY_EXTENSION_MAX_HOURS", 4),
@@ -1373,6 +1378,7 @@ impl Config {
                 accept_claimless_tokens: true,
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,
+                cron_scheduler_enabled: false,
                 liveness_enabled: false,
                 idle_timeout_minutes: 15,
                 busy_extension_max_hours: 4,

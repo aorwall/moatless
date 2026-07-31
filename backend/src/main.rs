@@ -607,16 +607,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Schedule runner and long-polling adapters (when configured).
         if let Some(ref adapter_registry) = app_state.adapters {
-            supervisor.supervise(
-                "cron-scheduler",
-                // Readiness: durable scheduled jobs stop firing entirely.
-                Criticality::Readiness,
-                loops::firing::schedule_runner::spawn_cron_scheduler(
-                    app_state.clone(),
-                    cron_leader,
-                    cancel.clone(),
-                ),
-            );
+            if config.sandbox.cron_scheduler_enabled {
+                supervisor.supervise(
+                    "cron-scheduler",
+                    // Readiness: durable scheduled jobs stop firing entirely.
+                    Criticality::Readiness,
+                    loops::firing::schedule_runner::spawn_cron_scheduler(
+                        app_state.clone(),
+                        cron_leader,
+                        cancel.clone(),
+                    ),
+                );
+            } else {
+                info!("Cron scheduler disabled (CRON_SCHEDULER_ENABLED=false)");
+            }
 
             // Telegram long-polling (when webhook mode is not available)
             if config.telegram.bot_token.is_some() && config.telegram.mode == "polling" {

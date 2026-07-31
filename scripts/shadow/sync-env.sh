@@ -97,6 +97,12 @@ done
   echo "export SANDBOX_IDLE_REAPER_ENABLED='false'"
   echo "export RECONCILE_REPROVISION_ENABLED='false'"
   echo "export RECONCILE_PENDING_TIMEOUT_ENABLED='false'"
+  # The remaining leader-elected loops. Their Lease names are shared constants,
+  # so a shadow that wins one takes it from the real backend for the full lease
+  # duration and then acts on the shared database: refreshing live Codex
+  # credentials, firing due scheduled jobs.
+  echo "export CODEX_REFRESHER_INTERVAL_SECS='0'"
+  echo "export CRON_SCHEDULER_ENABLED='false'"
   # Never apply migrations from the shadow: it shares the real dev Postgres, so a
   # pending migration would alter the schema the real backend depends on. The
   # shadow runs against whatever schema is already there. If you need new schema,
