@@ -3,8 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
+  # Deliberately unfiltered by base branch. Stacked ticket PRs target a feature
+  # branch, not `main`, so a `branches: [main]` filter created no check run for
+  # them at all — a reviewer opening one sees a blank checks list and no way to
+  # tell a green branch from an unbuilt one. The publish jobs below are gated on
+  # `(push && ref == main) || workflow_dispatch`, so a PR from any base runs the
+  # checks and publishes nothing.
   pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       build_all:
