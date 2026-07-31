@@ -7,7 +7,7 @@ use crate::adapters::signature::verify_hmac_sha256;
 ///
 /// GitHub signs every webhook payload with `HMAC-SHA256(secret, body)` and sends
 /// the result in the `X-Hub-Signature-256` header as `sha256=<hex>`.
-pub fn verify_signature(
+pub(super) fn verify_signature(
     secret: &str,
     body: &[u8],
     signature_header: &str,

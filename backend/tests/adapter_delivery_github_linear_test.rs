@@ -27,7 +27,6 @@ use std::time::Duration;
 use moatless_vibe_backend::adapters::delivery::{
     spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
 };
-use moatless_vibe_backend::adapters::github_pr;
 use moatless_vibe_backend::adapters::linear;
 use moatless_vibe_backend::state::AppState;
 use sqlx::PgPool;
@@ -38,6 +37,11 @@ use common::test_app_state;
 
 const CONNECTION_ID: &str = "conn-github-1";
 const LINEAR_CONNECTION_ID: &str = "conn-linear-1";
+const GITHUB_ADAPTER: &str = "github";
+const GITHUB_PR_MESSAGE: &str = "github.pr_message";
+const GITHUB_CLOSE: &str = "github.close";
+const GITHUB_POST_MERGE: &str = "github.post_merge";
+const GITHUB_MERGE_CONFLICT: &str = "github.merge_conflict";
 
 /// One `integration_connections` row — the only fixture every handler needs to
 /// get past its "does this tenant still exist?" guard.
@@ -119,26 +123,26 @@ fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterDel
 
     vec![
         AdapterDeliveryRequest {
-            adapter: github_pr::delivery::ADAPTER,
-            kind: github_pr::delivery::kind::PR_MESSAGE,
+            adapter: GITHUB_ADAPTER,
+            kind: GITHUB_PR_MESSAGE,
             event_id: "delivery-1".to_string(),
             payload: pr_message,
         },
         AdapterDeliveryRequest {
-            adapter: github_pr::delivery::ADAPTER,
-            kind: github_pr::delivery::kind::CLOSE,
+            adapter: GITHUB_ADAPTER,
+            kind: GITHUB_CLOSE,
             event_id: "delivery-2".to_string(),
             payload: close,
         },
         AdapterDeliveryRequest {
-            adapter: github_pr::delivery::ADAPTER,
-            kind: github_pr::delivery::kind::POST_MERGE,
+            adapter: GITHUB_ADAPTER,
+            kind: GITHUB_POST_MERGE,
             event_id: "delivery-3".to_string(),
             payload: post_merge,
         },
         AdapterDeliveryRequest {
-            adapter: github_pr::delivery::ADAPTER,
-            kind: github_pr::delivery::kind::MERGE_CONFLICT,
+            adapter: GITHUB_ADAPTER,
+            kind: GITHUB_MERGE_CONFLICT,
             event_id: "delivery-4".to_string(),
             payload: merge_conflict,
         },
@@ -236,8 +240,10 @@ fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterDel
 /// The registry the running process builds, assembled the same way `main` does.
 fn registered_handlers(state: &AppState) -> Arc<AdapterDeliveryHandlers> {
     let mut handlers = AdapterDeliveryHandlers::new();
-    github_pr::delivery::register(&mut handlers, state);
-    linear::delivery::register(&mut handlers, state);
+    moatless_vibe_backend::adapters::delivery::register_builtin_delivery_handlers(
+        &mut handlers,
+        state,
+    );
     Arc::new(handlers)
 }
 
@@ -386,8 +392,8 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
         "source_task_id": serde_json::Value::Null,
     });
     let request = || AdapterDeliveryRequest {
-        adapter: github_pr::delivery::ADAPTER,
-        kind: github_pr::delivery::kind::PR_MESSAGE,
+        adapter: GITHUB_ADAPTER,
+        kind: GITHUB_PR_MESSAGE,
         event_id: "delivery-dup".to_string(),
         payload: message.clone(),
     };
@@ -410,7 +416,7 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
         "GitHub's own delivery id is the idempotency key"
     );
     assert_eq!(
-        count_records(&pool, github_pr::delivery::kind::PR_MESSAGE, "delivery-dup").await,
+        count_records(&pool, GITHUB_PR_MESSAGE, "delivery-dup").await,
         1
     );
 
@@ -425,8 +431,8 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
         state
             .adapter_delivery
             .admit(AdapterDeliveryRequest {
-                adapter: github_pr::delivery::ADAPTER,
-                kind: github_pr::delivery::kind::MERGE_CONFLICT,
+                adapter: GITHUB_ADAPTER,
+                kind: GITHUB_MERGE_CONFLICT,
                 event_id: "delivery-dup".to_string(),
                 payload: conflict,
             })
@@ -440,16 +446,15 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
     let pool_for_check = pool.clone();
     run_worker_until(&state, Duration::from_secs(30), async || {
         matches!(
-            status_of(&pool_for_check, github_pr::delivery::kind::PR_MESSAGE, "delivery-dup").await,
+            status_of(&pool_for_check, GITHUB_PR_MESSAGE, "delivery-dup").await,
             Some((ref status, ..)) if status == "succeeded" || status == "failed"
         )
     })
     .await;
 
-    let (status, attempts, last_error) =
-        status_of(&pool, github_pr::delivery::kind::PR_MESSAGE, "delivery-dup")
-            .await
-            .expect("record");
+    let (status, attempts, last_error) = status_of(&pool, GITHUB_PR_MESSAGE, "delivery-dup")
+        .await
+        .expect("record");
     assert_eq!(status, "succeeded", "{last_error:?}");
     assert_eq!(attempts, 1, "the redelivery cost no extra execution");
 
@@ -688,8 +693,8 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
     state
         .adapter_delivery
         .admit(AdapterDeliveryRequest {
-            adapter: github_pr::delivery::ADAPTER,
-            kind: github_pr::delivery::kind::MERGE_CONFLICT,
+            adapter: GITHUB_ADAPTER,
+            kind: GITHUB_MERGE_CONFLICT,
             event_id: "delivery-orphan".to_string(),
             payload: orphaned,
         })
@@ -710,7 +715,7 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
         .expect("admitted");
 
     let cases = [
-        (github_pr::delivery::kind::MERGE_CONFLICT, "delivery-orphan"),
+        (GITHUB_MERGE_CONFLICT, "delivery-orphan"),
         (
             linear::delivery::SESSION_PROVISION,
             "AgentSessionEvent:created:unreadable",
@@ -729,13 +734,9 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
     .await;
     assert!(finished, "both records reached a terminal state");
 
-    let (status, attempts, last_error) = status_of(
-        &pool,
-        github_pr::delivery::kind::MERGE_CONFLICT,
-        "delivery-orphan",
-    )
-    .await
-    .expect("record");
+    let (status, attempts, last_error) = status_of(&pool, GITHUB_MERGE_CONFLICT, "delivery-orphan")
+        .await
+        .expect("record");
     assert_eq!(status, "failed");
     assert_eq!(
         attempts, 1,

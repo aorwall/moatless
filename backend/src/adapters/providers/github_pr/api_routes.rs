@@ -346,8 +346,10 @@ async fn resolve_github_api(
     let adapter = providers
         .github_pr()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
-    let token = adapter.resolve_token_for_user(user_id, Some(owner)).await?;
-    Ok(GithubPrApi::new(&token))
+    adapter
+        .auth()
+        .client_for_typed_api(user_id, owner)
+        .await
 }
 
 /// Build the task URL for the PR-body footer. Returns `None` when no task is

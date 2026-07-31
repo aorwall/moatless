@@ -10,7 +10,7 @@
 /// / the single-PR API's `mergeable_state`). GitHub computes this
 /// asynchronously, so a fresh read is often [`MergeableState::Unknown`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MergeableState {
+pub(super) enum MergeableState {
     /// No conflicts — mergeable.
     Clean,
     /// Merge conflicts with the base branch.
@@ -32,7 +32,7 @@ pub enum MergeableState {
 impl MergeableState {
     /// Parse GitHub's `mergeable_state` string. Unrecognized values map to
     /// [`MergeableState::Unknown`].
-    pub fn from_github(raw: &str) -> Self {
+    pub(super) fn from_github(raw: &str) -> Self {
         match raw {
             "clean" => Self::Clean,
             "dirty" => Self::Dirty,
@@ -46,7 +46,7 @@ impl MergeableState {
     }
 
     /// Canonical string persisted to `external_mergeable_state`.
-    pub fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Clean => "clean",
             Self::Dirty => "dirty",
@@ -61,12 +61,12 @@ impl MergeableState {
 
     /// Whether GitHub has actually resolved the state (not [`Self::Unknown`]).
     /// An unresolved state is never persisted — it would just churn the column.
-    pub fn is_settled(self) -> bool {
+    pub(super) fn is_settled(self) -> bool {
         self != Self::Unknown
     }
 
     /// Whether the PR currently has merge conflicts.
-    pub fn is_conflicted(self) -> bool {
+    pub(super) fn is_conflicted(self) -> bool {
         self == Self::Dirty
     }
 }
@@ -75,12 +75,16 @@ impl MergeableState {
 /// on a `pull_request_review` submission, plus GitHub's PR-level
 /// `review_required` bucket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReviewDecision {
+pub(super) enum ReviewDecision {
     /// At least one approving review, no outstanding change requests.
     Approved,
     /// A reviewer requested changes.
     ChangesRequested,
     /// A review is required but none has landed yet.
+    #[expect(
+        dead_code,
+        reason = "GitHub review-decision vocabulary includes this state"
+    )]
     ReviewRequired,
     /// A review was dismissed.
     Dismissed,
@@ -91,7 +95,7 @@ pub enum ReviewDecision {
 impl ReviewDecision {
     /// Map the `review.state` of a `pull_request_review` webhook to a decision.
     /// Returns `None` for states we don't persist as a verdict (e.g. `pending`).
-    pub fn from_review_state(state: &str) -> Option<Self> {
+    pub(super) fn from_review_state(state: &str) -> Option<Self> {
         match state {
             "approved" => Some(Self::Approved),
             "changes_requested" => Some(Self::ChangesRequested),
@@ -102,7 +106,7 @@ impl ReviewDecision {
     }
 
     /// Canonical string persisted to `external_review_decision`.
-    pub fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Approved => "approved",
             Self::ChangesRequested => "changes_requested",
@@ -115,7 +119,7 @@ impl ReviewDecision {
     /// Whether this decision reflects a real verdict worth overwriting a prior
     /// decision with. A plain `commented` review must not clobber an existing
     /// `approved` / `changes_requested`, so it is not a verdict.
-    pub fn is_verdict(self) -> bool {
+    pub(super) fn is_verdict(self) -> bool {
         matches!(
             self,
             Self::Approved | Self::ChangesRequested | Self::Dismissed

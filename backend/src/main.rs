@@ -214,28 +214,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // separately needs workspace and task-event DAOs.
     let sandbox_tasks: Option<Arc<dyn moatless_vibe_backend::task::dao::TaskDao>> =
         db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::task::dao::PgTaskDao(
-                p.clone(),
-            )) as Arc<dyn moatless_vibe_backend::task::dao::TaskDao>
+            Arc::new(moatless_vibe_backend::task::dao::PgTaskDao(p.clone()))
+                as Arc<dyn moatless_vibe_backend::task::dao::TaskDao>
         });
     let sandbox_teams: Option<Arc<dyn moatless_vibe_backend::team::dao::TeamDao>> =
         db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::team::dao::PgTeamDao(
-                p.clone(),
-            )) as Arc<dyn moatless_vibe_backend::team::dao::TeamDao>
+            Arc::new(moatless_vibe_backend::team::dao::PgTeamDao(p.clone()))
+                as Arc<dyn moatless_vibe_backend::team::dao::TeamDao>
         });
-    let sandbox_workspaces: Option<
-        Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceDao>,
-    > = db_pool.as_ref().map(|p| {
-        Arc::new(moatless_vibe_backend::workspace::dao::PgWorkspaceDao(p.clone()))
-            as Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceDao>
-    });
-    let sandbox_task_events: Option<
-        Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventDao>,
-    > = db_pool.as_ref().map(|p| {
-        Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventDao(p.clone()))
-            as Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventDao>
-    });
+    let sandbox_workspaces: Option<Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceDao>> =
+        db_pool.as_ref().map(|p| {
+            Arc::new(moatless_vibe_backend::workspace::dao::PgWorkspaceDao(
+                p.clone(),
+            )) as Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceDao>
+        });
+    let sandbox_task_events: Option<Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventDao>> =
+        db_pool.as_ref().map(|p| {
+            Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventDao(
+                p.clone(),
+            )) as Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventDao>
+        });
 
     // Build the shared durable Sandbox lifecycle handle once (requires the DB).
     // The sandbox API, the pod watcher, and AppState all drive transitions
@@ -431,9 +429,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ui_rpc_router) = ui_rpc::router_from_env(
             config.auth.session_cookie_name.clone(),
             app_state.workspaces.clone(),
-            Arc::new(ui_rpc::dao::PgConversationDao::new(
-                app_state.db.clone(),
-            )),
+            Arc::new(ui_rpc::dao::PgConversationDao::new(app_state.db.clone())),
             ui_rpc::AgentModelDefaults {
                 claude_code: config.sandbox.default_model.clone(),
                 codex: config.sandbox.default_codex_model.clone(),
@@ -516,11 +512,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // registered per Adapter — an empty registry simply means this build
         // claims no kinds.
         let mut adapter_delivery_handlers = adapters::delivery::AdapterDeliveryHandlers::new();
-        adapters::slack::delivery::register(&mut adapter_delivery_handlers, &app_state);
-        adapters::telegram::delivery::register(&mut adapter_delivery_handlers, &app_state);
-        adapters::github_pr::delivery::register(&mut adapter_delivery_handlers, &app_state);
-        adapters::linear::delivery::register(&mut adapter_delivery_handlers, &app_state);
-        adapters::webhook::delivery::register(&mut adapter_delivery_handlers, &app_state);
+        adapters::delivery::register_builtin_delivery_handlers(
+            &mut adapter_delivery_handlers,
+            &app_state,
+        );
         let adapter_delivery_handlers = Arc::new(adapter_delivery_handlers);
         supervisor.supervise(
             "adapter-delivery-worker",

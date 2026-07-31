@@ -12,22 +12,11 @@
 //! when the producer may be acknowledged, what is durable, how retries and
 //! deduplication work, what happens at capacity, and how shutdown drains — is
 //! stated once in that module and is not restated here. What this module owns
-//! is the GitHub-specific half: the kinds, the payloads, and the idempotency
-//! key.
+//! is the GitHub-specific half: the stable kinds and payloads.
 //!
-//! # Idempotency key
-//!
-//! `event_id` is GitHub's own `X-GitHub-Delivery`, so a redelivery is a
-//! duplicate rather than a second unit of work. When the header is absent —
-//! GitHub always sends it, but the ingress path has always tolerated its
-//! absence — the key falls back to `sha256:<hex>` over the request body, which
-//! collapses an identical retry and keeps two genuinely different deliveries
-//! apart. Keying an absent header as `""` would collapse every such delivery
-//! into one record, which is the failure this fallback exists to avoid.
-//!
-//! Dedup is per `(adapter, kind, event_id)`, so one delivery that triggers
-//! both a message and a merge-conflict check is two records that retry and fail
-//! independently.
+//! Ingress supplies the sender delivery identity. Dedup is per
+//! `(adapter, kind, event_id)`, so one delivery that triggers both a message and
+//! a merge-conflict check is two records that retry and fail independently.
 //!
 //! # The only deduplication mechanism
 //!
@@ -40,13 +29,12 @@
 //!
 //! What the cache did cover and the index does not is the work the ingress path
 //! does *before* admitting: signature verification, parsing, and the
-//! subscription / binding reads, all read-only; and the two spawned writes in
-//! [`GithubPrAdapter`](super::adapter::GithubPrAdapter) that derive a value
-//! from the delivery payload and overwrite it (PR external status, review
-//! decision). The same payload derives the same value, so a redelivery re-runs
-//! them and lands on what is already there. That costs a little work and
-//! changes nothing, which is why this is a performance question rather than a
-//! correctness one.
+//! subscription / binding reads, all read-only; and the two best-effort status
+//! projections scheduled by ingress that derive a value from the delivery
+//! payload and overwrite it (PR external status, review decision). The same
+//! payload derives the same value, so a redelivery re-runs them and lands on
+//! what is already there. That costs a little work and changes nothing, which
+//! is why this is a performance question rather than a correctness one.
 //!
 //! One consequence must be stated rather than assumed away: GitHub's manual
 //! redelivery window is 30 days, which is longer than
@@ -76,7 +64,6 @@
 
 use moatless_backend_core::scope::ScopeContext;
 
-use sha2::{Digest, Sha256};
 use tracing::info;
 
 use crate::adapters::dao::PgAdapterConnectionDao;
@@ -88,16 +75,16 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
 use crate::state::AppState;
 
-use super::adapter::{PostMergeRun, PrCloseInfo};
+use super::webhook::PrCloseInfo;
 
 /// Adapter name on every record this module admits. Matches the value used
 /// for GitHub Adapter connections, trigger sources, and bindings.
-pub const ADAPTER: &str = "github";
+pub(super) const ADAPTER: &str = "github";
 
 /// The delivery kinds this adapter admits. One kind per unit of work that can fail
 /// and retry on its own — folding them behind a single kind would let a
 /// permanent failure in one spend the retry budget of the others.
-pub mod kind {
+pub(super) mod kind {
     /// Route a parsed inbound PR event to its bound tasks, creating the review
     /// task when the PR was just opened.
     pub const PR_MESSAGE: &str = "github.pr_message";
@@ -134,17 +121,6 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         state,
         execute_merge_conflict,
     );
-}
-
-/// The sender's idempotency key for one delivery.
-///
-/// `X-GitHub-Delivery` when GitHub sent one. The body digest otherwise, so an
-/// absent header cannot collapse unrelated deliveries onto a single record.
-pub(super) fn delivery_event_id(delivery_id: &str, body: &[u8]) -> String {
-    if !delivery_id.is_empty() {
-        return delivery_id.to_string();
-    }
-    format!("sha256:{}", hex::encode(Sha256::digest(body)))
 }
 
 // =============================================================================
@@ -202,16 +178,16 @@ impl DeliveryContext {
         Ok((connection, trigger))
     }
 
-    /// The trigger as a config bag, falling back to the delivery-only rule the
-    /// ingress path synthesizes for a connection with no trigger.
+    /// The trigger as a config bag, falling back to the routing-owned
+    /// delivery-only rule for a connection with no trigger.
     fn rule_for_parse(
         &self,
         connection: &AdapterConnection,
         trigger: Option<&SubscriptionMatch>,
     ) -> SubscriptionMatch {
-        trigger.cloned().unwrap_or_else(|| {
-            super::runtime::connection_only_rule(connection, &self.repo_full_name)
-        })
+        trigger
+            .cloned()
+            .unwrap_or_else(|| super::routing::delivery_only_rule(connection, &self.repo_full_name))
     }
 }
 
@@ -240,13 +216,8 @@ pub(super) struct CloseDelivery {
 pub(super) struct PostMergeDelivery {
     #[serde(flatten)]
     pub(super) context: DeliveryContext,
-    /// Kept alongside `repo_full_name` because the ingress path falls back to
-    /// `(owner_login, "")` when the full name has no `/`; re-splitting here
-    /// would silently change which repo is queried.
-    pub(super) owner: String,
-    pub(super) repo: String,
-    pub(super) run: PostMergeRun,
-    pub(super) sender_login: String,
+    #[serde(flatten)]
+    pub(super) execution: super::post_merge::Execution,
 }
 
 /// Re-check a PR's mergeable state.
@@ -254,14 +225,12 @@ pub(super) struct PostMergeDelivery {
 pub(super) struct MergeConflictDelivery {
     #[serde(flatten)]
     pub(super) context: DeliveryContext,
-    pub(super) owner: String,
-    pub(super) repo: String,
-    pub(super) pr_number: u64,
-    pub(super) sender_login: String,
+    #[serde(flatten)]
+    pub(super) execution: super::merge_conflict::Execution,
 }
 
 /// Failures this module raises on its own behalf, as opposed to those it
-/// forwards from the runtime it calls.
+/// forwards from the routing module it calls.
 #[derive(Debug, thiserror::Error)]
 enum GithubDeliveryError {
     #[error("adapter connection {0} no longer exists")]
@@ -295,7 +264,7 @@ async fn execute_pr_message(
     payload: PrMessageDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&state).await?;
-    super::runtime::route_inbound_message(&state, &connection, trigger.as_ref(), payload.message)
+    super::routing::route_event(&state, &connection, trigger.as_ref(), payload.message)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -316,7 +285,7 @@ async fn execute_close(
         );
         return Ok(());
     };
-    super::runtime::close_tasks_for_pr(&state, &trigger, &payload.close)
+    super::routing::close_subject(&state, &trigger, &payload.close)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -330,17 +299,9 @@ async fn execute_post_merge(
     let rule = payload
         .context
         .rule_for_parse(&connection, trigger.as_ref());
-    super::adapter::check_post_merge_ci(
-        &state,
-        &connection,
-        &rule,
-        &payload.owner,
-        &payload.repo,
-        &payload.run,
-        &payload.sender_login,
-    )
-    .await
-    .map_err(AdapterDeliveryFailure::from)
+    super::post_merge::execute(&state, &connection, &rule, &payload.execution)
+        .await
+        .map_err(AdapterDeliveryFailure::from)
 }
 
 async fn execute_merge_conflict(
@@ -352,17 +313,9 @@ async fn execute_merge_conflict(
     let rule = payload
         .context
         .rule_for_parse(&connection, trigger.as_ref());
-    super::adapter::check_pr_merge_conflict(
-        &state,
-        &connection,
-        &rule,
-        &payload.owner,
-        &payload.repo,
-        payload.pr_number,
-        &payload.sender_login,
-    )
-    .await
-    .map_err(AdapterDeliveryFailure::from)
+    super::merge_conflict::execute(&state, &connection, &rule, &payload.execution)
+        .await
+        .map_err(AdapterDeliveryFailure::from)
 }
 
 /// Log line shared by the four admission sites, so an operator can follow one
@@ -485,7 +438,7 @@ mod tests {
             serde_json::from_value(stored.clone()).expect("deserialize");
 
         assert!(delivery.context.trigger_id.is_none());
-        assert_eq!(delivery.owner, "acme");
+        assert_eq!(delivery.execution.owner, "acme");
         // A run id is a `u64` behind a `flatten`ed sibling, which routes through
         // serde's buffering representation; assert it comes back unrounded.
         assert_eq!(serde_json::to_value(&delivery).expect("serialize"), stored);
@@ -498,36 +451,19 @@ mod tests {
                 trigger_id: None,
                 ..context()
             },
-            owner: "acme".to_string(),
-            repo: "widgets".to_string(),
-            pr_number: 42,
-            sender_login: "octocat".to_string(),
+            execution: super::super::merge_conflict::Execution {
+                owner: "acme".to_string(),
+                repo: "widgets".to_string(),
+                pr_number: 42,
+                sender_login: "octocat".to_string(),
+            },
         };
         let back: MergeConflictDelivery =
             serde_json::from_value(serde_json::to_value(&delivery).expect("serialize"))
                 .expect("deserialize");
         assert!(back.context.trigger_id.is_none());
-        assert_eq!(back.pr_number, 42);
-        assert_eq!(back.sender_login, "octocat");
-    }
-
-    #[test]
-    fn the_delivery_header_is_the_idempotency_key() {
-        assert_eq!(delivery_event_id("d-1", b"{}"), "d-1");
-    }
-
-    /// The header has always been optional on this path. Keying its absence as
-    /// `""` would make every such delivery the same record; the digest keeps
-    /// distinct bodies distinct and still collapses an identical retry.
-    #[test]
-    fn a_missing_delivery_header_falls_back_to_the_body_digest() {
-        let a = delivery_event_id("", br#"{"action":"opened"}"#);
-        let b = delivery_event_id("", br#"{"action":"closed"}"#);
-        let a_again = delivery_event_id("", br#"{"action":"opened"}"#);
-
-        assert!(a.starts_with("sha256:"), "{a}");
-        assert_ne!(a, b, "different deliveries must not share a record");
-        assert_eq!(a, a_again, "an identical retry must collapse");
+        assert_eq!(back.execution.pr_number, 42);
+        assert_eq!(back.execution.sender_login, "octocat");
     }
 
     /// A record's kind names its handler; the request must carry the kind and

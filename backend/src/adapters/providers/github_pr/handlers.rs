@@ -7,7 +7,7 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
-use super::adapter::GithubWebhookError;
+use super::ingress::{WebhookError, WebhookRequest};
 
 #[utoipa::path(
     post,
@@ -30,18 +30,19 @@ pub async fn github_webhook(
         .github_pr()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
 
-    match super::adapter::resolve_and_process_github_webhook(
-        &state,
-        github_pr_provider,
-        &headers,
+    let event_type = header_value(&headers, "x-github-event");
+    let request = WebhookRequest::new(
+        event_type,
+        header_value(&headers, "x-github-delivery"),
+        header_value(&headers, "x-hub-signature-256"),
         &body,
-    )
-    .await
-    {
-        Ok(super::adapter::GithubWebhookOutcome::Processed { event_type }) => {
+    );
+
+    match super::ingress::receive(&state, github_pr_provider, request).await {
+        Ok(super::ingress::WebhookOutcome::Processed { event_type }) => {
             record_webhook("github_pr", "success", "", &event_type, "", "");
         }
-        Ok(super::adapter::GithubWebhookOutcome::Ignored { event_type, reason }) => {
+        Ok(super::ingress::WebhookOutcome::Ignored { event_type, reason }) => {
             record_webhook("github_pr", "ignored", reason, &event_type, "", "");
         }
         // The one failure that must not be acknowledged. Nothing was written,
@@ -50,8 +51,7 @@ pub async fn github_webhook(
         // write. GitHub does not retry a delivery on its own, so what this buys
         // is a delivery recorded as failed — redeliverable by an operator for 30
         // days, and alertable here via the `not_admitted` reason.
-        Err(GithubWebhookError::NotAdmitted(e)) => {
-            let event_type = advertised_event_type(&headers);
+        Err(WebhookError::NotAdmitted(e)) => {
             record_webhook("github_pr", "error", "not_admitted", event_type, "", "");
             warn!(error = %e, "GitHub PR webhook work was not admitted; delivery left unacknowledged");
             return Err(AdapterError::from(e));
@@ -59,8 +59,7 @@ pub async fn github_webhook(
         // Every other failure keeps the long-standing behaviour: log it, meter
         // it, and acknowledge. These are rejections of the delivery itself
         // (bad header, bad JSON, bad signature), which a redelivery cannot fix.
-        Err(GithubWebhookError::Ingress(e)) => {
-            let event_type = advertised_event_type(&headers);
+        Err(WebhookError::Ingress(e)) => {
             record_webhook("github_pr", "error", "delivery_failed", event_type, "", "");
             warn!(error = %e, "GitHub PR webhook processing error");
         }
@@ -71,9 +70,9 @@ pub async fn github_webhook(
 
 /// The event type the request advertised, for metric labelling when processing
 /// failed before one was resolved.
-fn advertised_event_type(headers: &HeaderMap) -> &str {
+fn header_value<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {
     headers
-        .get("x-github-event")
+        .get(name)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
 }

@@ -1,17 +1,16 @@
-//! GitHub PR runtime on top of provider connections, task triggers, and task bindings.
+//! GitHub PR routing on top of provider connections, task triggers, and task bindings.
 
 use std::fmt::Write as _;
 
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::adapters::dao::PgAdapterConnectionDao;
+use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, Audience, InboundMessage, SubscriptionMatch, TaskBinding,
-    ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
+    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, Audience, CONNECTED_THREAD_BINDING_ORIGIN,
+    InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recently_sent::RecentlySent;
@@ -22,7 +21,8 @@ use crate::task::dao::TaskPatch;
 use crate::task::models::{TaskStatus, Visibility};
 use moatless_backend_core::scope::ScopeContext;
 
-use super::adapter::{resolve_user_or_fallback, PrCloseInfo};
+use super::subject::GithubPrSubject;
+use super::webhook::PrCloseInfo;
 
 /// Adapter value used in adapter connections, trigger sources, and bindings.
 const ADAPTER: &str = "github";
@@ -33,74 +33,31 @@ const SUBJECT_KIND: &str = "github_pr";
 /// the same as the legacy ones.
 const ADAPTER_LABEL: &str = "github_pr";
 
-pub(crate) const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
-pub(crate) const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
+const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
+const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
 
 /// Always prepended to the `append_system_prompt` of tasks created from a
 /// GitHub PR event, so loop/trigger prompts don't have to restate the origin.
 const PR_ORIGIN_CONTEXT: &str = "This task was created from a GitHub Pull Request.";
 
-/// Look up the connection and (optional) trigger for an inbound provider event.
+/// Build the config-only Subscription used when a connection has no matching
+/// trigger.
 ///
-/// The **connection** is required — without it we can't verify the webhook
-/// signature or identify the tenant. The **trigger** is optional: when no
-/// trigger matches the repo, events are still delivered to any existing PR
-/// bindings (the binding a task created when it opened/connected to the PR is
-/// itself the opt-in). A trigger is only required to *create* a brand-new task
-/// from a PR — [`route_inbound_message`] gates creation on `Some(rule)`.
-pub async fn resolve_provider_event(
-    state: &AppState,
-    org: &str,
-    repo_full_name: &str,
-) -> Result<Option<(AdapterConnection, Option<SubscriptionMatch>)>, AdapterError> {
-    let connection = PgAdapterConnectionDao(state.db.clone())
-        .find_by_scope_value(ADAPTER, org)
-        .await?;
-    let Some(connection) = connection else {
-        return Ok(None);
-    };
-
-    let rule = state
-        .loops
-        .find_subscription_by_source_matcher(ADAPTER, repo_full_name)
-        .await?
-        .filter(|rule| {
-            let same_connection = rule.connection_id == connection.id;
-            if !same_connection {
-                debug!(
-                    source_matcher = %repo_full_name,
-                    "Task trigger belongs to a different connection — ignoring trigger; \
-                     delivering to existing bindings only"
-                );
-            }
-            same_connection
-        });
-
-    Ok(Some((connection, rule)))
-}
-
-/// Synthesize a delivery-only trigger route for a connection that has no
-/// matching trigger. Used purely as a config bag for
-/// [`super::adapter::GithubPrAdapter::parse_webhook`] so an inbound event on a
-/// PR a task already connected to is still parsed into an `InboundMessage`.
-///
-/// It is NEVER persisted and NEVER drives task creation — the real
-/// `Option<&SubscriptionMatch>` gates that in [`route_inbound_message`]. An
-/// empty `event_filter` lets all supported event types through (including
-/// `check_run` failures); `source_matcher` is the repo so message source
-/// labels stay correct.
-pub fn connection_only_rule(
+/// This value is never persisted or used to authorize Task creation. Routing
+/// owns it because the fallback exists only to keep normalization, metrics, and
+/// message labelling consistent for events delivered to existing PR bindings.
+pub(super) fn delivery_only_rule(
     connection: &AdapterConnection,
     repo_full_name: &str,
 ) -> SubscriptionMatch {
     let now = Utc::now();
     SubscriptionMatch {
         id: format!("virtual:{}", connection.id),
-        provider: ADAPTER.to_string(),
+        provider: super::delivery::ADAPTER.to_string(),
         connection_id: connection.id.clone(),
         source_matcher: repo_full_name.to_string(),
         source_name: None,
-        routing_mode: crate::adapters::models::RoutingMode::BySubject,
+        routing_mode: RoutingMode::BySubject,
         event_filter: serde_json::json!([]),
         repository_id: String::new(),
         prompt_template: None,
@@ -133,7 +90,7 @@ pub fn connection_only_rule(
 /// through a ladder of guards whose last rung compared the sender's identity to
 /// the bound task's owner; a real review reached no task because of what two of
 /// those rungs added up to. Identity plays no part here now.
-pub async fn route_inbound_message(
+pub(super) async fn route_event(
     state: &AppState,
     connection: &AdapterConnection,
     rule: Option<&SubscriptionMatch>,
@@ -157,7 +114,7 @@ pub async fn route_inbound_message(
         }
     }
 
-    let subject_key = subject_key_from_thread_properties(&msg.thread_properties)?;
+    let subject_key = GithubPrSubject::from_thread_properties(&msg.thread_properties)?.key();
     let binding_repo = PgTaskBindingDao(state.db.clone());
 
     // Provenance: who wrote this event, where it can be named. The
@@ -200,7 +157,6 @@ pub async fn route_inbound_message(
                 connection,
                 rule,
                 origin_task_id,
-                &subject_key,
                 &msg.thread_properties,
                 ORIGIN_CONNECTED_THREAD,
             )
@@ -282,7 +238,6 @@ pub async fn route_inbound_message(
                         connection,
                         Some(rule),
                         &task_id,
-                        &subject_key,
                         &msg.thread_properties,
                         ORIGIN_ADAPTER_EVENT,
                     )
@@ -354,9 +309,9 @@ pub async fn route_inbound_message(
     };
 
     // Metering and message labelling need a route; a repo with no trigger of
-    // its own routes under the delivery-only one the ingress path synthesizes.
+    // its own routes under the delivery-only one owned by routing.
     let delivery_rule = rule.cloned().unwrap_or_else(|| {
-        connection_only_rule(
+        delivery_only_rule(
             connection,
             subject_key
                 .split_once('#')
@@ -383,118 +338,16 @@ pub async fn route_inbound_message(
     Ok(())
 }
 
-/// Persist a PR's mergeable state onto its bindings and, on an open PR
-/// transitioning *into* conflict, announce the conflict once.
-///
-/// Best-effort: every failure is logged, never propagated. The mergeable state
-/// is written to **every** binding (so a resolved conflict also updates the
-/// column back to `clean`); the announcement fires only where the state the
-/// bindings already carried was not `dirty` — that transition check is the
-/// dedup, so a PR that stays conflicted across many events is announced once,
-/// not on every event.
-///
-/// The announcement goes through [`route_inbound_message`] like any other
-/// event. It used to call delivery directly, precisely so it could bypass the
-/// owner self-echo filter — the conflict is a provider signal, not a task's own
-/// comment, but its sender resolved to the task owner and the filter dropped it.
-/// With that filter gone the bypass has nothing left to route around, and the
-/// conflict reaches the pull request's producer through the audience it states.
-pub async fn record_merge_state_and_notify(
-    state: &AppState,
-    connection: &AdapterConnection,
-    rule: &SubscriptionMatch,
-    subject_key: &str,
-    mergeable: super::signals::MergeableState,
-    pr_is_open: bool,
-    conflict_msg: &InboundMessage,
-) {
-    let binding_repo = PgTaskBindingDao(state.db.clone());
-    let bindings = match binding_repo
-        .find_by_subject(ADAPTER, SUBJECT_KIND, subject_key)
-        .await
-    {
-        Ok(bindings) => bindings,
-        Err(e) => {
-            warn!(subject_key, error = %e, "Failed to load bindings for mergeable-state update");
-            return;
-        }
-    };
-
-    // The conflict is news only where the subject was not already recorded as
-    // conflicted. Every binding on a subject carries the same state, so asking
-    // any live one is asking the subject.
-    let is_news = bindings
-        .iter()
-        .any(|b| b.active && b.external_mergeable_state.as_deref() != Some("dirty"));
-
-    for binding in &bindings {
-        if let Err(e) = binding_repo
-            .update_mergeable_state(&binding.id, Some(mergeable.as_str()))
-            .await
-        {
-            warn!(binding_id = %binding.id, error = %e, "Failed to persist mergeable state");
-        }
-    }
-
-    if !(pr_is_open && mergeable.is_conflicted() && is_news) {
-        return;
-    }
-
-    info!(subject_key, "Delivering merge-conflict notification");
-    if let Err(e) =
-        route_inbound_message(state, connection, Some(rule), conflict_msg.clone()).await
-    {
-        warn!(
-            subject_key,
-            error = %e,
-            "Failed to deliver merge-conflict notification"
-        );
-    }
-}
-
-/// Announce a post-merge CI result (base-branch `workflow_run`) on the pull
-/// request it merged.
-///
-/// Routed like any other event: the notice states the subject's producer as its
-/// audience, so it reaches the task whose work was merged, falling back to
-/// whatever is still bound when no producer is. Bindings deactivated by the
-/// merge stay out of it — a task auto-closed on merge is terminal, and reviving
-/// it to deliver an FYI is unsafe — which the shared router already does by
-/// walking active bindings only. Deduped per run id through the message's
-/// `external_event_id`.
-///
-/// Best-effort: a failure is logged, never propagated, because the notice is an
-/// FYI on work that already landed.
-pub async fn deliver_post_merge_ci(
-    state: &AppState,
-    connection: &AdapterConnection,
-    rule: &SubscriptionMatch,
-    subject_key: &str,
-    notice: &InboundMessage,
-) {
-    info!(subject_key, "Delivering post-merge CI notification");
-    if let Err(e) = route_inbound_message(state, connection, Some(rule), notice.clone()).await {
-        warn!(
-            subject_key,
-            error = %e,
-            "Failed to deliver post-merge CI notification"
-        );
-    }
-}
-
-pub async fn close_tasks_for_pr(
+pub(super) async fn close_subject(
     state: &AppState,
     rule: &SubscriptionMatch,
     info: &PrCloseInfo,
 ) -> Result<(), AdapterError> {
-    let (owner, repo) = rule.source_matcher.split_once('/').ok_or_else(|| {
-        AdapterError::BadRequest(format!(
-            "Invalid GitHub source_matcher: {}",
-            rule.source_matcher
-        ))
-    })?;
     let pr_number = info.pr_number;
-    let subject_key = format!("{owner}/{repo}#{pr_number}");
+    let subject = GithubPrSubject::from_source_and_number(&rule.source_matcher, pr_number)?;
+    let owner = subject.owner();
+    let repo = subject.repo();
+    let subject_key = subject.key();
 
     let bindings_repo = PgTaskBindingDao(state.db.clone());
     // Only auto-close tasks that were *created by* this PR trigger
@@ -651,7 +504,7 @@ async fn build_close_inbound_message(
     }
     text.push_str("\n_Task auto-closed because the PR was closed._");
 
-    let user_id = resolve_user_or_fallback(&info.sender_login, rule, &state.db).await;
+    let user_id = super::auth::resolve_sender_user(&info.sender_login, rule, &state.db).await;
 
     InboundMessage {
         provider: AdapterKind::GithubPr,
@@ -678,21 +531,17 @@ async fn build_close_inbound_message(
 /// destination config, then delegates the row build + persistence to
 /// [`crate::bindings::runtime::upsert_binding`]. PR bindings never seed a
 /// cursor, so `last_external_event_id` is always `None`.
-pub async fn upsert_binding(
+async fn upsert_binding(
     state: &AppState,
     connection: &AdapterConnection,
     rule: Option<&SubscriptionMatch>,
     task_id: &str,
-    subject_key: &str,
     thread_properties: &serde_json::Value,
     origin: &str,
 ) -> Result<TaskBinding, AdapterError> {
-    let (owner, repo, pr_number) = parse_pr_destination_config(thread_properties)?;
-    let destination_config = serde_json::json!({
-        "owner": owner,
-        "repo": repo,
-        "pr_number": pr_number,
-    });
+    let subject = GithubPrSubject::from_thread_properties(thread_properties)?;
+    let subject_key = subject.key();
+    let destination_config = subject.destination_config(None);
 
     crate::bindings::runtime::upsert_binding(
         state,
@@ -701,7 +550,7 @@ pub async fn upsert_binding(
         task_id,
         ADAPTER,
         SUBJECT_KIND,
-        subject_key,
+        &subject_key,
         destination_config,
         origin,
         None,
@@ -715,7 +564,7 @@ pub async fn upsert_binding(
 /// maps the trigger route + inbound message onto the normalised request.
 ///
 /// The binding upsert and first-message delivery stay with the caller
-/// ([`route_inbound_message`]), so no first message is passed here.
+/// ([`route_event`]), so no first message is passed here.
 ///
 /// Returns the raw [`TaskCreationError`] so the caller can distinguish a
 /// permanent failure (`Preflight` — a bad token that a webhook redelivery
@@ -762,7 +611,7 @@ async fn create_provider_event_task(
 /// messages on a `Closed` task — and it must not provision or wake an agent on
 /// a sandbox that is about to be torn down, which is what routing would do.
 /// Every event that is news rather than an epitaph goes through
-/// [`route_inbound_message`].
+/// [`route_event`].
 async fn append_to_binding(
     state: &AppState,
     rule: &SubscriptionMatch,
@@ -810,35 +659,6 @@ async fn append_to_binding(
     Ok(())
 }
 
-fn subject_key_from_thread_properties(
-    thread_properties: &serde_json::Value,
-) -> Result<String, AdapterError> {
-    let (owner, repo, pr_number) = parse_pr_destination_config(thread_properties)?;
-    Ok(format!("{owner}/{repo}#{pr_number}"))
-}
-
-fn parse_pr_destination_config(
-    value: &serde_json::Value,
-) -> Result<(String, String, u64), AdapterError> {
-    let owner = value
-        .get("owner")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| AdapterError::BadRequest("Missing owner in GitHub PR destination".into()))?
-        .to_string();
-    let repo = value
-        .get("repo")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| AdapterError::BadRequest("Missing repo in GitHub PR destination".into()))?
-        .to_string();
-    let pr_number = value
-        .get("pr_number")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| {
-            AdapterError::BadRequest("Missing pr_number in GitHub PR destination".into())
-        })?;
-    Ok((owner, repo, pr_number))
-}
-
 /// The task that claimed the commit this event carries, if any.
 ///
 /// Only a `pull_request.synchronize` notification carries one; every other
@@ -865,55 +685,46 @@ fn task_that_pushed(
 
 #[cfg(test)]
 mod tests {
-    mod connection_only_rule {
-        use super::super::connection_only_rule;
-        use crate::adapters::models::AdapterConnection;
-        use chrono::Utc;
-        use moatless_backend_core::scope::Scope;
+    use crate::adapters::models::AdapterConnection;
+    use chrono::Utc;
+    use moatless_backend_core::scope::Scope;
 
-        fn connection() -> AdapterConnection {
-            let now = Utc::now();
-            AdapterConnection {
-                id: "pc_org".to_string(),
-                provider: "github".to_string(),
-                connection_kind: "org_webhook".to_string(),
-                scope_value: "acme".to_string(),
-                credential_ref: None,
-                webhook_secret: Some("s3cr3t".to_string()),
-                transport_config: serde_json::json!({}),
-                created_by: "u_owner".to_string(),
-                scope: Scope::User,
-                owner_user_id: Some("u_owner".to_string()),
-                created_at: now,
-                updated_at: now,
-            }
-        }
+    use super::delivery_only_rule;
 
-        #[test]
-        fn is_delivery_only_and_cannot_create_tasks() {
-            let rule = connection_only_rule(&connection(), "acme/widget");
+    #[test]
+    fn a_delivery_only_rule_cannot_create_tasks() {
+        let now = Utc::now();
+        let connection = AdapterConnection {
+            id: "pc_org".to_string(),
+            provider: "github".to_string(),
+            connection_kind: "org_webhook".to_string(),
+            scope_value: "acme".to_string(),
+            credential_ref: None,
+            webhook_secret: Some("s3cr3t".to_string()),
+            transport_config: serde_json::json!({}),
+            created_by: "u_owner".to_string(),
+            scope: Scope::User,
+            owner_user_id: Some("u_owner".to_string()),
+            created_at: now,
+            updated_at: now,
+        };
 
-            // Active so delivery isn't suppressed, but carries no repo/agent
-            // config — so `route_inbound_message` can never spawn a task from it.
-            assert!(rule.active);
-            assert!(rule.repository_id.is_empty());
-            assert!(rule.agent_type.is_empty());
-            assert!(rule.prompt_template.is_none());
+        let rule = delivery_only_rule(&connection, "acme/widget");
 
-            // Empty event_filter = every supported event type passes (incl. check_run).
-            assert_eq!(rule.event_filter, serde_json::json!([]));
-
-            // Source label + connection linkage stay correct for message rows.
-            assert_eq!(rule.source_matcher, "acme/widget");
-            assert_eq!(rule.connection_id, "pc_org");
-            assert_eq!(rule.run_as_user_id.as_deref(), Some("u_owner"));
-        }
+        assert!(rule.active);
+        assert!(rule.repository_id.is_empty());
+        assert!(rule.agent_type.is_empty());
+        assert!(rule.prompt_template.is_none());
+        assert_eq!(rule.event_filter, serde_json::json!([]));
+        assert_eq!(rule.source_matcher, "acme/widget");
+        assert_eq!(rule.connection_id, "pc_org");
+        assert_eq!(rule.run_as_user_id.as_deref(), Some("u_owner"));
     }
 
     mod push_claim {
         use super::super::task_that_pushed;
         use crate::adapters::github_pr::external_id;
-        use crate::adapters::models::{TaskBinding, CONNECTED_THREAD_BINDING_ORIGIN};
+        use crate::adapters::models::{CONNECTED_THREAD_BINDING_ORIGIN, TaskBinding};
         use crate::bindings::recently_sent::RecentlySent;
         use chrono::Utc;
 

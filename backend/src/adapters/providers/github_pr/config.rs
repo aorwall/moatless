@@ -10,7 +10,7 @@ const DEFAULT_IGNORED_SENDERS: &[&str] = &["linear-code[bot]"];
 
 /// Extracted GitHub-specific knobs from an `SubscriptionMatch`.
 #[derive(Debug, Clone)]
-pub struct GithubPrRuleConfig {
+pub(super) struct GithubPrRuleConfig {
     /// Filter which events to process. Empty means all supported events.
     /// Possible values: "pull_request", "issue_comment",
     /// "pull_request_review_comment", "pull_request_review",
@@ -41,7 +41,7 @@ pub struct GithubPrRuleConfig {
 impl GithubPrRuleConfig {
     /// Parse from an `SubscriptionMatch`'s `event_filter` and `provider_config`
     /// JSONB columns plus scalar boolean columns.
-    pub fn from_rule(rule: &SubscriptionMatch) -> Self {
+    pub(super) fn from_rule(rule: &SubscriptionMatch) -> Self {
         let events_filter = rule
             .event_filter
             .as_array()
@@ -62,13 +62,13 @@ impl GithubPrRuleConfig {
 
     /// True when `event_filter` is set and does not include `event_type`.
     /// An empty filter means "all supported events" and never filters out.
-    pub fn event_filtered_out(&self, event_type: &str) -> bool {
+    pub(super) fn event_filtered_out(&self, event_type: &str) -> bool {
         !self.events_filter.is_empty() && !self.events_filter.iter().any(|e| e == event_type)
     }
 
     /// True when `sender` (a `sender.login`) is in `ignored_senders`
     /// (case-insensitive). An empty sender never matches.
-    pub fn is_ignored_sender(&self, sender: &str) -> bool {
+    pub(super) fn is_ignored_sender(&self, sender: &str) -> bool {
         !sender.is_empty()
             && self
                 .ignored_senders
@@ -84,7 +84,7 @@ impl GithubPrRuleConfig {
 /// Shared by webhook ingress (`GithubPrRuleConfig::from_rule`) and the
 /// `fetch_context` comment backfill, which has a `LoopContext` rather than
 /// a full `SubscriptionMatch`.
-pub(crate) fn ignored_senders(provider_config: Option<&serde_json::Value>) -> Vec<String> {
+pub(super) fn ignored_senders(provider_config: Option<&serde_json::Value>) -> Vec<String> {
     provider_config
         .and_then(|pc| pc.get("ignored_senders"))
         .and_then(|v| v.as_array())
@@ -108,7 +108,7 @@ pub(crate) fn ignored_senders(provider_config: Option<&serde_json::Value>) -> Ve
 /// `ignored_senders`, title filtering is opt-in: an absent key, null config, or
 /// non-array value all yield an empty list (no filtering). An explicit array of
 /// strings is used verbatim as case-insensitive regexes.
-pub(crate) fn ignored_title_patterns(provider_config: Option<&serde_json::Value>) -> Vec<String> {
+pub(super) fn ignored_title_patterns(provider_config: Option<&serde_json::Value>) -> Vec<String> {
     provider_config
         .and_then(|pc| pc.get("ignored_title_patterns"))
         .and_then(|v| v.as_array())

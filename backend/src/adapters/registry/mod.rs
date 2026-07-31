@@ -167,7 +167,7 @@ impl Adapters {
         self.register_message_reply(provider);
     }
 
-    pub fn register_github_pr(
+    pub(crate) fn register_github_pr(
         &mut self,
         provider: Arc<super::github_pr::adapter::GithubPrAdapter>,
     ) {
@@ -229,7 +229,7 @@ impl Adapters {
     }
 
     /// Typed handle to the GitHub PR adapter, for code inside its own module.
-    pub fn github_pr(&self) -> Option<&super::github_pr::adapter::GithubPrAdapter> {
+    pub(crate) fn github_pr(&self) -> Option<&super::github_pr::adapter::GithubPrAdapter> {
         self.github_pr.as_deref()
     }
 

@@ -16,8 +16,10 @@ use crate::credentials::CodexScope;
 /// `PgProviderTokenDao`.
 #[derive(Default)]
 pub struct StubProviderTokens {
-    /// Row returned for every user-scope lookup, regardless of user id.
+    /// Canned user-scope row, optionally restricted to [`Self::user_id`].
     pub user_row: Option<ProviderToken>,
+    /// When set, the canned user row exists only at this exact user scope.
+    pub user_id: Option<String>,
     /// The singleton global github row.
     pub global_row: Option<ProviderToken>,
 }
@@ -31,13 +33,28 @@ impl StubProviderTokens {
         }
     }
 
+    /// One canned user-level row at an exact user scope.
+    pub fn with_user_row_for(user_id: &str, row: ProviderToken) -> Self {
+        Self {
+            user_row: Some(row),
+            user_id: Some(user_id.to_string()),
+            ..Self::default()
+        }
+    }
+
     pub fn with_global_row(mut self, row: ProviderToken) -> Self {
         self.global_row = Some(row);
         self
     }
 
-    fn github_user_row(&self) -> Option<&ProviderToken> {
-        self.user_row.as_ref().filter(|r| r.provider == "github")
+    fn user_row(&self, user_id: &str) -> Option<&ProviderToken> {
+        self.user_row
+            .as_ref()
+            .filter(|_| self.user_id.as_deref().is_none_or(|id| id == user_id))
+    }
+
+    fn github_user_row(&self, user_id: &str) -> Option<&ProviderToken> {
+        self.user_row(user_id).filter(|r| r.provider == "github")
     }
 }
 
@@ -86,12 +103,11 @@ fn presence(scope: &GitHubScope, row: &ProviderToken) -> GithubTokenPresence {
 impl ProviderTokenDao for StubProviderTokens {
     async fn find_provider_token(
         &self,
-        _user_id: &str,
+        user_id: &str,
         provider: &str,
     ) -> Result<Option<ProviderAccessToken>, sqlx::Error> {
         Ok(self
-            .user_row
-            .as_ref()
+            .user_row(user_id)
             .filter(|r| r.provider == provider)
             .map(|r| ProviderAccessToken {
                 access_token: r.access_token.clone(),
@@ -100,12 +116,11 @@ impl ProviderTokenDao for StubProviderTokens {
 
     async fn find_provider_token_full(
         &self,
-        _user_id: &str,
+        user_id: &str,
         provider: &str,
     ) -> Result<Option<ProviderToken>, sqlx::Error> {
         Ok(self
-            .user_row
-            .as_ref()
+            .user_row(user_id)
             .filter(|r| r.provider == provider)
             .cloned())
     }
@@ -166,7 +181,7 @@ impl ProviderTokenDao for StubProviderTokens {
         scope: &GitHubScope,
     ) -> Result<Option<ProviderToken>, sqlx::Error> {
         Ok(match scope {
-            GitHubScope::User(_) => self.github_user_row().cloned(),
+            GitHubScope::User(user_id) => self.github_user_row(user_id).cloned(),
             GitHubScope::Global => self.global_row.clone(),
         })
     }
@@ -192,7 +207,7 @@ impl ProviderTokenDao for StubProviderTokens {
         &self,
         user_id: &str,
     ) -> Result<Option<GithubTokenPresence>, sqlx::Error> {
-        if let Some(row) = self.github_user_row() {
+        if let Some(row) = self.github_user_row(user_id) {
             return Ok(Some(presence(&GitHubScope::user(user_id), row)));
         }
         Ok(self

@@ -82,7 +82,7 @@ impl ParsedPr {
 ///
 /// Errors are logged and swallowed — the event handler loop is
 /// fire-and-forget.
-pub async fn reconcile_shell_command(
+pub(crate) async fn reconcile_shell_command(
     state: &AppState,
     task_id: &str,
     parent_uuid: &str,
@@ -1534,7 +1534,9 @@ mod tests {
         assert!(!is_dry_run_push("git push -qf origin main"));
         assert!(!is_dry_run_push("git push -u origin fix/x"));
         // `-o <push-option>`: the rest of the cluster is its value, not flags.
-        assert!(!is_dry_run_push("git push -omerge.notify=false origin main"));
+        assert!(!is_dry_run_push(
+            "git push -omerge.notify=false origin main"
+        ));
     }
 
     #[test]

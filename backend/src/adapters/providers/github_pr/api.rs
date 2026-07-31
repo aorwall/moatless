@@ -9,90 +9,115 @@ use tracing::warn;
 use crate::adapters::error::AdapterError;
 
 /// Maximum comment length for GitHub's API (64 KB).
-pub(crate) const MAX_COMMENT_LENGTH: usize = 65_536;
+pub(super) const MAX_COMMENT_LENGTH: usize = 65_536;
 
 /// A single reaction returned by the GitHub reactions API.
 #[derive(Debug, Clone, Deserialize)]
-pub struct ReactionInfo {
-    pub id: u64,
-    pub content: String,
+pub(super) struct ReactionInfo {
+    pub(super) id: u64,
+    pub(super) content: String,
     #[serde(default)]
-    pub user: Option<ReactionUser>,
+    pub(super) user: Option<ReactionUser>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ReactionUser {
-    pub login: String,
+pub(super) struct ReactionUser {
+    pub(super) login: String,
 }
 
 /// GitHub PR metadata from the API.
 #[derive(Debug, Clone, Deserialize)]
-pub struct PrInfo {
-    pub number: u64,
-    pub title: String,
-    pub body: Option<String>,
-    pub state: String,
+pub(super) struct PrInfo {
+    #[expect(
+        dead_code,
+        reason = "deserialized GitHub field retained for endpoint parity"
+    )]
+    pub(super) number: u64,
+    pub(super) title: String,
+    pub(super) body: Option<String>,
+    pub(super) state: String,
     /// Whether the PR was merged. Distinguishes `merged` from a plain `closed`
     /// PR (GitHub reports both as `state = "closed"`). Absent on older
     /// payloads, hence optional.
     #[serde(default)]
-    pub merged: Option<bool>,
+    pub(super) merged: Option<bool>,
     /// Whether the PR is a draft.
     #[serde(default)]
-    pub draft: Option<bool>,
+    pub(super) draft: Option<bool>,
     /// Whether GitHub currently considers the PR mergeable. `None` until the
     /// background mergeability job finishes — GitHub computes this lazily and
     /// the first `GET` on the PR is what kicks the computation off, so a fresh
     /// read is often `null`.
     #[serde(default)]
-    pub mergeable: Option<bool>,
+    pub(super) mergeable: Option<bool>,
     /// Coarse merge state: `clean`, `dirty` (has conflicts), `blocked`,
     /// `behind`, `unstable`, `has_hooks`, `draft`, or `unknown` (not yet
     /// computed). Only present on the single-PR endpoint, never on list/webhook
     /// payloads.
     #[serde(default)]
-    pub mergeable_state: Option<String>,
+    pub(super) mergeable_state: Option<String>,
     /// PR web URL (`html_url`).
     #[serde(default)]
-    pub html_url: Option<String>,
-    pub user: Option<PrInfoUser>,
-    pub head: PrRef,
-    pub base: PrRef,
+    pub(super) html_url: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "deserialized GitHub field retained for endpoint parity"
+    )]
+    pub(super) user: Option<PrInfoUser>,
+    pub(super) head: PrRef,
+    #[expect(
+        dead_code,
+        reason = "deserialized GitHub field retained for endpoint parity"
+    )]
+    pub(super) base: PrRef,
 }
 
 impl PrInfo {
-    pub fn author(&self) -> &str {
+    #[expect(dead_code, reason = "kept with the concrete GitHub PR response model")]
+    pub(super) fn author(&self) -> &str {
         self.user.as_ref().map_or("unknown", |u| u.login.as_str())
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct PrInfoUser {
-    pub login: String,
+pub(super) struct PrInfoUser {
+    #[expect(
+        dead_code,
+        reason = "deserialized GitHub field retained for endpoint parity"
+    )]
+    pub(super) login: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct PrRef {
+pub(super) struct PrRef {
     #[serde(rename = "ref")]
-    pub ref_name: String,
-    pub sha: String,
+    #[expect(
+        dead_code,
+        reason = "deserialized GitHub field retained for endpoint parity"
+    )]
+    pub(super) ref_name: String,
+    pub(super) sha: String,
 }
 
 /// A pull request as returned by `GET /commits/{sha}/pulls` — the minimal
 /// subset needed to identify the merged PR that produced a commit.
 #[derive(Debug, Clone, Deserialize)]
-pub struct CommitPr {
-    pub number: u64,
-    pub state: String,
+pub(super) struct CommitPr {
+    pub(super) number: u64,
+    #[expect(
+        dead_code,
+        reason = "deserialized GitHub field retained for endpoint parity"
+    )]
+    pub(super) state: String,
     /// Set (non-null) once the PR has been merged. Distinguishes a merged PR
     /// from an open PR that merely has this commit on its head branch.
     #[serde(default)]
-    pub merged_at: Option<String>,
+    pub(super) merged_at: Option<String>,
 }
 
 impl CommitPr {
     /// A PR is merged when GitHub stamped `merged_at`.
-    pub fn is_merged(&self) -> bool {
+    pub(super) fn is_merged(&self) -> bool {
         self.merged_at.is_some()
     }
 }
@@ -112,14 +137,14 @@ pub(crate) fn api_base() -> String {
 }
 
 /// GitHub REST API client for PR operations.
-pub struct GithubPrApi {
+pub(super) struct GithubPrApi {
     client: Client,
     token: String,
     base_url: String,
 }
 
 impl GithubPrApi {
-    pub fn new(token: &str) -> Self {
+    pub(super) fn new(token: &str) -> Self {
         Self {
             client: Client::new(),
             token: token.to_string(),
@@ -130,7 +155,7 @@ impl GithubPrApi {
     /// Point the client at a caller-supplied REST root so tests can drive the
     /// real request path against a local address.
     #[cfg(test)]
-    pub(crate) fn with_base_url(token: &str, base_url: impl Into<String>) -> Self {
+    pub(super) fn with_base_url(token: &str, base_url: impl Into<String>) -> Self {
         Self {
             client: Client::new(),
             token: token.to_string(),
@@ -148,7 +173,7 @@ impl GithubPrApi {
     }
 
     /// Post a comment on a PR (via the Issues API).
-    pub async fn post_comment(
+    pub(super) async fn post_comment(
         &self,
         owner: &str,
         repo: &str,
@@ -198,7 +223,7 @@ impl GithubPrApi {
     /// Create a pull request. Returns the raw GitHub PR payload so callers
     /// can extract the fields they need (`number`, `html_url`, ...).
     #[allow(clippy::too_many_arguments)] // reason: mirrors the GitHub create-PR parameter set
-    pub async fn create_pr(
+    pub(super) async fn create_pr(
         &self,
         owner: &str,
         repo: &str,
@@ -238,7 +263,7 @@ impl GithubPrApi {
     }
 
     /// Fetch a repository's default branch name.
-    pub async fn get_repo_default_branch(
+    pub(super) async fn get_repo_default_branch(
         &self,
         owner: &str,
         repo: &str,
@@ -277,7 +302,7 @@ impl GithubPrApi {
     /// main-branch CI run (which carries no PR reference in its webhook) back
     /// to the PR whose merge produced the commit — GitHub associates the merge
     /// (or squash) commit with the merged PR.
-    pub async fn get_pulls_for_commit(
+    pub(super) async fn get_pulls_for_commit(
         &self,
         owner: &str,
         repo: &str,
@@ -308,7 +333,7 @@ impl GithubPrApi {
     ///
     /// Calls `POST /repos/{owner}/{repo}/pulls/{pr}/comments/{cid}/replies` and
     /// returns the new review comment id.
-    pub async fn reply_to_review_comment(
+    pub(super) async fn reply_to_review_comment(
         &self,
         owner: &str,
         repo: &str,
@@ -355,7 +380,7 @@ impl GithubPrApi {
     }
 
     /// Get PR metadata (title, body, author, state, branches).
-    pub async fn get_pr(
+    pub(super) async fn get_pr(
         &self,
         owner: &str,
         repo: &str,
@@ -392,7 +417,7 @@ impl GithubPrApi {
     /// never settles within the budget, the last (possibly `unknown`) `PrInfo`
     /// is returned rather than erroring — callers treat `unknown` as
     /// "inconclusive" and simply don't notify.
-    pub async fn get_pr_mergeable(
+    pub(super) async fn get_pr_mergeable(
         &self,
         owner: &str,
         repo: &str,
@@ -424,7 +449,7 @@ impl GithubPrApi {
     /// comments, since they share the issues comments API).
     ///
     /// Returns the GitHub reaction id.
-    pub async fn create_issue_comment_reaction(
+    pub(super) async fn create_issue_comment_reaction(
         &self,
         owner: &str,
         repo: &str,
@@ -439,7 +464,7 @@ impl GithubPrApi {
     }
 
     /// Create a reaction on a PR review (line) comment.
-    pub async fn create_review_comment_reaction(
+    pub(super) async fn create_review_comment_reaction(
         &self,
         owner: &str,
         repo: &str,
@@ -483,7 +508,7 @@ impl GithubPrApi {
     }
 
     /// List reactions on an issue comment.
-    pub async fn list_issue_comment_reactions(
+    pub(super) async fn list_issue_comment_reactions(
         &self,
         owner: &str,
         repo: &str,
@@ -497,7 +522,7 @@ impl GithubPrApi {
     }
 
     /// List reactions on a PR review comment.
-    pub async fn list_review_comment_reactions(
+    pub(super) async fn list_review_comment_reactions(
         &self,
         owner: &str,
         repo: &str,
@@ -532,7 +557,7 @@ impl GithubPrApi {
     }
 
     /// Delete a reaction from an issue comment by reaction id.
-    pub async fn delete_issue_comment_reaction(
+    pub(super) async fn delete_issue_comment_reaction(
         &self,
         owner: &str,
         repo: &str,
@@ -547,7 +572,7 @@ impl GithubPrApi {
     }
 
     /// Delete a reaction from a PR review comment by reaction id.
-    pub async fn delete_review_comment_reaction(
+    pub(super) async fn delete_review_comment_reaction(
         &self,
         owner: &str,
         repo: &str,
@@ -579,7 +604,7 @@ impl GithubPrApi {
 
     /// Look up the authenticated bot's GitHub login. Used to filter reactions
     /// when removing.
-    pub async fn authenticated_login(&self) -> Result<String, AdapterError> {
+    pub(super) async fn authenticated_login(&self) -> Result<String, AdapterError> {
         let resp = self
             .request(reqwest::Method::GET, &format!("{}/user", self.base_url))
             .send()
@@ -603,7 +628,7 @@ impl GithubPrApi {
     }
 
     /// Update a PR's body.
-    pub async fn update_pr_body(
+    pub(super) async fn update_pr_body(
         &self,
         owner: &str,
         repo: &str,
@@ -692,5 +717,120 @@ mod error_source_tests {
 
         assert!(matches!(err, AdapterError::AdapterApi(_)), "got {err:?}");
         assert!(err.source().is_none());
+    }
+}
+
+#[cfg(test)]
+mod request_budget_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use axum::extract::State;
+    use axum::routing::get;
+    use axum::{Json, Router};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn unresolved_mergeability_stops_after_four_pr_reads() {
+        async fn unknown_mergeability(
+            State(reads): State<Arc<AtomicUsize>>,
+        ) -> Json<serde_json::Value> {
+            reads.fetch_add(1, Ordering::SeqCst);
+            Json(serde_json::json!({
+                "number": 42,
+                "title": "Add widgets",
+                "body": "Body",
+                "state": "open",
+                "merged": false,
+                "mergeable": serde_json::Value::Null,
+                "mergeable_state": "unknown",
+                "draft": false,
+                "html_url": "https://github.com/acme/widgets/pull/42",
+                "user": {"login": "octocat"},
+                "head": {"ref": "feature", "sha": "abc1234"},
+                "base": {"ref": "main", "sha": "def4567"}
+            }))
+        }
+
+        let reads = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind GitHub stub");
+        let address = listener.local_addr().expect("GitHub stub address");
+        let app = Router::new()
+            .route("/repos/acme/widgets/pulls/42", get(unknown_mergeability))
+            .with_state(reads.clone());
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("GitHub stub serves");
+        });
+
+        let api = GithubPrApi::with_base_url("ghp_test", format!("http://{address}"));
+        let pr = api
+            .get_pr_mergeable("acme", "widgets", 42)
+            .await
+            .expect("the final unresolved PR is returned");
+
+        assert_eq!(pr.mergeable_state.as_deref(), Some("unknown"));
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            4,
+            "one initial read plus at most three mergeability retries"
+        );
+    }
+}
+
+#[cfg(test)]
+mod serde_tests {
+    use super::*;
+
+    #[test]
+    fn pr_info_deserializes_mergeable_fields() {
+        let pr: PrInfo = serde_json::from_value(serde_json::json!({
+            "number": 1,
+            "title": "t",
+            "body": null,
+            "state": "open",
+            "mergeable": false,
+            "mergeable_state": "dirty",
+            "user": {"login": "alice"},
+            "head": {"ref": "feat", "sha": "abc"},
+            "base": {"ref": "main", "sha": "def"},
+        }))
+        .expect("PrInfo parses mergeable fields");
+        assert_eq!(pr.mergeable, Some(false));
+        assert_eq!(pr.mergeable_state.as_deref(), Some("dirty"));
+
+        let pr2: PrInfo = serde_json::from_value(serde_json::json!({
+            "number": 2,
+            "title": "t",
+            "body": null,
+            "state": "open",
+            "user": {"login": "bob"},
+            "head": {"ref": "h", "sha": "s"},
+            "base": {"ref": "b", "sha": "s2"},
+        }))
+        .expect("PrInfo parses without mergeable fields");
+        assert_eq!(pr2.mergeable, None);
+        assert_eq!(pr2.mergeable_state, None);
+    }
+
+    #[test]
+    fn commit_pr_merged_detection() {
+        let merged: CommitPr = serde_json::from_value(serde_json::json!({
+            "number": 344,
+            "state": "closed",
+            "merged_at": "2026-07-17T04:00:00Z",
+        }))
+        .expect("CommitPr parses");
+        assert!(merged.is_merged());
+        assert_eq!(merged.number, 344);
+
+        let open: CommitPr =
+            serde_json::from_value(serde_json::json!({ "number": 7, "state": "open" }))
+                .expect("CommitPr parses without merged_at");
+        assert!(!open.is_merged());
     }
 }

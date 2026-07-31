@@ -1,20 +1,20 @@
 /// `github:ic:<id>` - issue comment, also used for PR conversation comments.
-pub fn issue_comment(id: u64) -> String {
+pub(super) fn issue_comment(id: u64) -> String {
     format!("github:ic:{id}")
 }
 
 /// `github:rc:<id>` - pull request review comment.
-pub fn review_comment(id: u64) -> String {
+pub(super) fn review_comment(id: u64) -> String {
     format!("github:rc:{id}")
 }
 
 /// `github:rv:<id>` - pull request review submission.
-pub fn review(id: u64) -> String {
+pub(super) fn review(id: u64) -> String {
     format!("github:rv:{id}")
 }
 
 /// `github:pr:<action>:<pr_number>[:<sha>]` - PR-level event.
-pub fn pr_event(action: &str, pr_number: u64, sha: Option<&str>) -> String {
+pub(super) fn pr_event(action: &str, pr_number: u64, sha: Option<&str>) -> String {
     match sha {
         Some(s) if !s.is_empty() => format!("github:pr:{action}:{pr_number}:{s}"),
         _ => format!("github:pr:{action}:{pr_number}"),
@@ -22,12 +22,16 @@ pub fn pr_event(action: &str, pr_number: u64, sha: Option<&str>) -> String {
 }
 
 /// `github:pr:opened:<pr_number>`.
-pub fn pr_opened(pr_number: u64) -> String {
+pub(super) fn pr_opened(pr_number: u64) -> String {
     pr_event("opened", pr_number, None)
 }
 
 /// `github:pr:synchronize:<pr_number>:<sha>`.
-pub fn pr_synchronize(pr_number: u64, sha: &str) -> String {
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "stable GitHub PR external-id codec retained")
+)]
+pub(super) fn pr_synchronize(pr_number: u64, sha: &str) -> String {
     pr_event("synchronize", pr_number, Some(sha))
 }
 
@@ -35,7 +39,7 @@ pub fn pr_synchronize(pr_number: u64, sha: &str) -> String {
 /// `None` for any other event. The push claim is keyed on the commit, so this
 /// is how an inbound sync notification is reduced to something it can be
 /// matched against.
-pub fn synchronize_sha(external_id: &str) -> Option<&str> {
+pub(super) fn synchronize_sha(external_id: &str) -> Option<&str> {
     let rest = external_id.strip_prefix("github:pr:synchronize:")?;
     let (_pr_number, sha) = rest.split_once(':')?;
     (!sha.is_empty()).then_some(sha)
@@ -47,23 +51,23 @@ pub fn synchronize_sha(external_id: &str) -> Option<&str> {
 /// `pull_request.synchronize` notification it triggers is keyed on the pull
 /// request, whose number this path deliberately never looks up. It tags the
 /// assistant row so the chat renders the push's source chip.
-pub fn pushed_commit(sha: &str) -> String {
+pub(super) fn pushed_commit(sha: &str) -> String {
     format!("github:commit:{sha}")
 }
 
 /// `github:cr:<id>` - check_run completion.
-pub fn check_run(id: u64) -> String {
+pub(super) fn check_run(id: u64) -> String {
     format!("github:cr:{id}")
 }
 
 /// `github:cs:<id>` - check_suite completion.
-pub fn check_suite(id: u64) -> String {
+pub(super) fn check_suite(id: u64) -> String {
     format!("github:cs:{id}")
 }
 
 /// `github:wfrun:<id>` - post-merge `workflow_run` completion on the base
 /// branch. Keyed by the run id so each workflow run notifies at most once.
-pub fn workflow_run(id: u64) -> String {
+pub(super) fn workflow_run(id: u64) -> String {
     format!("github:wfrun:{id}")
 }
 
@@ -72,7 +76,7 @@ pub fn workflow_run(id: u64) -> String {
 /// Keyed by the PR head sha so a persisting conflict is announced once per
 /// pushed commit: re-checking the same head is deduped, but a new push (new
 /// sha) that is still conflicted re-notifies.
-pub fn merge_conflict(pr_number: u64, sha: &str) -> String {
+pub(super) fn merge_conflict(pr_number: u64, sha: &str) -> String {
     if sha.is_empty() {
         format!("github:conflict:{pr_number}")
     } else {
@@ -81,14 +85,14 @@ pub fn merge_conflict(pr_number: u64, sha: &str) -> String {
 }
 
 /// Kind + numeric id of a GitHub comment reaction target.
-pub enum CommentTarget {
+pub(super) enum CommentTarget {
     Issue(u64),
     Review(u64),
 }
 
 /// Parse an external id into a comment kind + id usable by the reactions API.
 /// Only `github:ic:<id>` and `github:rc:<id>` are valid reaction targets.
-pub fn comment_target_from_id(external_id: &str) -> Option<CommentTarget> {
+pub(super) fn comment_target_from_id(external_id: &str) -> Option<CommentTarget> {
     if let Some(rest) = external_id.strip_prefix("github:ic:") {
         return rest.parse::<u64>().ok().map(CommentTarget::Issue);
     }
@@ -98,7 +102,7 @@ pub fn comment_target_from_id(external_id: &str) -> Option<CommentTarget> {
     None
 }
 
-pub fn aliases(external_id: &str) -> Vec<String> {
+pub(super) fn aliases(external_id: &str) -> Vec<String> {
     let tail = external_id.rsplit(':').next().unwrap_or("");
     if tail.is_empty() || !tail.chars().all(|c| c.is_ascii_digit()) {
         return vec![external_id.to_string()];
