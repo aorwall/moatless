@@ -130,6 +130,7 @@ normal code changes — only the binary `COPY` in the leaf images invalidates.
 - Node.js 22 + npm
 - Claude Code CLI, Codex CLI
 - Bun, pnpm, yarn, TypeScript, tsx
+- Vite+ (`vp`) at `VP_HOME=/opt/vite-plus` — https://viteplus.dev/guide/
 - Playwright + Chromium
 - Rust toolchain (rustup/cargo/clippy/rustfmt) + protoc, pkg-config —
   enough to build the moatless-vibe Rust workspace in-sandbox

@@ -1,7 +1,7 @@
 # moatless-sandbox-base: Stable base image for all sandbox variants.
 #
 # Contains: Ubuntu, Node.js, npm, Claude Code CLI, Codex CLI, Task, Bun, pnpm,
-# yarn, TypeScript/tsx, Playwright + Chromium, the Rust toolchain
+# yarn, TypeScript/tsx, Vite+ (`vp`), Playwright + Chromium, the Rust toolchain
 # (rustup/cargo/clippy/rustfmt) plus protoc/pkg-config so agents can build Rust
 # projects — including moatless-vibe itself — inside the sandbox, git, system
 # tools, moatless user.
@@ -9,9 +9,9 @@
 # those are added by leaf images (Dockerfile.sandbox, Dockerfile.sandbox-full)
 # so the expensive layers here cache across normal code changes.
 #
-# Bumping CLAUDE_CLI_VERSION, CODEX_CLI_VERSION, TASK_VERSION, BUN_VERSION or
-# the Playwright install rebuilds this image (and invalidates leaf-image caches
-# from the FROM step onward — that's intended).
+# Bumping CLAUDE_CLI_VERSION, CODEX_CLI_VERSION, TASK_VERSION, BUN_VERSION,
+# VITE_PLUS_VERSION or the Playwright install rebuilds this image (and
+# invalidates leaf-image caches from the FROM step onward — that's intended).
 #
 # Published as: aorwall/moatless-sandbox-base:latest
 
@@ -209,6 +209,22 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # GHSA-72r4-9c5j-mj57 / GHSA-fr4h-3cph-29xv — malicious-lockfile path traversal
 # and code execution, all fixed by 11.8.0).
 RUN npm install -g pnpm@11.9.0 yarn typescript tsx
+
+# Install Vite+ (`vp`), the unified JS toolchain — https://viteplus.dev/guide/
+# VP_HOME sits under /opt like the other toolchains (outside the workspace mount)
+# and is owned by moatless so `vp` can self-update and write its caches at runtime.
+# VP_NODE_MANAGER=no skips the installer's interactive prompt and leaves Node 22
+# in charge; the opt-in path shims node/npm/npx ahead of it.
+# renovate: datasource=npm depName=vite-plus
+ARG VITE_PLUS_VERSION=0.2.7
+ENV VP_HOME=/opt/vite-plus
+ENV PATH="$VP_HOME/bin:$PATH"
+RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MANAGER=no bash \
+    && test -x "$VP_HOME/bin/vp" \
+    && ln -sf "$VP_HOME/bin/vp" /usr/local/bin/vp \
+    && chown -R $USERNAME:$USERNAME "$VP_HOME" \
+    && echo 'export VP_HOME=/opt/vite-plus' >> /etc/profile \
+    && echo 'export PATH="$VP_HOME/bin:$PATH"' >> /etc/profile
 
 # Install Playwright browsers (~650MB) plus xvfb/dbus so headed-mode runs work in
 # headless containers via the `playwright-cli` wrapper below. Browsers are owned

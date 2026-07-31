@@ -725,6 +725,7 @@ Extends base with:
 | Bun | 1.3.6 | JavaScript runtime |
 | pnpm, yarn | Latest | Via corepack |
 | TypeScript, tsx | Latest | TypeScript execution |
+| Vite+ (`vp`) | 0.2.7 | Unified JS toolchain at `VP_HOME=/opt/vite-plus` |
 | Playwright | Latest | Browser automation |
 | Chromium | Shared | At `/opt/playwright-browsers` |
 
