@@ -22,15 +22,30 @@ returns the listing position the snapshot was read at
 ## Runtime Surface
 
 The compatibility router is mounted only when `T3_UI_RPC_ENABLED` is true
-(`backend/src/ui_rpc/mod.rs:134`). When enabled, it exposes four routes
+(`backend/src/ui_rpc/mod.rs:134`). When enabled, it exposes these routes
 (`backend/src/ui_rpc/mod.rs:220`):
 
 | Route | Auth | Current behavior |
 |---|---|---|
 | `/.well-known/t3/environment` | Public | Returns the T3 environment descriptor. |
-| `/api/auth/session` | Moatless session | Returns a T3 session bootstrap payload for the authenticated viewer. |
-| `/api/orchestration/shell` | Moatless session | Returns the current shell snapshot. |
-| `/ws` | Moatless session + exact Origin allow-list | Serves T3 JSON RPC frames and shell subscriptions. |
+| `/oauth/token` | Public — the pairing code is the credential | Redeems a pairing code for a bearer token. |
+| `/api/auth/session` | Moatless session or bearer token | Returns a T3 session bootstrap payload for the authenticated viewer. |
+| `/api/auth/websocket-ticket` | Moatless session or bearer token | Issues a short-lived ticket for the socket. |
+| `/api/orchestration/shell` | Moatless session or bearer token | Returns the current shell snapshot. |
+| `/ws` | Ticket, or session plus an exact Origin allow-list | Serves T3 JSON RPC frames and shell subscriptions. |
+
+`/oauth/token` is the one route that does not live under `/api`, `/ws`, or
+`/.well-known`, because the T3 client builds it from the origin and nothing else
+(`apps/mobile/src/features/cloud/linkEnvironment.ts:546`). A deployment that
+routes to the backend by path prefix therefore needs an edge rule for it by
+name; without one it lands on whatever serves the SPA, and a POST to a static
+file server answers `405` — which reads like a rejected request rather than a
+request that never arrived.
+
+The chart carries that rule as the `-t3-surface` `IngressRoute`
+(`k8s/helm/moatless-vibe/templates/app-ingressroute.yaml`), matching `/ws`,
+`/.well-known/t3`, and `/oauth/token` at a priority above the SPA catch-all. A
+new T3 route outside `/api` has to be added there as well as to the router.
 
 The published `environmentId` is the configured deployment name plus a digest of
 the database identity (`backend/src/ui_rpc/mod.rs:173`). That makes a restored or
@@ -140,10 +155,14 @@ Moatless identity. Local development relies on a normal `moatless_session`
 browser cookie shared across ports on `localhost`
 (`docs/runbooks/t3-code-local-development.md:34`).
 
-The removed remote-auth spec is still relevant as T3-side product direction, but
-not as shipped Moatless backend state. The backend expects T3 to use the
-Moatless browser session; it does not implement T3 pairing and does not expect a
-browser API key proxy to stand in for a person.
+A client on another device pairs instead of borrowing that cookie. A logged-in
+browser session mints a single-use code; the client redeems it at `/oauth/token`
+for an ordinary Moatless API key, which is why a paired device appears in the
+API Keys list and is unpaired by revoking it there
+(`backend/src/auth/pairing.rs`). The socket takes a short-lived signed ticket in
+the query string, because a React Native `WebSocket` sends no headers at all —
+and a ticketed upgrade skips the Origin allow-list, which exists to defend the
+cookie rather than a bearer token that had to be deliberately fetched.
 
 ## Known Gaps
 
