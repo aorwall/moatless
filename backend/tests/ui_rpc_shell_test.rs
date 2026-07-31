@@ -42,8 +42,9 @@ use moatless_vibe_backend::task_turn::dao::{
     PgTaskTurnDao, TaskTurnDao, TurnStateEvent,
 };
 use moatless_vibe_backend::task_turn::models::classify_turn_transition;
+use moatless_vibe_backend::task_conversation::{ConversationChange, ConversationHead};
 use moatless_vibe_backend::ui_rpc::dao::{
-    Conversation, ConversationDao, PgConversationDao, ThreadRevision, Transcript,
+    Conversation, ConversationDao, PgConversationDao, Transcript,
 };
 use moatless_vibe_backend::ui_rpc::{
     files, router_from_env, shell_snapshot, shell_subscription, AgentModelDefaults, ShellFeed,
@@ -1851,8 +1852,25 @@ impl ConversationDao for RefusesTheRowRead {
         self.0.transcript(task_id).await
     }
 
-    async fn thread_revision(&self, task_id: &str) -> Result<Option<ThreadRevision>, sqlx::Error> {
-        self.0.thread_revision(task_id).await
+    async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
+        self.0.conversation_head(task_id).await
+    }
+
+    async fn conversation_changes(
+        &self,
+        task_id: &str,
+        from: i64,
+        limit: i64,
+    ) -> Result<Vec<ConversationChange>, sqlx::Error> {
+        self.0.conversation_changes(task_id, from, limit).await
+    }
+
+    async fn changed_messages(
+        &self,
+        task_id: &str,
+        uuids: &[String],
+    ) -> Result<Transcript, sqlx::Error> {
+        self.0.changed_messages(task_id, uuids).await
     }
 
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {

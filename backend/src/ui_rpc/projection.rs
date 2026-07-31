@@ -15,6 +15,7 @@ use super::AgentModelDefaults;
 use crate::agent::catalog::{self, AgentKind};
 use crate::message::models::MessageType;
 use crate::sandbox::models::ServerConfig;
+use crate::task_conversation::ConversationChange;
 use crate::task_turn::models::TurnStatus;
 use crate::workspace::dao::ListedWorkspace;
 use crate::workspace::models::Workspace;
@@ -261,6 +262,210 @@ pub(super) fn thread_detail(
     Value::Object(row)
 }
 
+/// Everything one recorded change tells a client that already holds this
+/// conversation, as stream items, in the order the client applies them.
+///
+/// The contract numbers events, so each item's sequence comes from the change's
+/// position and its own index within the change — see
+/// [`ConversationChange::sequence`]. That is also the ceiling on how much one
+/// change may say: past [`EVENTS_PER_CHANGE`] the next position begins, and
+/// this stops rather than colliding with it.
+///
+/// `window` is the changed Message and the short run before it
+/// (`ConversationDao::changed_messages`); a change naming a Message the window
+/// does not hold — deleted, or never rendered — says nothing, which is a
+/// complete answer rather than a failure.
+///
+/// # What a change to one Message tells the client
+///
+/// Three things, and only the first is about the changed row itself:
+///
+/// 1. Its bubble, as `thread.message-sent`. The client upserts on the message
+///    id, so re-sending an unchanged bubble is free, and the merges that
+///    assemble one Message from its blocks are exactly why it is re-sent.
+/// 2. Its work-log rows, as `thread.activity-appended`. Also an upsert, keyed
+///    on the activity id.
+/// 3. **The rows it answers.** A tool call's card is on the assistant Message
+///    that made the call, and what flips it from running to finished is a
+///    *later* Message carrying the result. Nothing rewrites the calling row, so
+///    a change that carries tool results re-sends the calls it resolves or the
+///    work log stalls with every card running.
+pub(super) fn change_events(
+    conversation: &Conversation,
+    change: &ConversationChange,
+    window: &Transcript,
+) -> Vec<Value> {
+    let Some(uuid) = change.message_uuid.as_deref() else {
+        return session_set(conversation, change).into_iter().collect();
+    };
+    let Some(message) = window
+        .messages
+        .iter()
+        .find(|message| message.uuid == uuid)
+    else {
+        return Vec::new();
+    };
+
+    let outcomes = tool_outcomes(&window.messages);
+    let displayed = displayed_blocks(&window.blocks);
+    let at = instant(message_instant(conversation, message));
+    let turn = turn_reference(conversation, message);
+
+    // The calls this row answers first: they are about work the client has
+    // already been shown, and the row itself is what happened next.
+    let mut payloads: Vec<(&str, Value)> = resolved_calls(conversation, message, window, &outcomes)
+        .into_iter()
+        .map(|activity| activity_appended_payload(&conversation.task_id, activity))
+        .collect();
+    if let Some(bubble) = message_bubble(message, &displayed, &turn, &at) {
+        payloads.push((
+            MESSAGE_SENT,
+            message_sent_payload(&conversation.task_id, &bubble),
+        ));
+    }
+    for activity in message_activities(message, &outcomes, &turn, &at) {
+        payloads.push(activity_appended_payload(&conversation.task_id, activity));
+    }
+
+    payloads
+        .into_iter()
+        .enumerate()
+        .map_while(|(index, (kind, payload))| {
+            let sequence = change.sequence(index)?;
+            Some(event(conversation, sequence, &at, kind, payload))
+        })
+        .collect()
+}
+
+/// The work-log rows a Message's tool results resolve, re-projected with the
+/// outcome attached.
+///
+/// The window is what bounds this: a result whose call is older than the run of
+/// Messages read alongside the change finds nothing here, and the card stays
+/// running until the client next takes a snapshot. See `CHANGE_LOOKBACK`.
+fn resolved_calls(
+    conversation: &Conversation,
+    answered_by: &TranscriptMessage,
+    window: &Transcript,
+    outcomes: &HashMap<&str, ToolOutcome<'_>>,
+) -> Vec<Value> {
+    let answered: HashSet<&str> = content_blocks(&answered_by.message_content)
+        .iter()
+        .filter(|block| block_type(block) == Some("tool_result"))
+        .filter_map(|block| block.get("tool_use_id").and_then(Value::as_str))
+        .collect();
+    if answered.is_empty() {
+        return Vec::new();
+    }
+    let mut resolved = Vec::new();
+    for message in &window.messages {
+        if message.uuid == answered_by.uuid {
+            continue;
+        }
+        let at = instant(message_instant(conversation, message));
+        let turn = turn_reference(conversation, message);
+        for (index, block) in content_blocks(&message.message_content).iter().enumerate() {
+            if block_type(block) != Some("tool_use") {
+                continue;
+            }
+            let calls = block.get("id").and_then(Value::as_str);
+            if calls.is_some_and(|id| answered.contains(id)) {
+                resolved.push(tool_activity(message, index, block, outcomes, &turn, &at));
+            }
+        }
+    }
+    resolved
+}
+
+/// The conversation's session as an event, or nothing when it has none.
+///
+/// A change that names no Message is a change to the conversation itself — its
+/// Turn or its Sandbox — and the contract carries both inside the session: the
+/// client derives `latestTurn` from the session it is sent. A conversation with
+/// no Sandbox row has no session at all, and the contract's payload has no
+/// empty value for one, so there is nothing to say until it does.
+fn session_set(conversation: &Conversation, change: &ConversationChange) -> Option<Value> {
+    let session = session(conversation);
+    if session.is_null() {
+        return None;
+    }
+    let at = instant(conversation.updated_at.unwrap_or_else(|| created_at(conversation)));
+    let sequence = change.sequence(0)?;
+    Some(event(
+        conversation,
+        sequence,
+        &at,
+        "thread.session-set",
+        json!({ "threadId": conversation.task_id, "session": session }),
+    ))
+}
+
+const MESSAGE_SENT: &str = "thread.message-sent";
+
+/// One work-log row as the event carrying it. The activity is the contract's
+/// own shape already, so this only names the conversation it belongs to.
+fn activity_appended_payload(task_id: &str, activity: Value) -> (&'static str, Value) {
+    (
+        "thread.activity-appended",
+        json!({ "threadId": task_id, "activity": activity }),
+    )
+}
+
+/// A message bubble as the event carrying it.
+///
+/// The contract spells one message two ways — a member of a snapshot's
+/// `messages`, and this payload — with the same values under different keys.
+/// Rewriting rather than re-deriving keeps the two from drifting: whatever a
+/// snapshot would have shown is what an event says.
+fn message_sent_payload(task_id: &str, bubble: &Value) -> Value {
+    json!({
+        "threadId": task_id,
+        "messageId": bubble["id"],
+        "role": bubble["role"],
+        "text": bubble["text"],
+        "turnId": bubble["turnId"],
+        "streaming": bubble["streaming"],
+        "createdAt": bubble["createdAt"],
+        "updatedAt": bubble["updatedAt"]
+    })
+}
+
+/// One event, in the envelope every event on this contract carries.
+///
+/// Five of the envelope's fields are null or empty and stay that way. Moatless
+/// has no command bus: nothing here was caused by a numbered command, so
+/// `commandId` and `correlationId` have nothing to name, and no event is
+/// derived from another so `causationEventId` names nothing either. `metadata`
+/// is provider bookkeeping this projection does not read.
+///
+/// `eventId` is the conversation and the sequence, because that pair is what
+/// identifies an event here: the same change re-read produces the same ids, and
+/// a client that sees one twice sees the same event rather than a new one.
+fn event(
+    conversation: &Conversation,
+    sequence: i64,
+    occurred_at: &str,
+    event_type: &str,
+    payload: Value,
+) -> Value {
+    json!({
+        "kind": "event",
+        "event": {
+            "sequence": sequence,
+            "eventId": format!("{}:{sequence}", conversation.task_id),
+            "aggregateKind": "thread",
+            "aggregateId": conversation.task_id,
+            "occurredAt": occurred_at,
+            "commandId": Value::Null,
+            "causationEventId": Value::Null,
+            "correlationId": Value::Null,
+            "metadata": json!({}),
+            "type": event_type,
+            "payload": payload
+        }
+    })
+}
+
 /// The fields both shapes of a conversation carry, with the same values.
 ///
 /// Six fields are deliberately absent rather than null. `interactionMode`,
@@ -323,13 +528,35 @@ struct ToolOutcome<'a> {
     is_error: bool,
 }
 
+/// The numbering a work log is sorted by.
+///
+/// The client sorts activities by `sequence` and falls back to comparing
+/// `createdAt` **as strings** when it is absent — and every block of one Message
+/// shares that Message's single timestamp, so without a sequence a turn's tool
+/// calls would sort by id.
+///
+/// Derived from the row and the block rather than counted while walking the
+/// transcript, and that is the load-bearing part: an activity delivered on its
+/// own, long after the snapshot it has to sort into, has no walk to be counted
+/// by. `task_messages.id` ascends with the transcript and the block index
+/// ascends within a Message, so the pair reproduces the order a full read would
+/// have produced, from one row in isolation.
+///
+/// [`BLOCKS_PER_MESSAGE`] is the stride between two Messages. A Message with
+/// more blocks than that would sort into its successor's range — the client
+/// then breaks the tie on `createdAt` and `id`, so the cost is a mis-ordered
+/// work log rather than a lost row.
+fn activity_sequence(message: &TranscriptMessage, block_index: usize) -> i64 {
+    i64::from(message.id) * BLOCKS_PER_MESSAGE
+        + i64::try_from(block_index).unwrap_or(BLOCKS_PER_MESSAGE - 1)
+}
+
+const BLOCKS_PER_MESSAGE: i64 = 1_024;
+
 /// Split a Task's Messages into the messages and activities T3 renders.
 ///
-/// Ordering is the transcript's own and is carried explicitly: activities are
-/// numbered with a running `sequence`, because the client sorts them by it and
-/// falls back to comparing `createdAt` **as strings** when it is absent — and
-/// every block of one Message shares that Message's single timestamp, so
-/// without a sequence a turn's tool calls would sort by id.
+/// Ordering is the transcript's own and is carried explicitly — see
+/// [`activity_sequence`].
 fn rendered_transcript(
     conversation: &Conversation,
     transcript: &Transcript,
@@ -348,72 +575,96 @@ fn rendered_transcript(
     for message in &transcript.messages {
         let at = instant(message_instant(conversation, message));
         let turn = turn_reference(conversation, message);
-
-        match message.message_type {
-            // The carrier rows for tool results. Their content is already
-            // attached to the call it answers, and rendering them as their own
-            // bubbles would put every tool's raw output in the conversation.
-            MessageType::System => continue,
-            MessageType::User => {
-                // A `user`-typed row holding tool results is the SDK streaming
-                // results back, not a person writing. `message/transform.rs`
-                // makes the same exclusion for the same reason.
-                if carries_tool_results(&message.message_content) {
-                    continue;
-                }
-                let text = user_text(message, &displayed);
-                if !text.is_empty() {
-                    rendered
-                        .messages
-                        .push(message_row(message, "user", text, &turn, &at));
-                }
-            }
-            MessageType::Assistant => {
-                let mut spoken = String::new();
-                for (index, block) in content_blocks(&message.message_content).iter().enumerate() {
-                    match block_type(block) {
-                        Some("text") => push_paragraph(&mut spoken, block_text(block)),
-                        Some("thinking") => rendered.activities.push(thinking_activity(
-                            message, index, &turn, &at,
-                            rendered.activities.len(),
-                        )),
-                        Some("tool_use") => rendered.activities.push(tool_activity(
-                            message, index, block, &outcomes, &turn, &at,
-                            rendered.activities.len(),
-                        )),
-                        // `image`, and anything a future provider adds. Silent
-                        // rather than warned: an unrenderable block is a gap in
-                        // this projection, not a broken row, and one per image
-                        // in every transcript is log noise.
-                        _ => {}
-                    }
-                }
-                if !spoken.is_empty() {
-                    rendered
-                        .messages
-                        .push(message_row(message, "assistant", spoken, &turn, &at));
-                }
-            }
-            // The run's own closing line — "Stopped after an error", a result
-            // summary. Neither the person nor the agent said it, and `system`
-            // is the contract's role for exactly that.
-            MessageType::Result | MessageType::Error => {
-                let mut text = String::new();
-                for block in content_blocks(&message.message_content) {
-                    if block_type(block) == Some("text") {
-                        push_paragraph(&mut text, block_text(block));
-                    }
-                }
-                if !text.is_empty() {
-                    rendered
-                        .messages
-                        .push(message_row(message, "system", text, &turn, &at));
-                }
-            }
-        }
+        rendered
+            .messages
+            .extend(message_bubble(message, &displayed, &turn, &at));
+        rendered
+            .activities
+            .extend(message_activities(message, &outcomes, &turn, &at));
     }
 
     rendered
+}
+
+/// The bubble one Message contributes to the conversation, or `None` when it
+/// contributes none.
+///
+/// Three of the four ways to contribute nothing are about *which* Message it is
+/// rather than what it holds, which is why this is a match on the type rather
+/// than a filter on the text.
+fn message_bubble(
+    message: &TranscriptMessage,
+    displayed: &HashMap<i32, Vec<&str>>,
+    turn: &Value,
+    at: &str,
+) -> Option<Value> {
+    match message.message_type {
+        // The carrier rows for tool results. Their content is already attached
+        // to the call it answers, and rendering them as their own bubbles would
+        // put every tool's raw output in the conversation.
+        MessageType::System => None,
+        MessageType::User => {
+            // A `user`-typed row holding tool results is the SDK streaming
+            // results back, not a person writing. `message/transform.rs` makes
+            // the same exclusion for the same reason.
+            if carries_tool_results(&message.message_content) {
+                return None;
+            }
+            let text = user_text(message, displayed);
+            (!text.is_empty()).then(|| message_row(message, "user", text, turn, at))
+        }
+        MessageType::Assistant => {
+            let spoken = spoken_text(message);
+            (!spoken.is_empty()).then(|| message_row(message, "assistant", spoken, turn, at))
+        }
+        // The run's own closing line — "Stopped after an error", a result
+        // summary. Neither the person nor the agent said it, and `system` is the
+        // contract's role for exactly that.
+        MessageType::Result | MessageType::Error => {
+            let text = spoken_text(message);
+            (!text.is_empty()).then(|| message_row(message, "system", text, turn, at))
+        }
+    }
+}
+
+/// The rows one Message contributes to the work log, in block order.
+///
+/// Only an assistant Message contributes any: thinking and tool calls are the
+/// two things the agent does that are not speech, and no other kind of row
+/// carries either.
+fn message_activities(
+    message: &TranscriptMessage,
+    outcomes: &HashMap<&str, ToolOutcome<'_>>,
+    turn: &Value,
+    at: &str,
+) -> Vec<Value> {
+    if !matches!(message.message_type, MessageType::Assistant) {
+        return Vec::new();
+    }
+    content_blocks(&message.message_content)
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| match block_type(block) {
+            Some("thinking") => Some(thinking_activity(message, index, turn, at)),
+            Some("tool_use") => Some(tool_activity(message, index, block, outcomes, turn, at)),
+            // `text`, `image`, and anything a future provider adds. Silent
+            // rather than warned: an unrenderable block is a gap in this
+            // projection, not a broken row, and one per image in every
+            // transcript is log noise.
+            _ => None,
+        })
+        .collect()
+}
+
+/// The text blocks of a Message, joined as markdown paragraphs.
+fn spoken_text(message: &TranscriptMessage) -> String {
+    let mut text = String::new();
+    for block in content_blocks(&message.message_content) {
+        if block_type(block) == Some("text") {
+            push_paragraph(&mut text, block_text(block));
+        }
+    }
+    text
 }
 
 /// The head of a transcript that did not fit, said out loud.
@@ -480,7 +731,6 @@ fn thinking_activity(
     index: usize,
     turn: &Value,
     at: &str,
-    sequence: usize,
 ) -> Value {
     json!({
         "id": format!("{}:{index}", message.uuid),
@@ -489,7 +739,7 @@ fn thinking_activity(
         "summary": "Thinking",
         "payload": { "summary": "Thinking" },
         "turnId": turn,
-        "sequence": sequence,
+        "sequence": activity_sequence(message, index),
         "createdAt": at
     })
 }
@@ -507,7 +757,6 @@ fn tool_activity(
     outcomes: &HashMap<&str, ToolOutcome<'_>>,
     turn: &Value,
     at: &str,
-    sequence: usize,
 ) -> Value {
     let name = block
         .get("name")
@@ -549,7 +798,7 @@ fn tool_activity(
         "summary": name,
         "payload": Value::Object(fields),
         "turnId": turn,
-        "sequence": sequence,
+        "sequence": activity_sequence(message, index),
         "createdAt": at
     })
 }
@@ -1934,6 +2183,10 @@ mod tests {
     /// `createdAt` as strings. Every activity of one Message shares that
     /// Message's single timestamp, so without a sequence a turn's tool calls
     /// would arrive in an order the transcript never had.
+    ///
+    /// The numbers themselves are the row and the block rather than a count, so
+    /// what is asserted is the order — which is all the client reads — and that
+    /// two activities of one Message stay inside their own Message's range.
     #[test]
     fn activities_are_numbered_in_transcript_order() {
         let thread = detail(&a_conversation());
@@ -1943,7 +2196,45 @@ mod tests {
             .iter()
             .map(|activity| activity["sequence"].as_i64().unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(sequences, vec![0, 1, 2]);
+        assert!(
+            sequences.windows(2).all(|pair| pair[0] < pair[1]),
+            "activities ascend in transcript order: {sequences:?}"
+        );
+        assert!(
+            sequences[2] - sequences[1] < BLOCKS_PER_MESSAGE,
+            "two calls of one assistant Message are one stride apart at most"
+        );
+    }
+
+    /// An activity delivered on its own has to sort into a work log built
+    /// without it, which is only true while the number is derived from the row
+    /// rather than counted while walking the transcript.
+    #[test]
+    fn an_activitys_number_does_not_depend_on_the_transcript_it_was_read_with() {
+        let whole = detail(&a_conversation());
+        let numbered: HashMap<String, i64> = whole["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|activity| {
+                (
+                    activity["id"].as_str().unwrap().to_string(),
+                    activity["sequence"].as_i64().unwrap(),
+                )
+            })
+            .collect();
+
+        // The same conversation read from its second Message onwards, as a
+        // change re-reading one row would see it.
+        let tail = transcript(a_conversation().messages[1..].to_vec());
+        for activity in detail(&tail)["activities"].as_array().unwrap() {
+            let id = activity["id"].as_str().unwrap();
+            assert_eq!(
+                activity["sequence"].as_i64().unwrap(),
+                numbered[id],
+                "activity {id} keeps its number"
+            );
+        }
     }
 
     #[test]
@@ -2139,5 +2430,200 @@ mod tests {
         assert_eq!(detail["activities"], json!([]));
         assert_eq!(detail["checkpoints"], json!([]));
         assert_eq!(detail["deletedAt"], Value::Null);
+    }
+
+    // ── Events ──────────────────────────────────────────────────────────
+
+    const EVENT_REQUIRED: &[&str] = &[
+        "sequence",
+        "eventId",
+        "aggregateKind",
+        "aggregateId",
+        "occurredAt",
+        "commandId",
+        "causationEventId",
+        "correlationId",
+        "metadata",
+        "type",
+        "payload",
+    ];
+
+    /// The change that names Message `uuid`, at `position`.
+    fn change(position: i64, uuid: Option<&str>) -> ConversationChange {
+        ConversationChange {
+            position,
+            message_uuid: uuid.map(str::to_string),
+        }
+    }
+
+    fn events(change: &ConversationChange, window: &Transcript) -> Vec<Value> {
+        change_events(&running_conversation("task-a", "ws-a"), change, window)
+            .into_iter()
+            .map(|item| {
+                assert_eq!(item["kind"], "event", "every item is a stream event");
+                item["event"].clone()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_event_envelope_matches_the_contract_field_for_field() {
+        let window = a_conversation();
+        let sent = &events(&change(4, Some("msg-1")), &window)[0];
+        assert_keys(sent, "event", EVENT_REQUIRED, &[]);
+        assert_eq!(sent["aggregateKind"], "thread");
+        assert_eq!(sent["aggregateId"], "task-a");
+        assert_eq!(sent["commandId"], Value::Null);
+        assert_eq!(sent["causationEventId"], Value::Null);
+        assert_eq!(sent["correlationId"], Value::Null);
+        assert_eq!(sent["metadata"], json!({}));
+        assert_eq!(sent["eventId"], format!("task-a:{}", sent["sequence"]));
+    }
+
+    /// A person's Message is one bubble and no work-log rows.
+    #[test]
+    fn a_change_to_a_user_message_carries_the_bubble_it_wrote() {
+        let window = a_conversation();
+        let sent = events(&change(4, Some("msg-1")), &window);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["type"], "thread.message-sent");
+        assert_eq!(sent[0]["payload"]["threadId"], "task-a");
+        assert_eq!(sent[0]["payload"]["messageId"], "msg-1");
+        assert_eq!(sent[0]["payload"]["role"], "user");
+        assert_eq!(sent[0]["payload"]["text"], "Fix the build");
+        assert_eq!(sent[0]["payload"]["streaming"], false);
+        assert_eq!(sent[0]["payload"]["turnId"], "task-a:3");
+    }
+
+    /// An assistant Message that only called tools has no bubble, so its change
+    /// says only what the work log shows.
+    #[test]
+    fn a_change_to_a_tool_calling_message_carries_only_its_work_log_rows() {
+        let window = a_conversation();
+        let sent = events(&change(4, Some("msg-2")), &window);
+        assert!(
+            sent.iter().all(|event| event["type"] == "thread.activity-appended"),
+            "no bubble for a turn that said nothing: {sent:#?}"
+        );
+        let summaries: Vec<&str> = sent
+            .iter()
+            .map(|event| event["payload"]["activity"]["summary"].as_str().unwrap())
+            .collect();
+        assert_eq!(summaries, vec!["Thinking", "Bash", "Edit"]);
+        assert_eq!(sent[0]["payload"]["threadId"], "task-a");
+    }
+
+    /// The whole reason a change is read with the Messages before it: nothing
+    /// rewrites the row a tool call is on, so the row carrying the *result* is
+    /// what has to re-send the call.
+    #[test]
+    fn a_change_carrying_tool_results_re_sends_the_calls_it_answers() {
+        let window = a_conversation();
+        let sent = events(&change(4, Some("msg-3")), &window);
+        let resolved: Vec<(&str, &str)> = sent
+            .iter()
+            .map(|event| {
+                (
+                    event["payload"]["activity"]["summary"].as_str().unwrap(),
+                    event["payload"]["activity"]["payload"]["status"]
+                        .as_str()
+                        .unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            resolved,
+            vec![("Bash", "completed"), ("Edit", "failed")],
+            "both calls the result row answers are re-sent with their outcome"
+        );
+        assert_eq!(
+            sent[0]["payload"]["activity"]["id"], "msg-2:1",
+            "under the identity the snapshot gave them, so the client upserts"
+        );
+    }
+
+    /// The client drops an event whose sequence it has passed, so two may never
+    /// share one — including across the boundary between two changes.
+    #[test]
+    fn every_event_of_a_change_has_its_own_ascending_sequence() {
+        let window = a_conversation();
+        let first: Vec<i64> = events(&change(4, Some("msg-3")), &window)
+            .iter()
+            .map(|event| event["sequence"].as_i64().unwrap())
+            .collect();
+        let second: Vec<i64> = events(&change(5, Some("msg-4")), &window)
+            .iter()
+            .map(|event| event["sequence"].as_i64().unwrap())
+            .collect();
+        assert!(first.windows(2).all(|pair| pair[0] < pair[1]), "{first:?}");
+        assert!(
+            first.last() < second.first(),
+            "a later change is numbered above an earlier one: {first:?} then {second:?}"
+        );
+    }
+
+    /// A change naming a Message the window does not hold — deleted, or one of
+    /// the subagent rows no transcript reads — is a complete answer of nothing.
+    #[test]
+    fn a_change_naming_a_message_that_is_not_there_says_nothing() {
+        assert!(events(&change(4, Some("msg-404")), &a_conversation()).is_empty());
+    }
+
+    /// A change naming no Message is the conversation's own, and the client
+    /// derives the turn it renders from the session it is sent.
+    #[test]
+    fn a_change_to_the_conversation_itself_carries_its_session() {
+        let sent = events(&change(4, None), &transcript(Vec::new()));
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["type"], "thread.session-set");
+        assert_eq!(sent[0]["payload"]["threadId"], "task-a");
+        assert_eq!(sent[0]["payload"]["session"]["status"], "running");
+        assert_eq!(sent[0]["payload"]["session"]["activeTurnId"], "task-a:3");
+    }
+
+    /// The contract's session payload has no empty value, so a conversation
+    /// that has never had a Sandbox has nothing to say rather than a null to
+    /// send.
+    #[test]
+    fn a_conversation_with_no_sandbox_sends_no_session_event() {
+        let without = Conversation {
+            sandbox_desired_state: None,
+            ..running_conversation("task-a", "ws-a")
+        };
+        assert!(
+            change_events(&without, &change(4, None), &transcript(Vec::new()))
+                .is_empty()
+        );
+    }
+
+    /// A message event carries the same values the snapshot's own bubble does,
+    /// under the contract's other set of names for them.
+    #[test]
+    fn a_message_event_and_a_snapshot_bubble_agree() {
+        let window = a_conversation();
+        let listed = detail(&window);
+        let bubble = &listed["messages"].as_array().unwrap()[0];
+        let sent = events(&change(4, Some("msg-1")), &window);
+        let payload = &sent[0]["payload"];
+        assert_eq!(payload["messageId"], bubble["id"]);
+        assert_eq!(payload["role"], bubble["role"]);
+        assert_eq!(payload["text"], bubble["text"]);
+        assert_eq!(payload["turnId"], bubble["turnId"]);
+        assert_eq!(payload["streaming"], bubble["streaming"]);
+        assert_eq!(payload["createdAt"], bubble["createdAt"]);
+        assert_eq!(payload["updatedAt"], bubble["updatedAt"]);
+    }
+
+    /// An activity event carries the activity a snapshot would have carried,
+    /// unchanged — including the number it sorts by, which is what lets it
+    /// arrive long after the snapshot it has to sort into.
+    #[test]
+    fn an_activity_event_and_a_snapshot_activity_agree() {
+        let window = a_conversation();
+        let listed = detail(&window)["activities"].as_array().unwrap().clone();
+        let sent = events(&change(4, Some("msg-2")), &window);
+        for (event, activity) in sent.iter().zip(listed.iter()) {
+            assert_eq!(event["payload"]["activity"], *activity);
+        }
     }
 }

@@ -18,10 +18,13 @@
 //! Opening one conversation reads its transcript and projects it into the two
 //! collections T3 renders — what was *said* as messages, what was *done* as a
 //! work log — over the same route in both directions: an HTTP snapshot the
-//! client hydrates from, and a subscription that keeps it current. The
-//! conversation has no change feed of its own, so that subscription compares a
-//! fingerprint and re-sends the transcript whole when it moves, which is why it
-//! polls a quarter as often as the shell's. See [`ThreadFeed`].
+//! client hydrates from, and a subscription that keeps it current. That
+//! subscription reads a change feed of its own (`task_conversation`) and sends
+//! the contract's own events, so a conversation that moves costs the row that
+//! moved rather than the whole transcript. It resumes on the same terms as the
+//! shell's, in its own numbering: a conversation's positions are not the
+//! listing's, and a cursor from one is refused by the other. See
+//! [`ThreadFeed`].
 
 mod auth;
 pub mod dao;
@@ -55,6 +58,7 @@ use crate::auth::identity::{AuthIdentity, AuthMethod};
 use crate::auth::models::UserRole;
 use crate::auth::pairing::DevicePairing;
 use crate::sandbox::access::SandboxConnector;
+use crate::task_conversation::{self, ConversationHead};
 use crate::task_listing::{self, EnvironmentIdentity, Resume};
 use crate::ui_rpc::dao::ConversationDao;
 use crate::ui_rpc::files::FileAccessError;
@@ -515,12 +519,12 @@ pub async fn shell_snapshot(
 ///
 /// # Read order
 ///
-/// Three reads, and their order is load-bearing in the same way
-/// [`shell_snapshot`]'s is. The fingerprint comes first because a subscription
-/// starts watching from it, and one taken after the transcript would already
-/// describe the rows it holds — the next change would compare equal and never
-/// be sent. The listing position comes before the rows for the reason given on
-/// [`shell_snapshot`]. The transcript comes last.
+/// The conversation's change position comes before the rows, for the reason
+/// given on [`shell_snapshot`]: read afterwards it would sit above a change the
+/// rows already reflect, and the event carrying that change would be discarded
+/// by the client as stale — one conversation frozen, silently. Read first, the
+/// worst case is a change delivered twice, and every event this feed sends is
+/// an upsert, so twice is the same as once.
 pub async fn thread_snapshot(
     workspaces: &dyn WorkspaceDao,
     conversations: &dyn ConversationDao,
@@ -528,8 +532,7 @@ pub async fn thread_snapshot(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Option<ThreadSnapshot>, sqlx::Error> {
-    let revision = conversations.thread_revision(task_id).await?;
-    let sequence = conversations.listing_head().await?.position;
+    let head = conversations.conversation_head(task_id).await?;
     let rows = conversations
         .list_followed_by_ids(viewer, &[task_id.to_string()])
         .await?;
@@ -565,7 +568,7 @@ pub async fn thread_snapshot(
     }
     Ok(Some(ThreadSnapshot {
         value: json!({
-            "snapshotSequence": sequence,
+            "snapshotSequence": head.sequence(),
             "thread": projection::thread_detail(
                 &conversation,
                 project_id,
@@ -573,27 +576,43 @@ pub async fn thread_snapshot(
                 &transcript,
             )
         }),
-        revision,
+        head,
     }))
 }
 
-/// One conversation as the client receives it, and the fingerprint it was built
+/// One conversation as the client receives it, and the position it was built
 /// at.
 ///
 /// They travel together because a subscription needs both: the conversation
-/// goes to the client and the fingerprint is where its feed starts watching.
+/// goes to the client and the position is where its feed starts watching.
 pub struct ThreadSnapshot {
     pub value: Value,
-    pub revision: Option<dao::ThreadRevision>,
+    pub head: ConversationHead,
 }
 
-/// Open a subscription to one conversation.
+/// Open a subscription to one conversation: either replay what a returning
+/// client missed, or hand it the conversation built afresh.
 ///
-/// Always a snapshot, never a replay, and `afterSequence` is therefore ignored
-/// rather than honoured — there is no per-conversation change log to replay
-/// from (see [`ThreadFeed`]). That is a difference the client absorbs without
-/// being told: a `snapshot` item is a member of the same stream union it would
-/// have received either way, and it replaces what it holds with it.
+/// `after` is the sequence the client says it already holds — the
+/// `snapshotSequence` of the bootstrap it fetched over HTTP moments earlier
+/// (`state/threads.ts`), which is why the two have to be numbers in the same
+/// namespace. [`task_conversation::resume`] is what decides between them, on the
+/// same two grounds the shell's does: a sequence this conversation never
+/// reached, and one further behind than the records kept.
+///
+/// The client separates the outcomes by decoding rather than by inference — a
+/// rebuild is a `snapshot` item, which it applies by replacing what it holds,
+/// and a replay is `event` items, which it folds in one at a time. So an
+/// un-replayable gap is never silence.
+///
+/// # Why the catch-up is one ordinary poll
+///
+/// Replay reads through [`ThreadFeed::poll`], the same call the live
+/// subscription makes every interval, so a resuming client is told exactly what
+/// a client that never disconnected would have been told and there is no second
+/// delivery path to drift from the first. The poll's own cap bounds the
+/// catch-up, and the feed's cursor advances only over records it read, so
+/// anything left over arrives on the next poll.
 ///
 /// `Ok(None)` when the conversation is not visible to this viewer; the caller
 /// answers the request rather than opening a stream that can only end.
@@ -603,13 +622,57 @@ pub async fn thread_subscription(
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     task_id: &str,
+    after: Option<i64>,
 ) -> Result<Option<(Vec<Value>, ThreadFeed)>, sqlx::Error> {
+    let head = conversations.conversation_head(task_id).await?;
+    // Qualified: the shell has a decision of the same shape over a different
+    // log, and the two cursors are not interchangeable.
+    let resume = match after {
+        Some(after) => task_conversation::resume(head, after),
+        None => task_conversation::Resume::Rebuild,
+    };
+    if let task_conversation::Resume::From(cursor) = resume {
+        // A replay reads nothing when nothing changed, and a poll that reads
+        // nothing checks nothing. So the visibility rule is applied here as
+        // well, or subscribing to a conversation this viewer may not see would
+        // succeed for as long as it stayed still.
+        if conversations
+            .list_followed_by_ids(viewer, &[task_id.to_string()])
+            .await?
+            .is_empty()
+        {
+            return Ok(None);
+        }
+        let mut feed = ThreadFeed::resuming_from(task_id.to_string(), cursor);
+        let Some(values) = feed.poll(conversations, viewer).await? else {
+            return Ok(None);
+        };
+        debug!(
+            user_id = %viewer.user_id,
+            task_id,
+            cursor,
+            replayed = values.len(),
+            "T3 UI thread subscription resumed from the client's position"
+        );
+        return Ok(Some((values, feed)));
+    }
+
     let Some(snapshot) =
         thread_snapshot(workspaces, conversations, model_defaults, viewer, task_id).await?
     else {
         return Ok(None);
     };
-    let feed = ThreadFeed::at(task_id.to_string(), snapshot.revision);
+    if let Some(after) = after {
+        info!(
+            user_id = %viewer.user_id,
+            task_id,
+            after,
+            head = snapshot.head.sequence(),
+            "T3 UI thread subscription could not replay from the client's position; \
+             sending the conversation afresh"
+        );
+    }
+    let feed = ThreadFeed::at(task_id.to_string(), snapshot.head);
     Ok(Some((
         vec![json!({
             "kind": "snapshot",
@@ -1463,6 +1526,7 @@ impl ProtocolSession {
                     &state.model_defaults,
                     &viewer,
                     &task_id,
+                    after_sequence(&payload),
                 )
                 .await
                 {
@@ -1660,21 +1724,18 @@ impl ProtocolSession {
         }
     }
 
-    /// Push whole conversation snapshots for as long as the subscription lives.
+    /// Push one conversation's events for as long as the subscription lives.
     ///
-    /// The shape mirrors [`Self::watch_shell`] and the difference is what a poll
-    /// can say. The shell's feed reads an append-only change log and emits the
-    /// rows since its cursor; there is no such log per conversation, so
-    /// [`ThreadFeed::poll`] compares a fingerprint and re-sends the transcript
-    /// whole when it moved. That makes an empty poll the overwhelmingly common
-    /// case and a non-empty one expensive, which is why this loop runs at a
-    /// quarter of the shell's rate.
+    /// The shape mirrors [`Self::watch_shell`] over a change log of its own, and
+    /// runs at a quarter of the rate: a conversation records a position per
+    /// Message block where the shell records one per Task, so a poll here reads
+    /// a burst rather than a row.
     ///
-    /// It also gives a poll a third answer the shell's cannot produce: `None`,
-    /// meaning the conversation is no longer readable — deleted, unfollowed, or
-    /// its project ungrouped. The subscription cannot recover from any of those
-    /// by polling again, so it ends rather than idling silently on a screen that
-    /// would keep rendering the last snapshot as current.
+    /// A poll has a third answer the shell's cannot produce: `None`, meaning the
+    /// conversation is no longer readable — deleted, unfollowed, or its project
+    /// ungrouped. The subscription cannot recover from any of those by polling
+    /// again, so it ends rather than idling silently on a screen that would keep
+    /// rendering the last snapshot as current.
     async fn watch_thread(
         request_id: RequestId,
         mut feed: ThreadFeed,
@@ -1684,14 +1745,7 @@ impl ProtocolSession {
     ) {
         loop {
             tokio::time::sleep(THREAD_POLL_INTERVAL).await;
-            let polled = feed
-                .poll(
-                    state.workspaces.as_ref(),
-                    state.conversations.as_ref(),
-                    &state.model_defaults,
-                    &viewer,
-                )
-                .await;
+            let polled = feed.poll(state.conversations.as_ref(), &viewer).await;
             let values = match polled {
                 Ok(Some(values)) => values,
                 Ok(None) => {
@@ -1701,9 +1755,9 @@ impl ProtocolSession {
                     return;
                 }
                 Err(error) => {
-                    // As in `watch_shell`: a failed poll leaves the fingerprint
-                    // where it was, so the next one covers the same ground and
-                    // the subscription survives a transient database error.
+                    // As in `watch_shell`: a failed poll leaves the cursor where
+                    // it was, so the next one covers the same ground and the
+                    // subscription survives a transient database error.
                     warn!(
                         %error,
                         user_id = %viewer.user_id,
@@ -2056,9 +2110,14 @@ mod tests {
             .expect_listing_changes_after()
             .returning(|_, _| Ok(Vec::new()));
         // The stub holds no conversations, so every one asked for is one that
-        // is gone. What a conversation that exists projects to is asserted in
-        // `projection.rs`.
-        conversations.expect_thread_revision().returning(|_| Ok(None));
+        // is gone: nothing has ever changed and nothing is named. What a
+        // conversation that exists projects to is asserted in `projection.rs`.
+        conversations
+            .expect_conversation_head()
+            .returning(|_| Ok(ConversationHead { position: 0 }));
+        conversations
+            .expect_conversation_changes()
+            .returning(|_, _, _| Ok(Vec::new()));
         UiRpcState {
             rpc: Arc::new(UiRpcConfig {
                 environment_id: environment_id("moatless-test", &stub_identity()),

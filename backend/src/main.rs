@@ -512,6 +512,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         );
 
+        // The same job for the conversation feed, and Optional for the same
+        // reason — `task_conversation::resume` refuses the cursors this
+        // reclaims, whether or not it has run.
+        supervisor.supervise(
+            "conversation-change-pruner",
+            Criticality::Optional,
+            moatless_vibe_backend::task_conversation::spawn_change_pruner(
+                app_state.db.clone(),
+                cancel.clone(),
+            ),
+        );
+
         // Durable Adapter delivery. Webhook handlers admit into
         // `app_state.adapter_delivery` before acknowledging their sender; this
         // worker is what makes that acknowledgment true. Handlers are

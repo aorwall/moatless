@@ -288,6 +288,12 @@ impl LifecycleDao for PgLifecycleDao {
         // Last, after the `sandboxes` row this statement holds `FOR UPDATE` —
         // `record_change`'s "call this last".
         if changed == Some(true) {
+            // The conversation shows the same axis as its session status, so it
+            // is told too — ahead of the listing's allocator, per
+            // `record_message_change`'s ordering rule.
+            crate::task_conversation::record_session_change(&mut tx, task_id)
+                .await
+                .map_err(|e| StoreError::with_source("record conversation change for intent", e))?;
             crate::task_listing::record_change(&mut tx, task_id)
                 .await
                 .map_err(|e| StoreError::with_source("record listing change for intent", e))?;

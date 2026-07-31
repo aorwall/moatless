@@ -19,6 +19,7 @@ use sqlx::Postgres;
 
 use super::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use crate::db::DbPool;
+use crate::task_conversation;
 use crate::task_listing;
 
 /// A state-bearing event applied transactionally at the gRPC ingress.
@@ -95,19 +96,24 @@ fn turn_projection_query<'a>(
     }
 }
 
-/// Record a listing change for `task_id` when the projection above actually
-/// moved the row, on the same transaction that moved it.
+/// Record that `task_id`'s Turn moved, on the same transaction that moved it —
+/// to the sidebar's feed and to the conversation's, which both show it. Only
+/// when the projection above actually moved the row.
 ///
 /// The guard is `rows_affected` rather than the transition because the Redis
 /// consumer re-applies every event the gRPC ingress already committed, so
 /// recording on arrival would double each turn's position advance and deliver
 /// the same row twice.
-async fn record_listing_change(
+///
+/// Conversation first, listing last, per `record_message_change`'s ordering
+/// rule and `record_change`'s "call this last".
+async fn record_turn_change(
     tx: &mut sqlx::PgConnection,
     task_id: &str,
     rows_affected: u64,
 ) -> Result<(), sqlx::Error> {
     if rows_affected > 0 {
+        task_conversation::record_session_change(tx, task_id).await?;
         task_listing::record_change(tx, task_id).await?;
     }
     Ok(())
@@ -273,7 +279,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         // 4) Record the change, when — and only when — step 2 moved the row.
         //    Last, after the `tasks` row lock step 3 takes: `record_change`'s
         //    "call this last".
-        record_listing_change(&mut tx, &ev.task_id, projected.rows_affected()).await?;
+        record_turn_change(&mut tx, &ev.task_id, projected.rows_affected()).await?;
 
         tx.commit().await?;
         Ok(())
@@ -298,7 +304,7 @@ impl TaskTurnDao for PgTaskTurnDao {
             turn_projection_query(task_id, turn_number, agent_type.as_deref(), transition, at)
                 .execute(&mut *tx)
                 .await?;
-        record_listing_change(&mut tx, task_id, projected.rows_affected()).await?;
+        record_turn_change(&mut tx, task_id, projected.rows_affected()).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -406,7 +412,8 @@ impl TaskTurnDao for PgTaskTurnDao {
         // `taskTurn.active` reaches `apply_ingress_event` the row is already
         // `active` and its guarded projection changes nothing. Last, after the
         // advisory lock and both `task_turns` writes — `record_change`'s "call
-        // this last".
+        // this last", with the conversation's allocator ahead of it.
+        task_conversation::record_session_change(&mut tx, task_id).await?;
         task_listing::record_change(&mut tx, task_id).await?;
 
         tx.commit().await?;

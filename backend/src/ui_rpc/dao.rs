@@ -8,7 +8,8 @@
 //!
 //! Opening a conversation reads its transcript through the same module: the
 //! Messages themselves, the enriched blocks a user Message is displayed from,
-//! and a fingerprint cheap enough to ask for on every poll.
+//! and — once it is open — the changes recorded against it and the Messages
+//! those changes name.
 //!
 //! No T3 vocabulary appears in this file. The names are Moatless's; the
 //! translation belongs one module up.
@@ -25,6 +26,7 @@ use tracing::warn;
 use crate::db::DbPool;
 use crate::message::models::{MessageRole, MessageType};
 use crate::shared_models::AgentType;
+use crate::task_conversation::{self, ConversationChange, ConversationHead};
 use crate::task_listing::{self, ListingChange, ListingHead};
 use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
@@ -90,8 +92,8 @@ pub struct Conversation {
 /// run's metrics out of the database to project six fields.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TranscriptMessage {
-    /// The insertion order this transcript is assembled in. Also half of
-    /// [`ThreadRevision`] — see there for why the two must agree.
+    /// The insertion order this transcript is assembled in, and what a work-log
+    /// row is numbered from — see `activity_sequence` in the projection.
     pub id: i32,
     pub uuid: String,
     pub message_type: MessageType,
@@ -129,27 +131,27 @@ pub struct Transcript {
     pub omitted: i64,
 }
 
-/// Everything a transcript is built from, reduced to what changes when it does.
+/// How many Messages before a result-carrying one are read alongside it.
 ///
-/// A subscription re-reads this on every poll and the whole transcript only
-/// when it moved, so it has to be both cheap and complete. Completeness rests
-/// on `task_messages` being append-only for every column a transcript reads:
-/// the four in-place updates this backend makes to that table
-/// (`message/dao.rs`) set token usage, session ids, `sent_at` and external
-/// identifiers, and `turn_number` — and the last one moves with the Turn, which
-/// is why the Turn is part of this fingerprint rather than only the Messages.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
-pub struct ThreadRevision {
-    /// `None` for a Task nothing has written to yet.
-    pub newest_message_id: Option<i32>,
-    /// Counted as well as maxed because the newest id alone cannot see a row
-    /// that arrived and was removed between two polls.
-    pub message_count: i64,
-    pub turn_number: Option<i32>,
-    pub turn_status: Option<String>,
-    pub sandbox_desired_state: Option<SandboxDesiredState>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
+/// A tool call and the row carrying its result are two Messages, and only the
+/// second of them is a change to the first: the call's card flips from running
+/// to finished when the result lands, and nothing rewrites the row the call is
+/// on. So a change that carries results has to be read with a short run of the
+/// Messages before it, or it resolves against nothing and projects to no events
+/// at all — a card left running until the conversation is read again.
+///
+/// A run rather than a lookup by tool-use id because it is one bounded index
+/// scan on `(task_id, id)` instead of a search through every Message's content.
+/// Thirty-two rows is several turns' worth of calls and results.
+///
+/// The run is taken from each result-carrying row, not once from the batch's
+/// oldest. A batch is contiguous in *position*, which is the order changes were
+/// recorded — not in Message id. Rewriting a Message the conversation has
+/// already moved past records a change naming an old row, and one of those
+/// landing in the same poll as a newer result puts the call that result answers
+/// between the two, inside the batch's span but outside a single run taken from
+/// its oldest row.
+const CHANGE_LOOKBACK: i64 = 32;
 
 /// Read the conversations one viewer's sidebar is built from, and the position
 /// a client watching it resumes from.
@@ -209,10 +211,35 @@ pub trait ConversationDao: Send + Sync {
     /// avoid.
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error>;
 
-    /// What a transcript would be built from right now, without building it.
+    /// The highest position this conversation's change log has reached.
+    async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error>;
+
+    /// This conversation's changes at or after `from`, oldest first, capped at
+    /// `limit`. At `from` rather than after it — see
+    /// [`task_conversation::changes_from`].
+    async fn conversation_changes(
+        &self,
+        task_id: &str,
+        from: i64,
+        limit: i64,
+    ) -> Result<Vec<ConversationChange>, sqlx::Error>;
+
+    /// The Messages a batch of changes names, plus the [`CHANGE_LOOKBACK`] rows
+    /// before the oldest of them, oldest first.
     ///
-    /// `None` when the Task does not exist.
-    async fn thread_revision(&self, task_id: &str) -> Result<Option<ThreadRevision>, sqlx::Error>;
+    /// A [`Transcript`] rather than a type of its own, because it is one: the
+    /// projection that turns a transcript into messages and activities is the
+    /// same projection that turns this into the events for them, and two shapes
+    /// would be two of it. Nothing is elided from a read this narrow, so
+    /// [`Transcript::omitted`] is always zero.
+    ///
+    /// Unscoped for the reason [`ConversationDao::transcript`] is: the caller
+    /// has already resolved this Task through the narrowed listing.
+    async fn changed_messages(
+        &self,
+        task_id: &str,
+        uuids: &[String],
+    ) -> Result<Transcript, sqlx::Error>;
 
     /// The highest listing position this deployment has reached, and the
     /// identity of the database it reached it in.
@@ -596,35 +623,95 @@ impl ConversationDao for PgConversationDao {
         })
     }
 
-    async fn thread_revision(&self, task_id: &str) -> Result<Option<ThreadRevision>, sqlx::Error> {
-        sqlx::query_as::<_, ThreadRevision>(
-            r#"SELECT
-                   messages.newest_message_id,
-                   messages.message_count,
-                   turn.turn_number,
-                   turn.status        AS turn_status,
-                   s.desired_state    AS sandbox_desired_state,
-                   t.updated_at
-               FROM tasks t
-               LEFT JOIN sandboxes s ON s.task_id = t.task_id
-               LEFT JOIN LATERAL (
-                   SELECT tt.turn_number, tt.status
-                   FROM task_turns tt
-                   WHERE tt.task_id = t.task_id
-                   ORDER BY tt.turn_number DESC
-                   LIMIT 1
-               ) turn ON TRUE
-               CROSS JOIN LATERAL (
-                   SELECT max(m.id) AS newest_message_id, count(*) AS message_count
-                   FROM task_messages m
-                   WHERE m.task_id = t.task_id
-                     AND m.parent_uuid IS NULL
-               ) messages
-               WHERE t.task_id = $1"#,
+    async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
+        task_conversation::current_head(&self.pool, task_id).await
+    }
+
+    async fn conversation_changes(
+        &self,
+        task_id: &str,
+        from: i64,
+        limit: i64,
+    ) -> Result<Vec<ConversationChange>, sqlx::Error> {
+        task_conversation::changes_from(&self.pool, task_id, from, limit).await
+    }
+
+    async fn changed_messages(
+        &self,
+        task_id: &str,
+        uuids: &[String],
+    ) -> Result<Transcript, sqlx::Error> {
+        if uuids.is_empty() {
+            return Ok(Transcript {
+                messages: Vec::new(),
+                blocks: Vec::new(),
+                omitted: 0,
+            });
+        }
+        // The named rows, and a run before each one that carries a result. Both
+        // halves are filtered to `parent_uuid IS NULL` for the reason the
+        // transcript is: subagent rows are never rendered inline, and a lookback
+        // spent on them would find no tool call to resolve.
+        //
+        // Only result-carrying rows get a run, because they are the only rows
+        // that resolve anything: everything else in a change projects from the
+        // named row alone. That is what keeps the cost of a run per row down to
+        // a run per *answered call*, and it is a filter over the named rows —
+        // Messages already read — not a search through the table.
+        let messages = sqlx::query_as::<_, TranscriptMessage>(
+            r#"WITH named AS (
+                   SELECT id, message_content FROM task_messages
+                   WHERE task_id = $1 AND uuid = ANY($2) AND parent_uuid IS NULL
+               ),
+               answering AS (
+                   SELECT id FROM named
+                   WHERE message_content @> '[{"type": "tool_result"}]'::jsonb
+               ),
+               lookback AS (
+                   SELECT before.id
+                   FROM answering
+                   CROSS JOIN LATERAL (
+                       SELECT id FROM task_messages
+                       WHERE task_id = $1
+                         AND parent_uuid IS NULL
+                         AND id < answering.id
+                       ORDER BY id DESC
+                       LIMIT $3
+                   ) AS before
+               )
+               SELECT id, uuid, message_type, message_role, message_content,
+                      turn_number, "timestamp", created_at
+               FROM task_messages
+               WHERE task_id = $1
+                 AND id IN (SELECT id FROM named UNION SELECT id FROM lookback)
+               ORDER BY id"#,
         )
         .bind(task_id)
-        .fetch_optional(&self.pool)
-        .await
+        .bind(uuids)
+        .bind(CHANGE_LOOKBACK)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let message_ids: Vec<i32> = messages.iter().map(|message| message.id).collect();
+        let blocks = sqlx::query_as::<_, TranscriptBlock>(
+            r#"SELECT task_message_id, text_content
+               FROM task_message_content_blocks
+               WHERE task_id = $1
+                 AND task_message_id = ANY($2)
+                 AND show_in_ui
+                 AND text_content IS NOT NULL
+               ORDER BY task_message_id, sort_order"#,
+        )
+        .bind(task_id)
+        .bind(&message_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(Transcript {
+            messages,
+            blocks,
+            omitted: 0,
+        })
     }
 
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {

@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 
 use super::models::{MessageType, TaskMessage, TaskMessageContentBlock, TaskMessageContext};
 use crate::db::DbPool;
+use crate::task_conversation;
 use crate::task_listing;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
@@ -558,6 +559,23 @@ impl MessageDao for PgMessageDao {
             .bind(&block.image_data)
             .execute(&mut *tx)
             .await?;
+        }
+
+        // Every write to a Message a conversation shows is a change to that
+        // conversation — including the in-place merges that assemble one Message
+        // from its blocks, which move no row count and no id and are otherwise
+        // undetectable from outside this transaction.
+        //
+        // Subagent rows are excluded because no transcript reads them: they are
+        // assembled on demand behind the tool call that spawned them, and they
+        // outnumber the rows that are rendered. Recording them would spend a
+        // conversation's replay window on positions that project to nothing.
+        //
+        // Before the shell's allocator and after every `task_messages` write,
+        // per `record_message_change`'s ordering rule and `record_change`'s
+        // "call this last".
+        if msg.parent_uuid.is_none() {
+            task_conversation::record_message_change(&mut tx, &msg.task_id, &msg.uuid).await?;
         }
 
         // A person writing, or the agent asking, is a listing change. Last,
