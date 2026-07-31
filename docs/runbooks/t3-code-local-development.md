@@ -1,5 +1,14 @@
 # T3 Code against the Moatless Rust backend
 
+> **Working inside a Moatless sandbox instead?** This runbook is the Docker
+> Compose path, for a laptop. The `t3code (Moatless-backed)` workspace runs the
+> same two sides as sidecar containers in one pod — T3's Vite server on 5733
+> proxying to a shadow backend on 8080 — with different auth, a different
+> rebuild loop, and an Origin allowlist that rejects `localhost`. That workflow
+> is documented in the `t3-development` skill
+> (`.agents/skills/t3-development/SKILL.md`); do not follow the Compose steps
+> below inside a sandbox.
+
 This runbook starts a local Moatless Docker Compose environment from the current
 Rust checkout, authenticates through the existing Moatless UI, and runs the T3
 Code web app against the opt-in Rust compatibility surface.

@@ -14,6 +14,11 @@ Use it when iterating on `backend/src/**`, `crates/**`, or `apps/frontend/src/**
 and you want a real, cluster-connected instance instead of Docker Compose or a
 full K8s redeploy.
 
+Iterating on the **T3 Code** client against this backend instead of
+`apps/frontend`? Same shadow, different frontend — see
+[`t3-development`](../t3-development/SKILL.md) for that pair's auth, rebuild
+loop and preview-URL rule.
+
 ## 1. Set up a dedicated shadow repo (one time)
 
 Run the shadow backend as a **server** on its own **repository record** — never
