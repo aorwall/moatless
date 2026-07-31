@@ -4,15 +4,16 @@
 //! Nothing below this module knows the vocabulary: the input is a `Workspace`
 //! row, the output is `serde_json::Value` on the wire.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tracing::warn;
 
-use super::dao::Conversation;
+use super::dao::{Conversation, Transcript, TranscriptBlock, TranscriptMessage};
 use super::AgentModelDefaults;
 use crate::agent::catalog::{self, AgentKind};
+use crate::message::models::MessageType;
 use crate::sandbox::models::ServerConfig;
 use crate::task_turn::models::TurnStatus;
 use crate::workspace::dao::ListedWorkspace;
@@ -189,7 +190,68 @@ pub(super) fn project_removed(workspace_id: &str, sequence: i64) -> Value {
 /// One conversation, in the shape the shell listing carries.
 ///
 /// This is the contract's *shell* thread, not its full one: no messages, no
-/// activities, no checkpoints, no proposed plans, and no `deletedAt`.
+/// activities, no checkpoints, no proposed plans, and no `deletedAt`. See
+/// [`thread_detail`] for the other member of the pair.
+fn thread(conversation: &Conversation, project_id: &str, defaults: &AgentModelDefaults) -> Value {
+    let mut row = conversation_row(conversation, project_id, defaults);
+    // T3 counts only messages a person wrote, which is what keeps the agent's
+    // own output out of the sidebar's ordering entirely.
+    row.insert(
+        "latestUserMessageAt".into(),
+        nullable_instant(conversation.latest_user_message_at),
+    );
+    // The contract requires a definite answer and supplies no empty value.
+    // Moatless has no approval queue, so the answer is always no.
+    row.insert("hasPendingApprovals".into(), Value::Bool(false));
+    row.insert(
+        "hasPendingUserInput".into(),
+        Value::Bool(conversation.pending_question),
+    );
+    row.insert(
+        "hasActionableProposedPlan".into(),
+        Value::Bool(conversation.pending_plan),
+    );
+    Value::Object(row)
+}
+
+/// One conversation, in the shape the thread view carries: the shared row plus
+/// the transcript.
+///
+/// Three of the contract's collections are empty here and stay empty.
+/// `checkpoints` are T3's per-turn worktree snapshots and Moatless captures
+/// none — the diff a person sees comes from the Sandbox's own git state, not
+/// from a checkpoint ref this backend holds. `proposedPlans` are a durable
+/// entity T3 stores and reopens; Moatless has an unanswered `ExitPlanMode` tool
+/// call, which is a fact about the transcript rather than a row, and the shell
+/// already reports it as `hasActionableProposedPlan`. Filling either with
+/// something derived would put a revert button and a plan card in front of a
+/// person that nothing behind them can honour.
+///
+/// The four shell-only fields are absent rather than false: they are not part
+/// of the contract's full thread, and the client reads a conversation's pending
+/// state from its activities here.
+pub(super) fn thread_detail(
+    conversation: &Conversation,
+    project_id: &str,
+    defaults: &AgentModelDefaults,
+    transcript: &Transcript,
+) -> Value {
+    let mut row = conversation_row(conversation, project_id, defaults);
+    let rendered = rendered_transcript(conversation, transcript);
+    // Closing a conversation in Moatless records no timestamp of its own, and
+    // the contract requires this one to be present. A conversation that no
+    // longer exists is not projected at all — the read that would have found it
+    // comes back empty and the caller answers "not found" — so null is the only
+    // value this can carry.
+    row.insert("deletedAt".into(), Value::Null);
+    row.insert("messages".into(), Value::Array(rendered.messages));
+    row.insert("activities".into(), Value::Array(rendered.activities));
+    row.insert("proposedPlans".into(), Value::Array(Vec::new()));
+    row.insert("checkpoints".into(), Value::Array(Vec::new()));
+    Value::Object(row)
+}
+
+/// The fields both shapes of a conversation carry, with the same values.
 ///
 /// Six fields are deliberately absent rather than null. `interactionMode`,
 /// `archivedAt`, `settledOverride`, `settledAt`, `snoozedUntil` and `snoozedAt`
@@ -197,10 +259,13 @@ pub(super) fn project_removed(workspace_id: &str, sequence: i64) -> Value {
 /// honest to put in them: closing a conversation records no timestamp of its
 /// own, and settlement and snoozing do not exist here at all. Leaving them out
 /// lets the contract fill them.
-fn thread(conversation: &Conversation, project_id: &str, defaults: &AgentModelDefaults) -> Value {
+fn conversation_row(
+    conversation: &Conversation,
+    project_id: &str,
+    defaults: &AgentModelDefaults,
+) -> Map<String, Value> {
     let created = created_at(conversation);
-    let latest_turn = latest_turn(conversation);
-    json!({
+    let Value::Object(row) = json!({
         "id": conversation.task_id,
         "projectId": project_id,
         // `tasks.name` is nullable and has no non-empty constraint, and the
@@ -219,19 +284,439 @@ fn thread(conversation: &Conversation, project_id: &str, defaults: &AgentModelDe
             .and_then(non_empty)
             .map_or(Value::Null, Value::String),
         "worktreePath": worktree_path(conversation),
-        "latestTurn": latest_turn,
+        "latestTurn": latest_turn(conversation),
         "createdAt": instant(created),
         "updatedAt": instant(conversation.updated_at.unwrap_or(created)),
-        "session": session(conversation),
-        // T3 counts only messages a person wrote, which is what keeps the
-        // agent's own output out of the sidebar's ordering entirely.
-        "latestUserMessageAt": nullable_instant(conversation.latest_user_message_at),
-        // The contract requires a definite answer and supplies no empty value.
-        // Moatless has no approval queue, so the answer is always no.
-        "hasPendingApprovals": false,
-        "hasPendingUserInput": conversation.pending_question,
-        "hasActionableProposedPlan": conversation.pending_plan
+        "session": session(conversation)
+    }) else {
+        unreachable!("a json! object literal is an object")
+    };
+    row
+}
+
+/// The two collections a conversation's transcript becomes.
+///
+/// T3 splits a conversation the way a reader does and Moatless does not: what
+/// somebody *said* is a message, and what the agent *did* on the way to saying
+/// it is an activity the client renders as a collapsible work log. One Moatless
+/// Message can therefore produce a message and several activities, or only
+/// activities — an assistant turn that did nothing but call tools has no text
+/// and contributes no bubble.
+struct RenderedTranscript {
+    messages: Vec<Value>,
+    activities: Vec<Value>,
+}
+
+/// What came back from one tool call.
+struct ToolOutcome<'a> {
+    text: Option<&'a str>,
+    is_error: bool,
+}
+
+/// Split a Task's Messages into the messages and activities T3 renders.
+///
+/// Ordering is the transcript's own and is carried explicitly: activities are
+/// numbered with a running `sequence`, because the client sorts them by it and
+/// falls back to comparing `createdAt` **as strings** when it is absent — and
+/// every block of one Message shares that Message's single timestamp, so
+/// without a sequence a turn's tool calls would sort by id.
+fn rendered_transcript(
+    conversation: &Conversation,
+    transcript: &Transcript,
+) -> RenderedTranscript {
+    let outcomes = tool_outcomes(&transcript.messages);
+    let displayed = displayed_blocks(&transcript.blocks);
+
+    let mut rendered = RenderedTranscript {
+        messages: Vec::new(),
+        activities: Vec::new(),
+    };
+    if transcript.omitted > 0 {
+        rendered.messages.push(elision_notice(conversation, transcript));
+    }
+
+    for message in &transcript.messages {
+        let at = instant(message_instant(conversation, message));
+        let turn = turn_reference(conversation, message);
+
+        match message.message_type {
+            // The carrier rows for tool results. Their content is already
+            // attached to the call it answers, and rendering them as their own
+            // bubbles would put every tool's raw output in the conversation.
+            MessageType::System => continue,
+            MessageType::User => {
+                // A `user`-typed row holding tool results is the SDK streaming
+                // results back, not a person writing. `message/transform.rs`
+                // makes the same exclusion for the same reason.
+                if carries_tool_results(&message.message_content) {
+                    continue;
+                }
+                let text = user_text(message, &displayed);
+                if !text.is_empty() {
+                    rendered
+                        .messages
+                        .push(message_row(message, "user", text, &turn, &at));
+                }
+            }
+            MessageType::Assistant => {
+                let mut spoken = String::new();
+                for (index, block) in content_blocks(&message.message_content).iter().enumerate() {
+                    match block_type(block) {
+                        Some("text") => push_paragraph(&mut spoken, block_text(block)),
+                        Some("thinking") => rendered.activities.push(thinking_activity(
+                            message, index, &turn, &at,
+                            rendered.activities.len(),
+                        )),
+                        Some("tool_use") => rendered.activities.push(tool_activity(
+                            message, index, block, &outcomes, &turn, &at,
+                            rendered.activities.len(),
+                        )),
+                        // `image`, and anything a future provider adds. Silent
+                        // rather than warned: an unrenderable block is a gap in
+                        // this projection, not a broken row, and one per image
+                        // in every transcript is log noise.
+                        _ => {}
+                    }
+                }
+                if !spoken.is_empty() {
+                    rendered
+                        .messages
+                        .push(message_row(message, "assistant", spoken, &turn, &at));
+                }
+            }
+            // The run's own closing line — "Stopped after an error", a result
+            // summary. Neither the person nor the agent said it, and `system`
+            // is the contract's role for exactly that.
+            MessageType::Result | MessageType::Error => {
+                let mut text = String::new();
+                for block in content_blocks(&message.message_content) {
+                    if block_type(block) == Some("text") {
+                        push_paragraph(&mut text, block_text(block));
+                    }
+                }
+                if !text.is_empty() {
+                    rendered
+                        .messages
+                        .push(message_row(message, "system", text, &turn, &at));
+                }
+            }
+        }
+    }
+
+    rendered
+}
+
+/// The head of a transcript that did not fit, said out loud.
+///
+/// A capped read that simply started in the middle would look like a
+/// conversation that began there. This is the one message in a transcript that
+/// no row in the database backs, which is why it says so.
+fn elision_notice(conversation: &Conversation, transcript: &Transcript) -> Value {
+    let at = instant(
+        transcript
+            .messages
+            .first()
+            .map_or_else(|| created_at(conversation), |first| {
+                message_instant(conversation, first)
+            }),
+    );
+    json!({
+        "id": format!("{}:elided", conversation.task_id),
+        "role": "system",
+        "text": format!(
+            "{} earlier messages are not shown in this view.",
+            transcript.omitted
+        ),
+        "turnId": Value::Null,
+        "streaming": false,
+        "createdAt": at,
+        "updatedAt": at
     })
+}
+
+/// One message bubble.
+fn message_row(
+    message: &TranscriptMessage,
+    role: &str,
+    text: String,
+    turn: &Value,
+    at: &str,
+) -> Value {
+    json!({
+        // `task_messages.uuid` is unique across the deployment and is the
+        // identity every other Moatless surface already refers to a Message by.
+        "id": message.uuid,
+        "role": role,
+        "text": text,
+        "turnId": turn,
+        // Moatless persists a Message once it is whole; there is no partial row
+        // to report as still arriving.
+        "streaming": false,
+        "createdAt": at,
+        // No column records a later edit, and none happens: the in-place
+        // updates this table takes never touch content.
+        "updatedAt": at
+    })
+}
+
+/// One stretch of the agent thinking.
+///
+/// Reported as `task.progress`, which is the kind the client renders in the
+/// thinking tone. The thought itself is not carried: `message_content` holds
+/// only the block's presence for redacted thinking, and a summary line is what
+/// the work log shows either way.
+fn thinking_activity(
+    message: &TranscriptMessage,
+    index: usize,
+    turn: &Value,
+    at: &str,
+    sequence: usize,
+) -> Value {
+    json!({
+        "id": format!("{}:{index}", message.uuid),
+        "tone": "info",
+        "kind": "task.progress",
+        "summary": "Thinking",
+        "payload": { "summary": "Thinking" },
+        "turnId": turn,
+        "sequence": sequence,
+        "createdAt": at
+    })
+}
+
+/// One tool call, with whatever came back from it.
+///
+/// A call whose result has not arrived is `tool.updated` and in progress rather
+/// than `tool.completed`: the client collapses an update into the completion
+/// that follows it, so a call reported complete before it is would keep the
+/// completed row and drop the real outcome.
+fn tool_activity(
+    message: &TranscriptMessage,
+    index: usize,
+    block: &Value,
+    outcomes: &HashMap<&str, ToolOutcome<'_>>,
+    turn: &Value,
+    at: &str,
+    sequence: usize,
+) -> Value {
+    let name = block
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("Tool call");
+    let tool_use_id = block.get("id").and_then(Value::as_str);
+    let outcome = tool_use_id.and_then(|id| outcomes.get(id));
+    let Value::Object(mut fields) = json!({
+        "title": name,
+        "itemType": item_type(name),
+        "status": match outcome {
+            None => "inProgress",
+            Some(outcome) if outcome.is_error => "failed",
+            Some(_) => "completed"
+        }
+    }) else {
+        unreachable!("a json! object literal is an object")
+    };
+    if let Some(tool_use_id) = tool_use_id {
+        fields.insert("data".into(), json!({ "toolCallId": tool_use_id }));
+    }
+    // The client reads the command out of the payload to render a terminal row,
+    // and falls back to the detail text for everything else.
+    if let Some(command) = block
+        .get("input")
+        .and_then(|input| input.get("command"))
+        .and_then(Value::as_str)
+    {
+        fields.insert("command".into(), Value::String(command.to_string()));
+    }
+    if let Some(text) = outcome.and_then(|outcome| outcome.text) {
+        fields.insert("detail".into(), Value::String(truncated(text)));
+    }
+
+    json!({
+        "id": format!("{}:{index}", message.uuid),
+        "tone": if outcome.is_some_and(|outcome| outcome.is_error) { "error" } else { "tool" },
+        "kind": if outcome.is_some() { "tool.completed" } else { "tool.updated" },
+        "summary": name,
+        "payload": Value::Object(fields),
+        "turnId": turn,
+        "sequence": sequence,
+        "createdAt": at
+    })
+}
+
+/// Which of the contract's closed set of tool shapes a Moatless tool call is.
+///
+/// The set names how the client *renders* a call — a terminal row, a diff, a
+/// generic card — and only the two shapes with a dedicated renderer are worth
+/// claiming. Everything else, including every MCP and skill tool a deployment
+/// adds, is the generic one; guessing from a free-text tool name is how a
+/// search tool ends up rendered as a file diff.
+fn item_type(tool_name: &str) -> &'static str {
+    match tool_name {
+        "Bash" | "BashOutput" => "command_execution",
+        "Edit" | "Write" | "NotebookEdit" => "file_change",
+        _ => "dynamic_tool_call",
+    }
+}
+
+/// Every tool result in the transcript, keyed by the call it answers.
+///
+/// Results arrive on later rows than the call — a `system` row, or a `user` row
+/// the SDK streamed back — so this is built over the whole transcript before
+/// any of it is walked. A call whose result was evicted by the transcript cap,
+/// or has not come back yet, is simply absent.
+fn tool_outcomes(messages: &[TranscriptMessage]) -> HashMap<&str, ToolOutcome<'_>> {
+    let mut outcomes = HashMap::new();
+    for message in messages {
+        for block in content_blocks(&message.message_content) {
+            if block_type(block) != Some("tool_result") {
+                continue;
+            }
+            let Some(tool_use_id) = block.get("tool_use_id").and_then(Value::as_str) else {
+                continue;
+            };
+            outcomes.insert(
+                tool_use_id,
+                ToolOutcome {
+                    text: tool_result_text(block),
+                    is_error: block
+                        .get("is_error")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                },
+            );
+        }
+    }
+    outcomes
+}
+
+/// A tool result's visible output.
+///
+/// The block's `content` is a string for most tools and a list of content
+/// blocks for the ones that return structured output; only the first text block
+/// of the latter is shown, which is what the work log has room for.
+fn tool_result_text(block: &Value) -> Option<&str> {
+    let content = block.get("content")?;
+    if let Some(text) = content.as_str() {
+        return Some(text);
+    }
+    content
+        .as_array()?
+        .iter()
+        .find(|part| block_type(part) == Some("text"))
+        .and_then(block_text)
+}
+
+/// The blocks of a user Message a person actually wrote, by Message.
+fn displayed_blocks(blocks: &[TranscriptBlock]) -> HashMap<i32, Vec<&str>> {
+    let mut displayed: HashMap<i32, Vec<&str>> = HashMap::new();
+    for block in blocks {
+        if let Some(text) = block.text_content.as_deref() {
+            displayed.entry(block.task_message_id).or_default().push(text);
+        }
+    }
+    displayed
+}
+
+/// What a person wrote, without what the request was enriched with.
+///
+/// Enriched blocks are the truth when they exist. They do not exist for
+/// Messages written before that write path, and for those the text blocks of
+/// `message_content` are the same text — the enrichment that would make the two
+/// differ is exactly what those rows predate.
+fn user_text(message: &TranscriptMessage, displayed: &HashMap<i32, Vec<&str>>) -> String {
+    let mut text = String::new();
+    if let Some(blocks) = displayed.get(&message.id) {
+        for block in blocks {
+            push_paragraph(&mut text, Some(block));
+        }
+        return text;
+    }
+    // A Message sent as a bare string rather than a block list.
+    if let Some(whole) = message.message_content.as_str() {
+        return whole.to_string();
+    }
+    for block in content_blocks(&message.message_content) {
+        if block_type(block) == Some("text") {
+            push_paragraph(&mut text, block_text(block));
+        }
+    }
+    text
+}
+
+/// The Turn this Message belongs to, in T3's identity for one.
+fn turn_reference(conversation: &Conversation, message: &TranscriptMessage) -> Value {
+    message
+        .turn_number
+        .map_or(Value::Null, |number| {
+            Value::String(turn_id(&conversation.task_id, number))
+        })
+}
+
+/// When a Message happened.
+///
+/// `timestamp` is what the writer said, and is what the transcript is ordered
+/// by, so it is also what the transcript reports — normalized, because the
+/// client compares these as strings and a row in another format would sort
+/// away from its neighbours. A row whose `timestamp` will not parse falls back
+/// to when the database recorded it, and then to the conversation's own start.
+fn message_instant(conversation: &Conversation, message: &TranscriptMessage) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(&message.timestamp)
+        .map(|parsed| parsed.with_timezone(&Utc))
+        .ok()
+        .or(message.created_at)
+        .unwrap_or_else(|| created_at(conversation))
+}
+
+/// Tool output long enough to be a file rather than a preview.
+///
+/// The work log shows a few lines and expands to the rest, but the rest still
+/// crosses the socket; a single `Read` of a large file would otherwise put its
+/// whole contents in the snapshot, and a subscription re-sends the snapshot
+/// every time the conversation moves. Cut with a marker rather than silently.
+const TOOL_DETAIL_LIMIT: usize = 2_000;
+
+fn truncated(text: &str) -> String {
+    if text.len() <= TOOL_DETAIL_LIMIT {
+        return text.to_string();
+    }
+    // On a character boundary: `text` is a `str`, so slicing mid-codepoint
+    // panics.
+    let mut end = TOOL_DETAIL_LIMIT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n… truncated", &text[..end])
+}
+
+fn content_blocks(content: &Value) -> &[Value] {
+    content.as_array().map_or(&[], Vec::as_slice)
+}
+
+fn block_type(block: &Value) -> Option<&str> {
+    block.get("type").and_then(Value::as_str)
+}
+
+fn block_text(block: &Value) -> Option<&str> {
+    block.get("text").and_then(Value::as_str)
+}
+
+fn carries_tool_results(content: &Value) -> bool {
+    content_blocks(content)
+        .iter()
+        .any(|block| block_type(block) == Some("tool_result"))
+}
+
+/// Append a paragraph, keeping the blank line between blocks that markdown
+/// needs to render them as separate ones.
+fn push_paragraph(text: &mut String, addition: Option<&str>) {
+    let Some(addition) = addition.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    if !text.is_empty() {
+        text.push_str("\n\n");
+    }
+    text.push_str(addition);
 }
 
 /// The conversation's newest turn, or null when it has never run.
@@ -599,6 +1084,7 @@ fn created_at(conversation: &Conversation) -> DateTime<Utc> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::models::MessageRole;
     use crate::shared_models::AgentType;
     use moatless_backend_core::scope::Scope;
 
@@ -1195,5 +1681,420 @@ mod tests {
         let mut ws = workspace("ws-a", "Alpha");
         ws.workspace.servers = Some(json!({ "not": "a list" }));
         assert!(project(&ws)["scripts"].as_array().unwrap().is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // The conversation itself
+    // -----------------------------------------------------------------------
+    //
+    // `OrchestrationThread` (`orchestration.ts:342-378`) — the shell row's
+    // fuller twin. It drops the four the shell adds for its own sorting and
+    // badges, and adds the conversation: `deletedAt`, `messages`,
+    // `proposedPlans`, `activities`, `checkpoints`.
+
+    const DETAIL_REQUIRED: &[&str] = &[
+        "id",
+        "projectId",
+        "title",
+        "modelSelection",
+        "runtimeMode",
+        "branch",
+        "worktreePath",
+        "latestTurn",
+        "createdAt",
+        "updatedAt",
+        "session",
+        "deletedAt",
+        "messages",
+        "activities",
+        "checkpoints",
+    ];
+    const DETAIL_OPTIONAL: &[&str] = &[
+        "interactionMode",
+        "archivedAt",
+        "settledOverride",
+        "settledAt",
+        "snoozedUntil",
+        "snoozedAt",
+        "proposedPlans",
+    ];
+
+    // `OrchestrationMessage` (`:227-236`).
+    const MESSAGE_REQUIRED: &[&str] = &[
+        "id",
+        "role",
+        "text",
+        "turnId",
+        "streaming",
+        "createdAt",
+        "updatedAt",
+    ];
+    const MESSAGE_OPTIONAL: &[&str] = &["attachments"];
+    const MESSAGE_ROLES: &[&str] = &["user", "assistant", "system"];
+
+    // `OrchestrationThreadActivity` (`:312-321`).
+    const ACTIVITY_REQUIRED: &[&str] = &[
+        "id",
+        "tone",
+        "kind",
+        "summary",
+        "payload",
+        "turnId",
+        "createdAt",
+    ];
+    const ACTIVITY_OPTIONAL: &[&str] = &["sequence"];
+    const ACTIVITY_NON_EMPTY: &[&str] = &["id", "kind", "summary"];
+    /// `OrchestrationThreadActivityTone` (`:304-309`).
+    const ACTIVITY_TONES: &[&str] = &["info", "tool", "approval", "error"];
+
+    fn message(id: i32, message_type: MessageType, content: Value) -> TranscriptMessage {
+        TranscriptMessage {
+            id,
+            uuid: format!("msg-{id}"),
+            message_type,
+            message_role: match message_type {
+                MessageType::User => MessageRole::User,
+                MessageType::Assistant => MessageRole::Assistant,
+                _ => MessageRole::System,
+            },
+            message_content: content,
+            turn_number: Some(3),
+            // Minute `id` past the hour, so the fixture's own order is legible
+            // in an assertion failure.
+            timestamp: format!("2026-07-01T10:{id:02}:00.000Z"),
+            created_at: Some(Utc::now()),
+        }
+    }
+
+    fn transcript(messages: Vec<TranscriptMessage>) -> Transcript {
+        Transcript {
+            messages,
+            blocks: Vec::new(),
+            omitted: 0,
+        }
+    }
+
+    /// The fixture transcript: a person asks, the agent thinks, runs a command
+    /// that works and one that fails, and answers.
+    fn a_conversation() -> Transcript {
+        transcript(vec![
+            message(1, MessageType::User, json!([{ "type": "text", "text": "Fix the build" }])),
+            message(
+                2,
+                MessageType::Assistant,
+                json!([
+                    { "type": "thinking", "thinking": "" },
+                    { "type": "tool_use", "id": "call-1", "name": "Bash",
+                      "input": { "command": "cargo build" } },
+                    { "type": "tool_use", "id": "call-2", "name": "Edit",
+                      "input": { "file_path": "src/main.rs" } }
+                ]),
+            ),
+            message(
+                3,
+                MessageType::User,
+                json!([
+                    { "type": "tool_result", "tool_use_id": "call-1", "content": "Compiling" },
+                    { "type": "tool_result", "tool_use_id": "call-2",
+                      "content": "no such file", "is_error": true }
+                ]),
+            ),
+            message(4, MessageType::Assistant, json!([{ "type": "text", "text": "Done." }])),
+        ])
+    }
+
+    fn detail(transcript: &Transcript) -> Value {
+        thread_detail(
+            &running_conversation("task-a", "ws-a"),
+            "ws-a",
+            &AgentModelDefaults::default(),
+            transcript,
+        )
+    }
+
+    #[test]
+    fn the_detail_wire_shape_matches_the_contract_field_for_field() {
+        let thread = detail(&a_conversation());
+
+        assert_keys(&thread, "thread", DETAIL_REQUIRED, DETAIL_OPTIONAL);
+        assert_non_empty(&thread, "thread", THREAD_NON_EMPTY);
+
+        for message in thread["messages"].as_array().unwrap() {
+            assert_keys(message, "message", MESSAGE_REQUIRED, MESSAGE_OPTIONAL);
+            assert!(
+                MESSAGE_ROLES.contains(&message["role"].as_str().unwrap()),
+                "message.role must be one of the contract's three literals"
+            );
+            assert!(message["streaming"].is_boolean());
+            assert!(
+                !message["id"].as_str().unwrap().is_empty(),
+                "message.id must not be empty"
+            );
+        }
+
+        for activity in thread["activities"].as_array().unwrap() {
+            assert_keys(activity, "activity", ACTIVITY_REQUIRED, ACTIVITY_OPTIONAL);
+            assert_non_empty(activity, "activity", ACTIVITY_NON_EMPTY);
+            assert!(
+                ACTIVITY_TONES.contains(&activity["tone"].as_str().unwrap()),
+                "activity.tone must be one of the contract's four literals"
+            );
+        }
+    }
+
+    /// The shell's four extra fields are the shell's. Emitting one here is not
+    /// a harmless extra: `OrchestrationThread` is a closed struct, so an
+    /// undeclared key fails the decode and the conversation never renders.
+    #[test]
+    fn the_detail_row_carries_none_of_the_shells_own_fields() {
+        let thread = detail(&a_conversation());
+        for key in [
+            "latestUserMessageAt",
+            "hasPendingApprovals",
+            "hasPendingUserInput",
+            "hasActionableProposedPlan",
+        ] {
+            assert!(
+                thread.get(key).is_none(),
+                "the detail row must not carry the shell's `{key}`"
+            );
+        }
+    }
+
+    #[test]
+    fn what_was_said_becomes_messages_and_what_was_done_becomes_activities() {
+        let thread = detail(&a_conversation());
+
+        let spoken = thread["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|message| (message["role"].clone(), message["text"].clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            spoken,
+            vec![
+                (json!("user"), json!("Fix the build")),
+                (json!("assistant"), json!("Done."))
+            ],
+            "the tool-result carrier row is not a bubble of its own"
+        );
+
+        let work = thread["activities"].as_array().unwrap();
+        assert_eq!(
+            work.iter().map(|a| a["summary"].clone()).collect::<Vec<_>>(),
+            vec![json!("Thinking"), json!("Bash"), json!("Edit")]
+        );
+    }
+
+    /// The client sorts a work log by `sequence` and falls back to comparing
+    /// `createdAt` as strings. Every activity of one Message shares that
+    /// Message's single timestamp, so without a sequence a turn's tool calls
+    /// would arrive in an order the transcript never had.
+    #[test]
+    fn activities_are_numbered_in_transcript_order() {
+        let thread = detail(&a_conversation());
+        let sequences = thread["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|activity| activity["sequence"].as_i64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(sequences, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn a_tool_call_carries_its_outcome() {
+        let thread = detail(&a_conversation());
+        let work = thread["activities"].as_array().unwrap();
+
+        let ran = &work[1];
+        assert_eq!(ran["kind"], "tool.completed");
+        assert_eq!(ran["tone"], "tool");
+        assert_eq!(ran["payload"]["status"], "completed");
+        assert_eq!(ran["payload"]["itemType"], "command_execution");
+        assert_eq!(ran["payload"]["command"], "cargo build");
+        assert_eq!(ran["payload"]["detail"], "Compiling");
+        assert_eq!(ran["payload"]["data"]["toolCallId"], "call-1");
+
+        let failed = &work[2];
+        assert_eq!(failed["tone"], "error");
+        assert_eq!(failed["payload"]["status"], "failed");
+        assert_eq!(failed["payload"]["itemType"], "file_change");
+        assert!(
+            failed["payload"].get("command").is_none(),
+            "a call with no command has no terminal row to render"
+        );
+    }
+
+    /// A call still running is reported as an update, not a completion: the
+    /// client collapses an update into the completion that follows it, so a
+    /// call reported complete before it is keeps the wrong row and drops the
+    /// real outcome when it arrives.
+    #[test]
+    fn a_tool_call_with_no_result_yet_is_still_in_progress() {
+        let mut waiting = a_conversation();
+        waiting.messages.truncate(2);
+        let work = detail(&waiting)["activities"].as_array().unwrap().clone();
+        assert_eq!(work[1]["kind"], "tool.updated");
+        assert_eq!(work[1]["payload"]["status"], "inProgress");
+        assert!(work[1]["payload"].get("detail").is_none());
+    }
+
+    /// The result of a call whose text was long enough to be a file is cut, and
+    /// says so. A subscription re-sends the whole transcript every time the
+    /// conversation moves, so one `Read` of a large file would otherwise be
+    /// paid for again on every message.
+    #[test]
+    fn a_large_tool_result_is_cut_with_a_marker() {
+        let long = "x".repeat(TOOL_DETAIL_LIMIT * 2);
+        let mut conversation = a_conversation();
+        conversation.messages[2].message_content = json!([
+            { "type": "tool_result", "tool_use_id": "call-1", "content": long }
+        ]);
+        let detail = detail(&conversation)["activities"][1]["payload"]["detail"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(detail.ends_with("… truncated"));
+        assert!(detail.len() < TOOL_DETAIL_LIMIT + 32);
+    }
+
+    /// A tool result comes back as a bare string for most tools and as a block
+    /// list for the ones that return structured output.
+    #[test]
+    fn a_structured_tool_result_shows_its_text() {
+        let mut conversation = a_conversation();
+        conversation.messages[2].message_content = json!([
+            { "type": "tool_result", "tool_use_id": "call-1", "content": [
+                { "type": "image", "source": {} },
+                { "type": "text", "text": "3 files changed" }
+            ] }
+        ]);
+        assert_eq!(
+            detail(&conversation)["activities"][1]["payload"]["detail"],
+            "3 files changed"
+        );
+    }
+
+    /// The enriched blocks are what the person wrote; `message_content` is what
+    /// the provider was sent, which for an enriched request is that text plus
+    /// whatever was appended to it.
+    #[test]
+    fn a_user_message_prefers_the_blocks_the_ui_displays() {
+        let mut conversation = a_conversation();
+        conversation.blocks = vec![TranscriptBlock {
+            task_message_id: 1,
+            text_content: Some("Fix the build".to_string()),
+        }];
+        conversation.messages[0].message_content = json!([
+            { "type": "text", "text": "Fix the build\n\n<system-reminder>…</system-reminder>" }
+        ]);
+        assert_eq!(detail(&conversation)["messages"][0]["text"], "Fix the build");
+    }
+
+    /// A Message written as a bare string rather than a block list.
+    #[test]
+    fn a_user_message_stored_as_a_string_still_renders() {
+        let mut conversation = a_conversation();
+        conversation.messages[0].message_content = json!("Fix the build");
+        assert_eq!(detail(&conversation)["messages"][0]["text"], "Fix the build");
+    }
+
+    /// A capped read that simply began in the middle would look like a
+    /// conversation that began there.
+    #[test]
+    fn a_capped_transcript_says_what_it_left_out() {
+        let mut conversation = a_conversation();
+        conversation.omitted = 12;
+        let messages = detail(&conversation)["messages"].as_array().unwrap().clone();
+        assert_eq!(messages[0]["role"], "system");
+        assert!(messages[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("12 earlier messages"));
+        assert_eq!(messages[0]["turnId"], Value::Null);
+        assert_keys(&messages[0], "message", MESSAGE_REQUIRED, MESSAGE_OPTIONAL);
+    }
+
+    /// The run's own closing line is neither the person's nor the agent's.
+    #[test]
+    fn a_result_row_is_spoken_by_the_system() {
+        let conversation = transcript(vec![message(
+            1,
+            MessageType::Result,
+            json!([{ "type": "text", "text": "Stopped after an error" }]),
+        )]);
+        let messages = detail(&conversation)["messages"].as_array().unwrap().clone();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "system");
+        assert_eq!(messages[0]["text"], "Stopped after an error");
+    }
+
+    /// Only two of the contract's shapes have a renderer of their own, and
+    /// guessing from a free-text tool name is how a search tool ends up drawn
+    /// as a file diff.
+    #[test]
+    fn only_a_tool_with_a_renderer_claims_one() {
+        assert_eq!(item_type("Bash"), "command_execution");
+        assert_eq!(item_type("BashOutput"), "command_execution");
+        assert_eq!(item_type("Edit"), "file_change");
+        assert_eq!(item_type("Write"), "file_change");
+        assert_eq!(item_type("NotebookEdit"), "file_change");
+        assert_eq!(item_type("Grep"), "dynamic_tool_call");
+        assert_eq!(item_type("mcp__linear__create_issue"), "dynamic_tool_call");
+    }
+
+    /// The transcript is ordered by `timestamp` and the client compares these
+    /// as strings, so a row in another format would sort away from its
+    /// neighbours. A row whose timestamp will not parse still needs one.
+    #[test]
+    fn every_message_reports_a_comparable_instant() {
+        let mut conversation = a_conversation();
+        conversation.messages[0].timestamp = "not a timestamp".to_string();
+        let messages = detail(&conversation)["messages"].as_array().unwrap().clone();
+        for message in &messages {
+            let at = message["createdAt"].as_str().unwrap();
+            assert!(
+                DateTime::parse_from_rfc3339(at).is_ok(),
+                "{at} is not an instant the client can compare"
+            );
+            assert_eq!(message["createdAt"], message["updatedAt"]);
+        }
+    }
+
+    /// Nothing here is answered from a Turn that is not this Message's own.
+    #[test]
+    fn a_message_outside_any_turn_reports_no_turn() {
+        let mut conversation = a_conversation();
+        conversation.messages[0].turn_number = None;
+        let detail = detail(&conversation);
+        assert_eq!(detail["messages"][0]["turnId"], Value::Null);
+        assert_eq!(detail["messages"][1]["turnId"], "task-a:3");
+        assert_eq!(detail["activities"][0]["turnId"], "task-a:3");
+    }
+
+    /// An assistant turn that only called tools contributes activities and no
+    /// bubble — an empty one would render as a blank reply.
+    #[test]
+    fn a_turn_that_only_called_tools_says_nothing() {
+        let conversation = transcript(vec![message(
+            1,
+            MessageType::Assistant,
+            json!([{ "type": "tool_use", "id": "call-1", "name": "Grep", "input": {} }]),
+        )]);
+        let detail = detail(&conversation);
+        assert!(detail["messages"].as_array().unwrap().is_empty());
+        assert_eq!(detail["activities"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn an_empty_conversation_still_decodes() {
+        let detail = detail(&transcript(Vec::new()));
+        assert_keys(&detail, "thread", DETAIL_REQUIRED, DETAIL_OPTIONAL);
+        assert_eq!(detail["messages"], json!([]));
+        assert_eq!(detail["activities"], json!([]));
+        assert_eq!(detail["checkpoints"], json!([]));
+        assert_eq!(detail["deletedAt"], Value::Null);
     }
 }

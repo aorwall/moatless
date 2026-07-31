@@ -14,12 +14,20 @@
 //! listing, which is a different member of the contract's stream union and not
 //! an empty answer. Only turn transitions enter the feed so far; writes remain
 //! unimplemented.
+//!
+//! Opening one conversation reads its transcript and projects it into the two
+//! collections T3 renders — what was *said* as messages, what was *done* as a
+//! work log — over the same route in both directions: an HTTP snapshot the
+//! client hydrates from, and a subscription that keeps it current. The
+//! conversation has no change feed of its own, so that subscription compares a
+//! fingerprint and re-sends the transcript whole when it moves, which is why it
+//! polls a quarter as often as the shell's. See [`ThreadFeed`].
 
 pub mod dao;
 mod feed;
 mod projection;
 
-pub use feed::ShellFeed;
+pub use feed::{ShellFeed, ThreadFeed};
 
 use std::collections::HashMap;
 use std::env;
@@ -28,7 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Extension, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -59,6 +67,16 @@ const MAX_ACTIVE_STREAMS: usize = 64;
 /// enough that a turn starting looks immediate, long enough that an agent
 /// working flat out cannot turn the sidebar into a delivery loop.
 const SHELL_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+/// How often an open conversation asks whether it has moved.
+///
+/// Longer than the shell's because what it delivers is larger: the shell sends
+/// one changed row, a conversation sends itself whole (see [`ThreadFeed`]). The
+/// question asked each interval is cheap either way — a fingerprint, not a
+/// transcript — so this is the coalescing window for the *answer*, and a second
+/// is the shortest one at which an agent writing continuously does not turn a
+/// transcript into a delivery loop.
+const THREAD_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Frames a subscription may have queued for the socket before it is dropped.
 ///
@@ -239,6 +257,10 @@ fn router(state: UiRpcState) -> Router {
         .route("/.well-known/t3/environment", get(environment_descriptor))
         .route("/api/auth/session", get(auth_session))
         .route("/api/orchestration/shell", get(shell_snapshot_http))
+        .route(
+            "/api/orchestration/threads/{thread_id}",
+            get(thread_snapshot_http),
+        )
         .route("/ws", get(websocket_upgrade))
         .with_state(state)
 }
@@ -321,6 +343,49 @@ async fn shell_snapshot_http(
     }
 }
 
+/// The transcript bootstrap, fetched before the socket subscription opens.
+///
+/// A 404 here is not an error the client reports: it defers to the socket
+/// subscription and logs at debug (`state/threadSnapshotHttp.ts:99-107`). So
+/// this status is also what a conversation the viewer may not see gets — the
+/// alternative, a 403, would confirm the id exists.
+async fn thread_snapshot_http(
+    State(state): State<UiRpcState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(thread_id): Path<String>,
+) -> Response {
+    debug!(user_id = %identity.user_id, task_id = %thread_id, "T3 UI thread snapshot bootstrap");
+    match thread_snapshot(
+        state.workspaces.as_ref(),
+        state.conversations.as_ref(),
+        &state.model_defaults,
+        &viewer_scope(&identity),
+        &thread_id,
+    )
+    .await
+    {
+        Ok(Some(snapshot)) => Json(snapshot.value).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Conversation not found" })),
+        )
+            .into_response(),
+        Err(error) => {
+            error!(
+                %error,
+                user_id = %identity.user_id,
+                task_id = %thread_id,
+                "Failed to assemble T3 UI thread snapshot"
+            );
+            (
+                shell_failure_status(&error),
+                Json(json!({ "error": "Failed to assemble the conversation" })),
+            )
+                .into_response()
+        }
+    }
+}
+
 /// Assemble the shell listing one viewer sees.
 ///
 /// This is the module's data-access seam, and the whole of its internal
@@ -367,6 +432,125 @@ pub async fn shell_snapshot(
         sequence,
         identity: head.identity,
     })
+}
+
+/// Assemble one conversation as the thread view carries it.
+///
+/// `Ok(None)` is every way a conversation can be absent for this viewer —
+/// deleted, unfollowed, no longer readable, or grouped under a workspace that
+/// is not listable — collapsed into one answer, because they are one answer to
+/// the client and distinguishing them would disclose which.
+///
+/// The conversation row is resolved through the **same narrowed listing query
+/// the shell uses**, so the two cannot drift: a conversation the sidebar shows
+/// opens, and one it does not is not reachable by typing its id into the
+/// address bar. Following is part of that rule, deliberately — a sidebar is
+/// about involvement, and this is the view its rows open into.
+///
+/// # Read order
+///
+/// Three reads, and their order is load-bearing in the same way
+/// [`shell_snapshot`]'s is. The fingerprint comes first because a subscription
+/// starts watching from it, and one taken after the transcript would already
+/// describe the rows it holds — the next change would compare equal and never
+/// be sent. The listing position comes before the rows for the reason given on
+/// [`shell_snapshot`]. The transcript comes last.
+pub async fn thread_snapshot(
+    workspaces: &dyn WorkspaceDao,
+    conversations: &dyn ConversationDao,
+    model_defaults: &AgentModelDefaults,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Option<ThreadSnapshot>, sqlx::Error> {
+    let revision = conversations.thread_revision(task_id).await?;
+    let sequence = conversations.listing_head().await?.position;
+    let rows = conversations
+        .list_followed_by_ids(viewer, &[task_id.to_string()])
+        .await?;
+    let Some(conversation) = rows.into_iter().next() else {
+        return Ok(None);
+    };
+    let referenced: Vec<String> = conversation.workspace_id.clone().into_iter().collect();
+    let workspaces = workspaces
+        .list_readable_including(viewer, &referenced)
+        .await?;
+    let project_id = conversation
+        .workspace_id
+        .as_deref()
+        .filter(|id| workspaces.iter().any(|listed| listed.workspace.id == *id));
+    let Some(project_id) = project_id else {
+        // The shell drops this conversation for the same reason, with the same
+        // warning. Opening one the sidebar could not show it is the same gap
+        // seen from the other side.
+        warn!(
+            task_id = %conversation.task_id,
+            workspace_id = ?conversation.workspace_id,
+            "Conversation has no listable workspace; not opening it in the T3 UI"
+        );
+        return Ok(None);
+    };
+    let transcript = conversations.transcript(task_id).await?;
+    if transcript.omitted > 0 {
+        info!(
+            task_id,
+            omitted = transcript.omitted,
+            "T3 UI thread snapshot left out the oldest messages of a long conversation"
+        );
+    }
+    Ok(Some(ThreadSnapshot {
+        value: json!({
+            "snapshotSequence": sequence,
+            "thread": projection::thread_detail(
+                &conversation,
+                project_id,
+                model_defaults,
+                &transcript,
+            )
+        }),
+        revision,
+    }))
+}
+
+/// One conversation as the client receives it, and the fingerprint it was built
+/// at.
+///
+/// They travel together because a subscription needs both: the conversation
+/// goes to the client and the fingerprint is where its feed starts watching.
+pub struct ThreadSnapshot {
+    pub value: Value,
+    pub revision: Option<dao::ThreadRevision>,
+}
+
+/// Open a subscription to one conversation.
+///
+/// Always a snapshot, never a replay, and `afterSequence` is therefore ignored
+/// rather than honoured — there is no per-conversation change log to replay
+/// from (see [`ThreadFeed`]). That is a difference the client absorbs without
+/// being told: a `snapshot` item is a member of the same stream union it would
+/// have received either way, and it replaces what it holds with it.
+///
+/// `Ok(None)` when the conversation is not visible to this viewer; the caller
+/// answers the request rather than opening a stream that can only end.
+pub async fn thread_subscription(
+    workspaces: &dyn WorkspaceDao,
+    conversations: &dyn ConversationDao,
+    model_defaults: &AgentModelDefaults,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Option<(Vec<Value>, ThreadFeed)>, sqlx::Error> {
+    let Some(snapshot) =
+        thread_snapshot(workspaces, conversations, model_defaults, viewer, task_id).await?
+    else {
+        return Ok(None);
+    };
+    let feed = ThreadFeed::at(task_id.to_string(), snapshot.revision);
+    Ok(Some((
+        vec![json!({
+            "kind": "snapshot",
+            "snapshot": snapshot.value
+        })],
+        feed,
+    )))
 }
 
 /// A shell listing, the position it was read at, and the database it was read
@@ -1109,6 +1293,107 @@ impl ProtocolSession {
                 }
                 started
             }
+            "orchestration.subscribeThread" => {
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    // The contract requires it and every client encodes against
+                    // the contract, so this is a malformed request rather than
+                    // a conversation that is missing.
+                    return vec![failure_exit(
+                        &id,
+                        "orchestration.subscribeThread requires a threadId",
+                    )];
+                };
+                let task_id = task_id.to_string();
+                let viewer = viewer_scope(identity);
+                let opened = match thread_subscription(
+                    state.workspaces.as_ref(),
+                    state.conversations.as_ref(),
+                    &state.model_defaults,
+                    &viewer,
+                    &task_id,
+                )
+                .await
+                {
+                    Ok(opened) => opened,
+                    Err(error) => {
+                        error!(
+                            %error,
+                            user_id = %identity.user_id,
+                            task_id = %task_id,
+                            "Failed to assemble T3 UI thread snapshot"
+                        );
+                        return vec![failure_exit(&id, "Failed to assemble the conversation")];
+                    }
+                };
+                let Some((mut values, feed)) = opened else {
+                    return vec![failure_exit(&id, "Conversation not found")];
+                };
+                if payload
+                    .get("requestCompletionMarker")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    // Last, after the snapshot. Until the client sees this it
+                    // renders the conversation as still loading however much of
+                    // it has arrived — which is what an unimplemented
+                    // subscription looked like from the outside.
+                    values.push(json!({ "kind": "synchronized" }));
+                }
+                let frames = self.frames.clone();
+                let producer = tokio::spawn(Self::watch_thread(
+                    id.clone(),
+                    feed,
+                    state.clone(),
+                    viewer,
+                    frames,
+                ));
+                let started = self.start_stream(&id, Some(values));
+                if let Some(stream) = self.streams.get_mut(id.as_str()) {
+                    stream.producer = Some(producer);
+                } else {
+                    // The stream limit refused it; nothing will read its frames.
+                    producer.abort();
+                }
+                started
+            }
+            // Every asset T3 asks this environment for is a file on a machine
+            // it can reach, and Moatless projects are not directories on this
+            // one — a project's root path is synthesized, and the checkout only
+            // exists inside a per-task Sandbox. Answering "not found" is the
+            // honest projection and the one the client renders (a project
+            // without a favicon), where a defect leaves the same blank icon
+            // behind a stack trace.
+            "assets.createUrl" => {
+                // The error carries the resource back, and the client decodes it
+                // against the same schema it sent — so a request without one has
+                // no typed answer to give and is a malformed request instead.
+                let Some(resource) = payload.get("resource") else {
+                    return vec![failure_exit(&id, "assets.createUrl requires a resource")];
+                };
+                vec![typed_failure_exit(
+                    &id,
+                    json!({
+                        "_tag": "AssetWorkspaceAssetNotFoundError",
+                        "resource": resource
+                    }),
+                )]
+            }
+            // Same fact, different question: there is no filesystem behind a
+            // project here to read `t3.json` or anything else out of.
+            "projects.readFile" => vec![typed_failure_exit(
+                &id,
+                json!({
+                    "_tag": "ProjectReadFileError",
+                    "message": "Moatless projects have no filesystem on this environment",
+                    "failure": "operation_failed"
+                }),
+            )],
+            // Which client is focused decides whether *T3* keeps background
+            // work running on its own host. Moatless runs its agents in
+            // Sandboxes that no browser tab is attached to, so the report is
+            // accepted and dropped rather than refused: the client sends it on
+            // every focus change and a defect per change is pure noise.
+            "server.reportClientActivity" => vec![success_exit(&id, Value::Null)],
             "subscribeServerConfig" => self.start_stream(
                 &id,
                 Some(vec![json!({
@@ -1227,6 +1512,72 @@ impl ProtocolSession {
             // successfully may still fail on the wire in `send_frames`, so
             // treating the queue as delivery confirmation would be wrong in the
             // other direction too.
+            if frames.send(chunk).await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Push whole conversation snapshots for as long as the subscription lives.
+    ///
+    /// The shape mirrors [`Self::watch_shell`] and the difference is what a poll
+    /// can say. The shell's feed reads an append-only change log and emits the
+    /// rows since its cursor; there is no such log per conversation, so
+    /// [`ThreadFeed::poll`] compares a fingerprint and re-sends the transcript
+    /// whole when it moved. That makes an empty poll the overwhelmingly common
+    /// case and a non-empty one expensive, which is why this loop runs at a
+    /// quarter of the shell's rate.
+    ///
+    /// It also gives a poll a third answer the shell's cannot produce: `None`,
+    /// meaning the conversation is no longer readable — deleted, unfollowed, or
+    /// its project ungrouped. The subscription cannot recover from any of those
+    /// by polling again, so it ends rather than idling silently on a screen that
+    /// would keep rendering the last snapshot as current.
+    async fn watch_thread(
+        request_id: RequestId,
+        mut feed: ThreadFeed,
+        state: UiRpcState,
+        viewer: ScopeContext,
+        frames: mpsc::Sender<Value>,
+    ) {
+        loop {
+            tokio::time::sleep(THREAD_POLL_INTERVAL).await;
+            let polled = feed
+                .poll(
+                    state.workspaces.as_ref(),
+                    state.conversations.as_ref(),
+                    &state.model_defaults,
+                    &viewer,
+                )
+                .await;
+            let values = match polled {
+                Ok(Some(values)) => values,
+                Ok(None) => {
+                    let _ = frames
+                        .send(failure_exit(&request_id, "Conversation not found"))
+                        .await;
+                    return;
+                }
+                Err(error) => {
+                    // As in `watch_shell`: a failed poll leaves the fingerprint
+                    // where it was, so the next one covers the same ground and
+                    // the subscription survives a transient database error.
+                    warn!(
+                        %error,
+                        user_id = %viewer.user_id,
+                        "Failed to poll the T3 UI conversation"
+                    );
+                    continue;
+                }
+            };
+            if values.is_empty() {
+                continue;
+            }
+            let chunk = json!({
+                "_tag": "Chunk",
+                "requestId": request_id.wire(),
+                "values": values
+            });
             if frames.send(chunk).await.is_err() {
                 return;
             }
@@ -1375,6 +1726,27 @@ fn failure_exit(request_id: &RequestId, defect: impl Into<String>) -> Value {
     })
 }
 
+/// Fail a request with an error the client's schema knows how to decode.
+///
+/// [`failure_exit`] dies with a string, which every caller renders as an
+/// unexpected server defect. A `Fail` cause carrying a tagged error is instead
+/// matched against the method's declared error type, so the client handles it as
+/// one of that method's ordinary outcomes. Use this where the failure is one the
+/// contract anticipated and the string form where it is not.
+fn typed_failure_exit(request_id: &RequestId, error: Value) -> Value {
+    json!({
+        "_tag": "Exit",
+        "requestId": request_id.wire(),
+        "exit": {
+            "_tag": "Failure",
+            "cause": [{
+                "_tag": "Fail",
+                "error": error
+            }]
+        }
+    })
+}
+
 /// The client is told the listing could not be built; the cause is logged once
 /// here rather than shipped to the browser.
 fn shell_failure_exit(
@@ -1465,6 +1837,10 @@ mod tests {
         conversations
             .expect_listing_changes_after()
             .returning(|_, _| Ok(Vec::new()));
+        // The stub holds no conversations, so every one asked for is one that
+        // is gone. What a conversation that exists projects to is asserted in
+        // `projection.rs`.
+        conversations.expect_thread_revision().returning(|_| Ok(None));
         UiRpcState {
             rpc: Arc::new(UiRpcConfig {
                 environment_id: environment_id("moatless-test", &stub_identity()),
@@ -1708,6 +2084,92 @@ mod tests {
         assert_eq!(after_sequence(&json!({ "afterSequence": -1 })), None);
         assert_eq!(after_sequence(&json!({ "afterSequence": "7" })), None);
         assert_eq!(after_sequence(&json!({ "afterSequence": 1.5 })), None);
+    }
+
+    /// A conversation this viewer cannot see ends the subscription rather than
+    /// opening one that will never produce a frame.
+    ///
+    /// The client renders a conversation as still loading until a snapshot
+    /// arrives, and a stream that opens and stays silent is indistinguishable
+    /// from one that is slow — which is exactly what an unimplemented
+    /// `subscribeThread` looked like from the browser.
+    #[tokio::test]
+    async fn a_thread_subscription_that_cannot_be_opened_fails_rather_than_hangs() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request(
+                    "6",
+                    "orchestration.subscribeThread",
+                    json!({ "threadId": "task-gone", "requestCompletionMarker": true }),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+        assert_eq!(output.frames[0]["_tag"], "Exit");
+        assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
+        assert!(!session.streams.contains_key("6"));
+    }
+
+    #[tokio::test]
+    async fn a_thread_subscription_without_a_thread_is_refused() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request("7", "orchestration.subscribeThread", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+        assert_eq!(output.frames[0]["_tag"], "Exit");
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+    }
+
+    /// The client decodes a method's failure against that method's declared
+    /// error type, so a tagged error is one of its ordinary outcomes and a
+    /// string defect is not. Answering "no favicon" with a defect leaves the
+    /// same blank icon behind a stack trace.
+    #[tokio::test]
+    async fn an_asset_this_environment_has_no_file_for_fails_in_the_contracts_own_type() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request(
+                    "8",
+                    "assets.createUrl",
+                    json!({ "resource": { "_tag": "project-favicon", "cwd": "/moatless" } }),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+        let cause = &output.frames[0]["exit"]["cause"][0];
+        assert_eq!(cause["_tag"], "Fail");
+        assert_eq!(cause["error"]["_tag"], "AssetWorkspaceAssetNotFoundError");
+        assert_eq!(
+            cause["error"]["resource"],
+            json!({ "_tag": "project-favicon", "cwd": "/moatless" }),
+            "the error carries back the resource the request named"
+        );
+    }
+
+    /// The client reports focus on every change so a host can idle its own
+    /// background work. Moatless runs its agents in Sandboxes no browser tab is
+    /// attached to, so the report is accepted and dropped — refusing it would
+    /// put a defect in the console on every tab switch.
+    #[tokio::test]
+    async fn a_client_activity_report_is_accepted() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request("9", "server.reportClientActivity", json!({ "state": "active" })),
+                &state(),
+                &viewer(),
+            )
+            .await;
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert_eq!(output.frames[0]["exit"]["value"], Value::Null);
     }
 
     #[tokio::test]

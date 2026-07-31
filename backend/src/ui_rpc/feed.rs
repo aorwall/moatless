@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{json, Value};
 use tracing::{debug, warn};
 
-use super::dao::ConversationDao;
+use super::dao::{ConversationDao, ThreadRevision};
 use super::{projection, AgentModelDefaults};
 use crate::task_listing::{ChangeSubject, EnvironmentIdentity};
 use crate::workspace::dao::WorkspaceDao;
@@ -356,5 +356,92 @@ impl ShellFeed {
             "kind": "snapshot",
             "snapshot": snapshot.value
         })]
+    }
+}
+
+/// A watching client's place in one conversation.
+///
+/// Deliberately not the shell's mechanism. The shell's feed reads a recorded
+/// change log and sends a difference; a conversation has no such log — only
+/// turn transitions are recorded there, so an agent writing message after
+/// message inside one turn records nothing, and a feed built on it would leave
+/// a running conversation frozen until the turn ended.
+///
+/// So this compares a fingerprint instead, and sends the whole conversation
+/// whenever it moved. The client replaces what it holds on every snapshot
+/// (`state/threads.ts:186-190`), so a resend is complete rather than additive
+/// and nothing has to reconcile.
+///
+/// **The cost is the resend.** One open conversation re-crosses the socket
+/// whole on each change, which is why [`THREAD_POLL_INTERVAL`] is four times
+/// the shell's and why the transcript is capped. Replacing this with the
+/// contract's `thread.message-sent` / `thread.activity-appended` events is what
+/// removes the cost, and needs an event log this backend does not yet keep.
+///
+/// [`THREAD_POLL_INTERVAL`]: super::THREAD_POLL_INTERVAL
+pub struct ThreadFeed {
+    task_id: String,
+    /// What the conversation looked like when the client was last sent it.
+    /// `None` only before the first poll of a conversation that had no rows.
+    revision: Option<ThreadRevision>,
+}
+
+impl ThreadFeed {
+    /// Start from the fingerprint a snapshot was built at.
+    pub fn at(task_id: String, revision: Option<ThreadRevision>) -> Self {
+        Self { task_id, revision }
+    }
+
+    /// The conversation again if it moved, nothing if it did not, and `None`
+    /// when it is gone.
+    ///
+    /// "Gone" is deliberately one answer for three different endings — deleted,
+    /// unfollowed, or no longer readable — because they are the same fact to
+    /// the client and separating them here would tell it which. The
+    /// subscription ends; the *shell* feed is what tells a client a
+    /// conversation left its sidebar, and it applies the disclosure rule that
+    /// decision needs.
+    ///
+    /// The fingerprint is re-read before the conversation, never after: taken
+    /// afterwards it would describe a state the sent snapshot already includes,
+    /// and the next change would compare equal and never be sent — one
+    /// conversation frozen, silently. Read first, the worst case is one extra
+    /// resend of a snapshot that is identical to the last.
+    pub async fn poll(
+        &mut self,
+        workspaces: &dyn WorkspaceDao,
+        conversations: &dyn ConversationDao,
+        defaults: &AgentModelDefaults,
+        viewer: &ScopeContext,
+    ) -> Result<Option<Vec<Value>>, sqlx::Error> {
+        let revision = conversations.thread_revision(&self.task_id).await?;
+        let Some(revision) = revision else {
+            debug!(
+                task_id = %self.task_id,
+                user_id = %viewer.user_id,
+                "The conversation a T3 UI thread subscription watches no longer exists"
+            );
+            return Ok(None);
+        };
+        if self.revision.as_ref() == Some(&revision) {
+            return Ok(Some(Vec::new()));
+        }
+        self.revision = Some(revision);
+
+        let snapshot =
+            super::thread_snapshot(workspaces, conversations, defaults, viewer, &self.task_id)
+                .await?;
+        let Some(snapshot) = snapshot else {
+            debug!(
+                task_id = %self.task_id,
+                user_id = %viewer.user_id,
+                "The conversation a T3 UI thread subscription watches is no longer visible to it"
+            );
+            return Ok(None);
+        };
+        Ok(Some(vec![json!({
+            "kind": "snapshot",
+            "snapshot": snapshot.value
+        })]))
     }
 }

@@ -6,6 +6,10 @@
 //! waiting on an answer — is derived here so the projection above never issues
 //! a query per conversation.
 //!
+//! Opening a conversation reads its transcript through the same module: the
+//! Messages themselves, the enriched blocks a user Message is displayed from,
+//! and a fingerprint cheap enough to ask for on every poll.
+//!
 //! No T3 vocabulary appears in this file. The names are Moatless's; the
 //! translation belongs one module up.
 
@@ -19,6 +23,7 @@ use tokio::sync::Semaphore;
 use tracing::warn;
 
 use crate::db::DbPool;
+use crate::message::models::{MessageRole, MessageType};
 use crate::shared_models::AgentType;
 use crate::task_listing::{self, ListingChange, ListingHead};
 use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason};
@@ -76,6 +81,76 @@ pub struct Conversation {
     pub pending_plan: bool,
 }
 
+/// One Message of a Task's transcript, with the columns a transcript is
+/// rendered from and nothing else.
+///
+/// Deliberately not [`crate::message::models::TaskMessage`]: that row carries
+/// forty columns because it is the write model, and a transcript read that
+/// selected all of them would pull every tool result's raw payload and every
+/// run's metrics out of the database to project six fields.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TranscriptMessage {
+    /// The insertion order this transcript is assembled in. Also half of
+    /// [`ThreadRevision`] — see there for why the two must agree.
+    pub id: i32,
+    pub uuid: String,
+    pub message_type: MessageType,
+    pub message_role: MessageRole,
+    pub message_content: serde_json::Value,
+    /// The Turn this Message was acknowledged into. `None` while it is queued.
+    pub turn_number: Option<i32>,
+    /// When the writer said it happened (RFC 3339 text, `NOT NULL`).
+    pub timestamp: String,
+    /// When the database recorded it. `None` is impossible under the current
+    /// schema's default and is treated as a missing value rather than assumed.
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+/// One displayable block of a user Message.
+///
+/// A user Message's `message_content` holds what was *sent to the agent* —
+/// the person's text plus every file and context block the request was
+/// enriched with. Only the blocks flagged `show_in_ui` are the message a person
+/// wrote, so a transcript that read `message_content` would show each user turn
+/// with its injected context pasted underneath it.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TranscriptBlock {
+    pub task_message_id: i32,
+    pub text_content: Option<String>,
+}
+
+/// A Task's transcript, and whether it is all of it.
+pub struct Transcript {
+    /// Oldest first — the order a transcript is read in.
+    pub messages: Vec<TranscriptMessage>,
+    pub blocks: Vec<TranscriptBlock>,
+    /// The rows past [`TRANSCRIPT_LIMIT`] that were left out, oldest first.
+    /// Zero for every transcript that fits, which is nearly all of them.
+    pub omitted: i64,
+}
+
+/// Everything a transcript is built from, reduced to what changes when it does.
+///
+/// A subscription re-reads this on every poll and the whole transcript only
+/// when it moved, so it has to be both cheap and complete. Completeness rests
+/// on `task_messages` being append-only for every column a transcript reads:
+/// the four in-place updates this backend makes to that table
+/// (`message/dao.rs`) set token usage, session ids, `sent_at` and external
+/// identifiers, and `turn_number` — and the last one moves with the Turn, which
+/// is why the Turn is part of this fingerprint rather than only the Messages.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct ThreadRevision {
+    /// `None` for a Task nothing has written to yet.
+    pub newest_message_id: Option<i32>,
+    /// Counted as well as maxed because the newest id alone cannot see a row
+    /// that arrived and was removed between two polls.
+    pub message_count: i64,
+    pub turn_number: Option<i32>,
+    pub turn_status: Option<String>,
+    pub sandbox_desired_state: Option<SandboxDesiredState>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
 /// Read the conversations one viewer's sidebar is built from, and the position
 /// a client watching it resumes from.
 ///
@@ -112,6 +187,21 @@ pub trait ConversationDao: Send + Sync {
         task_ids: &[String],
     ) -> Result<Vec<Conversation>, sqlx::Error>;
 
+    /// One Task's transcript, oldest first, capped at [`TRANSCRIPT_LIMIT`].
+    ///
+    /// Unscoped, and deliberately: every caller reaches this having already
+    /// resolved the same Task through [`ConversationDao::list_followed_by_ids`],
+    /// which is where the follow rule and the read rule live. Repeating them
+    /// here would be a second copy of the access filter to keep in step with
+    /// the first, which is the drift the narrowed listing query exists to
+    /// avoid.
+    async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error>;
+
+    /// What a transcript would be built from right now, without building it.
+    ///
+    /// `None` when the Task does not exist.
+    async fn thread_revision(&self, task_id: &str) -> Result<Option<ThreadRevision>, sqlx::Error>;
+
     /// The highest listing position this deployment has reached, and the
     /// identity of the database it reached it in.
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error>;
@@ -136,6 +226,21 @@ pub struct PgConversationDao {
 
 const FULL_LISTING_CONCURRENCY: usize = 1;
 const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
+
+/// How many of a Task's Messages one transcript read returns.
+///
+/// T3's thread contract carries the whole transcript in one snapshot and offers
+/// no pagination, so this cap is the only thing between an unusually long
+/// conversation and a multi-megabyte frame. The **newest** rows are the ones
+/// kept: an open conversation is read from its end, and a reader who has lost
+/// the opening prompt is better served than one who has lost what just
+/// happened. What was dropped is reported rather than silently absent — see
+/// [`Transcript::omitted`] and its projection.
+///
+/// A thousand rows is roughly a megabyte once projected, which is the size a
+/// subscription re-sends whenever the conversation moves. That is the number
+/// this cap is chosen against, not the database's comfort.
+const TRANSCRIPT_LIMIT: i64 = 1_000;
 const LISTING_DURATION: &str = "moatless_ui_shell_listing_duration_seconds";
 const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejections_total";
 
@@ -400,6 +505,107 @@ impl ConversationDao for PgConversationDao {
             return Ok(Vec::new());
         }
         self.list(viewer, Some(task_ids)).await
+    }
+
+    async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {
+        // Newest first so the cap keeps the end of the conversation, then
+        // reversed below into the order it is read in. The ordering matches the
+        // shell listing's — and carries its caveat: `"timestamp"` is `text`, so
+        // this is a lexicographic sort standing in for a chronological one,
+        // sound only while every writer emits RFC 3339 at fixed precision in
+        // `Z`. `id` breaks ties. It is also exactly `task_messages_task_idx`,
+        // read backwards, so the cap is a bounded index scan rather than a sort
+        // of the whole conversation.
+        //
+        // Subagent rows are excluded here rather than after the cap: they are
+        // the bulk of a long transcript, they are never rendered inline
+        // (`message/transform.rs` assembles them on demand behind their
+        // spawning tool call), and counting them against the cap would evict
+        // the conversation a person is reading.
+        let mut messages = sqlx::query_as::<_, TranscriptMessage>(
+            r#"SELECT id, uuid, message_type, message_role, message_content,
+                      turn_number, "timestamp", created_at
+               FROM task_messages
+               WHERE task_id = $1
+                 AND parent_uuid IS NULL
+               ORDER BY "timestamp" DESC, id DESC
+               LIMIT $2"#,
+        )
+        .bind(task_id)
+        .bind(TRANSCRIPT_LIMIT)
+        .fetch_all(&self.pool)
+        .await?;
+        messages.reverse();
+
+        // Only when the cap was actually reached. Nearly every conversation is
+        // shorter than it, and paying for a count on all of them to discover a
+        // zero would be the wrong trade.
+        let omitted = if messages.len() as i64 == TRANSCRIPT_LIMIT {
+            let total: i64 = sqlx::query_scalar(
+                r#"SELECT count(*)
+                   FROM task_messages
+                   WHERE task_id = $1
+                     AND parent_uuid IS NULL"#,
+            )
+            .bind(task_id)
+            .fetch_one(&self.pool)
+            .await?;
+            (total - TRANSCRIPT_LIMIT).max(0)
+        } else {
+            0
+        };
+
+        let message_ids: Vec<i32> = messages.iter().map(|message| message.id).collect();
+        let blocks = sqlx::query_as::<_, TranscriptBlock>(
+            r#"SELECT task_message_id, text_content
+               FROM task_message_content_blocks
+               WHERE task_id = $1
+                 AND task_message_id = ANY($2)
+                 AND show_in_ui
+                 AND text_content IS NOT NULL
+               ORDER BY task_message_id, sort_order"#,
+        )
+        .bind(task_id)
+        .bind(&message_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(Transcript {
+            messages,
+            blocks,
+            omitted,
+        })
+    }
+
+    async fn thread_revision(&self, task_id: &str) -> Result<Option<ThreadRevision>, sqlx::Error> {
+        sqlx::query_as::<_, ThreadRevision>(
+            r#"SELECT
+                   messages.newest_message_id,
+                   messages.message_count,
+                   turn.turn_number,
+                   turn.status        AS turn_status,
+                   s.desired_state    AS sandbox_desired_state,
+                   t.updated_at
+               FROM tasks t
+               LEFT JOIN sandboxes s ON s.task_id = t.task_id
+               LEFT JOIN LATERAL (
+                   SELECT tt.turn_number, tt.status
+                   FROM task_turns tt
+                   WHERE tt.task_id = t.task_id
+                   ORDER BY tt.turn_number DESC
+                   LIMIT 1
+               ) turn ON TRUE
+               CROSS JOIN LATERAL (
+                   SELECT max(m.id) AS newest_message_id, count(*) AS message_count
+                   FROM task_messages m
+                   WHERE m.task_id = t.task_id
+                     AND m.parent_uuid IS NULL
+               ) messages
+               WHERE t.task_id = $1"#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.pool)
+        .await
     }
 
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
