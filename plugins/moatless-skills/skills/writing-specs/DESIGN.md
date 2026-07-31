@@ -62,41 +62,33 @@ For a decision that is still open, add a fifth *row* rather than a fifth column:
 
 **Structure and time do not share an axis.** Two diagrams beat one doing both jobs: if a class diagram has grown a paragraph underneath explaining *when* things happen, that paragraph is a sequence diagram.
 
-**A diagram that is mostly text is a table.** Check the shape is the point before drawing — an information model whose value is the *reason* beside each field reads better as annotated facts than as boxes.
+**A diagram that is mostly text is a table.** Check the shape is the point before drawing — an information model whose value is the *reason* beside each field reads better as annotated facts than as boxes. The data model is where this is already settled: the diagram carries the shape and the tables carry the reasons, so neither has to be both.
 
 **Only a stored entity gets a box.** A state, a lifecycle stage or a flag is a *field on an entity*, not an entity of its own — "deleted override" is a column on the row that already exists, and giving it a box invents a table that never will. Something read and never persisted, such as a file in a repository, is not in the model either: it belongs in the prose, or in the flow that reads it. The test is "would this be a row somewhere after the change". Model the tables; the concepts around them are what the other sections are for.
 
-**Write a field as `name : type`, never as `+type name`.** Mermaid accepts both; only one reads. `+text run_as_user_id` puts the least interesting word first and prefixes a visibility marker that means nothing for a database column, while `run_as_user_id : text` reads as the schema does. A qualifier in the type position reads as a type — `+ignored active` looks like a type named `ignored` — so qualifiers go in the class label, `class GitFile["LOOP.md — its authority fields are ignored"]`, or in the prose beside the diagram.
+**Write a field as `name : type`, never as `+type name`.** Mermaid accepts both; only one reads. `+text run_as_user_id` puts the least interesting word first and prefixes a visibility marker that means nothing for a database column, while `run_as_user_id : text` reads as the schema does. A qualifier in the type position reads as a type — `+ignored active` looks like a type named `ignored` — so qualifiers go in the prose beside the diagram, never in the type.
+
+**A class label is the entity's real name and nothing else.** Not `triggers — a Loop is a row here`, not `task_messages — now derived`. A description in the label is the same content as the line under that entity's table, set in the smallest type on the page and stretching the box that carries it; the diagram is the map, and a map labels places rather than explaining them. Where the state must survive a reader who cannot distinguish the fills, use a `<<new>>` or `<<changes>>` stereotype above the name — a marker, not a sentence.
 
 **A node with no edges costs a whole row of layout.** Something that relates to nothing belongs in a sentence under the diagram.
 
-### The data model — a table unless the relations matter
+### The data model — the diagram, then a table per entity
 
-**Default to a table, one row per field.** It is the form that can mark every field individually, which is the question a data model on a spec answers: which fields move.
-
-| Column | Type | What this change does to it |
-|---|---|---|
-| `run_as_user_id` | text | **New.** The identity work is created as |
-| `locally_overridden` | boolean | **New.** Set when an administrator edits a Git-supplied row, so sync skips it |
-| `active` | boolean | **Meaning changes.** A commit can no longer set it |
-| `managed_by` | text | Read, unchanged — `0066:13` |
-
-Mark the three states in the row itself — new, meaning changes, read-and-unchanged — and colour the row to match on the page. Grey the unchanged ones: they are context, and they should read as context.
-
-**Reach for a `classDiagram` when the relations are the point** — when the change adds or moves a reference, when cardinality or ownership crosses entities, or when an invariant spans two of them. Then one class per stored entity, and **only the fields the change touches**:
+**The diagram comes first.** One class per stored entity the change touches, the relations between them, and **only the fields the change touches**. It is the map: which entities exist after the change, which are new, and what points at what. Nothing else on the page answers that, and a reader who starts in a field table has to build it in their head.
 
 ````md
 ```mermaid
 classDiagram
   direction LR
 
-  class triggers["triggers — a Loop is a row here"] {
+  class triggers {
+    <<changes>>
     active : boolean
     run_as_user_id : text
     locally_overridden : boolean
   }
 
-  class users["users"] {
+  class users {
     id : text
   }
 
@@ -107,19 +99,71 @@ classDiagram
 ```
 ````
 
-- **Relevance is shown by what you include, not by colour.** Mermaid cannot colour one member — `style` fills a whole class — so a diagram listing every column says nothing about which ones move. Five fields that are all part of the change say it; twelve fields do not. Whatever is merely read goes in the table or in a sentence.
-- **Colour marks the entity, and the words say the same thing.** `style` on the reshaped class, plus a `<<stereotype>>` or a suffix in the label, so a reader who cannot distinguish the fills still gets it.
-- **A referenced entity contributes its identifier and nothing else.** Its own columns are not part of this change.
-- **Two or three classes.** Past that the layout is wider than the column.
-- **A constraint the schema does not have is worth drawing.** A relationship enforced only in code is a dotted edge with the reason on the label — exactly the fact a field list hides.
+Colour the classes the way the field rows are coloured — new, changes, context — so the map and the tables agree at a glance.
 
-Never both. A table and a diagram of the same entity is the same content twice, and the second one is the one nobody reads.
+**Then one section per entity the change changes**, headed with the entity's real name, one line of what it holds and what its identity is, and its own field table:
+
+| Column | Type | Null | What it holds |
+|---|---|---|---|
+| `run_as_user_id` | text | not null | **New.** The identity work is created as |
+| `locally_overridden` | boolean | not null, default false | **New.** Set when an administrator edits a Git-supplied row, so sync skips it |
+| `active` | boolean | not null | **Meaning changes.** A commit can no longer set it |
+| `managed_by` | text | nullable | Read, unchanged — `0066:13` |
+
+Mark the three states in the row itself — new, meaning changes, read-and-unchanged — and colour the row to match on the page. Grey the unchanged ones: they are context, and they should read as context.
+
+**A wholly new entity says so once, above the table, and drops the marking.** Every row of a new table is new; a `New.` bold-lead on all fourteen of them is a word repeated fourteen times to say nothing that varies, and it crowds out the description that does vary. The three states are for an entity where they differ — which, once the model is split by entity, is only the ones being modified.
+
+**The columns after name and type are chosen per entity.** Nullability earns a column here because a backfill turns on it; elsewhere it is key membership because identity moves, or the index the new query needs. Carrying a column every table leaves blank is as bad as omitting one a table needs — the point of splitting by entity is that each gets the columns its own change turns on.
+
+**The field name is bare, because the heading carries the table.** `task_activities.task_id` repeated fourteen times puts the least interesting eleven characters first in every row; under a `task_activities` heading it is `task_id`.
+
+**An entity the change only reads gets a box and no section.** It is context. Where the change depends on a field it holds, say so in the line under the diagram rather than opening a table for one row.
+
+Rules for the diagram itself:
+
+- **Only the fields the change touches go in a class.** Mermaid cannot colour one member — `style` fills a whole class — so a class listing every column says nothing about which ones move, and the tables below are where per-field marking lives anyway. Five fields that are all part of the change carry the map; twelve bury it.
+- **Colour marks the entity, and a stereotype says the same thing.** `style` on the reshaped class, plus `<<new>>` or `<<changes>>`, so a reader who cannot distinguish the fills still gets it. One word inside the angle brackets — a stereotype is not a second place to describe the entity.
+- **A referenced entity contributes its identifier and nothing else.** Its own columns are not part of this change.
+- **Four or five classes.** Past that the layout is wider than the column, and an entity that only holds a reference belongs in a sentence instead.
+- **A constraint the schema does not have is worth drawing.** A relationship enforced only in code is a dotted edge with the reason on the label — exactly the fact a field list hides.
+- **An edge label is two or three words**, usually just the column. Mermaid wraps a longer one into a boxed block dropped in the middle of the layout, where it is physically larger than the classes and reads as a node rather than a label. `message_uuid` on the edge, "null for a Sandbox activity" in the line underneath.
+
+**The diagram and the tables do not repeat each other**, which is what makes both worth having: the diagram carries the relations and no marking, the tables carry the marking and no relations. A class body that lists every column, or a table row that restates an edge, is the failure this split exists to prevent.
+
+### The interfaces table — the consumer and the interface are both code
+
+| Consumer | The interface it depends on | What it can rely on | Status |
+|---|---|---|---|
+| `apps/frontend` conversation view | `ConversationPayload.activities` — `api-schemas/src/message.rs:32` | Every tool call and Sandbox status as its own item, with `kind` and `summary` renderable without parsing content blocks | **New** |
+| `apps/frontend` conversation view | `ConversationPayload.content` | Role and prose. No `tool_use` blocks | **Breaking** on deploy |
+| The paired T3 client | `ui_rpc/projection.rs` — `messages`, `activities` | The same shapes it reads today | Unchanged |
+| Any live client | `SSE /api/tasks/{id}/events` | Lifecycle types only. `agent.message` is never emitted again; the variant stays so old rows replay | Changed, compatibly |
+| An operator | `moat tasks rebuild <id>` | One conversation rebuilt from the block log, and a refusal naming the gap when the log does not cover all of it | **New** |
+
+Then the promises as a short list, then one callout at most.
+
+**The third column is what the consumer can rely on, not what changed about it.** Most plans build more than they modify, and a "what changes" column has nothing to say about an interface that did not exist an hour ago — every such row opens `New.` and then describes the thing anyway. That makes the column a status marker with a paragraph stapled to it. Split them: the promise in its own column, phrased the same whether it is a week old or a year old, and the status in a column narrow enough to scan down.
+
+**A consumer that depends on two interfaces gets two rows.** The frontend above gains a collection and loses blocks from another; one row saying both buries the breaking half.
+
+Every row is checkable: the reader can open the file, find the type, and see whether it promises what the row says. Compare the version this replaced —
+
+> | Anyone reading a conversation | Read messages and activities as one ordered stream | The conversation view and its feed | Same transaction as the write |
+
+— where the consumer is a role, the interface is a screen, and nothing in the row can be looked up or falsified.
+
+- **Both of the first two columns name something in the code.** A component, a crate, a path; then a type, a route, an event name, an RPC method, with `file:line` where the file is the contract.
+- **A role belongs there only where there is no code on the other side** — an operator running a command, someone reading a page. Then the interface is the command or procedure by name, and it still has to exist.
+- **Mark the breaking rows.** They are the reason the section is on the page, and a reader scanning five rows should find them without reading the `When` column of each.
+- **Monospace only what is an identifier.** `ConversationPayload.content` is code and looks it; "the Events tab" set in monospace claims to be a name you could grep for and is not. Mixing them in one column costs the column its meaning.
+- **The admission test is whether something on the other side breaks when it changes** — true of an in-repo payload the frontend renders, false of a helper one worker calls. Internal module structure is in the markdown, and is not a promise.
 
 ### Diagram hazards, and how to know
 
 Four ways a diagram breaks with nothing reported. All four have been hit in this repo:
 
-1. **The HTML parser eats the source.** Inside `<pre class="mermaid">` the diagram is markup first: `<<durable · new>>` reaches Mermaid as `<>` and errors, and `Registration<br/>proves it` reaches it as `Registrationproves it` — **silently**. On the page, escape every `<` as `&lt;`, or keep the source in a JS template literal and call `mermaid.render()`. Fenced blocks in the markdown are unaffected.
+1. **The HTML parser eats the source.** Inside `<pre class="mermaid">` the diagram is markup first: `<<durable · new>>` reaches Mermaid as `<>` and errors, which is a near-certainty now that a data model marks its classes `<<new>>` and `<<changes>>`; and `Registration<br/>proves it` reaches it as `Registrationproves it` — **silently**. On the page, escape every `<` as `&lt;`, or keep the source in a JS template literal and call `mermaid.render()`. Fenced blocks in the markdown are unaffected.
 2. **`;` separates statements.** A semicolon inside a label splits the line — `BEGIN; INSERT; COMMIT` in a message is a parse error. Use commas or an em dash. This one applies to **both** surfaces.
 3. **Page CSS leaks in.** `label`, `node`, `edge`, `cluster` and `title` are Mermaid's own class names. A page utility called `.label` matched 90 elements and rendered every diagram uppercase, letter-spaced and tiny, with CamelCase destroyed. Namespace page classes — `.kicker`, not `.label`.
 4. **`Note over A,B` is sized to the span it covers, and its text is not wrapped.** A note longer than the distance between those two participants is cut mid-word — "Malformed files are reported and their prior state pr…" — while the diagram renders clean. Keep notes short, or widen the span to the outermost participants. It survives a render check and fails a reading.

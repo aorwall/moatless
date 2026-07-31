@@ -138,12 +138,18 @@ Two levels, and the second is conditional:
 
 **Only changed or newly relevant fields.** Describing an existing table in full is noise and costs the implementing agent context it needs elsewhere. A field whose *meaning* changes is newly relevant even though the column is old — say which and why.
 
+**Both surfaces take the same shape: a `classDiagram` first, then one sub-section per entity the change adds or modifies** — its real name as the heading, one line of what it holds and what identifies it, then a field table with the columns that entity's change turns on. See [DESIGN.md](DESIGN.md), "The data model". An entity the change only reads appears in the diagram and gets no sub-section. **Per-field marking is for modified entities**; a new one is new in every row, so it says so once above its table. The markdown is not capped, so it carries every changed entity; the page carries the same ones at one line of reasoning each.
+
 ### Interfaces and contracts
 
 Separate the two, because they carry different weight:
 
 - **External contract** — behaviour relied on by users, clients, services, plugins, stored data, scripts or operators. Trace each back to the requirement it serves. Changing one is a product decision.
 - **Internal interface** — a proposed implementation boundary that may change without affecting observable behaviour. It belongs in the markdown so the implementer has a plan, and it is **not** a promise. Say that in the section, so changing one later needs no spec update.
+
+**Name the consumer and name the interface, both as they exist in the code.** A contract written as "anyone reading a conversation can read messages and activities as one stream, on the conversation view" has said nothing an implementer can act on: it does not say which component holds the expectation, which type or route carries it, or what breaks. Write the component — `apps/frontend`'s conversation view, the paired T3 client, the sync worker — and the interface it holds: the payload type, the route, the event name, the RPC method, with `file:line`. A role belongs there only where there is genuinely no code on the other side, and then the interface is the command or documented procedure by name.
+
+The test for whether something belongs at all is **whether anything on the other side breaks when it changes** — true of an in-repo payload the frontend renders, false of a helper one worker calls. That test admits in-repo boundaries; it does not admit module structure.
 
 Where an internal change has a wide blast radius, list the call sites — as information, not as a contract.
 

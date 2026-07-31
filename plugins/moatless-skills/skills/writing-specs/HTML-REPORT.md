@@ -24,22 +24,28 @@ Then the same sections as the spec — see `/writing-specs`, "The sections, and 
 | Section | The form it takes on the page |
 |---|---|
 | Architecture and key flows | The affected components, named as things — what each one becomes responsible for, one line each. Then **one** key flow as a `sequenceDiagram`: the one that decides whether the design works. The other flows are named in a sentence, not drawn |
-| Data model | **A field table** — one row per field of each **stored entity**, name and type in their own columns, **coloured by what the change does to that field**: new, meaning changes, or read-and-unchanged. A `classDiagram` instead when the relations are the point — [DESIGN.md](DESIGN.md), "The data model". Then one short block per entity in the logical vocabulary. A model is a marked-up table or a diagram; a list of five labelled bullets is neither |
-| Interfaces and contracts | One table — **actor · what they can do · on which surface · when it takes effect** — then the promises as a list. **Internal interfaces do not appear**, beyond at most one line saying module names and signatures are in the spec and are not promises. A bullet about how a worker checks a flag is internal and belongs in the markdown |
+| Data model | **A `classDiagram` first**, then **one block per entity the change adds or modifies** — the entity's real name as the heading, one line of what it holds and whether it is new, and **its own field table**. A modified entity colours its rows by what happens to each field; a new one says "new" once in that line and drops the marking — [DESIGN.md](DESIGN.md), "The data model". The diagram is the map; the tables are the detail |
+| Interfaces and contracts | One table — **consumer · the interface it depends on · what it can rely on · status** — then the promises as a list. **Both of the first two columns name something in the code**: the component, and the type, route, event or RPC method with `file:line`. The third is the promise, phrased the same whether the interface is new or old; new / changed / breaking / unchanged is the fourth — [DESIGN.md](DESIGN.md), "The interfaces table" |
 | Failure, safety and recovery | One table — **when this happens · what the person must be able to work out · is the wording fixed** — then what still works while a dependency is down, and what rolling the change back would do |
 | Testing and verification | Two lists side by side: what only a person can judge, and the acceptance criteria being approved. No commands, no test names |
 
 **Only what is stored gets a box** — states and flags are fields on an entity, and a file that is read but never persisted is not in the model at all. See [DESIGN.md](DESIGN.md), "Choosing a diagram form".
 
-**The marking is the reason this section exists.** A person approving a data model is asking which fields move; three states answer it before they read a word, and the entity blocks underneath explain why. An unmarked field list is the schema retyped.
+**Marking earns its place only where the states differ.** A person approving a *modified* entity is asking which fields move, and three colours answer that before they read a word. A person approving a *new* one already knows: the answer is all of them. Repeating "New." down fourteen rows is a word that never varies pushed in front of the description that does.
 
-**The data model is the one place the page uses the real names.** Elsewhere it says "the App record"; here it says `github_apps.app_key`, because a person approving a data model is approving the entity and the column, and "the record" does not say what changes.
+**One table per entity, never one table for the whole model.** A twenty-row table whose Field column repeats `task_activities.` fourteen times is a schema dump: the prefix is the loudest thing in every cell, the reader cannot see where one entity ends, and no single set of columns fits five different tables. The entity name goes in the heading, once, and each table then picks **the columns that entity's change actually turns on** — key membership where identity moves, nullability where it is the point, the index where the query depends on it. Name and type are the only two that appear every time.
+
+**An entity the change only reads gets a box in the diagram and no block of its own.** It is context, and the diagram is where context belongs. A field it holds that the change depends on goes in the prose under the diagram — not in a table nobody needs to scan.
+
+**The data model is the one place the page uses the real names.** Elsewhere it says "the App record"; here the heading is `github_apps` and the row is `app_key`, because a person approving a data model is approving the entity and the column, and "the record" does not say what changes.
+
+**In Interfaces, a role is not a consumer.** "Anyone reading a conversation", "an operator", "the user" name nobody, so the reader cannot tell what breaks. Name the component — `apps/frontend`'s conversation view, the paired T3 client, the sync worker — and name the interface it actually holds: the payload type, the route, the event name, the RPC method, with `file:line`. A human operator is a consumer only where there is genuinely no code on the other side, and then the interface is the command or procedure by name. This does not reopen internal module boundaries: the test is whether something on the other side breaks when it changes, which is true of an in-repo payload the frontend renders and false of a helper one worker calls.
 
 **Use the same labels the spec uses.** A data model on the page is described with the logical-model vocabulary — entity meaning, ownership, identity, lifecycle, invariants, relationships — not with labels invented for one spec.
 
 **No two sections take the same form.** Five cards each holding five bullets are indistinguishable, and the reader loses which section they are in. Every section above has a different shape for that reason.
 
-**One element per section.** Five sections with a table *and* a diagram each is three screens of scroll; the page is capped by attention and the markdown is where the rest goes.
+**One element per section — the data model is the exception, and the only one.** Five sections with a table *and* a diagram each is three screens of scroll; the page is capped by attention and the markdown is where the rest goes. The data model earns both because they answer different questions: the diagram answers "what relates to what", which no table can, and the per-entity tables answer "which fields move", which no diagram can.
 
 **4. Open questions** — parked, nobody being asked. State the user needs to see before approving.
 
