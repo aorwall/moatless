@@ -646,7 +646,7 @@ use crate::agent::handle::AgentCommand;
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};
 use crate::config::{test_support::minimal_config, Config};
-use crate::credentials::recovery::CredentialFailureDetector;
+use crate::credentials::recovery::{CredentialFailureDetector, CODEX_AUTH_JSON};
 use crate::credentials::{CredentialSink, Dispatcher};
 
 use super::CoordinatorService;
@@ -1511,7 +1511,7 @@ impl BackendClient for CredBackend {
     }
     async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
         if let Some(detector) = &self.flag {
-            detector.scan("refresh_token_reused");
+            detector.trigger(CODEX_AUTH_JSON);
         }
         let value = if self.rotate {
             let n = self.counter.fetch_add(1, Ordering::SeqCst);
@@ -1725,7 +1725,7 @@ async fn coordinator_service_credential_recovery_redrives_same_run_on_fresher_cr
     );
 
     // Flag the credential failure (as Codex would on the failing Turn), then send.
-    detector.scan("refresh_token_reused");
+    detector.trigger(CODEX_AUTH_JSON);
     send_text(&tx, "do the thing");
 
     wait_until(
@@ -1803,7 +1803,7 @@ async fn coordinator_service_credential_recovery_unchanged_gives_one_terminal_er
         cancel.clone(),
     );
 
-    detector.scan("refresh_token_reused");
+    detector.trigger(CODEX_AUTH_JSON);
     send_text(&tx, "do the thing");
 
     wait_until(

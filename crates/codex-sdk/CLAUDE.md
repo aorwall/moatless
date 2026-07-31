@@ -2,7 +2,7 @@
 
 Rust SDK for the [Codex](https://github.com/openai/codex) coding agent, mirroring the `claude-agent-sdk` interface. Uses Codex's **in-process app-server runtime** (not subprocess spawning) for full protocol access: streaming deltas, approval handling, hook observation.
 
-> Not used by the sandbox runtime — the sandbox runs Codex via the `codex exec` CLI in `sandbox/src/agent/codex_exec.rs`. This crate is a standalone in-process SDK.
+> Not used by the sandbox runtime — the sandbox runs Codex via the `codex app-server` CLI in `sandbox/src/agent/codex_app_server/`. This crate is a standalone in-process SDK.
 
 ## Relationship to claude-agent-sdk
 

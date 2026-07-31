@@ -372,22 +372,63 @@ async fn run_execution<P: AgentProcess>(
     cancel_open: &mut bool,
 ) -> Result<(), SignalClosed> {
     let input_id = input.id.clone();
+    let mut started = false;
+    let mut accepted = false;
+    let mut cancel_requested = false;
 
-    // Deliver the opening input. A failure here is a pre-start failure.
-    if let Err(error) = process.submit(input).await {
+    // Deliver the opening input, racing cancellation against it. The open is not
+    // instant for every transport — Codex awaits `initialize`, `thread/start`
+    // and `turn/start` before `submit` returns — and until it does, no execution
+    // exists for the `select!` below to cancel. Without this race a Stop issued
+    // during the open would sit unread until the Agent answered, which is
+    // exactly when it cannot.
+    //
+    // `cancel` is unreachable here (the `submit` future borrows the process), so
+    // the interrupt goes through the process's own handle.
+    let cancel_handle = process.cancel_handle();
+    let submitted = {
+        let mut submit = std::pin::pin!(process.submit(input));
+        loop {
+            tokio::select! {
+                biased;
+                cancelled = cancel_rx.recv(), if *cancel_open && !cancel_requested => {
+                    match cancelled {
+                        Some(()) => {
+                            cancel_requested = true;
+                            cancel_handle.cancel();
+                        }
+                        None => *cancel_open = false,
+                    }
+                }
+                result = &mut submit => break result,
+            }
+        }
+    };
+
+    if let Err(error) = submitted {
+        // A cancelled open reports as cancelled rather than failed: the error is
+        // the teardown this driver asked for, not a fault of the Agent's.
+        let reason = if cancel_requested {
+            Rejection::Cancelled
+        } else {
+            Rejection::Failed(error)
+        };
         return emit(
             signal_tx,
             Signal::InputRejected {
                 input: input_id,
-                reason: Rejection::Failed(error),
+                reason,
             },
         )
         .await;
     }
 
-    let mut started = false;
-    let mut accepted = false;
-    let mut cancel_requested = false;
+    // The open won the race. The execution is live, so tear it down through the
+    // normal path — its terminal is `Cancelled` because `cancel_requested` is
+    // already set — rather than rejecting an input the process did accept.
+    if cancel_requested {
+        process.cancel().await;
+    }
     // Input acceptance seen before `ExecutionStarted` — held so the terminal
     // order stays `ExecutionStarted → InputAccepted → Source*`.
     let mut pending_accept: Option<InputId> = None;
@@ -423,13 +464,47 @@ async fn run_execution<P: AgentProcess>(
                     // follow-up execution the input was meant for.
                     Some(next) => {
                         if !cancel_requested && process.accepts_injection() {
-                            if let Err(error) = process.submit(next.clone()).await {
+                            // Raced against cancellation for the same reason the
+                            // open above is: an injecting process can wait inside
+                            // `submit` (Codex waits out its steerability gate),
+                            // and this loop is the only reader of `cancel_rx`, so
+                            // an unraced await would make a Stop unreadable for
+                            // as long as that wait lasted. `cancel` is
+                            // unreachable while the `submit` future borrows the
+                            // process, so the interrupt goes through the handle.
+                            let cancel_handle = process.cancel_handle();
+                            let injected = {
+                                let mut submit = std::pin::pin!(process.submit(next.clone()));
+                                loop {
+                                    tokio::select! {
+                                        biased;
+                                        cancelled = cancel_rx.recv(), if *cancel_open && !cancel_requested => {
+                                            match cancelled {
+                                                Some(()) => {
+                                                    cancel_requested = true;
+                                                    cancel_handle.cancel();
+                                                }
+                                                None => *cancel_open = false,
+                                            }
+                                        }
+                                        result = &mut submit => break result,
+                                    }
+                                }
+                            };
+                            if let Err(error) = injected {
                                 warn!(
                                     input = %next.id.0,
                                     %error,
                                     "injection into the active execution failed; queueing for a later one"
                                 );
                                 queue.push_back(next);
+                            }
+                            // The Stop won the race. Tear the execution down
+                            // through the normal path, as the open does: its
+                            // terminal is `Cancelled` because `cancel_requested`
+                            // is already set.
+                            if cancel_requested {
+                                process.cancel().await;
                             }
                         } else {
                             queue.push_back(next);

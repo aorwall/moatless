@@ -159,7 +159,7 @@ pub struct Config {
     /// Global default Claude model (env: DEFAULT_CLAUDE_CODE_MODEL), used when neither request nor repo config set one
     pub default_model: Option<String>,
     /// Global default Codex model (env: DEFAULT_CODEX_MODEL), used when neither request nor repo config set one.
-    /// Falls through to [`crate::agent::codex_exec::DEFAULT_CODEX_MODEL`] at call time if unset.
+    /// Falls through to [`crate::agent::codex_app_server::DEFAULT_CODEX_MODEL`] at call time if unset.
     pub default_codex_model: Option<String>,
     /// Use the tmux-based Claude Code SDK transport instead of subprocess/NDJSON (env: SANDBOX_USE_TMUX).
     pub use_tmux: bool,

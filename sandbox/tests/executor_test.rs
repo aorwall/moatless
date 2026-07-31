@@ -302,7 +302,7 @@ async fn dispatch_with_no_messages_does_nothing() {
 }
 
 #[tokio::test]
-async fn running_codex_turn_still_fetches_pending_messages_for_harness_queue() {
+async fn running_codex_turn_still_fetches_pending_messages_for_the_running_turn() {
     let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
         "late follow-up",
         Some("uuid-late"),
@@ -317,12 +317,13 @@ async fn running_codex_turn_still_fetches_pending_messages_for_harness_queue() {
     assert_eq!(
         backend.get_pending_count(),
         1,
-        "Codex cannot inject into the active process, but the harness can queue the next turn"
+        "a message that arrives while a Codex Turn runs is still fetched and handed \
+         to the harness, which now steers it into that Turn"
     );
     assert_eq!(
         backend.ack_count(),
         0,
-        "backend ack still waits for the queued turn to actually start"
+        "backend ack still waits for the harness to report the input accepted"
     );
 }
 

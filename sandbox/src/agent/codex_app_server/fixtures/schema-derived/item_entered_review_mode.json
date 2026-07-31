@@ -1,0 +1,14 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "enteredReviewMode",
+      "id": "review_0",
+      "review": "review the diff"
+    },
+    "threadId": "019f0000-0000-7000-8000-0000000thread",
+    "turnId": "019f0000-0000-7000-8000-000000000turn",
+    "completedAtMs": 0
+  },
+  "emittedAtMs": 0
+}

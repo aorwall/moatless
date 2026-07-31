@@ -66,7 +66,7 @@ const TEST_MODEL: &str = "claude-haiku-4-5-20251001";
 /// permission gate. A pure arithmetic reply needs no tools.
 const TEST_PROMPT: &str = "What is 2+2? Reply with only the number.";
 
-/// Codex model under test. `None` lets `codex_exec::resolve_codex_model` fall
+/// Codex model under test. `None` lets `codex_app_server::resolve_codex_model` fall
 /// through to `DEFAULT_CODEX_MODEL` (`gpt-5.6-sol`); override with `CODEX_TEST_MODEL`
 /// to pin a cheaper model.
 fn codex_test_model() -> Option<String> {
@@ -91,7 +91,7 @@ fn auth_credentials() -> HashMap<String, String> {
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         creds.insert("ANTHROPIC_API_KEY".to_string(), key);
     }
-    // Codex CLI auth: an API key is forwarded to the `codex exec` child env;
+    // Codex CLI auth: an API key is forwarded to the app-server child env;
     // CODEX_AUTH_JSON (ChatGPT-account tokens) is written to ~/.codex/auth.json.
     if let Ok(key) = std::env::var("OPENAI_API_KEY") {
         creds.insert("OPENAI_API_KEY".to_string(), key);
@@ -394,10 +394,10 @@ async fn run_agent_roundtrip(use_tmux: bool) {
 }
 
 /// Codex roundtrip body: drives the production `spawn_agent` path with
-/// `agent_type = "codex"`, which routes through `codex_exec::start` — the real
-/// `codex exec --json` subprocess used in the cluster (NOT the standalone
-/// in-process `codex-sdk` crate). Codex ignores `use_tmux` and always runs one
-/// `codex exec` per turn, so this mirrors `run_agent_roundtrip` without the
+/// `agent_type = "codex"`, which routes through `codex_app_server::start` — the
+/// real `codex app-server --stdio` subprocess used in the cluster (NOT the
+/// standalone in-process `codex-sdk` crate). Codex ignores `use_tmux` and always
+/// runs one process per turn, so this mirrors `run_agent_roundtrip` without the
 /// tmux/`session_context_lost` assertions (both are Claude-specific).
 async fn run_codex_roundtrip() {
     init_tracing();
@@ -768,7 +768,7 @@ async fn test_missing_session_resume_classifies_lost() {
     run_missing_session_resume_is_lost().await;
 }
 
-/// Codex CLI transport (`codex exec --json` subprocess). Gated on `CODEX_E2E=1`.
+/// Codex CLI transport (`codex app-server --stdio` subprocess). Gated on `CODEX_E2E=1`.
 /// Needs the `codex` CLI on PATH (baked into the sandbox base image) and
 /// `OPENAI_API_KEY` (or `CODEX_AUTH_JSON`).
 #[tokio::test]

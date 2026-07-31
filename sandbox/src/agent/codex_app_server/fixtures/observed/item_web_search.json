@@ -1,0 +1,120 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "webSearch",
+      "id": "call_tjXiujkqOmhtuedy2nVjxwuv",
+      "query": "site:blog.rust-lang.org latest stable Rust release July 2026 ...",
+      "action": {
+        "type": "search",
+        "query": null,
+        "queries": [
+          "site:blog.rust-lang.org latest stable Rust release July 2026",
+          "site:doc.rust-lang.org/book appendix-07-nightly-rust latest stable version"
+        ]
+      },
+      "results": [
+        {
+          "type": "text_result",
+          "domain": "doc.rust-lang.org",
+          "ref_id": "turn0search0",
+          "snippet": "## Appendix G - How Rust is Made and \u201cNightly Rust\u201d ... Our solution to this problem is what we call \u201cstability without stagnation\u201d, and",
+          "title": "G - How Rust is Made and \u201cNightly Rust\u201d - The Rust Programming Language",
+          "url": "https://doc.rust-lang.org/nightly/book/appendix-07-nightly-rust.html"
+        },
+        {
+          "type": "text_result",
+          "domain": "blog.rust-lang.org",
+          "ref_id": "turn0search1",
+          "snippet": "This is a subset of the main Rust blog listing only official release announcement posts. ... ### Releases in 2026July 16 | Announcing Rust 1.97.1",
+          "title": "The Rust Release Announcements",
+          "url": "https://blog.rust-lang.org/releases/"
+        },
+        {
+          "type": "text_result",
+          "domain": "blog.rust-lang.org",
+          "ref_id": "turn0search2",
+          "snippet": "July 7, 2026 \u00b7 Release automation on behalf of the Release team ... `RUSTUP_DIST_SERVER=https://dev-static.rust-lang.org rustup update stable`",
+          "title": "1.97.0 pre-release testing | Inside Rust Blog",
+          "url": "https://blog.rust-lang.org/inside-rust/2026/07/07/1.97.0-prerelease/"
+        },
+        {
+          "type": "text_result",
+          "domain": "blog.rust-lang.org",
+          "ref_id": "turn0search3",
+          "snippet": "May 28, 2026 \u00b7 The Rust Release TeamThe Rust team is happy to announce a new version of Rust, 1.96.0. ... `$ rustup update stable`",
+          "title": "Announcing Rust 1.96.0 | Rust Blog",
+          "url": "https://blog.rust-lang.org/2026/05/28/Rust-1.96.0/"
+        },
+        {
+          "type": "text_result",
+          "domain": "blog.rust-lang.org",
+          "ref_id": "turn0search4",
+          "snippet": "June 30, 2026 \u00b7 The Rust Release Team ... `rustup update stable`",
+          "title": "Announcing Rust 1.96.1 | Rust Blog",
+          "url": "https://blog.rust-lang.org/2026/06/30/Rust-1.96.1/"
+        },
+        {
+          "type": "text_result",
+          "domain": "doc.rust-lang.org",
+          "ref_id": "turn0search5",
+          "snippet": "\\nfn stable_fn() {}\\n```\\n\\nSee the [How Rust is Made and \\u{201c}Nightly Rust\\u{201d}][how-rust-made-nightly] appendix\\nof the Book and the [Stability attributes][stability-attributes] section of the",
+          "title": "codes.rs - source",
+          "url": "https://doc.rust-lang.org/stable/nightly-rustc/src/rustc_errors/codes.rs.html"
+        },
+        {
+          "type": "text_result",
+          "domain": "doc.rust-lang.org",
+          "ref_id": "turn0search6",
+          "snippet": "`pub const SEE_CHANNELS: &str = \"See https://doc.rust-lang.org/book/appendix-07-nightly-rust.html for more information \\",
+          "title": "SEE_CHANNELS in cargo::workspace::features - Rust",
+          "url": "https://doc.rust-lang.org/nightly/nightly-rustc/cargo/workspace/features/constant.SEE_CHANNELS.html"
+        },
+        {
+          "type": "text_result",
+          "domain": "blog.rust-lang.org",
+          "ref_id": "turn0search7",
+          "snippet": "16, 2026 \u00b7 The Rust Release Team ... `$ rustup update stable`",
+          "title": "Announcing Rust 1.95.0 | Rust Blog",
+          "url": "https://blog.rust-lang.org/2026/04/16/Rust-1.95.0/"
+        },
+        {
+          "type": "text_result",
+          "domain": "doc.rust-lang.org",
+          "ref_id": "turn0search8",
+          "snippet": "The latest release of this book, matching the latest Rust version, can always be found at https://doc.rust-lang.org/reference/. ... This book also only serves as a",
+          "title": "Introduction - The Rust Reference",
+          "url": "https://doc.rust-lang.org/nightly/reference/"
+        },
+        {
+          "type": "text_result",
+          "domain": "doc.rust-lang.org",
+          "ref_id": "turn0search9",
+          "snippet": "r\" [nightly channel]: https://doc.rust-lang.org/book/appendix-07-nightly-rust.html\"]",
+          "title": "builtin.rs - source",
+          "url": "https://doc.rust-lang.org/beta/nightly-rustc/src/rustc_lint_defs/builtin.rs.html"
+        },
+        {
+          "type": "text_result",
+          "domain": "doc.rust-lang.org",
+          "ref_id": "turn0search10",
+          "snippet": "# The Cargo Book ... Compiler pre-release identifiers such as -nightly will be ignored while checking the Rust version. ... * The development branch tracks",
+          "title": "Rust version - The Cargo Book",
+          "url": "https://doc.rust-lang.org/stable/cargo/reference/rust-version.html"
+        },
+        {
+          "type": "text_result",
+          "domain": "blog.rust-lang.org",
+          "ref_id": "turn0search11",
+          "snippet": "See also: the \"Inside Rust\" blog, release announcements ... May 18 | Project goals update \u2014 April 2026 (end of 2025H2) ... 28 | Generic",
+          "title": "The Rust Programming Language Blog",
+          "url": "https://blog.rust-lang.org/"
+        }
+      ]
+    },
+    "threadId": "019fb6c5-477a-7e80-bbb1-75521dbaf6cf",
+    "turnId": "019fb6c5-47f4-7b13-97da-ff6d2b370954",
+    "completedAtMs": 1785477816807
+  },
+  "emittedAtMs": 1785477816808
+}

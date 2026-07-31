@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": -32600,
+    "message": "no active turn to steer"
+  },
+  "id": 4
+}

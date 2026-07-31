@@ -1,0 +1,14 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "plan",
+      "id": "plan_0",
+      "text": "1. read the file\n2. change it\n3. run the tests"
+    },
+    "threadId": "019f0000-0000-7000-8000-0000000thread",
+    "turnId": "019f0000-0000-7000-8000-000000000turn",
+    "completedAtMs": 0
+  },
+  "emittedAtMs": 0
+}

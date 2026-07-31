@@ -1,0 +1,17 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "reasoning",
+      "id": "rs_0b64099932829309016a6c3a5884a8819194dfd04021e19653",
+      "summary": [
+        "**Planning update and patch sequence**"
+      ],
+      "content": []
+    },
+    "threadId": "019fb6c3-d67c-7582-8480-f64fc113eca1",
+    "turnId": "019fb6c3-d711-7630-ba0c-4e1b5c0ee191",
+    "completedAtMs": 1785477722057
+  },
+  "emittedAtMs": 1785477722057
+}

@@ -1,6 +1,6 @@
 pub mod agent_state;
 pub mod background_watch_job;
-pub mod codex_exec;
+pub(crate) mod codex_app_server;
 pub mod coordinator;
 pub mod dispatcher;
 pub mod handle;

@@ -1,23 +1,24 @@
 //! Native Codex thread item → canonical `SourceEvent` normalization.
 //!
-//! One `SourceEvent` per native item, in native order, preserving the item's
-//! exact JSON block (`ThreadItem::raw`) so every item family — agent messages,
-//! reasoning, commands, file changes, MCP/collab tools, web search, todo lists,
-//! errors, and unknown kinds — keeps its observable meaning without the harness
-//! re-deriving native payloads. This is the only place that maps Codex-native
-//! items; the shared harness/driver never sees a `CodexExecEvent`.
+//! One `SourceEvent` per native item, in native order, so every item family
+//! keeps its observable meaning without the harness re-deriving native payloads.
+//! This is the only place that maps Codex-native items; the shared
+//! harness/driver never sees a [`ThreadItem`].
 //!
-//! Codex restarts its `item_id` numbering at `item_0` on every `codex exec
-//! --resume`, so a per-spawn nonce is mixed into each `source_id` to keep two
-//! blocks from ever colliding across process replacement.
+//! A per-spawn nonce is mixed into each `source_id`. It was introduced because
+//! `codex exec --resume` restarted item ids at `item_0`; app-server ids look
+//! globally unique, but that was not established for every family and the
+//! `{session}_{nonce}_{item}` scheme is what persisted reads line up against, so
+//! it stays.
 
 use moatless_api_schemas::content::CanonicalContentBlock;
 
-use crate::agent::codex_exec::{ThreadItem, Usage};
+use crate::agent::codex_app_server::protocol::{ThreadItem, TokenUsageBreakdown, TurnPlanStep};
 
 use super::super::signal::SessionId;
 use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};
 use super::blocks;
+use super::blocks::ItemBlock;
 
 /// Upper bound on retained native diagnostics for an unknown item block.
 const MAX_DIAGNOSTIC_BYTES: usize = 2000;
@@ -66,31 +67,63 @@ impl Normalizer {
     /// native family is mapped to the `text` / `tool_use` / `tool_result` blocks
     /// the backend assembler and UI understand (a tool item expands to a
     /// tool_use plus a paired tool_result in its own user Message). An unknown
-    /// kind is forwarded as its raw native block with bounded diagnostics so an
-    /// upstream CLI addition is never silently discarded.
+    /// family is forwarded as its raw native block with bounded diagnostics so an
+    /// upstream CLI addition is never silently discarded; a family that is known
+    /// and deliberately renders nothing yields no events at all.
     pub(super) fn item_sources(&self, item: &ThreadItem) -> Vec<SourceEvent> {
-        let session = self.session_or(&item.id);
-        let qualified = self.qualify(&session, &item.id);
+        let session = self.session_or(item.id());
+        let qualified = self.qualify(&session, item.id());
 
-        let Some(blocks) = blocks::item_blocks(&item.details, &qualified) else {
-            // Unknown kind: preserve the raw native block, flagged with bounded
-            // diagnostics.
-            return vec![SourceEvent {
-                source_id: SourceId(qualified.clone()),
-                message_id: NativeMessageId(qualified),
-                session,
-                parent_tool_use_id: None,
-                role: Role::Assistant,
-                block: CanonicalContentBlock::Unknown {
-                    raw: item.raw.clone(),
-                },
-                tool_use_result: None,
-                usage: None,
-                model: self.model.clone(),
-                diagnostics: Some(bounded(&item.raw)),
-            }];
+        match blocks::item_blocks(item, &qualified) {
+            Some(blocks) => self.events(blocks, &session, &qualified),
+            None => vec![self.unknown_source(item, session, qualified)],
+        }
+    }
+
+    /// Preserve an unknown family's raw native block, flagged with bounded
+    /// diagnostics, so an upstream addition is visible rather than discarded.
+    fn unknown_source(
+        &self,
+        item: &ThreadItem,
+        session: SessionId,
+        qualified: String,
+    ) -> SourceEvent {
+        // `item_blocks` returns `None` only for `Other`, which carries its
+        // payload; anything else would be a mapping bug, not lost data.
+        let raw = match item {
+            ThreadItem::Other { raw, .. } => raw.clone(),
+            other => serde_json::json!({ "type": other.type_name() }),
         };
+        SourceEvent {
+            source_id: SourceId(qualified.clone()),
+            message_id: NativeMessageId(qualified),
+            session,
+            parent_tool_use_id: None,
+            role: Role::Assistant,
+            block: CanonicalContentBlock::Unknown { raw: raw.clone() },
+            tool_use_result: None,
+            usage: None,
+            model: self.model.clone(),
+            diagnostics: Some(bounded(&raw)),
+        }
+    }
 
+    /// Canonical source events for the running plan tracker, which arrives as a
+    /// notification and so has no item id of its own. One stable id per spawn
+    /// keeps every update upserting the same live card, as the `todo_list`
+    /// item's re-used id did.
+    pub(super) fn plan_sources(&self, plan: &[TurnPlanStep]) -> Vec<SourceEvent> {
+        let session = self.session_or("");
+        let qualified = self.qualify(&session, "plan");
+        self.events(blocks::plan_blocks(plan, &qualified), &session, &qualified)
+    }
+
+    fn events(
+        &self,
+        blocks: Vec<ItemBlock>,
+        session: &SessionId,
+        qualified: &str,
+    ) -> Vec<SourceEvent> {
         blocks
             .into_iter()
             .map(|canonical| {
@@ -107,8 +140,8 @@ impl Normalizer {
                     role: canonical.role,
                     block: canonical.block,
                     tool_use_result: canonical.tool_use_result,
-                    // Codex reports usage once per turn, not per item — carried on
-                    // the turn-result source event instead.
+                    // Codex reports usage per turn, not per item — carried on the
+                    // turn-result source event instead.
                     usage: None,
                     model: self.model.clone(),
                     diagnostics: None,
@@ -118,9 +151,9 @@ impl Normalizer {
     }
 
     /// Canonical source event for a completed turn, carrying the turn-level usage
-    /// (Codex's only usage report) so it is retained through the seam rather than
-    /// dropped at the terminal, which has no usage carrier.
-    pub(super) fn turn_result_source(&self, usage: &Usage) -> SourceEvent {
+    /// so it is retained through the seam rather than dropped at the terminal,
+    /// which has no usage carrier.
+    pub(super) fn turn_result_source(&self, usage: &TurnUsage) -> SourceEvent {
         let session = self.session_or("");
         let id = format!("{}_{}_result", session.0, self.nonce);
         SourceEvent {
@@ -139,6 +172,49 @@ impl Normalizer {
             })),
             model: self.model.clone(),
             diagnostics: None,
+        }
+    }
+}
+
+/// What one Turn spent, in the four fields the turn-result block publishes.
+///
+/// Assembled from `thread/tokenUsage/updated`, which reports two running
+/// figures and neither of them is a Turn: `last` is the most recent *model
+/// request* and `total` is everything the Session has spent, carried across
+/// `thread/resume`. Measured against codex-cli 0.145.0 — a three-request Turn
+/// reported `last` totals of 15842/15918/15969 against `total` 15842/31760/47729,
+/// and `codex exec --json` billed the same work as one `usage` of 47902 input
+/// tokens. So the Turn's spend is the *growth* of `total` while it ran, which is
+/// what [`TurnUsage::between`] computes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the field names are the wire's; dropping the postfix would need a rename on every one"
+)]
+pub(super) struct TurnUsage {
+    pub(super) input_tokens: i64,
+    pub(super) cached_input_tokens: i64,
+    pub(super) output_tokens: i64,
+    pub(super) reasoning_output_tokens: i64,
+}
+
+impl TurnUsage {
+    /// The spend between two `total` readings. `baseline` is what the Session
+    /// had already spent when the Turn opened — `None` on a fresh thread, where
+    /// the first reading is the Turn's own first request.
+    pub(super) fn between(
+        baseline: Option<&TokenUsageBreakdown>,
+        latest: &TokenUsageBreakdown,
+    ) -> Self {
+        let zero = TokenUsageBreakdown::default();
+        let base = baseline.unwrap_or(&zero);
+        Self {
+            input_tokens: (latest.input_tokens - base.input_tokens).max(0),
+            cached_input_tokens: (latest.cached_input_tokens - base.cached_input_tokens).max(0),
+            output_tokens: (latest.output_tokens - base.output_tokens).max(0),
+            reasoning_output_tokens: (latest.reasoning_output_tokens
+                - base.reasoning_output_tokens)
+                .max(0),
         }
     }
 }

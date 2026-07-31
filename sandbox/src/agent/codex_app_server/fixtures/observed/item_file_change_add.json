@@ -1,0 +1,23 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "fileChange",
+      "id": "call_aZTf276YE5KVIPPaM7vF1lmc",
+      "changes": [
+        {
+          "path": "/tmp/probe/turn/ws/note.txt",
+          "kind": {
+            "type": "add"
+          },
+          "diff": "ALPHA\n"
+        }
+      ],
+      "status": "completed"
+    },
+    "threadId": "019fb6c3-d67c-7582-8480-f64fc113eca1",
+    "turnId": "019fb6c3-d711-7630-ba0c-4e1b5c0ee191",
+    "completedAtMs": 1785477733479
+  },
+  "emittedAtMs": 1785477733479
+}

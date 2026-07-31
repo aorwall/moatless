@@ -1,0 +1,17 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "imageGeneration",
+      "id": "imggen_0",
+      "result": "data:image/png;base64,iVBORw0KGgo=",
+      "status": "completed",
+      "revisedPrompt": "a red circle on a white background",
+      "savedPath": "/workspace/generated.png"
+    },
+    "threadId": "019f0000-0000-7000-8000-0000000thread",
+    "turnId": "019f0000-0000-7000-8000-000000000turn",
+    "completedAtMs": 0
+  },
+  "emittedAtMs": 0
+}

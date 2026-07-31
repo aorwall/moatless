@@ -6,6 +6,8 @@
 //! prevents a public universal harness trait from forming — callers receive the
 //! concrete [`super::Harness`], never a process handle.
 
+use tokio_util::sync::CancellationToken;
+
 use super::error::HarnessError;
 use super::signal::{Activity, Input, InputId, SessionId};
 use super::source::SourceEvent;
@@ -79,6 +81,23 @@ pub(crate) trait AgentProcess: Send {
     /// Request cancellation of the process tree. Idempotent; the process is
     /// expected to terminate afterwards.
     async fn cancel(&mut self);
+
+    /// A handle that cancels the process tree without borrowing it.
+    ///
+    /// [`AgentProcess::cancel`] cannot be reached while [`AgentProcess::submit`]
+    /// is still running — that future holds the process mutably — so a transport
+    /// whose opening path blocks on the Agent must hand back a handle here or a
+    /// Stop cannot land until the open finishes on its own. Codex awaits
+    /// `initialize`, `thread/start` and `turn/start` before `submit` returns, and
+    /// overrides this.
+    ///
+    /// The default is a token nobody else holds, so cancelling it does nothing.
+    /// That is correct only for a transport whose `submit` cannot block on the
+    /// Agent — it spawns, or writes locally, and returns. The driver still
+    /// records the Stop and applies it as soon as `submit` lands.
+    fn cancel_handle(&self) -> CancellationToken {
+        CancellationToken::new()
+    }
 
     /// Await the next raw event, or `None` when the process stream is closed
     /// (EOF) — an EOF with no prior `Terminated` is an unexpected exit.

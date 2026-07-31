@@ -1,0 +1,28 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "collabAgentToolCall",
+      "id": "call_collab_0",
+      "tool": "spawnAgent",
+      "senderThreadId": "019f0000-0000-7000-8000-00000000thre",
+      "receiverThreadIds": [
+        "019f0000-0000-7000-8000-0000000000sub"
+      ],
+      "agentsStates": {
+        "019f0000-0000-7000-8000-0000000000sub": {
+          "status": "running",
+          "message": null
+        }
+      },
+      "status": "inProgress",
+      "prompt": "help with the migration",
+      "model": null,
+      "reasoningEffort": null
+    },
+    "threadId": "019f0000-0000-7000-8000-0000000thread",
+    "turnId": "019f0000-0000-7000-8000-000000000turn",
+    "completedAtMs": 0
+  },
+  "emittedAtMs": 0
+}

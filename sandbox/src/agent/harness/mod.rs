@@ -206,10 +206,10 @@ impl Harness {
     }
 
     /// Construct the production Codex harness. Codex is one-process-per-Turn, so
-    /// each execution launches a fresh `codex exec --json` subprocess through the
-    /// shared one-shot [`driver::run`]; a later Turn resumes the known thread by
-    /// replacing the process. The Turn-independent `config` is cloned per
-    /// execution.
+    /// each execution launches a fresh `codex app-server --stdio` subprocess
+    /// through the shared one-shot [`driver::run`]; a later Turn resumes the
+    /// known thread by replacing the process. The Turn-independent `config` is
+    /// cloned per execution.
     pub fn codex(config: CodexConfig) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
         let (cancel_tx, cancel_rx) = mpsc::channel(1);

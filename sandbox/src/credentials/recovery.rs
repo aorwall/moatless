@@ -1,71 +1,56 @@
-//! Stderr-pattern detector for credential failures.
+//! Per-credential failure flags.
 //!
-//! Codex CLI surfaces a refresh-token race as `refresh_token_reused` on
-//! stderr. The detector scans every stderr line and flips a per-credential
-//! atomic flag when a known marker appears. The agent loop polls the flag at
-//! turn-failure boundaries and triggers a credential pull + retry.
+//! The Codex harness recognises an expired credential from the named
+//! `codexErrorInfo` on the failed Turn and flips this flag; the agent loop polls
+//! it at turn-failure boundaries and triggers a credential pull + retry.
 //!
-//! Designed to be generic so adding a new credential is a one-entry change to
-//! [`CredentialFailureDetector::default_patterns`].
+//! The detector deliberately no longer decides *what* a failure looks like. It
+//! used to scan `codex exec` stderr for marker substrings, which matched
+//! background noise — an unauthorized probe carried three `401 Unauthorized`
+//! lines from a model-list refresh with no relation to the Turn alongside the
+//! one genuine refresh failure. The typed error is scoped to a `turnId`; a line
+//! scanner cannot be.
+//!
+//! Adding a new credential is a one-entry change to [`KNOWN_CREDENTIALS`].
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// Per-credential marker substrings. Lower-case match — both sides are
-/// lower-cased before comparison.
-type Patterns = HashMap<String, Vec<&'static str>>;
+/// The Codex credential blob, written to `$CODEX_HOME/auth.json` by
+/// `CodexAuthJsonSink`. The only credential with a failure signal today.
+pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
 
-/// Detector + per-credential triggered flags. Cheap to clone (Arc inside).
+/// Every credential that can be flagged. Keys the coordinator maps to a
+/// human-readable provider name (`coordinator.rs`).
+const KNOWN_CREDENTIALS: &[&str] = &[CODEX_AUTH_JSON];
+
+/// Per-credential triggered flags. Cheap to clone (Arc inside).
 #[derive(Clone)]
 pub struct CredentialFailureDetector {
-    patterns: Arc<Patterns>,
     triggered: Arc<HashMap<String, Arc<AtomicBool>>>,
 }
 
 impl Default for CredentialFailureDetector {
     fn default() -> Self {
-        Self::new(Self::default_patterns())
+        Self {
+            triggered: Arc::new(
+                KNOWN_CREDENTIALS
+                    .iter()
+                    .map(|key| ((*key).to_string(), Arc::new(AtomicBool::new(false))))
+                    .collect(),
+            ),
+        }
     }
 }
 
 impl CredentialFailureDetector {
-    pub fn new(patterns: Patterns) -> Self {
-        let triggered = patterns
-            .keys()
-            .map(|k| (k.clone(), Arc::new(AtomicBool::new(false))))
-            .collect();
-        Self {
-            patterns: Arc::new(patterns),
-            triggered: Arc::new(triggered),
-        }
-    }
-
-    /// Default patterns. Add new credentials here as detection markers are
-    /// identified upstream.
-    pub fn default_patterns() -> Patterns {
-        let mut p: Patterns = HashMap::new();
-        p.insert(
-            "CODEX_AUTH_JSON".to_string(),
-            vec![
-                "refresh_token_reused",
-                "refresh token reused",
-                "failed to refresh token",
-                "401 unauthorized",
-            ],
-        );
-        p
-    }
-
-    /// Scan a single stderr line. Flips any matching credential's flag.
-    pub fn scan(&self, line: &str) {
-        let lower = line.to_ascii_lowercase();
-        for (key, markers) in self.patterns.iter() {
-            if let Some(flag) = self.triggered.get(key) {
-                if markers.iter().any(|m| lower.contains(m)) {
-                    flag.store(true, Ordering::SeqCst);
-                }
-            }
+    /// Flag a credential as failed. Called by the harness when a Turn fails with
+    /// the named code for an unauthorized request. Unknown keys are ignored —
+    /// the flag map is fixed at construction.
+    pub fn trigger(&self, key: &str) {
+        if let Some(flag) = self.triggered.get(key) {
+            flag.store(true, Ordering::SeqCst);
         }
     }
 
@@ -93,34 +78,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flips_on_known_marker() {
+    fn trigger_sets_the_flag_once() {
         let d = CredentialFailureDetector::default();
-        d.scan("ERROR: refresh_token_reused; cannot continue");
-        assert!(d.take("CODEX_AUTH_JSON"));
+        d.trigger(CODEX_AUTH_JSON);
+        assert!(d.take(CODEX_AUTH_JSON));
         // Subsequent take returns false — flag was cleared.
-        assert!(!d.take("CODEX_AUTH_JSON"));
+        assert!(!d.take(CODEX_AUTH_JSON));
     }
 
     #[test]
-    fn ignores_unrelated_lines() {
+    fn untriggered_credentials_stay_clear() {
         let d = CredentialFailureDetector::default();
-        d.scan("INFO: turn started");
-        assert!(!d.take("CODEX_AUTH_JSON"));
+        assert!(!d.take(CODEX_AUTH_JSON));
+        assert!(d.take_all().is_empty());
     }
 
     #[test]
-    fn case_insensitive() {
+    fn an_unknown_key_is_ignored() {
         let d = CredentialFailureDetector::default();
-        d.scan("Refresh_Token_Reused detected");
-        assert!(d.take("CODEX_AUTH_JSON"));
+        d.trigger("NOT_A_CREDENTIAL");
+        assert!(d.take_all().is_empty());
     }
 
     #[test]
     fn take_all_returns_set_keys() {
         let d = CredentialFailureDetector::default();
-        d.scan("Failed to refresh token");
-        let triggered = d.take_all();
-        assert_eq!(triggered, vec!["CODEX_AUTH_JSON".to_string()]);
+        d.trigger(CODEX_AUTH_JSON);
+        assert_eq!(d.take_all(), vec![CODEX_AUTH_JSON.to_string()]);
         // Cleared.
         assert!(d.take_all().is_empty());
     }

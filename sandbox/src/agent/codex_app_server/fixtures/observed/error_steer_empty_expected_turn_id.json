@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": -32600,
+    "message": "expectedTurnId must not be empty"
+  },
+  "id": 5
+}

@@ -1,0 +1,27 @@
+{
+  "method": "turn/plan/updated",
+  "params": {
+    "threadId": "019fb6c3-d67c-7582-8480-f64fc113eca1",
+    "turnId": "019fb6c3-d711-7630-ba0c-4e1b5c0ee191",
+    "explanation": null,
+    "plan": [
+      {
+        "step": "Run `echo hello-from-codex`",
+        "status": "inProgress"
+      },
+      {
+        "step": "Create note.txt containing ALPHA with apply_patch",
+        "status": "pending"
+      },
+      {
+        "step": "Edit note.txt to contain ALPHA BETA with apply_patch",
+        "status": "pending"
+      },
+      {
+        "step": "Run `sleep 20`",
+        "status": "pending"
+      }
+    ]
+  },
+  "emittedAtMs": 1785477723835
+}

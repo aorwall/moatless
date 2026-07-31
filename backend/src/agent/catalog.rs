@@ -171,7 +171,7 @@ pub const CODEX: AgentEntry = AgentEntry {
     provider_token_providers: &["codex", "openai"],
     default_model: "default",
     // "Default" resolves to `DEFAULT_CODEX_MODEL` (`gpt-5.6-sol`) in the sandbox —
-    // see `sandbox/src/agent/codex_exec.rs`. The explicit entries below mirror
+    // see `sandbox/src/agent/codex_app_server/mod.rs`. The explicit entries below mirror
     // the current Codex CLI model picker (`gpt-5.6-sol` is its current default).
     models: &[
         ModelEntry {

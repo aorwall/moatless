@@ -1,0 +1,21 @@
+{
+  "method": "turn/completed",
+  "params": {
+    "threadId": "019fb6c7-4054-7322-aa95-188366ccb391",
+    "turn": {
+      "id": "019fb6c7-40ed-7d51-8edd-e9e72e33ea52",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "failed",
+      "error": {
+        "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'no-such-model-zzz' model is not supported when using Codex with a ChatGPT account.\"}}",
+        "codexErrorInfo": "other",
+        "additionalDetails": null
+      },
+      "startedAt": 1785477939,
+      "completedAt": 1785477940,
+      "durationMs": 1116
+    }
+  },
+  "emittedAtMs": 1785477940555
+}

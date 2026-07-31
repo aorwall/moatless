@@ -1,6 +1,6 @@
 //! Native Codex thread item → canonical Anthropic-shaped content block(s).
 //!
-//! Codex reports native item families (`agent_message`, `command_execution`, …)
+//! Codex reports native item families (`agentMessage`, `commandExecution`, …)
 //! whose type strings the backend assembler and UI do not understand, so a
 //! forwarded native block renders as nothing. This maps each family into the
 //! same `text` / `tool_use` / `tool_result` blocks the coordinator publishes,
@@ -15,6 +15,22 @@
 //! Blocks are built through the shared [`CanonicalContentBlock`] enum the Claude
 //! harness also normalizes into, so both agents converge on one type-checked
 //! canonical format rather than parallel hand-rolled JSON.
+//!
+//! ## Families that produce nothing
+//!
+//! Three outcomes are possible, and they are not the same thing:
+//!
+//! - a family maps to canonical blocks;
+//! - a family is **deliberately dropped** — [`item_blocks`] returns an empty
+//!   list, so the item is understood and contributes nothing;
+//! - a family is **unknown** — `None`, which the caller forwards as a raw block
+//!   with bounded diagnostics so an upstream addition is visible.
+//!
+//! Which families are dropped and why is settled in the spec
+//! (`.plans/codex-app-server-harness.md`, *Data model*); the short version is
+//! that the canonical vocabulary here is `text` plus a fixed set of `codex.*`
+//! tool names, and inventing assistant prose or a fake tool call for a status
+//! notice reads worse to the person watching than the notice being absent.
 
 use moatless_api_schemas::content::CanonicalContentBlock;
 use serde_json::{json, Value};
@@ -24,11 +40,11 @@ use moatless_api_schemas::codex::{
     CODEX_TOOL_TODO_LIST, CODEX_TOOL_WEB_SEARCH,
 };
 
-use crate::agent::codex_exec::ThreadItemDetails;
+use crate::agent::codex_app_server::protocol::{ReasoningItem, ThreadItem, TurnPlanStep};
 use crate::agent::handle::codex_payloads::{
     build_codex_todo_list_input, build_collab_tool_result, build_collab_tool_use,
-    build_edit_tool_result, build_edit_tool_use, build_mcp_tool_result, build_mcp_tool_use,
-    build_shell_tool_result, build_shell_tool_use,
+    build_dynamic_tool_result, build_dynamic_tool_use, build_edit_tool_result, build_edit_tool_use,
+    build_mcp_tool_result, build_mcp_tool_use, build_shell_tool_result, build_shell_tool_use,
 };
 
 use super::super::source::Role;
@@ -98,48 +114,86 @@ fn tool_call(
     ]
 }
 
-/// Map one native item's typed details into canonical blocks. `tool_use_id` is
-/// the item's qualified id, shared by a tool_use and its paired tool_result.
-/// Returns `None` for an unknown (`Other`) kind, which the caller forwards as its
-/// raw native block with bounded diagnostics instead.
-pub(super) fn item_blocks(
-    details: &ThreadItemDetails,
-    tool_use_id: &str,
-) -> Option<Vec<ItemBlock>> {
-    let blocks = match details {
-        // Assistant prose, model reasoning, and non-fatal item errors all render
-        // as assistant text (matching the legacy path; the turn is not failed).
-        ThreadItemDetails::AgentMessage(m) => vec![text(Role::Assistant, &m.text)],
-        ThreadItemDetails::Reasoning(r) => vec![text(Role::Assistant, &r.text)],
-        ThreadItemDetails::Error(e) => vec![text(Role::Assistant, &e.message)],
-        ThreadItemDetails::CommandExecution(cmd) => tool_call(
+/// The reasoning text, from whichever of the item's two lists carries it.
+///
+/// `codex exec` reported a single `text`; this transport splits it into
+/// `summary` (the redacted reasoning summary) and `content` (the raw chain of
+/// thought). Every observation has the text in `summary` with `content` empty,
+/// so `summary` is what today's `text` was — but both are read, because an item
+/// with neither is also normal and must produce no block rather than an empty
+/// one.
+fn reasoning_text(item: &ReasoningItem) -> Option<String> {
+    let parts = if item.summary.is_empty() {
+        &item.content
+    } else {
+        &item.summary
+    };
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("\n\n"))
+}
+
+/// The running plan tracker, which arrives as the `turn/plan/updated`
+/// notification rather than as an item. Re-emitted under a stable id on every
+/// update so the backend upserts one live card, exactly as `todo_list` did.
+pub(super) fn plan_blocks(plan: &[TurnPlanStep], tool_use_id: &str) -> Vec<ItemBlock> {
+    let input =
+        serde_json::to_value(build_codex_todo_list_input(plan)).unwrap_or_else(|_| json!({}));
+    vec![tool_use(tool_use_id, CODEX_TOOL_TODO_LIST, input)]
+}
+
+/// Map one native item into canonical blocks. `tool_use_id` is the item's
+/// qualified id, shared by a tool_use and its paired tool_result.
+///
+/// Returns `None` for an unknown family, which the caller forwards as its raw
+/// native block with bounded diagnostics instead. An empty list means the family
+/// is known and deliberately renders nothing — see the module docs.
+pub(super) fn item_blocks(item: &ThreadItem, tool_use_id: &str) -> Option<Vec<ItemBlock>> {
+    let blocks = match item {
+        // Assistant prose and model reasoning both render as assistant text.
+        // There is no `error` item on this transport — a failed Turn reports its
+        // error on the terminal instead.
+        ThreadItem::AgentMessage(m) => vec![text(Role::Assistant, &m.text)],
+        ThreadItem::Reasoning(r) => match reasoning_text(r) {
+            Some(reasoning) => vec![text(Role::Assistant, &reasoning)],
+            None => vec![],
+        },
+        ThreadItem::CommandExecution(cmd) => tool_call(
             tool_use_id,
             CODEX_TOOL_SHELL,
             build_shell_tool_use(cmd),
             build_shell_tool_result(cmd),
         ),
-        ThreadItemDetails::FileChange(edit) => tool_call(
+        ThreadItem::FileChange(edit) => tool_call(
             tool_use_id,
             CODEX_TOOL_EDIT,
             build_edit_tool_use(edit),
             build_edit_tool_result(edit),
         ),
-        ThreadItemDetails::McpToolCall(mcp) => tool_call(
+        ThreadItem::McpToolCall(mcp) => tool_call(
             tool_use_id,
             CODEX_TOOL_MCP,
             build_mcp_tool_use(mcp),
             build_mcp_tool_result(mcp),
         ),
-        ThreadItemDetails::CollabToolCall(collab) => tool_call(
+        // A namespaced tool with JSON arguments and content items back is what
+        // `codex.mcp_tool_call` already renders, so it reuses that card rather
+        // than being invisible — the one new family with an honest home.
+        ThreadItem::DynamicToolCall(dynamic) => tool_call(
+            tool_use_id,
+            CODEX_TOOL_MCP,
+            build_dynamic_tool_use(dynamic),
+            build_dynamic_tool_result(dynamic),
+        ),
+        ThreadItem::CollabAgentToolCall(collab) => tool_call(
             tool_use_id,
             CODEX_TOOL_COLLAB,
             build_collab_tool_use(collab),
             build_collab_tool_result(collab),
         ),
-        // Web search and the running plan tracker have no separate result concept,
-        // so each is a lone tool_use (todo_list re-emits on start/update/complete
-        // under a stable id so the backend upserts one live card).
-        ThreadItemDetails::WebSearch(web) => {
+        // Web search has no separate result concept, so it is a lone tool_use.
+        ThreadItem::WebSearch(web) => {
             let input = serde_json::to_value(CodexWebSearchInput {
                 query: web.query.clone(),
                 action: web.action.clone(),
@@ -147,12 +201,33 @@ pub(super) fn item_blocks(
             .unwrap_or_else(|_| json!({}));
             vec![tool_use(tool_use_id, CODEX_TOOL_WEB_SEARCH, input)]
         }
-        ThreadItemDetails::TodoList(todo) => {
-            let input = serde_json::to_value(build_codex_todo_list_input(todo))
-                .unwrap_or_else(|_| json!({}));
-            vec![tool_use(tool_use_id, CODEX_TOOL_TODO_LIST, input)]
-        }
-        ThreadItemDetails::Other { .. } => return None,
+
+        // ── Deliberately dropped ────────────────────────────────────────
+        //
+        // The Turn's own prompt is echoed back as a `userMessage`, and so is a
+        // steered one. Both are already in the conversation as the Message that
+        // produced them, so emitting a block would show the text twice.
+        ThreadItem::UserMessage(_)
+        // Prompt material a Codex hook injected, not agent output. Rendering it
+        // as assistant text would attribute someone else's words to the agent.
+        | ThreadItem::HookPrompt(_)
+        // A written plan, distinct from the running plan tracker (which is the
+        // `turn/plan/updated` notification). No probe has produced one, and its
+        // single `text` field would be indistinguishable from an agent message.
+        | ThreadItem::Plan(_)
+        // Status notices with no content to render: a sub-agent lifecycle tick,
+        // a file the agent looked at, a wait, a generated image, review-mode
+        // boundaries the sandbox never enters, and an automatic compaction.
+        // Each would need a canonical block type that does not exist yet.
+        | ThreadItem::SubAgentActivity(_)
+        | ThreadItem::ImageView(_)
+        | ThreadItem::Sleep(_)
+        | ThreadItem::ImageGeneration(_)
+        | ThreadItem::EnteredReviewMode(_)
+        | ThreadItem::ExitedReviewMode(_)
+        | ThreadItem::ContextCompaction(_) => vec![],
+
+        ThreadItem::Other { .. } => return None,
     };
     Some(blocks)
 }

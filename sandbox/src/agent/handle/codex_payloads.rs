@@ -1,4 +1,5 @@
-//! Pure builders that map Codex CLI thread items to typed tool inputs/results.
+//! Pure builders that map Codex app-server thread items to typed tool
+//! inputs/results.
 
 use std::collections::HashMap;
 
@@ -9,10 +10,11 @@ use moatless_api_schemas::codex::{
     FileUpdateChange, FileUpdateKind,
 };
 
-use crate::agent::codex_exec::{
-    self, CollabAgentStatus as CodexExecCollabAgentStatus, CollabTool as CodexExecCollabTool,
-    CollabToolCallItem, CollabToolCallStatus, CommandExecutionItem, CommandExecutionStatus,
-    FileChangeItem, McpToolCallItem, McpToolCallStatus, PatchApplyStatus, TodoListItem,
+use crate::agent::codex_app_server::protocol::{
+    CollabAgentState, CollabAgentStatus, CollabAgentTool, CollabAgentToolCallItem,
+    CollabAgentToolCallStatus, CommandExecutionItem, CommandExecutionStatus, DynamicToolCallItem,
+    FileChangeItem, McpToolCallItem, McpToolCallStatus, PatchApplyStatus, PatchChangeKind,
+    TurnPlanStep, TurnPlanStepStatus,
 };
 
 /// Map a codex shell status + exit code to the shared typed status enum.
@@ -43,6 +45,7 @@ fn patch_apply_to_tool_status(status: PatchApplyStatus) -> CodexToolStatus {
         PatchApplyStatus::InProgress => CodexToolStatus::InProgress,
         PatchApplyStatus::Completed => CodexToolStatus::Completed,
         PatchApplyStatus::Failed => CodexToolStatus::Failed,
+        PatchApplyStatus::Declined => CodexToolStatus::Declined,
         PatchApplyStatus::Unknown => CodexToolStatus::Completed,
     }
 }
@@ -56,40 +59,43 @@ fn mcp_to_tool_status(status: McpToolCallStatus) -> CodexToolStatus {
     }
 }
 
-fn collab_to_tool_status(status: CollabToolCallStatus) -> CodexToolStatus {
+fn collab_to_tool_status(status: CollabAgentToolCallStatus) -> CodexToolStatus {
     match status {
-        CollabToolCallStatus::InProgress => CodexToolStatus::InProgress,
-        CollabToolCallStatus::Completed => CodexToolStatus::Completed,
-        CollabToolCallStatus::Failed => CodexToolStatus::Failed,
-        CollabToolCallStatus::Unknown => CodexToolStatus::Completed,
+        CollabAgentToolCallStatus::InProgress => CodexToolStatus::InProgress,
+        CollabAgentToolCallStatus::Completed => CodexToolStatus::Completed,
+        CollabAgentToolCallStatus::Failed => CodexToolStatus::Failed,
+        CollabAgentToolCallStatus::Unknown => CodexToolStatus::Completed,
     }
 }
 
-fn map_collab_tool(tool: CodexExecCollabTool) -> CodexCollabTool {
+/// `resumeAgent` has no canonical counterpart — the shared schema was written
+/// against the four collab tools `codex exec` reported — so it lands in
+/// `Unknown` rather than being mislabelled as one of them.
+fn map_collab_tool(tool: CollabAgentTool) -> CodexCollabTool {
     match tool {
-        CodexExecCollabTool::SpawnAgent => CodexCollabTool::SpawnAgent,
-        CodexExecCollabTool::SendInput => CodexCollabTool::SendInput,
-        CodexExecCollabTool::Wait => CodexCollabTool::Wait,
-        CodexExecCollabTool::CloseAgent => CodexCollabTool::CloseAgent,
-        CodexExecCollabTool::Unknown => CodexCollabTool::Unknown,
+        CollabAgentTool::SpawnAgent => CodexCollabTool::SpawnAgent,
+        CollabAgentTool::SendInput => CodexCollabTool::SendInput,
+        CollabAgentTool::Wait => CodexCollabTool::Wait,
+        CollabAgentTool::CloseAgent => CodexCollabTool::CloseAgent,
+        CollabAgentTool::ResumeAgent | CollabAgentTool::Unknown => CodexCollabTool::Unknown,
     }
 }
 
-fn map_collab_agent_status(status: CodexExecCollabAgentStatus) -> CodexCollabAgentStatus {
+fn map_collab_agent_status(status: CollabAgentStatus) -> CodexCollabAgentStatus {
     match status {
-        CodexExecCollabAgentStatus::PendingInit => CodexCollabAgentStatus::PendingInit,
-        CodexExecCollabAgentStatus::Running => CodexCollabAgentStatus::Running,
-        CodexExecCollabAgentStatus::Interrupted => CodexCollabAgentStatus::Interrupted,
-        CodexExecCollabAgentStatus::Completed => CodexCollabAgentStatus::Completed,
-        CodexExecCollabAgentStatus::Errored => CodexCollabAgentStatus::Errored,
-        CodexExecCollabAgentStatus::Shutdown => CodexCollabAgentStatus::Shutdown,
-        CodexExecCollabAgentStatus::NotFound => CodexCollabAgentStatus::NotFound,
-        CodexExecCollabAgentStatus::Unknown => CodexCollabAgentStatus::Unknown,
+        CollabAgentStatus::PendingInit => CodexCollabAgentStatus::PendingInit,
+        CollabAgentStatus::Running => CodexCollabAgentStatus::Running,
+        CollabAgentStatus::Interrupted => CodexCollabAgentStatus::Interrupted,
+        CollabAgentStatus::Completed => CodexCollabAgentStatus::Completed,
+        CollabAgentStatus::Errored => CodexCollabAgentStatus::Errored,
+        CollabAgentStatus::Shutdown => CodexCollabAgentStatus::Shutdown,
+        CollabAgentStatus::NotFound => CodexCollabAgentStatus::NotFound,
+        CollabAgentStatus::Unknown => CodexCollabAgentStatus::Unknown,
     }
 }
 
 fn map_collab_agents_states(
-    states: &HashMap<String, codex_exec::CollabAgentState>,
+    states: &HashMap<String, CollabAgentState>,
 ) -> std::collections::BTreeMap<String, CodexCollabAgentState> {
     states
         .iter()
@@ -105,20 +111,48 @@ fn map_collab_agents_states(
         .collect()
 }
 
-fn parse_file_update_kind(raw: &str) -> FileUpdateKind {
-    match raw {
-        "delete" => FileUpdateKind::Delete,
-        "update" => FileUpdateKind::Update,
+/// The app-server tags the kind internally (`{"type": "update", "move_path":
+/// …}`) where `codex exec` sent a bare `"update"` string. `move_path` has no
+/// home in the canonical change and is dropped.
+fn map_file_update_kind(kind: &PatchChangeKind) -> FileUpdateKind {
+    match kind {
+        PatchChangeKind::Delete => FileUpdateKind::Delete,
+        PatchChangeKind::Update { .. } => FileUpdateKind::Update,
         // Treat unknown kinds as `add` — the worst case is a misleading
         // badge rather than dropping the change.
-        _ => FileUpdateKind::Add,
+        PatchChangeKind::Add | PatchChangeKind::Unknown => FileUpdateKind::Add,
     }
+}
+
+/// The wire name for a change kind, as it appeared in the `codex exec` summary
+/// line (`"add /a.py"`), which this keeps byte-identical.
+fn file_update_kind_label(kind: &PatchChangeKind) -> &'static str {
+    match kind {
+        PatchChangeKind::Add => "add",
+        PatchChangeKind::Delete => "delete",
+        PatchChangeKind::Update { .. } => "update",
+        PatchChangeKind::Unknown => "unknown",
+    }
+}
+
+fn map_file_changes(item: &FileChangeItem) -> Vec<FileUpdateChange> {
+    item.changes
+        .iter()
+        .map(|c| FileUpdateChange {
+            path: c.path.clone(),
+            kind: map_file_update_kind(&c.kind),
+            diff: Some(c.diff.clone()),
+        })
+        .collect()
 }
 
 pub(crate) fn build_shell_tool_use(cmd: &CommandExecutionItem) -> serde_json::Value {
     let input = CodexShellInput {
         command: cmd.command.clone(),
-        cwd: cmd.cwd.clone(),
+        cwd: Some(cmd.cwd.clone()),
+        // The app-server also reports `commandActions`, which `codex exec` never
+        // did and no canonical consumer reads; left empty so the rendered input
+        // is the one the previous transport produced.
         command_actions: vec![],
     };
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
@@ -143,15 +177,7 @@ pub(crate) fn build_shell_tool_result(
 
 pub(crate) fn build_edit_tool_use(edit: &FileChangeItem) -> serde_json::Value {
     let input = CodexEditInput {
-        changes: edit
-            .changes
-            .iter()
-            .map(|c| FileUpdateChange {
-                path: c.path.clone(),
-                kind: parse_file_update_kind(&c.kind),
-                diff: c.diff.clone(),
-            })
-            .collect(),
+        changes: map_file_changes(edit),
     };
     serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
 }
@@ -160,40 +186,33 @@ pub(crate) fn build_edit_tool_result(edit: &FileChangeItem) -> (serde_json::Valu
     let status = patch_apply_to_tool_status(edit.status);
     let is_error = matches!(status, CodexToolStatus::Failed | CodexToolStatus::Declined);
 
-    let summary_text = if edit.changes.is_empty() {
-        String::new()
-    } else {
-        edit.changes
-            .iter()
-            .map(|c| format!("{} {}", c.kind, c.path))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let summary_text = edit
+        .changes
+        .iter()
+        .map(|c| format!("{} {}", file_update_kind_label(&c.kind), c.path))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let result = CodexEditResult {
         status,
-        changes: edit
-            .changes
-            .iter()
-            .map(|c| FileUpdateChange {
-                path: c.path.clone(),
-                kind: parse_file_update_kind(&c.kind),
-                diff: c.diff.clone(),
-            })
-            .collect(),
+        changes: map_file_changes(edit),
     };
     let value = serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({}));
     (value, summary_text, is_error)
 }
 
-pub(crate) fn build_codex_todo_list_input(todo: &TodoListItem) -> CodexTodoListInput {
+/// The running plan tracker. On this transport it arrives as the
+/// `turn/plan/updated` notification rather than a `todo_list` item, and each
+/// step carries a three-state status where the canonical entry has a boolean —
+/// `inProgress` is therefore reported as not-yet-completed, which is what the
+/// `todo_list` item said about a step in flight too.
+pub(crate) fn build_codex_todo_list_input(plan: &[TurnPlanStep]) -> CodexTodoListInput {
     CodexTodoListInput {
-        items: todo
-            .items
+        items: plan
             .iter()
-            .map(|entry| CodexTodoItem {
-                text: entry.text.clone(),
-                completed: entry.completed,
+            .map(|step| CodexTodoItem {
+                text: step.step.clone(),
+                completed: step.status == TurnPlanStepStatus::Completed,
             })
             .collect(),
     }
@@ -221,16 +240,10 @@ pub(crate) fn build_mcp_tool_result(item: &McpToolCallItem) -> (serde_json::Valu
     };
     let error_message = item.error.as_ref().map(|e| e.message.clone());
 
-    let summary_text = if let Some(ref msg) = error_message {
-        msg.clone()
-    } else if let Some(ref content) = content {
-        content
-            .iter()
-            .filter_map(|block| block.get("text").and_then(|v| v.as_str()))
-            .collect::<Vec<_>>()
-            .join("\n")
-    } else {
-        String::new()
+    let summary_text = match (&error_message, &content) {
+        (Some(msg), _) => msg.clone(),
+        (None, Some(content)) => text_of(content),
+        (None, None) => String::new(),
     };
 
     let result = CodexMcpResult {
@@ -243,7 +256,55 @@ pub(crate) fn build_mcp_tool_result(item: &McpToolCallItem) -> (serde_json::Valu
     (value, summary_text, is_error)
 }
 
-pub(crate) fn build_collab_tool_use(item: &CollabToolCallItem) -> serde_json::Value {
+/// A dynamic tool call is a namespaced tool with JSON arguments and content
+/// items back — the same shape `codex.mcp_tool_call` already renders, so it
+/// reuses that tool rather than being invisible. The namespace stands in for the
+/// server; a call with none is reported under `dynamic`.
+pub(crate) fn build_dynamic_tool_use(item: &DynamicToolCallItem) -> serde_json::Value {
+    let input = CodexMcpInput {
+        server: item
+            .namespace
+            .clone()
+            .unwrap_or_else(|| "dynamic".to_string()),
+        tool: item.tool.clone(),
+        arguments: item.arguments.clone(),
+    };
+    serde_json::to_value(input).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+pub(crate) fn build_dynamic_tool_result(
+    item: &DynamicToolCallItem,
+) -> (serde_json::Value, String, bool) {
+    let status = mcp_to_tool_status(item.status);
+    let is_error = matches!(status, CodexToolStatus::Failed) || item.success == Some(false);
+
+    let content = item.content_items.clone();
+    let summary_text = content
+        .as_ref()
+        .map(|items| text_of(items))
+        .unwrap_or_default();
+
+    let result = CodexMcpResult {
+        status,
+        content,
+        structured_content: None,
+        error_message: None,
+    };
+    let value = serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({}));
+    (value, summary_text, is_error)
+}
+
+/// The `text` fields of a content-block list, newline-joined — how both MCP and
+/// dynamic tool output is summarized for the `tool_result` body.
+fn text_of(content: &[serde_json::Value]) -> String {
+    content
+        .iter()
+        .filter_map(|block| block.get("text").and_then(|v| v.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(crate) fn build_collab_tool_use(item: &CollabAgentToolCallItem) -> serde_json::Value {
     let input = CodexCollabInput {
         tool: map_collab_tool(item.tool),
         sender_thread_id: item.sender_thread_id.clone(),
@@ -255,7 +316,7 @@ pub(crate) fn build_collab_tool_use(item: &CollabToolCallItem) -> serde_json::Va
 }
 
 pub(crate) fn build_collab_tool_result(
-    item: &CollabToolCallItem,
+    item: &CollabAgentToolCallItem,
 ) -> (serde_json::Value, String, bool) {
     let status = collab_to_tool_status(item.status);
     let agents_states = map_collab_agents_states(&item.agents_states);
@@ -316,39 +377,34 @@ mod tests {
         );
     }
 
+    /// Deserializing from the wire keeps these tests honest about field names:
+    /// the app-server protocol is camelCase throughout.
+    fn item<T: serde::de::DeserializeOwned>(value: serde_json::Value) -> T {
+        serde_json::from_value(value).expect("item")
+    }
+
     #[test]
-    fn build_codex_todo_list_input_preserves_items() {
-        use crate::agent::codex_exec::TodoListEntry;
-        let todo = TodoListItem {
-            items: vec![
-                TodoListEntry {
-                    text: "first".to_string(),
-                    completed: true,
-                },
-                TodoListEntry {
-                    text: "second".to_string(),
-                    completed: false,
-                },
-            ],
-        };
-        let input = build_codex_todo_list_input(&todo);
-        assert_eq!(input.items.len(), 2);
+    fn build_codex_todo_list_input_maps_plan_steps() {
+        let plan: Vec<TurnPlanStep> = item(serde_json::json!([
+            {"step": "first", "status": "completed"},
+            {"step": "second", "status": "inProgress"},
+            {"step": "third", "status": "pending"},
+        ]));
+        let input = build_codex_todo_list_input(&plan);
+        assert_eq!(input.items.len(), 3);
         assert_eq!(input.items[0].text, "first");
         assert!(input.items[0].completed);
-        assert_eq!(input.items[1].text, "second");
+        // A step in flight is not yet completed, as `todo_list` also reported.
         assert!(!input.items[1].completed);
+        assert!(!input.items[2].completed);
     }
 
     #[test]
     fn build_shell_tool_result_marks_error_on_nonzero_exit() {
-        let cmd = CommandExecutionItem {
-            command: "false".to_string(),
-            cwd: None,
-            aggregated_output: Some(String::new()),
-            exit_code: Some(1),
-            status: CommandExecutionStatus::Failed,
-            duration_ms: None,
-        };
+        let cmd: CommandExecutionItem = item(serde_json::json!({
+            "id": "call_0", "command": "false", "cwd": "/ws",
+            "aggregatedOutput": "", "exitCode": 1, "status": "failed",
+        }));
         let (value, _, is_error) = build_shell_tool_result(&cmd);
         assert!(is_error);
         assert_eq!(value["status"], "failed");
@@ -356,18 +412,51 @@ mod tests {
     }
 
     #[test]
+    fn build_shell_tool_use_carries_the_cwd_the_wire_now_always_sends() {
+        let cmd: CommandExecutionItem = item(serde_json::json!({
+            "id": "call_0", "command": "ls", "cwd": "/ws", "status": "completed",
+        }));
+        let value = build_shell_tool_use(&cmd);
+        assert_eq!(value["cwd"], "/ws");
+    }
+
+    #[test]
+    fn build_edit_tool_result_labels_internally_tagged_kinds() {
+        let edit: FileChangeItem = item(serde_json::json!({
+            "id": "call_0",
+            "status": "completed",
+            "changes": [
+                {"path": "/a.py", "kind": {"type": "add"}, "diff": "+x"},
+                {"path": "/b.py", "kind": {"type": "update", "move_path": null}, "diff": "@@"},
+                {"path": "/c.py", "kind": {"type": "delete"}, "diff": "-y"},
+            ],
+        }));
+        let (value, summary, is_error) = build_edit_tool_result(&edit);
+        assert!(!is_error);
+        // Byte-identical to the `codex exec` summary, which used the bare kind string.
+        assert_eq!(summary, "add /a.py\nupdate /b.py\ndelete /c.py");
+        assert_eq!(value["changes"][0]["kind"], "add");
+        assert_eq!(value["changes"][1]["kind"], "update");
+        assert_eq!(value["changes"][2]["kind"], "delete");
+    }
+
+    #[test]
+    fn build_edit_tool_result_declined_patch_is_an_error() {
+        let edit: FileChangeItem = item(serde_json::json!({
+            "id": "call_0", "status": "declined", "changes": [],
+        }));
+        let (value, _, is_error) = build_edit_tool_result(&edit);
+        assert!(is_error);
+        assert_eq!(value["status"], "declined");
+    }
+
+    #[test]
     fn build_mcp_tool_result_marks_error_when_error_present() {
-        let item = McpToolCallItem {
-            server: "db".to_string(),
-            tool: "query".to_string(),
-            arguments: serde_json::json!({}),
-            result: None,
-            error: Some(codex_exec::McpToolCallItemError {
-                message: "connection refused".to_string(),
-            }),
-            status: McpToolCallStatus::Failed,
-        };
-        let (value, summary, is_error) = build_mcp_tool_result(&item);
+        let mcp: McpToolCallItem = item(serde_json::json!({
+            "id": "call_0", "server": "db", "tool": "query", "arguments": {},
+            "result": null, "error": {"message": "connection refused"}, "status": "failed",
+        }));
+        let (value, summary, is_error) = build_mcp_tool_result(&mcp);
         assert!(is_error);
         assert_eq!(value["status"], "failed");
         assert_eq!(value["errorMessage"], "connection refused");
@@ -376,42 +465,64 @@ mod tests {
 
     #[test]
     fn build_mcp_tool_result_ok_when_status_completed() {
-        let item = McpToolCallItem {
-            server: "atlassian".to_string(),
-            tool: "jira_search".to_string(),
-            arguments: serde_json::json!({}),
-            result: Some(codex_exec::McpToolCallItemResult {
-                content: vec![serde_json::json!({"type":"text","text":"hit"})],
-                structured_content: None,
-            }),
-            error: None,
-            status: McpToolCallStatus::Completed,
-        };
-        let (value, summary, is_error) = build_mcp_tool_result(&item);
+        let mcp: McpToolCallItem = item(serde_json::json!({
+            "id": "call_0", "server": "atlassian", "tool": "jira_search", "arguments": {},
+            "result": {"content": [{"type": "text", "text": "hit"}], "structuredContent": null},
+            "error": null, "status": "completed",
+        }));
+        let (value, summary, is_error) = build_mcp_tool_result(&mcp);
         assert!(!is_error);
         assert_eq!(value["status"], "completed");
         assert_eq!(summary, "hit");
     }
 
     #[test]
-    fn build_collab_tool_result_marks_error_on_errored_agent() {
-        let mut agents = HashMap::new();
-        agents.insert(
-            "sub_a".to_string(),
-            codex_exec::CollabAgentState {
-                status: CodexExecCollabAgentStatus::Errored,
-                message: Some("crashed".to_string()),
-            },
-        );
-        let item = CollabToolCallItem {
-            tool: CodexExecCollabTool::SpawnAgent,
-            sender_thread_id: "main".to_string(),
-            receiver_thread_ids: vec!["sub_a".to_string()],
-            prompt: None,
-            agents_states: agents,
-            status: CollabToolCallStatus::Completed,
-        };
-        let (_, _, is_error) = build_collab_tool_result(&item);
+    fn build_dynamic_tool_reports_the_namespace_as_the_server() {
+        let dynamic: DynamicToolCallItem = item(serde_json::json!({
+            "id": "call_0", "tool": "lookup", "arguments": {"key": "value"},
+            "status": "completed", "namespace": "acme", "success": true,
+            "contentItems": [{"type": "inputText", "text": "result text"}],
+        }));
+        let use_value = build_dynamic_tool_use(&dynamic);
+        assert_eq!(use_value["server"], "acme");
+        assert_eq!(use_value["tool"], "lookup");
+        assert_eq!(use_value["arguments"]["key"], "value");
+
+        let (result, summary, is_error) = build_dynamic_tool_result(&dynamic);
+        assert!(!is_error);
+        assert_eq!(result["status"], "completed");
+        assert_eq!(summary, "result text");
+    }
+
+    #[test]
+    fn build_dynamic_tool_result_is_an_error_when_the_call_did_not_succeed() {
+        let dynamic: DynamicToolCallItem = item(serde_json::json!({
+            "id": "call_0", "tool": "lookup", "arguments": {},
+            "status": "completed", "success": false,
+        }));
+        let use_value = build_dynamic_tool_use(&dynamic);
+        assert_eq!(use_value["server"], "dynamic");
+        let (_, _, is_error) = build_dynamic_tool_result(&dynamic);
         assert!(is_error);
+    }
+
+    #[test]
+    fn build_collab_tool_result_marks_error_on_errored_agent() {
+        let collab: CollabAgentToolCallItem = item(serde_json::json!({
+            "id": "call_0", "tool": "spawnAgent", "senderThreadId": "main",
+            "receiverThreadIds": ["sub_a"], "status": "completed",
+            "agentsStates": {"sub_a": {"status": "errored", "message": "crashed"}},
+        }));
+        let (_, _, is_error) = build_collab_tool_result(&collab);
+        assert!(is_error);
+    }
+
+    #[test]
+    fn resume_agent_has_no_canonical_collab_tool() {
+        let collab: CollabAgentToolCallItem = item(serde_json::json!({
+            "id": "call_0", "tool": "resumeAgent", "senderThreadId": "main",
+            "status": "inProgress", "agentsStates": {},
+        }));
+        assert_eq!(build_collab_tool_use(&collab)["tool"], "unknown");
     }
 }

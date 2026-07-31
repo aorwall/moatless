@@ -4,6 +4,9 @@
 //! — the same interface the coordinator uses — and assert the ordering and
 //! terminal invariants every harness must satisfy.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use moatless_api_schemas::content::CanonicalContentBlock;
 use tokio::sync::mpsc;
 
@@ -306,6 +309,59 @@ async fn cancellation_during_startup_rejects_input() {
     ));
 }
 
+/// A Stop must land while the process is still *opening*, not only once it is
+/// waiting for the Agent's first event. Codex awaits `initialize`,
+/// `thread/start` and `turn/start` inside `submit`, and a server that stops
+/// answering parks that future indefinitely — so if the driver read `cancel_rx`
+/// only after `submit` returned, Stop would be unreachable exactly when it is
+/// needed.
+#[tokio::test]
+async fn cancellation_during_a_blocking_open_rejects_the_input() {
+    let recorder: scripted::InputRecorder = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    // This script's `submit` never returns on its own; only the cancel handle
+    // ends it.
+    let mut harness = Harness::scripted_recording(Script::blocking_open(), Arc::clone(&recorder));
+    harness
+        .submit(Input::text("in-1", "hi"))
+        .await
+        .expect("submit");
+
+    // Cancel only once the process is provably inside the open. Cancelling
+    // earlier would race the idle driver, which drains an idle cancel as a
+    // no-op, and the open would then park forever.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while recorder.lock().await.is_empty() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the opening input never reached the process"
+        );
+        tokio::task::yield_now().await;
+    }
+    harness.cancel();
+
+    let signals = drain_to_terminal(&mut harness).await;
+    assert_eq!(
+        signals.len(),
+        1,
+        "an open that never started has no terminal"
+    );
+    assert!(
+        matches!(
+            signals[0],
+            Signal::InputRejected {
+                reason: Rejection::Cancelled,
+                ..
+            }
+        ),
+        // The scripted open reports a `ProcessExit` failure, because that is
+        // what a torn-down transport sees. The driver knows it asked for the
+        // teardown, so the input is cancelled rather than failed — otherwise a
+        // user Stop would publish an error to the conversation.
+        "a cancelled open is cancelled, not failed: {:?}",
+        signals[0]
+    );
+}
+
 #[tokio::test]
 async fn cancellation_while_idle_is_a_noop() {
     let script = Script::new(vec![
@@ -528,7 +584,11 @@ async fn input_submitted_mid_execution_joins_it_when_the_process_injects() {
             outcome: Outcome::Completed
         }
     ));
-    assert_eq!(signals.len(), 4, "the injected input opens no second execution");
+    assert_eq!(
+        signals.len(),
+        4,
+        "the injected input opens no second execution"
+    );
 }
 
 #[tokio::test]

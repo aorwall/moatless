@@ -1,0 +1,27 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "commandExecution",
+      "id": "call_30ibaBR5yZH1ILYnY9vJ5wxB",
+      "command": "/bin/bash -lc 'echo hello-from-codex'",
+      "cwd": "/tmp/probe/turn/ws",
+      "processId": "16149",
+      "source": "unifiedExecStartup",
+      "status": "completed",
+      "commandActions": [
+        {
+          "type": "unknown",
+          "command": "echo hello-from-codex"
+        }
+      ],
+      "aggregatedOutput": "hello-from-codex\n",
+      "exitCode": 0,
+      "durationMs": 0
+    },
+    "threadId": "019fb6c3-d67c-7582-8480-f64fc113eca1",
+    "turnId": "019fb6c3-d711-7630-ba0c-4e1b5c0ee191",
+    "completedAtMs": 1785477727025
+  },
+  "emittedAtMs": 1785477727025
+}

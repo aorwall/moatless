@@ -4,9 +4,9 @@
 //! `$CLAUDE_CONFIG_DIR`) under `projects/<dashed-cwd>/*.jsonl`. Everything else in
 //! the config dir is regenerated on every boot, so this is all we persist for
 //! Claude. Codex writes resumable thread rollouts under `$CODEX_HOME/sessions/`;
-//! those files must survive pod recreation too, otherwise `codex exec resume
-//! <thread_id>` fails with a missing rollout even when the backend remembers the
-//! thread id.
+//! those files must survive pod recreation too, otherwise the app-server's
+//! `thread/resume` fails with a missing rollout even when the backend remembers
+//! the thread id.
 //!
 //! The sandbox is AWS-credential-less by design, so session-state I/O is proxied
 //! through the backend over JWT-authed gRPC (mirroring `DownloadUpload`). This

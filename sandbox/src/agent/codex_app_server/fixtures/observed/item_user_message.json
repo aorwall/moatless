@@ -1,0 +1,21 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "userMessage",
+      "id": "019fb6c2-b566-77a0-bc3f-47493c4d155e",
+      "clientId": null,
+      "content": [
+        {
+          "type": "text",
+          "text": "Change of plan: skip everything else and reply with the single word BANANA.",
+          "text_elements": []
+        }
+      ]
+    },
+    "threadId": "019fb6c2-a478-7313-9206-f453ededad22",
+    "turnId": "019fb6c2-a4ec-74c2-bd57-f6ff0eba9536",
+    "completedAtMs": 1785477641574
+  },
+  "emittedAtMs": 1785477641574
+}

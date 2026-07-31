@@ -1,0 +1,30 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "mcpToolCall",
+      "id": "call_mcp_0",
+      "server": "atlassian",
+      "tool": "jira_search",
+      "arguments": {
+        "q": "foo"
+      },
+      "status": "completed",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "match"
+          }
+        ],
+        "structuredContent": null
+      },
+      "error": null,
+      "durationMs": 12
+    },
+    "threadId": "019f0000-0000-7000-8000-0000000thread",
+    "turnId": "019f0000-0000-7000-8000-000000000turn",
+    "completedAtMs": 0
+  },
+  "emittedAtMs": 0
+}
