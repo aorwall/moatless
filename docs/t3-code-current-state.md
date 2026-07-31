@@ -44,7 +44,7 @@ The shell snapshot is viewer-specific.
 | T3 concept | Moatless source | Current rule |
 |---|---|---|
 | Project | Workspace | Every Workspace the viewer may read, plus any Workspace referenced by a listed Task. |
-| Thread | Task | Every Task the viewer follows and may still read. |
+| Thread | Task | Every Task the viewer follows, may still read, and that is still open (`status = 'open'`; closed and errored Tasks are left out). |
 | Sequence | Listing position | Read before the rows so a reflected change is never hidden behind a newer cursor. |
 
 The asymmetric filtering is intentional. A sidebar is the work a person follows,

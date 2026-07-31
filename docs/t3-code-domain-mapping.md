@@ -158,12 +158,12 @@ When `Thread → Task` lands, move the **type layer** in `packages/contracts` an
 leave the wire and storage strings alone, or ship an alias map applied at read
 time. Same discipline as a database column rename.
 
-### Decision: a T3 thread listing is what the viewer follows
+### Decision: a T3 thread listing is the open work the viewer follows
 
 **Settled.** `threadId ↔ tasks.task_id`, and the shell listing carries the Tasks
-the viewer **follows** *and* may still **read**.
+the viewer **follows**, may still **read**, and that are still **open**.
 
-The two filters are different rules and both are load-bearing:
+The three filters are different rules and all are load-bearing:
 
 - **Follow** is what makes this a sidebar rather than a deployment listing. It
   already drives the Moatless sidebar (`task_follows`, migration `0069`), so the
@@ -176,8 +176,23 @@ The two filters are different rules and both are load-bearing:
   someone wrote to it. The filter is the shared
   `ScopeContext::access_filter(ScopedEntity::Task, …)` fragment rather than a
   copy, so a change to what "may read" means reaches this listing too.
+- **Open** (`tasks.status = 'open'`) is what stops a follow from outliving the
+  *work*. A follow is durable and closing is how Moatless says a Task is done, so
+  without this every conversation a person ever took part in stays on their
+  sidebar for good. `error` is left out with `closed` — the narrow reading, and
+  the one the Moatless sidebar itself applies by default
+  (`sidebar-task-filter-values.ts`). Nothing that is *running* is hidden by it: a
+  Task returns to `open` the moment its agent produces anything
+  (`TaskDao::update_status_if_not_closed`).
 
 Following never *grants* access — it only ever narrows the readable set.
+
+Closing is not deleting, and the difference is visible on both sides: the row
+leaves a watching client as a `thread-removed` and comes straight back as a
+`thread-upserted` when the Task is reopened, because the follow survived. It is
+also why a closed Task cannot be opened in T3 — `thread_snapshot` resolves the
+conversation through this same query, deliberately, so the sidebar and the
+address bar can never disagree.
 
 Field by field (as built in `ui_rpc/projection.rs`), against
 `OrchestrationThreadShell` (`orchestration.ts:401-427`) — the near-twin of
@@ -275,7 +290,7 @@ is fixed by T3 Code's contract:
 | Snapshot field | Moatless source |
 | --- | --- |
 | `projects[]` | **Done.** `workspaces`, filtered to what the viewer may read **plus** any workspace a listed Task references — the two lists cannot be filtered the same way, because a Task whose project is absent is dropped by the client in silence. One project per workspace; `workspaceRoot` is **synthetic and per-Workspace** — not the primary repo's mount path. See [the hazard](#hazard-workspaceroot-is-an-identity-not-a-label). |
-| `threads[]` | **Done.** `tasks` the viewer **follows** *and* may read, projected to `OrchestrationThreadShell`. The two filters are different rules and both are load-bearing — see [the conversation listing](#decision-a-t3-thread-listing-is-what-the-viewer-follows). |
+| `threads[]` | **Done.** `tasks` the viewer **follows**, may read, *and* that are still **open**, projected to `OrchestrationThreadShell`. The three filters are different rules and all are load-bearing — see [the conversation listing](#decision-a-t3-thread-listing-is-the-open-work-the-viewer-follows). |
 | `snapshotSequence` | See below. |
 | `updatedAt` | Wall clock at assembly. |
 

@@ -159,6 +159,7 @@ pub fn test_config() -> Config {
             accept_claimless_tokens: true,
             file_mount_path: "/tmp/test".into(),
             idle_reaper_enabled: false,
+            cron_scheduler_enabled: false,
             liveness_enabled: false,
             idle_timeout_minutes: 15,
             busy_extension_max_hours: 4,

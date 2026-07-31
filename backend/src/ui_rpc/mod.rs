@@ -445,8 +445,10 @@ async fn thread_snapshot_http(
 ///
 /// The two halves are filtered by deliberately different rules, and the
 /// asymmetry is load-bearing rather than an oversight. Conversations are the
-/// ones the viewer **follows** and may still read — a sidebar is about
-/// involvement, so an administrator's is what they follow like everyone else's.
+/// ones the viewer **follows**, may still read, and that are still **open** — a
+/// sidebar is about involvement in unfinished work, so an administrator's is
+/// what they follow like everyone else's, and a closed Task leaves it the way an
+/// unfollowed one does. See [`dao::ConversationDao::list_followed`].
 /// Workspaces are the union of every one the viewer may **read** *plus* every
 /// one referenced by a listed conversation, whether or not they may read it:
 /// people follow work that runs in someone else's private workspace, and the
@@ -488,15 +490,17 @@ pub async fn shell_snapshot(
 /// Assemble one conversation as the thread view carries it.
 ///
 /// `Ok(None)` is every way a conversation can be absent for this viewer —
-/// deleted, unfollowed, no longer readable, or grouped under a workspace that
-/// is not listable — collapsed into one answer, because they are one answer to
-/// the client and distinguishing them would disclose which.
+/// deleted, closed, unfollowed, no longer readable, or grouped under a workspace
+/// that is not listable — collapsed into one answer, because they are one answer
+/// to the client and distinguishing them would disclose which.
 ///
 /// The conversation row is resolved through the **same narrowed listing query
 /// the shell uses**, so the two cannot drift: a conversation the sidebar shows
 /// opens, and one it does not is not reachable by typing its id into the
 /// address bar. Following is part of that rule, deliberately — a sidebar is
-/// about involvement, and this is the view its rows open into.
+/// about involvement, and this is the view its rows open into. So is being open:
+/// a closed Task is read in Moatless's own UI, and offering it here would be a
+/// conversation T3 can display and never send to.
 ///
 /// # Read order
 ///

@@ -26,7 +26,7 @@ use crate::db::DbPool;
 use crate::message::models::{MessageRole, MessageType};
 use crate::shared_models::AgentType;
 use crate::task_listing::{self, ListingChange, ListingHead};
-use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason};
+use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
 
 /// One Task, with the derived values a sidebar row is assembled from.
@@ -162,13 +162,24 @@ pub struct ThreadRevision {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait ConversationDao: Send + Sync {
-    /// Every Task the viewer follows **and** may still read, newest first.
+    /// Every **open** Task the viewer follows **and** may still read, newest
+    /// first.
     ///
-    /// The two rules are deliberately different and both are load-bearing.
+    /// The three rules are deliberately different and all are load-bearing.
     /// Following is what makes this a sidebar rather than a deployment listing
     /// — an administrator's list is what they follow, like everyone else's.
     /// The read rule underneath is what stops a follow, which is durable, from
-    /// outliving the access that produced it.
+    /// outliving the access that produced it. The status rule is what stops a
+    /// follow from outliving the *work*: closing a Task is Moatless's own way of
+    /// saying it is done, following survives it, and a sidebar that kept the row
+    /// would grow without bound and never shrink.
+    ///
+    /// `error` is left out with `closed`, and that is the narrow reading of
+    /// "open": it is the status the Moatless sidebar itself filters on by
+    /// default (`sidebar-task-filter-values.ts`), and a Task returns to `open`
+    /// the moment its agent produces anything
+    /// (`TaskDao::update_status_if_not_closed`), so nothing that is running is
+    /// hidden by it.
     async fn list_followed(
         &self,
         viewer: &ScopeContext,
@@ -176,11 +187,12 @@ pub trait ConversationDao: Send + Sync {
 
     /// The same listing, narrowed to Tasks a change has named.
     ///
-    /// Both filters still apply, and that is the point of re-reading through
-    /// this rather than projecting the change record itself: a change is a
-    /// deployment-wide fact, and what a viewer may be shown of it is not. A
-    /// Task the viewer does not follow, or may no longer read, simply comes
-    /// back absent.
+    /// All three filters still apply, and that is the point of re-reading
+    /// through this rather than projecting the change record itself: a change is
+    /// a deployment-wide fact, and what a viewer may be shown of it is not. A
+    /// Task the viewer does not follow, may no longer read, or that has been
+    /// closed, simply comes back absent — and absent is what the feed above
+    /// turns into the removal that takes the row off the screen.
     async fn list_followed_by_ids(
         &self,
         viewer: &ScopeContext,
@@ -295,6 +307,12 @@ impl PgConversationDao {
         // `$1`/`$2` are the access filter's admin flag and user id; `$3` is the
         // follower. The read rule is the shared fragment rather than a copy, so
         // a change to what "may read" means reaches this listing too.
+        //
+        // The status rule is the third filter, and it is the enum's own spelling
+        // rather than a literal typed twice: `tasks.status` is `text` with no
+        // CHECK constraint, so a misspelling here would be a listing that is
+        // always empty and a database that never complains.
+        let open = TaskStatus::Open.as_str();
         let access = viewer.access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
         let question_tool = follower + 1;
@@ -308,6 +326,7 @@ impl PgConversationDao {
                    FROM task_follows tf
                    JOIN tasks t ON t.task_id = tf.task_id
                    WHERE tf.user_id = ${follower}
+                     AND t.status = '{open}'
                      AND {}{narrowed}
                )
                SELECT

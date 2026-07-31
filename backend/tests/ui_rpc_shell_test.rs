@@ -40,7 +40,7 @@ use moatless_vibe_backend::task_turn::dao::{
 };
 use moatless_vibe_backend::task_turn::models::classify_turn_transition;
 use moatless_vibe_backend::ui_rpc::dao::{
-    Conversation, ConversationDao, PgConversationDao,
+    Conversation, ConversationDao, PgConversationDao, ThreadRevision, Transcript,
 };
 use moatless_vibe_backend::ui_rpc::{
     router_from_env, shell_snapshot, shell_subscription, AgentModelDefaults, ShellFeed,
@@ -1058,6 +1058,51 @@ async fn a_conversation_with_no_project_is_left_out_of_the_listing(pool: PgPool)
     );
 }
 
+/// The third filter, and the one no access rule expresses: a sidebar is about
+/// unfinished work, and a follow is durable, so without this every conversation
+/// a person ever took part in stays on their screen for good.
+///
+/// `error` is left out with `closed` — the narrow reading of "open", and the
+/// same one the Moatless sidebar applies by default. Nothing that is *running*
+/// is hidden by it: a Task returns to `open` the moment its agent produces
+/// anything.
+#[sqlx::test]
+async fn only_open_conversations_are_listed(pool: PgPool) {
+    seed_live_project(&pool).await;
+    for (task_id, status) in [
+        ("t-open", TaskStatus::Open),
+        ("t-closed", TaskStatus::Closed),
+        ("t-errored", TaskStatus::Error),
+    ] {
+        let mut task = make_task_row(task_id, "user-1");
+        task.workspace_id = Some("ws-live".to_string());
+        task.status = status;
+        PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    }
+
+    assert_eq!(
+        thread_ids(&pool, &viewer("user-1")).await,
+        vec!["t-open".to_string()]
+    );
+    // Following is untouched by it — the row is filtered out of the listing,
+    // not unfollowed — so reopening one puts it straight back.
+    PgTaskDao(pool.clone())
+        .update_task(
+            "t-closed",
+            &TaskPatch {
+                status: Some(TaskStatus::Open),
+                ..TaskPatch::default()
+            },
+            &viewer("user-1"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        thread_ids(&pool, &viewer("user-1")).await,
+        vec!["t-closed".to_string(), "t-open".to_string()]
+    );
+}
+
 /// A workspace that was deleted is not listable, so a conversation still
 /// pointing at it has no project either.
 #[sqlx::test]
@@ -1672,6 +1717,16 @@ impl ConversationDao for RefusesTheRowRead {
         // The shape of the failure this survives: the database is there and the
         // connection is not.
         Err(sqlx::Error::PoolTimedOut)
+    }
+
+    // The thread half of the interface: this stub exists for the shell feed's
+    // cursor and is never asked to open a conversation, so both delegate.
+    async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {
+        self.0.transcript(task_id).await
+    }
+
+    async fn thread_revision(&self, task_id: &str) -> Result<Option<ThreadRevision>, sqlx::Error> {
+        self.0.thread_revision(task_id).await
     }
 
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
@@ -3085,7 +3140,52 @@ async fn deleting_a_conversation_removes_it_from_a_watching_client(pool: PgPool)
     assert!(held.threads.is_empty());
 }
 
-/// Losing read access is the third way a row leaves, and the one no mutation of
+/// Closing is the way a row leaves that a person performs on purpose, and the
+/// one that comes back: the conversation is not deleted and the follow survives
+/// it, so reopening puts the row on the screen again.
+///
+/// A watching client is told, rather than left holding a conversation the next
+/// full listing would not contain — the drift that shows as a sidebar row that
+/// only disappears on reload.
+#[sqlx::test]
+async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-live", "user-1", Some("ws-live")).await;
+
+    let viewer = viewer("user-1");
+    let (mut feed, mut held) = watcher(&pool, &viewer).await;
+    assert_eq!(held.threads, ["t-live"]);
+
+    assert!(PgTaskDao(pool.clone())
+        .update_status_if_not_closed("t-live", TaskStatus::Closed, &viewer)
+        .await
+        .unwrap());
+
+    let item = one_item(&pool, &mut feed, &viewer).await;
+    assert_eq!(item["kind"], "thread-removed");
+    assert_eq!(item["threadId"], "t-live");
+    held.apply(&item);
+    assert!(held.threads.is_empty());
+
+    PgTaskDao(pool.clone())
+        .update_task(
+            "t-live",
+            &TaskPatch {
+                status: Some(TaskStatus::Open),
+                ..TaskPatch::default()
+            },
+            &viewer,
+        )
+        .await
+        .unwrap();
+
+    let item = one_row(&pool, &mut feed, &viewer).await;
+    assert_eq!(item["thread"]["id"], "t-live", "reopening puts the row back");
+    held.apply(&item);
+    assert_eq!(held.threads, ["t-live"]);
+}
+
+/// Losing read access is the fourth way a row leaves, and the one no mutation of
 /// the conversation's own row expresses: the follow survives, the conversation
 /// survives, and it still has to go.
 #[sqlx::test]
@@ -3166,31 +3266,9 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
             },
             None,
         ),
-        (
-            "closed",
-            |pool, ctx, id| {
-                Box::pin(async move {
-                    PgTaskDao(pool)
-                        .update_status_if_not_closed(&id, TaskStatus::Closed, &ctx)
-                        .await
-                        .unwrap();
-                })
-            },
-            None,
-        ),
-        (
-            "reopened",
-            |pool, ctx, id| {
-                Box::pin(async move {
-                    let patch = TaskPatch {
-                        status: Some(TaskStatus::Open),
-                        ..TaskPatch::default()
-                    };
-                    PgTaskDao(pool).update_task(&id, &patch, &ctx).await.unwrap();
-                })
-            },
-            None,
-        ),
+        // Closing and reopening are deliberately not here: they change the
+        // sidebar's *membership* rather than a row in it, and are asserted as
+        // such in `closing_a_conversation_removes_it_from_a_watching_client`.
         (
             "given a new expiry",
             |pool, ctx, id| {
