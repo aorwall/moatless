@@ -2,6 +2,51 @@
   "version": "1.0",
   "description": "Moatless Vibe skill activation rules",
   "skills": {
+    "adapter-development": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Canonical Adapter module shape, durable-delivery guardrails, and seam tests for backend/src/adapters",
+      "promptTriggers": {
+        "keywords": [
+          "adapter",
+          "adapters",
+          "webhook",
+          "slack",
+          "telegram",
+          "linear",
+          "github pr",
+          "adapter delivery",
+          "ingress",
+          "binding",
+          "subscription",
+          "inbound message",
+          "reaction",
+          "delivery kind"
+        ],
+        "intentPatterns": [
+          "(add|create|build).*?adapter",
+          "(change|fix|refactor|migrate).*?(adapter|webhook|delivery kind)",
+          "(handle|parse|normalize|admit).*?(webhook|inbound (event|message|delivery))",
+          "(outbound|reply|reaction|binding status).*?(adapter|slack|telegram|linear|github)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "backend/src/adapters/**/*.rs"
+        ],
+        "contentPatterns": [
+          "impl Adapter.* for ",
+          "AdapterDeliveryHandler",
+          "admit_inbound_message",
+          "AdapterKind::",
+          "adapter_delivery"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    },
     "rust-dev-guidelines": {
       "type": "domain",
       "enforcement": "suggest",

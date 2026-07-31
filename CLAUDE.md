@@ -58,7 +58,7 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 
 ## Pragmatic coding
 - Minimum code that solves the problem — nothing speculative, no single-use abstractions, no unrequested flexibility or configuration.
-- Surgical changes: touch only what the task needs; don't refactor working code (the lint ratchet above is the exception). Prefer deleting code.
+- Surgical changes: touch only what the task needs. Prefer deleting code. When the code you are changing sits in the wrong module, move it there first as its own commit, then change it.
 - No new trait/interface with a single implementation (a test mock counts only if a test uses it).
 - State assumptions when uncertain; define a verifiable success criterion (failing test, reproducible check) before starting.
 
