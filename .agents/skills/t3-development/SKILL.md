@@ -133,8 +133,12 @@ npm install --no-save --no-package-lock playwright@latest   # matches the build 
 export PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 ```
 
-`@latest` is deliberate: the browser build baked into the image moves with it,
-and a pinned older Playwright fails with "Executable doesn't exist" against it.
+The version has to match the **browser build** the image baked, which
+`ls /opt/playwright-browsers` shows as `chromium-<build>`. `@latest` is right
+while the image installs Playwright unpinned; if it errors with *"Executable
+doesn't exist"*, the image was pinned — install the Playwright release that
+ships that build instead. Do not copy a version from a `package.json`:
+`t3code/apps/desktop` pins 1.60.0, which wants a build the image does not have.
 
 Launch with `args: ["--no-sandbox"]`. For headed mode there is a
 `playwright-cli` wrapper on `PATH` that runs under xvfb.
@@ -216,6 +220,7 @@ documents the Docker Compose path, not this one.
 | Connection refused on :8080 | Backend still compiling. `timeout 20 moat tasks logs $TASK_ID --server backend`. |
 | "Loading messages…" pill never clears | Thread detail is served but `subscribeThread` never emitted `{kind:"synchronized"}`, which `server.getConfig`'s `threadResumeCompletionMarker` promises. |
 | Socket opens, snapshot arrives, then nothing | The feed is polling a fingerprint that did not move — in-place block merges keep the same row id. |
-| Playwright re-downloads browsers, or "Executable doesn't exist" | `PLAYWRIGHT_BROWSERS_PATH` override. Set it to `/opt/playwright-browsers` and use `playwright@latest`. |
+| Playwright re-downloads browsers | `PLAYWRIGHT_BROWSERS_PATH` override. Set it to `/opt/playwright-browsers`. |
+| Playwright says "Executable doesn't exist" | Browser-build mismatch. Install the Playwright release that ships the `chromium-<build>` in `/opt/playwright-browsers`. |
 | `sync-env.sh` fails | Needs `get deployments` / `get secrets`: `kubectl auth can-i get secrets -n moatless`. |
 | T3 edit not showing | HMR runs in the sidecar. `curl -s localhost:5733/ \| head`, then `moat tasks servers $TASK_ID restart web`. |
