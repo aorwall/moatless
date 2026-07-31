@@ -436,6 +436,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             workspaces: app_state.workspaces.clone(),
             conversations: Arc::new(ui_rpc::dao::PgConversationDao::new(app_state.db.clone())),
             sandboxes: sandbox_connector.clone(),
+            agents: Arc::new(ui_rpc::backend::AppStateAgents(app_state.clone())),
+            commands: Arc::new(ui_rpc::backend::AppStateCommands(app_state.clone())),
             model_defaults: ui_rpc::AgentModelDefaults {
                 claude_code: config.sandbox.default_model.clone(),
                 codex: config.sandbox.default_codex_model.clone(),

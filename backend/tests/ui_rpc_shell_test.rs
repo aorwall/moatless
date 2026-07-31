@@ -43,6 +43,7 @@ use moatless_vibe_backend::task_turn::dao::{
 };
 use moatless_vibe_backend::task_turn::models::classify_turn_transition;
 use moatless_vibe_backend::task_conversation::{ConversationChange, ConversationHead};
+use moatless_vibe_backend::ui_rpc::backend as ui_rpc_backend;
 use moatless_vibe_backend::ui_rpc::dao::{
     Conversation, ConversationDao, PgConversationDao, Transcript,
 };
@@ -114,6 +115,13 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         workspaces: Arc::new(PgWorkspaceDao(pool.clone())),
         conversations: Arc::new(PgConversationDao::new(pool.clone())),
         sandboxes: Arc::new(NoSandboxes),
+        // The write ports, wired exactly as `main` wires them. This suite drives
+        // reads only; what they do is asserted in
+        // `backend/tests/ui_rpc_command_test.rs`.
+        agents: Arc::new(ui_rpc_backend::AppStateAgents(test_app_state(pool.clone()))),
+        commands: Arc::new(ui_rpc_backend::AppStateCommands(test_app_state(
+            pool.clone(),
+        ))),
         model_defaults: defaults(),
     }
 }

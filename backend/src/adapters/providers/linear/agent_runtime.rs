@@ -289,6 +289,7 @@ pub async fn handle_session_prompted(
             None,
             false,
             None,
+            None,
         )
         .await
         {
@@ -428,6 +429,7 @@ pub async fn handle_comment_created(
             None,
             false,
             comment.user.as_ref().map(|u| u.id.as_str()),
+            None,
         )
         .await
         {
@@ -800,6 +802,7 @@ async fn provision_issue_task(
         None,
         false,
         None,
+        None,
     )
     .await
     {
@@ -1043,6 +1046,7 @@ async fn notify_bindings_of_state_change(
             None,
             None,
             false,
+            None,
             None,
         )
         .await
@@ -1482,6 +1486,7 @@ async fn provision_session_task(
         None,
         false,
         session.creator.as_ref().map(|c| c.id.as_str()),
+        None,
     )
     .await
     {

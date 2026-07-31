@@ -8,26 +8,23 @@ use axum::Json;
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
-use super::creation::{FirstMessage, NewTaskRequest};
 use super::dao::{TaskFilter, TaskPatch};
 use super::models::Task;
-use super::relations::{CreatedByParent, TaskRelationType};
-use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create};
-use crate::agent::catalog;
+use super::relations::TaskRelationType;
 use crate::extractors::AuthUser;
 use crate::sandbox::lifecycle::ArchiveRetention;
-use crate::shared_models::AgentType;
 use crate::state::AppState;
-use crate::task::models::{SandboxIntentView, SandboxStopReason, TaskStatus, Visibility};
-use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource};
+use crate::task::models::{SandboxIntentView, TaskStatus};
+use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
-use crate::repository::models::{RepositoryKind, RepositoryProvider};
+use crate::repository::models::RepositoryProvider;
 
 use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingDao};
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;
 use super::schemas::*;
+use super::service;
 
 /// Create a new task.
 #[utoipa::path(
@@ -47,144 +44,6 @@ pub async fn create_task(
     auth: AuthUser,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
-    let scope_ctx = auth.scope_context();
-    let agent_type = validate_agent_type(req.agent_type)?;
-
-    // A task accepts `repository_id` and/or `workspace_id`. When a workspace is
-    // supplied it drives the task's repositories (workspace wins): the effective
-    // repository is the workspace's primary placement. When only `repository_id`
-    // is given, the single-repo path is unchanged and the shadow workspace is
-    // derived downstream. At least one of the two is required.
-    let workspace = match req.workspace_id.as_deref() {
-        Some(workspace_id) => {
-            let workspace = state
-                .workspaces
-                .find_by_id(workspace_id, &scope_ctx)
-                .await?
-                .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
-            if workspace.deleted == Some(true) {
-                return Err(TaskError::BadRequest(format!(
-                    "Workspace {workspace_id} has been deleted; restore it from Git before creating tasks"
-                )));
-            }
-            Some(workspace)
-        }
-        None => None,
-    };
-
-    let repository_id = match &workspace {
-        Some(ws) => {
-            state
-                .workspaces
-                .find_primary_repo(&ws.id)
-                .await?
-                .ok_or_else(|| {
-                    TaskError::BadRequest(format!("Workspace {} has no primary repository", ws.id))
-                })?
-                .repository_id
-        }
-        None => req.repository_id.clone().ok_or_else(|| {
-            TaskError::BadRequest("repositoryId or workspaceId is required".to_string())
-        })?,
-    };
-
-    // Validate repository exists and is usable by this caller.
-    let repo = state
-        .repositories
-        .find_by_id(&repository_id, &scope_ctx)
-        .await?
-        .ok_or_else(|| TaskError::RepoNotFound(repository_id.clone()))?;
-    ensure_can_use_repository(
-        &scope_ctx,
-        &ScopedResource::borrowed(
-            repo.scope,
-            repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
-        ),
-    )?;
-
-    // Validate name if provided
-    if let Some(ref name) = req.name {
-        validate_task_name(name)?;
-    }
-
-    let is_template = repo.kind == RepositoryKind::Template;
-
-    // Resolve scope for the new task. Repositories are always user- or
-    // global-scoped now; tasks always inherit User scope owned by the creator.
-    // `resolve_scope_for_create` is sync and pure: no DB or team lookup needed.
-    let resolved_scope = resolve_scope_for_create(&scope_ctx, Some(Scope::User))
-        .map_err(|e| TaskError::Forbidden(e.to_string()))?;
-    let (task_scope, task_owner_user_id) = (resolved_scope.scope, resolved_scope.owner_user_id);
-
-    // Fast-fail codex tasks with no usable credential: a missing connection
-    // or permanent refresh failure would otherwise surface minutes later as
-    // a sandbox that dies on sign-in. Transient refresh errors (upstream
-    // outage) do NOT block creation — the sandbox retries with the stored
-    // blob.
-    if agent_type.as_str() == "codex" {
-        if let Err(crate::credentials::CredentialError::NotFound(reason)) = state
-            .credentials_svc
-            .ensure_fresh_codex_for(&auth.user_id.to_string(), None)
-            .await
-        {
-            tracing::info!(
-                user_id = %auth.user_id,
-                reason = %reason,
-                "Rejecting codex task creation: no usable Codex credential"
-            );
-            return Err(TaskError::BadRequest(
-                "Your Codex connection is missing or has expired. Reconnect Codex in Settings before creating a Codex task.".to_string(),
-            ));
-        }
-    }
-
-    // Hand the normalized request to the creation service. Workspace/scope
-    // resolution, the codex fast-fail above, and response shaping stay here;
-    // short-id, preflight, insert, relations, provision, first message, and the
-    // task event are the service's.
-    let new_task = NewTaskRequest {
-        repository_id: repository_id.clone(),
-        agent_type,
-        name: req.name.clone(),
-        description: req.description.clone(),
-        branch: req.branch.clone().or(repo.default_branch.clone()),
-        model: req.model.clone(),
-        created_by: Some(auth.user_id.to_string()),
-        headless: req.headless.unwrap_or(false),
-        visibility: Visibility::Private,
-        scope: task_scope,
-        owner_user_id: task_owner_user_id,
-        trigger_id: None,
-        workspace_id: req.workspace_id.clone(),
-        template_id: if is_template {
-            Some(repository_id.clone())
-        } else {
-            None
-        },
-        vibe: if is_template { Some(true) } else { None },
-        append_system_prompt: None,
-        ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
-        inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
-        tag_ids: vec![],
-        parent: req.parent_task_id.as_deref().map(|p| CreatedByParent {
-            parent_task_id: p.to_string(),
-            context: serde_json::json!({ "via": "create_task_request" }),
-        }),
-        related_to: None,
-        first_message: req.message.clone().map(|text| FirstMessage {
-            text,
-            model: req.model.clone(),
-            agent_mode: req.agent_mode.clone(),
-            file_ids: req.file_ids.clone(),
-            contexts: req.contexts.clone(),
-            sent_by: Some(auth.user_id.to_string()),
-        }),
-        event_subtype: TaskSubType::Created,
-        // Reuse the repo already fetched for access control so the service
-        // skips a redundant lookup.
-        repository: Some(repo),
-    };
-
     // enrich_task is DB-heavy (~6 queries); enrich exactly once. The event
     // closure stashes the enriched response here and the HTTP response reuses
     // it, avoiding both a second round of queries and an event/response
@@ -195,68 +54,44 @@ pub async fn create_task(
     let state_ev = state.clone();
     let uid_ev = user_id.clone();
     let enriched_ev = enriched.clone();
-    let state_msg = state.clone();
-
-    let outcome = state
-        .task_creation
-        .create(
-            new_task,
-            move |task| async move {
-                match enrich_task(&task, &state_ev, &uid_ev).await {
-                    Ok(resp) => {
-                        let payload = serde_json::json!({ "task": resp });
-                        if let Ok(mut cell) = enriched_ev.lock() {
-                            *cell = Some(resp);
-                        }
-                        payload
+    let outcome = service::create_task(
+        &state,
+        &auth.scope_context(),
+        &user_id,
+        service::CreateTaskIntent::new(req),
+        move |task| async move {
+            match enrich_task(&task, &state_ev, &uid_ev).await {
+                Ok(resp) => {
+                    let payload = serde_json::json!({ "task": resp });
+                    if let Ok(mut cell) = enriched_ev.lock() {
+                        *cell = Some(resp);
                     }
-                    Err(e) => {
-                        // Fall back to the un-enriched row projection so the
-                        // payload keeps the same `{"task": TaskResponse}` shape
-                        // consumers destructure (tags/bindings/relations/sandbox
-                        // empty rather than a differently-shaped object).
-                        tracing::warn!(task_id = %task.task_id, error = %e, "Failed to enrich created task for event; using unenriched row");
-                        let resp = build_task_response(
-                            &task,
-                            &SandboxIntentView::default(),
-                            Vec::new(),
-                            ResolvedNames::default(),
-                            Vec::new(),
-                            Vec::new(),
-                        );
-                        let payload = serde_json::json!({ "task": resp });
-                        if let Ok(mut cell) = enriched_ev.lock() {
-                            *cell = Some(resp);
-                        }
-                        payload
+                    payload
+                }
+                Err(e) => {
+                    // Fall back to the un-enriched row projection so the
+                    // payload keeps the same `{"task": TaskResponse}` shape
+                    // consumers destructure (tags/bindings/relations/sandbox
+                    // empty rather than a differently-shaped object).
+                    tracing::warn!(task_id = %task.task_id, error = %e, "Failed to enrich created task for event; using unenriched row");
+                    let resp = build_task_response(
+                        &task,
+                        &SandboxIntentView::default(),
+                        Vec::new(),
+                        ResolvedNames::default(),
+                        Vec::new(),
+                        Vec::new(),
+                    );
+                    let payload = serde_json::json!({ "task": resp });
+                    if let Ok(mut cell) = enriched_ev.lock() {
+                        *cell = Some(resp);
                     }
+                    payload
                 }
-            },
-            move |task_id, fm| async move {
-                if let Err(e) = crate::message::send::send_message_flow(
-                    &state_msg,
-                    &task_id,
-                    &fm.text,
-                    fm.model.as_deref(),
-                    fm.agent_mode.as_ref(),
-                    &fm.file_ids,
-                    &fm.contexts,
-                    true,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    false,
-                    fm.sent_by.as_deref(),
-                )
-                .await
-                {
-                    tracing::warn!(task_id = %task_id, error = %e, "Failed to send initial message");
-                }
-            },
-        )
-        .await?;
+            }
+        },
+    )
+    .await?;
 
     // Reuse the response the event closure produced (enriched, or its
     // un-enriched fallback). Only re-enrich when the closure never ran because
@@ -546,7 +381,7 @@ pub async fn update_task_metadata(
     Json(req): Json<UpdateTaskMetadataRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
     if let Some(ref name) = req.name {
-        validate_task_name(name)?;
+        service::validate_task_name(name)?;
     }
 
     let scope_ctx = auth.scope_context();
@@ -1195,40 +1030,7 @@ pub async fn stop_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    let scope_ctx = auth.scope_context();
-    let task = state
-        .tasks
-        .find_by_id(&task_id, &scope_ctx)
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_control(&task_resource(&task)) {
-        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
-    }
-
-    // lifecycle owns the Stopped intent + user reason, stops compute, and issues
-    // the graceful StopAgent. Task status is not lifecycle's to write.
-    state
-        .sandbox
-        .stop(&task_id, SandboxStopReason::User)
-        .await?;
-
-    // Signal the user stop. `handle_agent_stopped` owns the task-status flip
-    // (→ Open unless Closed) and the taskTurn.stopped fan-out; a user stop is
-    // routine, so it writes no transcript row. Its idempotency guard dedupes this against the
-    // agent.stopped the sandbox publishes in response to the graceful StopAgent,
-    // so the stop still lands cleanly when the sandbox is already gone.
-    if let Some(ref events) = state.events {
-        events
-            .publish_agent_event(
-                &task_id,
-                moatless_events::AgentSubType::Stopped,
-                None,
-                serde_json::json!({"source": SandboxStopReason::User.as_str()}),
-            )
-            .await;
-    }
-
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Sandbox stop requested");
+    service::stop_task(&state, &auth.scope_context(), &task_id).await?;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -1657,43 +1459,6 @@ fn derive_title(row: &Task) -> String {
         }
     }
     row.agent_type.to_string()
-}
-
-/// Validate task name (URL-friendly: alphanumeric + dashes).
-fn validate_task_name(name: &str) -> Result<(), TaskError> {
-    if name.is_empty() {
-        return Err(TaskError::BadRequest(
-            "Task name cannot be empty".to_string(),
-        ));
-    }
-    if name.len() > 200 {
-        return Err(TaskError::BadRequest(
-            "Task name too long (max 200)".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_agent_type(agent_type: Option<AgentType>) -> Result<AgentType, TaskError> {
-    let Some(agent_type) = agent_type else {
-        return Err(agent_type_error("agentType is required"));
-    };
-    if catalog::find(agent_type.as_str()).is_none() {
-        return Err(agent_type_error(&format!(
-            "unknown agentType `{}`",
-            agent_type.as_str()
-        )));
-    }
-    Ok(agent_type)
-}
-
-fn agent_type_error(reason: &str) -> TaskError {
-    let options = catalog::catalog()
-        .iter()
-        .map(|entry| entry.id)
-        .collect::<Vec<_>>()
-        .join(", ");
-    TaskError::BadRequest(format!("{reason}. Available options: {options}"))
 }
 
 /// Resolve display names for multiple user IDs in a single batch query.

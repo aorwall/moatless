@@ -634,6 +634,7 @@ async fn append_to_binding(
         None,
         false,
         Some(msg.user_id.as_str()),
+        None,
     )
     .await
     // Logged once at the transport boundary by `AdapterError::into_response`.

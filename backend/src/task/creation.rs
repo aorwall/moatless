@@ -127,6 +127,16 @@ pub struct NewTaskRequest {
     /// Optional first message; when present the service invokes the caller's
     /// send callback after provisioning.
     pub first_message: Option<FirstMessage>,
+    /// The task's id, when the caller owns it. The T3 compatibility surface
+    /// navigates to a thread id it minted before the create reaches us, so a
+    /// server-minted id would strand the client on a thread that never
+    /// appears. Every other caller passes `None` and gets a fresh uuid; a
+    /// collision fails the insert rather than silently reminting.
+    pub task_id: Option<String>,
+    /// Whether to start a sandbox as part of creation. `false` only from the
+    /// T3 compatibility surface, whose client can create a thread before
+    /// anyone has typed into it.
+    pub provision: bool,
     /// Task-event subtype to publish — `Created` on the HTTP path, `Open` on
     /// trigger/adapter paths. Kept per-caller by design.
     pub event_subtype: TaskSubType,
@@ -147,6 +157,9 @@ pub struct FirstMessage {
     pub file_ids: Vec<String>,
     pub contexts: Vec<MessageContextInput>,
     pub sent_by: Option<String>,
+    /// The message's uuid when the caller owns it — see
+    /// [`crate::message::send::send_message_flow`].
+    pub message_uuid: Option<String>,
 }
 
 /// Whether the best-effort provision step started the sandbox. Ticket 02's
@@ -155,6 +168,13 @@ pub struct FirstMessage {
 pub enum ProvisionOutcome {
     Started,
     Failed,
+    /// No sandbox was asked for, because the task was created with nothing to
+    /// run. Only the T3 compatibility surface reaches this: its client can
+    /// create a thread before anyone has typed into it. A task in this state is
+    /// an ordinary open task with no messages — the absence of a sandbox
+    /// lifecycle record already means "none was ever requested", which is why
+    /// this needs no new task status.
+    Skipped,
 }
 
 /// Result of a successful creation: the inserted row plus the provision result.
@@ -251,7 +271,10 @@ impl TaskCreationService {
         EvFut: Future<Output = serde_json::Value> + Send,
         MsgFut: Future<Output = ()> + Send,
     {
-        let task_id = uuid::Uuid::new_v4().to_string();
+        let task_id = req
+            .task_id
+            .take()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let short_id = self.generate_unique_short_id().await?;
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
@@ -350,19 +373,30 @@ impl TaskCreationService {
 
         // Provision (best-effort). Failure publishes a sandbox error event so
         // the task shows as errored; creation still succeeds.
-        let provision = match self.starter.start(&task_id).await {
-            Ok(()) => ProvisionOutcome::Started,
-            Err(e) => {
-                tracing::warn!(task_id = %task_id, error = %e, "Sandbox start failed during task creation");
-                self.publish_sandbox_error(
-                    &task_id,
-                    "Sandbox provisioning failed during task creation.",
-                    &e,
-                    "provision_failed",
-                )
-                .await;
-                ProvisionOutcome::Failed
+        //
+        // A task created with nothing to run gets no sandbox until something is
+        // sent to it. Only the T3 compatibility surface asks for this; every
+        // other caller leaves `provision` at its default and is unaffected.
+        // Note this is not the same as "no first message": the bindings runtime
+        // and the schedule runner create with `first_message: None` and deliver
+        // it themselves, and they do need a sandbox.
+        let provision = if req.provision {
+            match self.starter.start(&task_id).await {
+                Ok(()) => ProvisionOutcome::Started,
+                Err(e) => {
+                    tracing::warn!(task_id = %task_id, error = %e, "Sandbox start failed during task creation");
+                    self.publish_sandbox_error(
+                        &task_id,
+                        "Sandbox provisioning failed during task creation.",
+                        &e,
+                        "provision_failed",
+                    )
+                    .await;
+                    ProvisionOutcome::Failed
+                }
             }
+        } else {
+            ProvisionOutcome::Skipped
         };
 
         // Optional first message (best-effort; the caller's callback logs).
@@ -474,6 +508,8 @@ mod tests {
             scope: Scope::User,
             owner_user_id: Some("user1".into()),
             trigger_id: None,
+            task_id: None,
+            provision: true,
             workspace_id: None,
             template_id: None,
             vibe: None,
@@ -692,5 +728,65 @@ mod tests {
             .expect("creation succeeds after retry");
 
         assert_eq!(outcome.provision, ProvisionOutcome::Started);
+    }
+
+    /// T3 mints the Thread id, navigates to it, and keys its own state on it.
+    /// Minting our own here would leave the client watching a Thread that never
+    /// arrives.
+    #[tokio::test]
+    async fn a_supplied_task_id_is_used_verbatim() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks
+            .expect_insert_task()
+            .withf(|row| row.task_id == "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30")
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+        let mut starter = MockSandboxStarter::new();
+        starter.expect_start().returning(|_| Ok(()));
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+
+        let mut req = sample_request();
+        req.task_id = Some("3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30".into());
+        let outcome = svc
+            .create(req, empty_payload, no_message)
+            .await
+            .expect("creation succeeds");
+
+        assert_eq!(
+            outcome.task.task_id,
+            "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30"
+        );
+    }
+
+    /// A Thread created without a first message is a Task nobody has spoken to
+    /// yet. Provisioning it would burn a Sandbox on a Thread that may never be
+    /// used.
+    #[tokio::test]
+    async fn provisioning_is_skipped_when_the_request_does_not_ask_for_it() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks
+            .expect_insert_task()
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+        let mut starter = MockSandboxStarter::new();
+        starter.expect_start().never();
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, preflight_ok(), publisher.clone());
+
+        let mut req = sample_request();
+        req.provision = false;
+        let outcome = svc
+            .create(req, empty_payload, no_message)
+            .await
+            .expect("creation succeeds");
+
+        assert_eq!(outcome.provision, ProvisionOutcome::Skipped);
+        assert_eq!(publisher.task_subtypes(), vec![TaskSubType::Created]);
+        assert!(publisher.sandbox_statuses().is_empty());
     }
 }

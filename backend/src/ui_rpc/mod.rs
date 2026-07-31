@@ -27,10 +27,14 @@
 //! [`ThreadFeed`].
 
 mod auth;
+pub mod backend;
+mod commands;
 pub mod dao;
 mod feed;
 pub mod files;
+pub mod ports;
 mod projection;
+mod providers;
 
 pub use feed::{ShellFeed, ThreadFeed};
 
@@ -176,6 +180,11 @@ struct UiRpcState {
     /// its Sandbox and nowhere else.
     sandboxes: Arc<dyn SandboxConnector>,
     model_defaults: Arc<AgentModelDefaults>,
+    /// The agent catalog, as this deployment can actually run it. Read on every
+    /// config request because credentials come and go without a restart.
+    agents: Arc<dyn ports::AgentCatalogSource>,
+    /// The one thing this module does that is not a read.
+    commands: Arc<dyn ports::ThreadCommandSink>,
 }
 
 /// Build the T3 compatibility router when its environment gate is enabled.
@@ -201,6 +210,8 @@ pub async fn router_from_env(
         conversations,
         sandboxes,
         model_defaults,
+        agents,
+        commands,
     } = dependencies;
     let environment = conversations.listing_head().await?.identity;
     let name = env_value("T3_UI_RPC_ENVIRONMENT_ID", "moatless");
@@ -231,6 +242,8 @@ pub async fn router_from_env(
         conversations,
         sandboxes,
         model_defaults: Arc::new(model_defaults),
+        agents,
+        commands,
     })))
 }
 
@@ -251,6 +264,10 @@ pub struct UiRpcDependencies {
     /// Reaches a conversation's Sandbox, which is where its checkout lives.
     pub sandboxes: Arc<dyn SandboxConnector>,
     pub model_defaults: AgentModelDefaults,
+    /// Which agents this viewer can run, and with which models.
+    pub agents: Arc<dyn ports::AgentCatalogSource>,
+    /// Carries out the commands the T3 client dispatches.
+    pub commands: Arc<dyn ports::ThreadCommandSink>,
 }
 
 /// The identity this deployment presents itself by: a configured name, and a
@@ -1362,10 +1379,44 @@ impl ProtocolSession {
 
         match tag.as_str() {
             "server.probe" => vec![success_exit(&id, json!({}))],
-            "server.getConfig" => vec![success_exit(&id, server_config(state))],
+            "server.getConfig" => {
+                vec![success_exit(&id, server_config(state, identity).await)]
+            }
             "server.getSettings" => vec![success_exit(&id, json!({}))],
             "server.refreshProviders" => {
-                vec![success_exit(&id, json!({ "providers": [] }))]
+                let agents = state.agents.list(&viewer_scope(identity)).await;
+                vec![success_exit(
+                    &id,
+                    json!({ "providers": providers::providers(&agents, &state.model_defaults, &now_rfc3339()) }),
+                )]
+            }
+            // The one write. A refusal is a typed failure the composer renders,
+            // not a defect: "that action does not exist here" is true, "this
+            // server is broken" is not.
+            "orchestration.dispatchCommand" => {
+                let ctx = commands::CommandContext {
+                    conversations: state.conversations.as_ref(),
+                    agents: state.agents.as_ref(),
+                    sink: state.commands.as_ref(),
+                };
+                match commands::dispatch(&ctx, &viewer_scope(identity), &payload).await {
+                    Ok(result) => vec![success_exit(&id, result)],
+                    Err(refusal) => {
+                        debug!(
+                            %tag,
+                            user_id = %identity.user_id,
+                            reason = %refusal.message(),
+                            "T3 UI command refused"
+                        );
+                        vec![typed_failure_exit(
+                            &id,
+                            json!({
+                                "_tag": "OrchestrationDispatchCommandError",
+                                "message": refusal.message(),
+                            }),
+                        )]
+                    }
+                }
             }
             "server.discoverSourceControl" => vec![success_exit(
                 &id,
@@ -1605,7 +1656,7 @@ impl ProtocolSession {
                 Some(vec![json!({
                     "version": 1,
                     "type": "snapshot",
-                    "config": server_config(state)
+                    "config": server_config(state, identity).await
                 })]),
             ),
             "subscribeServerLifecycle" => self.start_stream(
@@ -1860,7 +1911,13 @@ fn session_state(state: &UiRpcState, method: Option<AuthMethod>) -> Value {
     })
 }
 
-fn server_config(state: &UiRpcState) -> Value {
+/// Now, in the format the contract's `IsoDateTime` decodes.
+fn now_rfc3339() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+async fn server_config(state: &UiRpcState, identity: &AuthIdentity) -> Value {
+    let agents = state.agents.list(&viewer_scope(identity)).await;
     json!({
         "environment": descriptor(&state.rpc),
         "auth": auth_descriptor(state),
@@ -1868,7 +1925,7 @@ fn server_config(state: &UiRpcState) -> Value {
         "keybindingsConfigPath": "/moatless/keybindings.json",
         "keybindings": [],
         "issues": [],
-        "providers": [],
+        "providers": providers::providers(&agents, &state.model_defaults, &now_rfc3339()),
         "availableEditors": [],
         "observability": {
             "logsDirectoryPath": "/moatless/logs",
@@ -2085,6 +2142,82 @@ mod tests {
         }
     }
 
+    /// The full catalog with everything installed. The provider list's own
+    /// shape is asserted in `providers.rs`; here it only has to be non-empty so
+    /// the composer is not disabled.
+    struct StubAgents;
+
+    #[async_trait]
+    impl ports::AgentCatalogSource for StubAgents {
+        async fn list(
+            &self,
+            _viewer: &ScopeContext,
+        ) -> Vec<moatless_api_schemas::agent::AgentDescriptor> {
+            crate::agent::catalog::catalog()
+                .iter()
+                .map(|entry| moatless_api_schemas::agent::AgentDescriptor {
+                    id: entry.id.to_string(),
+                    label: entry.label.to_string(),
+                    installed: true,
+                    default_model: entry.default_model.to_string(),
+                    models: entry
+                        .models
+                        .iter()
+                        .map(|m| moatless_api_schemas::agent::AgentModel {
+                            id: m.id.to_string(),
+                            label: m.label.to_string(),
+                        })
+                        .collect(),
+                    missing_credential_hint: None,
+                })
+                .collect()
+        }
+    }
+
+    /// Nothing in this file dispatches a command that reaches a write; the
+    /// command table itself is asserted in `commands.rs` against a recording
+    /// sink.
+    struct UnreachableCommands;
+
+    #[async_trait]
+    impl ports::ThreadCommandSink for UnreachableCommands {
+        async fn send_turn(
+            &self,
+            _viewer: &ScopeContext,
+            _turn: ports::ThreadTurn,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file sends a turn")
+        }
+        async fn create_thread(
+            &self,
+            _viewer: &ScopeContext,
+            _thread: ports::NewThread,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file creates a thread")
+        }
+        async fn update_meta(
+            &self,
+            _viewer: &ScopeContext,
+            _meta: ports::ThreadMeta,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file updates metadata")
+        }
+        async fn stop(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file stops a thread")
+        }
+        async fn answer_question(
+            &self,
+            _viewer: &ScopeContext,
+            _answer: ports::QuestionAnswer,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file answers a question")
+        }
+    }
+
     /// These tests are about the envelope encoding, so the listing behind it
     /// is a stub. What a viewer actually sees is asserted against a real
     /// database in `backend/tests/ui_rpc_shell_test.rs`.
@@ -2135,6 +2268,8 @@ mod tests {
             workspaces: Arc::new(workspaces),
             conversations: Arc::new(conversations),
             sandboxes: Arc::new(UnreachableSandboxes),
+            agents: Arc::new(StubAgents),
+            commands: Arc::new(UnreachableCommands),
             model_defaults: Arc::new(AgentModelDefaults::default()),
         }
     }
@@ -2296,6 +2431,75 @@ mod tests {
             output.frames[0]["exit"]["value"]["auth"]["sessionMethods"],
             json!(["browser-session-cookie", "bearer-access-token"])
         );
+    }
+
+    /// The composer is disabled while the provider list is empty
+    /// (`ChatView.logic.ts` has nothing to resolve a model against), so this is
+    /// the frame that decides whether anybody can type at all.
+    #[tokio::test]
+    async fn get_config_publishes_one_provider_per_agent_kind() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request("1", "server.getConfig", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        let providers = output.frames[0]["exit"]["value"]["providers"]
+            .as_array()
+            .expect("the config carries a provider list");
+        assert_eq!(
+            providers
+                .iter()
+                .map(|provider| provider["instanceId"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["claudeAgent", "codex"]
+        );
+        for provider in providers {
+            assert!(
+                !provider["models"].as_array().unwrap().is_empty(),
+                "{} published no models, so its composer resolves nothing",
+                provider["instanceId"]
+            );
+        }
+    }
+
+    /// T3 calls `refreshProviders` when a person opens the picker, and merges
+    /// the answer into the same state the config populated. Two lists that
+    /// disagree would move a thread's provider under it.
+    #[tokio::test]
+    async fn refreshing_providers_returns_what_the_config_already_published() {
+        let mut session = session();
+        let state = state();
+        let config = session
+            .handle_json(&request("1", "server.getConfig", json!({})), &state, &viewer())
+            .await;
+        let refreshed = session
+            .handle_json(
+                &request("2", "server.refreshProviders", json!({})),
+                &state,
+                &viewer(),
+            )
+            .await;
+
+        let published = &config.frames[0]["exit"]["value"]["providers"];
+        let refreshed = &refreshed.frames[0]["exit"]["value"]["providers"];
+        // `checkedAt` is stamped per call and is the one field allowed to
+        // differ; everything a client routes on has to match.
+        let strip = |list: &Value| -> Vec<Value> {
+            list.as_array()
+                .unwrap()
+                .iter()
+                .map(|provider| {
+                    let mut provider = provider.clone();
+                    provider.as_object_mut().unwrap().remove("checkedAt");
+                    provider
+                })
+                .collect()
+        };
+        assert_eq!(strip(published), strip(refreshed));
     }
 
     #[tokio::test]

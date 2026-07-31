@@ -75,7 +75,7 @@ const RUNTIME_MODE: &str = "full-access";
 /// It means *whatever this agent picks*, is resolved inside the Sandbox at run
 /// time, and is never written back. Reporting it as a model identity would put
 /// a word in the row that names nothing, so the chain falls through it.
-const UNRESOLVED_MODEL_CHOICE: &str = "default";
+pub(super) const UNRESOLVED_MODEL_CHOICE: &str = "default";
 
 /// The last resort of the model chain, and the only invented value in the row.
 ///

@@ -124,6 +124,8 @@ pub(crate) async fn create_task_from_loop(
         related_to: params.related_to,
         // Bindings runtime / schedule runner deliver the first message themselves.
         first_message: None,
+        task_id: None,
+        provision: true,
         event_subtype: moatless_events::TaskSubType::Open,
         repository: None,
     };

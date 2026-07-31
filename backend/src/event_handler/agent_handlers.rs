@@ -658,6 +658,7 @@ async fn notify_parent_task_of_child_terminal(
         Some(&event.task_id),
         false,
         None,
+        None,
     )
     .await
     {

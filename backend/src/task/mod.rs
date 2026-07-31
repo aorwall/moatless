@@ -10,4 +10,5 @@ pub mod reaper;
 pub mod relations;
 pub mod routes;
 pub mod schemas;
+pub mod service;
 pub mod statistics;

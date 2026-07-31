@@ -755,6 +755,7 @@ async fn deliver_to_binding(
         None,
         false,
         Some(msg.user_id.as_str()),
+        None,
     )
     .await
     .map_err(AdapterError::MessageDelivery)?;

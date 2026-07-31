@@ -50,6 +50,14 @@ pub async fn send_message_flow(
     source_task_id: Option<&str>,
     start_fresh: bool,
     sent_by: Option<&str>,
+    // The Message's uuid, when the caller owns it. The T3 compatibility
+    // surface mints a message id before it sends and keys its own optimistic
+    // copy on it, so a server-minted uuid would leave that copy on screen
+    // forever. Every other caller passes `None` and gets a fresh uuid.
+    //
+    // An id that arrives from a client is checked against the whole table
+    // below before anything is written — see the guard on it.
+    message_uuid: Option<String>,
 ) -> Result<Option<String>, MessageError> {
     // A closed task is terminal (no reopen path) so no send may persist a
     // message or wake the agent. Inbound external messages are dropped
@@ -109,6 +117,46 @@ pub async fn send_message_flow(
         }
     }
 
+    // A caller-owned id addresses a Message across the whole table, not within
+    // this Task, and the insert below upserts on that column: it is the merge
+    // path that assembles one agent Message from its blocks. So an id already
+    // in use is one of two things, and they have to be told apart before the
+    // write rather than after it.
+    //
+    // This Task's own user row means the frame arrived twice — a reconnecting
+    // T3 client replaying what it could not confirm — and must read as sent, or
+    // the person sees their message fail and sends it again. Anything else names
+    // a Message the sender has no claim on: writing through would rewrite that
+    // conversation's history from a Task the sender does own, leaving the
+    // sender's own conversation empty and the victim's carrying text nobody
+    // with access to it wrote.
+    //
+    // The replay case is deliberately not narrowed to identical text. A client
+    // reusing its own id for a different message is a bug on its side, and
+    // answering it the way a true replay is answered writes nothing either way.
+    if let Some(uuid) = message_uuid.as_deref() {
+        let existing = state
+            .messages
+            .find_by_uuid(uuid)
+            .await
+            .map_err(MessageError::DedupCheck)?;
+        if let Some(existing) = existing {
+            if existing.task_id == task_id && existing.message_type == MessageType::User {
+                tracing::debug!(task_id = %task_id, uuid = %uuid, "Message already persisted; treating as sent");
+                return Ok(None);
+            }
+            tracing::warn!(
+                task_id = %task_id,
+                uuid = %uuid,
+                addressed = %existing.task_id,
+                "Refusing a send whose message id is already in use"
+            );
+            return Err(MessageError::BadRequest(
+                "That message id is already in use.".to_string(),
+            ));
+        }
+    }
+
     let effective_message = message.to_string();
 
     // Bake attribution into message text so the agent sees it via the normal content chain.
@@ -121,7 +169,7 @@ pub async fn send_message_flow(
     };
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let msg_uuid = uuid::Uuid::new_v4().to_string();
+    let msg_uuid = message_uuid.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     // Build enriched content blocks (includes preview, element contexts + file attachments)
     let enriched_blocks = enricher::build_content_blocks(
