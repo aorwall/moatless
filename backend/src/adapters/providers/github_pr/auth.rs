@@ -121,14 +121,6 @@ impl GithubPrAuth {
         self.client_for_user(acting_user, repository_owner).await
     }
 
-    pub(super) async fn client_for_typed_api(
-        &self,
-        acting_user: &str,
-        repository_owner: &str,
-    ) -> Result<GithubPrApi, AdapterError> {
-        self.client_for_user(acting_user, repository_owner).await
-    }
-
     async fn client_for_user(
         &self,
         user_id: &str,

@@ -9,9 +9,12 @@
 //! - `Moatless task: <url>` footer baked into the PR body at creation
 //! - webhook echo dedup (`recently_sent`) for the PR-opened / comment events
 //!
-//! Tokens are resolved per calling user via the GithubPr adapter (provider
-//! token or GitHub App installation token, falling back to the global
-//! `GITHUB_CHANNEL_TOKEN`).
+//! Tokens come from the calling user's own GitHub row and nothing else — the
+//! same rule the sandbox's `GITHUB_TOKEN` follows since SP-2457, so the
+//! identity that pushed the branch is the identity that opens the PR. Neither
+//! the task repository's persisted scope nor the global `GITHUB_CHANNEL_TOKEN`
+//! is consulted, which is also what lets these routes reach a repository the
+//! task isn't bound to: the user's own access is the only thing that decides.
 
 use axum::extract::{Path, State};
 use axum::Json;
@@ -27,7 +30,6 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::footer::FOOTER_MARKER;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
-use moatless_backend_core::scope::ScopeContext;
 
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
 use super::external_id;
@@ -60,14 +62,7 @@ pub async fn create_pr(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(
-        &state,
-        &auth.user_id.to_string(),
-        &owner,
-        &repo,
-        req.task_id.as_deref(),
-    )
-    .await?;
+    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
@@ -166,14 +161,7 @@ pub async fn post_comment(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(
-        &state,
-        &auth.user_id.to_string(),
-        &owner,
-        &repo,
-        req.task_id.as_deref(),
-    )
-    .await?;
+    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
 
     let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
     let comment_id = api.post_comment(&owner, &repo, number, &body).await?;
@@ -238,14 +226,7 @@ pub async fn reply_to_review_comment(
         ensure_task_access(&state, &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(
-        &state,
-        &auth.user_id.to_string(),
-        &owner,
-        &repo,
-        req.task_id.as_deref(),
-    )
-    .await?;
+    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
 
     let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
     let new_id = api
@@ -284,72 +265,46 @@ pub async fn reply_to_review_comment(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Resolve a GitHub API client for the calling user, scoped to `owner` (GitHub
-/// App installation tokens are minted per-org).
+/// Resolve a GitHub API client from `user_id`'s own GitHub credential, minted
+/// against `owner/repo_name`.
+///
+/// `user_id` is the task's run-as identity — the sandbox's `X-User-Token` JWT
+/// and its `GITHUB_TOKEN` are cut from the same `grant.ctx.user_id` — so this
+/// is the same authority `resolve_repository_github_token_with` applies to the
+/// sandbox: their own row, no scope walk, no repository or global fallback.
+/// Holding no row is "this user cannot reach GitHub", not a reason to borrow
+/// someone else's token.
+///
+/// Which repository is requested therefore doesn't enter into it. A PR against
+/// a repo the task isn't bound to resolves exactly like one against its own;
+/// the task binding only decides where replies route back to.
 async fn resolve_github_api(
     state: &AppState,
     user_id: &str,
     owner: &str,
     repo_name: &str,
-    task_id: Option<&str>,
 ) -> Result<GithubPrApi, AdapterError> {
-    if let Some(task_id) = task_id {
-        // Access already verified by ensure_task_access in the calling handler.
-        #[allow(clippy::disallowed_methods)]
-        // reason: access already verified by ensure_task_access in the handler; system ctx used for repository lookup only
-        let sys = ScopeContext::system();
-        let task = state
-            .tasks
-            .find_by_id(task_id, &sys)
-            .await?
-            .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id}")))?;
-        let repository = state
-            .repositories
-            .find_by_id(&task.repository_id, &sys)
-            .await
-            .map_err(|error| AdapterError::Internal(error.to_string()))?
-            .ok_or_else(|| AdapterError::NotFound(format!("Repository {}", task.repository_id)))?;
-        let remote_url = repository.remote_url.as_deref().ok_or_else(|| {
-            AdapterError::BadRequest("Task repository has no remote URL".to_string())
-        })?;
-        let requested = (owner.to_ascii_lowercase(), repo_name.to_ascii_lowercase());
-        let persisted = crate::repository::access::parse_github_owner_repo(remote_url)
-            .map(|(repo_owner, repo)| (repo_owner.to_ascii_lowercase(), repo.to_ascii_lowercase()))
-            .ok_or_else(|| {
-                AdapterError::BadRequest("Task repository is not a GitHub repository".to_string())
-            })?;
-        if persisted != requested {
-            return Err(AdapterError::BadRequest(format!(
-                "Requested GitHub repository {owner}/{repo_name} does not match task repository"
-            )));
-        }
-        let token = crate::repository::access::resolve_repository_github_token(
-            state,
-            &repository,
-            remote_url,
-        )
-        .await
-        .map_err(|source| AdapterError::RepositoryCredential { source })?
-        .ok_or_else(|| {
-            AdapterError::AdapterApi(format!(
-                "No GitHub credential configured for repository scope {}",
-                repository.scope
-            ))
-        })?;
-        return Ok(GithubPrApi::new(&token));
-    }
-
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
-    let adapter = providers
-        .github_pr()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
-    adapter
-        .auth()
-        .client_for_typed_api(user_id, owner)
-        .await
+    let token = crate::auth::credentials::resolve_run_as_user_github_token(
+        state.provider_tokens.as_ref(),
+        Some(state.provider_token_auth.as_ref()),
+        state.github_app_service.as_deref(),
+        state.github_apps.as_ref(),
+        Some(state.secrets.as_ref()),
+        user_id,
+        owner,
+        repo_name,
+    )
+    .await
+    .map_err(|source| AdapterError::UserCredential {
+        user_id: user_id.to_string(),
+        source,
+    })?
+    .ok_or_else(|| {
+        AdapterError::AdapterApi(format!(
+            "User {user_id} has no GitHub credential — connect GitHub to act on {owner}/{repo_name}"
+        ))
+    })?;
+    Ok(GithubPrApi::new(&token))
 }
 
 /// Build the task URL for the PR-body footer. Returns `None` when no task is
