@@ -55,7 +55,7 @@ End the report with a **Top recommendation** section: which candidate you'd tack
 
 See [HTML-REPORT.md](HTML-REPORT.md) for the architecture-review layer: style additions, card anatomy, diagram patterns, and tone.
 
-Do NOT propose interfaces yet. After the file is written, ask which candidate to explore. That is a selection from a set, not a ranked pick — shape it per `/writing-messages`.
+Do NOT propose interfaces yet. After the file is written, ask which candidate to explore. That is a selection from a set, not a ranked pick — shape it per `/asking-questions`.
 
 ### 3. Grilling loop
 

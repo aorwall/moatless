@@ -14,7 +14,7 @@ Four rules, always:
 - **A "you decide" escape on every decision.** Let the user hand a decision back, then record what you chose so it stays visible and reversible. Approval is theirs alone and takes no escape.
 - **Don't act until the user confirms** you have reached shared understanding.
 
-**Run `/writing-messages` for every turn you send.** It owns the two question shapes, what earns a place in the message, and what goes on the page instead. This skill owns *which* question to ask, in what order, and when to stop.
+**Run `/asking-questions` for every question you send, and `/writing-messages` for every turn.** The first owns the two question shapes and what earns a place in the message; the second owns everything true of any turn a person reads. This skill owns *which* question to ask, in what order, and when to stop.
 
 ## Reach shared understanding before deciding anything
 

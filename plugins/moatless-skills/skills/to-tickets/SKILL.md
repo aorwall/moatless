@@ -47,7 +47,7 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 - **Blocked by**: which other tickets (if any) must complete first
 - **What it delivers**: the end-to-end behaviour this ticket makes work
 
-**Ask it as one selection question** — the second question shape in `/writing-messages`.
+**Ask it as one selection question** — the second question shape in `/asking-questions`.
 
 > Which of these need changing — merged, split, or a wrong blocking edge? "All fine" if none.
 

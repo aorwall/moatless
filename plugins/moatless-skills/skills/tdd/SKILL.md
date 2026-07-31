@@ -21,7 +21,7 @@ A **seam** is the public boundary you test at: the interface where you observe b
 
 **Test only at pre-agreed seams.** Before writing any test, write down the seams under test and confirm them with the user. No test is written at an unconfirmed seam. You can't test everything — agreeing the seams up front is how testing effort lands on the critical paths and complex logic instead of every edge case.
 
-Ask which seams to test — the candidates as a set, per `/writing-messages`, since the answer is "these three, not those two" rather than one pick.
+Ask which seams to test — the candidates as a set, per `/asking-questions`, since the answer is "these three, not those two" rather than one pick.
 
 ## Anti-patterns
 

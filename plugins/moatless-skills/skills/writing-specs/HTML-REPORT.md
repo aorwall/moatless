@@ -11,6 +11,7 @@ The page is `scratchpad/<slug>.html`, one file at one URL. `/writing-specs` says
 - **After this ships** — one sentence naming what someone can do that they cannot today.
 - **In scope / out of scope** — two short lists side by side. "In" is the committed surface; "out" sets expectations about what won't be touched.
 - **Decisions** — one row per settled answer, added as each lands. Four columns, and **keep the rejected one**: the alternatives are what the user is being asked to approve. A decision still open gets its ranked options, marked visibly unresolved.
+- **The open decision carries its own evidence**, directly under those options: the facts that decide it, one line each with `file:line`. **This is what the question turn links to instead of explaining itself.** Without a home here, everything found between two questions ends up in a chat message, where it is both too long to read and absent from the artefact the spec is written from. Write it here first, then ask.
 
 **2. Current solution** — the state slice, the trace, the comparison tables. It sits before the decisions: the reader needs the shape before the choices, and at approval it is what they check the decisions against.
 

@@ -38,7 +38,7 @@ Five **state** roles:
 
 For a PR, the same states read against the attached code: `ready-for-agent` means a brief is attached and an agent should take the next step on the diff; `ready-for-human` means it's ready for a human to merge.
 
-Every triaged issue should carry exactly one category role and one state role. If state roles conflict, flag it and ask the maintainer before doing anything else — that ask, and every other one this skill sends, is shaped per `/writing-messages`.
+Every triaged issue should carry exactly one category role and one state role. If state roles conflict, flag it and ask the maintainer before doing anything else — that ask, and every other one this skill sends, is shaped per `/asking-questions`. Every turn it sends, question or not, follows `/writing-messages`.
 
 These are canonical role names — the actual label strings used in the issue tracker may differ; the mapping lives in `docs/agents/issue-tracker.md`.
 

@@ -10,7 +10,7 @@ description: Take a change from research to an agreed spec — research and deci
 1. **Research the current state**, and ask until you and the user see the same thing. Read the code; ask the understanding questions; settle the vocabulary against `CONTEXT.md`.
 2. **Render the page.** Its first content is that shared understanding, as `## Current solution`. Give the URL once.
 3. **Research and grill toward what to build**, growing `## Planned solution` as you go. This phase mixes reading code, asking the user, and writing the page — the seams are one of the questions. Update the lede and the decision table at the top whenever an answer changes them.
-4. **Get the plan approved, on the page.** Paste the decision table into the message so the choice is reachable without opening anything. This is an approval turn, not a ranked pick — see `/writing-messages`.
+4. **Get the plan approved, on the page.** Paste the decision table into the message so the choice is reachable without opening anything. This is an approval turn, not a ranked pick — see `/asking-questions`, "An approval is not a question".
 5. **Write `.plans/<slug>.md`, once** — complete and uncapped. It is for the agent that implements.
 
 Nothing goes into `.plans/` before step 5.
@@ -22,7 +22,8 @@ Everything else in this skill is *how* to do one of those steps:
 | For | Read |
 |---|---|
 | Asking the questions in steps 1 and 3 | `/grilling` |
-| Shaping the turns those questions are sent in | `/writing-messages` |
+| Shaping the questions themselves | `/asking-questions` |
+| Everything else true of a turn a person reads | `/writing-messages` |
 | Rendering and updating the page | [HTML-REPORT.md](HTML-REPORT.md), on top of `/html-report` |
 | The elements that go in either surface | [DESIGN.md](DESIGN.md) |
 | The shape of the file written in step 5 | Below |
@@ -65,6 +66,21 @@ An interview that only asks ranked decisions produces a decision table and nothi
 - **Ask about failure.** What can fail, what a partial write leaves behind, what stays available while a dependency is down. This is the material an interview loses most often, because nobody volunteers it.
 
 **The stopping test is sufficiency, not slot-filling:** could someone build this without asking you anything? A page where every section has content but no statement of what the thing does is not finished.
+
+### Sending one of those questions
+
+**The page is updated before the question goes out, never after.** Whatever you found since the last answer — the precedent, the schema difference, the bug in the SDK, the ADR that constrains it — goes onto the page as the open decision's evidence first. Then the message links to it. Research that reaches the user only as a chat message is lost twice over: the spec is written from the page, and the sandbox does not outlive the interview.
+
+The turn itself is four things, in this order, and nothing else — `/asking-questions` owns the shape:
+
+1. **What is being decided**, in one line.
+2. **The options**, as a real numbered list, recommendation first. Never a fork in prose: "do you want X, or is there a reason for Y I'm not seeing" is answered by retyping X, which is the tell that no list was offered.
+3. **At most one line of stake** — what it costs to pick wrong.
+4. **The link**, naming what is on the page: "the protocol difference and the SDK bug are under Decision 5."
+
+What is already settled goes in the footer line, not the opening. A turn that opens "Decision 2 is recorded, and reading the schema turned up…" has spent its first line on what you just did.
+
+**If the question needs three paragraphs of background to be answerable, it is not one question.** Split it, or the background is not background — it is a decision you have not surfaced yet.
 
 ### What changes — the three lists the planned solution opens with
 

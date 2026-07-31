@@ -14,7 +14,7 @@ Issue tracker + triage labels: `docs/agents/issue-tracker.md`.
 
 2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
 
-Check with the user that these seams match their expectations — one question, shaped per `/writing-messages`.
+Check with the user that these seams match their expectations — one question, shaped per `/asking-questions`.
 
 3. Run the `/writing-specs` skill for the spec's shape — the fixed heading order, the decision table, and the writing rules. Write the spec to `.plans/<slug>.md`, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 
