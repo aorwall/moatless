@@ -23,6 +23,7 @@
 //! fingerprint and re-sends the transcript whole when it moves, which is why it
 //! polls a quarter as often as the shell's. See [`ThreadFeed`].
 
+mod auth;
 pub mod dao;
 mod feed;
 mod projection;
@@ -39,7 +40,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Extension, Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -49,8 +50,9 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use crate::agent::catalog::AgentKind;
-use crate::auth::identity::AuthIdentity;
+use crate::auth::identity::{AuthIdentity, AuthMethod};
 use crate::auth::models::UserRole;
+use crate::auth::pairing::DevicePairing;
 use crate::task_listing::{self, EnvironmentIdentity, Resume};
 use crate::ui_rpc::dao::ConversationDao;
 use crate::workspace::dao::WorkspaceDao;
@@ -153,6 +155,13 @@ struct UiRpcState {
     /// the database says it is on each resume; see [`task_listing::resume`].
     environment: Arc<EnvironmentIdentity>,
     session_cookie_name: Arc<str>,
+    /// Signs WebSocket tickets. Absent when the deployment configures no JWT
+    /// secret, which is the same condition under which session cookies do not
+    /// work either; the ticket route then answers that it cannot issue one.
+    session_jwt_secret: Option<Arc<str>>,
+    /// Turns a pairing code into the token a client on another device keeps.
+    /// The issuing half lives with the rest of the account routes.
+    pairing: Arc<DevicePairing>,
     workspaces: Arc<dyn WorkspaceDao>,
     conversations: Arc<dyn ConversationDao>,
     model_defaults: Arc<AgentModelDefaults>,
@@ -167,15 +176,20 @@ struct UiRpcState {
 /// The one thing here that is *not* configuration is the environment's
 /// identity, which is read from the database. See [`environment_id`].
 pub async fn router_from_env(
-    session_cookie_name: String,
-    workspaces: Arc<dyn WorkspaceDao>,
-    conversations: Arc<dyn ConversationDao>,
-    model_defaults: AgentModelDefaults,
+    dependencies: UiRpcDependencies,
 ) -> Result<Option<Router>, UiRpcConfigError> {
     if !env_enabled("T3_UI_RPC_ENABLED")? {
         return Ok(None);
     }
 
+    let UiRpcDependencies {
+        session_cookie_name,
+        session_jwt_secret,
+        pairing,
+        workspaces,
+        conversations,
+        model_defaults,
+    } = dependencies;
     let environment = conversations.listing_head().await?.identity;
     let name = env_value("T3_UI_RPC_ENVIRONMENT_ID", "moatless");
     let config = UiRpcConfig {
@@ -199,10 +213,29 @@ pub async fn router_from_env(
         rpc: Arc::new(config),
         environment: Arc::new(environment),
         session_cookie_name: Arc::from(session_cookie_name),
+        session_jwt_secret: session_jwt_secret.map(Arc::from),
+        pairing,
         workspaces,
         conversations,
         model_defaults: Arc::new(model_defaults),
     })))
+}
+
+/// Everything the T3 compatibility routes need from the rest of the backend.
+///
+/// A struct rather than an argument list because all six are opaque handles
+/// whose order carries no meaning at the call site.
+pub struct UiRpcDependencies {
+    /// Reported in the auth descriptor so a browser knows which cookie to send.
+    pub session_cookie_name: String,
+    /// The secret WebSocket tickets are signed with — the same one session
+    /// cookies use, read through [`crate::auth::jwt::get_jwt_secret`] so the
+    /// sandbox-secret fallback applies here too.
+    pub session_jwt_secret: Option<String>,
+    pub pairing: Arc<DevicePairing>,
+    pub workspaces: Arc<dyn WorkspaceDao>,
+    pub conversations: Arc<dyn ConversationDao>,
+    pub model_defaults: AgentModelDefaults,
 }
 
 /// The identity this deployment presents itself by: a configured name, and a
@@ -255,6 +288,8 @@ fn environment_id(name: &str, identity: &EnvironmentIdentity) -> String {
 fn router(state: UiRpcState) -> Router {
     Router::new()
         .route("/.well-known/t3/environment", get(environment_descriptor))
+        .route("/oauth/token", post(auth::token_exchange))
+        .route("/api/auth/websocket-ticket", post(auth::websocket_ticket))
         .route("/api/auth/session", get(auth_session))
         .route("/api/orchestration/shell", get(shell_snapshot_http))
         .route(
@@ -286,6 +321,21 @@ impl UiRpcConfig {
     }
 }
 
+/// Whether this deployment mounts the T3 compatibility routes.
+///
+/// Read by anything that has to agree with [`router_from_env`] about that —
+/// the feature flag the settings dialog reads being the one, so that "pair a
+/// device" appears exactly when the endpoints it drives exist. It goes through
+/// the same parser rather than a second reading of the same variable, because
+/// a second one would disagree: `T3_UI_RPC_ENABLED=on` mounts the routes, and
+/// a stricter reader would hide the only way to use them.
+///
+/// A value that is neither is `false` here and a startup failure there. That
+/// asymmetry is fine: nothing reaches this if the process did not start.
+pub fn is_enabled() -> bool {
+    env_enabled("T3_UI_RPC_ENABLED").unwrap_or(false)
+}
+
 fn env_enabled(key: &str) -> Result<bool, UiRpcConfigError> {
     match env::var(key) {
         Err(env::VarError::NotPresent) => Ok(false),
@@ -313,9 +363,10 @@ async fn environment_descriptor(State(state): State<UiRpcState>) -> Json<Value> 
 async fn auth_session(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<AuthIdentity>,
+    method: Option<Extension<AuthMethod>>,
 ) -> Json<Value> {
     debug!(user_id = %identity.user_id, "T3 UI session bootstrap");
-    Json(session_state(&state))
+    Json(session_state(&state, method.map(|Extension(m)| m)))
 }
 
 async fn shell_snapshot_http(
@@ -802,10 +853,11 @@ fn viewer_scope(identity: &AuthIdentity) -> ScopeContext {
 async fn websocket_upgrade(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<AuthIdentity>,
+    method: Option<Extension<AuthMethod>>,
     headers: HeaderMap,
     websocket: WebSocketUpgrade,
 ) -> Response {
-    if !origin_allowed(&headers, &state.rpc.allowed_origins) {
+    if origin_checked(method) && !origin_allowed(&headers, &state.rpc.allowed_origins) {
         warn!(
             user_id = %identity.user_id,
             origin = ?headers.get(header::ORIGIN),
@@ -822,6 +874,27 @@ async fn websocket_upgrade(
         .max_message_size(MAX_FRAME_BYTES)
         .max_frame_size(MAX_FRAME_BYTES)
         .on_upgrade(move |socket| serve_websocket(socket, state, identity))
+}
+
+/// Whether this upgrade's `Origin` has to be one we allow.
+///
+/// The allow-list is a defence against one thing: a page the person did not
+/// write opening a socket that their cookie then authenticates. That is a
+/// property of the cookie, not of the socket — a browser attaches it to any
+/// request a page can cause, so the origin is the only thing left that says
+/// which page caused it.
+///
+/// A ticket is the opposite. It has to be fetched first, with a bearer token
+/// the page does not have and cannot read, so a request carrying one was made
+/// by something holding the credential deliberately. Requiring an origin of it
+/// would refuse every native client on principle: a React Native `WebSocket`
+/// sends no `Origin` at all on Android, and an app has no origin to send.
+///
+/// An unknown method is treated as the cookie case. The only way to get here
+/// without one is with the auth middleware unmounted, and that is not a
+/// configuration whose sockets should be easier to open.
+fn origin_checked(method: Option<Extension<AuthMethod>>) -> bool {
+    !matches!(method, Some(Extension(AuthMethod::WebSocketTicket)))
 }
 
 fn origin_allowed(headers: &HeaderMap, allowed_origins: &[AllowedOrigin]) -> bool {
@@ -1638,22 +1711,29 @@ fn descriptor(config: &UiRpcConfig) -> Value {
 fn auth_descriptor(state: &UiRpcState) -> Value {
     json!({
         "policy": "remote-reachable",
-        "bootstrapMethods": [],
-        "sessionMethods": ["browser-session-cookie"],
+        // A pairing code is T3's `one-time-token`, and this is where a client
+        // reads that pairing is on offer at all: the mobile app shows the flow
+        // for what the environment says it accepts.
+        "bootstrapMethods": ["one-time-token"],
+        "sessionMethods": ["browser-session-cookie", "bearer-access-token"],
         "sessionCookieName": state.session_cookie_name.as_ref()
     })
 }
 
-fn session_state(state: &UiRpcState) -> Value {
+/// What a client is told about the session it is already holding.
+///
+/// `sessionMethod` reports the credential this request actually arrived with,
+/// rather than the one the browser would have used, because a paired device
+/// asking what it is holding should not be told it is holding a cookie.
+fn session_state(state: &UiRpcState, method: Option<AuthMethod>) -> Value {
     json!({
         "authenticated": true,
         "auth": auth_descriptor(state),
-        "scopes": [
-            "orchestration:read",
-            "access:read",
-            "relay:read"
-        ],
-        "sessionMethod": "browser-session-cookie"
+        "scopes": auth::GRANTED_SCOPES,
+        "sessionMethod": match method {
+            Some(AuthMethod::SessionCookie) | None => "browser-session-cookie",
+            Some(AuthMethod::ApiKey) | Some(AuthMethod::WebSocketTicket) => "bearer-access-token",
+        }
     })
 }
 
@@ -1850,6 +1930,11 @@ mod tests {
             }),
             environment: Arc::new(stub_identity()),
             session_cookie_name: Arc::from("moatless_session"),
+            session_jwt_secret: Some(Arc::from("test-secret")),
+            pairing: Arc::new(DevicePairing::new(
+                Arc::new(crate::auth::pairing::MockPairingCodeDao::new()),
+                Arc::new(crate::auth::api_keys::MockApiKeyDao::new()),
+            )),
             workspaces: Arc::new(workspaces),
             conversations: Arc::new(conversations),
             model_defaults: Arc::new(AgentModelDefaults::default()),
@@ -2006,11 +2091,12 @@ mod tests {
         );
         assert_eq!(
             output.frames[0]["exit"]["value"]["auth"]["bootstrapMethods"],
-            json!([])
+            json!(["one-time-token"]),
+            "a client reads here that it may pair with a code"
         );
         assert_eq!(
             output.frames[0]["exit"]["value"]["auth"]["sessionMethods"],
-            json!(["browser-session-cookie"])
+            json!(["browser-session-cookie", "bearer-access-token"])
         );
     }
 
@@ -2284,5 +2370,202 @@ mod tests {
             allowed_origins: vec![],
         };
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn a_ticket_holder_needs_no_origin_and_everyone_else_does() {
+        assert!(!origin_checked(Some(Extension(AuthMethod::WebSocketTicket))));
+        assert!(origin_checked(Some(Extension(AuthMethod::SessionCookie))));
+        assert!(origin_checked(Some(Extension(AuthMethod::ApiKey))));
+        // An upgrade the middleware never saw is treated as the cookie case.
+        assert!(origin_checked(None));
+    }
+
+    /// The pairing exchange and the ticket route, over HTTP, as a client on
+    /// another device drives them.
+    mod pairing {
+        use super::*;
+        use crate::auth::api_keys::MockApiKeyDao;
+        use crate::auth::jwt::verify_ws_ticket_jwt;
+        use crate::auth::pairing::{MockPairingCodeDao, PairingCode};
+        use axum::body::Body;
+        use axum::http::Request;
+        use chrono::Utc;
+        use tower::ServiceExt;
+
+        const TEST_SECRET: &str = "test-secret";
+
+        fn state_pairing(codes: MockPairingCodeDao, api_keys: MockApiKeyDao) -> UiRpcState {
+            UiRpcState {
+                pairing: Arc::new(DevicePairing::new(Arc::new(codes), Arc::new(api_keys))),
+                ..state()
+            }
+        }
+
+        /// A code that is still live, as `consume_pairing_code` returns one.
+        fn live_code() -> PairingCode {
+            PairingCode {
+                id: "code-1".into(),
+                code_hash: "hash".into(),
+                user_id: Uuid::nil().to_string(),
+                group_id: None,
+                label: Some("Bedside phone".into()),
+                created_at: Utc::now(),
+                expires_at: Utc::now() + chrono::Duration::minutes(5),
+            }
+        }
+
+        fn exchange(body: &str) -> Request<Body> {
+            Request::builder()
+                .method("POST")
+                .uri("/oauth/token")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        }
+
+        /// What the T3 mobile client sends, byte for byte.
+        ///
+        /// Captured off `bootstrapRemoteBearerSession` driven with the mobile
+        /// app's own scopes and metadata, rather than written from the schema:
+        /// the encoding is the part a hand-written fixture gets wrong, and it
+        /// is `+` for a space and `%3A` for the colons in every URN.
+        fn mobile_exchange(code: &str) -> Request<Body> {
+            exchange(&format!(
+                "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange\
+                 &subject_token={code}\
+                 &subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap\
+                 &requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token\
+                 &scope=orchestration%3Aread+orchestration%3Aoperate+terminal%3Aoperate+review%3Awrite+relay%3Aread\
+                 &client_label=T3+Code+Mobile&client_device_type=mobile&client_os=iOS"
+            ))
+        }
+
+        async fn json(response: Response) -> Value {
+            let body = axum::body::to_bytes(response.into_body(), MAX_FRAME_BYTES)
+                .await
+                .unwrap();
+            serde_json::from_slice(&body).unwrap()
+        }
+
+        #[tokio::test]
+        async fn a_typed_code_becomes_the_token_the_device_keeps() {
+            let mut codes = MockPairingCodeDao::new();
+            codes
+                .expect_consume_pairing_code()
+                .returning(|_, _| Ok(Some(live_code())));
+            let mut api_keys = MockApiKeyDao::new();
+            // The name a person gave the code, and the OS the client claims.
+            api_keys
+                .expect_insert_api_key()
+                .withf(|key| key.name == "Bedside phone (iOS)")
+                .returning(|_| Ok(()));
+
+            let response = router(state_pairing(codes, api_keys))
+                .oneshot(mobile_exchange("ABCDEFGHJKLM"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let body = json(response).await;
+            assert_eq!(body["token_type"], "Bearer");
+            assert_eq!(
+                body["issued_token_type"],
+                "urn:ietf:params:oauth:token-type:access_token"
+            );
+            assert!(body["access_token"]
+                .as_str()
+                .unwrap()
+                .starts_with("mvk_"));
+            // The overlap between what it asked for and what we have.
+            assert_eq!(body["scope"], "orchestration:read relay:read");
+            assert!(body["expires_in"].as_i64().unwrap() > 0);
+        }
+
+        #[tokio::test]
+        async fn a_code_that_cannot_be_redeemed_is_refused_the_way_t3_reads() {
+            let mut codes = MockPairingCodeDao::new();
+            // Never minted, already spent, expired — one answer for all three.
+            codes
+                .expect_consume_pairing_code()
+                .returning(|_, _| Ok(None));
+
+            let response = router(state_pairing(codes, MockApiKeyDao::new()))
+                .oneshot(mobile_exchange("ABCDEFGHJKLM"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+            let body = json(response).await;
+            assert_eq!(body["_tag"], "EnvironmentAuthInvalidError");
+            assert_eq!(body["code"], "auth_invalid");
+            assert_eq!(body["reason"], "invalid_credential");
+            assert!(!body["traceId"].as_str().unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn a_grant_this_environment_does_not_offer_never_reaches_the_code() {
+            let mut codes = MockPairingCodeDao::new();
+            codes.expect_consume_pairing_code().never();
+
+            let response = router(state_pairing(codes, MockApiKeyDao::new()))
+                .oneshot(exchange(
+                    "grant_type=authorization_code&subject_token=ABCDEFGHJKLM\
+                     &subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap\
+                     &requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token",
+                ))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+            let body = json(response).await;
+            assert_eq!(body["_tag"], "EnvironmentRequestInvalidError");
+            assert_eq!(body["reason"], "invalid_command");
+        }
+
+        #[tokio::test]
+        async fn a_paired_client_trades_its_token_for_a_ticket() {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/api/auth/websocket-ticket")
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(viewer());
+
+            let response = router(state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let body = json(response).await;
+            let claims =
+                verify_ws_ticket_jwt(body["ticket"].as_str().unwrap(), TEST_SECRET).unwrap();
+            assert_eq!(claims.sub, viewer().user_id);
+            // T3 decodes this as a `DateTimeUtc`, so it has to be an instant.
+            assert!(body["expiresAt"]
+                .as_str()
+                .unwrap()
+                .parse::<chrono::DateTime<Utc>>()
+                .is_ok());
+        }
+
+        #[tokio::test]
+        async fn a_deployment_with_no_signing_secret_says_so() {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/api/auth/websocket-ticket")
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(viewer());
+
+            let unsigned = UiRpcState {
+                session_jwt_secret: None,
+                ..state()
+            };
+            let response = router(unsigned).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(
+                json(response).await["reason"],
+                "websocket_ticket_issuance_failed"
+            );
+        }
     }
 }

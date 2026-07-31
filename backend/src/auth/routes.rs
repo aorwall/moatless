@@ -39,12 +39,14 @@ use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 use super::password::dao::UserCredentialDao;
 use super::password::hash;
 use super::password::throttle::LoginThrottle;
+use super::pairing::DevicePairing;
 use super::schemas::{
     format_datetime, format_datetime_opt, AdminResetPasswordRequest, AdminUpdateUserRequest,
     ApiKeyCreateResponse, ApiKeyListItem, AuthMode, AuthModeResponse, ChangePasswordRequest,
-    CliLoginQuery, CreateApiKeyRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
-    OAuthCallbackQuery, PasswordLoginRequest, ProviderConnection, SessionResponse,
-    TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
+    CliLoginQuery, CreateApiKeyRequest, CreatePairingCodeRequest, CreateUserRequest,
+    CreateUserResponse, MessageResponse, OAuthCallbackQuery, PairingCodeResponse,
+    PasswordLoginRequest, ProviderConnection, SessionResponse, TokenSessionResponse,
+    UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
 };
 use super::session;
 use super::sessions::SessionDao;
@@ -118,6 +120,10 @@ pub struct AuthState {
     pub cache: AuthCache,
     pub sessions: Arc<dyn SessionDao>,
     pub api_keys: Arc<dyn ApiKeyDao>,
+    /// Mints the codes that pair a client on another device to an account. The
+    /// exchange half runs in the T3 compatibility module, against this same
+    /// service.
+    pub pairing: Arc<DevicePairing>,
     pub users: Arc<dyn UserDao>,
     /// Local password credentials (`user_credentials`).
     pub credentials: Arc<dyn UserCredentialDao>,
@@ -168,9 +174,15 @@ impl AuthState {
             Arc::new(crate::secret::audit::PgSecretAuditDao(pool.clone())),
             crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
         ));
+        let api_keys: Arc<dyn ApiKeyDao> = Arc::new(PgApiKeyDao(pool.clone()));
+        let pairing = Arc::new(DevicePairing::new(
+            Arc::new(super::pairing::PgPairingCodeDao(pool.clone())),
+            api_keys.clone(),
+        ));
         Self {
             sessions: Arc::new(PgSessionDao(pool.clone())),
-            api_keys: Arc::new(PgApiKeyDao(pool.clone())),
+            api_keys,
+            pairing,
             users: Arc::new(PgUserDao(pool.clone())),
             credentials: Arc::new(super::password::dao::PgUserCredentialDao(
                 pool.clone(),
@@ -212,6 +224,7 @@ impl AuthState {
         create_api_key_handler,
         list_api_keys_handler,
         revoke_api_key_handler,
+        create_pairing_code_handler,
         list_users_handler,
         create_user_handler,
         update_user_handler,
@@ -238,6 +251,7 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(exchange_token_handler))
         .routes(routes!(create_api_key_handler, list_api_keys_handler))
         .routes(routes!(revoke_api_key_handler))
+        .routes(routes!(create_pairing_code_handler))
         .routes(routes!(list_users_handler, create_user_handler))
         .routes(routes!(update_user_handler))
         .routes(routes!(
@@ -1680,6 +1694,52 @@ async fn create_api_key_handler(
             scopes: result.scopes,
             expires_at: format_datetime_opt(result.expires_at),
             created_at: format_datetime(result.created_at),
+        }),
+    ))
+}
+
+/// Mint a one-time code that pairs a client on another device to this account.
+///
+/// The code is the bootstrap half of pairing: the client exchanges it once, at
+/// `POST /oauth/token`, for the API key it then keeps. It is readable in this
+/// response and nowhere afterwards.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/pairing-codes",
+    tag = "auth",
+    request_body = CreatePairingCodeRequest,
+    responses(
+        (status = 201, description = "Pairing code created", body = PairingCodeResponse),
+        (status = 401, description = "Not authenticated", body = ErrorBody)
+    )
+)]
+async fn create_pairing_code_handler(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(body): Json<CreatePairingCodeRequest>,
+) -> Result<(StatusCode, Json<PairingCodeResponse>), AuthError> {
+    // Cookie only, deliberately. A pairing code is a credential that mints
+    // another credential, so the one thing that may ask for it is a person at a
+    // browser they logged into — not a key, and least of all a key some other
+    // device was paired with.
+    let claims = authenticate_from_cookie(&state.config, &headers)?;
+
+    let issued = state
+        .pairing
+        .issue_code(
+            &claims.sub.to_string(),
+            claims.group_id.as_deref(),
+            body.label.as_deref(),
+        )
+        .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(PairingCodeResponse {
+            id: issued.id,
+            code: issued.code,
+            label: issued.label,
+            expires_at: format_datetime(issued.expires_at),
         }),
     ))
 }

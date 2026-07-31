@@ -15,3 +15,20 @@ pub struct AuthIdentity {
     pub provider: String,
     pub group_id: Option<String>,
 }
+
+/// Which credential the middleware accepted for the current request, injected
+/// alongside [`AuthIdentity`].
+///
+/// Read by handlers whose defences depend on *how* the caller proved who they
+/// are rather than on who they are — the WebSocket origin check being the one
+/// that exists: a cookie is attached by the browser to any request anybody can
+/// cause it to make, and the other two are attached only by a client that holds
+/// them deliberately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthMethod {
+    SessionCookie,
+    ApiKey,
+    /// A short-lived ticket in the query string, accepted only on the WebSocket
+    /// upgrade. See [`crate::auth::jwt::generate_ws_ticket_jwt`].
+    WebSocketTicket,
+}

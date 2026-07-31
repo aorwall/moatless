@@ -15,6 +15,7 @@ pub mod jwt;
 pub mod middleware;
 pub mod models;
 pub mod oauth;
+pub mod pairing;
 pub mod password;
 pub mod provider_secret_adapter;
 pub mod provider_token_dao;

@@ -18,6 +18,12 @@ pub struct FeatureFlagsResponse {
     pub show_codex_settings: bool,
     pub show_model_selector: bool,
     pub gitlab_enabled: bool,
+    /// Whether the settings dialog offers to pair a device.
+    ///
+    /// Not an `FF_*` variable of its own: pairing is the bootstrap half of the
+    /// T3 compatibility routes, and a code is worth nothing on a deployment
+    /// that does not mount them. So it reports whether *they* are on.
+    pub device_pairing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack: Option<SlackConfig>,
 }
@@ -45,6 +51,7 @@ pub async fn get_feature_flags() -> Json<FeatureFlagsResponse> {
         show_codex_settings: env_flag("FF_SHOW_CODEX_SETTINGS", true),
         show_model_selector: env_flag("FF_SHOW_MODEL_SELECTOR", true),
         gitlab_enabled: env_flag("FF_GITLAB_ENABLED", false),
+        device_pairing: crate::ui_rpc::is_enabled(),
         slack,
     })
 }
@@ -94,5 +101,21 @@ mod tests {
         let key = "TEST_FF_UNSET_FALSE_5";
         std::env::remove_var(key);
         assert!(!env_flag(key, false));
+    }
+
+    /// The pairing flag reads the T3 gate through the T3 module's own parser,
+    /// which accepts spellings `env_flag` does not. Reading it here with
+    /// `env_flag` instead would hide the settings section on a deployment whose
+    /// routes are mounted.
+    #[test]
+    fn pairing_follows_the_gate_that_mounts_the_routes() {
+        std::env::set_var("T3_UI_RPC_ENABLED", "on");
+        assert!(crate::ui_rpc::is_enabled());
+        assert!(!env_flag("T3_UI_RPC_ENABLED", false), "the reason we do not");
+
+        std::env::set_var("T3_UI_RPC_ENABLED", "false");
+        assert!(!crate::ui_rpc::is_enabled());
+        std::env::remove_var("T3_UI_RPC_ENABLED");
+        assert!(!crate::ui_rpc::is_enabled());
     }
 }

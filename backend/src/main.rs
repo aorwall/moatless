@@ -426,15 +426,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         router = router.merge(moatless_vibe_backend::sse::routes::task_events_router(
             app_state.clone(),
         ));
-        if let Some(ui_rpc_router) = ui_rpc::router_from_env(
-            config.auth.session_cookie_name.clone(),
-            app_state.workspaces.clone(),
-            Arc::new(ui_rpc::dao::PgConversationDao::new(app_state.db.clone())),
-            ui_rpc::AgentModelDefaults {
+        if let Some(ui_rpc_router) = ui_rpc::router_from_env(ui_rpc::UiRpcDependencies {
+            session_cookie_name: config.auth.session_cookie_name.clone(),
+            session_jwt_secret: auth::jwt::get_jwt_secret(&config).map(String::from),
+            pairing: Arc::new(auth::pairing::DevicePairing::new(
+                Arc::new(auth::pairing::PgPairingCodeDao(app_state.db.clone())),
+                Arc::new(auth::api_keys::PgApiKeyDao(app_state.db.clone())),
+            )),
+            workspaces: app_state.workspaces.clone(),
+            conversations: Arc::new(ui_rpc::dao::PgConversationDao::new(app_state.db.clone())),
+            model_defaults: ui_rpc::AgentModelDefaults {
                 claude_code: config.sandbox.default_model.clone(),
                 codex: config.sandbox.default_codex_model.clone(),
             },
-        )
+        })
         .await?
         {
             router = router.merge(ui_rpc_router);

@@ -27,8 +27,10 @@ import type {
 import type {
   AuthModeResponse,
   ChangePasswordRequest,
+  CreatePairingCodeRequest,
   ErrorBody,
   MessageResponse,
+  PairingCodeResponse,
   PasswordLoginRequest,
   SessionResponse,
   TokenSessionResponse,
@@ -575,6 +577,98 @@ export const prefetchAuthModeHandlerQuery = async <TData = Awaited<ReturnType<ty
 
 
 /**
+ * The code is the bootstrap half of pairing: the client exchanges it once, at
+`POST /oauth/token`, for the API key it then keeps. It is readable in this
+response and nowhere afterwards.
+ * @summary Mint a one-time code that pairs a client on another device to this account.
+ */
+export type createPairingCodeHandlerResponse201 = {
+  data: PairingCodeResponse
+  status: 201
+}
+
+export type createPairingCodeHandlerResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+    
+export type createPairingCodeHandlerResponseSuccess = (createPairingCodeHandlerResponse201) & {
+  headers: Headers;
+};
+export type createPairingCodeHandlerResponseError = (createPairingCodeHandlerResponse401) & {
+  headers: Headers;
+};
+
+export type createPairingCodeHandlerResponse = (createPairingCodeHandlerResponseSuccess | createPairingCodeHandlerResponseError)
+
+export const getCreatePairingCodeHandlerUrl = () => {
+
+
+  
+
+  return `/api/v1/auth/pairing-codes`
+}
+
+export const createPairingCodeHandler = async (createPairingCodeRequest: CreatePairingCodeRequest, options?: RequestInit): Promise<createPairingCodeHandlerResponse> => {
+  
+  return customInstance<createPairingCodeHandlerResponse>(getCreatePairingCodeHandlerUrl(),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createPairingCodeRequest,)
+  }
+);}
+
+
+
+
+export const getCreatePairingCodeHandlerMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPairingCodeHandler>>, TError,{data: CreatePairingCodeRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPairingCodeHandler>>, TError,{data: CreatePairingCodeRequest}, TContext> => {
+
+const mutationKey = ['createPairingCodeHandler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPairingCodeHandler>>, {data: CreatePairingCodeRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPairingCodeHandler(data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePairingCodeHandlerMutationResult = NonNullable<Awaited<ReturnType<typeof createPairingCodeHandler>>>
+    export type CreatePairingCodeHandlerMutationBody = CreatePairingCodeRequest
+    export type CreatePairingCodeHandlerMutationError = ErrorType<ErrorBody>
+
+    /**
+ * @summary Mint a one-time code that pairs a client on another device to this account.
+ */
+export const useCreatePairingCodeHandler = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPairingCodeHandler>>, TError,{data: CreatePairingCodeRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createPairingCodeHandler>>,
+        TError,
+        {data: CreatePairingCodeRequest},
+        TContext
+      > => {
+      return useMutation(getCreatePairingCodeHandlerMutationOptions(options), queryClient);
+    }
+    /**
  * @summary Change your own password.
  */
 export type changePasswordHandlerResponse200 = {

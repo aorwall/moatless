@@ -138,6 +138,33 @@ pub struct ApiKeyCreateResponse {
     pub created_at: String,
 }
 
+/// Body for POST /api/v1/auth/pairing-codes.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePairingCodeRequest {
+    /// What to call the device being paired. Becomes the name of the API key
+    /// the exchange mints, which is how it is recognized and revoked later.
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+/// POST /api/v1/auth/pairing-codes response.
+///
+/// The code is readable here and nowhere else — only its hash is stored — so a
+/// caller that loses this response asks for another code rather than recovering
+/// this one.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct PairingCodeResponse {
+    pub id: String,
+    /// The code to type into the client being paired.
+    pub code: String,
+    pub label: Option<String>,
+    pub expires_at: String,
+}
+
 /// Single item in GET /api/v1/auth/api-keys list.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

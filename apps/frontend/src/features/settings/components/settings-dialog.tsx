@@ -1,4 +1,4 @@
-import { Bot, GitBranch, Key, Lock, Sparkles, User } from 'lucide-react'
+import { Bot, GitBranch, Key, Lock, Smartphone, Sparkles, User } from 'lucide-react'
 import { useState } from 'react'
 import { useAuthMode } from '@/features/auth/hooks/use-auth-mode'
 import { Github, Gitlab } from '@/lib/components/ui/brand-icons'
@@ -7,6 +7,7 @@ import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { ApiKeyConfigurationSection } from './api-key-configuration-section'
 import { ClaudeConfigurationSection } from './claude-configuration-section'
 import { CodexConfigurationSection } from './codex-configuration-section'
+import { DevicePairingSection } from './device-pairing-section'
 import { GitHubConfigurationSection } from './github-configuration-section'
 import { GitLabConfigurationSection } from './gitlab-configuration-section'
 import { GitnessConfigurationSection } from './gitness-configuration-section'
@@ -29,6 +30,9 @@ export function SettingsDialog({
   const showCodexSettings = useFeatureFlag('SHOW_CODEX_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
   const isGitnessEnabled = useFeatureFlag('GITNESS_ENABLED')
+  // On exactly when the T3 compatibility routes are: a pairing code is worth
+  // nothing to a client that has nothing to connect to afterwards.
+  const isDevicePairingEnabled = useFeatureFlag('DEVICE_PAIRING')
   const { isPasswordMode } = useAuthMode()
 
   const sections = (() => {
@@ -93,6 +97,14 @@ export function SettingsDialog({
       icon: <Key className="h-4 w-4" />,
     })
 
+    if (isDevicePairingEnabled) {
+      allSections.push({
+        id: 'devices',
+        label: 'Devices',
+        icon: <Smartphone className="h-4 w-4" />,
+      })
+    }
+
     return allSections
   })()
 
@@ -122,6 +134,7 @@ export function SettingsDialog({
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
         {activeSection === 'gitness' && <GitnessConfigurationSection key="gitness" />}
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
+        {activeSection === 'devices' && <DevicePairingSection key="devices" />}
       </SidebarDialog.Content>
     </SidebarDialog>
   )

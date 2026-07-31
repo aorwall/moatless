@@ -18,11 +18,18 @@ use super::api_key::validate_key_cached;
 use super::api_keys::ApiKeyDao;
 use super::cache::AuthCache;
 use super::cookie::get_all_cookie_values;
-use super::identity::AuthIdentity;
+use super::identity::{AuthIdentity, AuthMethod};
 use super::jwt;
 use super::users::UserDao;
 use crate::config::Config;
 use crate::error::ErrorBody;
+
+/// The one route that accepts a ticket in its query string.
+const WEBSOCKET_PATH: &str = "/ws";
+
+/// The query parameter a WebSocket ticket arrives in. Named by T3 Code's
+/// client, which is the only thing that sends one.
+const WEBSOCKET_TICKET_PARAM: &str = "wsTicket";
 
 /// Shared state for the auth middleware layer.
 #[derive(Clone)]
@@ -71,6 +78,11 @@ fn is_exempt(path: &str) -> bool {
     matches!(
         path,
         "/.well-known/t3/environment"
+            // Bootstrap, not public: the pairing code in the body is the
+            // credential, and a caller that had another one would not be here.
+            // Mounted only when the T3 compatibility routes are (see
+            // `ui_rpc::router_from_env`); a 404 otherwise.
+            | "/oauth/token"
             | "/api/v1/feature-flags"
             | "/api/v1/adapters"
             | "/health"
@@ -110,6 +122,41 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
     // Strip spoofable headers before any validation
     strip_user_headers(&mut req);
 
+    // A WebSocket upgrade carries no headers a client can choose, so the
+    // credential is in the query string instead. Only on this one path, and
+    // only a ticket: nothing else is accepted there, and a ticket is accepted
+    // nowhere else. A present-but-bad ticket is refused rather than falling
+    // through to the cookie, so a client that thought it was authenticating one
+    // way is not silently authenticated another.
+    if path == WEBSOCKET_PATH {
+        if let Some(ticket) = websocket_ticket(&req) {
+            let Some(jwt_secret) = jwt::get_jwt_secret(&state.config) else {
+                warn!(path = %path, "Auth middleware: no JWT secret configured");
+                return unauthorized_response();
+            };
+            return match jwt::verify_ws_ticket_jwt(&ticket, jwt_secret) {
+                Ok(claims) => {
+                    debug!(user_id = %claims.sub, path = %path, "Auth middleware: websocket ticket valid");
+                    tracing::Span::current().record("user_id", claims.sub.to_string().as_str());
+                    let role = claims.user_role();
+                    req.extensions_mut().insert(AuthIdentity {
+                        user_id: claims.sub,
+                        login: claims.login,
+                        role,
+                        provider: claims.provider,
+                        group_id: claims.group_id,
+                    });
+                    req.extensions_mut().insert(AuthMethod::WebSocketTicket);
+                    next.run(req).await
+                }
+                Err(error) => {
+                    warn!(error = %error, path = %path, "Auth middleware: invalid websocket ticket");
+                    unauthorized_response()
+                }
+            };
+        }
+    }
+
     // Try API key (Authorization: Bearer mvk_xxx)
     if let Some(auth_header) = req
         .headers()
@@ -142,6 +189,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                         provider: payload.provider,
                         group_id: payload.group_id,
                     });
+                    req.extensions_mut().insert(AuthMethod::ApiKey);
                     return next.run(req).await;
                 }
                 Ok(None) => {
@@ -179,6 +227,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                     provider: claims.provider,
                     group_id: claims.group_id,
                 });
+                req.extensions_mut().insert(AuthMethod::SessionCookie);
                 return next.run(req).await;
             }
             Err(_) => continue,
@@ -192,6 +241,21 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         warn!(path = %path, count = tokens.len(), "Auth middleware: all session cookies invalid/expired");
     }
     unauthorized_response()
+}
+
+/// The WebSocket ticket this request presents, if it presents one.
+fn websocket_ticket(req: &Request<Body>) -> Option<String> {
+    req.uri().query().and_then(|query| {
+        query.split('&').find_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            if key != WEBSOCKET_TICKET_PARAM {
+                return None;
+            }
+            let value = urlencoding::decode(value).ok()?;
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        })
+    })
 }
 
 /// Build a 401 JSON response.
@@ -234,11 +298,48 @@ mod tests {
     }
 
     #[test]
-    fn only_t3_discovery_is_public() {
+    fn only_t3_discovery_and_the_pairing_exchange_are_public() {
         assert!(is_exempt("/.well-known/t3/environment"));
+        // The exchange carries its own credential in the body.
+        assert!(is_exempt("/oauth/token"));
         assert!(!is_exempt("/api/auth/session"));
+        assert!(!is_exempt("/api/auth/websocket-ticket"));
         assert!(!is_exempt("/api/orchestration/shell"));
         assert!(!is_exempt("/ws"));
+    }
+
+    fn request_to(uri: &str) -> Request<Body> {
+        Request::builder().uri(uri).body(Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn a_ticket_is_read_off_the_query_string() {
+        assert_eq!(
+            websocket_ticket(&request_to("/ws?wsTicket=abc.def.ghi")).as_deref(),
+            Some("abc.def.ghi")
+        );
+        assert_eq!(
+            websocket_ticket(&request_to("/ws?other=1&wsTicket=abc&more=2")).as_deref(),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn a_request_without_a_ticket_has_none() {
+        assert!(websocket_ticket(&request_to("/ws")).is_none());
+        assert!(websocket_ticket(&request_to("/ws?wsTicket=")).is_none());
+        assert!(websocket_ticket(&request_to("/ws?wsticket=abc")).is_none());
+        assert!(websocket_ticket(&request_to("/ws?authToken=abc")).is_none());
+    }
+
+    /// Percent-encoded because that is what `URLSearchParams` produces, which is
+    /// what builds the URL on the other side.
+    #[test]
+    fn a_percent_encoded_ticket_is_decoded() {
+        assert_eq!(
+            websocket_ticket(&request_to("/ws?wsTicket=abc%2Edef")).as_deref(),
+            Some("abc.def")
+        );
     }
 
     #[test]

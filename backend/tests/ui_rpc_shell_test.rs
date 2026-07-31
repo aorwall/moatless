@@ -44,7 +44,10 @@ use moatless_vibe_backend::ui_rpc::dao::{
 };
 use moatless_vibe_backend::ui_rpc::{
     router_from_env, shell_snapshot, shell_subscription, AgentModelDefaults, ShellFeed,
+    UiRpcDependencies,
 };
+use moatless_vibe_backend::auth::api_keys::PgApiKeyDao;
+use moatless_vibe_backend::auth::pairing::{DevicePairing, PgPairingCodeDao};
 use moatless_vibe_backend::workspace::dao::{
     PgWorkspaceDao, WorkspaceDao, WorkspacePatch,
 };
@@ -76,6 +79,23 @@ fn defaults() -> AgentModelDefaults {
     AgentModelDefaults {
         claude_code: Some("claude-opus-4-5".into()),
         codex: Some("gpt-5.6-sol".into()),
+    }
+}
+
+/// The compatibility router's dependencies, as `main` assembles them. Pairing
+/// itself is asserted in `backend/tests/device_pairing_test.rs`; here it is
+/// wired only because the router carries it.
+fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
+    UiRpcDependencies {
+        session_cookie_name: "moatless_session".into(),
+        session_jwt_secret: Some("test-secret".into()),
+        pairing: Arc::new(DevicePairing::new(
+            Arc::new(PgPairingCodeDao(pool.clone())),
+            Arc::new(PgApiKeyDao(pool.clone())),
+        )),
+        workspaces: Arc::new(PgWorkspaceDao(pool.clone())),
+        conversations: Arc::new(PgConversationDao::new(pool.clone())),
+        model_defaults: defaults(),
     }
 }
 
@@ -505,15 +525,10 @@ async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
         .unwrap();
     seed_task(&pool, "t-http", USER_1, Some("ws-http")).await;
 
-    let router = router_from_env(
-        "moatless_session".into(),
-        Arc::new(PgWorkspaceDao(pool.clone())),
-        Arc::new(PgConversationDao::new(pool)),
-        defaults(),
-    )
-    .await
-    .unwrap()
-    .expect("the compatibility routes are gated on");
+    let router = router_from_env(mounted_dependencies(&pool))
+        .await
+        .unwrap()
+        .expect("the compatibility routes are gated on");
 
     let response = router
         .oneshot(authed_request("GET", "/api/orchestration/shell", USER_1))
@@ -2737,15 +2752,10 @@ const DESCRIPTOR_REQUIRED: &[&str] = &[
 async fn descriptor(pool: &PgPool) -> Value {
     std::env::set_var("T3_UI_RPC_ENABLED", "true");
     std::env::set_var("T3_UI_RPC_ALLOWED_ORIGINS", "http://localhost:5733");
-    let router = router_from_env(
-        "moatless_session".into(),
-        Arc::new(PgWorkspaceDao(pool.clone())),
-        Arc::new(PgConversationDao::new(pool.clone())),
-        defaults(),
-    )
-    .await
-    .unwrap()
-    .expect("the compatibility routes are gated on");
+    let router = router_from_env(mounted_dependencies(pool))
+        .await
+        .unwrap()
+        .expect("the compatibility routes are gated on");
     let response = router
         .oneshot(
             axum::http::Request::builder()

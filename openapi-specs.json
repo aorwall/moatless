@@ -2329,6 +2329,48 @@
         }
       }
     },
+    "/api/v1/auth/pairing-codes": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mint a one-time code that pairs a client on another device to this account.",
+        "description": "The code is the bootstrap half of pairing: the client exchanges it once, at\n`POST /oauth/token`, for the API key it then keeps. It is readable in this\nresponse and nowhere afterwards.",
+        "operationId": "create_pairing_code_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePairingCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Pairing code created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingCodeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/password": {
       "put": {
         "tags": [
@@ -9913,6 +9955,19 @@
           }
         ]
       },
+      "CreatePairingCodeRequest": {
+        "type": "object",
+        "description": "Body for POST /api/v1/auth/pairing-codes.",
+        "properties": {
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What to call the device being paired. Becomes the name of the API key\nthe exchange mints, which is how it is recognized and revoked later."
+          }
+        }
+      },
       "CreatePluginRequest": {
         "type": "object",
         "description": "Request to register a new plugin.",
@@ -10572,9 +10627,14 @@
           "show_claude_settings",
           "show_codex_settings",
           "show_model_selector",
-          "gitlab_enabled"
+          "gitlab_enabled",
+          "device_pairing"
         ],
         "properties": {
+          "device_pairing": {
+            "type": "boolean",
+            "description": "Whether the settings dialog offers to pair a device.\n\nNot an `FF_*` variable of its own: pairing is the bootstrap half of the\nT3 compatibility routes, and a code is worth nothing on a deployment\nthat does not mount them. So it reports whether *they* are on."
+          },
           "gitlab_enabled": {
             "type": "boolean"
           },
@@ -12337,6 +12397,33 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "PairingCodeResponse": {
+        "type": "object",
+        "description": "POST /api/v1/auth/pairing-codes response.\n\nThe code is readable here and nowhere else — only its hash is stored — so a\ncaller that loses this response asks for another code rather than recovering\nthis one.",
+        "required": [
+          "id",
+          "code",
+          "expiresAt"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The code to type into the client being paired."
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
