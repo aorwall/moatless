@@ -78,6 +78,16 @@ pub fn filter_agent_credentials(credentials: &HashMap<String, String>) -> HashMa
         .collect()
 }
 
+fn server_sidecar_env(
+    config: &Config,
+    backend_server_env: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut env = backend_server_env.clone();
+    env.insert("WORKSPACE_DIR".to_string(), config.workspace_dir.clone());
+    env.insert("WORKSPACE_PATH".to_string(), config.repo_dir.clone());
+    env
+}
+
 /// Whether `fetch_and_apply_credentials` is being called for the first time
 /// (during sandbox init) or by the periodic refresher.
 ///
@@ -200,12 +210,9 @@ pub async fn fetch_and_apply_credentials_with_mode(
 
                 persist_agent_credentials(&state.config, &resp.credentials, mode).await;
 
-                // Server sidecars `cd "$WORKSPACE_PATH"` before running their start
-                // commands. The repo now lives at `repo_dir` (inside the workspace
-                // dir), which only the sandbox knows, so inject it here as the source
-                // of truth — overriding any container-level WORKSPACE_PATH default.
-                let mut server_env = resp.server_env.clone();
-                server_env.insert("WORKSPACE_PATH".to_string(), state.config.repo_dir.clone());
+                // Sidecars source this after init, so the sandbox-derived paths
+                // override container-level fallbacks.
+                let server_env = server_sidecar_env(&state.config, &resp.server_env);
                 server_env::write_server_env_file(&state.config, &server_env).await;
 
                 // Materialize SSH private keys into ~/.ssh so git/ssh can use
@@ -447,7 +454,7 @@ mod tests {
 
     use super::{
         filter_agent_credentials, is_expired_bootstrap_rejection, persist_agent_credentials,
-        PersistMode,
+        server_sidecar_env, PersistMode,
     };
     use crate::config::{AgentConfig, Config, InitialAuthTokenSource, ProxyConfig};
 
@@ -532,6 +539,31 @@ mod tests {
             setup_commands: Vec::new(),
             plugins: Vec::new(),
         }
+    }
+
+    #[test]
+    fn server_sidecar_env_exports_workspace_root_and_primary_repo() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.workspace_dir = "/opt/moatless/workspace".to_string();
+        config.repo_dir = "/opt/moatless/workspace/moatless".to_string();
+
+        let mut backend_env = HashMap::new();
+        backend_env.insert("WORKSPACE_DIR".to_string(), "/wrong".to_string());
+        backend_env.insert("WORKSPACE_PATH".to_string(), "/wrong/repo".to_string());
+        backend_env.insert("EXTRA".to_string(), "kept".to_string());
+
+        let env = server_sidecar_env(&config, &backend_env);
+
+        assert_eq!(
+            env.get("WORKSPACE_DIR").map(String::as_str),
+            Some("/opt/moatless/workspace")
+        );
+        assert_eq!(
+            env.get("WORKSPACE_PATH").map(String::as_str),
+            Some("/opt/moatless/workspace/moatless")
+        );
+        assert_eq!(env.get("EXTRA").map(String::as_str), Some("kept"));
     }
 
     #[tokio::test]

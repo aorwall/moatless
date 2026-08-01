@@ -1167,7 +1167,8 @@ fn build_server_containers(
         // Standard env vars for all server containers
         let mut env = vec![
             env_var("PORT", &port.to_string()),
-            env_var("WORKSPACE_PATH", "/opt/moatless/repo"),
+            env_var("WORKSPACE_DIR", "/opt/moatless/workspace"),
+            env_var("WORKSPACE_PATH", "/opt/moatless/workspace"),
             env_var("DATA_DIR", "/opt/moatless/data"),
         ];
 
@@ -1762,6 +1763,13 @@ mod tests {
             startup.contains(".workspace-ready"),
             "expected workspace-ready gate in startup command, got: {startup}"
         );
+        let env = web.env.as_ref().unwrap();
+        assert!(env.iter().any(|var| {
+            var.name == "WORKSPACE_DIR" && var.value.as_deref() == Some("/opt/moatless/workspace")
+        }));
+        assert!(env.iter().any(|var| {
+            var.name == "WORKSPACE_PATH" && var.value.as_deref() == Some("/opt/moatless/workspace")
+        }));
     }
 
     #[test]

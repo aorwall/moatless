@@ -65,7 +65,7 @@ while :; do
   [ -n "$cmd" ] || cmd=$DEFAULT_CMD
   ( if [ -f {DATA_DIR}/server.env ]; then set -a; . {DATA_DIR}/server.env; set +a; fi
     if [ -f "$CTL/env" ]; then set -a; . "$CTL/env"; set +a; fi
-    cd "${{WORKSPACE_PATH:-/opt/moatless/repo}}" || exit 1
+    cd "${{WORKSPACE_PATH:-${{WORKSPACE_DIR:-/opt/moatless/workspace}}}}" || exit 1
     exec bash -c "$cmd" ) &
   child=$!
   while kill -0 "$child" 2>/dev/null; do
@@ -117,6 +117,12 @@ mod tests {
         let server_env = s.find("/opt/moatless/data/server.env; set +a").unwrap();
         let override_env = s.find(r#". "$CTL/env"; set +a"#).unwrap();
         assert!(server_env < override_env);
+    }
+
+    #[test]
+    fn workspace_path_fallback_points_at_workspace_root() {
+        let s = script(&["bun run dev"]);
+        assert!(s.contains(r#"cd "${WORKSPACE_PATH:-${WORKSPACE_DIR:-/opt/moatless/workspace}}""#));
     }
 
     #[test]

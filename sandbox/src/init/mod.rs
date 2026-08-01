@@ -780,7 +780,7 @@ async fn run_workspace_setup(state: &SandboxState) {
 mod tests {
     use super::*;
 
-    const WS: &str = "/opt/moatless/workspace/repo";
+    const WS: &str = "/opt/moatless/workspace/moatless";
 
     #[test]
     fn persisted_origin_emits_no_restart_note() {

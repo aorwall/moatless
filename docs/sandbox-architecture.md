@@ -49,7 +49,8 @@ recovers, and destroys sandboxes — see [Sandbox Lifecycle & Handling](./sandbo
 │   └── docker-entrypoint-sandbox.sh     # Container entrypoint
 │
 ├── opt/moatless/
-│   ├── repo/                            # Workspace (git clone target, may be volume-mounted)
+│   ├── workspace/                       # Workspace root, may be volume-mounted
+│   │   └── <primary-mount>/             # Primary repo checkout
 │   ├── data/                            # Runtime data
 │   │   ├── events/                      # Persisted events
 │   │   ├── screenshots/                 # Browser screenshots
@@ -69,7 +70,7 @@ recovers, and destroys sandboxes — see [Sandbox Lifecycle & Handling](./sandbo
 │       └── SKILL.md
 ```
 
-**Volume Mount Consideration**: The workspace directory (`/opt/moatless/repo`) may be volume-mounted for persistent storage. The sandbox binary lives at `/usr/local/bin/sandbox` to avoid being overwritten by workspace volume mounts.
+**Volume Mount Consideration**: The workspace directory (`/opt/moatless/workspace`) may be volume-mounted for persistent storage. The sandbox binary lives at `/usr/local/bin/sandbox` to avoid being overwritten by workspace volume mounts.
 
 ---
 
@@ -81,7 +82,7 @@ The container entrypoint (`docker-entrypoint-sandbox.sh`) orchestrates parallel 
 Container Start
 │
 ├─ 1. Create directories
-│     /opt/moatless/repo, /opt/moatless/.claude, /opt/moatless/data
+│     /opt/moatless/workspace, /opt/moatless/.claude, /opt/moatless/data
 │
 ├─ 2. Symlink skills
 │     /usr/share/moatless-skills → /opt/moatless/.claude/skills
@@ -148,7 +149,7 @@ main()
 |----------|----------|---------|-------------|
 | `TASK_ID` | Yes | — | Task this sandbox is scoped to |
 | `PORT` | No | `8001` | HTTP server port |
-| `WORKSPACE_DIR` | No | `/opt/moatless/repo` | Workspace directory path |
+| `WORKSPACE_DIR` | No | `/opt/moatless/workspace` | Workspace root; repository checkouts are placed below this path |
 | `DATA_DIR` | No | `/opt/moatless/data` | Data directory for runtime artifacts |
 | `LOG_LEVEL` | No | `info` | Pino log level |
 | `GIT_CLONE_URL` | No | — | Primary repository URL to clone on startup |
@@ -209,7 +210,7 @@ Generated from `REPO_CONFIG.previewConfig` and written to `/opt/moatless/data/pr
   "serverCommands": ["npm", "run", "dev"],
   "port": 3000,
   "startupTimeoutSeconds": 60,
-  "workspacePath": "/opt/moatless/repo"
+  "workspacePath": "/opt/moatless/workspace/<primary-mount>"
 }
 ```
 
@@ -798,7 +799,8 @@ Runs as non-root user `moatless` (UID 1000) with home at `/home/moatless`.
 | Path | Purpose |
 |------|---------|
 | `/usr/local/bin/sandbox` | Rust sandbox binary |
-| `/opt/moatless/repo` | Workspace directory (git clone target) |
+| `/opt/moatless/workspace` | Workspace root containing repo checkouts |
+| `/opt/moatless/workspace/<primary-mount>` | Primary repo checkout; `<primary-mount>` is the workspace placement mount name or derived repo name |
 | `/opt/moatless/data` | Runtime data (events, screenshots, preview artifacts) |
 | `/opt/moatless/.claude` | Claude Code configuration |
 | `/opt/moatless/bin/preview-server` | Preview server shell script |

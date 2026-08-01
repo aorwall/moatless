@@ -707,13 +707,33 @@ fn validate_env_key(key: &str) -> Result<(), SandboxError> {
         )));
     }
     if crate::secret::models::is_reserved_key(key)
-        || matches!(key, "PORT" | "WORKSPACE_PATH" | "DATA_DIR")
+        || matches!(
+            key,
+            "PORT" | "WORKSPACE_DIR" | "WORKSPACE_PATH" | "DATA_DIR"
+        )
     {
         return Err(SandboxError::BadRequest(format!(
             "env key '{key}' is reserved by the platform"
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_env_key;
+    use crate::sandbox::error::SandboxError;
+
+    #[test]
+    fn server_env_overrides_reject_runtime_paths() {
+        for key in ["PORT", "WORKSPACE_DIR", "WORKSPACE_PATH", "DATA_DIR"] {
+            assert!(
+                matches!(validate_env_key(key), Err(SandboxError::BadRequest(_))),
+                "{key} should be reserved"
+            );
+        }
+        assert!(validate_env_key("EXTRA_FLAG").is_ok());
+    }
 }
 
 // =============================================================================

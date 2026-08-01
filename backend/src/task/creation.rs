@@ -2,8 +2,8 @@
 //! sequence.
 //!
 //! Creating a task means: generate a unique short id, run the GitHub-token
-//! preflight, insert the task row, assign tags, record relations, provision the
-//! sandbox, send an optional first message, and publish a task event. This
+//! preflight, insert the task row, assign tags, record relations, send an
+//! optional first message, provision the sandbox, and publish a task event. This
 //! sequence used to be copy-pasted across the HTTP handler and three
 //! loop/adapter paths; [`TaskCreationService`] collapses it behind one entry
 //! point so a provisioning fix lands once instead of four times.
@@ -254,7 +254,7 @@ impl TaskCreationService {
     }
 
     /// Run the full creation sequence: short-id → preflight → insert → tags →
-    /// relations → provision → optional first message → task event.
+    /// relations → optional first message → provision → task event.
     ///
     /// `build_event_payload` produces the success-event payload from the
     /// inserted row (the HTTP path enriches it into `{ "task": … }`);
@@ -371,6 +371,14 @@ impl TaskCreationService {
             record_related_to(self.relations.as_ref(), &task_id, related).await;
         }
 
+        // Optional first message (best-effort; the caller's callback logs).
+        // Persist it before provisioning so the sandbox's authoritative startup
+        // dispatch cannot race ahead of the initial prompt and find no pending
+        // input.
+        if let Some(first_message) = req.first_message {
+            send_first_message(task_id.clone(), first_message).await;
+        }
+
         // Provision (best-effort). Failure publishes a sandbox error event so
         // the task shows as errored; creation still succeeds.
         //
@@ -398,11 +406,6 @@ impl TaskCreationService {
         } else {
             ProvisionOutcome::Skipped
         };
-
-        // Optional first message (best-effort; the caller's callback logs).
-        if let Some(first_message) = req.first_message {
-            send_first_message(task_id.clone(), first_message).await;
-        }
 
         // Task event.
         if let Some(events) = &self.events {
@@ -461,6 +464,7 @@ impl TaskCreationService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     use crate::repository::dao::MockRepositoryDao;
     use crate::repository::models::{Repository, RepositoryKind};
@@ -636,6 +640,54 @@ mod tests {
             .expect("creation succeeds");
 
         assert_eq!(outcome.task.model.as_deref(), Some("claude-opus-4-6"));
+    }
+
+    #[tokio::test]
+    async fn first_message_is_sent_before_provisioning() {
+        let order = Arc::new(Mutex::new(Vec::new()));
+
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks
+            .expect_insert_task()
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+
+        let mut starter = MockSandboxStarter::new();
+        let start_order = Arc::clone(&order);
+        starter.expect_start().times(1).returning(move |_| {
+            start_order.lock().expect("order lock").push("start");
+            Ok(())
+        });
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, preflight_ok(), publisher);
+
+        let mut req = sample_request();
+        req.first_message = Some(FirstMessage {
+            text: "hello".into(),
+            model: None,
+            agent_mode: None,
+            file_ids: vec![],
+            contexts: vec![],
+            sent_by: Some("user1".into()),
+            message_uuid: None,
+        });
+
+        let message_order = Arc::clone(&order);
+        svc.create(req, empty_payload, move |_, _| {
+            let message_order = Arc::clone(&message_order);
+            async move {
+                message_order.lock().expect("order lock").push("message");
+            }
+        })
+        .await
+        .expect("creation succeeds");
+
+        assert_eq!(
+            order.lock().expect("order lock").as_slice(),
+            ["message", "start"]
+        );
     }
 
     #[tokio::test]

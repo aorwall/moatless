@@ -571,13 +571,19 @@ mod tests {
     #[test]
     fn checkout_dir_joins_workspace_dir() {
         let checkout = RepoCheckout {
-            clone_url: "https://github.com/owner/repo.git".into(),
+            clone_url: "https://github.com/owner/service.git".into(),
             branch: None,
             provider: "github".into(),
-            mount_name: "repo".into(),
+            mount_name: "service".into(),
             is_primary: true,
         };
-        assert_eq!(checkout.dir("/opt/moatless/workspace"), "/opt/moatless/workspace/repo");
-        assert_eq!(checkout.dir("/opt/moatless/workspace/"), "/opt/moatless/workspace/repo");
+        assert_eq!(
+            checkout.dir("/opt/moatless/workspace"),
+            "/opt/moatless/workspace/service"
+        );
+        assert_eq!(
+            checkout.dir("/opt/moatless/workspace/"),
+            "/opt/moatless/workspace/service"
+        );
     }
 }

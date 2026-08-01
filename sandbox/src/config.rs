@@ -561,7 +561,7 @@ pub(crate) mod test_support {
             task_id: "test-task".to_string(),
             agent_type: None,
             workspace_dir: "/tmp/workspace".to_string(),
-            repo_dir: "/tmp/workspace/repo".to_string(),
+            repo_dir: "/tmp/workspace/service".to_string(),
             data_dir: "/tmp/data".to_string(),
             upload_dir: "/tmp/uploads".to_string(),
             log_level: "info".to_string(),
@@ -787,24 +787,24 @@ mod tests {
     }
 
     /// A pod provisioned before multi-repo support carries no `WORKSPACE_REPOS`;
-    /// it must still clone its primary repo into the same directory as before.
+    /// it still derives a concrete primary checkout directory from the clone URL.
     #[test]
-    fn absent_workspace_repos_falls_back_to_the_legacy_single_checkout() {
+    fn absent_workspace_repos_falls_back_to_a_derived_single_checkout() {
         let repos = parse_repo_checkouts(
             None,
-            Some("https://github.com/owner/repo.git"),
+            Some("https://github.com/owner/service.git"),
             Some("main"),
             "github",
         );
         assert_eq!(repos.len(), 1);
-        assert_eq!(repos[0].mount_name, "repo");
+        assert_eq!(repos[0].mount_name, "service");
         assert_eq!(repos[0].branch.as_deref(), Some("main"));
         assert!(repos[0].is_primary);
         assert_eq!(
             primary_checkout(&repos)
                 .unwrap()
                 .dir("/opt/moatless/workspace"),
-            "/opt/moatless/workspace/repo"
+            "/opt/moatless/workspace/service"
         );
     }
 

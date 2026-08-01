@@ -370,11 +370,13 @@ pub fn build_server_container_config(
     // ── Environment variables ─────────────────────────────────────
     let mut env = vec![
         format!("PORT={}", server.port),
-        "WORKSPACE_PATH=/opt/moatless/repo".to_string(),
+        "WORKSPACE_DIR=/opt/moatless/workspace".to_string(),
+        "WORKSPACE_PATH=/opt/moatless/workspace".to_string(),
         "DATA_DIR=/opt/moatless/data".to_string(),
     ];
-    // Note: server.env (sourced below at startup) overrides WORKSPACE_PATH with the
-    // sandbox-derived repo_dir; this default is only a fallback before init.
+    // Note: server.env (sourced below at startup) overrides WORKSPACE_DIR and
+    // WORKSPACE_PATH with sandbox-derived paths; these defaults only apply
+    // before init.
 
     if let Some(ref extra) = server.env_vars {
         for (k, v) in extra {
@@ -971,7 +973,14 @@ mod tests {
         let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let env = cc.env.unwrap();
         assert!(env.iter().any(|e| e == "PORT=3000"));
-        assert!(env.iter().any(|e| e == "WORKSPACE_PATH=/opt/moatless/repo"));
+        assert!(
+            env.iter()
+                .any(|e| e == "WORKSPACE_DIR=/opt/moatless/workspace")
+        );
+        assert!(
+            env.iter()
+                .any(|e| e == "WORKSPACE_PATH=/opt/moatless/workspace")
+        );
         assert!(env.iter().any(|e| e == "DATA_DIR=/opt/moatless/data"));
     }
 
