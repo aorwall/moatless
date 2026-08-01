@@ -229,7 +229,9 @@ async fn completed_reopens_an_open_task(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn completed_child_notifies_parent_without_result_body(pool: PgPool) {
+async fn completed_child_says_nothing_to_parent(pool: PgPool) {
+    // A child reports its own result to the parent, so a completion writes
+    // nothing — not a notice, and not the child's assistant body.
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
     let mut assistant = make_message_row("task-child", "child-assistant-1");
     assistant.message_type = MessageType::Assistant;
@@ -250,16 +252,8 @@ async fn completed_child_notifies_parent_without_result_body(pool: PgPool) {
 
     let texts = visible_parent_texts(&pool, "task-parent").await;
     assert!(
-        texts
-            .iter()
-            .any(|text| text == "Child task `task-child` completed."),
-        "parent should receive a concise child completion notice: {texts:?}"
-    );
-    assert!(
-        texts
-            .iter()
-            .all(|text| !text.contains("full child result that should stay out of parent")),
-        "parent notification must not include the child's full assistant result: {texts:?}"
+        texts.is_empty(),
+        "parent should receive nothing when a child completes: {texts:?}"
     );
 }
 

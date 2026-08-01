@@ -185,9 +185,6 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     // error path is handled by `handle_agent_error`, which already emits an
     // `error` activity, so this branch is success-only.
     notify_linear_response_for_completion(state, &event.task_id).await;
-    if reopened {
-        notify_parent_task_of_child_terminal(state, event, ChildTerminalOutcome::Completed).await;
-    }
 
     // Close the Linear turn gate as the last step so post-turn stragglers
     // (Sandbox(Stopped), late tool_results) don't pile up in Linear.
@@ -449,12 +446,7 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     }
 
     if child_not_closed {
-        notify_parent_task_of_child_terminal(
-            state,
-            event,
-            ChildTerminalOutcome::Errored(error_msg.to_string()),
-        )
-        .await;
+        notify_parent_task_of_child_error(state, event, error_msg).await;
     }
 
     // Close the Linear turn gate after the consumer's adjacent
@@ -463,16 +455,9 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     state.linear_active_turns.close(&event.task_id);
 }
 
-enum ChildTerminalOutcome {
-    Completed,
-    Errored(String),
-}
-
-async fn notify_parent_task_of_child_terminal(
-    state: &AppState,
-    event: &AgentEvent,
-    outcome: ChildTerminalOutcome,
-) {
+/// Tell the parent task that this child errored. A child that completes
+/// reports its own result to the parent, so only errors are forwarded here.
+async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent, error_msg: &str) {
     let relation = match state.task_relations.find_created_by(&event.task_id).await {
         Ok(Some(relation)) => relation,
         Ok(None) => return,
@@ -480,21 +465,16 @@ async fn notify_parent_task_of_child_terminal(
             tracing::warn!(
                 task_id = %event.task_id,
                 error = %e,
-                "Failed to load parent task relation for child terminal notification"
+                "Failed to load parent task relation for child error notification"
             );
             return;
         }
     };
 
-    let message = match outcome {
-        ChildTerminalOutcome::Completed => format!("Child task `{}` completed.", event.task_id),
-        ChildTerminalOutcome::Errored(error_msg) => {
-            format!(
-                "Child task `{}` errored.\n\nError: {}",
-                event.task_id, error_msg
-            )
-        }
-    };
+    let message = format!(
+        "Child task `{}` errored.\n\nError: {}",
+        event.task_id, error_msg
+    );
 
     match crate::message::send::send_message_flow(
         state,
@@ -528,7 +508,7 @@ async fn notify_parent_task_of_child_terminal(
             tracing::debug!(
                 task_id = %event.task_id,
                 parent_task_id = %relation.to_task_id,
-                "Skipping child terminal notification because parent task is closed"
+                "Skipping child error notification because parent task is closed"
             );
         }
         Err(e) => {
@@ -536,7 +516,7 @@ async fn notify_parent_task_of_child_terminal(
                 task_id = %event.task_id,
                 parent_task_id = %relation.to_task_id,
                 error = %e,
-                "Failed to notify parent task about child terminal state"
+                "Failed to notify parent task about child error"
             );
         }
     }
