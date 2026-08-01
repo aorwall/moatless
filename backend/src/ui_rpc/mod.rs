@@ -1459,6 +1459,16 @@ impl ProtocolSession {
                     "sourceControlProviders": []
                 }),
             )],
+            "vcs.listRefs" => vec![success_exit(
+                &id,
+                json!({
+                    "refs": [],
+                    "isRepo": false,
+                    "hasPrimaryRemote": false,
+                    "nextCursor": null,
+                    "totalCount": 0
+                }),
+            )],
             "preview.list" => {
                 preview_answer(&id, preview::list(&state.preview, &viewer_scope(identity), &payload).await)
             }
@@ -2755,6 +2765,39 @@ mod tests {
         assert_eq!(
             output.frames[0]["exit"]["value"]["auth"]["sessionMethods"],
             json!(["browser-session-cookie", "bearer-access-token"])
+        );
+    }
+
+    #[tokio::test]
+    async fn list_refs_reports_nominal_task_paths_as_not_a_repository() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request(
+                    "98",
+                    "vcs.listRefs",
+                    json!({
+                        "cwd": "/moatless/tasks/task-a",
+                        "query": "main",
+                        "limit": 10
+                    }),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["_tag"], "Exit");
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert_eq!(
+            output.frames[0]["exit"]["value"],
+            json!({
+                "refs": [],
+                "isRepo": false,
+                "hasPrimaryRemote": false,
+                "nextCursor": null,
+                "totalCount": 0
+            })
         );
     }
 
