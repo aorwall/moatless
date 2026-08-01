@@ -662,111 +662,6 @@ async fn get_message_for_assembly_loads_the_named_message_with_its_activities(po
         .is_none());
 }
 
-/// Seam 3 (backfill): a fat `agent.message` task_events row is reduced to the
-/// skeleton, its raw content dropped, while the assembled Message store row is
-/// untouched. Mirrors migration 0089's slimming statement.
-#[sqlx::test]
-async fn backfill_slims_fat_agent_message_events(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    // The assembled Message store row (must survive untouched).
-    let mut assistant = make_message_row("task-1", "assistant-uuid");
-    assistant.message_type = MessageType::Assistant;
-    assistant.message_role = MessageRole::Assistant;
-    message_dao::append(
-        &pool,
-        &assistant,
-        &[],
-        &conversation_write(
-            "assistant-uuid",
-            MessageType::Assistant,
-            &serde_json::json!([
-                { "type": "text", "text": "working" },
-                { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } }
-            ]),
-        ),
-    )
-    .await
-    .unwrap();
-    let stored_before: Option<String> =
-        sqlx::query_scalar("SELECT message_text FROM task_messages WHERE uuid = 'assistant-uuid'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-
-    // A fat agent.message source event on the append-only log.
-    let fat = serde_json::json!({
-        "message": { "role": "assistant", "content": [
-            { "type": "text", "text": "working" },
-            { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } },
-            { "type": "tool_use", "id": "t2", "name": "Edit", "input": {} }
-        ] },
-        "uuid": "assistant-uuid",
-        "session_id": "sess-1"
-    });
-    sqlx::query(
-        r#"INSERT INTO task_events
-             (event_id, task_id, event_type, sub_type, is_error, turn_number, payload, timestamp)
-           VALUES ($1, $2, 'agent', 'message', false, 1, $3, $4)"#,
-    )
-    .bind("evt-fat")
-    .bind("task-1")
-    .bind(&fat)
-    .bind("2026-07-21T00:00:00.000Z")
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Run migration 0089's slimming statement (single batch; one row here).
-    let backfill = r#"
-        UPDATE task_events t
-        SET payload = jsonb_build_object(
-            'message', jsonb_build_object(
-                'role', COALESCE(t.payload -> 'message' ->> 'role', 'assistant')),
-            'uuid', COALESCE(t.payload -> 'uuid', 'null'::jsonb),
-            'blockCount', CASE
-                WHEN jsonb_typeof(t.payload -> 'message' -> 'content') = 'array'
-                    THEN jsonb_array_length(t.payload -> 'message' -> 'content')
-                ELSE 0 END,
-            'toolNames', CASE
-                WHEN jsonb_typeof(t.payload -> 'message' -> 'content') = 'array' THEN
-                    COALESCE((SELECT jsonb_agg(elem ->> 'name')
-                        FROM jsonb_array_elements(t.payload -> 'message' -> 'content') elem
-                        WHERE elem ->> 'type' = 'tool_use'), '[]'::jsonb)
-                ELSE '[]'::jsonb END)
-        WHERE t.event_type = 'agent' AND t.sub_type = 'message'
-          AND t.payload -> 'message' ? 'content'
-    "#;
-    let slimmed = sqlx::query(backfill).execute(&pool).await.unwrap();
-    assert_eq!(slimmed.rows_affected(), 1);
-
-    let payload: serde_json::Value =
-        sqlx::query_scalar("SELECT payload FROM task_events WHERE event_id = 'evt-fat'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(payload["message"]["role"], "assistant");
-    assert_eq!(payload["uuid"], "assistant-uuid");
-    assert_eq!(payload["blockCount"], 3);
-    assert_eq!(payload["toolNames"], serde_json::json!(["Bash", "Edit"]));
-    // Heavy content and extra fields are gone.
-    assert!(payload["message"].get("content").is_none());
-    assert!(payload.get("session_id").is_none());
-
-    // Idempotent: the slimmed row is gated out on a re-run.
-    let again = sqlx::query(backfill).execute(&pool).await.unwrap();
-    assert_eq!(again.rows_affected(), 0);
-
-    // The conversation is untouched.
-    let stored_after: Option<String> =
-        sqlx::query_scalar("SELECT message_text FROM task_messages WHERE uuid = 'assistant-uuid'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(stored_before.as_deref(), Some("working"));
-    assert_eq!(stored_before, stored_after);
-}
-
 async fn seed_acknowledged_turn(pool: &PgPool, task_id: &str, uuid: &str, turn_number: i32) {
     let mut msg = make_message_row(task_id, uuid);
     msg.session_id = Some(format!("session-{turn_number}"));
@@ -911,6 +806,10 @@ async fn last_message_is_completed_reply_detects_final_assistant(pool: PgPool) {
     // A user message alone is a genuine orphan (agent never replied).
     let mut user = make_message_row("task-1", "u-1");
     user.turn_number = Some(1);
+    // Stamped explicitly: the ordering under test is `timestamp DESC`, and the
+    // fixture's default is `now`, which would sort this message *after* the
+    // reply below and make the assertion depend on the date the suite is run.
+    user.timestamp = "2026-07-14T11:47:00.000Z".to_string();
     message_dao::append(&pool, &user, &[], &ConversationWrite::default()).await.unwrap();
     assert!(!repo
         .last_message_is_completed_reply("task-1", Some(1))

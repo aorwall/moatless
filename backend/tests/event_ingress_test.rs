@@ -33,6 +33,7 @@ use moatless_events::{
     TaskSubType, TaskTurnSubType,
 };
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
+use moatless_vibe_backend::event_handler::consumer::persist_event;
 use moatless_vibe_backend::event_handler::models::AgentEvent;
 use moatless_vibe_backend::event_ingress::outbox::{IngressOutbox, PgIngressOutbox};
 use moatless_vibe_backend::event_ingress::relay::IngressRelay;
@@ -204,6 +205,15 @@ fn consumed(task_id: &str, event_id: &str, payload: &Value) -> AgentEvent {
     .unwrap()
 }
 
+/// What the event log kept for `event_id`, if it kept anything.
+async fn event_log_payload(pool: &PgPool, event_id: &str) -> Option<Value> {
+    sqlx::query_scalar("SELECT payload FROM task_events WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap()
+}
+
 async fn outbox_event_ids(pool: &PgPool) -> Vec<String> {
     sqlx::query_scalar("SELECT event_id FROM event_ingress_outbox ORDER BY event_id")
         .fetch_all(pool)
@@ -259,23 +269,28 @@ async fn full_message_content_reaches_task_messages_exactly_once(pool: PgPool) {
     // `task_events` holds nothing for it, not even a skeleton. The Message's
     // durable home on the way in is the outbox, and afterwards it is the
     // conversation. A row here would be a second copy of that state.
-    let history: Option<Value> =
-        sqlx::query_scalar("SELECT payload FROM task_events WHERE event_id = $1")
-            .bind("evt-1")
-            .fetch_optional(&pool)
-            .await
-            .unwrap();
     assert!(
-        history.is_none(),
-        "an agent.message writes no task_events row: {history:?}"
+        event_log_payload(&pool, "evt-1").await.is_none(),
+        "admission writes no task_events row for an agent.message"
     );
 
-    // The consumer receives the published payload whole and commits it.
+    // The consumer receives the published payload whole and commits it, in the
+    // order its loop runs: append to the event log, then dispatch.
     let published = transport.published();
     assert_eq!(published.len(), 1);
     let state = test_app_state(pool.clone());
     let event = consumed(task_id, &published[0].0, &published[0].2);
+    persist_event(&state, &event).await;
     handle_agent_message(&state, &event).await;
+
+    // The consumer does not write one either. The Sandbox publishes one
+    // `agent.message` per block, so a row here would be one event-log row per
+    // activity.
+    let history = event_log_payload(&pool, "evt-1").await;
+    assert!(
+        history.is_none(),
+        "the consumer writes no task_events row for an agent.message: {history:?}"
+    );
 
     let texts = message_texts(&pool, task_id).await;
     assert_eq!(texts.len(), 1);
@@ -287,6 +302,35 @@ async fn full_message_content_reaches_task_messages_exactly_once(pool: PgPool) {
     // At-least-once redelivery converges on the same single row.
     handle_agent_message(&state, &event).await;
     assert_eq!(message_texts(&pool, task_id).await.len(), 1);
+}
+
+/// What the previous test asserts is missing must not be missing for everything
+/// else: `task_events` is still the lifecycle log, and only a Message is kept
+/// out of it.
+#[sqlx::test]
+async fn a_lifecycle_event_still_reaches_the_event_log(pool: PgPool) {
+    let task_id = "task-admit-1b";
+    seed_task(&pool, task_id).await;
+    let state = test_app_state(pool.clone());
+
+    let event: AgentEvent = serde_json::from_value(serde_json::json!({
+        "eventId": "evt-lifecycle",
+        "type": "agent",
+        "subType": "completed",
+        "taskId": task_id,
+        "timestamp": "2026-07-20T00:00:00.000Z",
+        "isError": false,
+        "agentType": "claude-code",
+        "turnNumber": 1,
+        "payload": { "reason": "done" },
+    }))
+    .unwrap();
+    persist_event(&state, &event).await;
+
+    assert_eq!(
+        event_log_payload(&pool, "evt-lifecycle").await,
+        Some(serde_json::json!({ "reason": "done" }))
+    );
 }
 
 #[sqlx::test]

@@ -283,7 +283,7 @@ impl EventHandlerConsumer {
                             entry_ids.push(entry_id);
                             continue;
                         }
-                        self.persist_event(&event).await;
+                        persist_event(&self.state, &event).await;
                         self.project_turn_state(&event).await;
                         self.dispatch_event(&event).await;
                     } else {
@@ -318,40 +318,6 @@ impl EventHandlerConsumer {
         }
 
         processed
-    }
-
-    /// Persist an event to the database (best-effort, never blocks dispatch).
-    ///
-    /// `agent.message` is persisted as a metadata skeleton (the agent.message skeleton): its full
-    /// content is a transient ingestion payload consumed once (from Redis, by
-    /// `dispatch_event`) to build the Message store, and must never accumulate
-    /// as a second copy in the append-only `task_events` log.
-    async fn persist_event(&self, event: &AgentEvent) {
-        let payload =
-            if super::skeleton::is_agent_message(event.event_type.as_str(), &event.sub_type) {
-                super::skeleton::agent_message_skeleton(&event.payload)
-            } else {
-                event.payload.clone()
-            };
-        let insert = InsertTaskEvent {
-            event_id: event.event_id.clone(),
-            task_id: event.task_id.clone(),
-            event_type: event.event_type.as_str().to_string(),
-            sub_type: event.sub_type.clone(),
-            is_error: event.is_error,
-            agent_type: event.agent_type.clone(),
-            turn_number: event.turn_number,
-            payload,
-            timestamp: event.timestamp.clone(),
-        };
-        if let Err(e) = self.state.task_events.insert_event(&insert).await {
-            warn!(
-                task_id = %event.task_id,
-                event_id = %event.event_id,
-                error = %e,
-                "Failed to persist event to database"
-            );
-        }
     }
 
     /// Idempotent fallback projection of turn state into `task_turns`.
@@ -616,6 +582,38 @@ impl EventHandlerConsumer {
                 );
             }
         }
+    }
+}
+
+/// Append an event to `task_events` (best-effort, never blocks dispatch).
+///
+/// `agent.message` writes no row. The Sandbox publishes one per block, so a row
+/// here is one event-log row per activity; the conversation holds those.
+/// `task_events` is lifecycle-only.
+///
+/// Free rather than a method so a test can reach it with a pool and no Redis.
+pub async fn persist_event(state: &AppState, event: &AgentEvent) {
+    if super::skeleton::is_agent_message(event.event_type.as_str(), &event.sub_type) {
+        return;
+    }
+    let insert = InsertTaskEvent {
+        event_id: event.event_id.clone(),
+        task_id: event.task_id.clone(),
+        event_type: event.event_type.as_str().to_string(),
+        sub_type: event.sub_type.clone(),
+        is_error: event.is_error,
+        agent_type: event.agent_type.clone(),
+        turn_number: event.turn_number,
+        payload: event.payload.clone(),
+        timestamp: event.timestamp.clone(),
+    };
+    if let Err(e) = state.task_events.insert_event(&insert).await {
+        warn!(
+            task_id = %event.task_id,
+            event_id = %event.event_id,
+            error = %e,
+            "Failed to persist event to database"
+        );
     }
 }
 

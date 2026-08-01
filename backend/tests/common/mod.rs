@@ -348,7 +348,7 @@ pub fn test_app_state_with_config(
         moatless_vibe_backend::auth::github::service::GitHubAppService::from_config(&config)
             .map(Arc::new),
         Some(Arc::new(
-            moatless_vibe_backend::auth::github::dao::PgGitHubAppDao(pool.clone()),
+            moatless_vibe_backend::adapter_apps::dao::PgAdapterAppDao(pool.clone()),
         )),
         moatless_vibe_backend::secret::service::LocalEnvelopeSecretCipher::from_config(
             &config.secrets,
@@ -449,7 +449,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         headless: false,
         ttl_minutes: 15,
         inactive_ttl_days: 7,
-        trigger_id: None,
+        loop_id: None,
         workspace_id: None,
         disabled_servers: None,
     }

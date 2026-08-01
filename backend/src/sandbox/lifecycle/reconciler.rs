@@ -1149,7 +1149,7 @@ mod db_tests {
             pool,
             runtime.clone(),
             observer(&[], SandboxObservedStatus::Absent),
-            Duration::from_secs(3600),
+            Duration::from_hours(1),
         );
 
         rec.reconcile_once().await;
