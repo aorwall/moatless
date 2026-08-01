@@ -3,6 +3,10 @@
 	"compilerOptions": {
 		"outDir": "./dist",
 		"rootDir": "./src",
+		// The annotation runtime is browser code that ships as real ESM, not just
+		// as a bundle: T3 Code's Electron preload imports it. So unlike
+		// src/client/**, it goes through tsc and needs the DOM lib.
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
 		"composite": true,
 		"declaration": true,
 		"declarationMap": true,

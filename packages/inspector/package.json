@@ -1,7 +1,7 @@
 {
 	"name": "@moatless/inspector",
 	"version": "0.3.0",
-	"description": "Runtime inspector for AI-assisted UI development - console interception, element inspection, component tagging, and bidirectional iframe communication",
+	"description": "Runtime inspector for AI-assisted UI development - console interception, element inspection, component tagging, element annotation, and bidirectional iframe communication",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -26,6 +26,30 @@
 			"types": "./dist/webpack.d.ts",
 			"require": "./dist/webpack.cjs",
 			"import": "./dist/webpack.js"
+		},
+		"./preview-annotation": {
+			"types": "./dist/preview-annotation/index.d.ts",
+			"import": "./dist/preview-annotation/index.js"
+		},
+		"./preview-annotation/protocol": {
+			"types": "./dist/preview-annotation/protocol.d.ts",
+			"import": "./dist/preview-annotation/protocol.js"
+		},
+		"./preview-annotation/transport": {
+			"types": "./dist/preview-annotation/transport.d.ts",
+			"import": "./dist/preview-annotation/transport.js"
+		},
+		"./preview-annotation/runtime": {
+			"types": "./dist/preview-annotation/runtime.d.ts",
+			"import": "./dist/preview-annotation/runtime.js"
+		},
+		"./preview-annotation/browser": {
+			"types": "./dist/preview-annotation/browser.d.ts",
+			"import": "./dist/preview-annotation/browser.js"
+		},
+		"./preview-annotation/types": {
+			"types": "./dist/preview-annotation/types.d.ts",
+			"import": "./dist/preview-annotation/types.js"
 		}
 	},
 	"files": [
@@ -40,9 +64,9 @@
 		"test": "vitest",
 		"test:unit": "vitest run",
 		"test:fast": "vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}' --passWithNoTests",
-		"sync:t3-annotation": "node scripts/sync-t3-annotation.mjs",
 		"type:check": "tsc --noEmit",
-		"biome:check": "biome check ."
+		"biome:check": "biome check .",
+		"build:css": "node scripts/build-annotation-css.mjs"
 	},
 	"keywords": [
 		"vite",
@@ -50,19 +74,23 @@
 		"plugin",
 		"inspector",
 		"preview",
+		"annotation",
 		"component",
 		"tagger"
 	],
-	"author": "Albert Örwall",
+	"author": "Albert \u00d6rwall",
 	"license": "MIT",
 	"dependencies": {
 		"@babel/parser": "^8.0.0",
 		"estree-walker": "^3.0.3",
-		"magic-string": "^0.30.17"
+		"magic-string": "^0.30.17",
+		"react-grab": "^0.1.32"
 	},
 	"devDependencies": {
 		"@types/node": "^24.7.2",
 		"esbuild": "^0.28.0",
+		"playwright-core": "1.56.1",
+		"tailwindcss": "^4.0.0",
 		"typescript": "^5.9.3",
 		"vite": "^7.1.9",
 		"vitest": "^3.2.4"

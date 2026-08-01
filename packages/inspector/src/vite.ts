@@ -56,7 +56,7 @@ export default function inspectorPlugin(options: InspectorPluginOptions = {}): P
       if (annotation) {
         tags.push({
           tag: 'script',
-          children: readClient('t3-annotation-client.js'),
+          children: readClient('annotation-client.js'),
           injectTo: 'body',
         })
       }

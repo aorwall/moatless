@@ -4,13 +4,11 @@ Runtime instrumentation library for AI-assisted UI development. Injects a client
 
 ## How it works
 
-The package has two sides:
+The package has three sides:
 
 - **Build-time (tagger)** — Babel/AST transformer that annotates every JSX element with `data-component-id` and `data-component-name` attributes so the runtime can identify components from DOM clicks.
 - **Runtime (client)** — A browser IIFE (`dist/client.js`) injected into the preview iframe. Communicates with the parent via `postMessage`.
-
-The Vite plugin injects a second client alongside it, so the same preview is
-also annotatable from T3 Code — see [T3 Code annotation](#t3-code-annotation).
+- **Annotation runtime** — A second client (`dist/annotation-client.js`) for picking, drawing on and commenting about elements, also usable as ESM by a host that supplies its own transport. See [Element annotation](#element-annotation).
 
 ## Server-side injection (primary use)
 
@@ -76,42 +74,76 @@ export default defineConfig({
 })
 ```
 
-## T3 Code annotation
+## Element annotation
 
-The Vite plugin injects a second client, `dist/t3-annotation-client.js`, which
-lets [T3 Code](https://github.com/soaplabs/t3code) pick, draw on and comment
-about elements in the previewed page. Nothing to configure: a project already
-using `inspectorPlugin()` becomes annotatable from T3 Code as well as
-inspectable from the Moatless UI.
+A second client, `dist/annotation-client.js`, lets a host pick, draw on and
+comment about elements in the previewed page — richer than the element
+inspector, and it needs no tagger, because it resolves component sources by
+walking React fibers at runtime.
+
+The Vite plugin injects it alongside the inspector client, so a project already
+calling `inspectorPlugin()` gets it with no config change. It is roughly 80 kB
+of inlined script; a project that only needs the Moatless UI element selector
+can leave it out with `inspectorPlugin({ annotation: false })`.
 
 The two clients do not know about each other. Each talks to whatever framed the
 page over `postMessage` and ignores traffic it does not recognise — the
 inspector filters on `source: 'preview-iframe'`, the annotation client on
 `source: 't3code:preview-annotation'` — so the one whose host is on the other
-side of the frame simply stays idle. The annotation client also resolves
-component sources by walking React fibers at runtime, so unlike the element
-inspector it works without the tagger.
+side of the frame stays idle.
 
-It is roughly 80 kB of inlined script. A project previewed only in the Moatless
-UI can leave it out:
+### Hosting it yourself
+
+The runtime is surface-agnostic: it needs a pipe, not a browser. `postMessage`
+is one; T3 Code's desktop app supplies an Electron `ipcRenderer` pipe instead
+and runs the same code in a `<webview>` preload.
 
 ```ts
-inspectorPlugin({ annotation: false })
+import { attachPreviewAnnotationRuntime } from '@moatless/inspector/preview-annotation/runtime'
+import type { AnnotationTransport } from '@moatless/inspector/preview-annotation/transport'
+
+attachPreviewAnnotationRuntime({
+  send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+  on: (channel, listener) => ipcRenderer.on(channel, wrap(listener)),
+  off: (channel, listener) => ipcRenderer.off(channel, wrap(listener)),
+} satisfies AnnotationTransport)
 ```
 
-### Updating the vendored client
+The host side of the conversation needs the channel names and the envelope
+helpers, and the shapes that come back:
 
-The client is built in [soaplabs/t3code](https://github.com/soaplabs/t3code)
-(`packages/preview-annotation`) and vendored here as
-`vendor/t3-annotation-client.js`, which `build.js` copies into `dist/`. It is
-generated — do not edit it. To pull in a newer build:
+```ts
+import {
+  START_PICK_CHANNEL,
+  CANCEL_PICK_CHANNEL,
+  ELEMENT_PICKED_CHANNEL,
+  GUEST_READY_CHANNEL,
+  PING_CHANNEL,
+  previewAnnotationMessage,
+  readPreviewAnnotationMessage,
+} from '@moatless/inspector/preview-annotation/protocol'
+import type { PreviewAnnotationPayload } from '@moatless/inspector/preview-annotation/types'
+```
+
+Both are re-exported from `@moatless/inspector/preview-annotation` for
+convenience. The types are plain interfaces with no validator attached — a host
+that needs one (T3 Code wraps them in Effect schemas at its IPC boundary) brings
+its own.
+
+A guest announces itself on `GUEST_READY_CHANNEL` when its script runs, and
+answers `PING_CHANNEL` with the same, so a host that mounted late can still
+find it. Until a host hears one of those, it has no way to know whether the page
+it framed carries the runtime at all.
+
+### Editing the overlay styles
+
+`src/preview-annotation/styles.generated.ts` is Tailwind output, not source.
+After changing `src/preview-annotation/annotation.css` or any class name in
+`runtime.ts`, regenerate it:
 
 ```bash
-node scripts/sync-t3-annotation.mjs ../path/to/t3code
+bun run build:css
 ```
-
-The script builds the package in that checkout, copies the bundle, and stamps
-the source revision into a header comment.
 
 ## In-iframe API: `window.__moatless`
 

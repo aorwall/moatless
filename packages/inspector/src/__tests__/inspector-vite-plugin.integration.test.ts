@@ -119,7 +119,7 @@ describe('Inspector Vite Plugin Integration', () => {
     const response = await fetch(`http://localhost:${port}/`)
     const html = await response.text()
 
-    expect(html).toContain('T3PreviewAnnotation')
+    expect(html).toContain('MoatlessPreviewAnnotation')
     expect(html).toContain('preview:element-picked')
   })
 

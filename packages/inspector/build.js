@@ -1,15 +1,9 @@
 import { build } from 'esbuild'
-import { copyFile, mkdir } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 
 // Ensure dist directories exist
 await mkdir('dist', { recursive: true })
 await mkdir('dist/tagger', { recursive: true })
-
-// The T3 annotation client arrives prebuilt from t3code (see
-// scripts/sync-t3-annotation.mjs) — there is nothing to compile, only to ship.
-await copyFile('vendor/t3-annotation-client.js', 'dist/t3-annotation-client.js')
-
-console.log('Copied: dist/t3-annotation-client.js')
 
 // Bundle the client-side inspector into a single IIFE file
 // This is the script that gets injected into preview iframes
@@ -25,6 +19,26 @@ await build({
 })
 
 console.log('Build complete: dist/client.js')
+
+// Bundle the annotation runtime for injection into a previewed page.
+//
+// The page is any page — React, Vue, a server-rendered template — so this
+// carries its own copy of everything it needs, including the fiber walker, and
+// assumes nothing about the host. `src/preview-annotation/browser.ts` starts
+// itself on load and no-ops when the page is not framed.
+await build({
+	entryPoints: ['src/preview-annotation/browser.ts'],
+	outfile: 'dist/annotation-client.js',
+	bundle: true,
+	format: 'iife',
+	globalName: 'MoatlessPreviewAnnotation',
+	platform: 'browser',
+	target: 'es2020',
+	minify: true,
+	sourcemap: false,
+})
+
+console.log('Build complete: dist/annotation-client.js')
 
 // Bundle tagger core (ESM)
 await build({

@@ -12,7 +12,8 @@ vi.mock('node:fs', async (importOriginal) => {
 
 const INSPECTOR_CLIENT =
   'var serverId="__SERVER_ID__";postMessage({type:"INSPECTOR_SCRIPT_LOADED"})'
-const ANNOTATION_CLIENT = 'var T3PreviewAnnotation=(function(){/* __SERVER_ID__ is not ours */})()'
+const ANNOTATION_CLIENT =
+  'var MoatlessPreviewAnnotation=(function(){/* __SERVER_ID__ is not ours */})()'
 
 /**
  * The clients only exist next to the built plugin in `dist/`, so stand in for
@@ -20,7 +21,7 @@ const ANNOTATION_CLIENT = 'var T3PreviewAnnotation=(function(){/* __SERVER_ID__ 
  */
 function stubClients(): void {
   ;(readFileSync as Mock).mockImplementation((file: unknown) =>
-    String(file).endsWith('t3-annotation-client.js') ? ANNOTATION_CLIENT : INSPECTOR_CLIENT,
+    String(file).endsWith('annotation-client.js') ? ANNOTATION_CLIENT : INSPECTOR_CLIENT,
   )
 }
 
@@ -50,7 +51,7 @@ describe('inspectorPlugin', () => {
     expect(tags?.[0]).toMatchObject({ tag: 'script', injectTo: 'body' })
     expect(tags?.[0]?.children).toContain('INSPECTOR_SCRIPT_LOADED')
     expect(tags?.[1]).toMatchObject({ tag: 'script', injectTo: 'body' })
-    expect(tags?.[1]?.children).toContain('T3PreviewAnnotation')
+    expect(tags?.[1]?.children).toContain('MoatlessPreviewAnnotation')
   })
 
   it('substitutes the serverId in the inspector client only', async () => {

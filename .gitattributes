@@ -1,3 +1,0 @@
-# Built elsewhere and vendored — see packages/inspector/scripts/sync-t3-annotation.mjs.
-# Collapsed in diffs and kept out of language stats; there is nothing to review here.
-packages/inspector/vendor/t3-annotation-client.js linguist-generated=true

@@ -275,4 +275,4 @@ RUN npm install --prefix /opt/moatless-inspector --install-strategy=nested \
     && ln -s /opt/moatless-inspector/node_modules /opt/node_modules \
     && chmod -R a+rX /opt/moatless-inspector \
     && test -f /opt/node_modules/@moatless/inspector/dist/client.js \
-    && test -f /opt/node_modules/@moatless/inspector/dist/t3-annotation-client.js
+    && test -f /opt/node_modules/@moatless/inspector/dist/annotation-client.js
