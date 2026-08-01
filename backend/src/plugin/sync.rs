@@ -221,7 +221,8 @@ mod tests {
     use crate::secret::test_support::service_with;
     use crate::skill::fetcher::FetchedSkillFile;
 
-    const SKILL_MD: &str = "---\nname: dev-loop\ndescription: Runs the dev loop\n---\nbody";
+    const SKILL_MD: &str =
+        "---\nname: sample-skill\ndescription: Runs the sample workflow\n---\nbody";
 
     /// In-memory plugin store that behaves like the real one for the two things
     /// these tests turn on: `find_by_id` reflects the last `replace_skills`,
@@ -353,7 +354,7 @@ mod tests {
             // first rather than racing it.
             tokio::time::sleep(Duration::from_millis(50)).await;
             Ok(vec![FetchedSkillFile {
-                dir_name: "dev-loop".to_string(),
+                dir_name: "sample-skill".to_string(),
                 content: SKILL_MD.to_string(),
             }])
         }
@@ -432,8 +433,8 @@ mod tests {
         assert_eq!(fetcher.files_fetched.load(Ordering::SeqCst), 1);
         let stored = plugins.list_skills("p1").await.unwrap();
         assert_eq!(stored.len(), 1);
-        assert_eq!(stored[0].name, "dev-loop");
-        assert_eq!(stored[0].description, "Runs the dev loop");
+        assert_eq!(stored[0].name, "sample-skill");
+        assert_eq!(stored[0].description, "Runs the sample workflow");
         assert_eq!(
             plugins.find_by_id("p1").await.unwrap().unwrap().synced_version,
             Some("sha-new".to_string()),

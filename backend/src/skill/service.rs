@@ -308,13 +308,10 @@ mod tests {
     fn picked_plugin_skills_are_listed() {
         let merged = merge_skills(
             Vec::new(),
-            vec![(
-                vec![plugin_skill("docs", "writing-specs")],
-                vec!["writing-specs".to_string()],
-            )],
+            vec![(vec![plugin_skill("docs", "spec")], vec!["spec".to_string()])],
         );
 
-        assert_eq!(names(&merged), vec!["writing-specs"]);
+        assert_eq!(names(&merged), vec!["spec"]);
         assert_eq!(merged[0].source, SkillSource::Plugin);
         assert_eq!(merged[0].plugin_name.as_deref(), Some("docs"));
     }
@@ -325,21 +322,21 @@ mod tests {
             Vec::new(),
             vec![(
                 vec![
-                    plugin_skill("docs", "writing-specs"),
+                    plugin_skill("docs", "spec"),
                     plugin_skill("docs", "reviewing-specs"),
                 ],
-                vec!["writing-specs".to_string()],
+                vec!["spec".to_string()],
             )],
         );
 
-        assert_eq!(names(&merged), vec!["writing-specs"]);
+        assert_eq!(names(&merged), vec!["spec"]);
     }
 
     #[test]
     fn a_plugin_with_no_records_contributes_nothing() {
         let merged = merge_skills(
             vec![workspace_skill("local")],
-            vec![(vec![plugin_skill("docs", "writing-specs")], Vec::new())],
+            vec![(vec![plugin_skill("docs", "spec")], Vec::new())],
         );
 
         assert_eq!(names(&merged), vec!["local"]);
@@ -348,14 +345,11 @@ mod tests {
     #[test]
     fn workspace_shadows_a_plugin_skill_of_the_same_name() {
         let merged = merge_skills(
-            vec![workspace_skill("writing-specs")],
-            vec![(
-                vec![plugin_skill("docs", "writing-specs")],
-                vec!["writing-specs".to_string()],
-            )],
+            vec![workspace_skill("spec")],
+            vec![(vec![plugin_skill("docs", "spec")], vec!["spec".to_string()])],
         );
 
-        assert_eq!(names(&merged), vec!["writing-specs"]);
+        assert_eq!(names(&merged), vec!["spec"]);
         assert_eq!(merged[0].source, SkillSource::Workspace);
     }
 

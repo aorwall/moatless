@@ -144,5 +144,4 @@ Adding a term the codebase reuses? It belongs in `CONTEXT.md`, not in the explan
 ## Related
 
 - `/codebase-design` — the vocabulary for *evaluating* a design (module, seam, depth, leverage). This skill describes what is there; that one judges it.
-- `/writing-specs` — for proposing a change rather than describing the current state.
-- `/diagnosing-bugs` — when the question is "why is this broken", not "how does this work".
+- `/spec` — for proposing a change rather than describing the current state.

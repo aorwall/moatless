@@ -1,9 +1,9 @@
 ---
-name: writing-specs
-description: Take a change from research to an agreed spec — research and decisions on a live HTML page the user works against, then one complete markdown spec written after agreement, for the agents that implement it. Use when writing or updating a spec, plan or change proposal, when recording what shipped, or when another skill needs the spec shape.
+name: spec
+description: Spec a change from research to agreement — research and decisions on a live HTML page the user works against, then one complete markdown spec written after agreement, for the agents that implement it. Use when writing or updating a spec, plan or change proposal, when recording what shipped, or when another skill needs the spec shape.
 ---
 
-# Writing Specs
+# Spec
 
 ## The workflow
 

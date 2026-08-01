@@ -232,7 +232,7 @@ Never use:
 - **Bullets nested past two levels.** Three levels means the structure belongs in a table.
 - **Tables past four columns.** They wrap in every narrow view.
 - **Screenshots.** They go stale silently and can't be diffed.
-- **New headings.** The unconditional heading set is fixed, and the conditional sections have the names `/writing-specs` gives them. A section you want that has no heading is a sign the change belongs in the skill, not in one spec.
+- **New headings.** The unconditional heading set is fixed, and the conditional sections have the names `/spec` gives them. A section you want that has no heading is a sign the change belongs in the skill, not in one spec.
 - **A conditional section stubbed with "n/a".** Omit it. An omitted section is a statement; an empty one is a gap.
 - **A line justifying a section's presence.** "Included because…", "Always included." The inclusion triggers decide whether you write the section; they are not something the reader is told.
 - **ASCII art** that isn't a directory tree or a box diagram.

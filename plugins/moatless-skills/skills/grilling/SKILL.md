@@ -58,4 +58,4 @@ The parked list is what makes the first two safe: cut from this turn means later
 
 ## If the outcome is a spec or a plan
 
-Run the `/writing-specs` skill instead. It owns the workflow — what to research, when to render the page, when the markdown gets written — and applies everything above inside it.
+Run the `/spec` skill instead. It owns the workflow — what to research, when to render the page, when the markdown gets written — and applies everything above inside it.

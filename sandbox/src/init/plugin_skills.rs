@@ -541,14 +541,14 @@ mod tests {
             r#"{"name":"moatless-skills","skills":"./skills/"}"#,
         );
         write(
-            &marketplace_repo.join("plugins/moatless-skills/skills/dev-loop/SKILL.md"),
-            "---\nname: dev-loop\n---\nbody",
+            &marketplace_repo.join("plugins/moatless-skills/skills/sample-skill/SKILL.md"),
+            "---\nname: sample-skill\n---\nbody",
         );
 
         let count = stage_plugin_skills_with_roots(&plugins, &codex);
         assert_eq!(count, 1);
-        assert!(codex.join("moatless-skills--dev-loop/SKILL.md").is_file());
-        assert!(!codex.join("remote-only--dev-loop/SKILL.md").exists());
+        assert!(codex.join("moatless-skills--sample-skill/SKILL.md").is_file());
+        assert!(!codex.join("remote-only--sample-skill/SKILL.md").exists());
     }
 
     #[test]
@@ -770,5 +770,4 @@ mod tests {
         );
         assert!(plugin.join("skills/alpha/SKILL.md").exists());
     }
-
 }

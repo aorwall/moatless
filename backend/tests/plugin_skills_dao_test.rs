@@ -44,7 +44,7 @@ async fn stored_skills_outlive_the_reader_that_fetched_them(pool: PgPool) {
     dao.replace_skills(
         "p1",
         Some("sha-1".to_string()),
-        &[skill("p1", "dev-loop"), skill("p1", "code-review")],
+        &[skill("p1", "build-check"), skill("p1", "code-review")],
     )
     .await
     .expect("store skills");
@@ -56,7 +56,7 @@ async fn stored_skills_outlive_the_reader_that_fetched_them(pool: PgPool) {
 
     assert_eq!(
         stored.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
-        vec!["code-review", "dev-loop"],
+        vec!["build-check", "code-review"],
         "skills come back by name, from storage rather than from git"
     );
     assert_eq!(
@@ -79,7 +79,7 @@ async fn a_resync_replaces_the_previous_snapshot_rather_than_adding_to_it(pool: 
     dao.replace_skills(
         "p1",
         Some("sha-1".to_string()),
-        &[skill("p1", "dev-loop"), skill("p1", "retired")],
+        &[skill("p1", "build-check"), skill("p1", "retired")],
     )
     .await
     .expect("first sync");
@@ -87,7 +87,7 @@ async fn a_resync_replaces_the_previous_snapshot_rather_than_adding_to_it(pool: 
     dao.replace_skills(
         "p1",
         Some("sha-2".to_string()),
-        &[skill("p1", "dev-loop"), skill("p1", "added")],
+        &[skill("p1", "build-check"), skill("p1", "added")],
     )
     .await
     .expect("second sync");
@@ -95,7 +95,7 @@ async fn a_resync_replaces_the_previous_snapshot_rather_than_adding_to_it(pool: 
     let stored = dao.list_skills("p1").await.expect("read skills");
     assert_eq!(
         stored.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
-        vec!["added", "dev-loop"],
+        vec!["added", "build-check"],
         "a skill deleted upstream must disappear here too, or it stays \
          selectable forever"
     );
@@ -105,9 +105,13 @@ async fn a_resync_replaces_the_previous_snapshot_rather_than_adding_to_it(pool: 
 async fn deleting_a_plugin_takes_its_skills_with_it(pool: PgPool) {
     let dao = PgPluginDao(pool);
     dao.insert(&plugin("p1")).await.expect("insert plugin");
-    dao.replace_skills("p1", Some("sha-1".to_string()), &[skill("p1", "dev-loop")])
-        .await
-        .expect("store skills");
+    dao.replace_skills(
+        "p1",
+        Some("sha-1".to_string()),
+        &[skill("p1", "build-check")],
+    )
+    .await
+    .expect("store skills");
 
     assert!(dao.delete("p1").await.expect("delete"));
 

@@ -165,10 +165,10 @@ RUN ln -s /usr/lib/jvm/temurin-25-jdk-* /usr/lib/jvm/temurin-25-jdk
 COPY --from=task-builder /go/bin/task /usr/local/bin/task
 RUN chmod +x /usr/local/bin/task
 
-# AWS CLI v2 — used by the security-incident-triage skill in soap-agent-ops
-# for read-only investigation (guardduty get-findings, ec2 describe-instances,
-# cloudtrail lookup-events, logs start-query). The IRSA role attached to the
-# workspace pod determines what those calls can actually do.
+# AWS CLI v2 — used for read-only security investigation commands
+# (guardduty get-findings, ec2 describe-instances, cloudtrail lookup-events,
+# logs start-query). The IRSA role attached to the workspace pod determines
+# what those calls can actually do.
 RUN ARCH=$(dpkg --print-architecture | sed 's/amd64/x86_64/;s/arm64/aarch64/') && \
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscliv2.zip && \
     unzip -q /tmp/awscliv2.zip -d /tmp && \

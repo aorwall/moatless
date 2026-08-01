@@ -2,7 +2,7 @@
 
 What goes on the page and in what order. `/html-report` owns the rest: where the file goes, the preview URL, the Write-tool rule, the scaffold and the style baseline. **Read it first.**
 
-The page is `scratchpad/<slug>.html`, one file at one URL. `/writing-specs` says when it appears and when it changes.
+The page is `scratchpad/<slug>.html`, one file at one URL. `/spec` says when it appears and when it changes.
 
 ## The sections, in this order
 
@@ -17,9 +17,9 @@ The page is `scratchpad/<slug>.html`, one file at one URL. `/writing-specs` says
 
 **3. Planned solution** — what gets built, growing through the interview. Not a restatement of the decision table: the table says what was chosen, this says what the thing does.
 
-**It opens with the three lists** — new, changes materially, untouched — side by side, named as things rather than files, with **no heading of their own**: the `Planned solution` heading is theirs. See `/writing-specs`, "What changes". They are the summary of everything below them, so they come before the first `<h3>`, and **untouched** is the list the reviewer checks their own assumptions against. It does not repeat the lede's out-of-scope list: that one is about work nobody is doing, this one is about behaviour nobody should worry about.
+**It opens with the three lists** — new, changes materially, untouched — side by side, named as things rather than files, with **no heading of their own**: the `Planned solution` heading is theirs. See `/spec`, "What changes". They are the summary of everything below them, so they come before the first `<h3>`, and **untouched** is the list the reviewer checks their own assumptions against. It does not repeat the lede's out-of-scope list: that one is about work nobody is doing, this one is about behaviour nobody should worry about.
 
-Then the same sections as the spec — see `/writing-specs`, "The sections, and when each is included" — at **high level**. Each one is a heading with its own name, then **one** element in the form below. **No line justifying the section**: not "included because", not "always included".
+Then the same sections as the spec — see `/spec`, "The sections, and when each is included" — at **high level**. Each one is a heading with its own name, then **one** element in the form below. **No line justifying the section**: not "included because", not "always included".
 
 | Section | The form it takes on the page |
 |---|---|
