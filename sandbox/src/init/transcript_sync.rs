@@ -16,10 +16,9 @@
 //! - the download-on-start, periodic-upload, and sync-on-shutdown entry points.
 //!
 //! Archive format:
-//! - new archives store Claude entries under `claude/` and Codex entries under
-//!   `codex/sessions/`;
-//! - legacy archives were flat Claude-only tars and are still restored into the
-//!   Claude transcript dir.
+//! - prefix-routed archives store Claude entries under `claude/` and Codex
+//!   entries under `codex/sessions/`;
+//! - flat Claude-only archives restore into the Claude transcript dir.
 //!
 //! Every operation is best-effort and tier-agnostic: a task runs fine without
 //! resume history, so failures are logged, never fatal. For the ephemeral (no-EBS)
@@ -251,8 +250,9 @@ async fn has_entries(dir: &Path) -> bool {
     }
 }
 
-/// Untar `bytes` into the appropriate CLI dirs on a blocking thread. New
-/// archives are prefix-routed; legacy flat archives restore into the Claude dir.
+/// Untar `bytes` into the appropriate CLI dirs on a blocking thread.
+/// Prefix-routed archives route by top-level dir; flat archives restore into
+/// the Claude dir.
 async fn extract_tar(
     bytes: Vec<u8>,
     claude_dir: PathBuf,

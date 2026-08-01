@@ -28,9 +28,7 @@ use crate::sandbox::server_runner::build_server_start_script;
 /// and authenticates only the sandbox's initial `GetCredentials` call. The
 /// long-lived user token is delivered over that credential channel instead of the
 /// pod spec — see `secrets.rs`. `legacy_user_token`, when present, additionally
-/// emits the old `USER_AUTH_TOKEN` env for backward compatibility with sandbox
-/// images that predate the credential-channel delivery (gated by
-/// `SANDBOX_EMIT_LEGACY_USER_TOKEN`).
+/// emits the `USER_AUTH_TOKEN` env (gated by `SANDBOX_EMIT_LEGACY_USER_TOKEN`).
 #[derive(Clone, Copy)]
 pub struct SandboxAuthTokens<'a> {
     pub bootstrap: &'a str,
@@ -51,7 +49,7 @@ impl<'a> SandboxAuthTokens<'a> {
 ///
 /// Produces a short-lived bootstrap token plus, while
 /// `SANDBOX_EMIT_LEGACY_USER_TOKEN` is set, the long-lived user token emitted as
-/// the legacy `USER_AUTH_TOKEN` env. Callers borrow the result into
+/// the `USER_AUTH_TOKEN` env. Callers borrow the result into
 /// [`SandboxAuthTokens`] via [`SandboxAuthTokens::from_minted`].
 pub fn mint_sandbox_tokens(
     config: &Config,
@@ -709,9 +707,9 @@ fn build_sandbox_container(
     env.push(env_var("GIT_PROVIDER", &plan.git_provider));
 
     // Every repository the workspace places in the sandbox, primary first. The
-    // GIT_* trio above still describes the primary so a pre-multi-repo sandbox
-    // image keeps working; a current one clones this list instead. Clone URLs are
-    // redacted like GIT_CLONE_URL — no PAT reaches the pod spec.
+    // GIT_* trio above describes the primary, and WORKSPACE_REPOS carries the
+    // full checkout list. Clone URLs are redacted like GIT_CLONE_URL — no PAT
+    // reaches the pod spec.
     if let Some(repos_json) = build_workspace_repos_json(plan) {
         env.push(env_var(WORKSPACE_REPOS_ENV, &repos_json));
     }
@@ -779,8 +777,7 @@ fn build_sandbox_container(
     // Auth tokens. The short-lived bootstrap token is the only auth secret on
     // the pod spec; it authenticates the initial GetCredentials call, after which
     // the sandbox swaps to the long-lived token delivered over that channel. The
-    // legacy USER_AUTH_TOKEN env is emitted only for backward compat with old
-    // sandbox images (gated by SANDBOX_EMIT_LEGACY_USER_TOKEN).
+    // USER_AUTH_TOKEN is emitted only when SANDBOX_EMIT_LEGACY_USER_TOKEN is set.
     if let Some(tokens) = tokens {
         env.push(env_var("SANDBOX_BOOTSTRAP_TOKEN", tokens.bootstrap));
         if let Some(legacy) = tokens.legacy_user_token {
@@ -1179,7 +1176,7 @@ fn build_server_containers(
 /// Clone URLs are redacted exactly like `GIT_CLONE_URL`, so no credential
 /// reaches the pod spec — the sandbox authenticates each clone through the
 /// credential channel using the checkout's provider. `None` when the plan
-/// carries no checkouts, leaving the sandbox on the legacy `GIT_*` trio.
+/// carries no checkouts.
 fn build_workspace_repos_json(plan: &ProvisionPlan) -> Option<String> {
     if plan.repos.is_empty() {
         return None;
@@ -1264,8 +1261,7 @@ fn build_repo_config_json(plan: &ProvisionPlan) -> Option<String> {
 /// - Non-root (`K8S_SANDBOX_RUN_AS_NON_ROOT=true`): the pod-level securityContext
 ///   (see [`pod_security_context`]) runs these containers as UID/GID 1000, and
 ///   the image chowns every runtime path to that user (plus `fsGroup: 1000` for
-///   the mounted volumes). Ownership is therefore correct, so `DAC_OVERRIDE` is
-///   no longer needed and is dropped.
+///   the mounted volumes). Ownership is therefore correct without `DAC_OVERRIDE`.
 /// - Root (default, flag off): the container runs as UID 0 while `/home/moatless`
 ///   and friends are owned by UID 1000, so `DAC_OVERRIDE` is required for root to
 ///   write there (gh CLI config, Claude onboarding flag) during init.
@@ -1695,7 +1691,7 @@ mod tests {
     #[test]
     fn chrono_now_iso_is_valid_rfc3339() {
         let ts = chrono_now_iso();
-        // The old "{epoch_seconds}Z" format is not valid RFC3339; this must parse.
+        // The created-at annotation must be valid RFC3339.
         assert!(
             chrono::DateTime::parse_from_rfc3339(&ts).is_ok(),
             "created-at annotation must be valid RFC3339, got {ts:?}"
@@ -2195,7 +2191,7 @@ mod tests {
     }
 
     /// `resources.dockerStorage` overrides the global dind storage cap when the
-    /// repo explicitly selects the legacy emptyDir Docker storage tier.
+    /// repo explicitly selects the emptyDir Docker storage tier.
     #[test]
     fn docker_storage_override_sizes_dind_empty_dir() {
         let config = test_config();
@@ -2432,8 +2428,8 @@ mod tests {
         assert_eq!(parsed[1].clone_url, "https://gitlab.com/acme/shared.git");
     }
 
-    /// A plan with no checkouts (a legacy payload) omits the env entirely rather
-    /// than emitting an empty list.
+    /// A plan with no checkouts omits the env entirely rather than emitting an
+    /// empty list.
     #[test]
     fn pod_spec_omits_workspace_repos_when_the_plan_has_none() {
         let config = test_config();
@@ -2460,7 +2456,7 @@ mod tests {
         let config = test_config();
         let plan = test_plan();
 
-        // Bootstrap only (legacy disabled).
+        // Bootstrap only.
         let pod = build_pod(
             &config,
             "task-1",
@@ -2484,7 +2480,7 @@ mod tests {
             "legacy USER_AUTH_TOKEN must be absent when not requested"
         );
 
-        // Bootstrap + legacy (transition compat).
+        // Bootstrap plus USER_AUTH_TOKEN.
         let pod = build_pod(
             &config,
             "task-1",
@@ -2519,7 +2515,7 @@ mod tests {
     }
 
     /// The Task's fixed Agent-harness selection reaches the sandbox container as
-    /// the `AGENT_TYPE` env at construction (ADR-0004), so the sandbox resolves
+    /// the `AGENT_TYPE` env at construction (the fixed-harness decision), so the sandbox resolves
     /// its harness once instead of switching per Message. `auto_provision` stamps
     /// this into `plan.env_vars`; here we prove the builder delivers it verbatim.
     #[test]
@@ -2825,8 +2821,8 @@ mod tests {
         assert_eq!(sc.run_as_non_root, Some(false));
     }
 
-    /// The `nvme-setup` init container keeps its privileged root context and now
-    /// carries modest resource requests/limits (no longer BestEffort).
+    /// The `nvme-setup` init container keeps its privileged root context and
+    /// carries modest resource requests/limits.
     #[test]
     fn nvme_setup_init_container_is_root_and_has_resources() {
         use crate::config::SandboxCacheVolume;

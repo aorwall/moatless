@@ -5,7 +5,7 @@
 //! input, cancel the active execution, and receive an ordered stream of
 //! normalized [`Signal`]s. They never receive a Claude or Codex handle and never
 //! match on the selected harness — the implementation is fixed at construction
-//! (ADR-0004, ADR-0005).
+//! (the fixed-harness decision, the harness-outcome boundary).
 //!
 //! What the harness owns: Agent process lifecycle, Session start/resume, input
 //! delivery, cancellation, native normalization into canonical [`SourceEvent`]s,

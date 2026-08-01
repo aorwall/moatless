@@ -136,7 +136,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 );
 
                 // Consume the long-lived user auth token: swap it into the gRPC
-                // client (replacing the bootstrap token) and persist it so a
+                // client and persist it so a
                 // container restart can reuse it even after the bootstrap token
                 // has expired. Removed from the map so it is never set as a
                 // process/agent env var or written to server.env.
@@ -257,7 +257,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
 /// and the token the sandbox presented was the short-lived bootstrap token. In
 /// that case neither retrying nor a pod restart (same ReplicaSet → same expired
 /// env) can succeed — only re-provisioning mints a fresh token. Refresh-mode
-/// failures and rejections of a persisted/legacy long-lived token stay transient.
+/// failures and rejections of a long-lived token stay transient.
 fn is_expired_bootstrap_rejection(
     mode: PersistMode,
     code: tonic::Code,
@@ -309,7 +309,7 @@ pub async fn persist_agent_credentials(
 /// reuse it (see [`Config::persisted_user_token_path`]).
 ///
 /// Best-effort: a write failure only means the sandbox falls back to the
-/// bootstrap/legacy token on the next restart, so failures are logged not fatal.
+/// initial token on the next restart, so failures are logged not fatal.
 async fn persist_user_auth_token(config: &Config, token: &str) {
     let path = config.persisted_user_token_path();
     if let Some(parent) = path.parent() {
@@ -462,8 +462,8 @@ mod tests {
             Some(InitialAuthTokenSource::Bootstrap),
         ));
 
-        // A long-lived token (persisted or legacy env) rejection stays transient —
-        // it may be a backend blip, and a restart could resolve it.
+        // A long-lived token rejection stays transient: it may be a backend
+        // blip, and a restart could resolve it.
         assert!(!is_expired_bootstrap_rejection(
             PersistMode::Initial,
             Code::Unauthenticated,

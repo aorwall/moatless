@@ -3,7 +3,7 @@
 //! The coordinator drives a fixed [`Harness`] purely through its command/signal
 //! seam: it submits input, cancels the active execution, and reacts to the
 //! ordered [`Signal`] stream. It never sees a Claude or Codex handle and never
-//! matches on the selected harness (ADR-0004, ADR-0005).
+//! matches on the selected harness (the fixed-harness decision, the harness-outcome boundary).
 //!
 //! What the coordinator owns (the invariants this module enforces):
 //! - **Run identity** — a fresh Run id is minted on every
@@ -14,7 +14,7 @@
 //!   `ExecutionStarted`), so an unaccepted input is never falsely confirmed.
 //! - **Backend publication** — each [`Signal::Source`] is published as one
 //!   per-block `agent.message` in the shape the backend assembler consumes
-//!   (ADR-0002): a native block plus its `blockIndex`, grouped by `uuid`. The
+//!   (server-owned assembly): a native block plus its `blockIndex`, grouped by `uuid`. The
 //!   coordinator forwards blocks; it never assembles a Message.
 //! - **Context-loss recovery** — a resume the harness reports as
 //!   [`SessionImpact::Lost`] never silently drops the Message. The coordinator
@@ -96,7 +96,7 @@ pub struct Coordinator {
     /// can be re-driven as a fresh context-recovery Turn instead of being dropped.
     pending_inputs: HashMap<InputId, Input>,
     /// Next `blockIndex` per native Message id, reset at each Run start. Lets the
-    /// backend assemble per-block source events in native order (ADR-0002).
+    /// backend assemble per-block source events in native order (server-owned assembly).
     block_indices: HashMap<String, usize>,
     /// When the last rate-limited liveness event was published.
     last_activity_publish: Option<Instant>,
@@ -355,9 +355,8 @@ impl Coordinator {
                     .publish_agent_event(&self.task_id, AgentSubType::Completed, json!({}))
                     .await;
             }
-            // A cancelled execution ends the turn without its own terminal event,
-            // matching the legacy cancel path; the caller-side cancel flow closes
-            // the turn.
+            // A cancelled execution ends the turn without its own terminal event;
+            // the caller-side cancel flow closes the turn.
             Outcome::Cancelled => {}
             Outcome::Failed(error) => {
                 // A retry the service already scheduled suppresses the terminal
@@ -506,7 +505,7 @@ fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option<WakeupJob>
 }
 
 /// Wrap one native block into the per-block `agent.message` payload the backend
-/// assembler consumes (ADR-0002): the single-block `content` array plus the
+/// assembler consumes (server-owned assembly): the single-block `content` array plus the
 /// `blockIndex` and `uuid` it merges on, and the `session_id` /
 /// `parent_tool_use_id` it groups by.
 fn message_payload(event: &SourceEvent, block_index: usize) -> Value {
@@ -748,8 +747,8 @@ impl CoordinatorService {
 
                         // Observe `ScheduleWakeup` tool_use in Source blocks and
                         // buffer it (latest-wins), to be armed at turn end. In
-                        // tmux mode the CLI owns its own wakeup timer, so we never
-                        // buffer one there (mirrors the legacy subprocess-only path).
+                        // tmux mode the CLI owns its own wakeup timer, so only
+                        // subprocess mode buffers one here.
                         if !self.config.use_tmux {
                             if let Signal::Source(ref event) = signal {
                                 if let Some(job) = extract_wakeup_from_block(&event.block) {
@@ -882,9 +881,8 @@ impl CoordinatorService {
                                     .await;
                                 }
                                 Outcome::Failed(err) => {
-                                    // A failed Turn arms no wakeup (matches the legacy
-                                    // "ignore ScheduleWakeup on error" path); a retry
-                                    // re-emits the block if it recurs.
+                                    // A failed Turn arms no wakeup; a retry re-emits
+                                    // the block if it recurs.
                                     self.pending_wakeup = None;
                                     if credential_recovery_handled {
                                         // Credential recovery (before publish) already
@@ -1253,9 +1251,8 @@ impl CoordinatorService {
     /// retry, or the per-prompt cap exhausted — publish exactly one user-facing
     /// reconnect error and count one consecutive failure. No futile retry.
     ///
-    /// Mirrors the legacy `try_credential_recovery_retry`, minus its double
-    /// publish: the coordinator suppresses the original terminal, so recovery
-    /// owns the single terminal event.
+    /// The coordinator suppresses the original terminal event, so recovery owns
+    /// the single user-facing terminal event.
     async fn try_credential_recovery(
         &mut self,
         flagged: Vec<String>,

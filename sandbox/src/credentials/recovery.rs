@@ -4,12 +4,8 @@
 //! `codexErrorInfo` on the failed Turn and flips this flag; the agent loop polls
 //! it at turn-failure boundaries and triggers a credential pull + retry.
 //!
-//! The detector deliberately no longer decides *what* a failure looks like. It
-//! used to scan `codex exec` stderr for marker substrings, which matched
-//! background noise — an unauthorized probe carried three `401 Unauthorized`
-//! lines from a model-list refresh with no relation to the Turn alongside the
-//! one genuine refresh failure. The typed error is scoped to a `turnId`; a line
-//! scanner cannot be.
+//! The detector consumes typed, turn-scoped errors only. Background stderr can
+//! contain unrelated credential noise, so line scanning is not a valid signal.
 //!
 //! Adding a new credential is a one-entry change to [`KNOWN_CREDENTIALS`].
 

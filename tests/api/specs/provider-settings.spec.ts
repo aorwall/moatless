@@ -1,5 +1,5 @@
 /**
- * Standalone: Provider settings (specs/auth/03-login-session-scenarios.md)
+ * Standalone: Provider settings
  *
  * A provider credential is saved, reported and disconnected through
  * `/api/v1/settings/{provider}/…`. The GitHub scenario is the one with teeth: a

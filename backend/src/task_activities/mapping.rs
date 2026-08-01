@@ -21,7 +21,7 @@ pub struct BlockContext<'a> {
     /// all. Both readers already drop `system`, `result` and `error` prose; this
     /// is where storage stops writing what they throw away.
     pub message_type: MessageType,
-    /// The block's native index within its Message, from ADR-0002's
+    /// The block's native index within its Message, from source-event
     /// `blockIndex`.
     pub block_index: usize,
 }
@@ -169,9 +169,8 @@ impl ConversationWrite {
 ///
 /// `context.block_index` is the index of the array's *first* block: 0 for a
 /// whole assembled array, and the event's own `blockIndex` for the one-element
-/// array a per-block source event carries (ADR-0002). That is what keeps a
-/// block's identity — and therefore its activity's id — the same whichever
-/// shape it arrived in.
+/// array a per-block source event carries. That is what keeps a block's identity
+/// — and therefore its activity's id — the same whichever shape it arrived in.
 pub fn map_content(context: BlockContext<'_>, content: &Value) -> ConversationWrite {
     let mut write = ConversationWrite::default();
     let Some(blocks) = content.as_array() else {
@@ -237,10 +236,7 @@ fn text_part(context: BlockContext<'_>, block: &Value) -> BlockRow {
 }
 
 fn is_conversation(message_type: MessageType) -> bool {
-    matches!(
-        message_type,
-        MessageType::User | MessageType::Assistant
-    )
+    matches!(message_type, MessageType::User | MessageType::Assistant)
 }
 
 fn tool_call(context: BlockContext<'_>, block: &Value) -> BlockRow {
@@ -648,7 +644,12 @@ mod tests {
     /// row; the other two still become nothing.
     #[test]
     fn a_block_this_conversation_does_not_store_is_silent() {
-        for unstored in ["server_tool_use", "web_search_tool_result", "image", "a_new_sdk_block"] {
+        for unstored in [
+            "server_tool_use",
+            "web_search_tool_result",
+            "image",
+            "a_new_sdk_block",
+        ] {
             assert_eq!(
                 map_block(context(), &json!({ "type": unstored })),
                 BlockRow::None,
@@ -700,9 +701,10 @@ mod tests {
             parent_uuid: Some("agent-tool-1"),
             ..context()
         };
-        let BlockRow::Activity(activity) =
-            map_block(context, &json!({ "type": "tool_use", "id": "tu-1", "name": "Bash" }))
-        else {
+        let BlockRow::Activity(activity) = map_block(
+            context,
+            &json!({ "type": "tool_use", "id": "tu-1", "name": "Bash" }),
+        ) else {
             panic!("a tool_use is an activity");
         };
         assert_eq!(activity.parent_uuid.as_deref(), Some("agent-tool-1"));

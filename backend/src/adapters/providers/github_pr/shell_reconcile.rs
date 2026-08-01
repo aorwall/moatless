@@ -31,7 +31,7 @@
 //! Reached by a direct call from the Message-domain post-persist hook, which
 //! owns the message-shaped work (walking content blocks, resolving the tool
 //! call, unwrapping the agent harness's shell wrapper) and hands the normalized
-//! command line plus its output here. See ADR-0007: this is deliberately a
+//! command line plus its output here. The GitHub PR status/reaction design makes this deliberately a
 //! direct call rather than an `Adapter` interface method — it has exactly one
 //! implementation.
 

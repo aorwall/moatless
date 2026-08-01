@@ -1,9 +1,9 @@
 /**
- * Chain: Team CRUD and Membership (01-team-scenarios.md)
+ * Chain: Team CRUD and Membership
  *
  * Tests team creation, retrieval, updates, deletion, and membership.
  *
- * Teams are an org/directory grouping, not an access boundary (ADR-0006):
+ * Teams are an org/directory grouping, not an access boundary (the access-scope redesign):
  * team credentials and team-scoped resources are gone, so the coverage here
  * stops at CRUD and membership.
  *

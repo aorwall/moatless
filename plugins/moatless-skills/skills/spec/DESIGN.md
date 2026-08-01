@@ -198,7 +198,7 @@ GitHub alert syntax, and only for things that would genuinely surprise:
 
 ```md
 > [!WARNING]
-> This contradicts ADR-0007 (teams grant no resource access). Reopening it is part of the ask — see Decision 3.
+> This contradicts the existing access-scope decision. Changing it is part of the ask — see Decision 3.
 ```
 
 One or two per spec.

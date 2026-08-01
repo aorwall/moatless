@@ -1,5 +1,5 @@
 /**
- * Chain 3: Agent Stop, Resume & Recovery (agent-execution.md)
+ * Chain 3: Agent Stop, Resume & Recovery
  *
  * Stopping an agent mid-execution, resuming after a sandbox restart,
  * and recovering from agent errors.

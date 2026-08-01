@@ -1,5 +1,5 @@
 /**
- * Standalone: The GitHub proxy (specs/channels/01-channel-scenarios.md)
+ * Standalone: The GitHub proxy
  *
  * The backend posts to GitHub on a task's behalf. Doing it through the backend
  * rather than from the caller is what lets the reply carry the task's identity,

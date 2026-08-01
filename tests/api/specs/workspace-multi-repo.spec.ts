@@ -1,5 +1,5 @@
 /**
- * Chain: Multi-repo workspace (specs/workspaces/02-multi-repo-scenarios.md)
+ * Chain: Multi-repo workspace
  *
  * A workspace with several repository placements checks out every one of them
  * into the task's sandbox, each under its own mount name.

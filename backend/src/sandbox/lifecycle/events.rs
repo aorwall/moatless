@@ -654,8 +654,8 @@ mod tests {
     #[test]
     fn error_payload_names_the_operation_cause_and_reason() {
         let payload = error_event("t", gen(5), timeout_failure()).payload();
-        // The feed and the Linear activity read `message`; it must not be the
-        // old opaque "Sandbox operation failed".
+        // The feed and the Linear activity read `message`; it must name the
+        // operation and cause.
         assert!(
             payload.message.starts_with("Sandbox start failed: "),
             "unexpected message: {}",

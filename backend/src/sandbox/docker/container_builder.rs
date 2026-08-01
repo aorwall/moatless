@@ -206,7 +206,7 @@ pub fn build_container_config(
     // Per-repo resource limits (K8s quantity strings, e.g. "8Gi" / "4"). The
     // K8s provider applies the whole ResourceConfig; Docker has no
     // requests/eviction concept, so only the limits map onto the container
-    // cgroup — unset limits leave the container unconstrained, as before.
+    // cgroup; unset limits leave the container unconstrained.
     let (memory_limit, nano_cpus) = sandbox_resource_limits(plan);
     let host_config = HostConfig {
         network_mode: Some(config.docker.network.clone()),

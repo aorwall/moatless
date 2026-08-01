@@ -70,7 +70,7 @@ pub struct WorkspaceRepo {
     pub branch: Option<String>,
     /// Subdir under the workspace dir (`None` = default to the repo name at runtime).
     pub mount_name: Option<String>,
-    /// The "main" repo for diff/PR/CLAUDE.md. Exactly one per workspace when n>=1.
+    /// The "main" repo for diff/PR/AGENTS.md. Exactly one per workspace when n>=1.
     pub is_primary: bool,
     /// Ordering within the workspace.
     pub position: i32,

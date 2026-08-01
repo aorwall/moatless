@@ -41,7 +41,7 @@ Everything else in this skill is *how* to do one of those steps:
 
 Neighbours that are not this:
 
-- `specs/<domain>/NN-*.md` — Given/When/Then scenario chains with permanent IDs, tied to E2E tests. Own format, documented alongside them.
+- `tests/api/specs/*.spec.ts` — executable scenario chains with permanent IDs. There is no parallel markdown specs tree.
 - `docs/architecture/` — what the system **is**, as built.
 
 ## Researching the current state
@@ -69,7 +69,7 @@ An interview that only asks ranked decisions produces a decision table and nothi
 
 ### Sending one of those questions
 
-**The page is updated before the question goes out, never after.** Whatever you found since the last answer — the precedent, the schema difference, the bug in the SDK, the ADR that constrains it — goes onto the page as the open decision's evidence first. Then the message links to it. Research that reaches the user only as a chat message is lost twice over: the spec is written from the page, and the sandbox does not outlive the interview.
+**The page is updated before the question goes out, never after.** Whatever you found since the last answer — the precedent, the schema difference, the bug in the SDK, the committed decision that constrains it — goes onto the page as the open decision's evidence first. Then the message links to it. Research that reaches the user only as a chat message is lost twice over: the spec is written from the page, and the sandbox does not outlive the interview.
 
 The turn itself is four things, in this order, and nothing else — `/asking-questions` owns the shape:
 
@@ -216,7 +216,7 @@ Two more:
 - **Literal language.** No idiom, no figurative phrasing — no "circle back", no "get the ball rolling".
 - **One instruction per line.** A sentence with two "and then"s is two lines.
 
-Use the domain vocabulary in `CONTEXT.md` throughout, and respect existing ADRs — a spec that contradicts one must say so and argue for reopening it, in the Decisions table.
+Use the domain vocabulary in `CONTEXT.md` throughout, and respect local committed decisions from `AGENTS.md` files in the touched directory and its parents. A spec that contradicts one must say so and argue for changing it in the Decisions table.
 
 ## What the user can change
 

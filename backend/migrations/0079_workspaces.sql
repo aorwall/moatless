@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS "workspace_repos" (
     "branch" text,
     -- Subdir under the workspace dir (NULL = default to the repo name at runtime).
     "mount_name" text,
-    -- The "main" repo for diff/PR/CLAUDE.md. Exactly one per workspace when n>=1.
+    -- The "main" repo for diff/PR/AGENTS.md. Exactly one per workspace when n>=1.
     "is_primary" boolean NOT NULL DEFAULT false,
     -- Ordering within the workspace.
     "position" integer NOT NULL DEFAULT 0,

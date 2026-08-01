@@ -1,5 +1,5 @@
 /**
- * Standalone: Setup requirements (specs/auth/03-login-session-scenarios.md)
+ * Standalone: Setup requirements
  *
  * `GET /api/v1/auth/me` carries a setup block: what the environment still needs
  * from this user before it will run their work, and what they can do about it.

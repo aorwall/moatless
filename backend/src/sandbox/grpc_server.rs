@@ -1,7 +1,6 @@
 //! gRPC server implementing `BackendSandboxService`.
 //!
-//! Receives events from sandbox pods via gRPC (replaces direct Redis XADD
-//! from the sandbox) and serves pending messages (replaces HTTP polling).
+//! Receives events from sandbox pods via gRPC and serves pending messages.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -117,9 +116,9 @@ pub struct BackendSandboxServiceImpl {
     /// carries a truncated stub.
     pub task_events: Option<Arc<dyn TaskEventDao>>,
     /// Durable spool for the one payload kind `task_events` cannot hold in full:
-    /// `agent.message` content, which ADR-0003 reduces to a skeleton there. A
+    /// `agent.message` content, which the agent.message skeleton reduces to a skeleton there. A
     /// record is admitted here before the gRPC ack and deleted once the consumer
-    /// commits `task_messages` (ADR-0006).
+    /// commits `task_messages` (the durable-ingress decision).
     pub ingress_outbox: Option<Arc<dyn IngressOutbox>>,
     pub task_relations: Option<Arc<dyn TaskRelationDao>>,
     /// JWT signing key for *minting* the user token delivered over
@@ -204,8 +203,8 @@ enum VerifiedToken {
         claims: jwt::UserTokenClaims,
         task_id: String,
     },
-    /// A legacy claim-less token accepted under the grace flag. Its request
-    /// `task_id` is authorized purely by the DB control check (pre-binding path).
+    /// A claim-less token accepted under the grace flag. Its request `task_id`
+    /// is authorized purely by the DB control check.
     Claimless { claims: jwt::UserTokenClaims },
 }
 
@@ -215,14 +214,13 @@ enum VerifiedToken {
 /// `GetCredentials` exception, [`authorize_bootstrap`](Self::authorize_bootstrap)).
 /// It verifies the bearer token in the request metadata, resolves it to a
 /// [`TaskGrant`], and rejects any request whose in-band `task_id` disagrees with
-/// the token's `taskId` claim — closing the former gap where the task id was
-/// entirely attacker-controlled. A concrete type, not a trait: there is exactly
+/// the token's `taskId` claim. A concrete type, not a trait: there is exactly
 /// one verification path, and the dev-mode bypass lives in exactly one
 /// constructor ([`dev_unauthenticated`](Self::dev_unauthenticated)).
 pub(crate) struct SandboxAuthorizer {
     /// JWT signing secret. Enforcing mode has one; the dev bypass has none.
     secret: Option<String>,
-    /// Accept legacy claim-less tokens via the DB fallback (rollout grace flag).
+    /// Accept claim-less tokens via the DB fallback when the grace flag is set.
     accept_claimless: bool,
     /// Task DAO — the claim-less DB fallback and the control gate.
     tasks: Option<Arc<dyn TaskDao>>,
@@ -280,8 +278,8 @@ impl SandboxAuthorizer {
     /// Extract and verify the bearer token from request metadata.
     ///
     /// `allow_bootstrap` is set only for `GetCredentials`, which uniquely accepts
-    /// the short-lived bootstrap token (and, during rollout, a legacy long-lived
-    /// token). Returns the token-level verdict; the task grant is resolved
+    /// both bootstrap and long-lived user tokens. Returns the token-level
+    /// verdict; the task grant is resolved
     /// separately by [`resolve_grant`](Self::resolve_grant) once the request's
     /// `task_id` is known (it arrives in-band on the streaming RPCs).
     #[allow(clippy::result_large_err)] // reason: tonic::Status is the required gRPC error type
@@ -324,8 +322,7 @@ impl SandboxAuthorizer {
     ///
     /// - `TaskBound`: the request's task must equal the claim's task, then the
     ///   claim's user must control it (owner or admin).
-    /// - `Claimless`: the request's task is authorized by the DB control check
-    ///   alone (the pre-binding behaviour).
+    /// - `Claimless`: the request's task is authorized by the DB control check.
     /// - `DevBypass`: trusted; a system-scope grant for the requested task.
     async fn resolve_grant(
         &self,
@@ -642,7 +639,7 @@ impl BackendSandboxServiceImpl {
 /// The three rejections are all unfixable by repetition, so they are
 /// [`AdmissionError::Invalid`] (gRPC `INVALID_ARGUMENT`) rather than retryable:
 /// an unknown event-type discriminant, an absent event id — without which
-/// neither deduplication nor idempotent persistence can converge (ADR-0006
+/// neither deduplication nor idempotent persistence can converge (the durable-ingress decision
 /// requires a *stable, non-empty* id) — and a payload that is not JSON.
 fn decode_request(event: &PublishEventRequest) -> Result<(&'static str, Value), AdmissionError> {
     // `event_type` is an open integer on the wire. Validate it here, at
@@ -691,7 +688,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     /// Success means the **complete payload is durably admitted** — committed
     /// state for a state-bearing event, a durable ingress-outbox record for full
     /// `agent.message` content, a `task_events` row for everything else
-    /// (ADR-0006). Anything short of that is a retryable `UNAVAILABLE` and the
+    /// (the durable-ingress decision). Anything short of that is a retryable `UNAVAILABLE` and the
     /// sandbox resends under the same id; the retry contract lives on
     /// [`AdmissionError`].
     ///
@@ -871,9 +868,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         // Check will_not_resume on the last result — if explicitly set,
         // don't pass a resume session ID. Also
-        // auto-skip resume when the last result row was an error: the prior
-        // turn blew up (e.g. codex `--resume` against a missing rollout) and
-        // resuming again would just loop the same failure.
+        // auto-skip resume when the last result row was an error: retrying the
+        // same resume session ID would loop the same failure.
         let task_resume_session_id = if task_resume_session_id.is_none() {
             None
         } else if cut_off {
@@ -1133,11 +1129,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         &self,
         request: Request<GetCredentialsRequest>,
     ) -> Result<Response<GetCredentialsResponse>, Status> {
-        // GetCredentials uniquely accepts the short-lived bootstrap token (and,
-        // during rollout, the legacy long-lived token) — this is where the
-        // sandbox trades up to the long-lived user token delivered below. The
-        // grant confirms the caller may operate on this task before we resolve
-        // and return its provider credentials.
+        // GetCredentials accepts bootstrap and long-lived user tokens. The grant
+        // confirms the caller may operate on this task before we resolve and
+        // return its provider credentials.
         let task_id = request.get_ref().task_id.clone();
         let grant = self
             .authorizer
@@ -1968,7 +1962,7 @@ enum DbContentBlock {
 /// ```json
 /// [{"type": "text", "text": "Hello"}, {"type": "image", "url": "...", "media_type": "image/png"}]
 /// ```
-/// Also handles a bare string as a single text block (edge case / legacy).
+/// Also handles a bare string as a single text block.
 fn parse_content_blocks(value: &Value) -> Vec<sandbox_proto::ContentBlock> {
     match value {
         Value::Array(items) => items

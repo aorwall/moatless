@@ -36,10 +36,9 @@ use crate::state::AppState;
 use crate::task::models::Task;
 
 /// The exact set of credential-resolution dependencies the GitHub preflight
-/// consumes. Bundled so the check no longer needs `&AppState` — the
-/// `TaskCreationService` (which never holds `AppState`) can own its own
-/// `PreflightCredentials`, while HTTP handlers build one from `AppState` via
-/// [`PreflightCredentials::from_state`]. All fields are cheap `Arc` clones.
+/// consumes. `TaskCreationService` owns its own `PreflightCredentials`, while
+/// HTTP handlers build one from `AppState` via [`PreflightCredentials::from_state`].
+/// All fields are cheap `Arc` clones.
 #[derive(Clone)]
 pub struct PreflightCredentials {
     pub secrets: Arc<SecretService>,

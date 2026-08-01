@@ -4,7 +4,7 @@ package sandbox.v1;
 // ── Backend gRPC API (sandbox is the client) ────────────────────
 
 service BackendSandboxService {
-  // Publish agent event (replaces Redis XADD from sandbox)
+  // Publish an agent event to backend durable ingress.
   rpc PublishEvent(PublishEventRequest) returns (PublishEventResponse);
 
   // Fetch pending user messages for this task
@@ -54,8 +54,8 @@ service BackendSandboxService {
   // periodically and on graceful shutdown. Auth via gRPC metadata.
   rpc UploadTranscript(stream TranscriptChunk) returns (UploadTranscriptResponse);
 
-  // Download the task's session-state archive previously stored by
-  // UploadTranscript, streamed back chunk by chunk. The sandbox untars it into
+  // Download the task's session-state archive stored by UploadTranscript,
+  // streamed back chunk by chunk. The sandbox untars it into
   // the Claude and Codex session dirs on startup so `--resume` history survives
   // the PVC lifecycle (and exists at all for the ephemeral tier). An empty
   // stream means "no session archive stored yet". Auth via gRPC metadata.
@@ -137,7 +137,7 @@ message PublishEventRequest {
   // Stable event identity assigned by the sandbox outbox at enqueue time and
   // held constant across retries. The backend dedupes retried deliveries on
   // this id at ingress (short-lived per-task LRU) so SSE consumers don't see
-  // duplicates. Empty string = legacy sender that predates the outbox.
+  // duplicates. Empty string = sender without outbox identity.
   string event_id = 5;
   // Monotonically increasing per-sandbox sequence number, assigned by the
   // outbox drainer in transmission order and reused across retries. Lets the

@@ -27,7 +27,7 @@ pub struct WorkspaceRepoInput {
     /// Subdir under the workspace dir (defaults to the repo name at runtime).
     #[serde(default)]
     pub mount_name: Option<String>,
-    /// Mark this placement as the primary (diff/PR/CLAUDE.md) repo. At most one
+    /// Mark this placement as the primary (diff/PR/AGENTS.md) repo. At most one
     /// primary is kept per workspace; when several are flagged the first wins.
     #[serde(default)]
     pub is_primary: Option<bool>,

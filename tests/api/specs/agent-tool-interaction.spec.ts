@@ -1,5 +1,5 @@
 /**
- * Standalone: Agent tool interaction (specs/agent/01-agent-scenarios.md)
+ * Standalone: Agent tool interaction
  *
  * Two things the agent does with tools that only show up end to end: pausing a
  * turn to ask the user a question, and spawning a subagent whose messages have

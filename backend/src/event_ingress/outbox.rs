@@ -1,7 +1,7 @@
 //! The durable ingress outbox: storage for admitted dispatch payloads.
 //!
 //! A record lives from durable admission until its consumer commits the message
-//! it carries. See the module docs on [`super`] for where this sits in ADR-0006.
+//! it carries. See the module docs on [`super`] for where this sits in the durable-ingress decision.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

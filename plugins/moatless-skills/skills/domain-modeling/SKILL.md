@@ -14,16 +14,12 @@ Most repos have a single context:
 ```
 /
 ├── CONTEXT.md
-├── docs/
-│   └── adr/
-│       ├── 0001-event-sourced-orders.md
-│       └── 0002-postgres-for-write-model.md
 └── src/
 ```
 
 If a `CONTEXT-MAP.md` exists at the root, the repo has multiple contexts — see [CONTEXT-FORMAT.md](./CONTEXT-FORMAT.md) for the map format and per-context layout.
 
-Create files lazily — only when you have something to write. If no `CONTEXT.md` exists, create one when the first term is resolved. If no `docs/adr/` exists, create it when the first ADR is needed.
+Create files lazily — only when you have something to write. If no `CONTEXT.md` exists, create one when the first term is resolved.
 
 ## During the session
 
@@ -51,6 +47,17 @@ When a term is resolved, update `CONTEXT.md` right there. Don't batch these up �
 
 `CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
 
-### Offer ADRs sparingly
+### Record decisions where they are active
 
-Offer an ADR only when the decision passes all three conditions in [ADR-FORMAT.md](./ADR-FORMAT.md) — hard to reverse · surprising without context · a real trade-off. Use its format too.
+Do not create a separate architecture-decision log for the repo.
+
+Route durable decisions to the smallest artifact that current work already owns:
+
+- In-flight change decisions go in the active `.plans/<slug>.md` Decisions table, but only for the agent implementing or reviewing that plan.
+- Domain vocabulary goes in `CONTEXT.md`; implementation decisions do not.
+- Durable implementation guidelines and decisions go in the nearest relevant `AGENTS.md`; keep `CLAUDE.md` as a symlink to it for Claude compatibility.
+- Shipped behaviour belongs in current code and tests. Do not recreate a standalone markdown specs tree for it.
+
+Plans and old decision records can rot. Treat them as leads, not authority; verify durable architecture and behaviour claims against current code and tests before relying on them.
+
+If none of those fits, ask before adding a new maintained place.

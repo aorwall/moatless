@@ -95,12 +95,9 @@ fn build_deployment_object(
                     "moatless.io/task-id": task_id,
                 }
             },
-            // Recreate (not the default RollingUpdate): the workspace PVC is a
-            // ReadWriteOnce EBS volume that can only attach to one node at a
-            // time. RollingUpdate would surge a new pod before the old one is
-            // gone, so the replacement gets a "Multi-Attach" error and stalls
-            // in Pending until AWS force-detaches (~1-6 min). Recreate tears the
-            // old pod fully down (volume detaches) before scheduling the new one.
+            // Recreate: the workspace PVC is a ReadWriteOnce EBS volume that can
+            // only attach to one node at a time. The current pod must terminate
+            // and detach the volume before a replacement is scheduled.
             "strategy": {
                 "type": "Recreate",
             },
@@ -111,7 +108,7 @@ fn build_deployment_object(
                 },
                 "spec": pod_spec_value,
             },
-            // Don't keep old ReplicaSets around
+            // Keep only the current ReplicaSet.
             "revisionHistoryLimit": 1,
         }
     }))
@@ -281,12 +278,8 @@ pub async fn delete_deployment(k8s: &K8sClient, task_id: &str) -> Result<(), kub
 /// Restart a Deployment gracefully: scale to 0, wait for the pod to fully
 /// terminate, then scale back to 1.
 ///
-/// We deliberately do NOT just delete the pod and let the ReplicaSet recreate
-/// it. That races the ReadWriteOnce workspace PVC: the ReplicaSet schedules a
-/// replacement pod immediately (possibly on another node) while the old pod is
-/// still `Terminating` and holding the EBS attachment, producing a
-/// "Multi-Attach" error that stalls the new pod in `Pending` for 1-6 min.
-/// Scaling to 0 first lets the volume detach before the replacement is created.
+/// Scaling to 0 first lets the ReadWriteOnce workspace PVC detach before the
+/// replacement pod is created.
 pub async fn restart_deployment(
     k8s: &K8sClient,
     task_id: &str,
@@ -305,18 +298,14 @@ pub async fn restart_deployment(
 
 /// Rebuild a task's Deployment from a (possibly filtered) provision request.
 ///
-/// Unlike [`restart_deployment`] (which restarts the *same* Deployment/spec by
-/// scaling it 0 -> 1), this replaces the Deployment's spec with a freshly built
-/// pod template. That is what makes a removed server container actually
-/// disappear from the running pod.
+/// Replaces the Deployment's spec with a freshly built pod template. Removed
+/// server containers disappear from the running pod through this path.
 ///
-/// The replace is done in place (GET + PUT) rather than delete + recreate:
-/// the Service and IngressRoutes carry an `ownerReference` to the Deployment,
-/// so deleting it cascades their deletion via K8s garbage collection — and
-/// this path never recreated them, leaving a live sandbox unreachable over
-/// gRPC with dead preview routes. Replacing preserves the Deployment UID, so
-/// no cascade fires, and the `Recreate` strategy still tears the old pod
-/// fully down (ReadWriteOnce PVC detaches) before scheduling the new one.
+/// The replace is done in place (GET + PUT). The Service and IngressRoutes carry
+/// an `ownerReference` to the Deployment, so the Deployment UID must be preserved
+/// to keep the sandbox reachable over gRPC and preview routes. The `Recreate`
+/// strategy still terminates the current pod and detaches the ReadWriteOnce PVC
+/// before scheduling the replacement.
 ///
 /// The existing workspace PVC is reused so no data is lost.
 pub async fn redeploy_with_plan(
@@ -329,8 +318,8 @@ pub async fn redeploy_with_plan(
 ) -> Result<(), SandboxError> {
     let pvc_name = pvc::find_task_pvc(k8s, task_id).await;
 
-    // Mint a fresh bootstrap token (+ legacy user token during rollout) for the
-    // rebuilt pod. The long-lived token is delivered over the credential channel.
+    // Mint fresh auth tokens for the rebuilt pod. The long-lived token is
+    // delivered over the credential channel.
     let minted = pod_builder::mint_sandbox_tokens(config, task_id, &request.user_id)?;
 
     let mut pod = pod_builder::build_pod(
@@ -391,10 +380,10 @@ fn pod_blocks_redeploy(pod: &Pod) -> bool {
     !matches!(phase, "Succeeded" | "Failed")
 }
 
-/// Poll until no non-terminal pods match the task's label selector (old pod
-/// fully gone), or the timeout elapses.
+/// Poll until no non-terminal pods match the task's label selector, or the
+/// timeout elapses.
 ///
-/// Returns an error on timeout: proceeding while an old pod still holds the
+/// Returns an error on timeout: proceeding while a terminating pod still holds the
 /// ReadWriteOnce workspace PVC lets the replacement race the attachment and
 /// stall in Pending with a "Multi-Attach" error for minutes — the exact failure
 /// this wait exists to prevent. Callers surface it as an environment error
@@ -436,7 +425,7 @@ async fn wait_for_pods_deleted_inner(
                 debug!(
                     task_id,
                     remaining = blocking,
-                    "Waiting for old pod(s) to terminate before redeploy"
+                    "Waiting for current pod(s) to terminate before redeploy"
                 );
             }
             Err(e) => {
@@ -452,7 +441,7 @@ async fn wait_for_pods_deleted_inner(
         if tokio::time::Instant::now() >= deadline {
             warn!(
                 task_id,
-                "Timed out waiting for old pod(s) to terminate before redeploy"
+                "Timed out waiting for current pod(s) to terminate before redeploy"
             );
             return Err(SandboxError::NotReady(format!(
                 "Timed out after {}s waiting for the previous sandbox pod to terminate; \
@@ -704,10 +693,9 @@ mod tests {
         }
     }
 
-    /// The redeploy path replaces the Deployment in place (PUT), which K8s only
-    /// accepts if the name and the immutable `spec.selector` match the existing
-    /// object. Both must therefore be deterministic functions of the task_id,
-    /// independent of the pod spec being wrapped.
+    /// Kubernetes accepts an in-place Deployment replace only when the name and
+    /// immutable `spec.selector` match the existing object. Both must therefore be
+    /// deterministic functions of the task_id, independent of the wrapped pod spec.
     #[test]
     fn build_deployment_object_is_stable_across_pod_specs() {
         let dep =
@@ -723,9 +711,8 @@ mod tests {
                 .map(String::as_str),
             Some("task-1")
         );
-        // Recreate is what lets the in-place replace skip the manual
-        // wait-for-termination: the controller tears the old pod down (RWO PVC
-        // detaches) before scheduling the replacement.
+        // Recreate lets the controller terminate the current pod and detach the
+        // RWO PVC before scheduling the replacement.
         assert_eq!(
             spec.strategy.as_ref().and_then(|s| s.type_.as_deref()),
             Some("Recreate")

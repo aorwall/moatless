@@ -500,8 +500,8 @@ pub(crate) async fn start(
 
     // stderr is logged and nothing more. Credential failures are recognised from
     // the named `codexErrorInfo` on the failed Turn, which is scoped to a
-    // `turnId`; the marker scan this used to run also matched background
-    // model-refresh noise (see `credentials::recovery`).
+    // `turnId`; background model-refresh stderr is not a turn failure signal
+    // (see `credentials::recovery`).
     if let Some(stderr) = child.stderr.take() {
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();

@@ -1,5 +1,5 @@
 /**
- * Chain: File Operations (file-operations.md)
+ * Chain: File Operations
  *
  * Tests workspace file API: listing, reading, tree, search, and write.
  * Requires a sandbox in ready state but no agent execution.

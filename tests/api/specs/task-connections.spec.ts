@@ -1,5 +1,5 @@
 /**
- * Standalone: Task Connections (specs/tasks/01-task-scenarios.md)
+ * Standalone: Task Connections
  *
  * `GET /api/v1/tasks/{id}/connections` is the per-task counterpart to the admin
  * list, and it is scope-checked exactly like reading the task: whoever can see

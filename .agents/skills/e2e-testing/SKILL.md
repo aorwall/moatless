@@ -23,8 +23,7 @@ a `k8s` run and anything else is `docker`. The resolved profile is printed at th
 top of every run; it is never left implicit.
 
 For operating or debugging a live cluster by hand, see the `kubernetes-testing`
-skill. For the plan this suite came out of, see
-`specs/one-e2e-suite-against-k8s.md`.
+skill.
 
 ---
 
@@ -172,9 +171,9 @@ down their own state, which is why the directory is not called `chains/`.
 
 ## Writing a chain
 
-1. **Find the scenario.** Coverage is specified in `specs/<domain>/NN-*.md`, and
-   each scenario has a permanent id (`TASK-05`, `SANDBOX-03.2`, `AGENT-09.1`).
-   Ids are never reused. A test's title is its id and the scenario's sentence.
+1. **Find the existing coverage.** Read nearby chains in `tests/api/specs/` and
+   the domain helpers they use. Scenario ids live in test titles and are never
+   reused.
 2. **Put it in the chain that owns the domain** —
    `tests/api/specs/<domain>-*.spec.ts`.
 3. **Speak through the fixtures**, not through raw HTTP — `api` for a single

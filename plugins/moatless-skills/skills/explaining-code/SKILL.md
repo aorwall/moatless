@@ -110,7 +110,7 @@ Tables are not a substitute here. They chunk, but they don't show shape.
 ## What not to do
 
 - **No component inventory.** A list of modules and their responsibilities is the thing that feels like an explanation and isn't.
-- **No backstory.** How it came to be this way is a different question. One line if a decision is load-bearing, with a link to the ADR.
+- **No backstory.** How it came to be this way is a different question. One line if a decision is load-bearing, with a link to the decision note.
 - **No alternatives they didn't ask about.** That's the spec workflow's job, not this one.
 - **No preamble.** The first line is the answer or the classification, never "Great question" or "Let me walk you through".
 - **Don't explain what they can see.** If they've quoted the function, start below it.

@@ -1,5 +1,5 @@
 /**
- * Standalone: Messages (specs/tasks/01-task-scenarios.md)
+ * Standalone: Messages
  *
  * The conversation accumulates. Creating a task with a message and then sending
  * another leaves both readable — no agent has to run for that to hold.

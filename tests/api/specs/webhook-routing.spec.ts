@@ -1,5 +1,5 @@
 /**
- * Chains 2-5: Webhook Inbound Routing (integrations-triggers-bindings.md)
+ * Chains 2-5: Webhook Inbound Routing
  *
  * Tests webhook inbound routing with by_subject and ongoing routing.
  *

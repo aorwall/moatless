@@ -89,11 +89,9 @@ impl K8sSandboxAdapter {
         // 1. Check for existing pod — never destroy, only reuse, wait, or rebuild on tag change
         let existing = self.check_existing_pod(task_id).await;
         if !matches!(existing, ExistingPodResult::NotFound) {
-            // A live Deployment can have lost its Service/IngressRoutes: they
-            // are owner-referenced to the Deployment, and the old redeploy path
-            // deleted + recreated it, cascading their deletion without ever
-            // recreating them. Without the Service the backend can't reach the
-            // sandbox over gRPC, so heal before taking any fast path.
+            // A live Deployment can have lost its Service/IngressRoutes. Without
+            // the Service the backend can't reach the sandbox over gRPC, so heal
+            // before taking any fast path.
             self.heal_network_resources(task_id, plan).await;
         }
         match existing {
@@ -186,8 +184,7 @@ impl K8sSandboxAdapter {
             ExistingPodResult::NotFound => {} // Continue provisioning
         }
 
-        // 2. Mint the pod's auth tokens (short-lived bootstrap + optional legacy
-        //    user token during rollout) from user_id directly (no DB lookup). The
+        // 2. Mint the pod's auth tokens from user_id directly (no DB lookup). The
         //    long-lived user token is delivered over the credential channel.
         let minted_tokens =
             pod_builder::mint_sandbox_tokens(&self.config, task_id, &request.user_id)?;
@@ -427,10 +424,10 @@ impl SandboxRuntime for K8sSandboxAdapter {
         }
 
         // 1. Delete Deployment (cascades to pods + ReplicaSets). Fail hard on
-        //    error: if the delete fails, the reprovision below hits 409 and
-        //    "reuses" the existing Deployment, so the old pod spec survives and
-        //    the redeploy is silently defeated. `delete_deployment` already
-        //    treats 404 as success, so this only fails on a genuine API error.
+        //    error: if the delete fails, reprovisioning hits 409 and reuses the
+        //    existing Deployment, so the stale pod spec survives and the redeploy
+        //    is silently defeated. `delete_deployment` already treats 404 as
+        //    success, so this only fails on a genuine API error.
         deployment::delete_deployment(&self.k8s, task_id)
             .await
             .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
@@ -504,8 +501,8 @@ impl SandboxRuntime for K8sSandboxAdapter {
         info!(task_id = %task_id, retain_storage, "Cleaning up sandbox (deleting all resources)");
 
         // Delete the Deployment first. Its ownerReferences make the Service and
-        // IngressRoutes children, while explicit deletes cover resources created
-        // before the ownership chain existed.
+        // IngressRoutes children, and explicit deletes make the absence check
+        // strict for every network resource.
         //
         // Every load-bearing step feeds `first_err`: a failure returns an error
         // so the caller retries and the `Removed` completion is withheld. Removal
@@ -813,9 +810,8 @@ impl K8sSandboxAdapter {
         }
     }
 
-    /// Recreate the sandbox Service (and IngressRoutes) if they went missing
-    /// while the Deployment lives on — e.g. cascade-deleted through their
-    /// Deployment `ownerReference` by the old delete+recreate redeploy path.
+    /// Recreate the sandbox Service and IngressRoutes if they went missing while
+    /// the Deployment lives on.
     /// Best-effort: failures are logged, not returned, so provisioning still
     /// proceeds (the notify path surfaces unreachability on its own).
     async fn heal_network_resources(&self, task_id: &str, plan: &ProvisionPlan) {
@@ -1019,9 +1015,8 @@ impl K8sSandboxAdapter {
             }
         };
 
-        // During a rolling update (old terminating pod + new starting pod both
-        // present) `list.items[0]` is arbitrary — pick the best pod so we report
-        // the replacement's status, not the dying pod's. Mirrors status_resolver.
+        // Multiple pods can be present during replacement. `list.items[0]` is
+        // arbitrary, so pick the best pod and mirror status_resolver.
         let Some(pod) = pick_best_pod(&list.items) else {
             return ExistingPodResult::Initializing; // Deployment exists but no pods yet
         };

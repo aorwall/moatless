@@ -48,7 +48,7 @@ _Avoid_: fork, detach
 **WorkspaceRepo**:
 A single repository's placement inside a Workspace — its branch override, mount
 name (subdir under the workspace directory), primary flag, and ordering. Exactly
-one placement is primary (the repo used for diffs, PRs, and CLAUDE.md).
+one placement is primary (the repo used for diffs, PRs, and AGENTS.md).
 
 **Default workspace**:
 The single-repo Workspace automatically derived for a Repository, so a Repository
@@ -334,7 +334,7 @@ seam separates them.
 **Transactional ingress outbox**:
 The durable spool the backend writes an admitted dispatch payload to before it
 answers the Sandbox's publish, plus the supervised relay that re-publishes an
-undelivered record until its consumer commits it (ADR-0006). It holds exactly
+undelivered record until its consumer commits it (the durable-ingress decision). It holds exactly
 one payload kind — full `agent.message` content, which `task_events` keeps only
 as a skeleton — and a record lives only from admission to that commit. This is
 the **only** thing the phrase "transactional outbox" names here.
@@ -379,7 +379,7 @@ owner (admins bypass both). Ownership is `COALESCE(owner_user_id, created_by)`. 
 additionally readable when its `visibility = 'public'` — read/interact only, never
 control. Secrets use this same Scope.
 _Note_: `Team` is **not** a scope — teams are an org/entity concept and grant no
-resource access (removed in the access-scope redesign, ADR 0006).
+resource access (removed in the access-scope redesign).
 _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify that.
 
 **Follow**:

@@ -278,7 +278,7 @@ impl EventHandlerConsumer {
                     if let Ok(event) = serde_json::from_str::<AgentEvent>(&payload_str) {
                         // Derived, UI-only `message.*` events are relayed to
                         // clients by the SSE consumer but must never be
-                        // persisted to `task_events` (ADR-0002). ACK and skip.
+                        // persisted to `task_events` (server-owned assembly). ACK and skip.
                         if event.event_type == EventType::Message {
                             entry_ids.push(entry_id);
                             continue;
@@ -322,7 +322,7 @@ impl EventHandlerConsumer {
 
     /// Persist an event to the database (best-effort, never blocks dispatch).
     ///
-    /// `agent.message` is persisted as a metadata skeleton (ADR-0003): its full
+    /// `agent.message` is persisted as a metadata skeleton (the agent.message skeleton): its full
     /// content is a transient ingestion payload consumed once (from Redis, by
     /// `dispatch_event`) to build the Message store, and must never accumulate
     /// as a second copy in the append-only `task_events` log.

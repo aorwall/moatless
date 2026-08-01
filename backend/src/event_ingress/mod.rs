@@ -1,4 +1,4 @@
-//! Durable admission of sandbox-published events (ADR-0006).
+//! Durable admission of sandbox-published events (the durable-ingress decision).
 //!
 //! The backend acknowledges a sandbox event only after the **complete dispatch
 //! payload** has reached the durability that event kind requires. Everything in
@@ -9,7 +9,7 @@
 //! | event kind | durable admission | why that is enough |
 //! |---|---|---|
 //! | state-bearing (`taskTurn.*`, `agent.completed`/`error`/`stopped`) | `apply_ingress_event` commits the event row, turn projection and task-status flip in one transaction | the state the event carries is committed before any fan-out |
-//! | `agent.message` | the full payload is written to the [transactional ingress outbox](outbox) | `task_events` holds nothing of a Message — not even a skeleton, since ADR-0003's persistence clause was withdrawn — so the outbox is its only durable home until the conversation commits |
+//! | `agent.message` | the full payload is written to the [transactional ingress outbox](outbox) | `task_events` holds no Message payload or skeleton, so the outbox is its only durable home until the conversation commits |
 //! | everything else | the full payload is committed to `task_events` | `task_events` is the event history; Redis is a disposable live tail |
 //!
 //! Publication to Redis happens **after** durable admission and never gates it:
@@ -222,10 +222,10 @@ impl EventAdmission<'_> {
         needs_consumer: bool,
     ) -> Result<bool, AdmissionError> {
         if needs_consumer {
-            // No `task_events` row: ADR-0003's persistence clause is withdrawn,
-            // so an `agent.message` has exactly one durable home on the way in —
-            // the outbox — and exactly one afterwards, the conversation. The
-            // outbox record alone is what gRPC success speaks for.
+            // An `agent.message` has one durable home on the way in: the
+            // outbox. After the consumer commits, the conversation is the
+            // canonical store. The outbox record alone is what gRPC success
+            // speaks for.
             let outbox = self.ingress_outbox.ok_or(AdmissionError::NotConfigured {
                 component: "ingress outbox",
             })?;

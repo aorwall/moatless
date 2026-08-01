@@ -49,7 +49,7 @@ export interface AgentEvent extends StreamEvent {
 }
 
 /**
- * Derived, UI-only event carrying a server-assembled Message (ADR-0002).
+ * Derived, UI-only event carrying a server-assembled Message (server-owned assembly).
  * `upsert` payload is the assembled `UiMessage`; `deleted` payload is its uuid.
  */
 export interface MessageUpsertEvent extends StreamEvent {
@@ -60,7 +60,7 @@ export interface MessageUpsertEvent extends StreamEvent {
 
 /**
  * Derived, UI-only event carrying one subagent's absolute activity summary
- * (ADR-0003 lazy subagents). Written through onto the cached parent Message's
+ * (lazy subagent summaries). Written through onto the cached parent Message's
  * `Agent` block; no subagent transcript content ever rides the wire.
  */
 export interface MessageSubagentProgressEvent extends StreamEvent {

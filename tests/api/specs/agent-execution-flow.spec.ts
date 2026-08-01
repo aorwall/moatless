@@ -1,5 +1,5 @@
 /**
- * Chain 1: Agent Execution & Multi-Turn (agent-execution.md)
+ * Chain 1: Agent Execution & Multi-Turn
  *
  * Happy-path agent execution: task creation, sandbox provisioning, agent
  * execution, file verification, and multi-turn conversation.

@@ -16,7 +16,7 @@
 //!   facts.
 //!
 //! What it deliberately does *not* do — because those belong to the backend or
-//! the coordinator (ADR-0002, ADR-0003):
+//! the coordinator (server-owned message assembly, the agent.message skeleton):
 //! - it never assembles the `tool_use` / `tool_result` Message envelope from an
 //!   item (one canonical `SourceEvent` per native item, in native order);
 //! - it never silently falls back to a fresh thread when a resume fails — it

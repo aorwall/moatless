@@ -96,7 +96,11 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         patch.total_cost_usd_increment = Some(cost);
     }
 
-    if let Err(e) = state.tasks.update_task(&event.task_id, &patch, &sys_ctx).await {
+    if let Err(e) = state
+        .tasks
+        .update_task(&event.task_id, &patch, &sys_ctx)
+        .await
+    {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task after completion");
     }
 
@@ -550,10 +554,9 @@ pub async fn handle_sandbox_fatal(state: &AppState, event: &AgentEvent) {
 ///
 /// The run CONTINUES — the fresh session is already starting — so this must not
 /// flip the task status, publish `task_turn.error`, or close the Linear turn
-/// gate. It writes nothing to the conversation either: an `agent` error subtype
-/// is not one of the four activity kinds, and the notice it used to write was an
-/// `error` Message, which is not something somebody said. The event itself is
-/// recorded and stays readable in the Events tab.
+/// gate. It writes nothing to the conversation: an `agent` error subtype is not
+/// one of the four activity kinds, and the event itself stays readable in the
+/// Events tab.
 pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentEvent) {
     let resume_error = event
         .payload
@@ -569,7 +572,7 @@ pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentE
 }
 
 /// Confirm delivery of the ingress-outbox record whose payload built this
-/// message, deleting it (ADR-0006).
+/// message, deleting it.
 ///
 /// A failed delete is not a failed delivery: the message is committed, and the
 /// stranded record's next re-publication converges on the same idempotent
@@ -579,8 +582,8 @@ async fn release_ingress_record(state: &AppState, task_id: &str, event_id: &str)
         Ok(true) => {
             metrics::counter!("event_ingress_delivered_total").increment(1);
         }
-        // No record: the event reached this consumer by a path that never
-        // spooled one (a republished lifecycle event, a pre-ADR-0006 sender).
+        // No record: this event reached the consumer without an ingress-outbox
+        // spool to release.
         Ok(false) => {}
         Err(e) => tracing::warn!(
             task_id,
@@ -595,7 +598,6 @@ async fn release_ingress_record(state: &AppState, task_id: &str, event_id: &str)
 ///
 /// Persists both assistant messages (text + tool_use blocks) and SDK user messages
 /// (tool_result blocks) to the database. Then extracts skill tags from assistant messages.
-/// Matches legacy Node.js `MessageService.saveAgentMessage()` behavior.
 pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     // 1. Determine message type from payload role
     //    SDK assistant → stored as "assistant"
@@ -654,14 +656,11 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     // once as it arrives rather than re-counting the whole Message every block.
     record_tool_call_metrics(state, event, &content, msg_role == "user").await;
 
-    // Per-block source events (ADR-0002): a native block carries `blockIndex`
-    // plus the single-block content array. Its index within the Message is what
-    // the mapping needs and the only thing it needs — a block's identity, and
-    // therefore its activity's id and its slot in the prose, is derived from it.
-    // Nothing is read back first: the splice this replaces was a
-    // read-modify-write over a shared JSON document, where two blocks that raced
-    // wrote over each other. Coalesced events (no `blockIndex`) carry the whole
-    // content array, whose first block is at 0.
+    // Per-block source events carry `blockIndex` plus a single-block content
+    // array. The block index is the stable identity for conversation mapping:
+    // it determines the activity id and prose slot without reading the current
+    // Message row back first. Coalesced events carry the whole content array,
+    // whose first block is at index 0.
     let block_index = event
         .payload
         .get("blockIndex")
@@ -878,7 +877,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 "Agent message persisted"
             );
             // The content is now in its canonical tables, so the durable ingress
-            // record that carried it here has done its job (ADR-0006). This is
+            // record that carried it here has done its job. This is
             // the system's only confirmation of delivery and therefore its only
             // delete: a record that survives is content the conversation never
             // got, and the relay keeps re-publishing it until this line runs.
@@ -891,7 +890,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 &content,
             )
             .await;
-            // Server-owned assembly (ADR-0002/0003). A subagent row (carrying a
+            // Server-owned assembly (server-owned assembly and skeleton-message model). A subagent row (carrying a
             // `parent_uuid` = the spawning `Agent` tool-use id) rides a
             // lightweight `subagentProgress` event and never streams transcript
             // content; a top-level row re-assembles the affected parent Message
@@ -970,7 +969,11 @@ pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) 
         ..Default::default()
     };
 
-    if let Err(e) = state.tasks.update_task(&event.task_id, &patch, &sys_ctx).await {
+    if let Err(e) = state
+        .tasks
+        .update_task(&event.task_id, &patch, &sys_ctx)
+        .await
+    {
         tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task metadata");
     }
 }

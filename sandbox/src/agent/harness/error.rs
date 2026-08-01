@@ -2,7 +2,7 @@
 //!
 //! The external seam classifies failures with a stable [`ErrorClass`] and states
 //! [`SessionImpact`] separately from the class. It never exposes a `retryable`
-//! policy boolean — the coordinator maps these facts to retry policy (ADR-0005).
+//! policy boolean — the coordinator maps these facts to retry policy (the harness-outcome boundary).
 
 use std::fmt;
 
@@ -21,9 +21,9 @@ pub enum FailureStage {
 
 /// Stable, provider-independent failure classification.
 ///
-/// These are the required classes from the spec. They replace provider error
-/// types at the external seam so the coordinator's retry policy never branches
-/// on Claude- or Codex-specific errors.
+/// These are the provider-independent classes exposed at the external seam, so
+/// the coordinator's retry policy never branches on Claude- or Codex-specific
+/// errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorClass {
     /// Credentials were rejected or could not be refreshed.

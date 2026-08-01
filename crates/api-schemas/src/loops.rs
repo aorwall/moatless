@@ -1,7 +1,7 @@
 //! Loop API schemas.
 //!
 //! A Loop is a standing definition of recurring agent work (CONTEXT.md,
-//! ADR-0001) that fires on a Schedule or a Subscription and drives one or more
+//! the Loop model decision) that fires on a Schedule or a Subscription and drives one or more
 //! Tasks. These types are the `/api/v1/loops` request/response DTOs plus the
 //! repo-sync outcome types for `.moatless/loops/<name>/LOOP.md` reconciliation.
 

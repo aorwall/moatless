@@ -112,7 +112,7 @@ pub trait WorkspaceDao: Send + Sync {
         workspace_ids: &[String],
     ) -> Result<Vec<WorkspaceRepo>, sqlx::Error>;
 
-    /// The workspace's primary repo placement (the diff/PR/CLAUDE.md target),
+    /// The workspace's primary repo placement (the diff/PR/AGENTS.md target),
     /// falling back to the lowest-`position` repo when none is flagged primary.
     async fn find_primary_repo(
         &self,

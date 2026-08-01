@@ -17,7 +17,7 @@ The spawn message must be fully self-contained. The next agent runs in a fresh s
 - Blockers, risks, and exact questions still needing an answer.
 - Suggested skills the next agent should invoke.
 
-Do not duplicate long content already captured in committed or durable artifacts such as specs, plans, ADRs, issues, commits, or diffs. Reference those artifacts by repo-relative path or URL, and attach the most relevant repo files as task contexts with `--context-file`.
+Do not duplicate long content already captured in committed or durable artifacts such as specs, plans, decision notes, issues, commits, or diffs. Reference those artifacts by repo-relative path or URL, and attach the most relevant repo files as task contexts with `--context-file`.
 
 Redact sensitive information, such as API keys, passwords, tokens, private keys, or personally identifiable information.
 

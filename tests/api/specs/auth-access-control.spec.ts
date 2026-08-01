@@ -1,7 +1,7 @@
 /**
- * Chain: Access Control (02-access-control-scenarios.md)
+ * Chain: Access Control
  *
- * Scope is two values (ADR-0006): `global` is readable by every authenticated
+ * Scope is two values (the access-scope redesign): `global` is readable by every authenticated
  * user and controlled by admins; `user` is read and controlled by its owner.
  * Admins bypass both. A task additionally grants read-and-interact when its
  * visibility is `public`, and never grants control.

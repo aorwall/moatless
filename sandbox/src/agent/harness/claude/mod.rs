@@ -14,7 +14,7 @@
 //! - [`classify`] maps SDK/result failures into stable `HarnessError` facts.
 //!
 //! What it deliberately does *not* do — because those belong to the backend or
-//! the coordinator, not the harness (ADR-0002, ADR-0003, ADR-0005):
+//! the coordinator, not the harness (server-owned message assembly, the agent.message skeleton, the harness-outcome boundary):
 //! - it never folds content blocks into an assembled Message (one `SourceEvent`
 //!   per native block, in native order);
 //! - it forwards repeated usage verbatim on every block (the backend admits it
@@ -194,8 +194,8 @@ impl ClaudeProcess {
 
     /// Resolve the resume mode for this input. `start_fresh` always wins; a
     /// `Last` (`--continue`) request is downgraded to fresh when there is no
-    /// on-disk transcript, matching the legacy launch path (a `--continue`
-    /// against an empty project dir makes the CLI exit immediately).
+    /// on-disk transcript, because `--continue` against an empty project dir
+    /// makes the CLI exit immediately.
     async fn resolve_resume(&self, input: &Input) -> Option<ResumeSession> {
         if input.start_fresh {
             return None;

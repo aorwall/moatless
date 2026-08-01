@@ -1,5 +1,5 @@
 /**
- * Chain: Auth Verify (03-login-session-scenarios.md)
+ * Chain: Auth Verify
  *
  * Tests the /api/v1/auth/verify endpoint behavior.
  *

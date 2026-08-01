@@ -1,13 +1,15 @@
-//! Codex-compatibility shims for Claude-flavored repos.
+//! Agent-instruction compatibility shims.
 //!
-//! When the agent type is Codex, the sandbox mirrors `AGENTS.md` next to every
-//! `CLAUDE.md` in the repo so Codex picks up the same instructions (Codex stacks
-//! AGENTS.md from repo root → cwd and reads the AGENTS.md in the directory of
-//! files it edits; see <https://developers.openai.com/codex/guides/agents-md>).
+//! `AGENTS.md` is the canonical instruction file for this repo. The sandbox
+//! links `CLAUDE.md` next to authored `AGENTS.md` files so Claude reads the same
+//! guidance. Legacy repos that only have `CLAUDE.md` still get an `AGENTS.md`
+//! link so Codex can read them (Codex stacks AGENTS.md from repo root to cwd and
+//! reads the AGENTS.md in the directory of files it edits; see
+//! <https://developers.openai.com/codex/guides/agents-md>).
 //!
-//! The mirror uses **symlinks** with relative targets so the source of truth
+//! The bridge uses **symlinks** with relative targets so the source of truth
 //! stays in the repo and edits don't drift. Existing files or symlinks at the
-//! destination are skipped — never overwritten — so authored `AGENTS.md` files
+//! destination are skipped — never overwritten — so authored instruction files
 //! in the repo are preserved.
 //!
 //! Skills are **not** mirrored here. Skills are discovered relative to the
@@ -36,35 +38,45 @@ const PRUNED_DIRS: &[&str] = &[
     ".cache",
 ];
 
-/// Walk `workspace_dir` and create `AGENTS.md` symlinks pointing at any
-/// `CLAUDE.md` found. Returns the number of symlinks created.
-pub(crate) fn mirror_claude_md_to_agents_md(workspace_dir: &Path) -> usize {
+/// Walk `workspace_dir` and create missing compatibility symlinks between
+/// `AGENTS.md` and `CLAUDE.md`. Returns the number of symlinks created.
+pub(crate) fn link_agent_instruction_files(workspace_dir: &Path) -> usize {
     if !workspace_dir.is_dir() {
         return 0;
     }
 
     let mut created = 0usize;
     walk_with_prune(workspace_dir, &mut |dir| {
-        let claude_md = dir.join("CLAUDE.md");
-        if !claude_md.is_file() {
-            return;
-        }
         let agents_md = dir.join("AGENTS.md");
-        // symlink_metadata reports presence even for broken symlinks — skip
-        // anything already at this path so authored AGENTS.md is preserved.
-        if std::fs::symlink_metadata(&agents_md).is_ok() {
+        let claude_md = dir.join("CLAUDE.md");
+
+        if agents_md.is_file() && std::fs::symlink_metadata(&claude_md).is_err() {
+            match symlink("AGENTS.md", &claude_md) {
+                Ok(()) => {
+                    debug!(path = %claude_md.display(), "Created CLAUDE.md -> AGENTS.md symlink");
+                    created += 1;
+                }
+                Err(e) => warn!(
+                    path = %claude_md.display(),
+                    error = %e,
+                    "Failed to create CLAUDE.md symlink",
+                ),
+            }
             return;
         }
-        match symlink("CLAUDE.md", &agents_md) {
-            Ok(()) => {
-                debug!(path = %agents_md.display(), "Created AGENTS.md → CLAUDE.md symlink");
-                created += 1;
+
+        if claude_md.is_file() && std::fs::symlink_metadata(&agents_md).is_err() {
+            match symlink("CLAUDE.md", &agents_md) {
+                Ok(()) => {
+                    debug!(path = %agents_md.display(), "Created AGENTS.md -> CLAUDE.md symlink");
+                    created += 1;
+                }
+                Err(e) => warn!(
+                    path = %agents_md.display(),
+                    error = %e,
+                    "Failed to create AGENTS.md symlink",
+                ),
             }
-            Err(e) => warn!(
-                path = %agents_md.display(),
-                error = %e,
-                "Failed to create AGENTS.md symlink",
-            ),
         }
     });
 
@@ -107,22 +119,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mirrors_claude_md_at_root_and_nested() {
+    fn links_claude_md_to_authored_agents_md_at_root_and_nested() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        fs::write(root.join("CLAUDE.md"), "root").unwrap();
+        fs::write(root.join("AGENTS.md"), "root").unwrap();
         fs::create_dir_all(root.join("nested")).unwrap();
-        fs::write(root.join("nested/CLAUDE.md"), "nested").unwrap();
+        fs::write(root.join("nested/AGENTS.md"), "nested").unwrap();
 
-        let count = mirror_claude_md_to_agents_md(root);
+        let count = link_agent_instruction_files(root);
 
         assert_eq!(count, 2);
-        let root_link = root.join("AGENTS.md");
-        let nested_link = root.join("nested/AGENTS.md");
-        assert_eq!(fs::read_link(&root_link).unwrap(), Path::new("CLAUDE.md"));
-        assert_eq!(fs::read_link(&nested_link).unwrap(), Path::new("CLAUDE.md"));
+        let root_link = root.join("CLAUDE.md");
+        let nested_link = root.join("nested/CLAUDE.md");
+        assert_eq!(fs::read_link(&root_link).unwrap(), Path::new("AGENTS.md"));
+        assert_eq!(fs::read_link(&nested_link).unwrap(), Path::new("AGENTS.md"));
         assert_eq!(fs::read_to_string(&root_link).unwrap(), "root");
         assert_eq!(fs::read_to_string(&nested_link).unwrap(), "nested");
+    }
+
+    #[test]
+    fn links_agents_md_for_legacy_claude_only_repos() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::write(root.join("CLAUDE.md"), "legacy").unwrap();
+
+        let count = link_agent_instruction_files(root);
+
+        assert_eq!(count, 1);
+        let agents_link = root.join("AGENTS.md");
+        assert_eq!(fs::read_link(&agents_link).unwrap(), Path::new("CLAUDE.md"));
+        assert_eq!(fs::read_to_string(&agents_link).unwrap(), "legacy");
     }
 
     #[test]
@@ -134,7 +160,7 @@ mod tests {
             fs::write(root.join(pruned).join("CLAUDE.md"), "skip").unwrap();
         }
 
-        let count = mirror_claude_md_to_agents_md(root);
+        let count = link_agent_instruction_files(root);
 
         assert_eq!(count, 0);
         for pruned in &["node_modules", "target", ".git"] {
@@ -143,30 +169,30 @@ mod tests {
     }
 
     #[test]
-    fn does_not_overwrite_existing_agents_md() {
+    fn does_not_overwrite_existing_claude_md() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        fs::write(root.join("CLAUDE.md"), "claude").unwrap();
-        fs::write(root.join("AGENTS.md"), "preexisting").unwrap();
+        fs::write(root.join("AGENTS.md"), "agents").unwrap();
+        fs::write(root.join("CLAUDE.md"), "preexisting").unwrap();
 
-        let count = mirror_claude_md_to_agents_md(root);
+        let count = link_agent_instruction_files(root);
 
         assert_eq!(count, 0);
         assert_eq!(
-            fs::read_to_string(root.join("AGENTS.md")).unwrap(),
+            fs::read_to_string(root.join("CLAUDE.md")).unwrap(),
             "preexisting"
         );
-        assert!(fs::read_link(root.join("AGENTS.md")).is_err());
+        assert!(fs::read_link(root.join("CLAUDE.md")).is_err());
     }
 
     #[test]
-    fn agents_md_mirror_is_idempotent() {
+    fn instruction_linking_is_idempotent() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        fs::write(root.join("CLAUDE.md"), "claude").unwrap();
+        fs::write(root.join("AGENTS.md"), "agents").unwrap();
 
-        let first = mirror_claude_md_to_agents_md(root);
-        let second = mirror_claude_md_to_agents_md(root);
+        let first = link_agent_instruction_files(root);
+        let second = link_agent_instruction_files(root);
         assert_eq!(first, 1);
         assert_eq!(second, 0);
     }

@@ -1,5 +1,5 @@
 /**
- * Standalone: Integration Error Cases (integrations-triggers-bindings.md)
+ * Standalone: Integration Error Cases
  *
  * Independent error scenario tests for integration operations.
  *

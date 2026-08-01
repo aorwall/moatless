@@ -176,8 +176,7 @@ impl DockerSandboxAdapter {
             .clone();
 
         // Docker mode is not etcd-exposed, so the long-lived token stays on the
-        // container env (USER_AUTH_TOKEN) as before — only the K8s path moves it
-        // to the credential channel.
+        // container env (USER_AUTH_TOKEN).
         let user_auth_token = jwt::generate_user_auth_token(
             &request.user_id,
             &request.user_id,

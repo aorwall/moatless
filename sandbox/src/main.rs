@@ -97,8 +97,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Create gRPC client for backend communication (required). The sandbox
-    // starts with a bootstrap token (or a persisted/legacy long-lived token) and
-    // swaps to the long-lived user token delivered over `GetCredentials`.
+    // starts with the best available initial token and swaps to the long-lived
+    // user token delivered over `GetCredentials`.
     #[allow(clippy::expect_used)] // fail-fast: sandbox cannot operate without backend connectivity
     let backend_client = BackendGrpcClient::connect(
         &config.backend_grpc_url,
@@ -122,13 +122,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let registrar = supervisor.registrar();
 
     // Spawn the at-least-once event send buffer and back the publisher with it.
-    // The drainer sends events in order with retry/backoff, so a backend rollout
-    // or network blip no longer silently drops agent/taskTurn events.
+    // The drainer sends events in order with retry/backoff across backend
+    // rollout and network interruptions.
     //
     // Fatal: once the drainer stops, `EventOutbox::enqueue` refuses admission in
-    // the same critical section as the buffer push and the outbox stays stopped —
-    // restarting a drainer against a live outbox is not supported. A pod that
-    // can no longer publish an event is a pod whose task appears frozen, so the
+    // the same critical section as the buffer push and the outbox stays stopped.
+    // A pod that cannot publish events makes its task appear frozen, so the
     // right remedy is to replace it. `into_join_handle` is the escape hatch the
     // outbox provides for exactly this: the supervisor owns termination policy,
     // so the outbox's own `shutdown(deadline)` is not used.
@@ -335,11 +334,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Start HTTP server (K8s health probes only). The bind still fails `main`
     // directly — there is nothing to supervise if the socket never opened.
     //
-    // Fatal: an early `serve` return leaves the probes unanswerable, which is
-    // how `main` already treated it (it was `main`'s terminal `await?`). The
-    // change is that axum's `with_graceful_shutdown` wait — previously the one
-    // *unbounded* step in teardown — now sits inside the supervisor's bounded
-    // join instead of ahead of it.
+    // Fatal: an early `serve` return leaves the probes unanswerable. The HTTP
+    // graceful-shutdown wait sits inside the supervisor's bounded join.
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = TcpListener::bind(addr).await?;
     info!(

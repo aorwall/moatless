@@ -54,8 +54,7 @@ pub(super) struct ItemBlock {
     pub role: Role,
     /// Suffix distinguishing this block's Message identity from the item's
     /// qualified id — empty for the primary block, `_result` for a paired
-    /// tool_result so it lands in its own user Message row (mirroring the legacy
-    /// `{id}` / `{id}_result` uuid split).
+    /// tool_result so it lands in its own user Message row.
     pub id_suffix: &'static str,
     pub block: CanonicalContentBlock,
     /// Typed Codex result, surfaced at the payload top level (`toolUseResult`)

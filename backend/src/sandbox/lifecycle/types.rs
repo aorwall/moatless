@@ -147,7 +147,7 @@ impl fmt::Display for ObservedStatus {
     }
 }
 
-/// Typed policy for task archives, replacing the bare `retain_storage: bool`.
+/// Typed policy for task archive retention.
 /// Runtime resources (Deployment, Service, IngressRoutes, **and the PVC**) are
 /// always removed regardless of this policy; it governs S3 archives and
 /// managed provider-local disk archives (opt-in Kubernetes node hostPaths and

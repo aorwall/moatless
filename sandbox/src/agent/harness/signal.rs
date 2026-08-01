@@ -42,7 +42,7 @@ pub struct SessionId(pub String);
 
 /// Input submitted to the harness. Turn configuration (model, mode, resume,
 /// fresh start) rides along, but it configures the Turn — it never selects the
-/// harness implementation, which is fixed at construction (ADR-0004).
+/// harness implementation, which is fixed at construction (the fixed-harness decision).
 ///
 /// Credential (`env`) and `system_prompt` resolution is the coordinator's job,
 /// and both can change between Turns (credential rotation, prompt refresh), so

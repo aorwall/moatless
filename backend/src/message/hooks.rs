@@ -4,10 +4,10 @@
 //! the tool call each result belongs to, unwrap the agent harness's shell
 //! wrapper, normalize line continuations — then hand the resulting command line
 //! and its output to the GitHub adapter's shell reconciler, which owns every
-//! GitHub-specific behaviour (see ADR-0007).
+//! GitHub-specific behaviour (the GitHub PR status/reaction design).
 //!
 //! Also hosts the derived, UI-only `message.upsert` / `subagentProgress`
-//! assembly (ADR-0002/0003).
+//! assembly (server-owned assembly and skeleton-message model).
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -103,7 +103,7 @@ pub async fn on_agent_message_persisted(
 }
 
 // =============================================================================
-// message.upsert — derived, UI-only assembled Message events (ADR-0002/0003)
+// message.upsert — derived, UI-only assembled Message events (server-owned assembly and skeleton-message model)
 // =============================================================================
 
 /// Inject `subagentSummary` onto every `Agent` tool-use block in `messages`

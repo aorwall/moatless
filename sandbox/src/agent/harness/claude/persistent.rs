@@ -35,7 +35,7 @@ use super::ClaudeConfig;
 /// The per-Input configuration the live session was opened with. A new Input
 /// compatible with this pastes into the live TUI; an incompatible one forces a
 /// replacement (kill + respawn with `--resume`). Agent type and system prompt
-/// are fixed for the Sandbox lifetime (ADR-0004), so only model, mode, and the
+/// are fixed for the Sandbox lifetime (the fixed-harness decision), so only model, mode, and the
 /// resumed Session id can diverge between Inputs.
 struct Fingerprint {
     model: Option<String>,
@@ -80,7 +80,7 @@ impl ClaudePersistentProcess {
     }
 
     /// Whether `input` cannot run inside the live session and needs a replacement
-    /// (kill + respawn with `--resume`). Mirrors the legacy tmux fingerprint.
+    /// (kill + respawn with `--resume`). Uses the same fingerprint fields as tmux.
     fn needs_restart(&self, input: &Input) -> bool {
         if input.start_fresh {
             return true;

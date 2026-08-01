@@ -31,9 +31,8 @@ pub struct UserTokenClaims {
     pub login: String,
     /// The task this token is minted for. A sandbox is provisioned per task, so
     /// its token is bound to exactly one task id; the verification layer rejects
-    /// any RPC whose in-band `task_id` disagrees with this claim. `None` only for
-    /// legacy claim-less tokens minted before this binding existed — accepted
-    /// during the rollout when the grace flag is on (see `SandboxAuthorizer`).
+    /// any RPC whose in-band `task_id` disagrees with this claim. `None` is
+    /// accepted only when the claim grace flag is on (see `SandboxAuthorizer`).
     #[serde(rename = "taskId", default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
     /// Issued at (unix timestamp)
@@ -42,9 +41,8 @@ pub struct UserTokenClaims {
     pub exp: u64,
     /// Issuer
     pub iss: String,
-    /// Audience. Unset for the long-lived user token (kept absent for backward
-    /// compatibility with the legacy 90-day token); set to [`AUDIENCE_BOOTSTRAP`]
-    /// for the short-lived bootstrap token.
+    /// Audience. Unset for the long-lived user token; set to
+    /// [`AUDIENCE_BOOTSTRAP`] for the short-lived bootstrap token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aud: Option<String>,
 }
@@ -124,21 +122,20 @@ pub fn generate_bootstrap_token(
     Ok(token)
 }
 
-/// The auth tokens minted for a sandbox pod: a short-lived bootstrap token
-/// (always) plus, during the rollout, the long-lived user token for old images.
+/// The auth tokens minted for a sandbox pod: a short-lived bootstrap token plus
+/// an optional long-lived user token.
 pub struct MintedSandboxTokens {
     /// Short-lived bootstrap token placed on the pod spec.
     pub bootstrap: String,
-    /// Long-lived user token, emitted as the legacy `USER_AUTH_TOKEN` env only
-    /// when `emit_legacy` is set. `None` once the flag is turned off.
+    /// Long-lived user token, emitted as `USER_AUTH_TOKEN` only when
+    /// `emit_legacy` is set.
     pub legacy_user_token: Option<String>,
 }
 
 /// Mint the auth tokens a sandbox pod needs.
 ///
 /// Always mints a bootstrap token (`bootstrap_ttl_secs`). When `emit_legacy` is
-/// set, also mints a long-lived user token (`user_ttl_secs`) so pods still
-/// running the pre-credential-channel sandbox image keep authenticating from the
+/// set, also mints a long-lived user token (`user_ttl_secs`) for the
 /// `USER_AUTH_TOKEN` env.
 pub fn mint_sandbox_tokens(
     user_id: &str,
@@ -210,8 +207,8 @@ pub fn verify_user_auth_token(
 /// Verify a token accepted for the initial `GetCredentials` call: either a
 /// short-lived bootstrap token or a long-lived user token.
 ///
-/// Used only by the `GetCredentials` handler. During the sandbox-image rollout
-/// an old sandbox still presents its long-lived token here, so both are honoured.
+/// Used only by the `GetCredentials` handler. Both bootstrap and long-lived user
+/// tokens are accepted here.
 pub fn verify_bootstrap_or_user_token(
     token: &str,
     secret: &str,
@@ -291,8 +288,7 @@ mod tests {
 
     #[test]
     fn user_token_accepted_by_bootstrap_verifier() {
-        // Transition compat: an old sandbox presents its long-lived token to
-        // GetCredentials, which must still accept it.
+        // GetCredentials accepts the long-lived user token.
         let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");

@@ -1,5 +1,5 @@
 /**
- * Chain: Repository CRUD (repository.md)
+ * Chain: Repository CRUD
  *
  * Tests repository creation from a real GitHub URL, retrieval, updates,
  * listing, and deletion.

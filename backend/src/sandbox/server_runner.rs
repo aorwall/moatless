@@ -37,8 +37,8 @@ const CONTROL_DIR: &str = "/opt/moatless/workspace/.moatless/servers";
 
 /// Build the `bash -c` script for one server's sidecar.
 ///
-/// `start_commands` are joined with `&&` (as before) and become the fallback
-/// used whenever no override is present.
+/// `start_commands` are joined with `&&` and become the fallback used whenever
+/// no override is present.
 pub fn build_server_start_script(server_name: &str, start_commands: &[String]) -> String {
     let default_cmd = shell_single_quote(&start_commands.join(" && "));
     let ctl = shell_single_quote(&format!("{CONTROL_DIR}/{server_name}"));

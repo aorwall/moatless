@@ -3,7 +3,7 @@
  *
  * The deployed environment's database is shared and long-lived: there is no
  * truncate to fall back on, and no tenancy boundary to hide behind — resource
- * scope is only global or per-user, and teams grant no access (ADR-0006). So
+ * scope is only global or per-user, and teams grant no access (the access-scope redesign). So
  * the suite enforces the convention on itself. Every resource a test creates is
  * named through `scopedName`, which stamps it with the run's own prefix.
  *

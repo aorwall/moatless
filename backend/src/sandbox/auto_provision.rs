@@ -65,22 +65,17 @@ pub async fn build_provision_request(
         })?
         .ok_or_else(|| SandboxError::Internal(format!("Task '{task_id}' not found in database")))?;
 
-    // Gate: never provision a pod for a Closed task. A webhook racing a close
-    // (Fix D commits `Closed` first) lands here and is rejected, so the close
-    // can no longer be undone by a re-provision — the direct fix for the
-    // "close started it again" race. Only `Closed` is gated: `Error` stays
-    // resumable to match `start_task`.
+    // Gate: never provision a pod for a Closed task. A webhook racing a close is
+    // rejected here because the Closed status is authoritative. Only `Closed` is
+    // gated: `Error` stays resumable to match `start_task`.
     if task.status == crate::task::models::TaskStatus::Closed {
         return Err(SandboxError::BadRequest(format!(
             "Task '{task_id}' is closed; refusing to provision a sandbox"
         )));
     }
 
-    // Resolve which repository this task provisions. When the task references a
-    // workspace (Phase A backfills a shadow workspace per repo), use the
-    // workspace's primary repo; otherwise fall back to the legacy
-    // `repository_id`. In Phase A the shadow workspace's primary repo equals
-    // `repository_id`, so the single-repo provisioning path is unchanged.
+    // Resolve which repository this task provisions. Workspace-backed tasks use
+    // the workspace's primary repo; repository-backed tasks use `repository_id`.
     let repository_id = resolve_primary_repository_id(workspaces, &task).await;
 
     info!(
@@ -116,10 +111,9 @@ pub async fn build_provision_request(
     let git_branch = task.branch.clone().or(repo.default_branch.clone());
     let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
 
-    // Run-config source: the task's workspace. insert_task backfills a shadow
-    // workspace for every task, so this is present for any real task. The repo
-    // row is still read above for the primary checkout's URL/branch/provider,
-    // which stay their own plan fields for the legacy `GIT_CLONE_URL` env.
+    // Run-config source: the task's workspace. The repo row is still read above
+    // for the primary checkout's URL/branch/provider, which also feed the
+    // `GIT_CLONE_URL` env.
     let workspace = match task.workspace_id.as_deref() {
         Some(ws_id) => workspaces
             .find_by_id(ws_id, &repo_sys)
@@ -132,8 +126,7 @@ pub async fn build_provision_request(
     };
 
     // Every repository the workspace places in the sandbox. The primary is
-    // always first and always present (it is the repo row read above), so a
-    // single-repo workspace produces exactly the checkout the pod got before.
+    // always first and always present.
     let placements = resolve_placements(repos, workspaces, task_id, task.workspace_id.as_deref())
         .await
         .unwrap_or_default();
@@ -176,10 +169,9 @@ pub async fn build_provision_request(
             .insert("SANDBOX_USE_TMUX".to_string(), "true".to_string());
     }
 
-    // The Task's selected Agent harness is fixed for the Sandbox lifetime
-    // (ADR-0004): pass it at construction so the sandbox resolves its harness
-    // once and pending Messages can no longer switch it. Inserted after the
-    // workspace env so the authoritative Task selection overrides any stray
+    // The Task's selected Agent harness is fixed for the Sandbox lifetime:
+    // pass it at construction so the sandbox resolves its harness once. Inserted
+    // after the workspace env so the authoritative Task selection overrides any stray
     // workspace-level `AGENT_TYPE`.
     env_vars
         .get_or_insert_with(std::collections::HashMap::new)
@@ -221,7 +213,7 @@ pub async fn build_provision_request(
         repo_config.preview_config = None;
     }
 
-    // Drop servers this task previously auto-disabled (crash-loop remediation).
+    // Drop servers this task already auto-disabled (crash-loop remediation).
     // Persisted per-task so it survives stop/start and never affects sibling
     // tasks sharing the same repository.
     let disabled = parse_disabled_servers(&task);
@@ -268,8 +260,8 @@ struct ResolvedPlacement {
 /// repository row.
 ///
 /// Returns `None` when the task has no workspace or the placements can't be
-/// read — provisioning then falls back to the primary-only checkout list, which
-/// is exactly the pre-multi-repo behaviour. Individual placements whose
+/// read — provisioning then falls back to the primary-only checkout list.
+/// Individual placements whose
 /// repository row is missing or has no remote URL are dropped with a warning
 /// rather than failing the whole provision: the workspace still has a usable
 /// primary, and a dangling placement is a config problem, not a runtime one.
@@ -350,13 +342,11 @@ async fn resolve_placements(
 /// Assemble the ordered checkout list the sandbox clones: the primary first,
 /// then the remaining placements by `position`.
 ///
-/// The primary's URL/branch/provider come from the caller (they are the plan's
-/// legacy single-repo fields, and the task's branch override already applied),
-/// so `repos[0]` is byte-identical to what a single-repo plan carried before —
-/// including its mount name, which an existing sandbox's persistent volume
-/// already holds the checkout at. Mount names are sanitized to one path segment
-/// and de-duplicated, with the primary claiming its name first so its directory
-/// never moves.
+/// The primary's URL/branch/provider come from the caller with the task's branch
+/// override already applied. The primary mount name stays stable because an
+/// existing sandbox's persistent volume already holds the checkout there. Mount
+/// names are sanitized to one path segment and de-duplicated, with the primary
+/// claiming its name first so its directory never moves.
 fn build_repo_checkouts(
     placements: &[ResolvedPlacement],
     primary_repository_id: &str,
@@ -440,12 +430,10 @@ fn unique_mount_name(requested: String, used: &HashSet<String>) -> String {
 }
 
 /// Resolve the repository a task provisions against: the workspace's primary
-/// repo when `task.workspace_id` is set, else the legacy `task.repository_id`.
+/// repo when `task.workspace_id` is set, else `task.repository_id`.
 ///
 /// Falls back to `repository_id` when the workspace is empty or the lookup
-/// fails, so provisioning is never blocked by workspace-resolution issues. In
-/// Phase A a task's shadow workspace has exactly one primary repo equal to
-/// `repository_id`, so the resolved repository is unchanged.
+/// fails, so provisioning is never blocked by workspace-resolution issues.
 async fn resolve_primary_repository_id(
     workspaces: &dyn WorkspaceDao,
     task: &Task,
@@ -587,9 +575,8 @@ mod tests {
         }
     }
 
-    /// A single-repo workspace must produce exactly the checkout the pod carried
-    /// before multi-repo support: the primary URL/branch/provider from the plan's
-    /// legacy fields, mounted at the URL-derived name its volume already uses.
+    /// A single-repo workspace produces one primary checkout at the URL-derived
+    /// mount name its volume already uses.
     #[test]
     fn single_repo_workspace_yields_one_primary_checkout() {
         let placements = vec![placement(
@@ -742,7 +729,7 @@ mod tests {
     }
 
     /// No placements readable (no workspace, or a DB error) still provisions the
-    /// primary repo — the pre-multi-repo path.
+    /// primary repo.
     #[test]
     fn no_placements_still_yields_the_primary_checkout() {
         let checkouts = build_repo_checkouts(

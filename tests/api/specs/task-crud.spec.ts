@@ -1,5 +1,5 @@
 /**
- * Chain: Task CRUD (task-crud.md)
+ * Chain: Task CRUD
  *
  * Pure API chain — no sandbox or agent execution needed.
  * Tests task creation, retrieval, updates, tagging, visibility, and deletion.

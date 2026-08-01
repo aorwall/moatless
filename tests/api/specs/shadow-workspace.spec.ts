@@ -1,5 +1,5 @@
 /**
- * Standalone: Shadow workspace primary (specs/workspaces/01-git-override-scenarios.md)
+ * Standalone: Shadow workspace primary
  *
  * A repository's shadow workspace `ws_<repo>` is written by two paths that used
  * to disagree. Creating a task inserts the placement under a deterministic id;

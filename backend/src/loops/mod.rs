@@ -1,7 +1,7 @@
 //! Loop domain module.
 //!
 //! A Loop is the standing definition of recurring agent work (CONTEXT.md,
-//! ADR-0001): its firing conditions (a Schedule or Subscription), the config
+//! the Loop model decision): its firing conditions (a Schedule or Subscription), the config
 //! used to spawn tasks, and the runtime paths that fire it. This module owns
 //! the whole domain:
 //!

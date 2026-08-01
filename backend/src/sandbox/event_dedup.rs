@@ -5,7 +5,7 @@
 //! same event under the same `event_id` and `sequence`. This module makes that
 //! retry converge instead of duplicating.
 //!
-//! Deduplication records **admission, not receipt** (ADR-0006). A delivery
+//! Deduplication records **admission, not receipt** (the durable-ingress decision). A delivery
 //! claims its event id, and the claim only becomes a lasting "already admitted"
 //! once the complete payload is durably admitted; a failed admission releases
 //! the claim so the retry gets a real second attempt. A duplicate that arrives

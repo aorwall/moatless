@@ -1,4 +1,4 @@
-//! Admission and relay behaviour (ADR-0006), driven through the seams the
+//! Admission and relay behaviour (the durable-ingress decision), driven through the seams the
 //! gRPC ingress and the relay actually use.
 
 use std::sync::{Arc, Mutex};
@@ -254,10 +254,7 @@ fn plain_request(event_id: &str) -> AdmissionRequest {
 }
 
 /// Event-row writer double recording an `"event-row"` on `insert_event`.
-fn recording_events(
-    rec: &Recorder,
-    fail: bool,
-) -> Arc<dyn crate::task_event::dao::TaskEventDao> {
+fn recording_events(rec: &Recorder, fail: bool) -> Arc<dyn crate::task_event::dao::TaskEventDao> {
     let mut events = MockTaskEventDao::new();
     let rec = rec.clone();
     events.expect_insert_event().returning(move |_| {
@@ -396,9 +393,11 @@ async fn agent_message_is_spooled_before_fan_out_and_published_whole() {
     .await
     .expect("a spooled payload is a durable admission");
 
-    // No `task_events` row: ADR-0003's persistence clause is withdrawn, so the
-    // outbox record is the whole of what gRPC success speaks for.
-    assert_eq!(*rec.lock().expect("recorder poisoned"), ["spool", "publish"]);
+    // The outbox record is the whole of what gRPC success speaks for.
+    assert_eq!(
+        *rec.lock().expect("recorder poisoned"),
+        ["spool", "publish"]
+    );
     assert_eq!(outbox.event_ids(), ["evt-5"]);
 
     // The consumer rebuilds the conversation from the published payload, so it
@@ -518,9 +517,8 @@ async fn agent_message_without_an_outbox_is_not_admitted() {
     assert!(error.is_retryable());
 }
 
-/// An `agent.message` never touches `task_events` — ADR-0003's persistence
-/// clause is withdrawn and the table is lifecycle-only — so a failing event
-/// repository has no say in whether one is admitted.
+/// An `agent.message` never touches `task_events`, so a failing event repository
+/// has no say in whether one is admitted.
 #[tokio::test]
 async fn an_agent_message_is_admitted_with_no_event_row_at_all() {
     let rec: Recorder = Arc::new(Mutex::new(Vec::new()));

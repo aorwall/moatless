@@ -872,9 +872,8 @@ impl Lifecycle {
     /// Durably abandon a stale caller-owned edge. The deterministic `Error`
     /// fact and marker clear commit atomically, then the fact is published.
     ///
-    /// `kind` is the abandoned edge's own operation, so the published fact
-    /// distinguishes "the restart we gave up on" from a runtime failure — both
-    /// previously read "Sandbox operation failed".
+    /// `kind` is the abandoned edge's own operation, so the published fact names
+    /// that operation rather than using a generic runtime-failure label.
     pub(crate) async fn abandon_edge(
         &self,
         task_id: &str,

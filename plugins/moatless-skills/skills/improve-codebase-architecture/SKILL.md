@@ -11,7 +11,7 @@ Surface architectural friction and propose **deepening opportunities** — refac
 This command is _informed_ by the project's domain model and built on a shared design vocabulary:
 
 - Run the `/codebase-design` skill for the architecture vocabulary and principles; use its terms exactly in every suggestion.
-- The domain language in `CONTEXT.md` gives names to good seams; ADRs in `docs/adr/` record decisions this command should not re-litigate.
+- The domain language in `CONTEXT.md` gives names to good seams; local `AGENTS.md` files record committed choices this command should not re-litigate.
 
 ## Process
 
@@ -22,7 +22,7 @@ This command is _informed_ by the project's domain model and built on a shared d
 - If the user named a direction — a module, a subsystem, a pain point — take it, and skip the inference below.
 - Otherwise, walk back a good stretch of the commit history (`git log --oneline`) to find the codebase's hot spots — the files and areas that keep coming up — and let those paths pull your attention first. If the changes are scattered with no clear hot spot, widen the net.
 
-Read the project's domain glossary (`CONTEXT.md`) and any ADRs in the area you're touching first.
+Read the project's domain glossary (`CONTEXT.md`) and local committed decisions from `AGENTS.md` files in the touched directory and its parents first.
 
 Then use the Agent tool with `subagent_type=Explore` to walk the codebase. Don't follow rigid heuristics — explore organically and note where you experience friction:
 
@@ -51,7 +51,7 @@ End the report with a **Top recommendation** section: which candidate you'd tack
 
 **Use CONTEXT.md vocabulary for the domain, and the `/codebase-design` vocabulary for the architecture.** If `CONTEXT.md` defines "Order," talk about "the Order intake module" — not "the FooBarHandler," and not "the Order service."
 
-**ADR conflicts**: if a candidate contradicts an existing ADR, only surface it when the friction is real enough to warrant revisiting the ADR. Mark it clearly in the card (e.g. a warning callout: _"contradicts ADR-0007 — but worth reopening because…"_). Don't list every theoretical refactor an ADR forbids.
+**Decision conflicts**: if a candidate contradicts an existing committed decision, only surface it when the friction is real enough to warrant changing the decision. Mark it clearly in the card. Do not list every theoretical refactor an old decision forbids.
 
 See [HTML-REPORT.md](HTML-REPORT.md) for the architecture-review layer: style additions, card anatomy, diagram patterns, and tone.
 
@@ -65,5 +65,5 @@ Side effects happen inline as decisions crystallize — run the `/domain-modelin
 
 - **Naming a deepened module after a concept not in `CONTEXT.md`?** Add the term to `CONTEXT.md`. Create the file lazily if it doesn't exist.
 - **Sharpening a fuzzy term during the conversation?** Update `CONTEXT.md` right there.
-- **User rejects the candidate with a load-bearing reason?** Offer an ADR, framed as: _"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"_ Only offer when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing — skip ephemeral reasons ("not worth it right now") and self-evident ones.
+- **User rejects the candidate with a load-bearing reason?** Record it in the active report/spec, or ask whether to add it to the repo's maintained decision log. Only do this when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing — skip ephemeral reasons ("not worth it right now") and self-evident ones.
 - **Want to explore alternative interfaces for the deepened module?** Run the `/codebase-design` skill and use its design-it-twice parallel sub-agent pattern.

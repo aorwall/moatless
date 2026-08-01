@@ -155,7 +155,7 @@ const TOOL_INVALIDATION_REGISTRY: Readonly<
 
 /**
  * Turn-final events that reconcile the newest messages page — the firehose-drop
- * safety net beside live `message.upsert` (ADR-0002). Streaming `agent.message`
+ * safety net beside live `message.upsert` (server-owned assembly). Streaming `agent.message`
  * is deliberately absent: the server-assembled `message.upsert` keeps the Chat
  * live, so there is no per-message refetch.
  */
@@ -166,7 +166,7 @@ const MESSAGE_REFRESH_EVENT_TRIGGERS: ReadonlyArray<{ type: Event['type']; subTy
 ]
 
 /**
- * Apply a derived `message.*` event to the messages cache (ADR-0002/0003 — the
+ * Apply a derived `message.*` event to the messages cache (server-owned assembly and skeleton-message model — the
  * frontend renders, it does not assemble). `upsert` replaces-or-inserts the
  * server-assembled `UiMessage` by uuid; `subagentProgress` writes an absolute
  * subagent summary through onto the cached parent's `Agent` block. No-op when
@@ -251,7 +251,7 @@ export function invalidateMessagesForEvent(event: Event, queryClient: QueryClien
 /**
  * Extract the tool names an `agent.message` source event carries.
  *
- * Prefers the skeleton's `toolNames` field (ADR-0003 — the source event's
+ * Prefers the skeleton's `toolNames` field (the agent.message skeleton — the source event's
  * persisted/relayed form is a metadata skeleton, and tool-invalidation reads a
  * field, not content). Falls back to parsing `message.content` for the
  * transitional window before the relay is slimmed / rows are backfilled; that

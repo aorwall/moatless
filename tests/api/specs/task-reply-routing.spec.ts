@@ -1,5 +1,5 @@
 /**
- * Standalone: Task reply routing (specs/channels/01-channel-scenarios.md)
+ * Standalone: Task reply routing
  *
  * A reply has to go somewhere. Where is decided by the task's bindings: a task
  * with none has no destination, a task with one needs no choosing, and a task

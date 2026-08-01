@@ -93,7 +93,7 @@ export function WorkspaceReposPanel({
     <ConfigurationGroup title="Repositories" showSeparator>
       <p className="text-muted-foreground text-sm">
         Repositories checked out into this workspace. The primary repo owns the diff, PR, and
-        CLAUDE.md.
+        AGENTS.md.
       </p>
       <div className="space-y-2">
         {placements.length === 0 ? (

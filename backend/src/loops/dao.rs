@@ -2,15 +2,11 @@
 //! that persist a Loop: `loops`, `loop_configs`,
 //! `subscriptions`, and `schedules`.
 //!
-//! A Loop is the standing definition of recurring agent work (CONTEXT.md,
-//! ADR-0001). Its persistence was previously spread across `dao.rs`,
-//! earlier config DAO, HTTP handlers, the schedule runner, and the git-loop
-//! reconciler, each hand-rolling overlapping SQL. This module consolidates all
-//! of that behind one plain struct holding a `DbPool` (the
-//! `TaskCreationService` precedent, ADR-0004).
+//! A Loop is the standing definition of recurring agent work; see `CONTEXT.md`
+//! for terminology. This module owns loop persistence behind one plain struct
+//! holding a `DbPool`; do not add a single-impl trait.
 //!
-//! The SQL here is a verbatim relocation of the previous call sites: same
-//! queries, same transactions, one home.
+//! Keep loop SQL here so reads, writes, and transactions share one home.
 
 use std::collections::HashSet;
 

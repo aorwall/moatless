@@ -55,11 +55,8 @@ use tracing::{error, info, warn};
 
 /// Bounded time budget for joining every supervised task on shutdown.
 ///
-/// This is the *only* shutdown join in the process — it subsumes what used to be
-/// a separate 1s join of the event outbox drainer, and it also now bounds axum's
-/// `with_graceful_shutdown` wait, which `main` previously awaited without any
-/// bound at all. It is the last bounded step of a teardown budget accounted
-/// against the pod's ~30s grace period; see the table on
+/// This is the *only* shutdown join in the process and the last bounded step of
+/// a teardown budget accounted against the pod's ~30s grace period; see the table on
 /// `crate::shutdown::OUTBOX_FLUSH_TIMEOUT` before changing it.
 ///
 /// Two seconds is enough: every task registered here either selects over the

@@ -1,5 +1,5 @@
 /**
- * Chain 3: Plan Mode (agent-execution.md)
+ * Chain 3: Plan Mode
  *
  * Agent execution in plan mode: the agent produces a plan for user approval
  * before making changes.

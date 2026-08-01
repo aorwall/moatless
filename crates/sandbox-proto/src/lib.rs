@@ -25,7 +25,7 @@ pub use moatless_events;
 ///
 /// `sandbox.v1.EventType` is deliberately narrower than
 /// `moatless_events::EventType`: `message.*` events are derived by the backend
-/// while assembling `task_messages` (ADR-0003) and never originate in a sandbox.
+/// while assembling `task_messages` (the agent.message skeleton) and never originate in a sandbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnrepresentableEventType(pub moatless_events::EventType);
 

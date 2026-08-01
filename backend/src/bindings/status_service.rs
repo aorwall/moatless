@@ -34,7 +34,7 @@ use crate::state::AppState;
 /// The terminal rule is a *polling* rule only. Webhook persistence stays
 /// unconditional, so a reopened pull request or a reactivated issue overwrites
 /// a terminal status and becomes refreshable again. If that webhook is missed
-/// nothing re-polls (see ADR-0007 — a backstop poll was considered and
+/// nothing re-polls (the GitHub PR status/reaction design — a backstop poll was considered and
 /// rejected).
 pub(crate) fn should_refresh(
     status: &dyn AdapterBindingStatus,

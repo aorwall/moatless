@@ -27,7 +27,7 @@ use crate::supervisor::SupervisorHealth;
 pub struct SandboxState {
     /// Immutable configuration.
     pub config: Arc<Config>,
-    /// gRPC event publisher (replaces Redis event publisher).
+    /// gRPC event publisher.
     pub events: GrpcEventPublisher,
     /// Agent execution state (status, session, cancel token, pending prompts).
     pub agent: Arc<AgentState>,

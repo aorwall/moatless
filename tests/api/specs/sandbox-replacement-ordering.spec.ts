@@ -1,5 +1,5 @@
 /**
- * Standalone: Sandbox replacement ordering (specs/agent/01-agent-scenarios.md)
+ * Standalone: Sandbox replacement ordering
  *
  * A message sent while the sandbox is down is persisted, and the replacement
  * sandbox is provisioned to answer it. The ordering is the contract: the

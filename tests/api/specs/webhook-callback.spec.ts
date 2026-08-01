@@ -1,5 +1,5 @@
 /**
- * Chain 6: Webhook Outbound Callback (integrations-triggers-bindings.md)
+ * Chain 6: Webhook Outbound Callback
  *
  * Tests that the backend delivers outbound callback POSTs to the
  * webhook config's callback_url when an agent completes a task.

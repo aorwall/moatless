@@ -1,5 +1,5 @@
 /**
- * Standalone: Feedback (specs/tasks/01-task-scenarios.md)
+ * Standalone: Feedback
  *
  * Feedback is filed against a task and optionally narrowed to one message, or to
  * one tool call inside that message. Only the user-filed path is covered here —

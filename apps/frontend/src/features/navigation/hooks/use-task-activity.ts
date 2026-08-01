@@ -106,7 +106,7 @@ export function extractMessagePreview(event: Event): string | null {
     }
   }
 
-  // Skeleton (ADR-0003): the source event carries no content — surface the
+  // Skeleton (the agent.message skeleton): the source event carries no content — surface the
   // first tool the agent reached for from the skeleton's `toolNames`.
   const toolNames = (event.payload as { toolNames?: unknown })?.toolNames
   if (Array.isArray(toolNames) && typeof toolNames[0] === 'string') {

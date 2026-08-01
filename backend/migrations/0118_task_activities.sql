@@ -110,10 +110,10 @@ ALTER TABLE task_messages ADD COLUMN IF NOT EXISTS message_text text;
 
 -- The splice buffer for a Message still being assembled.
 --
--- Prose arrives one block at a time (ADR-0002), out of order and sometimes
--- twice. `message_text_parts[i] = $x` is subscripted assignment, which enlarges
--- the array and creates it from NULL, so a block lands in the same slot however
--- it arrives — the idempotency the jsonb splice this replaces used to provide.
+-- Prose arrives one block at a time, out of order and sometimes twice.
+-- `message_text_parts[i] = $x` is subscripted assignment, which enlarges the
+-- array and creates it from NULL, so a block lands in the same slot however it
+-- arrives.
 -- `message_text` is then `array_to_string(parts, E'\n\n')`, which skips NULL
 -- holes left by blocks that are not prose.
 --

@@ -355,8 +355,7 @@ pub struct LogsQuery {
     /// Fetch logs from the previous container instance (useful for crashed containers).
     #[serde(default)]
     pub previous: bool,
-    /// Hold the stream open and append new lines. Defaults to true, which is
-    /// what every caller got before the parameter existed.
+    /// Hold the stream open and append new lines. Defaults to true.
     #[serde(default = "default_follow")]
     pub follow: bool,
     /// How many lines back from the end to start.
@@ -437,9 +436,8 @@ pub async fn server_logs_handler(
 //
 // The consequence for these handlers is that the sandbox is the only source of
 // truth, so a partial update is a read-modify-write over gRPC. That is not
-// atomic against a concurrent PATCH to the same server — but neither was the
-// read-task/patch-task version it replaces, and this is a per-task debugging
-// surface, not a concurrent one.
+// atomic against a concurrent PATCH to the same server. This is a per-task
+// debugging surface, not a concurrent one.
 
 /// List the overrides currently in effect, read off the sandbox's workspace.
 ///

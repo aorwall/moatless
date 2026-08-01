@@ -1,5 +1,5 @@
 /**
- * Standalone: Sandbox Error Cases (sandbox-operations.md)
+ * Standalone: Sandbox Error Cases
  *
  * Independent tests — each creates and tears down its own resources.
  *

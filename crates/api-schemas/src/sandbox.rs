@@ -37,7 +37,7 @@ pub struct RepoCheckout {
     /// Subdirectory under `WORKSPACE_DIR` this repo is cloned into. Always a
     /// single safe path segment (see [`sanitize_mount_name`]).
     pub mount_name: String,
-    /// The "main" repo: diff, PR, `CLAUDE.md`, setup commands, servers.
+    /// The "main" repo: diff, PR, `AGENTS.md`, setup commands, servers.
     #[serde(default)]
     pub is_primary: bool,
 }

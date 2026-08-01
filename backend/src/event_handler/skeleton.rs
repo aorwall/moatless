@@ -1,6 +1,5 @@
 //! One shared projection reducing an `agent.message` source event to its
-//! **relayed metadata skeleton** — what is left of ADR-0003 once its
-//! persistence clause is withdrawn.
+//! relayed **metadata skeleton**.
 //!
 //! A Message's content is written once, to the conversation. The full
 //! `agent.message` content is a **transient ingestion payload**: the Sandbox
@@ -20,7 +19,7 @@
 //! It is applied wherever the event is broadcast to clients, and **nowhere** on
 //! the Redis ingestion path the consumer reads to build the conversation.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Project an `agent.message` **inner payload** (the `AgentEventPayload` body:
 /// `{ message: { role, content }, uuid, … }`) to its metadata skeleton.

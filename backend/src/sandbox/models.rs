@@ -8,7 +8,7 @@ pub use moatless_api_schemas::sandbox::{
     derive_mount_name, sanitize_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV,
 };
 
-// Re-export pod_status functions that were previously defined here
+// Keep pod-status extraction available from the sandbox model surface.
 pub use crate::sandbox::k8s::pod_status::extract_container_observed_statuses;
 
 /// Provision plan sent from TS backend
@@ -25,8 +25,7 @@ pub struct ProvisionRequest {
 pub struct ProvisionPlan {
     pub repo_config: RepoConfig,
     /// The primary repository's clone URL. Mirrors `repos[0]`, which is always
-    /// the primary checkout; kept as its own field because the sandbox's legacy
-    /// `GIT_CLONE_URL` env is still how a pre-multi-repo sandbox image finds it.
+    /// the primary checkout; kept as its own field for the `GIT_CLONE_URL` env.
     pub git_clone_url: String,
     /// The primary repository's branch. Mirrors `repos[0].branch`.
     pub git_branch: Option<String>,
@@ -36,8 +35,7 @@ pub struct ProvisionPlan {
     /// Custom environment variables
     pub env_vars: Option<HashMap<String, String>>,
     /// Every repository the task's workspace places in the sandbox, primary
-    /// first. Empty only for a plan deserialized from a legacy payload, where
-    /// `git_clone_url` is the sole checkout.
+    /// first. Empty only when `git_clone_url` is the sole checkout.
     #[serde(default)]
     pub repos: Vec<RepoCheckout>,
 }
@@ -729,7 +727,7 @@ mod tests {
     }
 
     // =========================================================================
-    // ServerConfig deserialization (backwards compat)
+    // ServerConfig deserialization defaults
     // =========================================================================
 
     #[test]

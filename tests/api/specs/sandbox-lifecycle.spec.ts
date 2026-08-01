@@ -1,5 +1,5 @@
 /**
- * Chain: Sandbox Lifecycle (sandbox-operations.md)
+ * Chain: Sandbox Lifecycle
  *
  * Tests sandbox provisioning, idempotent re-provision, stop, start, restart,
  * and cleanup. Uses a task without an initial message so the agent stays idle.

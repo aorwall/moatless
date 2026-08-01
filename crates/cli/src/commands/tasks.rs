@@ -1416,13 +1416,13 @@ mod tests {
 
     #[test]
     fn context_files_become_file_contexts() {
-        let contexts = context_files_to_contexts(&["specs/tasks/00-design.md".to_string()]);
+        let contexts = context_files_to_contexts(&["CONTEXT.md".to_string()]);
 
         assert_eq!(contexts.len(), 1);
         match &contexts[0] {
             MessageContextInput::File { reference_id, data } => {
-                assert_eq!(reference_id, "specs/tasks/00-design.md");
-                assert_eq!(data.filename, "00-design.md");
+                assert_eq!(reference_id, "CONTEXT.md");
+                assert_eq!(data.filename, "CONTEXT.md");
                 assert_eq!(data.mime_type, "text/markdown");
             }
             _ => panic!("expected file context"),

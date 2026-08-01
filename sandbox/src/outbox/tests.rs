@@ -366,7 +366,7 @@ async fn retries_reuse_a_stable_event_id_and_sequence() {
     // Fail the first 3 attempts; the drainer must retry the same event and
     // deliver it exactly once, preserving its identity. The backend's
     // deduplication and idempotent persistence both key on that identity
-    // (ADR-0006), so every attempt — not just the accepted one — has to
+    // (the durable-ingress decision), so every attempt — not just the accepted one — has to
     // carry the same non-empty id and the same sequence.
     let (backend, received) = MockBackend::new(3);
     let attempts = Arc::clone(&backend.attempts);

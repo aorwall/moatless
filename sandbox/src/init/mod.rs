@@ -576,11 +576,9 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     // 4. For the `s3` storage backend, try to restore a full-repo snapshot from
     //    S3 *before* cloning. A snapshot that carries `.git` is a complete repo
     //    at the exact prior HEAD + index + dirty working tree, so restoring it
-    //    lets us skip the clone entirely — no fresh clone of an advanced base
-    //    branch to drift against (which previously surfaced upstream changes as
-    //    phantom uncommitted "reverts"). Returns false (leaving the workspace
+    //    lets us skip the clone entirely. Returns false (leaving the workspace
     //    empty) for a fresh task, a disabled feature, a failed transfer, or a
-    //    legacy working-tree-only snapshot — in which case we clone below.
+    //    working-tree-only snapshot — in which case we clone below.
     let restored_full_repo = if state.config.workspace_sync_enabled {
         let restored = workspace_sync::restore_on_start(state).await;
         if restored {
@@ -604,7 +602,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     //
     // `workspace_recloned` tracks whether a *fresh* clone actually replaced the
     // primary repo (as opposed to a full S3 restore, an EBS/PVC volume that
-    // already held it, or a legacy overlay onto a fresh clone). When true,
+    // already held it, or an overlay onto a fresh clone). When true,
     // ephemeral pre-restart state (gitignored deps/build artifacts, out-of-repo
     // files, unpushed commits / uncommitted changes) is gone, and we tell a
     // resuming agent so below.
@@ -666,22 +664,21 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         .await;
     }
 
-    // 8. Mirror CLAUDE.md → AGENTS.md throughout the repo so Codex finds the same
-    // instructions Claude does (Codex reads the AGENTS.md in the directory of
-    // files it edits). Runs unconditionally — agent type is decided per-message;
-    // symlinks are cheap, idempotent, and harmless when Claude is the active
-    // agent. Skills are installed into the home dirs below, not mirrored here.
+    // 8. Link AGENTS.md/CLAUDE.md instruction files so both agents see the same
+    // guidance. AGENTS.md is canonical when present; CLAUDE-only repos get an
+    // AGENTS.md link for Codex. Runs unconditionally because agent type is
+    // decided per-message. Skills are installed into home dirs below.
     if !state.config.repo_dir.is_empty() {
         let repo_dir = PathBuf::from(&state.config.repo_dir);
-        let agents_md = run_init_blocking("mirror_claude_md_to_agents_md", move || {
-            codex_compat::mirror_claude_md_to_agents_md(&repo_dir)
+        let instruction_links = run_init_blocking("link_agent_instruction_files", move || {
+            codex_compat::link_agent_instruction_files(&repo_dir)
         })
         .await?;
-        if agents_md > 0 {
+        if instruction_links > 0 {
             publish_sandbox_event(
                 state,
                 "CodexCompatMirrored",
-                &format!("Mirrored {agents_md} AGENTS.md for Codex"),
+                &format!("Linked {instruction_links} agent instruction file(s)"),
                 false,
             )
             .await;
@@ -722,12 +719,10 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     //    feature) is non-fatal.
     transcript_sync::download_on_start(state).await;
 
-    // 10. Legacy S3 overlay: only when workspace sync is on AND we did *not*
-    //     already restore a full repo in step 4 (i.e. the stored snapshot is a
-    //     working-tree-only "legacy" archive without `.git`, or none existed and
-    //     we cloned). Overlays the persisted working tree onto the fresh clone so
-    //     the agent sees restored edits. New-format snapshots skip this — they
-    //     were fully restored before the clone. Best-effort and non-fatal.
+    // 10. S3 working-tree overlay: only when workspace sync is on AND we did not
+    //     already restore a full repo in step 4. Overlays the persisted working
+    //     tree onto the fresh clone so the agent sees restored edits. Best-effort
+    //     and non-fatal.
     if state.config.workspace_sync_enabled && !restored_full_repo {
         workspace_sync::download_on_start(state).await;
     }

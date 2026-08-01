@@ -1,5 +1,5 @@
 /**
- * Standalone: Loop recent tasks (specs/channels/01-channel-scenarios.md)
+ * Standalone: Loop recent tasks
  *
  * `GET /api/v1/loops/{id}/tasks` answers from the task's own loop id, not
  * from a binding. That distinction is the whole point: a schedule loop never

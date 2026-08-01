@@ -57,8 +57,8 @@ impl Normalizer {
     }
 
     /// Qualify a native id with the Session and per-spawn nonce so it survives
-    /// Codex's per-resume `item_0` restart without colliding. Mirrors the legacy
-    /// `{session}_{nonce}_{item}` UUID scheme so persisted reads line up.
+    /// Codex's per-resume `item_0` restart without colliding. The
+    /// `{session}_{nonce}_{item}` shape keeps persisted reads stable.
     fn qualify(&self, session: &SessionId, native: &str) -> String {
         format!("{}_{}_{native}", session.0, self.nonce)
     }

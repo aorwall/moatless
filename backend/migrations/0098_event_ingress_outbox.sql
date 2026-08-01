@@ -1,17 +1,17 @@
--- Transactional ingress outbox for sandbox-published event payloads (ADR-0006).
+-- Transactional ingress outbox for sandbox-published event payloads (the durable-ingress decision).
 --
 -- The backend acknowledges a sandbox event only after the complete dispatch
 -- payload has reached the durability that event kind requires. Most kinds get
 -- that from `task_events` (full payload) or `task_turns` (committed state).
--- `agent.message` cannot: ADR-0003 makes its `task_events` row a metadata
+-- `agent.message` cannot: the agent.message skeleton makes its `task_events` row a metadata
 -- skeleton, so the full content has no durable home between the gRPC ack and
 -- the consumer's `task_messages` commit.
 --
 -- This table is that home. It is a **transient spool**, not an event log:
 -- one row exists only from admission until the consumer commits the message,
 -- which deletes it. `task_messages` remains the canonical message record and
--- `task_events` still stores only the ADR-0003 skeleton — this is deliberately
--- NOT the permanent `task_events` copy ADR-0003 removed.
+-- `task_events` still stores only the agent.message skeleton — this is deliberately
+-- NOT the permanent `task_events` copy the agent.message skeleton removed.
 --
 -- Retry: the relay claims due rows (`next_attempt_at <= now`, `FOR UPDATE SKIP
 -- LOCKED`), reschedules them with exponential backoff in the same statement, and

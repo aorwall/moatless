@@ -1,6 +1,6 @@
 /**
- * Chain 1: Subscription Loop CRUD (integrations-triggers-bindings.md)
- * Chain 2: Schedule Loop CRUD (specs/channels/01-channel-scenarios.md)
+ * Chain 1: Subscription Loop CRUD
+ * Chain 2: Schedule Loop CRUD
  *
  * Pure API chains — subscription and schedule loop creation, retrieval, updates, deletion.
  *

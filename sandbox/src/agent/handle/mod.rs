@@ -49,7 +49,7 @@ const AGENT_TYPE_CODEX: &str = "codex";
 /// Resolve a raw agent-type string into the canonical harness identifier,
 /// rejecting values this Sandbox has no harness for.
 ///
-/// Used to validate the Task's fixed selection at Sandbox construction (ADR-0004):
+/// Used to validate the Task's fixed selection at Sandbox construction (the fixed-harness decision):
 /// an unsupported harness is an invalid-configuration failure surfaced at
 /// startup rather than a silent fall-through to Claude. The Claude transport,
 /// model, and mode variants all resolve to the one Claude harness — they are
@@ -69,7 +69,7 @@ pub(crate) fn resolve_agent_harness(raw: &str) -> Result<&'static str, String> {
     }
 }
 
-/// Construct the single Agent harness fixed for this Sandbox (ADR-0004),
+/// Construct the single Agent harness fixed for this Sandbox (the fixed-harness decision),
 /// selected by the resolved agent type: Codex, or Claude over the persistent
 /// (tmux) or one-shot (subprocess) transport per `config.use_tmux`. An
 /// unsupported type is an invalid-configuration failure surfaced at startup,

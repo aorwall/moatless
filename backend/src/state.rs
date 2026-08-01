@@ -138,7 +138,7 @@ pub struct AppState {
     pub secrets: Arc<SecretService>,
     pub teams: Arc<dyn TeamDao>,
     pub task_events: Arc<dyn TaskEventDao>,
-    /// Transactional ingress outbox (ADR-0006). The event-handler consumer
+    /// Transactional ingress outbox (the durable-ingress decision). The event-handler consumer
     /// deletes a record here once it has committed the message that record
     /// carries — the only confirmation of delivery in the system.
     pub ingress_outbox: Arc<dyn IngressOutbox>,

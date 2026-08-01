@@ -713,8 +713,8 @@ async fn process_watcher_event(
                 // a still-stuck pod doesn't re-emit its blocked/slow event.
                 new_state.scheduling_blocked_published = prev.scheduling_blocked_published;
                 new_state.startup_slow_published = prev.startup_slow_published;
-                // Carry a still-pending auto-stop so a scale-to-0 that previously
-                // failed is retried on this event (see the auto-stop block below).
+                // Carry a still-pending auto-stop so a failed scale-to-0 is
+                // retried on this event (see the auto-stop block below).
                 new_state.auto_stop_pending = prev.auto_stop_pending;
             }
             // Start (or carry over) the GC clock for pods in the terminal
@@ -1689,8 +1689,8 @@ async fn fetch_sandbox_logs(k8s: &K8sClient, pod_name: &str, tail_lines: i64) ->
     }
 }
 
-/// Best-effort lookup of the most relevant K8s Event reason+message for a pod,
-/// used to name the cause of a stuck-Pending / slow-start window (e.g.
+/// Best-effort lookup of the most relevant K8s Event reason+message for a pod.
+/// Names the cause of a stuck-Pending / slow-start window (e.g.
 /// `FailedScheduling`, `FailedAttachVolume`, `Multi-Attach error for volume …`).
 ///
 /// Lists core/v1 Events with a field selector on `involvedObject.name`, prefers

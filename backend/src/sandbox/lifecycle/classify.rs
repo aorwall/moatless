@@ -44,8 +44,8 @@ impl ObservedTransition {
 
 /// A single watcher observation carrying the *observed* generation stamped on
 /// the resource (K8s pod-template label / Docker container label). `None` for
-/// a resource with no generation label (legacy / pre-migration), which is
-/// treated as un-correlatable and so never suppressed as a superseded echo.
+/// a resource with no generation label; these observations are un-correlatable
+/// and never suppressed as a superseded echo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Observation {
     pub transition: ObservedTransition,

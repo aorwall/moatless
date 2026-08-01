@@ -1,5 +1,5 @@
 /**
- * Chain: Workspace git override (specs/workspaces/01-git-override-scenarios.md)
+ * Chain: Workspace git override
  *
  * A workspace a repository declares is read-only: the repository is the source
  * of truth, and editing it in the UI would be edited away by the next sync.

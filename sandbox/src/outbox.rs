@@ -1,16 +1,8 @@
 //! At-least-once send buffer for the sandbox → backend event hop.
 //!
-//! `GrpcEventPublisher::publish_event` used to be fire-and-forget: a single
-//! gRPC attempt whose failures were logged at `warn` and dropped. During any
-//! backend unavailability (rollout, network blip) every `agent.message` /
-//! `agent.completed` / `taskTurn.*` event for that window was permanently lost.
-//! Everything downstream (Redis consumer groups, `task_events`, the reaper) is
-//! at-least-once, but only for events that entered the pipeline — so a lost
-//! `taskTurn/active` made a stuck turn invisible to the reaper.
-//!
-//! This module makes the hop at-least-once **for every event the backend can
-//! accept**. `enqueue` is non-blocking and never fails the caller; a single
-//! background drainer task sends events in order with exponential backoff
+//! The hop is at-least-once **for every event the backend can accept**. `enqueue`
+//! is non-blocking and never fails the caller; a single background drainer task
+//! sends events in order with exponential backoff
 //! (capped at 30s), preserving per-task ordering and assigning a monotonically
 //! increasing `sequence` in transmission order so the backend can spot
 //! duplicates/restarts. An event the backend *permanently refuses* is the
@@ -69,36 +61,22 @@
 //! Markers are drainer-generated and never enter the buffer, so a saturated
 //! buffer cannot block announcing its own saturation.
 //!
-//! # What this does not promise
+//! # Boundaries
 //!
-//! Four things an earlier version of this module quietly provided, and no longer
-//! does. Each is a deliberate trade, not an oversight:
-//!
-//! - **A lifecycle event can now be refused.** It used to be undroppable — the
-//!   buffer grew past its caps rather than lose one. That is what made the caps
-//!   fiction and left the pod one long backend outage away from an OOM kill,
-//!   which loses *every* buffered event including all the lifecycle ones. A
-//!   refusal at saturation loses strictly less, and it is loud (an error log, a
-//!   counter, and its own marker on the stream) where an OOM kill is silent.
-//!   Callers still cannot fail on it: `enqueue` does not report it.
+//! - **A lifecycle event can be refused at saturation.** The refusal is loud:
+//!   an error log, a counter, and its own marker on the stream. Callers still
+//!   cannot fail on it: `enqueue` does not report it.
 //! - **An event the backend permanently refuses is dropped, not retried.** For
 //!   that one event the hop is at-most-once. Retrying is what would be wrong:
 //!   the head of a single in-order drainer never clears, so one refused event
 //!   would take the task's whole remaining stream with it. The gap is announced
 //!   like any other.
-//! - **Producer activity no longer cuts a retry backoff short.** The old drainer
-//!   woke from its sleep whenever a new event arrived and re-attempted at once,
-//!   so a busy producer defeated the backoff entirely and hammered an
-//!   unreachable backend. The cost of fixing that: after the backend recovers,
-//!   the next attempt can now be up to a full backoff (30s, reached only after
-//!   ~1 minute of continuous failure) away. Shutdown is unaffected —
-//!   [`EventOutbox::flush`] still nudges the drainer awake, which is the case
-//!   where latency actually matters.
-//! - **The drainer no longer stops when the last producer handle drops.**
-//!   Cancellation is its only termination condition, which is what makes
-//!   termination something [`OutboxDrainerHandle`] can supervise. Nothing
-//!   depended on the old exit: the handle lives in `SandboxState` for the whole
-//!   process lifetime.
+//! - **Producer activity does not cut a retry backoff short.** After backend
+//!   recovery, the next attempt can be up to a full backoff away. Shutdown is
+//!   unaffected: [`EventOutbox::flush`] nudges the drainer awake.
+//! - **Cancellation is the drainer's only termination condition.** The handle
+//!   lives in `SandboxState` for the whole process lifetime and is supervised
+//!   through [`OutboxDrainerHandle`].
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};

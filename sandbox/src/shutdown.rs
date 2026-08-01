@@ -33,10 +33,9 @@ use crate::state::SandboxState;
 /// **Anything added here has to come out of that margin** — check this table
 /// before introducing another bounded step, and update it if you do.
 ///
-/// The supervisor join is the single owner of the arithmetic at the tail: it
-/// replaced a separate 1s join of the event outbox drainer, and it also absorbed
-/// axum's `with_graceful_shutdown` wait, which `main` used to await *unbounded*
-/// between the flushes and the drainer join.
+/// The supervisor join is the single owner of the arithmetic at the tail,
+/// including the HTTP server's graceful-shutdown wait and the outbox drainer
+/// join.
 ///
 /// On timeout the drainer keeps retrying in the background until the process
 /// exits — best-effort, not a hard guarantee.

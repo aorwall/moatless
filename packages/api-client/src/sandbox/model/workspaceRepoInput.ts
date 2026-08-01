@@ -16,7 +16,7 @@ export interface WorkspaceRepoInput {
    */
   branch?: string | null;
   /**
-   * Mark this placement as the primary (diff/PR/CLAUDE.md) repo. At most one
+   * Mark this placement as the primary (diff/PR/AGENTS.md) repo. At most one
 primary is kept per workspace; when several are flagged the first wins.
    * @nullable
    */

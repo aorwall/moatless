@@ -9,7 +9,7 @@
 //!
 //! This is ordering, not an outbox: nothing is spooled here and nothing relays
 //! or deletes these rows. "Transactional outbox" names only the durable
-//! payload-and-relay path in [`crate::event_ingress`] (ADR-0006).
+//! payload-and-relay path in [`crate::event_ingress`] (the durable-ingress decision).
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

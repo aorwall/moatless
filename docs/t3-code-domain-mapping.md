@@ -54,8 +54,8 @@ Three reasons, all structural:
    nearly all of them derive from `packages/contracts`, the single source of
    types for its server, web, and mobile targets. One rename there propagates by
    type error.
-3. **This repository already has the written glossary.** `CONTEXT.md` plus a
-   numbered ADR set. T3 Code has `docs/` but no glossary file.
+3. **This repository already has the written glossary.** `CONTEXT.md` is the
+   maintained vocabulary source. T3 Code has `docs/` but no glossary file.
 
 Where a concept exists only in T3 Code, **T3 Code's name carries over unchanged**
 — there is nothing to harmonize with.
@@ -67,7 +67,7 @@ Where a concept exists only in T3 Code, **T3 Code's name carries over unchanged*
 | `Thread` | `Task` | Genuine synonym. Rename in T3 Code. |
 | `Turn` (`projection_turns`) | `Turn` (`task_turns`) | Already identical. Status enums are not the same size — `running·interrupted·completed·error` (four) vs `active·completed·error·stopped·interrupted` (five) — and the shared word `interrupted` does not mean the same thing on both sides. Mapping settled; see the known gaps below. |
 | `Session` (`projection_thread_sessions`) | `Session` | Same concept — the resumable provider conversation. Moatless additionally splits out `Sandbox` as the durable pod-lifecycle intent; T3 Code's session row carries both concerns. |
-| Message | `TaskMessage` + content blocks | T3 Code stores flat rows; Moatless stores one row with N blocks and folds tool results into the calling assistant message at assembly (ADR-0002). |
+| Message | `TaskMessage` + content blocks | T3 Code stores flat rows; Moatless stores one row with N blocks and folds tool results into the calling assistant message at assembly (server-owned assembly). |
 | Activity (`projection_thread_activities`) | `task_events` | **Not equivalent.** T3 Code's activities are a projection; `task_events` is history. |
 | `Project` | `Workspace` | Mapped (`projectId ↔ workspaces.id`), but **not** a synonym — see below. Do not rename either. |
 | `Environment` | — | T3 Code only. Keep the name. |
@@ -273,7 +273,7 @@ same something.
   into a listing that no longer exists.
 - **Moatless federates over access scope.** Rows carry `scope` (`Global` or
   `User`) plus ownership, and every query is filtered by a `ScopeContext`. Teams
-  are an org concept and grant no resource access (ADR 0006).
+  are an org concept and grant no resource access (the access-scope redesign).
 
 T3 Code has nowhere to express *who may see this*; Moatless has nowhere to
 express *this task lives on a machine I am not connected to right now*. The
@@ -311,7 +311,7 @@ not need Moatless's events to be authoritative. It needs one question answered:
 and `task_events (id, task_id)` is the obvious place to answer it from. Both
 systems already converged on *idempotent full upsert keyed on a stable id* — T3
 Code's shell re-read, and Moatless's derived `message.upsert` keyed on the
-persisted `uuid` (ADR-0002) — which is what makes this tractable at all.
+persisted `uuid` (server-owned assembly) — which is what makes this tractable at all.
 
 **But `task_events.id` is not a safe cursor as-is, and this must be settled before
 anything is built on it.** A `bigserial` is assigned at `INSERT` and made visible

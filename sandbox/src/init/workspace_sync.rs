@@ -23,20 +23,16 @@
 //! HEAD, index, branch and dirty working tree every previous-pod repo had. So on
 //! start the sandbox restores the snapshot and, when it contains the primary
 //! repo, **skips the fresh clone entirely** ([`restore_on_start`]). This is the
-//! whole point of the S3 backend — it replaces the persistent EBS volume, giving
-//! byte-for-byte continuity across restarts. It also fixes a base-drift bug in
-//! the earlier design, where a fresh clone of an *advanced* base branch,
-//! overlaid with a stale working-tree-only snapshot, surfaced upstream changes
-//! as phantom uncommitted "reverts".
+//! whole point of the S3 backend: byte-for-byte continuity across restarts
+//! without a persistent EBS volume.
 //!
-//! Two older archive shapes are still handled for a seamless rollout:
-//! - **Legacy working-tree-only** (no `.git` at all): [`restore_on_start`] returns
+//! Compatibility archive shapes are handled by shape, not metadata:
+//! - **working-tree-only** (no `.git` at all): [`restore_on_start`] returns
 //!   `false` and the caller falls back to clone + [`download_on_start`] overlay.
-//! - **Single-repo, repo-relative** (the previous format: the primary repo tarred
-//!   at the archive root with a top-level `.git`, meant to extract onto
-//!   `repo_dir`): [`restore_on_start`] detects it and extracts onto `repo_dir`
-//!   exactly as before. The next upload rewrites it in the new
-//!   multi-repo, workspace-relative shape, so it self-heals.
+//! - **single-repo, repo-relative** (primary repo tarred at the archive root with
+//!   a top-level `.git`, meant to extract onto `repo_dir`): [`restore_on_start`]
+//!   detects it and extracts onto `repo_dir`. The next upload writes the
+//!   multi-repo, workspace-relative shape.
 //!
 //! Unlike the transcript sync, the workspace tar can be large, so it is *not*
 //! proxied through the backend. The sandbox stays AWS-credential-less: the
@@ -82,9 +78,9 @@ const HTTP_TIMEOUT: Duration = Duration::from_mins(5);
 /// - the feature is disabled (backend S3 not configured),
 /// - there is no stored snapshot yet (fresh task → 404),
 /// - a transfer/extract fails, or
-/// - the snapshot predates `.git` inclusion (legacy working-tree-only archive).
+/// - the snapshot is working-tree-only and carries no `.git`.
 ///
-/// In every `false` case the caller clones as usual; legacy archives are then
+/// In every `false` case the caller clones as usual; working-tree-only archives are then
 /// overlaid by [`download_on_start`]. Best-effort and non-fatal throughout.
 pub async fn restore_on_start(state: &SandboxState) -> bool {
     let task_id = &state.config.task_id;
@@ -174,14 +170,14 @@ pub async fn restore_on_start(state: &SandboxState) -> bool {
 
 /// Download the stored workspace archive and overlay it onto the fresh clone.
 ///
-/// Legacy path: only reached when [`restore_on_start`] declined (no snapshot, or
-/// a working-tree-only snapshot without `.git`). Runs after the repo clone and
+/// Only reached when [`restore_on_start`] declined (no snapshot, or a
+/// working-tree-only snapshot without `.git`). Runs after the repo clone and
 /// before the sandbox is marked Ready, so agent edits / uncommitted changes from
 /// the previous pod are in place before the agent runs. The tar is extracted
 /// *over* the clone: edited files overwrite their pristine versions, untracked
-/// files are added. Working-tree-only legacy archives are repo-relative, so they
-/// overlay onto `repo_dir`. Non-fatal: a missing archive or a disabled feature
-/// is logged and skipped.
+/// files are added. Working-tree-only archives are repo-relative, so they overlay
+/// onto `repo_dir`. Non-fatal: a missing archive or a disabled feature is logged
+/// and skipped.
 pub async fn download_on_start(state: &SandboxState) {
     let task_id = &state.config.task_id;
     let repo_dir = PathBuf::from(&state.config.repo_dir);
@@ -253,9 +249,8 @@ pub async fn upload(state: &SandboxState) {
 
 /// Upload the workspace when an agent turn reaches a terminal boundary.
 ///
-/// The `s3` storage backend no longer runs a periodic uploader; this hook is the
-/// normal durability point between turns. Startup restore and shutdown flush
-/// stay separate.
+/// This is the normal durability point between turns. Startup restore and
+/// shutdown flush stay separate.
 pub async fn upload_after_turn(config: &Config, backend_client: &dyn BackendClient) {
     if config.workspace_sync_enabled {
         upload_from_config(config, backend_client).await;
@@ -491,8 +486,8 @@ fn append_repo(builder: &mut tar::Builder<Vec<u8>>, repo_dir: &Path, prefix: &st
     }
 
     // Append the `.git` dir so the archived repo is self-contained. Best-effort:
-    // if it fails, the archive degrades to a working-tree-only ("legacy")
-    // snapshot that restore-on-start rejects, falling back to clone + overlay.
+    // if it fails, the archive degrades to a working-tree-only snapshot that
+    // restore-on-start rejects, falling back to clone + overlay.
     let git_dir = repo_dir.join(".git");
     if git_dir.is_dir()
         && builder
@@ -528,19 +523,19 @@ async fn build_tar(workspace_dir: PathBuf) -> Option<Vec<u8>> {
 }
 
 /// Extract a repo-set archive, choosing the extraction root by archive shape so
-/// old and new snapshots both restore correctly. Returns `Ok(true)` when the
+/// supported snapshots restore correctly. Returns `Ok(true)` when the
 /// primary repo (with its `.git`) was restored (caller skips the clone), or
-/// `Ok(false)` — extracting nothing — when the archive is a legacy
+/// `Ok(false)` — extracting nothing — when the archive is a
 /// working-tree-only snapshot, so the caller clones and overlays instead.
 ///
 /// Archive shapes:
-/// - **new multi-repo** (primary at `<primary_prefix>/.git`, no top-level
+/// - **multi-repo** (primary at `<primary_prefix>/.git`, no top-level
 ///   `.git`): unpack onto `workspace_dir`.
 /// - **primary at workspace root** (`primary_prefix == ""`, top-level `.git`):
 ///   unpack onto `workspace_dir` (which equals `repo_dir`).
-/// - **legacy single-repo, repo-relative** (top-level `.git`, prefixed primary):
-///   the previous format meant for `repo_dir` — unpack onto `repo_dir`.
-/// - **legacy working-tree-only** (no `.git` anywhere): decline (`Ok(false)`).
+/// - **single-repo, repo-relative** (top-level `.git`, prefixed primary):
+///   unpack onto `repo_dir`.
+/// - **working-tree-only** (no `.git` anywhere): decline (`Ok(false)`).
 ///
 /// The `tar` crate rejects path-traversal (`..`) entries by default.
 async fn extract_workspace(
@@ -557,10 +552,10 @@ async fn extract_workspace(
         };
         let sub_marker_slash = format!("{sub_marker}/");
 
-        // Probe once to classify the archive without extracting. A new
-        // multi-repo archive is decided by `sub`; a legacy repo-relative archive
-        // is decided by `top` (and requires scanning to the end to confirm `sub`
-        // stays false), so early-break only on the deciding signal.
+        // Probe once to classify the archive without extracting. A multi-repo
+        // archive is decided by `sub`; a repo-relative archive is decided by
+        // `top` and requires scanning to the end to confirm `sub` stays false,
+        // so early-break only on the deciding signal.
         let (top_level_git, primary_subdir_git) = {
             let mut archive = tar::Archive::new(std::io::Cursor::new(&bytes));
             let mut top = false;
@@ -585,7 +580,7 @@ async fn extract_workspace(
             (top, sub)
         };
 
-        // New multi-repo shape: primary lives under its subdir.
+        // Multi-repo shape: primary lives under its subdir.
         if primary_subdir_git {
             let mut archive = tar::Archive::new(std::io::Cursor::new(&bytes));
             archive.unpack(&workspace_dir)?;
@@ -597,13 +592,13 @@ async fn extract_workspace(
             archive.unpack(&workspace_dir)?;
             return Ok(true);
         }
-        // Legacy single-repo, repo-relative archive meant for repo_dir.
+        // Single-repo, repo-relative archive meant for repo_dir.
         if top_level_git {
             let mut archive = tar::Archive::new(std::io::Cursor::new(&bytes));
             archive.unpack(&repo_dir)?;
             return Ok(true);
         }
-        // Working-tree-only legacy archive: no primary .git — caller clones.
+        // Working-tree-only archive: no primary .git — caller clones.
         Ok(false)
     })
     .await
@@ -797,16 +792,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_repo_relative_archive_restores_to_repo_dir() {
+    async fn repo_relative_archive_restores_to_repo_dir() {
         let tmp = tempfile::TempDir::new().unwrap();
 
-        // Build a *legacy-shaped* archive: a single repo tarred at the archive
-        // root (top-level `.git`), as the previous format produced.
-        let repo = tmp.path().join("legacy-src");
+        // Build a repo-relative archive: a single repo tarred at the archive
+        // root (top-level `.git`).
+        let repo = tmp.path().join("repo-relative-src");
         init_repo(&repo);
         tokio::fs::write(repo.join("a.txt"), b"hi\n").await.unwrap();
         git_add(&repo, &["a.txt"]);
-        let legacy_tar = build_tar(repo.clone()).await.expect("tar built");
+        let repo_relative_tar = build_tar(repo.clone()).await.expect("tar built");
 
         // Restore with a non-empty primary_prefix (repo lives in a subdir of the
         // workspace) → must unpack onto repo_dir, not workspace_dir.
@@ -814,7 +809,7 @@ mod tests {
         let repo_dir = ws.join("soap-tm");
         tokio::fs::create_dir_all(&repo_dir).await.unwrap();
         let restored = extract_workspace(
-            legacy_tar,
+            repo_relative_tar,
             ws.clone(),
             repo_dir.clone(),
             "soap-tm".to_string(),
@@ -830,25 +825,25 @@ mod tests {
 
     #[tokio::test]
     async fn working_tree_only_archive_is_declined() {
-        // A legacy working-tree-only archive (no `.git`) → decline so the caller
-        // clones and overlays.
-        let mut legacy = tar::Builder::new(Vec::new());
-        let data = b"legacy\n";
+        // A working-tree-only archive (no `.git`) declines so the caller clones
+        // and overlays.
+        let mut archive = tar::Builder::new(Vec::new());
+        let data = b"working tree\n";
         let mut header = tar::Header::new_gnu();
         header.set_size(data.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-        legacy
+        archive
             .append_data(&mut header, "only-file.txt", &data[..])
             .unwrap();
-        let legacy_tar = legacy.into_inner().unwrap();
+        let working_tree_tar = archive.into_inner().unwrap();
 
         let tmp = tempfile::TempDir::new().unwrap();
         let ws = tmp.path().join("ws");
         let repo_dir = ws.join("soap-tm");
         tokio::fs::create_dir_all(&repo_dir).await.unwrap();
         let restored = extract_workspace(
-            legacy_tar,
+            working_tree_tar,
             ws.clone(),
             repo_dir.clone(),
             "soap-tm".to_string(),

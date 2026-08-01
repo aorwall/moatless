@@ -105,7 +105,7 @@ pub struct Config {
     /// Task ID (required)
     pub task_id: String,
     /// The Task's selected Agent harness, fixed for the Sandbox lifetime and
-    /// delivered at construction via the `AGENT_TYPE` env (ADR-0004). `None`
+    /// delivered at construction via the `AGENT_TYPE` env (the fixed-harness decision). `None`
     /// means the pod has no valid harness selection and is surfaced as an invalid
     /// configuration by the agent lifecycle owner. When set it is validated at
     /// load, so an unsupported value fails startup instead of silently running
@@ -133,12 +133,11 @@ pub struct Config {
     pub log_level: String,
     /// Backend gRPC URL (e.g. "http://backend:50051") — required
     pub backend_grpc_url: String,
-    /// Backend API URL for legacy HTTP calls (kept for transition)
+    /// Backend API URL for HTTP fallback calls.
     pub backend_api_url: Option<String>,
-    /// Long-lived user auth token, when delivered via the legacy `USER_AUTH_TOKEN`
-    /// pod-spec env. On K8s this is now normally absent — the token arrives over
-    /// the `GetCredentials` channel instead — but it is still read as a fallback
-    /// for backward compatibility and for Docker mode.
+    /// Long-lived user auth token from `USER_AUTH_TOKEN`, when present. K8s pods
+    /// normally receive the long-lived token over `GetCredentials`; Docker and
+    /// compatibility paths may still provide this env.
     pub user_auth_token: Option<String>,
     /// Short-lived bootstrap token (env `SANDBOX_BOOTSTRAP_TOKEN`) used to
     /// authenticate only the initial `GetCredentials` call, after which the
@@ -215,11 +214,10 @@ pub struct Config {
 
 /// Read the workspace's repository checkouts from `WORKSPACE_REPOS`.
 ///
-/// Falls back to the single checkout described by the legacy
-/// `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio when the env is absent (a pod
-/// provisioned before multi-repo support) or unparseable — cloning the primary
-/// repo is strictly better than cloning nothing. Returns an empty list when
-/// there is no repo to clone at all.
+/// Falls back to the single checkout described by the
+/// `GIT_CLONE_URL`/`GIT_BRANCH`/`GIT_PROVIDER` trio when the env is absent or
+/// unparseable — cloning the primary repo is strictly better than cloning
+/// nothing. Returns an empty list when there is no repo to clone at all.
 ///
 /// A mount name that is not a single safe path segment is rejected rather than
 /// repaired: it is joined onto `workspace_dir`, and the backend already
@@ -479,16 +477,15 @@ impl Config {
     ///
     /// On the ephemeral (no-PVC) tier `workspace_dir` is a node-local emptyDir
     /// that dies with the pod, so this degrades to container-restart durability
-    /// only — no worse than the legacy `data_dir` location.
+    /// only.
     pub fn persisted_user_token_path(&self) -> std::path::PathBuf {
         std::path::Path::new(&self.workspace_dir)
             .join(".moatless")
             .join(".user_auth_token")
     }
 
-    /// Legacy persisted-token location under `data_dir` (the `shared-data`
-    /// emptyDir). Read as a fallback so a token written by an older sandbox build
-    /// is still honoured after an image upgrade.
+    /// Persisted-token fallback location under `data_dir` (the `shared-data`
+    /// emptyDir).
     fn legacy_persisted_user_token_path(&self) -> std::path::PathBuf {
         std::path::Path::new(&self.data_dir).join(".user_auth_token")
     }
@@ -497,16 +494,13 @@ impl Config {
     /// before `GetCredentials` delivers a fresh long-lived token.
     ///
     /// Resolution order (most to least durable):
-    /// 1. A previously persisted long-lived token (survives container restart, and
-    ///    pod replacement on the PVC tier). The PVC-backed path is preferred, with
-    ///    the legacy `data_dir` path read as a fallback.
-    /// 2. The legacy `USER_AUTH_TOKEN` env, when present. During the transition
-    ///    (`SANDBOX_EMIT_LEGACY_USER_TOKEN=true`) this long-lived token is still
-    ///    on the pod spec; preferring it keeps stop/start and pod reschedules
-    ///    working even after the short-lived bootstrap token would have expired,
-    ///    at no security cost (it is on the spec either way in this phase).
-    /// 3. The short-lived bootstrap token — the sole auth secret on the pod spec
-    ///    once legacy emission is turned off (`SANDBOX_EMIT_LEGACY_USER_TOKEN=false`).
+    /// 1. A persisted long-lived token (survives container restart, and pod
+    ///    replacement on the PVC tier). The PVC-backed path is preferred, with
+    ///    the `data_dir` path read as a fallback.
+    /// 2. The `USER_AUTH_TOKEN` env, when present. This long-lived token keeps
+    ///    stop/start and pod reschedules working after the short-lived bootstrap
+    ///    token would have expired.
+    /// 3. The short-lived bootstrap token.
     pub fn resolve_initial_auth_token(&self) -> Option<String> {
         self.resolve_initial_auth_token_with_source()
             .map(|(token, _)| token)
@@ -545,12 +539,11 @@ pub enum InitialAuthTokenSource {
     /// Long-lived token restored from disk (survives restart; survives pod
     /// replacement on the PVC tier).
     Persisted,
-    /// Legacy long-lived `USER_AUTH_TOKEN` env, still on the spec during the
-    /// transition (`SANDBOX_EMIT_LEGACY_USER_TOKEN=true`).
+    /// Long-lived `USER_AUTH_TOKEN` env.
     LegacyEnv,
-    /// Short-lived bootstrap token — the only auth secret on the spec once legacy
-    /// emission is off. If rejected, it has almost certainly expired and a pod
-    /// restart would present the same expired env, so re-provisioning is required.
+    /// Short-lived bootstrap token. If rejected, it has almost certainly expired
+    /// and a pod restart would present the same expired env, so re-provisioning
+    /// is required.
     Bootstrap,
 }
 
@@ -684,8 +677,8 @@ mod tests {
 
     #[test]
     fn resolve_initial_auth_token_prefers_legacy_over_bootstrap() {
-        // Phase 1: the long-lived legacy token is still on the spec — prefer it
-        // for reliability across reschedules; bootstrap stays as the fallback.
+        // Prefer the long-lived env token for reliability across reschedules;
+        // bootstrap stays as the fallback.
         let (mut config, _tmp) = config_without_persisted_token();
         config.bootstrap_token = Some("boot".to_string());
         config.user_auth_token = Some("legacy".to_string());
@@ -697,7 +690,7 @@ mod tests {
 
     #[test]
     fn resolve_initial_auth_token_uses_bootstrap_when_legacy_absent() {
-        // Phase 2: legacy emission turned off — bootstrap is the only spec secret.
+        // Bootstrap is the fallback when no long-lived env token is present.
         let (mut config, _tmp) = config_without_persisted_token();
         config.bootstrap_token = Some("boot".to_string());
         config.user_auth_token = None;
@@ -710,7 +703,7 @@ mod tests {
     #[test]
     fn resolve_initial_auth_token_prefers_persisted_file() {
         // The persisted token lives under the PVC-backed workspace dir and wins
-        // over both the legacy env and the bootstrap token.
+        // over both the env token and the bootstrap token.
         let tmp = tempfile::TempDir::new().unwrap();
         let mut config = minimal_config();
         config.workspace_dir = tmp.path().display().to_string();

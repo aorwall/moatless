@@ -196,7 +196,7 @@ function agentMessageText(payload: AgentEvent['payload']): string | null {
 
 /**
  * Render a non-tool `agent.message`: its assistant text when the source event
- * still carries content, else the skeleton's `toolNames` (ADR-0003) so the
+ * still carries content, else the skeleton's `toolNames` (the agent.message skeleton) so the
  * debug timeline still shows tool activity. Returns null for anything else.
  */
 function NonToolAgentMessage({ event }: { event: Event }): React.ReactNode {

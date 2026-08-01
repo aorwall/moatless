@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! Integration tests for durable event admission (ADR-0006) — requires
+//! Integration tests for durable event admission (the durable-ingress decision) — requires
 //! `DATABASE_URL` and `--features db-tests`.
 //!
 //! Drives the real gRPC ingress handler, the real Postgres outbox, the real
@@ -40,8 +40,8 @@ use moatless_vibe_backend::events::{EventPublisher, PublishError};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::sandbox::grpc_server::BackendSandboxServiceImpl;
 use moatless_vibe_backend::task::dao as task_dao;
-use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::PublishEventRequest;
+use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 
 use common::{make_repository_row, make_task_row, test_app_state};
 
@@ -153,7 +153,9 @@ fn ingress(pool: &PgPool, transport: Option<Arc<dyn EventPublisher>>) -> Backend
         Arc::new(moatless_vibe_backend::task_turn::dao::PgTaskTurnDao(
             pool.clone(),
         )),
-        Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventDao(pool.clone())),
+        Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventDao(
+            pool.clone(),
+        )),
         Arc::new(PgIngressOutbox(pool.clone())),
     )
 }
@@ -242,7 +244,7 @@ async fn full_message_content_reaches_task_messages_exactly_once(pool: PgPool) {
     assert_eq!(response.into_inner().event_id, "evt-1");
 
     // Durable admission: the full payload is in the outbox, and `task_events`
-    // has no copy of it (ADR-0003 — the consumer writes only the skeleton).
+    // has no copy of it.
     assert_eq!(outbox_event_ids(&pool).await, ["evt-1"]);
     let spooled: Value =
         sqlx::query_scalar("SELECT payload FROM event_ingress_outbox WHERE event_id = $1")
@@ -254,11 +256,9 @@ async fn full_message_content_reaches_task_messages_exactly_once(pool: PgPool) {
         spooled["message"]["content"][0]["text"],
         "the whole message body"
     );
-    // And `task_events` holds nothing at all for it — not even a skeleton.
-    // ADR-0003's persistence clause is withdrawn: a Message's one durable home
-    // on the way in is the outbox, and its one home afterwards is the
-    // conversation. A row here would be a second copy of what the conversation
-    // already is.
+    // `task_events` holds nothing for it, not even a skeleton. The Message's
+    // durable home on the way in is the outbox, and afterwards it is the
+    // conversation. A row here would be a second copy of that state.
     let history: Option<Value> =
         sqlx::query_scalar("SELECT payload FROM task_events WHERE event_id = $1")
             .bind("evt-1")
