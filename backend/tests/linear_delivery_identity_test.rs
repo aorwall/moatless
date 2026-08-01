@@ -174,7 +174,7 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
     let binding = TaskBinding {
         id: "tb-linear-1".to_string(),
         task_id: TASK.to_string(),
-        provider: "linear".to_string(),
+        adapter_kind: "linear".to_string(),
         subject_kind: "linear_agent_session".to_string(),
         subject_key: SESSION.to_string(),
         connection_id: CONNECTION.to_string(),
@@ -209,7 +209,7 @@ async fn seed_rule(state: &AppState) {
         .loops
         .upsert_subscription(&SubscriptionMatch {
             id: "trigger-linear-1".to_string(),
-            provider: "linear".to_string(),
+            adapter_kind: "linear".to_string(),
             connection_id: CONNECTION.to_string(),
             source_matcher: TEAM.to_string(),
             source_name: Some("Engineering".to_string()),

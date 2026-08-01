@@ -9,8 +9,9 @@
 //! works.
 
 use async_trait::async_trait;
-use moatless_backend_core::scope::ScopeContext;
+use chrono::{DateTime, Utc};
 use moatless_api_schemas::agent::AgentDescriptor;
+use moatless_backend_core::scope::ScopeContext;
 
 use crate::shared_models::AgentMode;
 
@@ -124,6 +125,19 @@ pub trait ThreadCommandSink: Send + Sync {
     /// Stop whatever the agent is doing. T3 distinguishes interrupting a turn
     /// from stopping a session; Moatless does not, and both arrive here.
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    async fn settle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    async fn unsettle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    async fn snooze(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        snoozed_until: DateTime<Utc>,
+    ) -> Result<(), CommandRefusal>;
+
+    async fn unsnooze(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     async fn answer_question(
         &self,

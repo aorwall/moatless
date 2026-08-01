@@ -2072,8 +2072,8 @@ fn descriptor(config: &UiRpcConfig) -> Value {
         "capabilities": {
             "repositoryIdentity": false,
             "connectionProbe": true,
-            "threadSettlement": false,
-            "threadSnooze": false
+            "threadSettlement": true,
+            "threadSnooze": true
         }
     })
 }
@@ -2495,6 +2495,35 @@ mod tests {
             _task_id: &str,
         ) -> Result<(), ports::CommandRefusal> {
             unreachable!("no test in this file stops a thread")
+        }
+        async fn settle(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file settles a thread")
+        }
+        async fn unsettle(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file unsettles a thread")
+        }
+        async fn snooze(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _snoozed_until: chrono::DateTime<chrono::Utc>,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file snoozes a thread")
+        }
+        async fn unsnooze(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file unsnoozes a thread")
         }
         async fn answer_question(
             &self,

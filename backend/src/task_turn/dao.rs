@@ -19,6 +19,7 @@ use sqlx::Postgres;
 
 use super::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use crate::db::DbPool;
+use crate::task::dao as task_dao;
 use crate::task_activities;
 use crate::task_listing;
 
@@ -413,6 +414,7 @@ impl TaskTurnDao for PgTaskTurnDao {
         // `active` and its guarded projection changes nothing. Last, after the
         // advisory lock and both `task_turns` writes — `record_change`'s "call
         // this last", with the conversation's allocator ahead of it.
+        task_dao::clear_settled_for_all_followers(&mut tx, task_id).await?;
         task_activities::record_session_change(&mut tx, task_id).await?;
         task_listing::record_change(&mut tx, task_id).await?;
 

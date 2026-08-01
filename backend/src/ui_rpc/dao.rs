@@ -81,6 +81,11 @@ pub struct Conversation {
     pub pending_question: bool,
     /// An `ExitPlanMode` plan proposed by the agent that nothing has answered.
     pub pending_plan: bool,
+
+    pub settled_override: Option<String>,
+    pub settled_at: Option<DateTime<Utc>>,
+    pub snoozed_until: Option<DateTime<Utc>>,
+    pub snoozed_at: Option<DateTime<Utc>>,
 }
 
 /// One Message of a Task's transcript, with the columns a transcript is
@@ -155,10 +160,7 @@ pub trait ConversationDao: Send + Sync {
     /// the moment its agent produces anything
     /// (`TaskDao::update_status_if_not_closed`), so nothing that is running is
     /// hidden by it.
-    async fn list_followed(
-        &self,
-        viewer: &ScopeContext,
-    ) -> Result<Vec<Conversation>, sqlx::Error>;
+    async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error>;
 
     /// The same listing, narrowed to Tasks a change has named.
     ///
@@ -322,7 +324,7 @@ impl PgConversationDao {
             .unwrap_or_default();
         let sql = format!(
             r#"WITH listed AS MATERIALIZED (
-                   SELECT t.*
+                   SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at
                    FROM task_follows tf
                    JOIN tasks t ON t.task_id = tf.task_id
                    WHERE tf.user_id = ${follower}
@@ -350,7 +352,11 @@ impl PgConversationDao {
                    model.assistant_model,
                    model.requested_model,
                    COALESCE(pending.question, false) AS pending_question,
-                   COALESCE(pending.plan, false)     AS pending_plan
+                   COALESCE(pending.plan, false)     AS pending_plan,
+                   t.settled_override,
+                   t.settled_at,
+                   t.snoozed_until,
+                   t.snoozed_at
                FROM listed t
                LEFT JOIN sandboxes s ON s.task_id = t.task_id
                LEFT JOIN LATERAL (
@@ -494,10 +500,7 @@ impl PgConversationDao {
 
 #[async_trait]
 impl ConversationDao for PgConversationDao {
-    async fn list_followed(
-        &self,
-        viewer: &ScopeContext,
-    ) -> Result<Vec<Conversation>, sqlx::Error> {
+    async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
         self.list(viewer, None).await
     }
 

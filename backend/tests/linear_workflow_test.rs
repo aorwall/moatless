@@ -228,7 +228,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
         .loops
         .upsert_subscription(&SubscriptionMatch {
             id: id.to_string(),
-            provider: "linear".to_string(),
+            adapter_kind: "linear".to_string(),
             connection_id: CONNECTION.to_string(),
             source_matcher: TEAM.to_string(),
             source_name: Some("Engineering".to_string()),
@@ -290,7 +290,7 @@ async fn seed_binding(
         .upsert(&TaskBinding {
             id: binding_id.to_string(),
             task_id: task_id.to_string(),
-            provider: "linear".to_string(),
+            adapter_kind: "linear".to_string(),
             subject_kind: subject_kind.to_string(),
             subject_key: subject_key.to_string(),
             connection_id: CONNECTION.to_string(),
@@ -839,7 +839,7 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
         .upsert(&TaskBinding {
             id: "tb-issue-dup".to_string(),
             task_id: TASK.to_string(),
-            provider: "linear".to_string(),
+            adapter_kind: "linear".to_string(),
             subject_kind: "linear_issue".to_string(),
             subject_key: ISSUE.to_string(),
             connection_id: CONNECTION.to_string(),
@@ -1061,7 +1061,7 @@ async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
         .upsert(&TaskBinding {
             id: "tb-sibling".to_string(),
             task_id: TASK.to_string(),
-            provider: "linear".to_string(),
+            adapter_kind: "linear".to_string(),
             subject_kind: "linear_issue".to_string(),
             subject_key: "issue-other".to_string(),
             connection_id: CONNECTION.to_string(),

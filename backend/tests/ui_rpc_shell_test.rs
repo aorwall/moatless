@@ -20,15 +20,19 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
+use chrono::{DateTime, Duration as ChronoDuration, SubsecRound, Utc};
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use chrono::{DateTime, SubsecRound, Utc};
-use moatless_vibe_backend::task_activities::mapping::{map_content, BlockContext, ConversationWrite};
+use moatless_vibe_backend::auth::api_keys::PgApiKeyDao;
+use moatless_vibe_backend::auth::pairing::{DevicePairing, PgPairingCodeDao};
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
+use moatless_vibe_backend::message::models::{MessageType, TaskMessage};
+use moatless_vibe_backend::message::service as message_service;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
-use moatless_vibe_backend::message::models::{MessageType, TaskMessage};
-use moatless_vibe_backend::sandbox::access::{SandboxConnector, SandboxIntentReader, SandboxObserver};
+use moatless_vibe_backend::sandbox::access::{
+    SandboxConnector, SandboxIntentReader, SandboxObserver,
+};
 use moatless_vibe_backend::sandbox::client::SandboxClient;
 use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::sandbox::live_status::LiveStatus;
@@ -38,37 +42,34 @@ use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::tag::dao::{PgTagDao, TagDao};
 use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
 use moatless_vibe_backend::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
-use moatless_vibe_backend::task_listing::{
-    current_head, record_change, resume, EnvironmentIdentity, ListingChange, ListingHead, Resume,
-    RESUME_WINDOW,
+use moatless_vibe_backend::task_activities::mapping::{
+    BlockContext, ConversationWrite, map_content,
 };
-use moatless_vibe_backend::task_turn::dao::{
-    PgTaskTurnDao, TaskTurnDao, TurnStateEvent,
-};
-use moatless_vibe_backend::task_turn::models::classify_turn_transition;
 use moatless_vibe_backend::task_activities::{ConversationChange, ConversationHead};
+use moatless_vibe_backend::task_listing::{
+    EnvironmentIdentity, ListingChange, ListingHead, RESUME_WINDOW, Resume, current_head,
+    record_change, resume,
+};
+use moatless_vibe_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
+use moatless_vibe_backend::task_turn::models::classify_turn_transition;
 use moatless_vibe_backend::ui_rpc::backend as ui_rpc_backend;
-use moatless_vibe_backend::ui_rpc::preview_tabs::InMemoryPreviewTabDao;
 use moatless_vibe_backend::ui_rpc::dao::{
     Conversation, ConversationDao, PgConversationDao, Transcript,
 };
+use moatless_vibe_backend::ui_rpc::preview_tabs::InMemoryPreviewTabDao;
 use moatless_vibe_backend::ui_rpc::{
-    files, router_from_env, shell_snapshot, shell_subscription, AgentModelDefaults, ShellFeed,
-    UiRpcDependencies,
+    AgentModelDefaults, ShellFeed, UiRpcDependencies, files, router_from_env, shell_snapshot,
+    shell_subscription,
 };
-use moatless_vibe_backend::auth::api_keys::PgApiKeyDao;
-use moatless_vibe_backend::auth::pairing::{DevicePairing, PgPairingCodeDao};
-use moatless_vibe_backend::workspace::dao::{
-    PgWorkspaceDao, WorkspaceDao, WorkspacePatch,
-};
-use serde_json::{json, Value};
+use moatless_vibe_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
+use serde_json::{Value, json};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{AssertSqlSafe, PgPool};
 use tower::ServiceExt;
 
 use common::{
-    authed_request, body_json, make_message_row, make_repository_row, make_task_row,
-    make_workspace_row, seed_team, test_app_state, USER_1,
+    USER_1, authed_request, body_json, make_message_row, make_repository_row, make_task_row,
+    make_workspace_row, seed_team, test_app_state,
 };
 
 /// Map one Message's content the way the write path does: prose onto the row,
@@ -274,10 +275,20 @@ async fn project(pool: &PgPool, viewer: &ScopeContext, id: &str) -> Value {
 async fn seed_task(pool: &PgPool, task_id: &str, owner: &str, workspace_id: Option<&str>) -> Task {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = workspace_id.map(str::to_string);
-    PgTaskDao(pool.clone())
-        .insert_task(&task)
-        .await
-        .unwrap();
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    task
+}
+
+async fn seed_public_task(
+    pool: &PgPool,
+    task_id: &str,
+    owner: &str,
+    workspace_id: Option<&str>,
+) -> Task {
+    let mut task = make_task_row(task_id, owner);
+    task.workspace_id = workspace_id.map(str::to_string);
+    task.visibility = Visibility::Public;
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
     task
 }
 
@@ -286,6 +297,45 @@ async fn follow(pool: &PgPool, user_id: &str, task_id: &str) {
         .follow_task(user_id, task_id)
         .await
         .unwrap();
+}
+
+async fn set_settled_and_snoozed(pool: &PgPool, user_id: &str, task_id: &str) {
+    let tasks = PgTaskDao(pool.clone());
+    tasks
+        .settle_task(user_id, task_id, Utc::now())
+        .await
+        .unwrap();
+    tasks
+        .snooze_task(
+            user_id,
+            task_id,
+            Utc::now() + ChronoDuration::hours(1),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+}
+
+async fn follower_state(
+    pool: &PgPool,
+    user_id: &str,
+    task_id: &str,
+) -> (
+    Option<String>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+) {
+    sqlx::query_as(
+        r#"SELECT settled_override, settled_at, snoozed_until, snoozed_at
+           FROM task_follows
+           WHERE user_id = $1 AND task_id = $2"#,
+    )
+    .bind(user_id)
+    .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn unfollow(pool: &PgPool, user_id: &str, task_id: &str) {
@@ -470,10 +520,20 @@ fn assert_decodable_thread(thread: &Value) {
         MODEL_SELECTION_REQUIRED,
     );
     if !thread["latestTurn"].is_null() {
-        assert_keys(&thread["latestTurn"], "latestTurn", TURN_REQUIRED, TURN_OPTIONAL);
+        assert_keys(
+            &thread["latestTurn"],
+            "latestTurn",
+            TURN_REQUIRED,
+            TURN_OPTIONAL,
+        );
     }
     if !thread["session"].is_null() {
-        assert_keys(&thread["session"], "session", SESSION_REQUIRED, SESSION_OPTIONAL);
+        assert_keys(
+            &thread["session"],
+            "session",
+            SESSION_REQUIRED,
+            SESSION_OPTIONAL,
+        );
     }
 }
 
@@ -532,9 +592,11 @@ async fn an_administrator_sees_every_project_in_the_deployment(pool: PgPool) {
 async fn deleted_workspaces_are_absent_even_for_an_administrator(pool: PgPool) {
     seed_workspaces(&pool).await;
 
-    assert!(!project_ids(&pool, &admin("root"))
-        .await
-        .contains(&"ws-deleted".to_string()));
+    assert!(
+        !project_ids(&pool, &admin("root"))
+            .await
+            .contains(&"ws-deleted".to_string())
+    );
 }
 
 #[sqlx::test]
@@ -864,9 +926,10 @@ async fn seed_conversation_matrix(pool: &PgPool) {
         .unwrap();
 
     for (owner_label, owner) in [("own", "user-1"), ("other", "user-2")] {
-        for (visibility_label, visibility) in
-            [("private", Visibility::Private), ("public", Visibility::Public)]
-        {
+        for (visibility_label, visibility) in [
+            ("private", Visibility::Private),
+            ("public", Visibility::Public),
+        ] {
             for (scope_label, scope) in [("user", Scope::User), ("global", Scope::Global)] {
                 for (follow_label, followed) in [("followed", true), ("unfollowed", false)] {
                     let id =
@@ -881,10 +944,7 @@ async fn seed_conversation_matrix(pool: &PgPool) {
                         Scope::User => Some(owner.to_string()),
                         Scope::Global => None,
                     };
-                    PgTaskDao(pool.clone())
-                        .insert_task(&task)
-                        .await
-                        .unwrap();
+                    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
 
                     // Creation auto-follows for the creator, so the viewer's
                     // follow is set both ways rather than only added.
@@ -1002,10 +1062,7 @@ async fn writing_to_a_conversation_puts_it_in_the_sidebar(pool: PgPool) {
     let mut task = make_task_row("t-shared", "user-2");
     task.workspace_id = Some("ws-a".to_string());
     task.visibility = Visibility::Public;
-    PgTaskDao(pool.clone())
-        .insert_task(&task)
-        .await
-        .unwrap();
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
 
     // Readable — it is public — but not yet the viewer's concern.
     assert!(thread_ids(&pool, &viewer("user-1")).await.is_empty());
@@ -1029,10 +1086,7 @@ async fn a_followed_conversation_in_an_unreadable_project_still_lists_under_it(p
     let mut task = make_task_row("t-guest", "user-2");
     task.workspace_id = Some("ws-theirs".to_string());
     task.visibility = Visibility::Public;
-    PgTaskDao(pool.clone())
-        .insert_task(&task)
-        .await
-        .unwrap();
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
     follow(&pool, "user-1", "t-guest").await;
 
     let viewer = viewer("user-1");
@@ -1090,10 +1144,7 @@ async fn a_project_the_viewer_may_not_read_discloses_no_server_commands(pool: Pg
     let mut task = make_task_row("t-guest", "user-2");
     task.workspace_id = Some("ws-theirs".to_string());
     task.visibility = Visibility::Public;
-    PgTaskDao(pool.clone())
-        .insert_task(&task)
-        .await
-        .unwrap();
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
     follow(&pool, "user-1", "t-guest").await;
 
     let viewer = viewer("user-1");
@@ -1122,7 +1173,12 @@ async fn a_project_the_viewer_may_not_read_discloses_no_server_commands(pool: Pg
     // What the widening does justify, still there — the group renders, and the
     // conversation hanging under it is not silently dropped.
     assert_eq!(theirs["title"], "ws-ws-theirs");
-    assert!(theirs["workspaceRoot"].as_str().unwrap().contains("ws-theirs"));
+    assert!(
+        theirs["workspaceRoot"]
+            .as_str()
+            .unwrap()
+            .contains("ws-theirs")
+    );
     assert_eq!(
         snapshot["threads"][0]["projectId"], "ws-theirs",
         "the narrowing must not cost the row its group"
@@ -1219,6 +1275,143 @@ async fn a_conversation_whose_project_was_deleted_is_left_out(pool: PgPool) {
 // What one conversation row says
 // =========================================================================
 
+#[sqlx::test]
+async fn two_followers_receive_their_own_settlement_state(pool: PgPool) {
+    PgWorkspaceDao(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-a", "user-1"))
+        .await
+        .unwrap();
+    seed_public_task(&pool, "t-shared-state", "user-1", Some("ws-a")).await;
+    follow(&pool, "user-2", "t-shared-state").await;
+    PgTaskDao(pool.clone())
+        .settle_task("user-1", "t-shared-state", Utc::now())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        thread(&pool, &viewer("user-1"), "t-shared-state").await["settledOverride"],
+        json!("settled")
+    );
+    assert_eq!(
+        thread(&pool, &viewer("user-2"), "t-shared-state").await["settledOverride"],
+        Value::Null
+    );
+}
+
+#[sqlx::test]
+async fn a_user_message_clears_settle_for_all_followers_and_snooze_only_for_sender(pool: PgPool) {
+    PgWorkspaceDao(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-a", "user-1"))
+        .await
+        .unwrap();
+    seed_public_task(&pool, "t-message-wake", "user-1", Some("ws-a")).await;
+    follow(&pool, "user-2", "t-message-wake").await;
+    set_settled_and_snoozed(&pool, "user-1", "t-message-wake").await;
+    set_settled_and_snoozed(&pool, "user-2", "t-message-wake").await;
+
+    let state = test_app_state(pool.clone());
+    let sender_scope = viewer("user-1");
+    message_service::send_user_message(
+        &state,
+        &message_service::Sender {
+            user_id: "user-1",
+            scope: &sender_scope,
+            is_agent_context: false,
+        },
+        "t-message-wake",
+        message_service::UserMessage {
+            text: "wake it".to_string(),
+            resume: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("message is accepted");
+
+    let sender = follower_state(&pool, "user-1", "t-message-wake").await;
+    let colleague = follower_state(&pool, "user-2", "t-message-wake").await;
+    assert!(sender.0.is_none(), "sender settle was not cleared");
+    assert!(sender.2.is_none(), "sender snooze was not cleared");
+    assert!(colleague.0.is_none(), "colleague settle was not cleared");
+    assert!(colleague.2.is_some(), "colleague snooze was cleared");
+}
+
+#[sqlx::test]
+async fn turn_start_clears_settle_for_every_follower_and_leaves_snooze(pool: PgPool) {
+    PgWorkspaceDao(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-a", "user-1"))
+        .await
+        .unwrap();
+    seed_public_task(&pool, "t-turn-wake", "user-1", Some("ws-a")).await;
+    follow(&pool, "user-2", "t-turn-wake").await;
+    set_settled_and_snoozed(&pool, "user-1", "t-turn-wake").await;
+    set_settled_and_snoozed(&pool, "user-2", "t-turn-wake").await;
+
+    start_turn(&pool, "t-turn-wake", "run-1").await;
+
+    for user in ["user-1", "user-2"] {
+        let state = follower_state(&pool, user, "t-turn-wake").await;
+        assert!(state.0.is_none(), "{user} settle was not cleared");
+        assert!(state.2.is_some(), "{user} snooze was cleared");
+    }
+}
+
+#[sqlx::test]
+async fn ask_user_question_clears_settle_for_every_follower_and_leaves_snooze(pool: PgPool) {
+    PgWorkspaceDao(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-a", "user-1"))
+        .await
+        .unwrap();
+    seed_public_task(&pool, "t-question-wake", "user-1", Some("ws-a")).await;
+    follow(&pool, "user-2", "t-question-wake").await;
+    set_settled_and_snoozed(&pool, "user-1", "t-question-wake").await;
+    set_settled_and_snoozed(&pool, "user-2", "t-question-wake").await;
+
+    let mut asking = make_message_row("t-question-wake", "m-question-wake");
+    asking.message_type = MessageType::Assistant;
+    asking.user_type = "system".into();
+    asking.turn_number = Some(1);
+    let question = conversation_write(
+        "t-question-wake",
+        "m-question-wake",
+        MessageType::Assistant,
+        &json!([{"type": "tool_use", "id": "tu-wake", "name": "AskUserQuestion", "input": {}}]),
+    );
+    PgMessageDao(pool.clone())
+        .append(&asking, &[], &question)
+        .await
+        .unwrap();
+
+    for user in ["user-1", "user-2"] {
+        let state = follower_state(&pool, user, "t-question-wake").await;
+        assert!(state.0.is_none(), "{user} settle was not cleared");
+        assert!(state.2.is_some(), "{user} snooze was cleared");
+    }
+}
+
+#[sqlx::test]
+async fn completed_turn_clears_no_settlement_or_snooze_state(pool: PgPool) {
+    PgWorkspaceDao(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-a", "user-1"))
+        .await
+        .unwrap();
+    seed_public_task(&pool, "t-complete-keeps-state", "user-1", Some("ws-a")).await;
+    follow(&pool, "user-2", "t-complete-keeps-state").await;
+    let turn = start_turn(&pool, "t-complete-keeps-state", "run-1").await;
+    set_settled_and_snoozed(&pool, "user-1", "t-complete-keeps-state").await;
+    set_settled_and_snoozed(&pool, "user-2", "t-complete-keeps-state").await;
+
+    ingress(&pool, "t-complete-keeps-state", turn, "agent", "completed").await;
+
+    for user in ["user-1", "user-2"] {
+        let state = follower_state(&pool, user, "t-complete-keeps-state").await;
+        assert_eq!(state.0.as_deref(), Some("settled"), "{user}");
+        assert!(state.1.is_some(), "{user} settled_at was cleared");
+        assert!(state.2.is_some(), "{user} snooze was cleared");
+        assert!(state.3.is_some(), "{user} snoozed_at was cleared");
+    }
+}
+
 /// The activity timestamp counts messages a person wrote. `last_message_at`,
 /// the nearest stored value, also advances when the agent writes — a sidebar
 /// sorted or badged on it reorders itself while nobody is talking.
@@ -1234,7 +1427,10 @@ async fn the_activity_timestamp_does_not_move_when_the_agent_writes(pool: PgPool
 
     let viewer = viewer("user-1");
     let after_person = thread(&pool, &viewer, "t-chat").await["latestUserMessageAt"].clone();
-    assert!(!after_person.is_null(), "a person wrote, so there is a time");
+    assert!(
+        !after_person.is_null(),
+        "a person wrote, so there is a time"
+    );
 
     seed_agent_message(&pool, "t-chat", "m-agent-1", 1, Some("claude-opus-4-5")).await;
     seed_agent_message(&pool, "t-chat", "m-agent-2", 1, Some("claude-opus-4-5")).await;
@@ -1256,13 +1452,12 @@ async fn the_activity_timestamp_does_not_move_when_the_agent_writes(pool: PgPool
     // on this wire is RFC 3339 with milliseconds, so the stored value has to be
     // truncated the same way the projection truncates it before they can be
     // equal at all.
-    let wrote_at: DateTime<Utc> = sqlx::query_scalar(
-        "SELECT created_at FROM task_messages WHERE uuid = $1",
-    )
-    .bind("m-person")
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let wrote_at: DateTime<Utc> =
+        sqlx::query_scalar("SELECT created_at FROM task_messages WHERE uuid = $1")
+            .bind("m-person")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(parse(&after_person), wrote_at.trunc_subsecs(3));
 }
 
@@ -1292,7 +1487,10 @@ async fn a_conversation_that_has_run_reports_its_turn_session_and_model(pool: Pg
     assert_eq!(thread["session"]["status"], "running");
     assert_eq!(thread["session"]["providerInstanceId"], "claudeAgent");
     // What the agent said it was running beats any configured default.
-    assert_eq!(thread["modelSelection"]["model"], "claude-opus-4-5-20260101");
+    assert_eq!(
+        thread["modelSelection"]["model"],
+        "claude-opus-4-5-20260101"
+    );
     assert_eq!(thread["modelSelection"]["instanceId"], "claudeAgent");
     // Distinct per conversation, because the client sends it straight back as
     // the `cwd` of every file request it makes for this thread.
@@ -1318,7 +1516,10 @@ async fn a_conversation_that_never_ran_still_decodes(pool: PgPool) {
     assert!(thread["latestTurn"].is_null());
     assert!(thread["session"].is_null());
     assert!(thread["latestUserMessageAt"].is_null());
-    assert!(thread["worktreePath"].is_null(), "no sandbox was ever asked for");
+    assert!(
+        thread["worktreePath"].is_null(),
+        "no sandbox was ever asked for"
+    );
     // The deployment's configured default is the answer until something runs.
     assert_eq!(thread["modelSelection"]["model"], "claude-opus-4-5");
 }
@@ -1334,10 +1535,7 @@ async fn a_codex_conversation_reports_the_codex_instance_and_default(pool: PgPoo
     let mut task = make_task_row("t-codex", "user-1");
     task.workspace_id = Some("ws-a".to_string());
     task.agent_type = AgentType(moatless_vibe_backend::agent::catalog::CODEX.id.to_string());
-    PgTaskDao(pool.clone())
-        .insert_task(&task)
-        .await
-        .unwrap();
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
     seed_sandbox(&pool, "t-codex", "running", true).await;
 
     let thread = thread(&pool, &viewer("user-1"), "t-codex").await;
@@ -1481,10 +1679,7 @@ async fn a_conversation_with_no_name_falls_back_to_its_id(pool: PgPool) {
     let mut task = make_task_row("t-nameless", "user-1");
     task.workspace_id = Some("ws-a".to_string());
     task.name = None;
-    PgTaskDao(pool.clone())
-        .insert_task(&task)
-        .await
-        .unwrap();
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
 
     let thread = thread(&pool, &viewer("user-1"), "t-nameless").await;
     assert_decodable_thread(&thread);
@@ -1917,10 +2112,7 @@ struct RefusesTheRowRead(PgConversationDao);
 
 #[async_trait::async_trait]
 impl ConversationDao for RefusesTheRowRead {
-    async fn list_followed(
-        &self,
-        viewer: &ScopeContext,
-    ) -> Result<Vec<Conversation>, sqlx::Error> {
+    async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
         self.0.list_followed(viewer).await
     }
 
@@ -2028,7 +2220,10 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
             &viewer,
         )
         .await;
-    assert!(refused.is_err(), "the premise failed: the read did not fail");
+    assert!(
+        refused.is_err(),
+        "the premise failed: the read did not fail"
+    );
 
     let row = one_row(&pool, &mut feed, &viewer).await;
     assert_eq!(row["thread"]["id"], "t-live");
@@ -2062,7 +2257,10 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
             &viewer,
         )
         .await;
-    assert!(refused.is_err(), "the premise failed: the read did not fail");
+    assert!(
+        refused.is_err(),
+        "the premise failed: the read did not fail"
+    );
 
     let item = one_item(&pool, &mut feed, &viewer).await;
     assert_eq!(item["kind"], "project-upserted");
@@ -2451,7 +2649,10 @@ async fn a_client_holding_no_position_is_sent_the_listing(pool: PgPool) {
     let (values, _feed) = reconnect(&pool, &viewer, None).await;
     assert_eq!(values.len(), 1);
     assert_decodable_snapshot_item(&values[0]);
-    assert_eq!(values[0]["snapshot"]["threads"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        values[0]["snapshot"]["threads"].as_array().unwrap().len(),
+        1
+    );
 }
 
 /// A replay is filtered by the same two rules the snapshot is, because it is
@@ -2544,10 +2745,12 @@ impl RestoredDatabase {
         let name = self.name;
         self.origin.close().await;
         self.pool.close().await;
-        sqlx::query(AssertSqlSafe(format!(r#"DROP DATABASE IF EXISTS "{name}""#)))
-            .execute(&self.cluster)
-            .await
-            .unwrap();
+        sqlx::query(AssertSqlSafe(format!(
+            r#"DROP DATABASE IF EXISTS "{name}""#
+        )))
+        .execute(&self.cluster)
+        .await
+        .unwrap();
         self.cluster.close().await;
     }
 }
@@ -2742,7 +2945,9 @@ async fn the_identity_is_readable_by_a_least_privilege_application_role(pool: Pg
 
     for statement in [
         format!(r#"DROP ROLE IF EXISTS "{role}""#),
-        format!(r#"CREATE ROLE "{role}" LOGIN PASSWORD 'least' NOSUPERUSER NOCREATEDB NOCREATEROLE"#),
+        format!(
+            r#"CREATE ROLE "{role}" LOGIN PASSWORD 'least' NOSUPERUSER NOCREATEDB NOCREATEROLE"#
+        ),
         // The whole grant. Not `pg_read_all_stats`, not `pg_monitor`, not the
         // database owner: if the identity read needed any of those, this is
         // where it would say so.
@@ -2825,7 +3030,10 @@ async fn a_counter_reset_on_the_same_database_is_caught_by_the_position_guard(po
         .unwrap();
 
     let after = head(&pool).await;
-    assert_eq!(after.position, 0, "the premise failed: the counter did not reset");
+    assert_eq!(
+        after.position, 0,
+        "the premise failed: the counter did not reset"
+    );
     assert_eq!(
         after.identity, before.identity,
         "the premise failed: resetting the counter changed the database's \
@@ -2886,11 +3094,20 @@ async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(p
     let backed_up_at = head(&restored.pool).await.position;
 
     // 2. The original runs on, and the client reads the listing there.
-    seed_task(&restored.origin, "t-after-backup", "user-1", Some("ws-live")).await;
+    seed_task(
+        &restored.origin,
+        "t-after-backup",
+        "user-1",
+        Some("ws-live"),
+    )
+    .await;
     other_peoples_work(&restored.origin, 100).await;
     let original = head(&restored.origin).await;
     let held = original.position;
-    assert!(held > backed_up_at, "the premise failed: the backup is not behind");
+    assert!(
+        held > backed_up_at,
+        "the premise failed: the backup is not behind"
+    );
     assert!(
         thread_ids(&restored.origin, &viewer)
             .await
@@ -2928,7 +3145,8 @@ async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(p
          that now belongs to different changes: {values:#?}"
     );
     assert_eq!(
-        values[0]["kind"], "snapshot",
+        values[0]["kind"],
+        "snapshot",
         "the client was replayed a difference against a listing it built in a \
          database that no longer exists; positions {} to {held} were handed out \
          a second time and it will never hear about them: {values:#?}",
@@ -2967,9 +3185,7 @@ async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(p
 /// then frozen for as long as the connection lasts, while the client renders
 /// itself live — which is the sentence this ticket is named after.
 #[sqlx::test]
-async fn a_connected_client_whose_database_is_replaced_rebuilds_rather_than_stalling(
-    pool: PgPool,
-) {
+async fn a_connected_client_whose_database_is_replaced_rebuilds_rather_than_stalling(pool: PgPool) {
     let viewer = viewer("user-1");
     seed_live_project(&pool).await;
     seed_task(&pool, "t-before-backup", "user-1", Some("ws-live")).await;
@@ -2981,9 +3197,11 @@ async fn a_connected_client_whose_database_is_replaced_rebuilds_rather_than_stal
     // Watching, and up to date, on the database as it was.
     let mut feed = watching(&restored.origin, &viewer).await;
     let held = head(&restored.origin).await.position;
-    assert!(delivered(&restored.origin, &mut feed, &viewer)
-        .await
-        .is_empty());
+    assert!(
+        delivered(&restored.origin, &mut feed, &viewer)
+            .await
+            .is_empty()
+    );
 
     // The deployment is repointed at the restore, which is behind the cursor.
     seed_task(&restored.pool, "t-after-restore", "user-1", Some("ws-live")).await;
@@ -3016,7 +3234,11 @@ async fn a_connected_client_whose_database_is_replaced_rebuilds_rather_than_stal
 
     // The same feed then carries on in the restore rather than rebuilding every
     // poll: it took the new identity and the new position with it.
-    assert!(delivered(&restored.pool, &mut feed, &viewer).await.is_empty());
+    assert!(
+        delivered(&restored.pool, &mut feed, &viewer)
+            .await
+            .is_empty()
+    );
     start_turn(&restored.pool, "t-after-restore", "run-1").await;
     let event = one_row(&restored.pool, &mut feed, &viewer).await;
     assert_eq!(event["thread"]["id"], "t-after-restore");
@@ -3085,7 +3307,8 @@ async fn the_environment_descriptor_reports_the_database_it_is_serving(pool: PgP
         "the configured name is no longer the readable half of {reported}"
     );
     assert_eq!(
-        descriptor(&pool).await["environmentId"], reported,
+        descriptor(&pool).await["environmentId"],
+        reported,
         "the environment id moved without the database moving; every client \
          would discard its cached listing on every restart"
     );
@@ -3155,7 +3378,12 @@ fn assert_decodable_item(item: &Value) {
         Some("project-upserted") => {
             assert_keys(item, "project-upserted", PROJECT_UPSERTED_REQUIRED, &[]);
             sequence();
-            assert_keys(&item["project"], "project", PROJECT_REQUIRED, PROJECT_OPTIONAL);
+            assert_keys(
+                &item["project"],
+                "project",
+                PROJECT_REQUIRED,
+                PROJECT_OPTIONAL,
+            );
             assert_non_empty(&item["project"], "project", PROJECT_NON_EMPTY);
         }
         Some("project-removed") => {
@@ -3246,9 +3474,15 @@ impl Held {
         };
         match item["kind"].as_str().unwrap() {
             "thread-upserted" => upsert(&mut self.threads, item["thread"]["id"].as_str().unwrap()),
-            "thread-removed" => self.threads.retain(|id| id != item["threadId"].as_str().unwrap()),
-            "project-upserted" => upsert(&mut self.projects, item["project"]["id"].as_str().unwrap()),
-            "project-removed" => self.projects.retain(|id| id != item["projectId"].as_str().unwrap()),
+            "thread-removed" => self
+                .threads
+                .retain(|id| id != item["threadId"].as_str().unwrap()),
+            "project-upserted" => {
+                upsert(&mut self.projects, item["project"]["id"].as_str().unwrap())
+            }
+            "project-removed" => self
+                .projects
+                .retain(|id| id != item["projectId"].as_str().unwrap()),
             _ => unreachable!(),
         }
     }
@@ -3270,7 +3504,10 @@ impl Held {
 
 /// A watching client, and the listing it is holding, together.
 async fn watcher(pool: &PgPool, viewer: &ScopeContext) -> (ShellFeed, Held) {
-    (watching(pool, viewer).await, Held::opening(pool, viewer).await)
+    (
+        watching(pool, viewer).await,
+        Held::opening(pool, viewer).await,
+    )
 }
 
 /// The one change kind that alters a sidebar's *membership* rather than the
@@ -3290,7 +3527,11 @@ async fn following_a_conversation_makes_it_appear_and_unfollowing_removes_it(poo
 
     follow(&pool, "user-1", "t-live").await;
     held.poll(&pool, &mut feed, &viewer).await;
-    assert_eq!(held.threads, ["t-live"], "following puts the row on the screen");
+    assert_eq!(
+        held.threads,
+        ["t-live"],
+        "following puts the row on the screen"
+    );
 
     unfollow(&pool, "user-1", "t-live").await;
     let item = one_item(&pool, &mut feed, &viewer).await;
@@ -3324,7 +3565,11 @@ async fn a_removal_names_only_a_conversation_this_client_was_sent(pool: PgPool) 
 
     let watcher_viewer = viewer("user-2");
     let (mut feed, mut held) = watcher(&pool, &watcher_viewer).await;
-    assert_eq!(held.threads, ["t-mine"], "they hold their own and nothing else");
+    assert_eq!(
+        held.threads,
+        ["t-mine"],
+        "they hold their own and nothing else"
+    );
     let watched_from = PgConversationDao::new(pool.clone())
         .listing_head()
         .await
@@ -3334,10 +3579,12 @@ async fn a_removal_names_only_a_conversation_this_client_was_sent(pool: PgPool) 
     // Two ways a row leaves someone else's listing, neither of them this
     // viewer's business.
     unfollow(&pool, "user-1", "t-theirs").await;
-    assert!(PgTaskDao(pool.clone())
-        .delete_task("t-deleted", &viewer("user-1"))
-        .await
-        .unwrap());
+    assert!(
+        PgTaskDao(pool.clone())
+            .delete_task("t-deleted", &viewer("user-1"))
+            .await
+            .unwrap()
+    );
     // The premise: the changes really were recorded, so silence below is the
     // feed filtering rather than nothing having happened.
     assert_eq!(recorded_after(&pool, watched_from).await, 2);
@@ -3360,10 +3607,12 @@ async fn deleting_a_conversation_removes_it_from_a_watching_client(pool: PgPool)
     let (mut feed, mut held) = watcher(&pool, &viewer).await;
     assert_eq!(held.threads, ["t-live"]);
 
-    assert!(PgTaskDao(pool.clone())
-        .delete_task("t-live", &viewer)
-        .await
-        .unwrap());
+    assert!(
+        PgTaskDao(pool.clone())
+            .delete_task("t-live", &viewer)
+            .await
+            .unwrap()
+    );
 
     let item = one_item(&pool, &mut feed, &viewer).await;
     assert_eq!(item["kind"], "thread-removed");
@@ -3388,10 +3637,12 @@ async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) 
     let (mut feed, mut held) = watcher(&pool, &viewer).await;
     assert_eq!(held.threads, ["t-live"]);
 
-    assert!(PgTaskDao(pool.clone())
-        .update_status_if_not_closed("t-live", TaskStatus::Closed, &viewer)
-        .await
-        .unwrap());
+    assert!(
+        PgTaskDao(pool.clone())
+            .update_status_if_not_closed("t-live", TaskStatus::Closed, &viewer)
+            .await
+            .unwrap()
+    );
 
     let item = one_item(&pool, &mut feed, &viewer).await;
     assert_eq!(item["kind"], "thread-removed");
@@ -3412,7 +3663,10 @@ async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) 
         .unwrap();
 
     let item = one_row(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["thread"]["id"], "t-live", "reopening puts the row back");
+    assert_eq!(
+        item["thread"]["id"], "t-live",
+        "reopening puts the row back"
+    );
     held.apply(&item);
     assert_eq!(held.threads, ["t-live"]);
 }
@@ -3471,7 +3725,11 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
     // and the expiry are not values the shell row carries, and a change to them
     // still has to move the conversation in the sidebar.
     #[allow(clippy::type_complexity)]
-    let cases: &[(&str, fn(PgPool, ScopeContext, String) -> BoxFuture<'static, ()>, Option<(&str, Value)>)] = &[
+    let cases: &[(
+        &str,
+        fn(PgPool, ScopeContext, String) -> BoxFuture<'static, ()>,
+        Option<(&str, Value)>,
+    )] = &[
         (
             "renamed",
             |pool, ctx, id| {
@@ -3480,7 +3738,10 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                         name: Some("a new name".into()),
                         ..TaskPatch::default()
                     };
-                    PgTaskDao(pool).update_task(&id, &patch, &ctx).await.unwrap();
+                    PgTaskDao(pool)
+                        .update_task(&id, &patch, &ctx)
+                        .await
+                        .unwrap();
                 })
             },
             Some(("title", json!("a new name"))),
@@ -3493,7 +3754,10 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                         description: Some("a description".into()),
                         ..TaskPatch::default()
                     };
-                    PgTaskDao(pool).update_task(&id, &patch, &ctx).await.unwrap();
+                    PgTaskDao(pool)
+                        .update_task(&id, &patch, &ctx)
+                        .await
+                        .unwrap();
                 })
             },
             None,
@@ -3509,7 +3773,10 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                         ttl_minutes: Some(240),
                         ..TaskPatch::default()
                     };
-                    PgTaskDao(pool).update_task(&id, &patch, &ctx).await.unwrap();
+                    PgTaskDao(pool)
+                        .update_task(&id, &patch, &ctx)
+                        .await
+                        .unwrap();
                 })
             },
             None,
@@ -3534,7 +3801,9 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                     // Replacing nothing with nothing moves no sidebar and is
                     // deliberately not recorded, so this case has to start from
                     // a tag there is something to replace.
-                    tags.add_task_tags(&id, &["tag-1".to_string()]).await.unwrap();
+                    tags.add_task_tags(&id, &["tag-1".to_string()])
+                        .await
+                        .unwrap();
                     tags.set_task_tags(&id, &[]).await.unwrap();
                 })
             },
@@ -3545,7 +3814,10 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
             |pool, _ctx, id| {
                 Box::pin(async move {
                     let msg = make_message_row(&id, &format!("{id}-said"));
-                    PgMessageDao(pool).append(&msg, &[], &ConversationWrite::default()).await.unwrap();
+                    PgMessageDao(pool)
+                        .append(&msg, &[], &ConversationWrite::default())
+                        .await
+                        .unwrap();
                 })
             },
             // The activity timestamp T3 orders the sidebar by. It was null on
@@ -3577,7 +3849,10 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
                             "input": {}
                         }]),
                     );
-                    PgMessageDao(pool).append(&msg, &[], &question).await.unwrap();
+                    PgMessageDao(pool)
+                        .append(&msg, &[], &question)
+                        .await
+                        .unwrap();
                 })
             },
             Some(("hasPendingUserInput", json!(true))),
@@ -3713,7 +3988,11 @@ async fn a_conversation_entering_a_project_the_client_lacks_arrives_as_a_listing
 
     // And the rebuilt listing left the feed caught up rather than repeating
     // itself on the next poll.
-    assert!(delivered(&pool, &mut feed, &watcher_viewer).await.is_empty());
+    assert!(
+        delivered(&pool, &mut feed, &watcher_viewer)
+            .await
+            .is_empty()
+    );
 }
 
 /// A long agent turn is the highest-rate path in the system and the one this
@@ -3788,17 +4067,19 @@ async fn renaming_a_project_updates_it_in_a_watching_client(pool: PgPool) {
     let (mut feed, mut held) = watcher(&pool, &viewer).await;
     assert_eq!(held.projects, ["ws-live"]);
 
-    assert!(PgWorkspaceDao(pool.clone())
-        .update(
-            "ws-live",
-            &WorkspacePatch {
-                name: Some("Renamed project".into()),
-                ..WorkspacePatch::default()
-            },
-            &viewer,
-        )
-        .await
-        .unwrap());
+    assert!(
+        PgWorkspaceDao(pool.clone())
+            .update(
+                "ws-live",
+                &WorkspacePatch {
+                    name: Some("Renamed project".into()),
+                    ..WorkspacePatch::default()
+                },
+                &viewer,
+            )
+            .await
+            .unwrap()
+    );
 
     let item = one_item(&pool, &mut feed, &viewer).await;
     assert_eq!(item["kind"], "project-upserted");
@@ -3832,10 +4113,12 @@ async fn a_new_project_appears_and_a_deleted_one_goes(pool: PgPool) {
     held.apply(&item);
     assert_eq!(held.projects, ["ws-live", "ws-new"]);
 
-    assert!(PgWorkspaceDao(pool.clone())
-        .soft_delete("ws-new", &viewer)
-        .await
-        .unwrap());
+    assert!(
+        PgWorkspaceDao(pool.clone())
+            .soft_delete("ws-new", &viewer)
+            .await
+            .unwrap()
+    );
 
     let item = one_item(&pool, &mut feed, &viewer).await;
     assert_eq!(item["kind"], "project-removed");
@@ -3868,7 +4151,11 @@ async fn tombstoning_a_git_declared_project_removes_it_from_a_watching_client(po
     assert_eq!(held.projects, ["ws-git"]);
     let watched_from = head(&pool).await.position;
 
-    assert!(repo.soft_delete_git_origin("ws-git", &viewer).await.unwrap());
+    assert!(
+        repo.soft_delete_git_origin("ws-git", &viewer)
+            .await
+            .unwrap()
+    );
     assert_eq!(
         recorded_after(&pool, watched_from).await,
         1,
@@ -3971,21 +4258,25 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
         .unwrap()
         .position;
 
-    assert!(PgWorkspaceDao(pool.clone())
-        .update(
-            "ws-other",
-            &WorkspacePatch {
-                name: Some("Someone else's".into()),
-                ..WorkspacePatch::default()
-            },
-            &viewer("user-2"),
-        )
-        .await
-        .unwrap());
-    assert!(PgWorkspaceDao(pool.clone())
-        .soft_delete("ws-other", &viewer("user-2"))
-        .await
-        .unwrap());
+    assert!(
+        PgWorkspaceDao(pool.clone())
+            .update(
+                "ws-other",
+                &WorkspacePatch {
+                    name: Some("Someone else's".into()),
+                    ..WorkspacePatch::default()
+                },
+                &viewer("user-2"),
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        PgWorkspaceDao(pool.clone())
+            .soft_delete("ws-other", &viewer("user-2"))
+            .await
+            .unwrap()
+    );
 
     assert_eq!(recorded_after(&pool, watched_from).await, 2);
     assert_eq!(
@@ -4011,21 +4302,23 @@ async fn a_project_held_only_because_it_is_referenced_still_updates(pool: PgPool
     follow(&pool, "user-1", "t-theirs").await;
     // Something for the narrowing to withhold: a `scripts` assertion against a
     // workspace with no servers passes whatever the projection does.
-    assert!(PgWorkspaceDao(pool.clone())
-        .update(
-            "ws-other",
-            &WorkspacePatch {
-                servers: Some(Some(json!([{
-                    "name": "dev",
-                    "port": 3000,
-                    "startCommands": ["bun run secret-thing"]
-                }]))),
-                ..WorkspacePatch::default()
-            },
-            &viewer("user-2"),
-        )
-        .await
-        .unwrap());
+    assert!(
+        PgWorkspaceDao(pool.clone())
+            .update(
+                "ws-other",
+                &WorkspacePatch {
+                    servers: Some(Some(json!([{
+                        "name": "dev",
+                        "port": 3000,
+                        "startCommands": ["bun run secret-thing"]
+                    }]))),
+                    ..WorkspacePatch::default()
+                },
+                &viewer("user-2"),
+            )
+            .await
+            .unwrap()
+    );
 
     let watcher_viewer = viewer("user-1");
     let (mut feed, mut held) = watcher(&pool, &watcher_viewer).await;
@@ -4034,17 +4327,19 @@ async fn a_project_held_only_because_it_is_referenced_still_updates(pool: PgPool
         "the widening half put an unreadable project in their listing"
     );
 
-    assert!(PgWorkspaceDao(pool.clone())
-        .update(
-            "ws-other",
-            &WorkspacePatch {
-                name: Some("Renamed elsewhere".into()),
-                ..WorkspacePatch::default()
-            },
-            &viewer("user-2"),
-        )
-        .await
-        .unwrap());
+    assert!(
+        PgWorkspaceDao(pool.clone())
+            .update(
+                "ws-other",
+                &WorkspacePatch {
+                    name: Some("Renamed elsewhere".into()),
+                    ..WorkspacePatch::default()
+                },
+                &viewer("user-2"),
+            )
+            .await
+            .unwrap()
+    );
 
     let item = one_item(&pool, &mut feed, &watcher_viewer).await;
     assert_eq!(item["kind"], "project-upserted");
@@ -4054,10 +4349,12 @@ async fn a_project_held_only_because_it_is_referenced_still_updates(pool: PgPool
     assert_eq!(item["project"]["scripts"], json!([]));
     held.apply(&item);
 
-    assert!(PgWorkspaceDao(pool.clone())
-        .soft_delete("ws-other", &viewer("user-2"))
-        .await
-        .unwrap());
+    assert!(
+        PgWorkspaceDao(pool.clone())
+            .soft_delete("ws-other", &viewer("user-2"))
+            .await
+            .unwrap()
+    );
     let items = held.poll(&pool, &mut feed, &watcher_viewer).await;
     assert!(
         items.iter().any(|item| item["kind"] == "project-removed"),
@@ -4132,9 +4429,7 @@ async fn a_resumed_client_watches_the_next_change_as_a_row_not_a_listing(pool: P
 /// fails if `grouped` is seeded with something that admits every project rather
 /// than the ones this viewer can read in their own right.
 #[sqlx::test]
-async fn a_resumed_client_gaining_an_unreadable_project_still_gets_the_listing_whole(
-    pool: PgPool,
-) {
+async fn a_resumed_client_gaining_an_unreadable_project_still_gets_the_listing_whole(pool: PgPool) {
     seed_workspaces(&pool).await;
     // `ws-other` belongs to `user-2`, and `user-1` cannot read it.
     let mut theirs = make_task_row("t-theirs", "user-2");
@@ -4142,10 +4437,7 @@ async fn a_resumed_client_gaining_an_unreadable_project_still_gets_the_listing_w
     theirs.visibility = Visibility::Public;
     theirs.scope = Scope::Global;
     theirs.owner_user_id = None;
-    PgTaskDao(pool.clone())
-        .insert_task(&theirs)
-        .await
-        .unwrap();
+    PgTaskDao(pool.clone()).insert_task(&theirs).await.unwrap();
 
     let watcher_viewer = viewer("user-1");
     let mut held = Held::opening(&pool, &watcher_viewer).await;
@@ -4194,10 +4486,7 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
     let mut mine = make_task_row("t-mine", "user-2");
     mine.workspace_id = Some("ws-global".to_string());
     mine.visibility = Visibility::Public;
-    PgTaskDao(pool.clone())
-        .insert_task(&mine)
-        .await
-        .unwrap();
+    PgTaskDao(pool.clone()).insert_task(&mine).await.unwrap();
 
     let watcher_viewer = viewer("user-2");
     let held = head(&pool).await.position;
@@ -4208,10 +4497,12 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
     // business, and a resumed feed that had reconstructed a held set from what
     // this viewer may read would still have to stay silent here.
     unfollow(&pool, "user-1", "t-theirs").await;
-    assert!(PgTaskDao(pool.clone())
-        .delete_task("t-deleted", &viewer("user-1"))
-        .await
-        .unwrap());
+    assert!(
+        PgTaskDao(pool.clone())
+            .delete_task("t-deleted", &viewer("user-1"))
+            .await
+            .unwrap()
+    );
     assert_eq!(recorded_after(&pool, held).await, 2, "the premise failed");
     assert_eq!(
         delivered(&pool, &mut feed, &watcher_viewer).await,
@@ -4226,10 +4517,12 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
     assert_eq!(upsert["thread"]["id"], "t-mine");
 
     ingress(&pool, "t-mine", turn, "agent", "completed").await;
-    assert!(PgTaskDao(pool.clone())
-        .delete_task("t-mine", &watcher_viewer)
-        .await
-        .unwrap());
+    assert!(
+        PgTaskDao(pool.clone())
+            .delete_task("t-mine", &watcher_viewer)
+            .await
+            .unwrap()
+    );
     let items = delivered(&pool, &mut feed, &watcher_viewer).await;
     assert_eq!(items.len(), 1, "expected one removal, got {items:#?}");
     assert_keys(&items[0], "thread-removed", THREAD_REMOVED_REQUIRED, &[]);
@@ -4276,7 +4569,8 @@ async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
     assert_eq!(opening.len(), 1);
     held.apply(&opening[0]);
     assert_eq!(
-        held.threads, ["t-shown"],
+        held.threads,
+        ["t-shown"],
         "the premise failed: the orphan was shown after all"
     );
 
@@ -4285,10 +4579,12 @@ async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
     assert!(values.is_empty());
 
     // It leaves. Neither feed may name it, because neither client ever saw it.
-    assert!(PgTaskDao(pool.clone())
-        .delete_task("t-orphan", &watcher_viewer)
-        .await
-        .unwrap());
+    assert!(
+        PgTaskDao(pool.clone())
+            .delete_task("t-orphan", &watcher_viewer)
+            .await
+            .unwrap()
+    );
     assert_eq!(
         recorded_after(&pool, resumed_from).await,
         1,
@@ -4335,9 +4631,11 @@ async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(po
     seed_task(&restored.origin, "t-origin-only", "user-1", Some("ws-live")).await;
     other_peoples_work(&restored.origin, 100).await;
     let mut feed = watching(&restored.origin, &watcher_viewer).await;
-    assert!(delivered(&restored.origin, &mut feed, &watcher_viewer)
-        .await
-        .is_empty());
+    assert!(
+        delivered(&restored.origin, &mut feed, &watcher_viewer)
+            .await
+            .is_empty()
+    );
 
     // The copy grows a project and a conversation of its own, which this client
     // has never been sent anything about.
@@ -4381,20 +4679,24 @@ async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(po
     );
 
     // A row only the rebuild snapshot introduced, leaving.
-    assert!(PgTaskDao(restored.pool.clone())
-        .delete_task("t-restore-only", &watcher_viewer)
-        .await
-        .unwrap());
+    assert!(
+        PgTaskDao(restored.pool.clone())
+            .delete_task("t-restore-only", &watcher_viewer)
+            .await
+            .unwrap()
+    );
     let items = delivered(&restored.pool, &mut feed, &watcher_viewer).await;
     assert_eq!(items.len(), 1, "expected one removal, got {items:#?}");
     assert_eq!(items[0]["kind"], "thread-removed");
     assert_eq!(items[0]["threadId"], "t-restore-only");
 
     // And the project half of the same set.
-    assert!(PgWorkspaceDao(restored.pool.clone())
-        .soft_delete("ws-restore-only", &watcher_viewer)
-        .await
-        .unwrap());
+    assert!(
+        PgWorkspaceDao(restored.pool.clone())
+            .soft_delete("ws-restore-only", &watcher_viewer)
+            .await
+            .unwrap()
+    );
     let items = delivered(&restored.pool, &mut feed, &watcher_viewer).await;
     assert_eq!(items.len(), 1, "expected one removal, got {items:#?}");
     assert_eq!(items[0]["kind"], "project-removed");

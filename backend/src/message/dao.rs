@@ -19,6 +19,7 @@ use chrono::{DateTime, Utc};
 
 use super::models::{MessageType, TaskMessage, TaskMessageContext};
 use crate::db::DbPool;
+use crate::task::dao as task_dao;
 use crate::task_activities;
 use crate::task_activities::dao::{self as activities, Activity};
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
@@ -437,7 +438,6 @@ pub trait MessageDao: Send + Sync {
         &self,
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, sqlx::Error>;
-
 }
 
 /// PostgreSQL implementation of [`MessageDao`].
@@ -674,6 +674,7 @@ impl MessageDao for PgMessageDao {
         // after every `task_messages` write above — `record_change`'s "call this
         // last", and this is the busiest transaction that allocates.
         if moves_a_listing_row(msg, conversation) {
+            task_dao::clear_settled_for_all_followers(&mut tx, &msg.task_id).await?;
             task_listing::record_change(&mut tx, &msg.task_id).await?;
         }
 
@@ -1539,7 +1540,6 @@ impl MessageDao for PgMessageDao {
             recovery_attempts,
         }))
     }
-
 }
 
 // =========================================================================

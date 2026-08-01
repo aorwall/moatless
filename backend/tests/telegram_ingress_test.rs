@@ -153,7 +153,7 @@ async fn seed_subscription(
         .loops
         .upsert_subscription(&SubscriptionMatch {
             id: TRIGGER.to_string(),
-            provider: "telegram".to_string(),
+            adapter_kind: "telegram".to_string(),
             connection_id: CONNECTION.to_string(),
             source_matcher: source_matcher.to_string(),
             source_name: None,

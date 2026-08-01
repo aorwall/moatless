@@ -153,7 +153,7 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
         .loops
         .upsert_subscription(&SubscriptionMatch {
             id: "trigger-linear-1".to_string(),
-            provider: "linear".to_string(),
+            adapter_kind: "linear".to_string(),
             connection_id: CONNECTION.to_string(),
             source_matcher: TEAM.to_string(),
             source_name: Some("Engineering".to_string()),

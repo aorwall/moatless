@@ -30,7 +30,7 @@
 //!   A Sandbox from before that flag existed ignores it and answers as it
 //!   always did.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::warn;
 
 use super::dao::ConversationDao;
@@ -99,9 +99,7 @@ impl FileAccessError {
     /// behind: they are logged once, where the frame is built.
     pub fn message(&self) -> String {
         match self {
-            Self::NoWorktree => {
-                "This conversation has no sandbox, so it has no files yet.".into()
-            }
+            Self::NoWorktree => "This conversation has no sandbox, so it has no files yet.".into(),
             Self::Unaddressable => "This conversation's files are not available.".into(),
             Self::NotRunning(_) => "The sandbox for this conversation is not running.".into(),
             Self::Sandbox(SandboxError::NotReady(_)) => {
@@ -361,6 +359,10 @@ mod tests {
             requested_model: None,
             pending_question: false,
             pending_plan: false,
+            settled_override: None,
+            settled_at: None,
+            snoozed_until: None,
+            snoozed_at: None,
         }
     }
 

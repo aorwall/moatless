@@ -30,7 +30,7 @@ async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     let now = Utc::now();
     let row = AdapterConnection {
         id: id.to_string(),
-        provider: "webhook".to_string(),
+        adapter_kind: "webhook".to_string(),
         connection_kind: "webhook".to_string(),
         scope_value: format!("acct-{id}"),
         credential_ref: None,

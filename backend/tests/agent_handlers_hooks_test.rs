@@ -34,7 +34,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
     let now = Utc::now();
     let connection = AdapterConnection {
         id: format!("pc_{owner}"),
-        provider: "github".to_string(),
+        adapter_kind: "github".to_string(),
         connection_kind: "org_webhook".to_string(),
         scope_value: owner.to_string(),
         credential_ref: None,
@@ -57,7 +57,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
 
     let subscription = SubscriptionMatch {
         id: format!("tt_{owner}_{repo}"),
-        provider: "github".to_string(),
+        adapter_kind: "github".to_string(),
         connection_id: connection.id.clone(),
         source_matcher: format!("{owner}/{repo}"),
         source_name: Some(format!("{owner}/{repo}")),
@@ -195,7 +195,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(bindings.len(), 1, "expected a GitHub task binding");
-    assert_eq!(bindings[0].provider, "github");
+    assert_eq!(bindings[0].adapter_kind, "github");
     assert_eq!(bindings[0].subject_kind, "github_pr");
     assert_eq!(bindings[0].subject_key, "foo/bar#99");
     assert_eq!(bindings[0].connection_id, connection.id);

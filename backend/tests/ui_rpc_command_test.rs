@@ -21,24 +21,25 @@ mod common;
 
 use std::sync::Arc;
 
+use chrono::{DateTime, Duration, Utc};
 use moatless_vibe_backend::agent::catalog;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::shared_models::{AgentMode, AgentType};
 use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao};
-use moatless_vibe_backend::task::models::TaskStatus;
+use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
 use moatless_vibe_backend::ui_rpc::backend::AppStateCommands;
 use moatless_vibe_backend::ui_rpc::dao::PgConversationDao;
 use moatless_vibe_backend::ui_rpc::ports::{
     CommandRefusal, NewThread, ThreadCommandSink, ThreadMeta, ThreadTurn,
 };
-use moatless_vibe_backend::ui_rpc::{thread_snapshot, AgentModelDefaults};
+use moatless_vibe_backend::ui_rpc::{AgentModelDefaults, thread_snapshot};
 use moatless_vibe_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
 use sqlx::PgPool;
 
 use common::{
-    make_repository_row, make_task_row, make_workspace_repo_row, make_workspace_row,
-    test_app_state, USER_1, USER_2,
+    USER_1, USER_2, make_repository_row, make_task_row, make_workspace_repo_row,
+    make_workspace_row, test_app_state,
 };
 
 const WS: &str = "ws-t3";
@@ -114,6 +115,50 @@ async fn seed_task(pool: &PgPool, task_id: &str, owner: &str) {
     let mut task = make_task_row(task_id, owner);
     task.workspace_id = Some(WS.to_string());
     PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+}
+
+async fn seed_public_task(pool: &PgPool, task_id: &str, owner: &str) {
+    let mut task = make_task_row(task_id, owner);
+    task.workspace_id = Some(WS.to_string());
+    task.visibility = Visibility::Public;
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+}
+
+async fn follow(pool: &PgPool, user_id: &str, task_id: &str) {
+    PgTaskDao(pool.clone())
+        .follow_task(user_id, task_id)
+        .await
+        .unwrap();
+}
+
+async fn follow_state(
+    pool: &PgPool,
+    user_id: &str,
+    task_id: &str,
+) -> (
+    Option<String>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+) {
+    sqlx::query_as(
+        r#"SELECT settled_override, settled_at, snoozed_until, snoozed_at
+           FROM task_follows
+           WHERE user_id = $1 AND task_id = $2"#,
+    )
+    .bind(user_id)
+    .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn listing_change_count(pool: &PgPool, task_id: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM task_listing_changes WHERE task_id = $1")
+        .bind(task_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 /// What the person wrote, which is the Message itself now — prose lives on the
@@ -210,7 +255,10 @@ async fn the_same_frame_twice_is_one_message_and_two_successes(pool: PgPool) {
             });
     }
 
-    assert_eq!(message_uuids(&pool, "t-replay").await, vec![uuid.to_string()]);
+    assert_eq!(
+        message_uuids(&pool, "t-replay").await,
+        vec![uuid.to_string()]
+    );
 }
 
 /// A message id arrives from the client, so it names a row the sender may have
@@ -564,6 +612,157 @@ async fn an_empty_meta_update_changes_nothing(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(before, after);
+}
+
+// =========================================================================
+// Settle and snooze
+// =========================================================================
+
+#[sqlx::test]
+async fn settling_as_one_follower_leaves_another_followers_row_untouched(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_public_task(&pool, "t-settle-one", USER_1).await;
+    follow(&pool, USER_1, "t-settle-one").await;
+    follow(&pool, USER_2, "t-settle-one").await;
+
+    sink(&pool)
+        .settle(&viewer(USER_1), "t-settle-one")
+        .await
+        .expect("settle is accepted");
+
+    assert_eq!(
+        follow_state(&pool, USER_1, "t-settle-one")
+            .await
+            .0
+            .as_deref(),
+        Some("settled")
+    );
+    assert_eq!(
+        follow_state(&pool, USER_2, "t-settle-one").await,
+        (None, None, None, None)
+    );
+}
+
+#[sqlx::test]
+async fn settling_twice_keeps_the_first_timestamp_and_records_one_change(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-settle-idempotent", USER_1).await;
+    follow(&pool, USER_1, "t-settle-idempotent").await;
+    let before = listing_change_count(&pool, "t-settle-idempotent").await;
+
+    let sink = sink(&pool);
+    sink.settle(&viewer(USER_1), "t-settle-idempotent")
+        .await
+        .expect("first settle is accepted");
+    let first = follow_state(&pool, USER_1, "t-settle-idempotent")
+        .await
+        .1
+        .expect("first settle timestamp");
+    sink.settle(&viewer(USER_1), "t-settle-idempotent")
+        .await
+        .expect("second settle is accepted");
+
+    let second = follow_state(&pool, USER_1, "t-settle-idempotent")
+        .await
+        .1
+        .expect("second settle timestamp");
+    assert_eq!(first, second);
+    assert_eq!(
+        listing_change_count(&pool, "t-settle-idempotent").await,
+        before + 1
+    );
+}
+
+#[sqlx::test]
+async fn snoozing_twice_to_the_same_wake_time_keeps_the_first_timestamp(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-snooze-idempotent", USER_1).await;
+    follow(&pool, USER_1, "t-snooze-idempotent").await;
+    let until = Utc::now() + Duration::hours(1);
+
+    let sink = sink(&pool);
+    sink.snooze(&viewer(USER_1), "t-snooze-idempotent", until)
+        .await
+        .expect("first snooze is accepted");
+    let first = follow_state(&pool, USER_1, "t-snooze-idempotent")
+        .await
+        .3
+        .expect("first snooze timestamp");
+    sink.snooze(&viewer(USER_1), "t-snooze-idempotent", until)
+        .await
+        .expect("second snooze is accepted");
+
+    let second = follow_state(&pool, USER_1, "t-snooze-idempotent")
+        .await
+        .3
+        .expect("second snooze timestamp");
+    assert_eq!(first, second);
+}
+
+#[sqlx::test]
+async fn snoozing_to_a_different_wake_time_stamps_fresh(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-snooze-fresh", USER_1).await;
+    follow(&pool, USER_1, "t-snooze-fresh").await;
+
+    let sink = sink(&pool);
+    sink.snooze(
+        &viewer(USER_1),
+        "t-snooze-fresh",
+        Utc::now() + Duration::hours(1),
+    )
+    .await
+    .expect("first snooze is accepted");
+    let first = follow_state(&pool, USER_1, "t-snooze-fresh")
+        .await
+        .3
+        .expect("first snooze timestamp");
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    sink.snooze(
+        &viewer(USER_1),
+        "t-snooze-fresh",
+        Utc::now() + Duration::hours(2),
+    )
+    .await
+    .expect("second snooze is accepted");
+
+    let second = follow_state(&pool, USER_1, "t-snooze-fresh")
+        .await
+        .3
+        .expect("second snooze timestamp");
+    assert!(second > first);
+}
+
+#[sqlx::test]
+async fn unsettle_writes_active_rather_than_null(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-unsettle", USER_1).await;
+    follow(&pool, USER_1, "t-unsettle").await;
+
+    let sink = sink(&pool);
+    sink.settle(&viewer(USER_1), "t-unsettle")
+        .await
+        .expect("settle is accepted");
+    sink.unsettle(&viewer(USER_1), "t-unsettle")
+        .await
+        .expect("unsettle is accepted");
+
+    let state = follow_state(&pool, USER_1, "t-unsettle").await;
+    assert_eq!(state.0.as_deref(), Some("active"));
+    assert!(state.1.is_none());
+}
+
+#[sqlx::test]
+async fn settle_on_a_task_the_viewer_cannot_read_is_not_writable(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-settle-private", USER_1).await;
+    follow(&pool, USER_1, "t-settle-private").await;
+
+    let refusal = sink(&pool)
+        .settle(&viewer(USER_2), "t-settle-private")
+        .await
+        .expect_err("unreadable task refuses");
+    assert!(matches!(refusal, CommandRefusal::NotWritable { .. }));
 }
 
 /// Every method on the port is `Send + Sync` behind an `Arc`, because the

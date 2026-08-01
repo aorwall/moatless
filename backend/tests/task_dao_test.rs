@@ -9,6 +9,7 @@
 
 mod common;
 
+use chrono::{DateTime, Duration, Utc};
 use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::task::dao::{
     self as task_dao, PgTaskDao, TaskDao, TaskFilter, TaskPatch,
@@ -332,12 +333,16 @@ async fn exists_by_short_id(pool: PgPool) {
     row.short_id = Some("abcd1234".to_string());
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    assert!(task_dao::exists_by_short_id(&pool, "abcd1234")
-        .await
-        .unwrap());
-    assert!(!task_dao::exists_by_short_id(&pool, "xxxxxxxx")
-        .await
-        .unwrap());
+    assert!(
+        task_dao::exists_by_short_id(&pool, "abcd1234")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !task_dao::exists_by_short_id(&pool, "xxxxxxxx")
+            .await
+            .unwrap()
+    );
 }
 
 #[sqlx::test]
@@ -401,6 +406,102 @@ async fn follow_unfollow_and_list_followed(pool: PgPool) {
         .await
         .unwrap();
     assert!(followed.is_empty());
+}
+
+async fn follow_state(
+    pool: &PgPool,
+    user_id: &str,
+    task_id: &str,
+) -> Option<(
+    Option<String>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+)> {
+    sqlx::query_as(
+        r#"SELECT settled_override, settled_at, snoozed_until, snoozed_at
+           FROM task_follows
+           WHERE user_id = $1 AND task_id = $2"#,
+    )
+    .bind(user_id)
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test]
+async fn unfollow_removes_settlement_and_snooze_with_the_follow_row(pool: PgPool) {
+    let owner = "user-1";
+    let follower = "user-2";
+    seed_repo(&pool, "repo-1", owner).await;
+    let mut row = make_task_row("task-state-delete", owner);
+    row.visibility = Visibility::Public;
+    task_dao::insert_task(&pool, &row).await.unwrap();
+
+    let repo = PgTaskDao(pool.clone());
+    repo.follow_task(follower, "task-state-delete")
+        .await
+        .unwrap();
+    repo.settle_task(follower, "task-state-delete", Utc::now())
+        .await
+        .unwrap();
+    repo.snooze_task(
+        follower,
+        "task-state-delete",
+        Utc::now() + Duration::hours(1),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+
+    repo.unfollow_task(follower, "task-state-delete")
+        .await
+        .unwrap();
+
+    assert!(
+        follow_state(&pool, follower, "task-state-delete")
+            .await
+            .is_none()
+    );
+}
+
+#[sqlx::test]
+async fn refollow_after_settle_and_unfollow_starts_with_null_state(pool: PgPool) {
+    let owner = "user-1";
+    let follower = "user-2";
+    seed_repo(&pool, "repo-1", owner).await;
+    let mut row = make_task_row("task-state-refollow", owner);
+    row.visibility = Visibility::Public;
+    task_dao::insert_task(&pool, &row).await.unwrap();
+
+    let repo = PgTaskDao(pool.clone());
+    repo.follow_task(follower, "task-state-refollow")
+        .await
+        .unwrap();
+    repo.settle_task(follower, "task-state-refollow", Utc::now())
+        .await
+        .unwrap();
+    repo.snooze_task(
+        follower,
+        "task-state-refollow",
+        Utc::now() + Duration::hours(1),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    repo.unfollow_task(follower, "task-state-refollow")
+        .await
+        .unwrap();
+
+    repo.follow_task(follower, "task-state-refollow")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        follow_state(&pool, follower, "task-state-refollow").await,
+        Some((None, None, None, None))
+    );
 }
 
 // =========================================================================

@@ -137,6 +137,31 @@ pub trait TaskDao: Send + Sync {
     /// task that isn't followed is a no-op.
     async fn unfollow_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
 
+    async fn settle_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn unsettle_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn snooze_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        until: DateTime<Utc>,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn unsnooze_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn clear_snoozed_for_follower(
+        &self,
+        user_id: &str,
+        task_id: &str,
+    ) -> Result<(), sqlx::Error>;
+
     /// Batch-fetch the subset of `task_ids` that `user_id` currently follows.
     async fn get_followed(
         &self,
@@ -802,6 +827,119 @@ impl TaskDao for PgTaskDao {
         Ok(())
     }
 
+    async fn settle_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let res = sqlx::query(
+            r#"UPDATE task_follows
+                  SET settled_override = 'settled',
+                      settled_at = $3
+                WHERE user_id = $1 AND task_id = $2
+                  AND settled_override IS DISTINCT FROM 'settled'"#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .bind(at)
+        .execute(&mut *tx)
+        .await?;
+        if res.rows_affected() > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn unsettle_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let res = sqlx::query(
+            r#"UPDATE task_follows
+                  SET settled_override = 'active',
+                      settled_at = NULL
+                WHERE user_id = $1 AND task_id = $2
+                  AND (settled_override IS DISTINCT FROM 'active' OR settled_at IS NOT NULL)"#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .execute(&mut *tx)
+        .await?;
+        if res.rows_affected() > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn snooze_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        until: DateTime<Utc>,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let res = sqlx::query(
+            r#"UPDATE task_follows
+                  SET snoozed_until = $3,
+                      snoozed_at = $4
+                WHERE user_id = $1 AND task_id = $2
+                  AND snoozed_until IS DISTINCT FROM $3"#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .bind(until)
+        .bind(at)
+        .execute(&mut *tx)
+        .await?;
+        if res.rows_affected() > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn unsnooze_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let res = sqlx::query(
+            r#"UPDATE task_follows
+                  SET snoozed_until = NULL,
+                      snoozed_at = NULL
+                WHERE user_id = $1 AND task_id = $2
+                  AND (snoozed_until IS NOT NULL OR snoozed_at IS NOT NULL)"#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .execute(&mut *tx)
+        .await?;
+        if res.rows_affected() > 0 {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn clear_snoozed_for_follower(
+        &self,
+        user_id: &str,
+        task_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE task_follows
+                  SET snoozed_until = NULL,
+                      snoozed_at = NULL
+                WHERE user_id = $1 AND task_id = $2
+                  AND (snoozed_until IS NOT NULL OR snoozed_at IS NOT NULL)"#,
+        )
+        .bind(user_id)
+        .bind(task_id)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
     async fn get_followed(
         &self,
         user_id: &str,
@@ -864,6 +1002,24 @@ impl TaskDao for PgTaskDao {
         };
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
+}
+
+/// Clear `settled_override`/`settled_at` for every follower of `task_id`.
+pub async fn clear_settled_for_all_followers(
+    tx: &mut sqlx::PgConnection,
+    task_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"UPDATE task_follows
+              SET settled_override = NULL,
+                  settled_at = NULL
+            WHERE task_id = $1
+              AND (settled_override IS NOT NULL OR settled_at IS NOT NULL)"#,
+    )
+    .bind(task_id)
+    .execute(tx)
+    .await?;
+    Ok(())
 }
 /// Patch struct for partial task updates.
 #[derive(Default)]

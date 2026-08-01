@@ -21,11 +21,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{debug, warn};
 
 use super::dao::ConversationDao;
-use super::{projection, AgentModelDefaults};
+use super::{AgentModelDefaults, projection};
 use crate::task_activities::{self, ConversationChange, ConversationHead};
 use crate::task_listing::{ChangeSubject, EnvironmentIdentity};
 use crate::workspace::dao::WorkspaceDao;
@@ -184,7 +184,10 @@ impl ShellFeed {
         // The ones these conversations reference, plus changed workspaces this
         // client already holds — the second half lets a viewer who cannot *read*
         // one still be told it was renamed, disclosing no id they lack.
-        let mut wanted: Vec<String> = rows.iter().filter_map(|row| row.workspace_id.clone()).collect();
+        let mut wanted: Vec<String> = rows
+            .iter()
+            .filter_map(|row| row.workspace_id.clone())
+            .collect();
         wanted.extend(
             coalesced
                 .iter()
@@ -202,10 +205,7 @@ impl ShellFeed {
 
         for ((is_workspace, id), position) in coalesced {
             if is_workspace {
-                match projects
-                    .iter()
-                    .find(|project| project.workspace.id == id)
-                {
+                match projects.iter().find(|project| project.workspace.id == id) {
                     Some(project) => {
                         items.push(projection::project_upserted(project, position));
                         delivered_projects.push(id);
@@ -238,7 +238,9 @@ impl ShellFeed {
                             .resynchronize(workspaces, conversations, defaults, viewer)
                             .await;
                     }
-                    items.push(projection::thread_upserted(row, project_id, defaults, position));
+                    items.push(projection::thread_upserted(
+                        row, project_id, defaults, position,
+                    ));
                     delivered_threads.push(id);
                 }
                 // Followed and readable, but its project is not listable; the
@@ -496,7 +498,9 @@ impl ThreadFeed {
             .iter()
             .filter_map(|change| change.message_uuid.clone())
             .collect();
-        let window = conversations.changed_messages(&self.task_id, &named).await?;
+        let window = conversations
+            .changed_messages(&self.task_id, &named)
+            .await?;
 
         let mut items = Vec::new();
         for change in &changes {
@@ -585,7 +589,11 @@ mod tests {
     /// client derives the turn it renders from the last one it is sent.
     #[test]
     fn changes_naming_no_message_are_all_kept() {
-        let coalesced = coalesced(vec![change(1, None), change(2, None), change(3, Some("msg-a"))]);
+        let coalesced = coalesced(vec![
+            change(1, None),
+            change(2, None),
+            change(3, Some("msg-a")),
+        ]);
         assert_eq!(positions(&coalesced), vec![1, 2, 3]);
     }
 
@@ -633,6 +641,10 @@ mod tests {
             requested_model: None,
             pending_question: false,
             pending_plan: false,
+            settled_override: None,
+            settled_at: None,
+            snoozed_until: None,
+            snoozed_at: None,
         }
     }
 
@@ -704,7 +716,10 @@ mod tests {
         let already = 9 * EVENTS_PER_CHANGE;
         let mut feed = ThreadFeed::resuming_from("task-a".into(), already);
         let items = feed.poll(&dao, &viewer()).await.unwrap().unwrap();
-        assert!(items.is_empty(), "nothing above the client's position: {items:#?}");
+        assert!(
+            items.is_empty(),
+            "nothing above the client's position: {items:#?}"
+        );
         assert_eq!(feed.delivered, already);
     }
 

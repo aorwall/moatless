@@ -20,6 +20,7 @@ use crate::message::service as message_service;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::error::TaskError;
+use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
 
 pub struct AppStateAgents(pub AppState);
@@ -48,6 +49,53 @@ impl AppStateCommands {
             user_id: &viewer.user_id,
             scope: viewer,
             is_agent_context: false,
+        }
+    }
+
+    async fn ensure_followed_open(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<(), CommandRefusal> {
+        let Some(task) = self.0.tasks.find_by_id(task_id, viewer).await.map_err(|error| {
+            tracing::warn!(%error, task_id, "T3 settlement command could not resolve its thread");
+            CommandRefusal::Failed {
+                message: "Could not reach that thread.".to_string(),
+            }
+        })?
+        else {
+            return Err(CommandRefusal::NotWritable {
+                task_id: task_id.to_string(),
+            });
+        };
+        if task.status != TaskStatus::Open {
+            return Err(CommandRefusal::NotWritable {
+                task_id: task_id.to_string(),
+            });
+        }
+        let followed = self
+            .0
+            .tasks
+            .get_followed(&viewer.user_id, &[task_id.to_string()])
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, task_id, "T3 settlement command could not resolve follow");
+                CommandRefusal::Failed {
+                    message: "Could not reach that thread.".to_string(),
+                }
+            })?;
+        if !followed.contains(task_id) {
+            return Err(CommandRefusal::NotWritable {
+                task_id: task_id.to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn state_refusal(task_id: &str, error: sqlx::Error) -> CommandRefusal {
+        tracing::warn!(%error, task_id, "T3 settlement state update failed");
+        CommandRefusal::Failed {
+            message: "Could not update that thread.".to_string(),
         }
     }
 }
@@ -165,6 +213,47 @@ impl ThreadCommandSink for AppStateCommands {
         task_service::stop_task(&self.0, viewer, task_id)
             .await
             .map_err(|e| create_refusal(task_id, e))
+    }
+
+    async fn settle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .settle_task(&viewer.user_id, task_id, chrono::Utc::now())
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn unsettle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .unsettle_task(&viewer.user_id, task_id)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn snooze(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        snoozed_until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .snooze_task(&viewer.user_id, task_id, snoozed_until, chrono::Utc::now())
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn unsnooze(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .unsnooze_task(&viewer.user_id, task_id)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
     }
 
     async fn answer_question(

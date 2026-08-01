@@ -22,7 +22,8 @@
 //! Workspaces are not authored from here, and approvals and checkpoints are
 //! never projected in the first place, so no control raises them.
 
-use serde_json::{json, Value};
+use chrono::{DateTime, Utc};
+use serde_json::{Value, json};
 
 use moatless_backend_core::scope::ScopeContext;
 
@@ -65,6 +66,32 @@ pub async fn dispatch(
         "thread.turn.interrupt" | "thread.session.stop" => {
             ctx.sink.stop(viewer, thread_id(command)?).await?;
         }
+        "thread.settle" => {
+            ctx.sink.settle(viewer, thread_id(command)?).await?;
+        }
+        "thread.unsettle" => {
+            ctx.sink.unsettle(viewer, thread_id(command)?).await?;
+        }
+        "thread.snooze" => {
+            let until = command
+                .get("snoozedUntil")
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("snoozedUntil"))?;
+            let until = DateTime::parse_from_rfc3339(until)
+                .map_err(|_| CommandRefusal::Rejected {
+                    message: format!("`{until}` is not a timestamp."),
+                })?
+                .with_timezone(&Utc);
+            if until <= Utc::now() {
+                return Err(CommandRefusal::Rejected {
+                    message: "A snooze must wake in the future.".to_string(),
+                });
+            }
+            ctx.sink.snooze(viewer, thread_id(command)?, until).await?;
+        }
+        "thread.unsnooze" => {
+            ctx.sink.unsnooze(viewer, thread_id(command)?).await?;
+        }
         "thread.user-input.respond" => respond(ctx, viewer, command).await?,
 
         // Accepted and discarded — see the module comment.
@@ -74,31 +101,25 @@ pub async fn dispatch(
             return Err(CommandRefusal::Unsupported {
                 command: tag,
                 reason: "Close a task from the Moatless UI instead.".to_string(),
-            })
+            });
         }
         "project.create" | "project.meta.update" | "project.delete" => {
             return Err(CommandRefusal::Unsupported {
                 command: tag,
                 reason: "Projects are Moatless workspaces and are managed there.".to_string(),
-            })
+            });
         }
         "thread.approval.respond" | "thread.checkpoint.revert" => {
             return Err(CommandRefusal::Unsupported {
                 command: tag,
                 reason: "Approvals and checkpoints are not part of this server.".to_string(),
-            })
-        }
-        "thread.settle" | "thread.unsettle" | "thread.snooze" | "thread.unsnooze" => {
-            return Err(CommandRefusal::Unsupported {
-                command: tag,
-                reason: "Settling and snoozing are not part of this server.".to_string(),
-            })
+            });
         }
         other => {
             return Err(CommandRefusal::Unsupported {
                 command: other.to_string(),
                 reason: "This server does not implement that action.".to_string(),
-            })
+            });
         }
     }
 
@@ -131,9 +152,7 @@ async fn turn_start(
         .to_string();
     let agent_mode = interaction_mode(command);
 
-    let bootstrap = command
-        .get("bootstrap")
-        .and_then(|b| b.get("createThread"));
+    let bootstrap = command.get("bootstrap").and_then(|b| b.get("createThread"));
 
     if let Some(create) = bootstrap {
         // A brand-new thread: the instance the person picked decides which
@@ -421,6 +440,19 @@ mod tests {
         Stop {
             task_id: String,
         },
+        Settle {
+            task_id: String,
+        },
+        Unsettle {
+            task_id: String,
+        },
+        Snooze {
+            task_id: String,
+            snoozed_until: String,
+        },
+        Unsnooze {
+            task_id: String,
+        },
         AnswerQuestion {
             task_id: String,
             tool_use_id: String,
@@ -472,6 +504,48 @@ mod tests {
         }
         async fn stop(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
             self.0.lock().unwrap().push(Call::Stop {
+                task_id: task_id.to_string(),
+            });
+            Ok(())
+        }
+        async fn settle(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Settle {
+                task_id: task_id.to_string(),
+            });
+            Ok(())
+        }
+        async fn unsettle(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Unsettle {
+                task_id: task_id.to_string(),
+            });
+            Ok(())
+        }
+        async fn snooze(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+            snoozed_until: DateTime<Utc>,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Snooze {
+                task_id: task_id.to_string(),
+                snoozed_until: snoozed_until.to_rfc3339(),
+            });
+            Ok(())
+        }
+        async fn unsnooze(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Unsnooze {
                 task_id: task_id.to_string(),
             });
             Ok(())
@@ -541,6 +615,10 @@ mod tests {
             requested_model: None,
             pending_question: false,
             pending_plan: false,
+            settled_override: None,
+            settled_at: None,
+            snoozed_until: None,
+            snoozed_at: None,
         }
     }
 
@@ -549,9 +627,8 @@ mod tests {
     /// here.
     fn conversations(found: Option<Conversation>) -> MockConversationDao {
         let mut dao = MockConversationDao::new();
-        dao.expect_list_followed_by_ids().returning(move |_, _| {
-            Ok(found.clone().into_iter().collect::<Vec<_>>())
-        });
+        dao.expect_list_followed_by_ids()
+            .returning(move |_, _| Ok(found.clone().into_iter().collect::<Vec<_>>()));
         dao.expect_listing_head().returning(|| {
             Ok(ListingHead {
                 identity: EnvironmentIdentity::new("test"),
@@ -806,6 +883,104 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn settle_commands_reach_the_sink() {
+        for (command, expected) in [
+            (
+                json!({
+                    "type": "thread.settle",
+                    "commandId": "cmd-1",
+                    "threadId": "task-1",
+                }),
+                Call::Settle {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+            (
+                json!({
+                    "type": "thread.unsettle",
+                    "commandId": "cmd-1",
+                    "threadId": "task-1",
+                }),
+                Call::Unsettle {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+            (
+                json!({
+                    "type": "thread.unsnooze",
+                    "commandId": "cmd-1",
+                    "threadId": "task-1",
+                }),
+                Call::Unsnooze {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+        ] {
+            let tag = command["type"].as_str().unwrap().to_string();
+            let (result, calls) = run(command).await;
+            assert!(result.is_ok(), "{tag}");
+            assert_eq!(calls, vec![expected], "{tag}");
+        }
+    }
+
+    #[tokio::test]
+    async fn snooze_reaches_the_sink_with_its_wake_time() {
+        let command = json!({
+            "type": "thread.snooze",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+            "snoozedUntil": "2099-07-01T09:00:00.000Z",
+        });
+        let (result, calls) = run(command).await;
+        assert!(result.is_ok());
+        assert_eq!(
+            calls,
+            vec![Call::Snooze {
+                task_id: "task-1".to_string(),
+                snoozed_until: "2099-07-01T09:00:00+00:00".to_string(),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn snooze_rejects_a_missing_wake_time_before_any_write() {
+        let command = json!({
+            "type": "thread.snooze",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+        });
+        let (result, calls) = run(command).await;
+        assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+        assert!(calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn snooze_rejects_an_unparseable_wake_time_before_any_write() {
+        let command = json!({
+            "type": "thread.snooze",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+            "snoozedUntil": "tomorrow",
+        });
+        let (result, calls) = run(command).await;
+        assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+        assert!(calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn snooze_rejects_a_past_wake_time_before_any_write() {
+        let command = json!({
+            "type": "thread.snooze",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+            "snoozedUntil": "2020-07-01T09:00:00.000Z",
+        });
+        let (result, calls) = run(command).await;
+        assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+        assert!(calls.is_empty());
+    }
+
+    #[tokio::test]
     async fn an_answer_reaches_the_agent_as_a_tool_response() {
         let command = json!({
             "type": "thread.user-input.respond",
@@ -864,10 +1039,6 @@ mod tests {
             "project.delete",
             "thread.approval.respond",
             "thread.checkpoint.revert",
-            "thread.settle",
-            "thread.unsettle",
-            "thread.snooze",
-            "thread.unsnooze",
             "thread.something.invented",
         ] {
             let command = json!({

@@ -83,6 +83,18 @@ pub async fn send_user_message(
         if let Err(e) = state.tasks.follow_task(sender.user_id, task_id).await {
             tracing::warn!(error = %e, task_id = %task_id, "Failed to auto-follow task on message send");
         }
+        if let Err(e) = state
+            .tasks
+            .clear_snoozed_for_follower(sender.user_id, task_id)
+            .await
+        {
+            tracing::warn!(
+                error = %e,
+                task_id = %task_id,
+                user_id = %sender.user_id,
+                "Failed to clear sender snooze on message send"
+            );
+        }
     }
 
     let message_uuid = match message.tool_response {

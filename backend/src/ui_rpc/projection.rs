@@ -448,12 +448,10 @@ fn event(
 
 /// The fields both shapes of a conversation carry, with the same values.
 ///
-/// Six fields are deliberately absent rather than null. `interactionMode`,
-/// `archivedAt`, `settledOverride`, `settledAt`, `snoozedUntil` and `snoozedAt`
-/// all carry a decoding default or are optional, and Moatless has nothing
-/// honest to put in them: closing a conversation records no timestamp of its
-/// own, and settlement and snoozing do not exist here at all. Leaving them out
-/// lets the contract fill them.
+/// Two fields are deliberately absent rather than null. `interactionMode` has
+/// no separate Moatless state, and `archivedAt` would need a close timestamp
+/// this backend does not record. Settlement and snoozing are follower state and
+/// are emitted here.
 fn conversation_row(
     conversation: &Conversation,
     project_id: &str,
@@ -482,7 +480,14 @@ fn conversation_row(
         "latestTurn": latest_turn(conversation),
         "createdAt": instant(created),
         "updatedAt": instant(conversation.updated_at.unwrap_or(created)),
-        "session": session(conversation)
+        "session": session(conversation),
+        "settledOverride": conversation
+            .settled_override
+            .as_deref()
+            .map_or(Value::Null, |value| Value::String(value.to_string())),
+        "settledAt": nullable_instant(conversation.settled_at),
+        "snoozedUntil": nullable_instant(conversation.snoozed_until),
+        "snoozedAt": nullable_instant(conversation.snoozed_at)
     }) else {
         unreachable!("a json! object literal is an object")
     };
@@ -1178,15 +1183,12 @@ mod tests {
         "hasPendingApprovals",
         "hasPendingUserInput",
         "hasActionableProposedPlan",
-    ];
-    const THREAD_OPTIONAL: &[&str] = &[
-        "interactionMode",
-        "archivedAt",
         "settledOverride",
         "settledAt",
         "snoozedUntil",
         "snoozedAt",
     ];
+    const THREAD_OPTIONAL: &[&str] = &["interactionMode", "archivedAt"];
     const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
 
     // `ModelSelection` (`:64-68`), after the wire transform. `provider` is the
@@ -1287,6 +1289,10 @@ mod tests {
             requested_model: None,
             pending_question: false,
             pending_plan: false,
+            settled_override: None,
+            settled_at: None,
+            snoozed_until: None,
+            snoozed_at: None,
         }
     }
 
@@ -1321,6 +1327,49 @@ mod tests {
         );
         assert_eq!(listed.len(), 1, "the conversation should have been listed");
         listed[0].clone()
+    }
+
+    #[test]
+    fn settlement_and_snooze_state_are_null_when_unset() {
+        let thread = one_thread(&running_conversation("task-a", "ws-a"));
+        for key in ["settledOverride", "settledAt", "snoozedUntil", "snoozedAt"] {
+            assert_eq!(thread[key], Value::Null, "{key}");
+        }
+    }
+
+    #[test]
+    fn shell_and_detail_rows_carry_the_same_settlement_and_snooze_state() {
+        let settled_at = DateTime::parse_from_rfc3339("2026-07-02T09:00:00.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let snoozed_until = DateTime::parse_from_rfc3339("2026-07-03T09:00:00.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let snoozed_at = DateTime::parse_from_rfc3339("2026-07-02T10:00:00.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let conversation = Conversation {
+            settled_override: Some("settled".to_string()),
+            settled_at: Some(settled_at),
+            snoozed_until: Some(snoozed_until),
+            snoozed_at: Some(snoozed_at),
+            ..running_conversation("task-a", "ws-a")
+        };
+
+        let shell = one_thread(&conversation);
+        let detail = thread_detail(
+            &conversation,
+            "ws-a",
+            &AgentModelDefaults::default(),
+            &transcript(Vec::new(), Vec::new()),
+        );
+        for key in ["settledOverride", "settledAt", "snoozedUntil", "snoozedAt"] {
+            assert_eq!(shell[key], detail[key], "{key}");
+        }
+        assert_eq!(shell["settledOverride"], json!("settled"));
+        assert_eq!(shell["settledAt"], json!("2026-07-02T09:00:00.000Z"));
+        assert_eq!(shell["snoozedUntil"], json!("2026-07-03T09:00:00.000Z"));
+        assert_eq!(shell["snoozedAt"], json!("2026-07-02T10:00:00.000Z"));
     }
 
     #[test]
@@ -1740,16 +1789,12 @@ mod tests {
         "messages",
         "activities",
         "checkpoints",
-    ];
-    const DETAIL_OPTIONAL: &[&str] = &[
-        "interactionMode",
-        "archivedAt",
         "settledOverride",
         "settledAt",
         "snoozedUntil",
         "snoozedAt",
-        "proposedPlans",
     ];
+    const DETAIL_OPTIONAL: &[&str] = &["interactionMode", "archivedAt", "proposedPlans"];
 
     // `OrchestrationMessage` (`:227-236`).
     const MESSAGE_REQUIRED: &[&str] = &[

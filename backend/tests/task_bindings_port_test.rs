@@ -49,7 +49,7 @@ async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     let now = Utc::now();
     let row = AdapterConnection {
         id: id.to_string(),
-        provider: "github".to_string(),
+        adapter_kind: "github".to_string(),
         connection_kind: "org_webhook".to_string(),
         scope_value: "acme".to_string(),
         credential_ref: None,
@@ -74,7 +74,7 @@ fn binding(id: &str, task_id: &str, connection_id: &str, subject_key: &str) -> T
     TaskBinding {
         id: id.to_string(),
         task_id: task_id.to_string(),
-        provider: "github".to_string(),
+        adapter_kind: "github".to_string(),
         subject_kind: "github_pr".to_string(),
         subject_key: subject_key.to_string(),
         connection_id: connection_id.to_string(),
@@ -197,7 +197,7 @@ async fn adapter_connection_port_round_trips_a_connection(pool: PgPool) {
         .await
         .expect("find_by_id through the port")
         .expect("connection row");
-    assert_eq!(by_id.provider, "github");
+    assert_eq!(by_id.adapter_kind, "github");
     assert_eq!(by_id.scope_value, "acme");
 
     let by_account = state
