@@ -682,6 +682,7 @@ pub async fn thread_subscription(
     viewer: &ScopeContext,
     task_id: &str,
     after: Option<i64>,
+    request_completion_marker: bool,
 ) -> Result<Option<(Vec<Value>, ThreadFeed)>, sqlx::Error> {
     let head = conversations.conversation_head(task_id).await?;
     // Qualified: the shell has a decision of the same shape over a different
@@ -713,7 +714,10 @@ pub async fn thread_subscription(
             replayed = values.len(),
             "T3 UI thread subscription resumed from the client's position"
         );
-        return Ok(Some((values, feed)));
+        return Ok(Some((
+            thread_initial_values(values, request_completion_marker),
+            feed,
+        )));
     }
 
     let Some(snapshot) =
@@ -732,13 +736,21 @@ pub async fn thread_subscription(
         );
     }
     let feed = ThreadFeed::at(task_id.to_string(), snapshot.head);
+    let values = vec![json!({
+        "kind": "snapshot",
+        "snapshot": snapshot.value
+    })];
     Ok(Some((
-        vec![json!({
-            "kind": "snapshot",
-            "snapshot": snapshot.value
-        })],
+        thread_initial_values(values, request_completion_marker),
         feed,
     )))
+}
+
+fn thread_initial_values(mut values: Vec<Value>, request_completion_marker: bool) -> Vec<Value> {
+    if request_completion_marker {
+        values.push(json!({ "kind": "synchronized" }));
+    }
+    values
 }
 
 /// A shell listing, the position it was read at, and the database it was read
@@ -1783,6 +1795,10 @@ impl ProtocolSession {
                     &viewer,
                     &task_id,
                     after_sequence(&payload),
+                    payload
+                        .get("requestCompletionMarker")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                 )
                 .await
                 {
@@ -1797,20 +1813,9 @@ impl ProtocolSession {
                         return vec![failure_exit(&id, "Failed to assemble the conversation")];
                     }
                 };
-                let Some((mut values, feed)) = opened else {
+                let Some((values, feed)) = opened else {
                     return vec![failure_exit(&id, "Conversation not found")];
                 };
-                if payload
-                    .get("requestCompletionMarker")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                {
-                    // Last, after the snapshot. Until the client sees this it
-                    // renders the conversation as still loading however much of
-                    // it has arrived — which is what an unimplemented
-                    // subscription looked like from the outside.
-                    values.push(json!({ "kind": "synchronized" }));
-                }
                 let frames = self.frames.clone();
                 let producer = tokio::spawn(Self::watch_thread(
                     id.clone(),
@@ -2956,6 +2961,11 @@ mod tests {
             output.frames[0]["exit"]["value"]["auth"]["sessionMethods"],
             json!(["browser-session-cookie", "bearer-access-token"])
         );
+        assert_eq!(
+            output.frames[0]["exit"]["value"]["threadResumeCompletionMarker"],
+            true,
+            "do not advertise this unless subscribeThread can emit synchronized"
+        );
     }
 
     /// The client polls this for every conversation it holds, most of which
@@ -3160,6 +3170,31 @@ mod tests {
             .await;
         assert!(ack.frames.is_empty());
         assert!(!session.streams["2"].awaiting_ack);
+    }
+
+    #[test]
+    fn thread_initial_values_put_synchronization_after_initial_projection() {
+        let snapshot = json!({
+            "kind": "snapshot",
+            "snapshot": {
+                "snapshotSequence": 0,
+                "thread": {
+                    "messages": [{ "text": "Fix the build" }],
+                    "activities": [{ "summary": "Thinking" }]
+                }
+            }
+        });
+        let values = thread_initial_values(vec![snapshot.clone()], true);
+        assert_eq!(values, vec![snapshot, json!({ "kind": "synchronized" })]);
+
+        let caught_up = thread_initial_values(Vec::new(), true);
+        assert_eq!(caught_up, vec![json!({ "kind": "synchronized" })]);
+
+        assert_eq!(
+            thread_initial_values(vec![json!({ "kind": "snapshot" })], false),
+            vec![json!({ "kind": "snapshot" })],
+            "the marker is emitted only when T3 requested it"
+        );
     }
 
     /// A client that resumes is not sent the listing again, and the completion
