@@ -1,8 +1,8 @@
 //! Emoji reactions on a Slack message.
 
+use crate::adapters::AdapterReactions;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::BindingContext;
-use crate::adapters::AdapterReactions;
 
 use super::adapter::SlackAdapter;
 use super::subject;
@@ -31,7 +31,8 @@ impl AdapterReactions for SlackAdapter {
     ) -> Result<Option<String>, AdapterError> {
         let (channel, ts) = subject::reaction_target(binding, target_external_id)?;
         let name = normalize_emoji(emoji)?;
-        self.api().add_reaction(&channel, name, ts).await?;
+        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        app.api.add_reaction(&channel, name, ts).await?;
         Ok(None)
     }
 
@@ -43,15 +44,16 @@ impl AdapterReactions for SlackAdapter {
     ) -> Result<(), AdapterError> {
         let (channel, ts) = subject::reaction_target(binding, target_external_id)?;
         let name = normalize_emoji(emoji)?;
-        self.api().remove_reaction(&channel, name, ts).await
+        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        app.api.remove_reaction(&channel, name, ts).await
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::adapters::AdapterReactions;
     use crate::adapters::models::BindingContext;
     use crate::adapters::test_support::ProviderStub;
-    use crate::adapters::AdapterReactions;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;

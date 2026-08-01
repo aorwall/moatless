@@ -245,3 +245,67 @@ pub struct SaveGitnessPATRequest {
     pub base_url: String,
     pub token: String,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterAppSummary {
+    pub adapter_kind: String,
+    pub app_key: String,
+    pub display_name: String,
+    pub config: serde_json::Value,
+    pub secret_fingerprints: std::collections::HashMap<String, String>,
+    pub revision: i32,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterAppsResponse {
+    pub apps: Vec<AdapterAppSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSlackAdapterAppRequest {
+    pub bot_token: String,
+    pub signing_secret: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_user_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SaveTelegramAdapterAppRequest {
+    pub bot_token: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SaveLinearAdapterAppRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_client_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_client_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_callback_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_base_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "adapterKind", rename_all = "snake_case")]
+pub enum SaveAdapterAppRequest {
+    Slack(SaveSlackAdapterAppRequest),
+    Telegram(SaveTelegramAdapterAppRequest),
+    Linear(SaveLinearAdapterAppRequest),
+}

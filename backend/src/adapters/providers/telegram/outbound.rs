@@ -14,7 +14,7 @@ use crate::adapters::{
 
 use super::adapter::TelegramAdapter;
 use super::subject::{
-    parse_direct_destination, parse_message_target, TelegramDestination, SUBJECT_KIND,
+    SUBJECT_KIND, TelegramDestination, parse_direct_destination, parse_message_target,
 };
 
 /// The message text as Telegram receives it, task link included.
@@ -39,27 +39,30 @@ impl AdapterBindingReply for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
+        let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
 
-        self.api()
-            .send_message(
-                destination.chat_id(),
-                &with_task_link(message),
-                destination.message_id(),
-                destination.forum_topic_id(),
-            )
-            .await?;
+        api.send_message(
+            destination.chat_id(),
+            &with_task_link(message),
+            destination.message_id(),
+            destination.forum_topic_id(),
+        )
+        .await?;
         Ok(None)
     }
 
     async fn send_reply_for_binding(
         &self,
         binding: &TaskBinding,
-        _connection: &AdapterConnection,
+        connection: &AdapterConnection,
         rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let thread = crate::bindings::runtime::binding_context(binding);
-        let config = rule.map_or_else(
+        let app_key =
+            crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
+        let api = self.app_api(app_key).await?;
+        let _config = rule.map_or_else(
             || LoopContext {
                 id: binding.trigger_id.clone().unwrap_or_default(),
                 provider: "telegram".to_string(),
@@ -89,7 +92,15 @@ impl AdapterBindingReply for TelegramAdapter {
             },
             |r| crate::bindings::runtime::trigger_context(r, "telegram"),
         );
-        self.send_reply(&thread, &config, message).await
+        let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
+        api.send_message(
+            destination.chat_id(),
+            &with_task_link(message),
+            destination.message_id(),
+            destination.forum_topic_id(),
+        )
+        .await?;
+        Ok(None)
     }
 }
 
@@ -98,7 +109,7 @@ impl AdapterMessageReply for TelegramAdapter {
     async fn reply_to_message(
         &self,
         binding: &TaskBinding,
-        _connection: &AdapterConnection,
+        connection: &AdapterConnection,
         _rule: Option<&SubscriptionMatch>,
         target_external_id: &str,
         message: &OutboundReply,
@@ -106,9 +117,11 @@ impl AdapterMessageReply for TelegramAdapter {
         let target = parse_message_target(target_external_id, "reply")?;
         let destination =
             TelegramDestination::from_destination_config(&binding.destination_config)?;
+        let app_key =
+            crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
+        let api = self.app_api(app_key).await?;
 
-        let new_id = self
-            .api()
+        let new_id = api
             .send_message_returning_id(
                 destination.chat_id(),
                 &with_task_link(message),
@@ -128,9 +141,9 @@ impl AdapterDirectDestination for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
         let chat_id = parse_direct_destination(destination)?;
+        let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
 
-        let message_id = self
-            .api()
+        let message_id = api
             .send_message_returning_id(chat_id, &with_task_link(message), None, None)
             .await?;
 
@@ -164,9 +177,9 @@ impl AdapterNewThread for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<NewThreadInfo, AdapterError> {
         let chat_id = &config.source_id;
+        let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
 
-        let message_id = self
-            .api()
+        let message_id = api
             .send_message_returning_id(chat_id, &with_task_link(message), None, None)
             .await?;
         Ok(NewThreadInfo {
@@ -187,7 +200,7 @@ mod tests {
     use crate::adapters::test_support::stub_provider;
 
     use super::super::api::TelegramApi;
-    use super::super::test_support::{bot_api_stub, test_loop_context, BotApiStub};
+    use super::super::test_support::{BotApiStub, bot_api_stub, test_loop_context};
     use super::*;
 
     /// A provider whose Bot API calls are recorded rather than sent.

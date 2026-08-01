@@ -384,7 +384,9 @@ async fn execute_session_provision(
         return Ok(());
     }
 
-    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    let api = super::auth::api_for_connection(&state, &connection)
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
     super::sessions::provision_selected_session_task(
         &state,
         &api,
@@ -402,7 +404,9 @@ async fn execute_session_prompt(
     connection: AdapterConnection,
     payload: SessionPromptDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    let api = super::auth::api_for_connection(&state, &connection)
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
     super::sessions::handle_session_prompted(
         &state,
         &api,
@@ -436,7 +440,9 @@ async fn execute_issue_update(
         return Ok(());
     }
 
-    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    let api = super::auth::api_for_connection(&state, &connection)
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
     super::issues::handle_issue_update(
         &state,
         &api,
@@ -456,7 +462,9 @@ async fn execute_comment(
     connection: AdapterConnection,
     payload: CommentDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    let api = super::auth::api_for_connection(&state, &connection)
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
     super::comments::handle_comment_created(
         &state,
         &api,
@@ -489,7 +497,9 @@ async fn execute_notification(
         return Ok(());
     }
 
-    let api = super::auth::api_for_org(&state, &connection.scope_value);
+    let api = super::auth::api_for_connection(&state, &connection)
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
     super::notifications::handle_issue_status_notification(
         &state,
         &api,

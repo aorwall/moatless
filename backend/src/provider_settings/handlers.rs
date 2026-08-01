@@ -3,32 +3,34 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::State;
 use axum::Json;
+use axum::extract::{Path, State};
 
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
+use crate::adapter_apps::dao::{AdapterAppDao, GitHubAppAuditEntry, GitHubAppRecord, NewGitHubApp};
+use crate::adapter_apps::{
+    AdapterAppInput, AdapterAppSecretInput, DEFAULT_APP_KEY, delete_adapter_app, list_adapter_apps,
+    upsert_adapter_app,
+};
 use crate::adapters::models::AdapterConnection;
-use crate::auth::github::service::GitHubAppService;
-use crate::auth::github::dao::{
-    GitHubAppAuditEntry, GitHubAppDao, GitHubAppRecord, NewGitHubApp,
-};
 use crate::auth::credentials::{
-    read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
+    GITHUB_OAUTH_STASH_KEY, read_github_oauth_stash, stash_github_oauth_token,
 };
+use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_tokens::{
     APP_INSTALLATION_TOKEN_PLACEHOLDER, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
     SECRET_REF_TOKEN_PLACEHOLDER,
 };
-use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
-use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
-use crate::credentials::github::scope::GitHubScope;
 use crate::credentials::WriteSource;
+use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
+use crate::credentials::codex::{CodexScope, save_codex_auth_for_scope};
+use crate::credentials::github::scope::GitHubScope;
 use crate::extractors::AuthUser;
 use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
-use crate::secret::service::SecretCipher;
 use crate::secret::schemas::PutSecretRequest;
+use crate::secret::service::SecretCipher;
 use crate::state::AppState;
 
 use super::error::ProviderSettingsError;
@@ -105,8 +107,203 @@ fn require_admin(auth: &AuthUser, action: &str) -> Result<(), ProviderSettingsEr
         return Ok(());
     }
     Err(ProviderSettingsError::Forbidden(format!(
-        "Admin role required to {action} GitHub installation settings"
+        "Admin role required to {action} provider settings"
     )))
+}
+
+fn adapter_app_summary(app: crate::adapter_apps::StoredAdapterApp) -> AdapterAppSummary {
+    AdapterAppSummary {
+        adapter_kind: app.adapter_kind,
+        app_key: app.app_key,
+        display_name: app.display_name,
+        config: app.config_json,
+        secret_fingerprints: app.secret_fingerprints,
+        revision: app.revision,
+        updated_at: app.updated_at.to_rfc3339(),
+    }
+}
+
+fn adapter_app_input(
+    adapter_kind: &str,
+    app_key: &str,
+    req: SaveAdapterAppRequest,
+) -> Result<AdapterAppInput, ProviderSettingsError> {
+    if adapter_kind == "github" {
+        return Err(ProviderSettingsError::BadRequest(
+            "Use the GitHub App admin endpoints for GitHub App registration".to_string(),
+        ));
+    }
+    match req {
+        SaveAdapterAppRequest::Slack(slack) => {
+            if adapter_kind != "slack" {
+                return Err(ProviderSettingsError::BadRequest(
+                    "Request body adapterKind must match the path".to_string(),
+                ));
+            }
+            Ok(AdapterAppInput {
+                adapter_kind: "slack",
+                app_key: app_key.to_string(),
+                display_name: "Slack".to_string(),
+                config_json: serde_json::json!({ "bot_user_id": slack.bot_user_id }),
+                secrets: vec![
+                    AdapterAppSecretInput {
+                        name: "bot_token",
+                        plaintext: slack.bot_token,
+                    },
+                    AdapterAppSecretInput {
+                        name: "signing_secret",
+                        plaintext: slack.signing_secret,
+                    },
+                ],
+            })
+        }
+        SaveAdapterAppRequest::Telegram(telegram) => {
+            if adapter_kind != "telegram" {
+                return Err(ProviderSettingsError::BadRequest(
+                    "Request body adapterKind must match the path".to_string(),
+                ));
+            }
+            let mode = telegram.mode.unwrap_or_else(|| "webhook".to_string());
+            if mode != "webhook" && mode != "polling" {
+                return Err(ProviderSettingsError::BadRequest(
+                    "Telegram mode must be 'webhook' or 'polling'".to_string(),
+                ));
+            }
+            Ok(AdapterAppInput {
+                adapter_kind: "telegram",
+                app_key: app_key.to_string(),
+                display_name: "Telegram".to_string(),
+                config_json: serde_json::json!({ "mode": mode }),
+                secrets: vec![AdapterAppSecretInput {
+                    name: "bot_token",
+                    plaintext: telegram.bot_token,
+                }],
+            })
+        }
+        SaveAdapterAppRequest::Linear(linear) => {
+            if adapter_kind != "linear" {
+                return Err(ProviderSettingsError::BadRequest(
+                    "Request body adapterKind must match the path".to_string(),
+                ));
+            }
+            let mut secrets = Vec::new();
+            if let Some(value) = linear.webhook_secret {
+                secrets.push(AdapterAppSecretInput {
+                    name: "webhook_secret",
+                    plaintext: value,
+                });
+            }
+            if let Some(value) = linear.oauth_client_id {
+                secrets.push(AdapterAppSecretInput {
+                    name: "oauth_client_id",
+                    plaintext: value,
+                });
+            }
+            if let Some(value) = linear.oauth_client_secret {
+                secrets.push(AdapterAppSecretInput {
+                    name: "oauth_client_secret",
+                    plaintext: value,
+                });
+            }
+            Ok(AdapterAppInput {
+                adapter_kind: "linear",
+                app_key: app_key.to_string(),
+                display_name: "Linear".to_string(),
+                config_json: serde_json::json!({
+                    "oauth_callback_url": linear.oauth_callback_url,
+                    "api_base_url": linear.api_base_url,
+                }),
+                secrets,
+            })
+        }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/settings/adapter-apps",
+    tag = "provider-settings",
+    responses(
+        (status = 200, description = "Configured Adapter apps", body = AdapterAppsResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_list_adapter_apps(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<Json<AdapterAppsResponse>, ProviderSettingsError> {
+    require_admin(&auth, "read")?;
+    let apps = list_adapter_apps(&state.db)
+        .await?
+        .into_iter()
+        .map(adapter_app_summary)
+        .collect();
+    Ok(Json(AdapterAppsResponse { apps }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/admin/settings/adapter-apps/{adapter_kind}/{app_key}",
+    tag = "provider-settings",
+    params(
+        ("adapter_kind" = String, Path, description = "Adapter kind"),
+        ("app_key" = String, Path, description = "Adapter app key")
+    ),
+    request_body = SaveAdapterAppRequest,
+    responses(
+        (status = 200, description = "Adapter app saved", body = AdapterAppSummary),
+        (status = 400, description = "Invalid Adapter app config", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_save_adapter_app(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((adapter_kind, app_key)): Path<(String, String)>,
+    Json(req): Json<SaveAdapterAppRequest>,
+) -> Result<Json<AdapterAppSummary>, ProviderSettingsError> {
+    require_admin(&auth, "save")?;
+    if app_key != DEFAULT_APP_KEY {
+        return Err(ProviderSettingsError::BadRequest(format!(
+            "Only the '{DEFAULT_APP_KEY}' Adapter app key is supported for this Adapter"
+        )));
+    }
+    let input = adapter_app_input(&adapter_kind, &app_key, req)?;
+    let app =
+        upsert_adapter_app(&state.db, &state.config, input, &auth.user_id.to_string()).await?;
+    Ok(Json(adapter_app_summary(app)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/admin/settings/adapter-apps/{adapter_kind}/{app_key}",
+    tag = "provider-settings",
+    params(
+        ("adapter_kind" = String, Path, description = "Adapter kind"),
+        ("app_key" = String, Path, description = "Adapter app key")
+    ),
+    responses(
+        (status = 204, description = "Adapter app deleted"),
+        (status = 400, description = "Invalid Adapter app", body = crate::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
+        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+    )
+)]
+pub async fn admin_delete_adapter_app(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((adapter_kind, app_key)): Path<(String, String)>,
+) -> Result<axum::http::StatusCode, ProviderSettingsError> {
+    require_admin(&auth, "delete")?;
+    if adapter_kind == "github" {
+        return Err(ProviderSettingsError::BadRequest(
+            "Use the GitHub App admin endpoints to remove GitHub Apps".to_string(),
+        ));
+    }
+    delete_adapter_app(&state.db, &adapter_kind, &app_key).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 fn installation_binding_response(
@@ -160,10 +357,7 @@ async fn save_installation_binding(
     req: GitHubInstallationBindingRequest,
     created_by: &str,
 ) -> Result<GitHubInstallationBindingResponse, ProviderSettingsError> {
-    let app = state
-        .github_apps
-        .require(&req.github_app_key)
-        .await?;
+    let app = state.github_apps.require(&req.github_app_key).await?;
     let installation = app
         .get_installation(req.installation_id)
         .await
@@ -289,16 +483,15 @@ pub async fn admin_list_github_apps(
     let entries = state.github_apps.entries().await?;
     // Whatever the registry holds that storage does not know about is the
     // deployment-configured login App — the one row this page cannot edit.
-    let stored_apps: HashMap<String, GitHubAppRecord> =
-        match state.github_apps.store() {
-            Some(store) => store
-                .list()
-                .await?
-                .into_iter()
-                .map(|record| (record.app_key.clone(), record))
-                .collect(),
-            None => HashMap::new(),
-        };
+    let stored_apps: HashMap<String, GitHubAppRecord> = match state.github_apps.store() {
+        Some(store) => store
+            .list_github_apps()
+            .await?
+            .into_iter()
+            .map(|record| (record.app_key.clone(), record))
+            .collect(),
+        None => HashMap::new(),
+    };
     let bot_users = bot_users_by_app_key(&state.db).await?;
 
     let mut apps = Vec::new();
@@ -357,7 +550,7 @@ async fn bot_users_by_app_key(
 }
 
 /// The durable store and the cipher an App's signing key is sealed with.
-type AppAdministration<'a> = (&'a Arc<dyn GitHubAppDao>, &'a Arc<dyn SecretCipher>);
+type AppAdministration<'a> = (&'a Arc<dyn AdapterAppDao>, &'a Arc<dyn SecretCipher>);
 
 /// Everything needed to register or rotate an App: the durable store and the
 /// cipher its signing key is sealed with.
@@ -462,7 +655,15 @@ pub async fn admin_register_github_app(
     .await
     {
         Ok(proved) => proved,
-        Err(e) => return Err(audit_refusal(store, &req.github_app_key, &actor, "register", e)),
+        Err(e) => {
+            return Err(audit_refusal(
+                store,
+                &req.github_app_key,
+                &actor,
+                "register",
+                e,
+            ));
+        }
     };
 
     let record = GitHubAppRecord::seal(
@@ -478,7 +679,7 @@ pub async fn admin_register_github_app(
         cipher.as_ref(),
         None,
     )?;
-    if let Err(e) = store.insert(&record, &actor).await {
+    if let Err(e) = store.insert_github_app(&record, &actor).await {
         return Err(audit_refusal(
             store,
             &req.github_app_key,
@@ -487,8 +688,16 @@ pub async fn admin_register_github_app(
             e.into(),
         ));
     }
-    record_app_audit(store.as_ref(), Some(&record.id), &req.github_app_key, &actor, "register", "ok", None)
-        .await;
+    record_app_audit(
+        store.as_ref(),
+        Some(&record.id),
+        &req.github_app_key,
+        &actor,
+        "register",
+        "ok",
+        None,
+    )
+    .await;
 
     Ok((
         axum::http::StatusCode::CREATED,
@@ -528,7 +737,7 @@ pub async fn admin_rotate_github_app_key(
     let actor = auth.user_id.to_string();
 
     let existing = store
-        .find_by_key(&github_app_key)
+        .find_github_app_by_key(&github_app_key)
         .await?
         .ok_or_else(|| not_registered(&github_app_key))?;
 
@@ -559,14 +768,22 @@ pub async fn admin_rotate_github_app_key(
         cipher.as_ref(),
         Some(existing.id.clone()),
     )?;
-    if !store.replace(&record, &actor).await? {
+    if !store.replace_github_app(&record, &actor).await? {
         return Err(not_registered(&github_app_key));
     }
     // This backend would otherwise serve its own tokens from the old key until
     // it next noticed the revision move.
     state.github_apps.forget(&github_app_key).await;
-    record_app_audit(store.as_ref(), Some(&record.id), &github_app_key, &actor, "rotate", "ok", None)
-        .await;
+    record_app_audit(
+        store.as_ref(),
+        Some(&record.id),
+        &github_app_key,
+        &actor,
+        "rotate",
+        "ok",
+        None,
+    )
+    .await;
 
     Ok(Json(GitHubAppRegistrationResponse {
         github_app_key,
@@ -600,7 +817,7 @@ pub async fn admin_remove_github_app(
     let actor = auth.user_id.to_string();
 
     let existing = store
-        .find_by_key(&github_app_key)
+        .find_github_app_by_key(&github_app_key)
         .await?
         .ok_or_else(|| not_registered(&github_app_key))?;
 
@@ -614,7 +831,7 @@ pub async fn admin_remove_github_app(
         .into_iter()
         .collect();
 
-    if !store.delete(&github_app_key).await? {
+    if !store.delete_github_app(&github_app_key).await? {
         return Err(not_registered(&github_app_key));
     }
     state.github_apps.forget(&github_app_key).await;
@@ -626,7 +843,12 @@ pub async fn admin_remove_github_app(
         "remove",
         "ok",
         (!orphaned_bot_users.is_empty())
-            .then(|| format!("{} bot user(s) left without a key", orphaned_bot_users.len()))
+            .then(|| {
+                format!(
+                    "{} bot user(s) left without a key",
+                    orphaned_bot_users.len()
+                )
+            })
             .as_deref(),
     )
     .await;
@@ -647,7 +869,7 @@ fn not_registered(app_key: &str) -> ProviderSettingsError {
 /// worth reviewing later — a key that GitHub would not accept, a name already
 /// taken — only exist as refusals.
 fn audit_refusal(
-    store: &Arc<dyn GitHubAppDao>,
+    store: &Arc<dyn AdapterAppDao>,
     app_key: &str,
     actor_id: &str,
     action: &str,
@@ -661,8 +883,16 @@ fn audit_refusal(
         error.to_string(),
     );
     tokio::spawn(async move {
-        record_app_audit(store.as_ref(), None, &app_key, &actor_id, &action, "refused", Some(&detail))
-            .await;
+        record_app_audit(
+            store.as_ref(),
+            None,
+            &app_key,
+            &actor_id,
+            &action,
+            "refused",
+            Some(&detail),
+        )
+        .await;
     });
     error
 }
@@ -673,7 +903,7 @@ fn audit_refusal(
 /// already been stored or refused by this point, and turning a bookkeeping
 /// failure into a 500 would leave the admin unsure which happened.
 async fn record_app_audit(
-    store: &dyn GitHubAppDao,
+    store: &dyn AdapterAppDao,
     github_app_id: Option<&str>,
     app_key: &str,
     actor_id: &str,
@@ -689,7 +919,7 @@ async fn record_app_audit(
         result,
         detail,
     };
-    if let Err(e) = store.record_audit(entry).await {
+    if let Err(e) = store.record_github_app_audit(entry).await {
         tracing::warn!(
             app_key = %app_key,
             action = %action,
@@ -748,7 +978,7 @@ pub async fn admin_put_global_github_installation(
             req,
             &auth.user_id.to_string(),
         )
-            .await?,
+        .await?,
     ))
 }
 

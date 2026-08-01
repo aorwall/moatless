@@ -76,8 +76,11 @@ struct AuthTestResponse {
 /// Identity the current token authenticates as (from `auth.test`).
 #[derive(Debug, Clone)]
 pub struct AuthTestInfo {
+    #[allow(dead_code, reason = "read by Slack bot-id resolution tests")]
     pub user_id: String,
+    #[allow(dead_code, reason = "read by Slack bot-id resolution tests")]
     pub user: Option<String>,
+    #[allow(dead_code, reason = "read by Slack bot-id resolution tests")]
     pub team: Option<String>,
     pub team_id: Option<String>,
 }
@@ -614,7 +617,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_slack_keeps_transport_source() {

@@ -353,7 +353,13 @@ async fn apply(state: &AppState, connection: &AdapterConnection, effects: &[Effe
     if effects.is_empty() {
         return;
     }
-    let api = super::auth::api_for_org(state, &connection.scope_value);
+    let api = match super::auth::api_for_connection(state, connection).await {
+        Ok(api) => api,
+        Err(e) => {
+            warn!(error = %e, "Failed to resolve Linear app config for webhook effect");
+            return;
+        }
+    };
     for effect in effects {
         let Effect::SessionHeartbeat { session_id, text } = effect;
         if let Err(e) = api
@@ -378,7 +384,8 @@ async fn admit(
     event_id: &str,
 ) -> Result<(), IngressError> {
     let kind = request.kind;
-    let admission = crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
+    let admission =
+        crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
     super::delivery::log_admission(kind, event_id, admission);
     Ok(())
 }

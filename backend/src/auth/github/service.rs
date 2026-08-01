@@ -10,13 +10,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::adapter_apps::dao::GitHubAppRecord;
 use crate::auth::error::AuthError;
-use crate::auth::github::dao::GitHubAppRecord;
 use crate::auth::models::OAuthTokens;
 use crate::config::{Config, GitHubAppConfig};
 

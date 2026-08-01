@@ -20,7 +20,7 @@
 //! a convenience.
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::TaskBinding;
+use crate::adapters::models::{AdapterConnection, TaskBinding};
 use crate::config::LinearConfig;
 use crate::db::DbPool;
 use crate::state::AppState;
@@ -53,6 +53,16 @@ impl From<&LinearConfig> for LinearCredentials {
     }
 }
 
+impl From<&crate::adapter_apps::LinearAppConfig> for LinearCredentials {
+    fn from(config: &crate::adapter_apps::LinearAppConfig) -> Self {
+        Self {
+            oauth_client_id: config.oauth_client_id.clone(),
+            oauth_client_secret: config.oauth_client_secret.clone(),
+            api_base_url: config.api_base_url.clone(),
+        }
+    }
+}
+
 impl LinearCredentials {
     /// A client for `org_id`. The one place any of these fields is read.
     pub(super) fn api_for_org(&self, db: DbPool, org_id: &str) -> LinearAgentApi {
@@ -66,12 +76,21 @@ impl LinearCredentials {
     }
 }
 
-/// A client for `org_id`, from application state.
-///
-/// Used by the webhook dispatcher and by every delivery handler: both hold an
-/// `AppState` and neither has a [`LinearAdapter`].
-pub(super) fn api_for_org(state: &AppState, org_id: &str) -> LinearAgentApi {
-    LinearCredentials::from(&state.config.linear).api_for_org(state.db.clone(), org_id)
+pub(super) async fn api_for_connection(
+    state: &AppState,
+    connection: &AdapterConnection,
+) -> Result<LinearAgentApi, AdapterError> {
+    let app_key = crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
+    let app = crate::adapter_apps::linear_app_config(&state.db, &state.config, app_key)
+        .await
+        .map_err(|e| AdapterError::AdapterApi(e.to_string()))?;
+    let Some(app) = app else {
+        return Err(AdapterError::AdapterNotConfigured(format!(
+            "linear app '{app_key}'"
+        )));
+    };
+    let credentials = LinearCredentials::from(&app);
+    Ok(credentials.api_for_org(state.db.clone(), &connection.scope_value))
 }
 
 /// A client for the workspace a Binding belongs to.
@@ -94,7 +113,18 @@ pub(super) async fn api_for_binding(
         .find_by_id(&binding.connection_id, &sys)
         .await;
     match connection {
-        Ok(Some(connection)) => Some(api_for_org(state, &connection.scope_value)),
+        Ok(Some(connection)) => match api_for_connection(state, &connection).await {
+            Ok(api) => Some(api),
+            Err(e) => {
+                tracing::warn!(
+                    task_id = %binding.task_id,
+                    connection_id = %binding.connection_id,
+                    error = %e,
+                    "linear auth: app config lookup failed"
+                );
+                None
+            }
+        },
         Ok(None) => None,
         Err(e) => {
             tracing::warn!(
@@ -121,8 +151,9 @@ pub(super) async fn api_for_single_workspace(
     adapter: &LinearAdapter,
 ) -> Result<LinearAgentApi, AdapterError> {
     let db = adapter.db();
-    let rows = sqlx::query_scalar::<_, String>(
-        "SELECT scope_value FROM integration_connections \
+    let rows = sqlx::query_as::<_, (String, serde_json::Value)>(
+        "SELECT external_account_id AS scope_value, transport_config \
+         FROM integration_connections \
          WHERE provider = 'linear' LIMIT 2",
     )
     .fetch_all(db)
@@ -132,7 +163,11 @@ pub(super) async fn api_for_single_workspace(
         0 => Err(AdapterError::AdapterNotConfigured(
             "No Linear workspace installed — run the Linear OAuth install first".into(),
         )),
-        1 => Ok(adapter.agent_api_for_org(&rows[0])),
+        1 => {
+            adapter
+                .agent_api_for_transport(&rows[0].0, &rows[0].1)
+                .await
+        }
         _ => Err(AdapterError::BadRequest(
             "Multiple Linear workspaces installed — use the /api/v1/linear/* \
              endpoints with an explicit connectionId"

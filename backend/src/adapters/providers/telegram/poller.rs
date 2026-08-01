@@ -8,8 +8,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::adapters::ingress::IngressError;
 use crate::adapters::Adapters;
+use crate::adapters::ingress::IngressError;
 use crate::state::AppState;
 
 use super::ingress::{self, Transport};
@@ -88,7 +88,16 @@ pub fn spawn_telegram_poller(
             return;
         };
 
-        let api = telegram_provider.api();
+        let api = match telegram_provider
+            .app_api(crate::adapter_apps::DEFAULT_APP_KEY)
+            .await
+        {
+            Ok(api) => api,
+            Err(e) => {
+                error!(error = %e, "Telegram poller: default app is not configured");
+                return;
+            }
+        };
 
         // Delete any existing webhook so getUpdates works
         match api.delete_webhook().await {
@@ -102,6 +111,24 @@ pub fn spawn_telegram_poller(
         let mut backoff = INITIAL_BACKOFF;
 
         loop {
+            let api = match telegram_provider
+                .app_api(crate::adapter_apps::DEFAULT_APP_KEY)
+                .await
+            {
+                Ok(api) => api,
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        backoff_secs = backoff.as_secs(),
+                        "Telegram poller: default app lookup failed, backing off"
+                    );
+                    if !back_off(&cancel, &mut backoff).await {
+                        info!("Telegram poller shutting down");
+                        return;
+                    }
+                    continue;
+                }
+            };
             let result = tokio::select! {
                 () = cancel.cancelled() => {
                     info!("Telegram poller shutting down");

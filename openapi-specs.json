@@ -1406,6 +1406,187 @@
         }
       }
     },
+    "/api/v1/admin/settings/adapter-apps": {
+      "get": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_list_adapter_apps",
+        "responses": {
+          "200": {
+            "description": "Configured Adapter apps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterAppsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/settings/adapter-apps/{adapter_kind}/{app_key}": {
+      "put": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_save_adapter_app",
+        "parameters": [
+          {
+            "name": "adapter_kind",
+            "in": "path",
+            "description": "Adapter kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "app_key",
+            "in": "path",
+            "description": "Adapter app key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveAdapterAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Adapter app saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterAppSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid Adapter app config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "provider-settings"
+        ],
+        "operationId": "admin_delete_adapter_app",
+        "parameters": [
+          {
+            "name": "adapter_kind",
+            "in": "path",
+            "description": "Adapter kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "app_key",
+            "in": "path",
+            "description": "Adapter app key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Adapter app deleted"
+          },
+          "400": {
+            "description": "Invalid Adapter app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/settings/codex/config": {
       "post": {
         "tags": [
@@ -8468,6 +8649,60 @@
           }
         }
       },
+      "AdapterAppSummary": {
+        "type": "object",
+        "required": [
+          "adapterKind",
+          "appKey",
+          "displayName",
+          "config",
+          "secretFingerprints",
+          "revision",
+          "updatedAt"
+        ],
+        "properties": {
+          "adapterKind": {
+            "type": "string"
+          },
+          "appKey": {
+            "type": "string"
+          },
+          "config": {},
+          "displayName": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "secretFingerprints": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "AdapterAppsResponse": {
+        "type": "object",
+        "required": [
+          "apps"
+        ],
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdapterAppSummary"
+            }
+          }
+        }
+      },
       "AdapterConnectionResponse": {
         "type": "object",
         "description": "One adapter connection, describing a transport/auth scope.",
@@ -13550,6 +13785,73 @@
           "error"
         ]
       },
+      "SaveAdapterAppRequest": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SaveSlackAdapterAppRequest"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "adapterKind"
+                ],
+                "properties": {
+                  "adapterKind": {
+                    "type": "string",
+                    "enum": [
+                      "slack"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SaveTelegramAdapterAppRequest"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "adapterKind"
+                ],
+                "properties": {
+                  "adapterKind": {
+                    "type": "string",
+                    "enum": [
+                      "telegram"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SaveLinearAdapterAppRequest"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "adapterKind"
+                ],
+                "properties": {
+                  "adapterKind": {
+                    "type": "string",
+                    "enum": [
+                      "linear"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
       "SaveCodexAuthRequest": {
         "type": "object",
         "required": [
@@ -13576,6 +13878,41 @@
           }
         }
       },
+      "SaveLinearAdapterAppRequest": {
+        "type": "object",
+        "properties": {
+          "apiBaseUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oauthCallbackUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oauthClientId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oauthClientSecret": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhookSecret": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "SavePatRequest": {
         "type": "object",
         "required": [
@@ -13584,6 +13921,44 @@
         "properties": {
           "token": {
             "type": "string"
+          }
+        }
+      },
+      "SaveSlackAdapterAppRequest": {
+        "type": "object",
+        "required": [
+          "botToken",
+          "signingSecret"
+        ],
+        "properties": {
+          "botToken": {
+            "type": "string"
+          },
+          "botUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signingSecret": {
+            "type": "string"
+          }
+        }
+      },
+      "SaveTelegramAdapterAppRequest": {
+        "type": "object",
+        "required": [
+          "botToken"
+        ],
+        "properties": {
+          "botToken": {
+            "type": "string"
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

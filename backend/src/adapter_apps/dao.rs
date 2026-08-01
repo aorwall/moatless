@@ -1,8 +1,8 @@
-//! Durable storage for GitHub App registrations.
+//! Durable storage for Adapter app registrations.
 //!
 //! A registration is an administered record: an admin creates it, rotates its
-//! signing key, and removes it, and every backend serving the installation sees
-//! the result from its next use onwards. The App used for signing in is not
+//! secrets, and removes it, and every backend serving the installation sees the
+//! result from its next use onwards. The App used for GitHub sign-in is not
 //! stored here — it stays deployment-configured, so nothing done through the UI
 //! can make the UI unreachable.
 //!
@@ -13,6 +13,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::AssertSqlSafe;
 
@@ -137,24 +138,35 @@ pub struct GitHubAppAuditEntry<'a> {
     pub detail: Option<&'a str>,
 }
 
-/// Durable state behind GitHub App administration.
+/// Durable state behind Adapter app administration.
 #[async_trait]
-pub trait GitHubAppDao: Send + Sync {
-    async fn list(&self) -> Result<Vec<GitHubAppRecord>, AuthError>;
+pub trait AdapterAppDao: Send + Sync {
+    async fn list_github_apps(&self) -> Result<Vec<GitHubAppRecord>, AuthError>;
 
-    async fn find_by_key(&self, app_key: &str) -> Result<Option<GitHubAppRecord>, AuthError>;
+    async fn find_github_app_by_key(
+        &self,
+        app_key: &str,
+    ) -> Result<Option<GitHubAppRecord>, AuthError>;
 
     /// Store a newly proved App. A key already in use is a conflict, never an
     /// overwrite — overwriting would silently repoint every bot user that
     /// names the key.
-    async fn insert(&self, record: &GitHubAppRecord, actor_id: &str) -> Result<(), AuthError>;
+    async fn insert_github_app(
+        &self,
+        record: &GitHubAppRecord,
+        actor_id: &str,
+    ) -> Result<(), AuthError>;
 
     /// Replace an App's signing key and refreshed identity, bumping its
     /// revision. `false` when no App holds that key.
-    async fn replace(&self, record: &GitHubAppRecord, actor_id: &str) -> Result<bool, AuthError>;
+    async fn replace_github_app(
+        &self,
+        record: &GitHubAppRecord,
+        actor_id: &str,
+    ) -> Result<bool, AuthError>;
 
     /// Remove an App. `false` when no App holds that key.
-    async fn delete(&self, app_key: &str) -> Result<bool, AuthError>;
+    async fn delete_github_app(&self, app_key: &str) -> Result<bool, AuthError>;
 
     /// Store carried-over Apps and record the carry-over as done, together.
     ///
@@ -169,7 +181,7 @@ pub trait GitHubAppDao: Send + Sync {
     /// `Ok(Some(keys))` names the Apps that were *not* written because that key
     /// was already registered. They are skipped rather than overwritten, and
     /// named rather than dropped in silence.
-    async fn carry_over(
+    async fn carry_over_github_apps(
         &self,
         marker: &str,
         detail: &str,
@@ -177,7 +189,10 @@ pub trait GitHubAppDao: Send + Sync {
         actor_id: &str,
     ) -> Result<Option<Vec<String>>, AuthError>;
 
-    async fn record_audit(&self, entry: GitHubAppAuditEntry<'_>) -> Result<(), AuthError>;
+    async fn record_github_app_audit(
+        &self,
+        entry: GitHubAppAuditEntry<'_>,
+    ) -> Result<(), AuthError>;
 }
 
 #[derive(sqlx::FromRow)]
@@ -224,42 +239,107 @@ impl From<GitHubAppRow> for GitHubAppRecord {
 }
 
 const SELECT_COLUMNS: &str = r#"
-    id, app_key, app_id, name, slug, bot_login,
-    private_key_ciphertext, private_key_nonce, private_key_data_key,
-    kms_key_id, encryption_version, key_fingerprint,
-    default_installation_id, revision, updated_at
+    a.id,
+    a.app_key,
+    (a.config_json->>'app_id')::bigint AS app_id,
+    COALESCE(a.config_json->>'name', a.display_name) AS name,
+    COALESCE(a.config_json->>'slug', '') AS slug,
+    COALESCE(a.config_json->>'bot_login', '') AS bot_login,
+    s.value_ciphertext AS private_key_ciphertext,
+    s.value_nonce AS private_key_nonce,
+    s.encrypted_data_key AS private_key_data_key,
+    s.kms_key_id,
+    s.encryption_version,
+    COALESCE(a.secret_fingerprints->>'private_key', '') AS key_fingerprint,
+    (a.config_json->>'default_installation_id')::bigint AS default_installation_id,
+    a.revision,
+    a.updated_at
 "#;
 
-/// Shared by `insert` and `carry_over` so the two cannot drift. Both leave a
-/// taken key alone rather than overwriting it: an overwrite would silently
-/// repoint every bot user that names the key.
-const INSERT_APP: &str = r#"
-    INSERT INTO github_apps (
-        id, app_key, app_id, name, slug, bot_login,
-        private_key_ciphertext, private_key_nonce, private_key_data_key,
-        kms_key_id, encryption_version, key_fingerprint,
-        default_installation_id, created_by, updated_by, revision
+fn github_config_json(record: &GitHubAppRecord) -> serde_json::Value {
+    json!({
+        "app_id": record.app_id,
+        "name": record.name,
+        "slug": record.slug,
+        "bot_login": record.bot_login,
+        "default_installation_id": record.default_installation_id,
+    })
+}
+
+fn github_secret_fingerprints(record: &GitHubAppRecord) -> serde_json::Value {
+    json!({ "private_key": record.key_fingerprint })
+}
+
+async fn insert_app(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    record: &GitHubAppRecord,
+    actor_id: &str,
+) -> Result<bool, AuthError> {
+    let inserted = sqlx::query(
+        r#"INSERT INTO adapter_apps (
+               id, adapter_kind, app_key, display_name, enabled, config_json,
+               secret_fingerprints, created_by, updated_by, revision
+           )
+           VALUES ($1, 'github', $2, $3, true, $4, $5, $6, $6, 1)
+           ON CONFLICT (adapter_kind, app_key) DO NOTHING"#,
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, 1)
-    ON CONFLICT (app_key) DO NOTHING
-"#;
+    .bind(&record.id)
+    .bind(&record.app_key)
+    .bind(&record.name)
+    .bind(github_config_json(record))
+    .bind(github_secret_fingerprints(record))
+    .bind(actor_id)
+    .execute(&mut **tx)
+    .await?;
+    if inserted.rows_affected() == 0 {
+        return Ok(false);
+    }
+    sqlx::query(
+        r#"INSERT INTO adapter_app_secrets (
+               adapter_app_id, name, value_ciphertext, value_nonce,
+               encrypted_data_key, kms_key_id, encryption_version
+           )
+           VALUES ($1, 'private_key', $2, $3, $4, $5, $6)"#,
+    )
+    .bind(&record.id)
+    .bind(&record.private_key.value_ciphertext)
+    .bind(&record.private_key.encryption_nonce)
+    .bind(&record.private_key.encrypted_data_key)
+    .bind(&record.private_key.kms_key_id)
+    .bind(record.private_key.encryption_version)
+    .execute(&mut **tx)
+    .await?;
+    Ok(true)
+}
 
-pub struct PgGitHubAppDao(pub DbPool);
+pub struct PgAdapterAppDao(pub DbPool);
 
 #[async_trait]
-impl GitHubAppDao for PgGitHubAppDao {
-    async fn list(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
+impl AdapterAppDao for PgAdapterAppDao {
+    async fn list_github_apps(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
         let rows: Vec<GitHubAppRow> = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {SELECT_COLUMNS} FROM github_apps ORDER BY app_key"
+            "SELECT {SELECT_COLUMNS}
+             FROM adapter_apps a
+             JOIN adapter_app_secrets s
+               ON s.adapter_app_id = a.id AND s.name = 'private_key'
+             WHERE a.adapter_kind = 'github' AND a.enabled = true
+             ORDER BY a.app_key"
         )))
         .fetch_all(&self.0)
         .await?;
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
-    async fn find_by_key(&self, app_key: &str) -> Result<Option<GitHubAppRecord>, AuthError> {
+    async fn find_github_app_by_key(
+        &self,
+        app_key: &str,
+    ) -> Result<Option<GitHubAppRecord>, AuthError> {
         let row: Option<GitHubAppRow> = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {SELECT_COLUMNS} FROM github_apps WHERE app_key = $1"
+            "SELECT {SELECT_COLUMNS}
+             FROM adapter_apps a
+             JOIN adapter_app_secrets s
+               ON s.adapter_app_id = a.id AND s.name = 'private_key'
+             WHERE a.adapter_kind = 'github' AND a.enabled = true AND a.app_key = $1"
         )))
         .bind(app_key)
         .fetch_optional(&self.0)
@@ -267,80 +347,89 @@ impl GitHubAppDao for PgGitHubAppDao {
         Ok(row.map(Into::into))
     }
 
-    async fn insert(&self, record: &GitHubAppRecord, actor_id: &str) -> Result<(), AuthError> {
-        let inserted = sqlx::query(INSERT_APP)
-            .bind(&record.id)
-        .bind(&record.app_key)
-        .bind(i64::try_from(record.app_id).unwrap_or(i64::MAX))
-        .bind(&record.name)
-        .bind(&record.slug)
-        .bind(&record.bot_login)
-        .bind(&record.private_key.value_ciphertext)
-        .bind(&record.private_key.encryption_nonce)
-        .bind(&record.private_key.encrypted_data_key)
-        .bind(&record.private_key.kms_key_id)
-        .bind(record.private_key.encryption_version)
-        .bind(&record.key_fingerprint)
-        .bind(record.default_installation_id.and_then(|v| i64::try_from(v).ok()))
-        .bind(actor_id)
-        .execute(&self.0)
-        .await?;
-
-        if inserted.rows_affected() == 0 {
+    async fn insert_github_app(
+        &self,
+        record: &GitHubAppRecord,
+        actor_id: &str,
+    ) -> Result<(), AuthError> {
+        let mut tx = self.0.begin().await?;
+        let inserted = insert_app(&mut tx, record, actor_id).await?;
+        if !inserted {
+            tx.rollback().await?;
             return Err(AuthError::Conflict(format!(
                 "A GitHub App is already registered as '{}'",
                 record.app_key
             )));
         }
+        tx.commit().await?;
         Ok(())
     }
 
-    async fn replace(&self, record: &GitHubAppRecord, actor_id: &str) -> Result<bool, AuthError> {
+    async fn replace_github_app(
+        &self,
+        record: &GitHubAppRecord,
+        actor_id: &str,
+    ) -> Result<bool, AuthError> {
+        let mut tx = self.0.begin().await?;
         let updated = sqlx::query(
-            r#"UPDATE github_apps SET
-                   app_id = $2,
-                   name = $3,
-                   slug = $4,
-                   bot_login = $5,
-                   private_key_ciphertext = $6,
-                   private_key_nonce = $7,
-                   private_key_data_key = $8,
-                   kms_key_id = $9,
-                   encryption_version = $10,
-                   key_fingerprint = $11,
-                   default_installation_id = $12,
-                   updated_by = $13,
+            r#"UPDATE adapter_apps SET
+                   display_name = $2,
+                   config_json = $3,
+                   secret_fingerprints = $4,
+                   updated_by = $5,
                    updated_at = now(),
                    revision = revision + 1
-               WHERE app_key = $1"#,
+               WHERE adapter_kind = 'github' AND app_key = $1"#,
         )
         .bind(&record.app_key)
-        .bind(i64::try_from(record.app_id).unwrap_or(i64::MAX))
         .bind(&record.name)
-        .bind(&record.slug)
-        .bind(&record.bot_login)
+        .bind(github_config_json(record))
+        .bind(github_secret_fingerprints(record))
+        .bind(actor_id)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+
+        sqlx::query(
+            r#"INSERT INTO adapter_app_secrets (
+                   adapter_app_id, name, value_ciphertext, value_nonce,
+                   encrypted_data_key, kms_key_id, encryption_version, updated_at
+               )
+               VALUES ($1, 'private_key', $2, $3, $4, $5, $6, now())
+               ON CONFLICT (adapter_app_id, name) DO UPDATE SET
+                   value_ciphertext = EXCLUDED.value_ciphertext,
+                   value_nonce = EXCLUDED.value_nonce,
+                   encrypted_data_key = EXCLUDED.encrypted_data_key,
+                   kms_key_id = EXCLUDED.kms_key_id,
+                   encryption_version = EXCLUDED.encryption_version,
+                   updated_at = now()"#,
+        )
+        .bind(&record.id)
         .bind(&record.private_key.value_ciphertext)
         .bind(&record.private_key.encryption_nonce)
         .bind(&record.private_key.encrypted_data_key)
         .bind(&record.private_key.kms_key_id)
         .bind(record.private_key.encryption_version)
-        .bind(&record.key_fingerprint)
-        .bind(record.default_installation_id.and_then(|v| i64::try_from(v).ok()))
-        .bind(actor_id)
-        .execute(&self.0)
+        .execute(&mut *tx)
         .await?;
-        Ok(updated.rows_affected() > 0)
+
+        tx.commit().await?;
+        Ok(true)
     }
 
-    async fn delete(&self, app_key: &str) -> Result<bool, AuthError> {
-        let deleted = sqlx::query("DELETE FROM github_apps WHERE app_key = $1")
-            .bind(app_key)
-            .execute(&self.0)
-            .await?;
+    async fn delete_github_app(&self, app_key: &str) -> Result<bool, AuthError> {
+        let deleted =
+            sqlx::query("DELETE FROM adapter_apps WHERE adapter_kind = 'github' AND app_key = $1")
+                .bind(app_key)
+                .execute(&self.0)
+                .await?;
         Ok(deleted.rows_affected() > 0)
     }
 
-    async fn carry_over(
+    async fn carry_over_github_apps(
         &self,
         marker: &str,
         detail: &str,
@@ -353,7 +442,7 @@ impl GitHubAppDao for PgGitHubAppDao {
         // this row until the first commits and then sees it taken. Nothing is
         // visible to anyone until the Apps are written alongside it.
         let claimed = sqlx::query(
-            r#"INSERT INTO github_app_migrations (name, detail)
+            r#"INSERT INTO adapter_app_migrations (name, detail)
                VALUES ($1, $2)
                ON CONFLICT (name) DO NOTHING"#,
         )
@@ -368,28 +457,7 @@ impl GitHubAppDao for PgGitHubAppDao {
 
         let mut skipped = Vec::new();
         for record in records {
-            let inserted = sqlx::query(INSERT_APP)
-                .bind(&record.id)
-                .bind(&record.app_key)
-                .bind(i64::try_from(record.app_id).unwrap_or(i64::MAX))
-                .bind(&record.name)
-                .bind(&record.slug)
-                .bind(&record.bot_login)
-                .bind(&record.private_key.value_ciphertext)
-                .bind(&record.private_key.encryption_nonce)
-                .bind(&record.private_key.encrypted_data_key)
-                .bind(&record.private_key.kms_key_id)
-                .bind(record.private_key.encryption_version)
-                .bind(&record.key_fingerprint)
-                .bind(
-                    record
-                        .default_installation_id
-                        .and_then(|v| i64::try_from(v).ok()),
-                )
-                .bind(actor_id)
-                .execute(&mut *tx)
-                .await?;
-            if inserted.rows_affected() == 0 {
+            if !insert_app(&mut tx, record, actor_id).await? {
                 skipped.push(record.app_key.clone());
             }
         }
@@ -398,11 +466,14 @@ impl GitHubAppDao for PgGitHubAppDao {
         Ok(Some(skipped))
     }
 
-    async fn record_audit(&self, entry: GitHubAppAuditEntry<'_>) -> Result<(), AuthError> {
+    async fn record_github_app_audit(
+        &self,
+        entry: GitHubAppAuditEntry<'_>,
+    ) -> Result<(), AuthError> {
         sqlx::query(
-            r#"INSERT INTO github_app_audit_events
-                   (id, github_app_id, app_key, actor_id, action, result, detail)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+            r#"INSERT INTO adapter_app_audit_events
+                   (id, adapter_app_id, adapter_kind, app_key, actor_id, action, result, detail)
+               VALUES ($1, $2, 'github', $3, $4, $5, $6, $7)"#,
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(entry.github_app_id)
@@ -422,13 +493,13 @@ pub mod test_support {
     use std::collections::HashMap;
     use std::sync::Mutex;
 
-    use super::{AuthError, GitHubAppAuditEntry, GitHubAppDao, GitHubAppRecord};
+    use super::{AdapterAppDao, AuthError, GitHubAppAuditEntry, GitHubAppRecord};
     use async_trait::async_trait;
 
     /// In-memory store for registry tests, which need to change what durable
     /// state says between two lookups.
     #[derive(Default)]
-    pub struct InMemoryGitHubAppDao {
+    pub struct InMemoryAdapterAppDao {
         apps: Mutex<HashMap<String, GitHubAppRecord>>,
         migrations: Mutex<Vec<String>>,
         pub reads: Mutex<usize>,
@@ -436,7 +507,7 @@ pub mod test_support {
         pub fail_writes: Mutex<bool>,
     }
 
-    impl InMemoryGitHubAppDao {
+    impl InMemoryAdapterAppDao {
         pub fn put(&self, record: GitHubAppRecord) {
             self.apps
                 .lock()
@@ -446,7 +517,11 @@ pub mod test_support {
 
         /// Has the one-time carry-over been recorded as done?
         pub fn migration_claimed(&self, marker: &str) -> bool {
-            self.migrations.lock().expect("lock").iter().any(|m| m == marker)
+            self.migrations
+                .lock()
+                .expect("lock")
+                .iter()
+                .any(|m| m == marker)
         }
 
         /// Simulate an edit landing between two lookups.
@@ -462,8 +537,8 @@ pub mod test_support {
     }
 
     #[async_trait]
-    impl GitHubAppDao for InMemoryGitHubAppDao {
-        async fn list(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
+    impl AdapterAppDao for InMemoryAdapterAppDao {
+        async fn list_github_apps(&self) -> Result<Vec<GitHubAppRecord>, AuthError> {
             if *self.fail_reads.lock().expect("lock") {
                 return Err(AuthError::Internal("store unavailable".into()));
             }
@@ -473,7 +548,10 @@ pub mod test_support {
             Ok(apps)
         }
 
-        async fn find_by_key(&self, app_key: &str) -> Result<Option<GitHubAppRecord>, AuthError> {
+        async fn find_github_app_by_key(
+            &self,
+            app_key: &str,
+        ) -> Result<Option<GitHubAppRecord>, AuthError> {
             *self.reads.lock().expect("lock") += 1;
             if *self.fail_reads.lock().expect("lock") {
                 return Err(AuthError::Internal("store unavailable".into()));
@@ -481,7 +559,11 @@ pub mod test_support {
             Ok(self.apps.lock().expect("lock").get(app_key).cloned())
         }
 
-        async fn insert(&self, record: &GitHubAppRecord, _actor_id: &str) -> Result<(), AuthError> {
+        async fn insert_github_app(
+            &self,
+            record: &GitHubAppRecord,
+            _actor_id: &str,
+        ) -> Result<(), AuthError> {
             let mut apps = self.apps.lock().expect("lock");
             if apps.contains_key(&record.app_key) {
                 return Err(AuthError::Conflict(format!(
@@ -493,7 +575,7 @@ pub mod test_support {
             Ok(())
         }
 
-        async fn replace(
+        async fn replace_github_app(
             &self,
             record: &GitHubAppRecord,
             _actor_id: &str,
@@ -508,11 +590,11 @@ pub mod test_support {
             Ok(true)
         }
 
-        async fn delete(&self, app_key: &str) -> Result<bool, AuthError> {
+        async fn delete_github_app(&self, app_key: &str) -> Result<bool, AuthError> {
             Ok(self.apps.lock().expect("lock").remove(app_key).is_some())
         }
 
-        async fn carry_over(
+        async fn carry_over_github_apps(
             &self,
             marker: &str,
             _detail: &str,
@@ -544,7 +626,10 @@ pub mod test_support {
             Ok(Some(skipped))
         }
 
-        async fn record_audit(&self, _entry: GitHubAppAuditEntry<'_>) -> Result<(), AuthError> {
+        async fn record_github_app_audit(
+            &self,
+            _entry: GitHubAppAuditEntry<'_>,
+        ) -> Result<(), AuthError> {
             Ok(())
         }
     }

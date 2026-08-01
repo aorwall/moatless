@@ -14,19 +14,14 @@ use crate::adapters::{
 };
 
 use super::adapter::SlackAdapter;
+use super::api::SlackApi;
 use super::{subject, text};
 
 /// Upload each attachment into `thread_ts`, best-effort: a failed upload is
 /// logged and the reply still counts as sent.
-async fn upload_files(
-    adapter: &SlackAdapter,
-    channel: &str,
-    thread_ts: &str,
-    message: &OutboundReply,
-) {
+async fn upload_files(api: &SlackApi, channel: &str, thread_ts: &str, message: &OutboundReply) {
     for file in &message.files {
-        if let Err(e) = adapter
-            .api()
+        if let Err(e) = api
             .upload_file(channel, Some(thread_ts), &file.filename, file.data.clone())
             .await
         {
@@ -47,6 +42,7 @@ impl AdapterBindingReply for SlackAdapter {
         _config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
+        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
         let coordinates = subject::thread_coordinates(&thread.destination_config);
         let channel = coordinates
             .channel
@@ -57,12 +53,12 @@ impl AdapterBindingReply for SlackAdapter {
 
         let text = text::with_task_link(&message.text, message.task_url.as_deref());
 
-        let ts = self
-            .api()
+        let ts = app
+            .api
             .post_message(channel, &text, Some(thread_ts))
             .await?;
 
-        upload_files(self, channel, thread_ts, message).await;
+        upload_files(&app.api, channel, thread_ts, message).await;
 
         Ok(ts.map(|t| super::external_id::message_ts(&t)))
     }
@@ -74,8 +70,11 @@ impl AdapterBindingReply for SlackAdapter {
         rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
+        let app_key =
+            crate::adapter_apps::app_key_from_transport_config(&_connection.transport_config);
+        let app = self.app(app_key).await?;
         let thread = crate::bindings::runtime::binding_context(binding);
-        let config = rule.map_or_else(
+        let _config = rule.map_or_else(
             || LoopContext {
                 id: binding.trigger_id.clone().unwrap_or_default(),
                 provider: "slack".to_string(),
@@ -103,7 +102,22 @@ impl AdapterBindingReply for SlackAdapter {
             },
             |r| crate::bindings::runtime::trigger_context(r, "slack"),
         );
-        self.send_reply(&thread, &config, message).await
+        let coordinates = subject::thread_coordinates(&thread.destination_config);
+        let channel = coordinates
+            .channel
+            .ok_or_else(|| AdapterError::Internal("No channel in thread properties".into()))?;
+        let thread_ts = coordinates
+            .thread_ts
+            .ok_or_else(|| AdapterError::Internal("No thread_ts in thread properties".into()))?;
+
+        let text = text::with_task_link(&message.text, message.task_url.as_deref());
+        let ts = app
+            .api
+            .post_message(channel, &text, Some(thread_ts))
+            .await?;
+        upload_files(&app.api, channel, thread_ts, message).await;
+
+        Ok(ts.map(|t| super::external_id::message_ts(&t)))
     }
 }
 
@@ -129,18 +143,19 @@ impl AdapterDirectDestination for SlackAdapter {
         destination: &str,
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
+        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
         let workspace_id = self.ensure_workspace_id().await?;
         let (channel, thread_ts) = subject::parse_destination(destination)?;
 
-        let ts = self
-            .api()
+        let ts = app
+            .api
             .post_message(&channel, &message.text, thread_ts.as_deref())
             .await?
             .ok_or_else(|| AdapterError::Internal("Slack did not return message ts".into()))?;
 
         // Files upload into the same thread (or top-level when there's no thread).
         let upload_thread_ts = thread_ts.clone().unwrap_or_else(|| ts.clone());
-        upload_files(self, &channel, &upload_thread_ts, message).await;
+        upload_files(&app.api, &channel, &upload_thread_ts, message).await;
 
         // For top-level posts the binding's `thread_ts` IS the new `ts`.
         // For thread replies the binding's `thread_ts` is the ORIGINAL thread anchor
@@ -163,7 +178,8 @@ impl AdapterDirectMessage for SlackAdapter {
     /// Slack has to ask its API for the DM channel that pairs the bot with the
     /// user before anything can be posted there.
     async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
-        let dm_channel = self.api().open_dm(provider_user_id).await?;
+        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let dm_channel = app.api.open_dm(provider_user_id).await?;
         Ok(Some(format!("dm:{dm_channel}")))
     }
 }
@@ -179,13 +195,14 @@ impl AdapterNewThread for SlackAdapter {
 
         let text = text::with_task_link(&message.text, message.task_url.as_deref());
 
-        let ts = self
-            .api()
+        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let ts = app
+            .api
             .post_message(channel, &text, None)
             .await?
             .ok_or_else(|| AdapterError::Internal("Slack did not return message ts".into()))?;
 
-        upload_files(self, channel, &ts, message).await;
+        upload_files(&app.api, channel, &ts, message).await;
 
         Ok(NewThreadInfo {
             external_thread_id: ts.clone(),
@@ -494,9 +511,11 @@ mod tests {
         assert_eq!(stub.paths(), vec!["/chat.postMessage".to_string()]);
         let posted = body(&stub.requests()[0]);
         assert_eq!(posted["channel"], "C1");
-        assert!(posted
-            .get("thread_ts")
-            .is_none_or(serde_json::Value::is_null));
+        assert!(
+            posted
+                .get("thread_ts")
+                .is_none_or(serde_json::Value::is_null)
+        );
         assert_eq!(
             posted["text"],
             "kicking off\n<https://example.test/t/1|View task>"

@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use axum::Json;
 use rand::RngExt;
 use tracing::{info, warn};
 use urlencoding;
@@ -18,7 +18,7 @@ use crate::config::{AuthProvider, Config};
 use crate::db::DbPool;
 use crate::error::ErrorBody;
 use crate::secret::service::SecretService;
-use crate::setup::{evaluate_setup, SetupContext};
+use crate::setup::{SetupContext, evaluate_setup};
 use moatless_backend_core::scope::ScopeContext;
 
 use super::api_key;
@@ -36,17 +36,17 @@ use super::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
 use super::provider_tokens::ProviderTokenAuthDao;
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 
+use super::pairing::DevicePairing;
 use super::password::dao::UserCredentialDao;
 use super::password::hash;
 use super::password::throttle::LoginThrottle;
-use super::pairing::DevicePairing;
 use super::schemas::{
-    format_datetime, format_datetime_opt, AdminResetPasswordRequest, AdminUpdateUserRequest,
-    ApiKeyCreateResponse, ApiKeyListItem, AuthMode, AuthModeResponse, ChangePasswordRequest,
-    CliLoginQuery, CreateApiKeyRequest, CreatePairingCodeRequest, CreateUserRequest,
-    CreateUserResponse, MessageResponse, OAuthCallbackQuery, PairingCodeResponse,
-    PasswordLoginRequest, ProviderConnection, SessionResponse, TokenSessionResponse,
-    UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
+    AdminResetPasswordRequest, AdminUpdateUserRequest, ApiKeyCreateResponse, ApiKeyListItem,
+    AuthMode, AuthModeResponse, ChangePasswordRequest, CliLoginQuery, CreateApiKeyRequest,
+    CreatePairingCodeRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
+    OAuthCallbackQuery, PairingCodeResponse, PasswordLoginRequest, ProviderConnection,
+    SessionResponse, TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem,
+    UserListResponse, format_datetime, format_datetime_opt,
 };
 use super::session;
 use super::sessions::SessionDao;
@@ -163,7 +163,7 @@ impl AuthState {
             Some(Arc::new(crate::task::dao::PgTaskDao(pool.clone())));
         let github_apps = Arc::new(GitHubAppRegistry::new(
             super::github::service::GitHubAppService::from_config(&config).map(Arc::new),
-            Some(Arc::new(super::github::dao::PgGitHubAppDao(
+            Some(Arc::new(crate::adapter_apps::dao::PgAdapterAppDao(
                 pool.clone(),
             ))),
             crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
@@ -184,9 +184,7 @@ impl AuthState {
             api_keys,
             pairing,
             users: Arc::new(PgUserDao(pool.clone())),
-            credentials: Arc::new(super::password::dao::PgUserCredentialDao(
-                pool.clone(),
-            )),
+            credentials: Arc::new(super::password::dao::PgUserCredentialDao(pool.clone())),
             login_throttle: LoginThrottle::new(),
             provider_tokens: Arc::new(PgProviderTokenAuthDao(pool.clone())),
             provider_tokens_dao: Arc::new(PgProviderTokenDao(pool.clone())),

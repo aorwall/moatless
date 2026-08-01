@@ -103,6 +103,7 @@ export const queryKeys = {
   integrations: {
     all: () => [...queryKeys.all, 'integrations'] as const,
     adapters: () => [...queryKeys.integrations.all(), 'adapters'] as const,
+    adapterApps: () => [...queryKeys.integrations.all(), 'adapter-apps'] as const,
     connections: () => [...queryKeys.integrations.all(), 'connections'] as const,
     connectionsList: () => [...queryKeys.integrations.connections(), 'list'] as const,
   },

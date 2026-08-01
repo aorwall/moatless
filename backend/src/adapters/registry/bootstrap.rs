@@ -23,9 +23,7 @@ impl Adapters {
         github_apps: Arc<GitHubAppRegistry>,
     ) -> Option<Self> {
         use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
-        use crate::auth::provider_tokens::{
-            PgProviderTokenAuthDao, ProviderTokenAuthDao,
-        };
+        use crate::auth::provider_tokens::{PgProviderTokenAuthDao, ProviderTokenAuthDao};
         use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
         use crate::secret::dao::{PgSecretDao, SecretDao};
         use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
@@ -47,19 +45,13 @@ impl Adapters {
             LocalEnvelopeSecretCipher::from_config(&config.secrets),
         ));
 
-        if let (Some(ref token), Some(ref secret)) =
-            (&config.slack.bot_token, &config.slack.signing_secret)
-        {
-            let bot_user_id = crate::adapters::slack::resolve_bot_user_id(
-                token,
-                config.slack.bot_user_id.as_deref(),
-            )
-            .await;
-            let slack =
-                crate::adapters::slack::adapter::SlackAdapter::new(token, secret, bot_user_id);
-            providers.register_slack(Arc::new(slack));
-            tracing::info!("Slack adapter configured");
-        }
+        let runtime_config = Arc::new(config.clone());
+        let slack = crate::adapters::slack::adapter::SlackAdapter::from_db(
+            runtime_config.clone(),
+            db.clone(),
+        );
+        providers.register_slack(Arc::new(slack));
+        tracing::info!("Slack adapter registered");
 
         // Webhook adapter is always available (config is per trigger source).
         providers.register_webhook(Arc::new(
@@ -67,11 +59,12 @@ impl Adapters {
         ));
         tracing::info!("Webhook adapter configured");
 
-        if let Some(ref token) = config.telegram.bot_token {
-            let telegram = crate::adapters::telegram::adapter::TelegramAdapter::new(token);
-            providers.register_telegram(Arc::new(telegram));
-            tracing::info!("Telegram adapter configured");
-        }
+        let telegram = crate::adapters::telegram::adapter::TelegramAdapter::from_db(
+            runtime_config,
+            db.clone(),
+        );
+        providers.register_telegram(Arc::new(telegram));
+        tracing::info!("Telegram adapter registered");
 
         // GitHub PR adapter is always available; config is per trigger source.
         {
@@ -93,8 +86,10 @@ impl Adapters {
         // flow (provider_tokens, team_id=<linear org uuid>). OAuth client
         // credentials are needed to refresh expired access tokens.
         {
-            let linear =
-                crate::adapters::linear::adapter::LinearAdapter::new(&config.linear, db);
+            let linear = crate::adapters::linear::adapter::LinearAdapter::from_db(
+                Arc::new(config.clone()),
+                db,
+            );
             providers.register_linear(Arc::new(linear));
             tracing::info!("Linear adapter configured");
         }

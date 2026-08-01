@@ -69,6 +69,9 @@ const AdminIntegrationsGithubLazyRouteImport = createFileRoute(
 const AdminIntegrationsConnectionsLazyRouteImport = createFileRoute(
   '/admin/integrations/connections',
 )()
+const AdminIntegrationsAppsLazyRouteImport = createFileRoute(
+  '/admin/integrations/apps',
+)()
 const AdminWorkspacesWorkspaceIdIndexLazyRouteImport = createFileRoute(
   '/admin/workspaces/$workspaceId/',
 )()
@@ -315,6 +318,14 @@ const AdminIntegrationsConnectionsLazyRoute =
   } as any).lazy(() =>
     import('./routes/admin/integrations/connections.lazy').then((d) => d.Route),
   )
+const AdminIntegrationsAppsLazyRoute =
+  AdminIntegrationsAppsLazyRouteImport.update({
+    id: '/integrations/apps',
+    path: '/integrations/apps',
+    getParentRoute: () => AdminRoute,
+  } as any).lazy(() =>
+    import('./routes/admin/integrations/apps.lazy').then((d) => d.Route),
+  )
 const TasksTaskIdPreviewRoute = TasksTaskIdPreviewRouteImport.update({
   id: '/$task-id/preview',
   path: '/$task-id/preview',
@@ -449,6 +460,7 @@ export interface FileRoutesByFullPath {
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
+  '/admin/integrations/apps': typeof AdminIntegrationsAppsLazyRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsLazyRouteWithChildren
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
   '/admin/loops/new': typeof AdminLoopsNewLazyRoute
@@ -493,6 +505,7 @@ export interface FileRoutesByTo {
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
+  '/admin/integrations/apps': typeof AdminIntegrationsAppsLazyRoute
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
   '/admin/loops/new': typeof AdminLoopsNewLazyRoute
   '/admin/plugins/new': typeof AdminPluginsNewLazyRoute
@@ -546,6 +559,7 @@ export interface FileRoutesById {
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
+  '/admin/integrations/apps': typeof AdminIntegrationsAppsLazyRoute
   '/admin/integrations/connections': typeof AdminIntegrationsConnectionsLazyRouteWithChildren
   '/admin/integrations/github': typeof AdminIntegrationsGithubLazyRoute
   '/admin/loops/new': typeof AdminLoopsNewLazyRoute
@@ -601,6 +615,7 @@ export interface FileRouteTypes {
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/tasks/$task-id/preview'
+    | '/admin/integrations/apps'
     | '/admin/integrations/connections'
     | '/admin/integrations/github'
     | '/admin/loops/new'
@@ -645,6 +660,7 @@ export interface FileRouteTypes {
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/tasks/$task-id/preview'
+    | '/admin/integrations/apps'
     | '/admin/integrations/github'
     | '/admin/loops/new'
     | '/admin/plugins/new'
@@ -697,6 +713,7 @@ export interface FileRouteTypes {
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/tasks/$task-id/preview'
+    | '/admin/integrations/apps'
     | '/admin/integrations/connections'
     | '/admin/integrations/github'
     | '/admin/loops/new'
@@ -994,6 +1011,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIntegrationsConnectionsLazyRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/integrations/apps': {
+      id: '/admin/integrations/apps'
+      path: '/integrations/apps'
+      fullPath: '/admin/integrations/apps'
+      preLoaderRoute: typeof AdminIntegrationsAppsLazyRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/tasks/$task-id/preview': {
       id: '/tasks/$task-id/preview'
       path: '/$task-id/preview'
@@ -1224,6 +1248,7 @@ interface AdminRouteChildren {
   AdminWorkspacesLazyRoute: typeof AdminWorkspacesLazyRouteWithChildren
   AdminIndexRoute: typeof AdminIndexRoute
   AdminTriggersNewRoute: typeof AdminTriggersNewRoute
+  AdminIntegrationsAppsLazyRoute: typeof AdminIntegrationsAppsLazyRoute
   AdminIntegrationsConnectionsLazyRoute: typeof AdminIntegrationsConnectionsLazyRouteWithChildren
   AdminIntegrationsGithubLazyRoute: typeof AdminIntegrationsGithubLazyRoute
   AdminTriggersIndexRoute: typeof AdminTriggersIndexRoute
@@ -1242,6 +1267,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminWorkspacesLazyRoute: AdminWorkspacesLazyRouteWithChildren,
   AdminIndexRoute: AdminIndexRoute,
   AdminTriggersNewRoute: AdminTriggersNewRoute,
+  AdminIntegrationsAppsLazyRoute: AdminIntegrationsAppsLazyRoute,
   AdminIntegrationsConnectionsLazyRoute:
     AdminIntegrationsConnectionsLazyRouteWithChildren,
   AdminIntegrationsGithubLazyRoute: AdminIntegrationsGithubLazyRoute,

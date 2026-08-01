@@ -21,5 +21,3 @@ mod signature;
 mod subject;
 mod text;
 mod webhook;
-
-pub(crate) use auth::resolve_bot_user_id;

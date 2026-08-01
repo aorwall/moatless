@@ -1,11 +1,11 @@
 //! Reaction capability for Telegram messages.
 
+use crate::adapters::AdapterReactions;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::BindingContext;
-use crate::adapters::AdapterReactions;
 
 use super::adapter::TelegramAdapter;
-use super::subject::{parse_message_target, TelegramDestination};
+use super::subject::{TelegramDestination, parse_message_target};
 
 /// Resolve the `(chat_id, message_id)` pair for a Telegram reaction call.
 ///
@@ -33,8 +33,8 @@ impl AdapterReactions for TelegramAdapter {
         if trimmed.is_empty() {
             return Err(AdapterError::BadRequest("Empty emoji".into()));
         }
-        self.api()
-            .set_message_reaction(&chat_id, message_id, Some(trimmed))
+        let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        api.set_message_reaction(&chat_id, message_id, Some(trimmed))
             .await?;
         Ok(None)
     }
@@ -49,8 +49,7 @@ impl AdapterReactions for TelegramAdapter {
         // The `_emoji` argument is accepted for parity with other providers but
         // ignored — Telegram replaces the bot's full reaction list either way.
         let (chat_id, message_id) = reaction_target(binding, target_external_id)?;
-        self.api()
-            .set_message_reaction(&chat_id, message_id, None)
-            .await
+        let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        api.set_message_reaction(&chat_id, message_id, None).await
     }
 }

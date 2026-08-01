@@ -14,28 +14,28 @@
 //! A raw GraphQL passthrough (`POST /api/v1/linear/graphql`) exists as the
 //! safety valve for operations not yet wrapped by a typed endpoint.
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use moatless_api_schemas::linear::{
     LinearCommentCreateRequest, LinearConnectionParams, LinearGraphqlRequest,
     LinearIssueCreateRequest, LinearIssueResponse, LinearIssueUpdateRequest,
     LinearLabelMutationRequest, LinearLabelOp, LinearLookupParams, LinearLookupResponse,
     LinearOkResponse,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::warn;
 
+use crate::adapters::AdapterKind;
 use crate::adapters::common::{ensure_task_access, resolve_connection};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
-use crate::adapters::AdapterKind;
 use crate::bindings::runtime::upsert_binding;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
 
-use super::agent_api::{LinearAgentApi, LookupKind};
 use super::SUBJECT_KIND_ISSUE;
+use super::agent_api::{LinearAgentApi, LookupKind};
 
 const LINEAR_PROVIDER: &str = "linear";
 
@@ -530,7 +530,7 @@ async fn resolve_linear_api(
     let linear = providers
         .linear()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
-    let api = linear.agent_api_for_org(&connection.scope_value);
+    let api = linear.agent_api_for_connection(&connection).await?;
     Ok((connection, api))
 }
 

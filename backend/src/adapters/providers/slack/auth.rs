@@ -8,8 +8,8 @@
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::adapters::error::AdapterError;
 use crate::adapters::AdapterUserIdentity;
+use crate::adapters::error::AdapterError;
 use crate::db::DbPool;
 
 use super::adapter::SlackAdapter;
@@ -166,19 +166,9 @@ pub(super) async fn cache_provider_id(db: &DbPool, user_id: Uuid, slack_user_id:
     }
 }
 
-/// Resolve the bot's Slack user ID for a bot token.
-///
-/// The registry's entry point, so the composition root never names
-/// [`SlackApi`] itself.
-pub(crate) async fn resolve_bot_user_id(
-    bot_token: &str,
-    configured: Option<&str>,
-) -> Option<String> {
-    bot_user_id(&SlackApi::new(bot_token), configured).await
-}
-
 /// Prefer the explicitly configured value; when absent, ask `auth.test` so the
 /// agent's system prompt always has the bot's identity available.
+#[cfg(test)]
 pub(super) async fn bot_user_id(api: &SlackApi, configured: Option<&str>) -> Option<String> {
     if let Some(id) = configured {
         let id = id.trim();
@@ -216,7 +206,8 @@ impl AdapterUserIdentity for SlackAdapter {
         identity: &str,
         db: &DbPool,
     ) -> Result<Option<String>, AdapterError> {
-        let Some(info) = self.api().get_user_info(identity).await? else {
+        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let Some(info) = app.api.get_user_info(identity).await? else {
             warn!(slack_user = %identity, "Slack users.info returned no user");
             return Ok(None);
         };
@@ -248,13 +239,13 @@ impl AdapterUserIdentity for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::test_support::ProviderStub;
     use crate::adapters::AdapterUserIdentity;
+    use crate::adapters::test_support::ProviderStub;
     use crate::db::DbPool;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;
-    use super::{bot_user_id, resolve_inbound_sender, SenderIdentity};
+    use super::{SenderIdentity, bot_user_id, resolve_inbound_sender};
 
     fn unreachable_pool() -> DbPool {
         sqlx::postgres::PgPoolOptions::new()

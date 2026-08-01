@@ -9,7 +9,7 @@ use std::sync::Arc;
 use axum::Json;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use moatless_vibe_backend::agent;
 use moatless_vibe_backend::auth;
@@ -108,6 +108,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.database.run_migrations,
     )
     .await;
+    let config = if let Some(ref pool) = db_pool {
+        match moatless_vibe_backend::adapter_apps::carry_over_env_and_load_config(&config, pool)
+            .await
+        {
+            Ok(config) => config,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to load DB-backed Adapter app config; using deployment config"
+                );
+                config
+            }
+        }
+    } else {
+        config
+    };
     let event_publisher = startup::init_event_publisher(&config).await;
     let (sse_state, sse_consumer) =
         startup::init_sse(&config, db_pool.as_ref(), cancel.clone()).await?;
@@ -363,9 +379,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // the adapter layer so they hit the same token cache.
         let github_apps = Arc::new(crate::auth::github::registry::GitHubAppRegistry::new(
             crate::auth::github::service::GitHubAppService::from_config(&config).map(Arc::new),
-            Some(Arc::new(crate::auth::github::dao::PgGitHubAppDao(
-                pool.clone(),
-            ))),
+            Some(Arc::new(
+                moatless_vibe_backend::adapter_apps::dao::PgAdapterAppDao(pool.clone()),
+            )),
             crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
         ));
         // Off the boot path: carrying over proves each App against GitHub, and

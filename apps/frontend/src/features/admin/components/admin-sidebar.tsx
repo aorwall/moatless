@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import {
+  AppWindow,
   Boxes,
   Building2,
   FolderGit2,
@@ -40,6 +41,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'Integrations',
     items: [
+      { label: 'Apps', to: '/admin/integrations/apps', icon: AppWindow },
       { label: 'GitHub', to: '/admin/integrations/github', icon: Github },
       { label: 'Connections', to: '/admin/integrations/connections', icon: Plug },
       { label: 'Task Connections', to: '/admin/task-connections', icon: Link2 },

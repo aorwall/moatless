@@ -7,14 +7,14 @@
 use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{InboundMessage, LoopContext};
 use crate::adapters::{Adapter, BindingDestination};
 use crate::db::DbPool;
 use crate::state::AppState;
 
-use super::adapter::SlackAdapter;
+use super::adapter::{ResolvedSlackApp, SlackAdapter};
 use super::webhook::{self, Normalization, NormalizeContext};
 use super::{signature, subject};
 
@@ -65,6 +65,7 @@ struct Routed {
     /// The event's own channel, which every log line below is keyed by.
     source_id: String,
     connection_id: String,
+    app_key: String,
     rule_id: String,
     config: LoopContext,
     destination: BindingDestination,
@@ -180,6 +181,8 @@ async fn resolve(
         config: crate::bindings::runtime::trigger_context(&rule, "slack"),
         source_id: source_id.to_string(),
         connection_id: connection.id,
+        app_key: crate::adapter_apps::app_key_from_transport_config(&connection.transport_config)
+            .to_string(),
         rule_id: rule.id,
         destination,
         is_tracked_thread,
@@ -191,9 +194,9 @@ async fn resolve(
 /// Slack signs the endpoint check exactly as it signs an event, so both reach
 /// this one call — which is what removes the second body parse the handler used
 /// to do.
-fn verify(adapter: &SlackAdapter, request: &WebhookRequest<'_>) -> Result<(), AdapterError> {
+fn verify(app: &ResolvedSlackApp, request: &WebhookRequest<'_>) -> Result<(), AdapterError> {
     signature::verify_signature(
-        adapter.signing_secret(),
+        &app.signing_secret,
         request.timestamp,
         request.body,
         request.signature,
@@ -204,7 +207,7 @@ fn verify(adapter: &SlackAdapter, request: &WebhookRequest<'_>) -> Result<(), Ad
 /// sequence [`receive`] runs, kept in one function so it can be exercised
 /// without an [`AppState`] behind it.
 async fn normalize_and_apply(
-    adapter: &SlackAdapter,
+    app: &ResolvedSlackApp,
     config: &LoopContext,
     db: &DbPool,
     payload: &serde_json::Value,
@@ -214,9 +217,9 @@ async fn normalize_and_apply(
         payload,
         &NormalizeContext {
             config,
-            api: adapter.api(),
+            api: &app.api,
             db,
-            bot_user_id: adapter.bot_user_id(),
+            bot_user_id: app.bot_user_id.as_deref(),
             is_tracked_thread,
         },
     )
@@ -224,7 +227,7 @@ async fn normalize_and_apply(
 
     match &normalization {
         Normalization::Message { effects, .. } | Normalization::Ignored { effects, .. } => {
-            webhook::apply_effects(adapter.api(), db, effects).await;
+            webhook::apply_effects(&app.api, db, effects).await;
         }
     }
 
@@ -276,30 +279,38 @@ pub(super) async fn receive(
         .map_err(IngressError::Ingress)?
     {
         Routing::Dropped(reason) => {
-            return Ok(Received::Delivery(Outcome::ignored(event_type, reason)))
+            return Ok(Received::Delivery(Outcome::ignored(event_type, reason)));
         }
         Routing::Verifiable(verifiable) => verifiable,
     };
 
-    verify(adapter, &request).map_err(IngressError::Ingress)?;
-
     let routed = match verifiable {
-        Verifiable::Challenge(challenge) => return Ok(Received::Challenge(challenge)),
+        Verifiable::Challenge(challenge) => {
+            let app = adapter
+                .app(crate::adapter_apps::DEFAULT_APP_KEY)
+                .await
+                .map_err(IngressError::Ingress)?;
+            verify(&app, &request).map_err(IngressError::Ingress)?;
+            return Ok(Received::Challenge(challenge));
+        }
         Verifiable::Routed(routed) => *routed,
     };
     let Routed {
         source_id,
         connection_id,
+        app_key,
         rule_id,
         config,
         destination,
         is_tracked_thread,
     } = routed;
 
-    let normalization =
-        normalize_and_apply(adapter, &config, &state.db, &payload, is_tracked_thread)
-            .await
-            .map_err(IngressError::Ingress)?;
+    let app = adapter.app(&app_key).await.map_err(IngressError::Ingress)?;
+    verify(&app, &request).map_err(IngressError::Ingress)?;
+
+    let normalization = normalize_and_apply(&app, &config, &state.db, &payload, is_tracked_thread)
+        .await
+        .map_err(IngressError::Ingress)?;
 
     let message = match normalization {
         Normalization::Ignored { reason, .. } => {
@@ -361,16 +372,16 @@ mod characterization {
     use moatless_backend_core::scope::Scope;
     use sha2::Sha256;
 
+    use crate::adapters::AdapterKind;
     use crate::adapters::error::AdapterError;
     use crate::adapters::models::{Audience, InboundMessage, LoopContext, RoutingMode};
     use crate::adapters::test_support::ProviderStub;
-    use crate::adapters::AdapterKind;
     use crate::db::DbPool;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;
     use super::super::webhook::Normalization;
-    use super::{challenge, normalize_and_apply, parse_body, verify, IngressError, WebhookRequest};
+    use super::{IngressError, WebhookRequest, challenge, normalize_and_apply, parse_body, verify};
 
     pub(super) const SIGNING_SECRET: &str = "8f742231b10e8888abcd99yez67676hg";
     pub(super) const BOT_USER_ID: &str = "U0BOT";
@@ -519,14 +530,18 @@ mod characterization {
         is_tracked_thread: bool,
     ) -> Result<Parsed, IngressError> {
         let payload = parse_body(body.as_bytes())?;
-        verify(adapter, &request(headers, body.as_bytes())).map_err(IngressError::Ingress)?;
+        let app = adapter
+            .app(crate::adapter_apps::DEFAULT_APP_KEY)
+            .await
+            .map_err(IngressError::Ingress)?;
+        verify(&app, &request(headers, body.as_bytes())).map_err(IngressError::Ingress)?;
 
         if payload.get("type").and_then(serde_json::Value::as_str) == Some("url_verification") {
             return Ok(Parsed::Challenge(challenge(&payload)));
         }
 
         Ok(
-            match normalize_and_apply(adapter, config, db, &payload, is_tracked_thread)
+            match normalize_and_apply(&app, config, db, &payload, is_tracked_thread)
                 .await
                 .map_err(IngressError::Ingress)?
             {
@@ -922,8 +937,8 @@ mod characterization {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::{Audience, InboundMessage};
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::{Audience, InboundMessage};
 
     use super::admission_event_id;
 
@@ -997,14 +1012,14 @@ mod tests {
 mod characterization_db {
     use sqlx::PgPool;
 
-    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::Audience;
 
-    use super::characterization::{
-        adapter, envelope, human, ignored, message_event, parse, slack_stub, trigger, Parsed,
-        BOT_USER_ID, OWNER,
-    };
     use super::IngressError;
+    use super::characterization::{
+        BOT_USER_ID, OWNER, Parsed, adapter, envelope, human, ignored, message_event, parse,
+        slack_stub, trigger,
+    };
 
     fn message(result: Result<Parsed, IngressError>) -> crate::adapters::models::InboundMessage {
         match result {

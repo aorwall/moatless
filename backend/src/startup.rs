@@ -286,22 +286,18 @@ pub fn spawn_grpc_server(
         db_pool.map(|pool| Arc::new(PgProviderTokenDao(pool.clone())) as _);
     let tasks: Option<Arc<dyn TaskDao>> =
         db_pool.map(|pool| Arc::new(PgTaskDao(pool.clone())) as _);
-    let task_turns: Option<Arc<dyn crate::task_turn::dao::TaskTurnDao>> = db_pool
-        .map(|pool| Arc::new(crate::task_turn::dao::PgTaskTurnDao(pool.clone())) as _);
-    let grpc_task_events: Option<Arc<dyn crate::task_event::dao::TaskEventDao>> = db_pool
-        .map(|pool| Arc::new(crate::task_event::dao::PgTaskEventDao(pool.clone())) as _);
+    let task_turns: Option<Arc<dyn crate::task_turn::dao::TaskTurnDao>> =
+        db_pool.map(|pool| Arc::new(crate::task_turn::dao::PgTaskTurnDao(pool.clone())) as _);
+    let grpc_task_events: Option<Arc<dyn crate::task_event::dao::TaskEventDao>> =
+        db_pool.map(|pool| Arc::new(crate::task_event::dao::PgTaskEventDao(pool.clone())) as _);
     let ingress_outbox: Option<Arc<dyn crate::event_ingress::outbox::IngressOutbox>> = db_pool
         .map(|pool| Arc::new(crate::event_ingress::outbox::PgIngressOutbox(pool.clone())) as _);
-    let task_relations: Option<Arc<dyn crate::task::relations::TaskRelationDao>> = db_pool
-        .map(|pool| {
-            Arc::new(crate::task::relations::PgTaskRelationDao(
-                pool.clone(),
-            )) as _
-        });
+    let task_relations: Option<Arc<dyn crate::task::relations::TaskRelationDao>> =
+        db_pool.map(|pool| Arc::new(crate::task::relations::PgTaskRelationDao(pool.clone())) as _);
     let repositories: Option<Arc<dyn RepositoryDao>> =
         db_pool.map(|pool| Arc::new(PgRepositoryDao(pool.clone())) as _);
-    let grpc_workspaces: Option<Arc<dyn crate::workspace::dao::WorkspaceDao>> = db_pool
-        .map(|pool| Arc::new(crate::workspace::dao::PgWorkspaceDao(pool.clone())) as _);
+    let grpc_workspaces: Option<Arc<dyn crate::workspace::dao::WorkspaceDao>> =
+        db_pool.map(|pool| Arc::new(crate::workspace::dao::PgWorkspaceDao(pool.clone())) as _);
     let users: Option<Arc<dyn UserDao>> =
         db_pool.map(|pool| Arc::new(PgUserDao(pool.clone())) as _);
     let backend_config = Arc::new(config.clone());
@@ -311,10 +307,8 @@ pub fn spawn_grpc_server(
     let s3_key_prefix = config.s3.key_prefix.clone();
     let transcript_s3_prefix = config.s3.transcript_prefix.clone();
     let workspace_s3_prefix = config.s3.workspace_prefix.clone();
-    let github_app_store: Option<Arc<dyn crate::auth::github::dao::GitHubAppDao>> = db_pool
-        .map(|pool| {
-            Arc::new(crate::auth::github::dao::PgGitHubAppDao(pool.clone())) as _
-        });
+    let github_app_store: Option<Arc<dyn crate::adapter_apps::dao::AdapterAppDao>> =
+        db_pool.map(|pool| Arc::new(crate::adapter_apps::dao::PgAdapterAppDao(pool.clone())) as _);
     let github_apps = Arc::new(GitHubAppRegistry::new(
         crate::auth::github::service::GitHubAppService::from_config(config).map(Arc::new),
         github_app_store,
@@ -438,7 +432,7 @@ pub fn install_shutdown_handler(cancel: CancellationToken) -> JoinHandle<()> {
 
 #[cfg(unix)]
 async fn shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
 
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;

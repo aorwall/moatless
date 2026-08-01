@@ -9,6 +9,7 @@ use crate::adapters::error::AdapterError;
 const MAX_MESSAGE_LENGTH: usize = 4096;
 
 /// Telegram Bot API client.
+#[derive(Clone)]
 pub struct TelegramApi {
     client: Client,
     base_url: String,
@@ -389,7 +390,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_telegram_keeps_transport_source() {

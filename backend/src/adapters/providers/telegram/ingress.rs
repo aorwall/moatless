@@ -8,11 +8,11 @@
 
 use tracing::{debug, info};
 
+use crate::adapters::AdapterDestinationBuilder;
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::SubscriptionMatch;
-use crate::adapters::AdapterDestinationBuilder;
 use crate::db::DbPool;
 use crate::state::AppState;
 
@@ -118,6 +118,12 @@ pub(super) async fn receive(
 
     let config = crate::bindings::runtime::trigger_context(&rule, "telegram");
     let tg_config = TelegramAdapterConfig::from_config(&config);
+    let api = adapter
+        .app_api(crate::adapter_apps::app_key_from_transport_config(
+            &connection.transport_config,
+        ))
+        .await
+        .map_err(IngressError::Ingress)?;
 
     let normalized = webhook::normalize(
         &payload,
@@ -133,7 +139,7 @@ pub(super) async fn receive(
 
     match normalized {
         Normalization::Message { message, effects } => {
-            apply_effects(adapter.api(), &state.db, &config.id, effects)
+            apply_effects(&api, &state.db, &config.id, effects)
                 .await
                 .map_err(IngressError::Ingress)?;
             let msg = *message;
@@ -186,7 +192,7 @@ pub(super) async fn receive(
             })
         }
         Normalization::Ignored { reason, effects } => {
-            apply_effects(adapter.api(), &state.db, &config.id, effects)
+            apply_effects(&api, &state.db, &config.id, effects)
                 .await
                 .map_err(IngressError::Ingress)?;
             debug!(update_id, reason, "Telegram update ignored by provider");

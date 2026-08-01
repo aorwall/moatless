@@ -3,6 +3,8 @@
 //! `agentActivityCreate` calls) and the workspace-scoped configuration
 //! (webhook secret, OAuth client credentials).
 
+use std::sync::Arc;
+
 use tracing::warn;
 
 use crate::adapters::error::AdapterError;
@@ -34,6 +36,8 @@ pub struct LinearAdapter {
     credentials: LinearCredentials,
     /// Database pool for looking up workspace tokens.
     db: DbPool,
+    /// Runtime config used to decrypt DB-backed Adapter app secrets.
+    config: Option<Arc<crate::config::Config>>,
 }
 
 /// Build an outbound Linear comment body: the reply text followed by the
@@ -64,12 +68,50 @@ impl LinearAdapter {
             global_webhook_secret: config.webhook_secret.clone(),
             credentials: LinearCredentials::from(config),
             db,
+            config: None,
+        }
+    }
+
+    pub fn from_db(config: Arc<crate::config::Config>, db: DbPool) -> Self {
+        Self {
+            global_webhook_secret: config.linear.webhook_secret.clone(),
+            credentials: LinearCredentials::from(&config.linear),
+            db,
+            config: Some(config),
         }
     }
 
     /// Build a Linear Agents API client for the given workspace.
     pub(crate) fn agent_api_for_org(&self, org_id: &str) -> LinearAgentApi {
         self.credentials.api_for_org(self.db.clone(), org_id)
+    }
+
+    pub(crate) async fn agent_api_for_connection(
+        &self,
+        connection: &AdapterConnection,
+    ) -> Result<LinearAgentApi, AdapterError> {
+        self.agent_api_for_transport(&connection.scope_value, &connection.transport_config)
+            .await
+    }
+
+    pub(crate) async fn agent_api_for_transport(
+        &self,
+        org_id: &str,
+        transport_config: &serde_json::Value,
+    ) -> Result<LinearAgentApi, AdapterError> {
+        let Some(config) = self.config.as_deref() else {
+            return Ok(self.agent_api_for_org(org_id));
+        };
+        let app_key = crate::adapter_apps::app_key_from_transport_config(transport_config);
+        let Some(app) = crate::adapter_apps::linear_app_config(&self.db, config, app_key)
+            .await
+            .map_err(|e| AdapterError::AdapterApi(e.to_string()))?
+        else {
+            return Err(AdapterError::AdapterNotConfigured(format!(
+                "linear app '{app_key}'"
+            )));
+        };
+        Ok(LinearCredentials::from(&app).api_for_org(self.db.clone(), org_id))
     }
 
     /// The pool [`auth`](super::auth) reads workspace rows from. Exposed to the
@@ -138,7 +180,7 @@ impl AdapterBindingReply for LinearAdapter {
         _rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        let api = self.agent_api_for_org(&connection.scope_value);
+        let api = self.agent_api_for_connection(connection).await?;
 
         if binding.subject_kind == SUBJECT_KIND_ISSUE {
             let issue_uuid = binding
@@ -295,9 +337,18 @@ impl AdapterPostBindingFollowup for LinearAdapter {
         if binding.subject_kind != SUBJECT_KIND_ISSUE {
             return;
         }
-        let api = self.agent_api_for_org(&connection.scope_value);
-        super::issues::attach_parent_task_link(state, &api, &binding.subject_key, task_id)
-            .await;
+        let api = match self.agent_api_for_connection(connection).await {
+            Ok(api) => api,
+            Err(e) => {
+                warn!(
+                    connection_id = %connection.id,
+                    error = %e,
+                    "Failed to resolve Linear app config for binding follow-up"
+                );
+                return;
+            }
+        };
+        super::issues::attach_parent_task_link(state, &api, &binding.subject_key, task_id).await;
     }
 }
 
@@ -349,7 +400,49 @@ impl AdapterBindingStatus for LinearAdapter {
     ) -> Option<ExternalStatus> {
         let (issue_id, org_id) = status::binding_subject(binding)?;
 
-        match self.agent_api_for_org(org_id).get_issue(issue_id).await {
+        let row = sqlx::query_as::<_, (serde_json::Value,)>(
+            "SELECT transport_config FROM integration_connections WHERE id = $1",
+        )
+        .bind(&binding.connection_id)
+        .fetch_optional(&self.db)
+        .await;
+        let transport_config = match row {
+            Ok(Some((transport_config,))) => transport_config,
+            Ok(None) => {
+                warn!(
+                    binding_id = %binding.id,
+                    connection_id = %binding.connection_id,
+                    "Linear binding status skipped: connection is gone"
+                );
+                return None;
+            }
+            Err(e) => {
+                warn!(
+                    binding_id = %binding.id,
+                    connection_id = %binding.connection_id,
+                    error = %e,
+                    "Linear binding status skipped: connection lookup failed"
+                );
+                return None;
+            }
+        };
+
+        let api = match self
+            .agent_api_for_transport(org_id, &transport_config)
+            .await
+        {
+            Ok(api) => api,
+            Err(e) => {
+                warn!(
+                    binding_id = %binding.id,
+                    error = %e,
+                    "Failed to resolve Linear app config for status refresh"
+                );
+                return None;
+            }
+        };
+
+        match api.get_issue(issue_id).await {
             Ok(issue) => Some(status::status_from_issue(&issue)),
             Err(e) => {
                 warn!(
