@@ -17,9 +17,11 @@
         "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
-        "requests": { "cpu": "1", "memory": "2Gi" },
+        "requests": { "cpu": "2", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
-        "storage": "20Gi"
+        "storage": "20Gi",
+        "buildCacheMode": "node",
+        "buildCacheScope": "task"
       },
       "servers": []
     },
@@ -39,9 +41,11 @@
         "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
-        "requests": { "cpu": "1", "memory": "2Gi" },
+        "requests": { "cpu": "2", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
-        "storage": "20Gi"
+        "storage": "20Gi",
+        "buildCacheMode": "node",
+        "buildCacheScope": "task"
       },
       "servers": [
         {
@@ -83,9 +87,11 @@
         "CARGO_PROFILE_TEST_DEBUG": "0"
       },
       "resources": {
-        "requests": { "cpu": "1", "memory": "4Gi" },
+        "requests": { "cpu": "2", "memory": "4Gi" },
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "20Gi",
+        "buildCacheMode": "node",
+        "buildCacheScope": "task",
         "dockerStorageMode": "node",
         "dockerStorage": "30Gi"
       },

@@ -328,6 +328,13 @@ tasks:
       - echo "Restarting app to trigger migrations..."
       - task: restart
 
+  # ── Rust build cache ───────────────────────────────────────────
+
+  rust:gc:
+    desc: Reclaim target/debug/incremental once it passes CARGO_GC_THRESHOLD_MB (default 4096)
+    cmds:
+      - ./scripts/cargo-gc.sh
+
   # ── Testing ────────────────────────────────────────────────────
 
   test:integration:

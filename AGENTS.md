@@ -19,11 +19,23 @@ cd apps/frontend && bunx shadcn@latest add [component]
 ### Rust backend & sandbox
 ```bash
 cargo build -p moatless-vibe-backend        # or moatless-sandbox
-cargo clippy -p moatless-vibe-backend -- -D warnings
+cargo clippy -p moatless-vibe-backend --all-targets -- -D warnings
+cargo clippy -p moatless-sandbox -- -D warnings   # also claude-agent-sdk, moatless-events
 cargo test -p moatless-vibe-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
 task test:integration                       # backend/tests/ — needs DATABASE_URL, no Docker
+task rust:gc                                # reclaim target/debug/incremental
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
 ```
+Run those clippy lines verbatim — `--all-targets` on the backend, plain on the
+other three crates — and do not vary them. The flag set, and `cargo check` vs
+`cargo clippy`, each key a separate fingerprint and a separate rustc incremental
+unit. Alternating forms recompiles all ~420 dependencies (~2 min on a sandbox)
+and strands another 0.4–1 GB of incremental state that nothing reclaims, because
+cargo has no target-directory GC. `ci.yml` runs these same lines, so matching
+them keeps one warm cache instead of several cold ones. `task rust:gc` drops
+`incremental/` once it passes its threshold; compiled dependencies in `deps/`
+survive, so only the next build per configuration is non-incremental.
+
 Every file in `backend/tests/` except `supervisor_test.rs` is behind
 `#![cfg(feature = "db-tests")]`, so the plain `cargo test` line above — and
 `ci.yml`, which runs that same line — compiles only that one. `task
@@ -52,7 +64,7 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 ```
 
 ## Verification (mandatory after changes)
-- Rust: `cargo clippy -p <crate> -- -D warnings` and `cargo test -p <crate>`
+- Rust: the clippy line for that crate from the block above, verbatim, and `cargo test -p <crate>`
 - Frontend: `bun run type:check` and `bun run biome:check` (quick loop: `bun run post-edit-hook`)
 - Lint ratchet: `noFloatingPromises`, `noMisusedPromises`, `useExhaustiveSwitchCases` are baselined per file in `biome-baseline.json`. Touch a file with baselined violations → fix them, then `bun run lint:ratchet:update`. New files must be clean; the baseline only shrinks.
 
