@@ -97,6 +97,129 @@ fn entry(path: &str) -> Option<Value> {
     (!path.is_empty()).then(|| json!({ "path": path, "kind": kind }))
 }
 
+/// Which files here are called something like this, in the shape the
+/// contract's `projects.searchEntries` returns.
+///
+/// Two paths, because the Sandbox answers only one of the two questions this
+/// method is asked. A query goes to its name search. **An empty query is a
+/// bounded browse** — the contract says so out loud
+/// (`packages/contracts/src/project.ts:19`), it is what the file picker opens
+/// with, and the Sandbox's walker returns nothing for it
+/// (`sandbox/src/files/search.rs:49`) — so that case is answered from the same
+/// listing [`list_entries`] reads, cut to `limit`.
+///
+/// The reference server orders that browse by frecency. Moatless records no
+/// per-file access history and a picker's first paint does not justify a table
+/// to hold one, so the order is the walk's own. A *bounded browse* is all the
+/// contract asks for.
+///
+/// Case-insensitive always: the input carries no case flag, and what reaches
+/// here is a person typing a fragment of a name.
+pub async fn search_entries(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    cwd: &str,
+    query: &str,
+    limit: usize,
+    kind: Option<&str>,
+) -> Result<Value, WorkspaceAccessError> {
+    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
+    let client = sandboxes
+        .sandbox_client(&task_id)
+        .await
+        .map_err(WorkspaceAccessError::NotRunning)?;
+
+    let (mut entries, truncated) = if query.is_empty() {
+        let files = client.list_files(".", true, true).await.map_err(|status| {
+            WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
+                status,
+                "list_files",
+            ))
+        })?;
+        let truncated = files.len() > limit;
+        let entries: Vec<Value> = files
+            .iter()
+            .take(limit)
+            .filter_map(|path| entry(path))
+            .collect();
+        (entries, truncated)
+    } else {
+        let found = client
+            .search_files_by_name(query, false, i32::try_from(limit).unwrap_or(i32::MAX))
+            .await
+            .map_err(|status| {
+                WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
+                    status,
+                    "search_files_by_name",
+                ))
+            })?;
+        let truncated = found.files.len() >= limit;
+        // Always files: the Sandbox's walker skips anything that is not one
+        // (`sandbox/src/files/search.rs:69`), so there is no trailing slash to
+        // read here and no directory to read it off.
+        let entries: Vec<Value> = found
+            .files
+            .iter()
+            .filter(|found| !found.path.is_empty())
+            .map(|found| json!({ "path": found.path, "kind": "file" }))
+            .collect();
+        (entries, truncated)
+    };
+
+    if let Some(kind) = kind {
+        entries.retain(|entry| entry["kind"] == kind);
+    }
+    Ok(json!({ "entries": entries, "truncated": truncated }))
+}
+
+/// A file written into the conversation's own worktree, in the shape the
+/// contract's `projects.writeFile` returns.
+///
+/// **The one write this surface makes outside its own database**, and two
+/// things about it are deliberate.
+///
+/// There is no conflict detection. The contract's input carries no expected
+/// version or hash, so there is nothing to compare and no way for the client to
+/// participate in a check; a person and a running agent editing the same file
+/// race, and the last writer wins. Refusing writes while a turn is open — the
+/// only server-side alternative — would disable the save control in exactly the
+/// situation someone reaches for it.
+///
+/// Path containment is the Sandbox's, as it already is for [`read_file`]: the
+/// path goes through as the client sent it and the Sandbox resolves it against
+/// its workspace root, rather than this module keeping a second copy of that
+/// rule to drift. What makes that safe is
+/// [`workspace::addressed_conversation`] above, which is what stops a caller
+/// addressing a *different* conversation's Sandbox at all — a Sandbox holds one
+/// conversation's checkout and nothing else.
+pub async fn write_file(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    cwd: &str,
+    relative_path: &str,
+    contents: &str,
+) -> Result<Value, WorkspaceAccessError> {
+    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
+    sandboxes
+        .sandbox_client(&task_id)
+        .await
+        .map_err(WorkspaceAccessError::NotRunning)?
+        .write_file(relative_path, contents)
+        .await
+        .map_err(|status| {
+            WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
+                status,
+                "write_file",
+            ))
+        })?;
+
+    // The path and nothing else: `ProjectWriteFileResult` carries one field
+    // (`packages/contracts/src/project.ts:271`).
+    Ok(json!({ "relativePath": relative_path }))
+}
+
 /// One file's contents, in the shape the contract's `projects.readFile`
 /// returns.
 pub async fn read_file(

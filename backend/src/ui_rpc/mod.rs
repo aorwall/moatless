@@ -116,6 +116,34 @@ const VCS_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 /// accumulated while it was blocked into the same single row.
 const OUTBOUND_FRAMES: usize = 64;
 
+/// How many entries a workspace search answers with when the client asks for no
+/// particular number.
+///
+/// The picker renders a scrolling list and the person picks from the top of it;
+/// a hundred is past what anyone reads and well inside what one gRPC round trip
+/// returns.
+const SEARCH_ENTRIES_LIMIT: usize = 100;
+
+/// The most entries one search may ask for, whatever the client requests.
+///
+/// The limit reaches the Sandbox, which walks the tree to satisfy it, so an
+/// unbounded request is a way to make a pod work arbitrarily hard from a
+/// keystroke.
+const SEARCH_ENTRIES_MAX: usize = 200;
+
+/// How many conversations one search answers with.
+///
+/// One row per Task, so this is fifty conversations rather than fifty messages
+/// — the palette shows a handful and this leaves room to rank.
+const SEARCH_THREADS_LIMIT: i64 = 50;
+
+/// The shortest query worth running against every Message body.
+///
+/// A one-character search matches most of the corpus and tells the person
+/// nothing, and it costs a full scan to say so. Below this the answer is empty
+/// without a query.
+const SEARCH_THREADS_MIN_QUERY: usize = 2;
+
 #[derive(Debug, Clone)]
 struct UiRpcConfig {
     environment_id: String,
@@ -1435,6 +1463,27 @@ impl ProtocolSession {
             ))];
         }
 
+        // The grant this deployment advertised, enforced. A client is told at
+        // pairing which scopes it has, and until now that answer was decoration:
+        // every method ran whatever the answer said. Refusing here is what makes
+        // the advertised list a description of the server rather than a wish.
+        //
+        // This is the deployment's grant, not the client's — see the plan's Out
+        // of scope note. A pairing that asked for less than this still gets a
+        // credential carrying all of it.
+        let required = auth::required_scope(&tag);
+        if !auth::GRANTED_SCOPES.contains(&required) {
+            debug!(%tag, %required, user_id = %identity.user_id, "T3 UI request refused; scope not granted");
+            return vec![typed_failure_exit(
+                &id,
+                json!({
+                    "_tag": "EnvironmentAuthorizationError",
+                    "message": format!("This server does not grant {required}."),
+                    "requiredScope": required,
+                }),
+            )];
+        }
+
         match tag.as_str() {
             "server.probe" => vec![success_exit(&id, json!({}))],
             "server.getConfig" => {
@@ -1499,14 +1548,16 @@ impl ProtocolSession {
                     Err(error) if review::refs_are_quiet(&error) => {
                         vec![success_exit(&id, review::no_refs())]
                     }
-                    Err(error) => vec![review_failure_exit(&id, &tag, &error, identity)],
+                    Err(error) => vec![review_failure_exit(&id, &tag, &cwd, &error, identity)],
                 }
             }
             "vcs.refreshStatus" => {
                 let Some(cwd) = workspace_cwd(&payload) else {
+                    // No cwd is why this failed, so there is none to report.
                     return vec![review_failure_exit(
                         &id,
                         &tag,
+                        "",
                         &WorkspaceAccessError::Unaddressable,
                         identity,
                     )];
@@ -1520,14 +1571,16 @@ impl ProtocolSession {
                 .await
                 {
                     Ok(status) => vec![success_exit(&id, status)],
-                    Err(error) => vec![review_failure_exit(&id, &tag, &error, identity)],
+                    Err(error) => vec![review_failure_exit(&id, &tag, &cwd, &error, identity)],
                 }
             }
             "review.getDiffPreview" => {
                 let Some(cwd) = workspace_cwd(&payload) else {
+                    // No cwd is why this failed, so there is none to report.
                     return vec![review_failure_exit(
                         &id,
                         &tag,
+                        "",
                         &WorkspaceAccessError::Unaddressable,
                         identity,
                     )];
@@ -1550,7 +1603,7 @@ impl ProtocolSession {
                 .await
                 {
                     Ok(preview) => vec![success_exit(&id, preview)],
-                    Err(error) => vec![review_failure_exit(&id, &tag, &error, identity)],
+                    Err(error) => vec![review_failure_exit(&id, &tag, &cwd, &error, identity)],
                 }
             }
             "preview.list" => preview_answer(
@@ -1596,6 +1649,9 @@ impl ProtocolSession {
                 };
                 match servers::list(&state.servers, &viewer, task_id).await {
                     Ok(listing) => vec![success_exit(&id, listing)],
+                    // See [`servers_not_found`]: an unprovisioned conversation
+                    // has no servers, which is an answer and not a failure.
+                    Err(ServersError::NotFound) => vec![success_exit(&id, servers_not_found())],
                     Err(error) => vec![servers_failure_exit(&id, &error, identity)],
                 }
             }
@@ -1614,6 +1670,11 @@ impl ProtocolSession {
                     Ok(listing) => json!({
                         "threadId": task_id,
                         "servers": listing.get("servers").cloned().unwrap_or(json!([])),
+                        "observedAt": chrono::Utc::now().to_rfc3339(),
+                    }),
+                    Err(ServersError::NotFound) => json!({
+                        "threadId": task_id,
+                        "servers": [],
                         "observedAt": chrono::Utc::now().to_rfc3339(),
                     }),
                     Err(error) => return vec![servers_failure_exit(&id, &error, identity)],
@@ -1699,6 +1760,115 @@ impl ProtocolSession {
                 {
                     Ok(file) => vec![success_exit(&id, file)],
                     Err(error) => vec![file_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
+            "projects.searchEntries" => {
+                // An absent or blank query is legal and means "show me what is
+                // here": the picker opens before anyone types. `search_entries`
+                // answers that with a bounded listing rather than nothing,
+                // because the Sandbox's name search matches no path at all for
+                // an empty needle and an empty picker looks like a broken one.
+                let query = payload
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .map_or("", str::trim);
+                let Some(cwd) = workspace_cwd(&payload) else {
+                    return vec![file_failure_exit(
+                        &id,
+                        &tag,
+                        &WorkspaceAccessError::Unaddressable,
+                        identity,
+                    )];
+                };
+                let limit = payload
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .map_or(SEARCH_ENTRIES_LIMIT, |limit| {
+                        (limit as usize).min(SEARCH_ENTRIES_MAX)
+                    });
+                match files::search_entries(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer_scope(identity),
+                    &cwd,
+                    query,
+                    limit,
+                    payload.get("kind").and_then(Value::as_str),
+                )
+                .await
+                {
+                    Ok(entries) => vec![success_exit(&id, entries)],
+                    Err(error) => vec![file_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
+            "projects.writeFile" => {
+                let relative_path = payload
+                    .get("relativePath")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|path| !path.is_empty());
+                // Empty contents are a legal write — truncating a file is a
+                // thing a person does — so only an absent `contents` is
+                // unaddressable.
+                let contents = payload.get("contents").and_then(Value::as_str);
+                let (Some(cwd), Some(relative_path), Some(contents)) =
+                    (workspace_cwd(&payload), relative_path, contents)
+                else {
+                    return vec![file_failure_exit(
+                        &id,
+                        &tag,
+                        &WorkspaceAccessError::Unaddressable,
+                        identity,
+                    )];
+                };
+                match files::write_file(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer_scope(identity),
+                    &cwd,
+                    relative_path,
+                    contents,
+                )
+                .await
+                {
+                    Ok(written) => vec![success_exit(&id, written)],
+                    Err(error) => vec![file_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
+            "orchestration.searchThreads" => {
+                let query = payload
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .map_or("", str::trim);
+                // See [`SEARCH_THREADS_MIN_QUERY`]. Answering an empty list is
+                // the honest response to "match anything", and it costs nothing.
+                if query.chars().count() < SEARCH_THREADS_MIN_QUERY {
+                    return vec![success_exit(&id, json!({ "matches": [] }))];
+                }
+                let limit = payload
+                    .get("limit")
+                    .and_then(Value::as_i64)
+                    .filter(|limit| *limit > 0)
+                    .map_or(SEARCH_THREADS_LIMIT, |limit| limit.min(SEARCH_THREADS_LIMIT));
+                match state
+                    .conversations
+                    .search_conversations(&viewer_scope(identity), query, limit)
+                    .await
+                {
+                    Ok(matches) => vec![success_exit(
+                        &id,
+                        json!({ "matches": projection::thread_matches(&matches, query) }),
+                    )],
+                    Err(error) => {
+                        error!(%error, user_id = %identity.user_id, "T3 UI thread search failed");
+                        vec![typed_failure_exit(
+                            &id,
+                            json!({
+                                "_tag": "OrchestrationSearchThreadsError",
+                                "message": "Failed to search conversations.",
+                            }),
+                        )]
+                    }
                 }
             }
             "cloud.getRelayClientStatus" => vec![success_exit(
@@ -1913,9 +2083,17 @@ impl ProtocolSession {
                 ));
                 self.start_produced_stream(&id, None, producer)
             }
-            "subscribeTerminalEvents"
-            | "subscribeTerminalMetadata"
-            | "subscribeDiscoveredLocalServers" => self.start_stream(&id, None),
+            // `subscribeTerminalEvents`, `subscribeTerminalMetadata` and
+            // `subscribeDiscoveredLocalServers` used to open a stream that never
+            // said anything, which reads to a client as "connected, nothing to
+            // report" and leaves a terminal pane waiting forever. There is no
+            // exec RPC on the Sandbox surface and no local-server discovery
+            // here, so these fall through and say so.
+            //
+            // `subscribeVcsStatus` above keeps its silent stream for the
+            // opposite reason: that one *is* served, and silence there means a
+            // thread with no repository rather than a server without the
+            // surface.
             _ => vec![unsupported_exit(&id, &tag)],
         }
     }
@@ -2387,6 +2565,8 @@ fn file_failure_exit(
 ) -> Value {
     let error_tag = match tag {
         "projects.readFile" => "ProjectReadFileError",
+        "projects.searchEntries" => "ProjectSearchEntriesError",
+        "projects.writeFile" => "ProjectWriteFileError",
         _ => "ProjectListEntriesError",
     };
     match error {
@@ -2423,6 +2603,7 @@ fn file_failure_exit(
 fn review_failure_exit(
     request_id: &RequestId,
     tag: &str,
+    cwd: &str,
     error: &WorkspaceAccessError,
     identity: &AuthIdentity,
 ) -> Value {
@@ -2442,13 +2623,22 @@ fn review_failure_exit(
             debug!(?error, %tag, user_id = %identity.user_id, "T3 UI review request refused");
         }
     }
+    // `command` names what was actually attempted. Nothing here shells out to
+    // git: the Sandbox answers these over gRPC, and reporting `git` as the
+    // command sends anyone reading a support log looking for a shell invocation
+    // that does not exist.
+    let command = match tag {
+        "vcs.listRefs" => "sandbox.ListGitRefs",
+        "vcs.refreshStatus" => "sandbox.GetGitStatus",
+        _ => "sandbox.GetGitDiffPreview",
+    };
     typed_failure_exit(
         request_id,
         json!({
             "_tag": "GitCommandError",
             "operation": tag,
-            "command": "git",
-            "cwd": "",
+            "command": command,
+            "cwd": cwd,
             "detail": error.message(),
         }),
     )
@@ -2506,19 +2696,36 @@ fn servers_failure_exit(
     error: &ServersError,
     identity: &AuthIdentity,
 ) -> Value {
-    match error {
-        ServersError::NotFound => failure_exit(request_id, "Conversation not found"),
-        error => {
-            error!(%error, user_id = %identity.user_id, "Failed to read a Task's servers");
-            failure_exit(request_id, "Failed to read the conversation's servers")
-        }
-    }
+    error!(%error, user_id = %identity.user_id, "Failed to read a Task's servers");
+    failure_exit(request_id, "Failed to read the conversation's servers")
 }
 
+/// A conversation with no Sandbox, as `servers.list` answers it.
+///
+/// `servers.list` declares no domain error, so there is no typed failure to give
+/// here and a `Die` would reach the panel as an unexpected server error. The
+/// contract names this case itself: `sandboxStatus: "not_created"` alongside an
+/// empty list is what a project with no sandbox looks like, and that is exactly
+/// what an unprovisioned Task is. The method is served; it has nothing to list.
+fn servers_not_found() -> Value {
+    json!({ "servers": [], "sandboxStatus": "not_created" })
+}
+
+/// The method is not one this server has.
+///
+/// Every RPC declares `UnsupportedMethodError`, so this decodes wherever it
+/// lands and the client can say which method is absent. It used to die with a
+/// string, which reached the person as *"unexpected server error"* with no text
+/// at all — indistinguishable from a panic, and wrong: a server that does not
+/// implement terminals has not failed, it is a different kind of server.
 fn unsupported_exit(request_id: &RequestId, tag: &str) -> Value {
-    failure_exit(
+    typed_failure_exit(
         request_id,
-        format!("RPC method is not implemented by the phase-one Moatless server: {tag}"),
+        json!({
+            "_tag": "UnsupportedMethodError",
+            "method": tag,
+            "message": format!("{tag} is not available on this server."),
+        }),
     )
 }
 
@@ -3333,16 +3540,99 @@ mod tests {
         assert_eq!(output.frames[0]["exit"]["value"], Value::Null);
     }
 
+    /// The difference between a `Fail` and a `Die` is what the person sees: a
+    /// declared error renders its own message, a defect renders as "unexpected
+    /// server error" and nothing else. A method this server does not have has
+    /// not failed, and saying so is not a defect.
     #[tokio::test]
-    async fn interrupt_terminates_active_stream() {
+    async fn a_method_this_server_does_not_have_says_so_in_a_type_the_client_reads() {
         let mut session = session();
-        session
+        let output = session
             .handle_json(
-                &request("3", "subscribeTerminalEvents", json!({})),
+                &request("1", "orchestration.getFullThreadDiff", json!({})),
                 &state(),
                 &viewer(),
             )
             .await;
+
+        let cause = &output.frames[0]["exit"]["cause"][0];
+        assert_eq!(cause["_tag"], "Fail", "a typed absence, not a Die defect");
+        assert_eq!(cause["error"]["_tag"], "UnsupportedMethodError");
+        // Carried separately from the message so a client fanning out several
+        // calls can tell which one came back absent without parsing text.
+        assert_eq!(cause["error"]["method"], "orchestration.getFullThreadDiff");
+    }
+
+    /// Pairing advertises a scope list. Until this gate existed the list was
+    /// decoration — every method ran whatever it said.
+    #[tokio::test]
+    async fn a_method_needing_a_scope_this_deployment_withholds_is_refused() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request("1", "terminal.open", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        let cause = &output.frames[0]["exit"]["cause"][0];
+        assert_eq!(cause["_tag"], "Fail");
+        assert_eq!(cause["error"]["_tag"], "EnvironmentAuthorizationError");
+        assert_eq!(cause["error"]["requiredScope"], "terminal:operate");
+    }
+
+    /// A stream that opens and never speaks reads to a client as "connected,
+    /// nothing to report", which leaves a terminal pane waiting for output that
+    /// cannot arrive: there is no exec RPC on the Sandbox surface at all.
+    #[tokio::test]
+    async fn a_terminal_subscription_refuses_rather_than_waiting_forever() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request("7", "subscribeTerminalEvents", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert!(!session.streams.contains_key("7"), "no stream is opened");
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+    }
+
+    /// One character matches most of the corpus and says nothing, and it costs a
+    /// scan of every Message body to say so.
+    #[tokio::test]
+    async fn a_thread_search_too_short_to_mean_anything_never_reaches_the_database() {
+        let mut session = session();
+        // `state()` sets no `search_conversations` expectation, so the mock
+        // panics if this reaches it — which is the assertion.
+        let output = session
+            .handle_json(
+                &request("1", "orchestration.searchThreads", json!({ "query": "a" })),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert_eq!(output.frames[0]["exit"]["value"]["matches"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn interrupt_terminates_active_stream() {
+        let mut session = session();
+        // A subscription that stays open and says nothing — a thread with no
+        // repository to report on. `subscribeTerminalEvents` used to stand here
+        // and no longer opens a stream at all.
+        session
+            .handle_json(
+                &request("3", "subscribeVcsStatus", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+        assert!(session.streams.contains_key("3"));
         let output = session
             .handle_json(
                 br#"{"_tag":"Interrupt","requestId":"3"}"#,
@@ -3613,8 +3903,12 @@ mod tests {
                 "urn:ietf:params:oauth:token-type:access_token"
             );
             assert!(body["access_token"].as_str().unwrap().starts_with("mvk_"));
-            // The overlap between what it asked for and what we have.
-            assert_eq!(body["scope"], "orchestration:read relay:read");
+            // The overlap between what it asked for and what we have. Not
+            // `terminal:operate`, which is the one this deployment cannot back.
+            assert_eq!(
+                body["scope"],
+                "orchestration:read orchestration:operate review:write relay:read"
+            );
             assert!(body["expires_in"].as_i64().unwrap() > 0);
         }
 

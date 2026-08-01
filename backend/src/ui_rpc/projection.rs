@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 use tracing::warn;
 
 use super::AgentModelDefaults;
-use super::dao::{Conversation, Transcript, TranscriptMessage};
+use super::dao::{Conversation, ConversationMatch, Transcript, TranscriptMessage};
 use crate::agent::catalog::{self, AgentKind};
 use crate::message::models::{MessageType, TOOL_RESPONSE_USER_TYPE};
 use crate::sandbox::models::ServerConfig;
@@ -921,10 +921,20 @@ fn session(conversation: &Conversation) -> Value {
     json!({
         "threadId": conversation.task_id,
         "status": session_status(conversation, desired_state),
-        "providerName": catalog::find(conversation.agent_type.as_str())
-            .map(|entry| entry.label.to_string())
-            .or_else(|| non_empty(conversation.agent_type.as_str()))
-            .map_or(Value::Null, Value::String),
+        // A *driver kind*, not the catalog's display label. The client decodes
+        // this field as one (`ProviderSessionDirectory.ts:27`) and locks the
+        // composer to whatever it names; a label happens to satisfy
+        // `ProviderDriverKind`'s pattern — it is an open branded slug, not an
+        // enum — so `"Codex"` decoded, matched no published instance, and left
+        // the composer disabled telling the person to enable a provider that
+        // was already enabled.
+        //
+        // The same string as `providerInstanceId` below, and that is correct
+        // rather than redundant here: this backend publishes exactly one
+        // instance per driver (`providers.rs`), so on this deployment an
+        // instance id *is* a driver kind. A deployment with two Codex
+        // instances would need them to diverge; this one does not have that.
+        "providerName": provider_instance(conversation),
         "providerInstanceId": provider_instance(conversation),
         // `runtimeMode` is omitted: the session's copy carries a decoding
         // default, unlike the conversation's.
@@ -1190,6 +1200,76 @@ fn scripts(workspace: &Workspace) -> Vec<Value> {
 ///
 /// Most strings on this wire are trimmed-non-empty, and an empty one is not a
 /// missing field — it is an undecodable listing.
+/// The conversations a search matched, in the shape `searchThreads` returns.
+///
+/// A match with no Workspace is dropped rather than reported: the contract's
+/// match carries a project id and the client routes on it, so one without a
+/// project is a row nothing could open. Those are the same older and
+/// hand-written rows the shell listing already leaves out for the same reason.
+pub(super) fn thread_matches(matches: &[ConversationMatch], query: &str) -> Vec<Value> {
+    matches
+        .iter()
+        .filter_map(|matched| {
+            let project_id = matched.workspace_id.as_deref()?;
+            Some(json!({
+                "threadId": matched.task_id,
+                "projectId": project_id,
+                "source": if matched.from_user { "user" } else { "assistant" },
+                "snippet": snippet(&matched.matched_text, query),
+                "messageCreatedAt": nullable_instant(matched.matched_at),
+            }))
+        })
+        .collect()
+}
+
+/// The most one search snippet carries, and how much of it is text.
+///
+/// The contract caps the field at 240 (`orchestration.ts:1412`); the body is
+/// four short of it to leave room for the two ellipses a windowed snippet
+/// carries.
+const SNIPPET_MAX: usize = 240;
+const SNIPPET_BODY: usize = 236;
+
+/// Enough of the matched text to recognise the conversation by.
+///
+/// Whitespace is collapsed first, because a Message's text is wrapped across
+/// lines and a snippet is one line. Anything that still does not fit is
+/// windowed around the match rather than cut from the start — the match is the
+/// reason this row is on screen, and a snippet that does not contain it is a
+/// row a person cannot place. The reference server builds it the same way
+/// (`ProjectionSnapshotQuery.ts:180`).
+///
+/// Counted in characters throughout: a byte cut can land inside one, and the
+/// contract's cap is on the decoded string.
+fn snippet(text: &str, query: &str) -> String {
+    let normalized: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let characters: Vec<char> = normalized.chars().collect();
+    if characters.len() <= SNIPPET_MAX {
+        return normalized;
+    }
+
+    let folded = normalized.to_lowercase();
+    // Byte offset of the match, then how many characters precede it — the two
+    // are not the same number the moment anything is non-ASCII.
+    let matched_at = folded
+        .find(&query.trim().to_lowercase())
+        .map_or(0, |offset| folded[..offset].chars().count());
+    let start = matched_at
+        .saturating_sub(72)
+        .min(characters.len() - SNIPPET_BODY);
+    let end = (start + SNIPPET_BODY).min(characters.len());
+
+    let mut snippet = String::new();
+    if start > 0 {
+        snippet.push('…');
+    }
+    snippet.extend(&characters[start..end]);
+    if end < characters.len() {
+        snippet.push('…');
+    }
+    snippet
+}
+
 fn non_empty(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
@@ -1236,6 +1316,74 @@ mod tests {
     use crate::shared_models::AgentType;
     use crate::task_activities::mapping::{ActivityKind, ActivityStatus};
     use moatless_backend_core::scope::Scope;
+
+    fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> ConversationMatch {
+        ConversationMatch {
+            task_id: "task-a".into(),
+            workspace_id: workspace_id.map(ToString::to_string),
+            from_user,
+            matched_text: text.into(),
+            matched_at: None,
+        }
+    }
+
+    /// The client routes on `projectId`. A match without one is a row that
+    /// cannot be opened, so it is left out rather than shown and then failing.
+    #[test]
+    fn a_match_on_a_conversation_with_no_workspace_is_not_reported() {
+        let reported = thread_matches(
+            &[
+                matched(None, true, "outbox"),
+                matched(Some("workspace-a"), true, "outbox"),
+            ],
+            "outbox",
+        );
+
+        assert_eq!(reported.len(), 1);
+        assert_eq!(reported[0]["projectId"], "workspace-a");
+        assert_eq!(reported[0]["source"], "user");
+        assert_eq!(reported[0]["messageCreatedAt"], Value::Null);
+    }
+
+    #[test]
+    fn the_agents_own_words_are_reported_as_the_agents() {
+        let reported = thread_matches(&[matched(Some("workspace-a"), false, "outbox")], "outbox");
+        assert_eq!(reported[0]["source"], "assistant");
+    }
+
+    /// A snippet is one line; the text it comes from is not.
+    #[test]
+    fn a_short_match_keeps_its_text_with_the_line_breaks_collapsed() {
+        assert_eq!(snippet("the outbox\n  is  full\n", "outbox"), "the outbox is full");
+    }
+
+    /// Cutting from the start would drop the match, and the match is the whole
+    /// reason the row is on screen.
+    #[test]
+    fn a_long_match_is_windowed_around_the_match_and_fits_the_contracts_cap() {
+        let text = format!("{} NEEDLE {}", "a ".repeat(400), "b ".repeat(400));
+        let snippet = snippet(&text, "needle");
+
+        assert!(snippet.contains("NEEDLE"), "the match survives the window");
+        assert!(snippet.starts_with('…') && snippet.ends_with('…'));
+        assert!(
+            snippet.chars().count() <= SNIPPET_MAX,
+            "{} characters is over the contract's cap",
+            snippet.chars().count()
+        );
+    }
+
+    /// The window is measured in characters because the cap is on the decoded
+    /// string, and a byte cut lands inside a character the moment anything is
+    /// not ASCII.
+    #[test]
+    fn a_window_never_cuts_a_character_in_half() {
+        let text = format!("{} nål {}", "ä ".repeat(400), "ö ".repeat(400));
+        let snippet = snippet(&text, "nål");
+
+        assert!(snippet.contains("nål"));
+        assert!(snippet.chars().count() <= SNIPPET_MAX);
+    }
 
     // -----------------------------------------------------------------------
     // The contract, transcribed

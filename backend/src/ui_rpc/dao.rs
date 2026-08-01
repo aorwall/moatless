@@ -131,6 +131,25 @@ pub struct Transcript {
     pub omitted: i64,
 }
 
+/// One conversation a search matched, and the text that matched in it.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ConversationMatch {
+    pub task_id: String,
+    /// `None` for older and hand-written rows, as on [`Conversation`]. A match
+    /// without one is dropped by the projection: the contract's match carries a
+    /// project id and the client uses it to route.
+    pub workspace_id: Option<String>,
+    /// Whether a person or the agent wrote the matched text. A Task *name*
+    /// matched is reported as the person's — it is Moatless's handle for the
+    /// Task and the contract has no third source to call it.
+    pub from_user: bool,
+    /// What matched: a Message's text, or the Task's name.
+    pub matched_text: String,
+    /// When the matched Message was written. `None` for a name match, which the
+    /// contract allows precisely so a match need not be a Message.
+    pub matched_at: Option<DateTime<Utc>>,
+}
+
 /// The stored tool call an answer names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InteractiveCall {
@@ -185,6 +204,27 @@ pub trait ConversationDao: Send + Sync {
         viewer: &ScopeContext,
         task_ids: &[String],
     ) -> Result<Vec<Conversation>, sqlx::Error>;
+
+    /// Conversations whose name or Message text contains `query`, at most one
+    /// match each, best first.
+    ///
+    /// **Filtered by follow, access and open status — the same three rules
+    /// [`ConversationDao::list_followed`] applies, and reusing the same
+    /// fragments rather than restating them.** A search that returned a Task
+    /// the sidebar would not is a disclosure, and the fact that someone can
+    /// guess at a word in a Task is not authorization to be told it exists.
+    ///
+    /// One row per Task, because the contract's result is a list of
+    /// conversations and not a list of Messages. A Message match beats a name
+    /// match on the same Task, and a person's Message beats the agent's — the
+    /// reference server ranks the same way
+    /// (`ProjectionSnapshotQuery.ts:725`).
+    async fn search_conversations(
+        &self,
+        viewer: &ScopeContext,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<ConversationMatch>, sqlx::Error>;
 
     /// One Task's transcript, oldest first, capped at [`TRANSCRIPT_LIMIT`].
     ///
@@ -279,6 +319,24 @@ const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
 /// subscription re-sends whenever the conversation moves. That is the number
 /// this cap is chosen against, not the database's comfort.
 const TRANSCRIPT_LIMIT: i64 = 1_000;
+
+/// A search term as a `LIKE` operand rather than a `LIKE` pattern.
+///
+/// `%` and `_` are ordinary characters to the person typing them — someone
+/// searching for `100%` means a percent sign, not "anything at all" — so both
+/// are escaped, along with the escape character itself. The escape character is
+/// `\` and every query using this declares it as such, because Postgres's
+/// default `ESCAPE` depends on `standard_conforming_strings`.
+fn escape_like(query: &str) -> String {
+    let mut escaped = String::with_capacity(query.len());
+    for character in query.chars() {
+        if matches!(character, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
+}
 const LISTING_DURATION: &str = "moatless_ui_shell_listing_duration_seconds";
 const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejections_total";
 
@@ -537,6 +595,92 @@ impl ConversationDao for PgConversationDao {
             return Ok(Vec::new());
         }
         self.list(viewer, Some(task_ids)).await
+    }
+
+    async fn search_conversations(
+        &self,
+        viewer: &ScopeContext,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<ConversationMatch>, sqlx::Error> {
+        // The same three filters the listing applies, written the same way:
+        // the follow join, the shared access fragment, and the open status. A
+        // fourth copy of the read rule is the drift the narrowed listing query
+        // exists to avoid, and here a drift is a disclosure rather than a
+        // missing row.
+        let open = TaskStatus::Open.as_str();
+        let access = viewer.access_filter(ScopedEntity::Task, "t.", 1);
+        let follower = access.next_param();
+        let pattern = follower + 1;
+        let row_limit = pattern + 1;
+        let sql = format!(
+            r#"WITH listed AS MATERIALIZED (
+                   SELECT t.task_id, t.workspace_id, t.name, t.updated_at
+                   FROM task_follows tf
+                   JOIN tasks t ON t.task_id = tf.task_id
+                   WHERE tf.user_id = ${follower}
+                     AND t.status = '{open}'
+                     AND {}
+               ),
+               matched AS (
+                   -- A Message match. `message_type` distinguishes the person
+                   -- from the agent; `parent_uuid IS NULL` drops subagent rows,
+                   -- which are never rendered inline and would otherwise be the
+                   -- bulk of what a long conversation matches.
+                   SELECT
+                       t.task_id,
+                       t.workspace_id,
+                       m.message_type = 'user' AS from_user,
+                       m.message_text        AS matched_text,
+                       m.created_at          AS matched_at,
+                       t.updated_at,
+                       CASE WHEN m.message_type = 'user' THEN 0 ELSE 1 END AS rank
+                   FROM listed t
+                   JOIN task_messages m ON m.task_id = t.task_id
+                   WHERE m.parent_uuid IS NULL
+                     AND m.message_text ILIKE ${pattern} ESCAPE '\'
+                   UNION ALL
+                   -- A name match, which the reference server has no equivalent
+                   -- of. `tasks.name` is Moatless's own handle for a Task and is
+                   -- often the only text a person remembers; it ranks below both
+                   -- Message sources because a Message match is the more
+                   -- specific answer about the same Task.
+                   SELECT
+                       t.task_id,
+                       t.workspace_id,
+                       true   AS from_user,
+                       t.name AS matched_text,
+                       NULL::timestamptz AS matched_at,
+                       t.updated_at,
+                       2 AS rank
+                   FROM listed t
+                   WHERE t.name ILIKE ${pattern} ESCAPE '\'
+               ),
+               ranked AS (
+                   SELECT
+                       matched.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY task_id
+                           ORDER BY rank ASC, matched_at DESC NULLS LAST
+                       ) AS per_task
+                   FROM matched
+               )
+               SELECT task_id, workspace_id, from_user, matched_text, matched_at
+               FROM ranked
+               WHERE per_task = 1
+               ORDER BY rank ASC, updated_at DESC NULLS LAST, task_id ASC
+               LIMIT ${row_limit}"#,
+            access.sql(),
+        );
+
+        sqlx::query_as::<_, ConversationMatch>(AssertSqlSafe(sql))
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .bind(&viewer.user_id)
+            .bind(format!("%{}%", escape_like(query)))
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
     }
 
     async fn interactive_call(

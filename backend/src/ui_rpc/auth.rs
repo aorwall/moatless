@@ -30,10 +30,29 @@ use crate::auth::pairing::{PairingClient, PairingError};
 
 /// The scopes this deployment is able to grant, in the order it reports them.
 ///
-/// The T3 compatibility surface reads the shell listing and nothing else, so
-/// this is a read set, and it is the same set the browser session has always
-/// reported. Everything a client asks for is answered from here.
-pub(super) const GRANTED_SCOPES: [&str; 3] = ["orchestration:read", "access:read", "relay:read"];
+/// This is what the surface actually serves, and it is checked: every request
+/// passes [`required_scope`] before dispatch, and a method whose scope is not
+/// in this list is refused with `EnvironmentAuthorizationError`.
+///
+/// It was a three-scope read set, which was inaccurate in both directions.
+/// `orchestration.dispatchCommand` is a write and was served without
+/// `orchestration:operate`; `review.getDiffPreview` is what `review:write`
+/// gates in the reference server's own map and was served without it. Both are
+/// now granted, because the honest fix for serving something is to admit to
+/// serving it.
+///
+/// The three that stay out each name a surface with nothing behind it:
+/// `terminal:operate` — the Sandbox gRPC surface has no exec or PTY call at all,
+/// so terminals are unbackable rather than merely unbuilt; `access:write` —
+/// this surface administers no pairings; `relay:write` —
+/// `cloud.getRelayClientStatus` answers `"unsupported"`.
+pub(super) const GRANTED_SCOPES: [&str; 5] = [
+    "orchestration:read",
+    "orchestration:operate",
+    "review:write",
+    "access:read",
+    "relay:read",
+];
 
 /// Every scope name T3's contract defines, granted here or not.
 ///
@@ -50,6 +69,86 @@ const KNOWN_SCOPES: [&str; 8] = [
     "relay:read",
     "relay:write",
 ];
+
+/// The scope a method requires, ported from the reference server's
+/// `RPC_REQUIRED_SCOPES` (`apps/server/src/auth/RpcAuthorization.ts:23`).
+///
+/// A `match` rather than a table, because the dispatcher's own arms are a
+/// `match` on the same strings and the two have to be read against each other.
+///
+/// Every method the *contract* declares is listed, not only the ones this
+/// server dispatches, and that is the point: the gate runs ahead of the dispatch
+/// table, so a client asking for a terminal is told `terminal:operate` is not
+/// granted rather than told the method does not exist. Which of those two is
+/// true depends on the deployment; only one of them is actionable.
+///
+/// The default is `orchestration:read` — the reference server's own default for
+/// everything unclassified, and the narrowest scope this deployment grants — so
+/// a method added to dispatch without a thought about scope gets the least
+/// authority rather than an accidental pass.
+pub(super) fn required_scope(tag: &str) -> &'static str {
+    match tag {
+        // Writes.
+        "orchestration.dispatchCommand"
+        | "server.refreshProviders"
+        | "server.updateProvider"
+        | "server.updateServer"
+        | "server.updateServerWithProgress"
+        | "server.upsertKeybinding"
+        | "server.removeKeybinding"
+        | "server.updateSettings"
+        | "server.retryResourceTelemetry"
+        | "server.signalProcess"
+        | "server.reportHostPowerState"
+        | "sourceControl.cloneRepository"
+        | "sourceControl.publishRepository"
+        | "projects.add"
+        | "projects.remove"
+        | "projects.writeFile"
+        | "shell.openInEditor"
+        | "vcs.pull"
+        | "vcs.createWorktree"
+        | "vcs.removeWorktree"
+        | "vcs.createRef"
+        | "vcs.switchRef"
+        | "vcs.init"
+        | "git.runStackedAction"
+        | "git.resolvePullRequest"
+        | "git.preparePullRequestThread"
+        | "preview.open"
+        | "preview.navigate"
+        | "preview.resize"
+        | "preview.refresh"
+        | "preview.close"
+        | "preview.reportStatus"
+        | "preview.automationConnect"
+        | "preview.automationRespond"
+        | "preview.automationFocusHost" => "orchestration:operate",
+
+        // The diff surface. `review:write` is what gates it in the reference
+        // server's map, despite the name — this backend serves it and now says
+        // so.
+        "review.getDiffPreview" => "review:write",
+
+        // Terminals. Nothing here is served, and nothing here *can* be: the
+        // Sandbox gRPC surface has no exec or PTY call.
+        "terminal.open"
+        | "terminal.attach"
+        | "terminal.write"
+        | "terminal.resize"
+        | "terminal.clear"
+        | "terminal.restart"
+        | "terminal.close"
+        | "subscribeTerminalEvents"
+        | "subscribeTerminalMetadata" => "terminal:operate",
+
+        "cloud.getRelayClientStatus" => "relay:read",
+        "cloud.installRelayClient" => "relay:write",
+        "subscribeAuthAccess" => "access:read",
+
+        _ => "orchestration:read",
+    }
+}
 
 const TOKEN_EXCHANGE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
 const BOOTSTRAP_TOKEN_TYPE: &str = "urn:t3:params:oauth:token-type:environment-bootstrap";
@@ -259,15 +358,49 @@ mod tests {
             "orchestration:read orchestration:operate terminal:operate review:write relay:read",
         ))
         .unwrap();
-        assert_eq!(granted, ["orchestration:read", "relay:read"]);
+        // Four of the five, in the deployment's own order. `terminal:operate` is
+        // the one it asks for that nothing here can back.
+        assert_eq!(
+            granted,
+            [
+                "orchestration:read",
+                "orchestration:operate",
+                "review:write",
+                "relay:read"
+            ]
+        );
     }
 
     #[test]
     fn a_request_naming_only_scopes_we_lack_is_refused() {
+        // Both are contract scopes this deployment withholds: there is no exec
+        // RPC behind terminals and no relay to install.
         assert_eq!(
-            granted_scopes(Some("terminal:operate review:write")),
+            granted_scopes(Some("terminal:operate relay:write")),
             Err("scope_not_granted")
         );
+    }
+
+    /// The gate reads this map for every request, so a method landing in the
+    /// wrong bucket is either a refusal nobody can work around or a permission
+    /// that was never checked.
+    #[test]
+    fn a_method_that_changes_something_needs_more_than_read() {
+        assert_eq!(required_scope("orchestration.subscribeShell"), "orchestration:read");
+        assert_eq!(
+            required_scope("orchestration.dispatchCommand"),
+            "orchestration:operate"
+        );
+        assert_eq!(required_scope("projects.writeFile"), "orchestration:operate");
+        assert_eq!(required_scope("review.getDiffPreview"), "review:write");
+    }
+
+    /// An unknown tag is one this server does not implement, and it has to reach
+    /// the dispatch to be told so. Defaulting it to anything stronger than read
+    /// would answer "you may not" where the truth is "there is no such method".
+    #[test]
+    fn a_method_this_map_does_not_name_falls_through_to_read() {
+        assert_eq!(required_scope("something.nobodyImplemented"), "orchestration:read");
     }
 
     #[test]
