@@ -53,7 +53,7 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 
 Iterate until the user approves the breakdown.
 
-**If a page exists for this work, draw the graph on it first.** Its Work section is empty until you fill it — put the dependency graph there before asking, so the user can see the shape while they answer. When the spec markdown already exists, the graph lands in its `## Ticket breakdown` after this approval.
+**If a page exists for this work, draw the graph on it first.** Its Work section is empty until you fill it — put the dependency graph there before asking, so the user can see the shape while they answer.
 
 ### 5. Publish the tickets to the configured tracker
 
@@ -66,7 +66,7 @@ Work the **frontier**: any ticket whose blockers are all done. For a purely line
 
 Do NOT close or modify any parent issue.
 
-If a spec exists for this work, write the graph into its `## Ticket breakdown` after this approval — not before — so the spec and the tracker never disagree about what is left.
+**The tracker is the only place the breakdown lives.** Do not copy it into the spec markdown: a second list of what is left disagrees with the tracker the first time a ticket moves, and the spec is read by agents implementing from it, which makes the stale copy the one that gets believed.
 
 <local-ticket-template>
 

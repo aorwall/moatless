@@ -41,13 +41,15 @@ Update it in the same edit that lands a ticket.
 ```md
 | # | Decision | Chosen | Rejected because |
 |---|---|---|---|
-| [1](#1-where-the-seam-sits) | Where the seam sits | Coordinator owns retry | Per-harness retry diverges silently |
-| [2](#2-message-assembly) | Message assembly | Backend only | Sandbox-side coalescing duplicates work per harness |
+| 1 | Where the seam sits | Coordinator owns retry | Per-harness retry diverges silently |
+| 2 | Message assembly | Backend only | Sandbox-side coalescing duplicates work per harness |
 ```
+
+**This table is the page's, and it has no counterpart in the markdown.** It exists to get a person to approve a choice, which is a thing that happens once. The agent that implements the choice does not re-open it, so what reaches the spec is the choice stated as fact in the section it belongs to, with the one line of *why* that stops an implementer undoing it by accident.
 
 The rejected alternative sits *beside* the chosen one, in the same row — never as a separate list, which lets the two be read apart.
 
-Four columns is the cap — past that, cells wrap and the table stops being scannable in a narrow diff view. The `#` links down to the `###` section carrying the full reasoning.
+Four columns is the cap — past that, cells wrap and the table stops being scannable in a narrow diff view.
 
 For a decision that is still open, add a fifth *row* rather than a fifth column: ranked options, one line each, recommendation first.
 
@@ -198,14 +200,14 @@ GitHub alert syntax, and only for things that would genuinely surprise:
 
 ```md
 > [!WARNING]
-> This contradicts the existing access-scope decision. Changing it is part of the ask — see Decision 3.
+> This contradicts the existing access-scope decision. Changing it is part of the ask.
 ```
 
 One or two per spec.
 
-### Deep links from the decision table to its reasoning
+### Links
 
-Every decision row links to its `###` section. Every mention of another spec links to the file.
+Every mention of another spec links to the file. On the page, an open decision's evidence sits directly under its options rather than behind a link — see [HTML-REPORT.md](HTML-REPORT.md).
 
 ### Before/after as trees
 

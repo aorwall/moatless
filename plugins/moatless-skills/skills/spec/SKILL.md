@@ -172,11 +172,11 @@ Written at step 5, in one pass, with no interview left to run. Headings in this 
 ```md
 # <The change, not the component>
 
-> **Status:** approved | in progress (3/7 tickets) | shipped v0.1.x | abandoned
+> **Status:** approved | in progress | shipped v0.1.x | abandoned
 > **Updated:** YYYY-MM-DD
 > **Vocabulary:** CONTEXT.md
 
-## Current solution   — how the affected area behaved before this change
+## Current solution   — the anchors, and what research turned up that the code does not say
 ## Planned solution   — what gets built
 <the three lists — new · changes materially · untouched — with no heading of their own>
 ### Problem           — from the perspective of whoever feels it
@@ -186,10 +186,7 @@ Written at step 5, in one pass, with no interview left to run. Headings in this 
 ### Interfaces and contracts      — conditional
 ### Failure, safety and recovery  — conditional
 ### Testing and verification      — always
-## Decisions          — the table, then one ### per row with the full reasoning
 ## Out of scope
-## Open questions
-## Ticket breakdown   — only when /to-tickets has run; "None." otherwise
 ```
 
 **The unconditional headings may not be reordered or renamed.** The five conditional ones are omitted when their triggers are unmet — an omitted section is a statement, an empty one is a gap.
@@ -198,12 +195,27 @@ Written at step 5, in one pass, with no interview left to run. Headings in this 
 
 1. **It is written once, at step 5**, after the page is approved. `approved` is the first status the file can carry.
 2. **Nothing is capped.** No line budget, no five-item lists, no `<details>`. An agent reads the file whole or greps it; a collapsed section and a truncated list both cost it.
-3. **It is self-contained.** The page is not in the repo and does not outlive the sandbox. Anything agreed there and not written here is gone — the research, the rejected alternatives, and the reasoning behind each one.
-4. **Every decision carries what it cost.** Never drop a rejected alternative for space.
-5. **Status and Open questions are edited in place** every session that touches the spec.
-6. **No preamble.** The first heading after the title is `## Current solution`. Not "Background", not "Motivation", not "This document describes".
+3. **It is self-contained in what it asks for, not a copy of the page.** The page does not outlive the sandbox, so anything the implementation depends on and is only on the page is gone. That is a reason to write down every constraint, anchor and agreed behaviour — not a reason to transcribe the interview, which is what rules 4 to 6 exist to stop.
+4. **There is no Decisions section.** The decision table is the page's, and it exists to get a person to approve a choice. This file is read by the agent that implements the choice, which does not re-open it — a table of what was picked over what, restating in a second place what the sections already state as fact, is one more thing to keep consistent and the first thing to go stale.
+5. **Where a section states something that looks arbitrary, that section says why.** One line, in place: "no foreign key — a record must outlive what it names", "the closed set, because a client switches on it exhaustively". That is what an implementer needs to not undo the choice by accident, and it is the only part of the reasoning that survives the interview.
+6. **There is no Open questions section and no Ticket breakdown.** A question that blocks implementation means the spec is not approved, and one that does not block belongs to the work item, not to the file an agent builds from — an agent that meets an open question either guesses or stalls, and both are worse than the question having been settled. The breakdown lives in the tracker `/to-tickets` writes to; a copy here says `3/7` until the day it says nothing true.
+7. **Status is edited in place** every session that touches the spec.
+8. **No preamble.** The first heading after the title is `## Current solution`. Not "Background", not "Motivation", not "This document describes".
 
-**Current solution** is the research, transcribed — written now, but describing the code as it was when the interview started. **Behaviour** covers every actor; past seven stories in a group, use a table rather than cutting any.
+### Current solution — anchors, not a transcription
+
+**The agent has the repository.** Narrating how the current flow works is a slower, staler copy of code it is about to open, and it is the section that grows without limit because everything read during research feels worth keeping.
+
+Two things earn a place, and nothing else does:
+
+- **The anchors.** Every place the change lands, as `file:line` — the function that gets the new branch, the migration the next one follows, the type that gains a field. This is the section's main job: an agent that has to search for the seam can pick the wrong one.
+- **What the code does not say.** The SDK bug, the ordering enforced in code and not in the schema, the constraint that only shows up under concurrency, the count that decided an approach, the precedent in another module. These took research; they do not survive the sandbox, and re-deriving one costs an hour.
+
+**The test for a sentence is: would the implementer get this wrong, or spend a long time finding it?** If not, cut it — including anything true and interesting. A paragraph explaining what a function plainly does fails the test.
+
+Where the *shape* of the current code is genuinely hard to hold — several components, an ordering that matters — draw it rather than narrate it, and keep the anchors on the diagram.
+
+**Behaviour** covers every actor; past seven stories in a group, use a table rather than cutting any.
 
 ## Writing style
 
@@ -216,7 +228,7 @@ Two more:
 - **Literal language.** No idiom, no figurative phrasing — no "circle back", no "get the ball rolling".
 - **One instruction per line.** A sentence with two "and then"s is two lines.
 
-Use the domain vocabulary in `CONTEXT.md` throughout, and respect local committed decisions from `AGENTS.md` files in the touched directory and its parents. A spec that contradicts one must say so and argue for changing it in the Decisions table.
+Use the domain vocabulary in `CONTEXT.md` throughout, and respect local committed decisions from `AGENTS.md` files in the touched directory and its parents. A spec that contradicts one must say so and argue for changing it, in the section that contradicts it and on the page's decision table.
 
 ## What the user can change
 
