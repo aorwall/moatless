@@ -1,5 +1,5 @@
 -- 0089: Backfill fat `agent.message` rows in task_events to metadata skeletons
--- (the agent.message skeleton).
+-- (ADR-0003).
 --
 -- A Message's content lives once, in task_messages. The append-only task_events
 -- log must not keep a second, permanent copy of it. This rewrites historical
