@@ -51,7 +51,7 @@ export type listLoopsResponse200 = {
   data: Loop[]
   status: 200
 }
-
+    
 export type listLoopsResponseSuccess = (listLoopsResponse200) & {
   headers: Headers;
 };
@@ -62,19 +62,19 @@ export type listLoopsResponse = (listLoopsResponseSuccess)
 export const getListLoopsUrl = () => {
 
 
-
+  
 
   return `/api/v1/loops`
 }
 
 export const listLoops = async ( options?: RequestInit): Promise<listLoopsResponse> => {
-
+  
   return customInstance<listLoopsResponse>(getListLoopsUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -88,7 +88,7 @@ export const getListLoopsQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getListLoopsQueryOptions = <TData = Awaited<ReturnType<typeof listLoops>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLoops>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -96,13 +96,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListLoopsQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listLoops>>> = ({ signal }) => listLoops({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLoops>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -138,7 +138,7 @@ export function useListLoops<TData = Awaited<ReturnType<typeof listLoops>>, TErr
 
 export function useListLoops<TData = Awaited<ReturnType<typeof listLoops>>, TError = ErrorType<unknown>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLoops>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getListLoopsQueryOptions(options)
@@ -166,7 +166,7 @@ export type createLoopResponse200 = {
   data: Loop
   status: 200
 }
-
+    
 export type createLoopResponseSuccess = (createLoopResponse200) & {
   headers: Headers;
 };
@@ -177,15 +177,15 @@ export type createLoopResponse = (createLoopResponseSuccess)
 export const getCreateLoopUrl = () => {
 
 
-
+  
 
   return `/api/v1/loops`
 }
 
 export const createLoop = async (createLoopRequest: CreateLoopRequest, options?: RequestInit): Promise<createLoopResponse> => {
-
+  
   return customInstance<createLoopResponse>(getCreateLoopUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -208,7 +208,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createLoop>>, {data: CreateLoopRequest}> = (props) => {
@@ -219,7 +219,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -247,7 +247,7 @@ export type getLoopResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type getLoopResponseSuccess = (getLoopResponse200) & {
   headers: Headers;
 };
@@ -260,19 +260,19 @@ export type getLoopResponse = (getLoopResponseSuccess | getLoopResponseError)
 export const getGetLoopUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/loops/${id}`
 }
 
 export const getLoop = async (id: string, options?: RequestInit): Promise<getLoopResponse> => {
-
+  
   return customInstance<getLoopResponse>(getGetLoopUrl(id),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -286,7 +286,7 @@ export const getGetLoopQueryKey = (id: string,) => {
     ] as const;
     }
 
-
+    
 export const getGetLoopQueryOptions = <TData = Awaited<ReturnType<typeof getLoop>>, TError = ErrorType<ErrorBody>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLoop>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -294,13 +294,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetLoopQueryKey(id);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getLoop>>> = ({ signal }) => getLoop(id, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLoop>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -336,7 +336,7 @@ export function useGetLoop<TData = Awaited<ReturnType<typeof getLoop>>, TError =
 
 export function useGetLoop<TData = Awaited<ReturnType<typeof getLoop>>, TError = ErrorType<ErrorBody>>(
  id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getLoop>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getGetLoopQueryOptions(id,options)
@@ -364,7 +364,7 @@ export type updateLoopResponse200 = {
   data: Loop
   status: 200
 }
-
+    
 export type updateLoopResponseSuccess = (updateLoopResponse200) & {
   headers: Headers;
 };
@@ -375,16 +375,16 @@ export type updateLoopResponse = (updateLoopResponseSuccess)
 export const getUpdateLoopUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/loops/${id}`
 }
 
 export const updateLoop = async (id: string,
     updateLoopRequest: UpdateLoopRequest, options?: RequestInit): Promise<updateLoopResponse> => {
-
+  
   return customInstance<updateLoopResponse>(getUpdateLoopUrl(id),
-  {
+  {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -407,7 +407,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLoop>>, {id: string;data: UpdateLoopRequest}> = (props) => {
@@ -418,7 +418,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -446,7 +446,7 @@ export type deleteLoopResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type deleteLoopResponseSuccess = (deleteLoopResponse204) & {
   headers: Headers;
 };
@@ -459,19 +459,19 @@ export type deleteLoopResponse = (deleteLoopResponseSuccess | deleteLoopResponse
 export const getDeleteLoopUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/loops/${id}`
 }
 
 export const deleteLoop = async (id: string, options?: RequestInit): Promise<deleteLoopResponse> => {
-
+  
   return customInstance<deleteLoopResponse>(getDeleteLoopUrl(id),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -489,7 +489,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteLoop>>, {id: string}> = (props) => {
@@ -500,13 +500,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteLoopMutationResult = NonNullable<Awaited<ReturnType<typeof deleteLoop>>>
-
+    
     export type DeleteLoopMutationError = ErrorType<ErrorBody>
 
     export const useDeleteLoop = <TError = ErrorType<ErrorBody>,
@@ -523,7 +523,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: Loop
   status: 200
 }
-
+    
 export type activateLoopResponseSuccess = (activateLoopResponse200) & {
   headers: Headers;
 };
@@ -534,16 +534,16 @@ export type activateLoopResponse = (activateLoopResponseSuccess)
 export const getActivateLoopUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/loops/${id}/activate`
 }
 
 export const activateLoop = async (id: string,
     activateLoopRequest: ActivateLoopRequest, options?: RequestInit): Promise<activateLoopResponse> => {
-
+  
   return customInstance<activateLoopResponse>(getActivateLoopUrl(id),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -566,7 +566,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateLoop>>, {id: string;data: ActivateLoopRequest}> = (props) => {
@@ -577,7 +577,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -600,7 +600,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: Loop
   status: 200
 }
-
+    
 export type overrideLoopResponseSuccess = (overrideLoopResponse200) & {
   headers: Headers;
 };
@@ -611,19 +611,19 @@ export type overrideLoopResponse = (overrideLoopResponseSuccess)
 export const getOverrideLoopUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/loops/${id}/override`
 }
 
 export const overrideLoop = async (id: string, options?: RequestInit): Promise<overrideLoopResponse> => {
-
+  
   return customInstance<overrideLoopResponse>(getOverrideLoopUrl(id),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -641,7 +641,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof overrideLoop>>, {id: string}> = (props) => {
@@ -652,13 +652,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type OverrideLoopMutationResult = NonNullable<Awaited<ReturnType<typeof overrideLoop>>>
-
+    
     export type OverrideLoopMutationError = ErrorType<unknown>
 
     export const useOverrideLoop = <TError = ErrorType<unknown>,
@@ -675,7 +675,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: Loop
   status: 200
 }
-
+    
 export type pauseLoopResponseSuccess = (pauseLoopResponse200) & {
   headers: Headers;
 };
@@ -686,19 +686,19 @@ export type pauseLoopResponse = (pauseLoopResponseSuccess)
 export const getPauseLoopUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/loops/${id}/pause`
 }
 
 export const pauseLoop = async (id: string, options?: RequestInit): Promise<pauseLoopResponse> => {
-
+  
   return customInstance<pauseLoopResponse>(getPauseLoopUrl(id),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -716,7 +716,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof pauseLoop>>, {id: string}> = (props) => {
@@ -727,13 +727,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type PauseLoopMutationResult = NonNullable<Awaited<ReturnType<typeof pauseLoop>>>
-
+    
     export type PauseLoopMutationError = ErrorType<unknown>
 
     export const usePauseLoop = <TError = ErrorType<unknown>,
@@ -750,7 +750,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: ResetGitLoopResponse
   status: 200
 }
-
+    
 export type resetGitLoopResponseSuccess = (resetGitLoopResponse200) & {
   headers: Headers;
 };
@@ -761,19 +761,19 @@ export type resetGitLoopResponse = (resetGitLoopResponseSuccess)
 export const getResetGitLoopUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/loops/${id}/reset-git`
 }
 
 export const resetGitLoop = async (id: string, options?: RequestInit): Promise<resetGitLoopResponse> => {
-
+  
   return customInstance<resetGitLoopResponse>(getResetGitLoopUrl(id),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -791,7 +791,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetGitLoop>>, {id: string}> = (props) => {
@@ -802,13 +802,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type ResetGitLoopMutationResult = NonNullable<Awaited<ReturnType<typeof resetGitLoop>>>
-
+    
     export type ResetGitLoopMutationError = ErrorType<unknown>
 
     export const useResetGitLoop = <TError = ErrorType<unknown>,
@@ -825,7 +825,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: Loop
   status: 200
 }
-
+    
 export type resumeLoopResponseSuccess = (resumeLoopResponse200) & {
   headers: Headers;
 };
@@ -836,19 +836,19 @@ export type resumeLoopResponse = (resumeLoopResponseSuccess)
 export const getResumeLoopUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/loops/${id}/resume`
 }
 
 export const resumeLoop = async (id: string, options?: RequestInit): Promise<resumeLoopResponse> => {
-
+  
   return customInstance<resumeLoopResponse>(getResumeLoopUrl(id),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -866,7 +866,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof resumeLoop>>, {id: string}> = (props) => {
@@ -877,13 +877,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type ResumeLoopMutationResult = NonNullable<Awaited<ReturnType<typeof resumeLoop>>>
-
+    
     export type ResumeLoopMutationError = ErrorType<unknown>
 
     export const useResumeLoop = <TError = ErrorType<unknown>,
@@ -900,7 +900,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: LoopRecentTaskItem[]
   status: 200
 }
-
+    
 export type listLoopRecentTasksResponseSuccess = (listLoopRecentTasksResponse200) & {
   headers: Headers;
 };
@@ -913,7 +913,7 @@ export const getListLoopRecentTasksUrl = (id: string,
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-
+    
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
     }
@@ -926,13 +926,13 @@ export const getListLoopRecentTasksUrl = (id: string,
 
 export const listLoopRecentTasks = async (id: string,
     params?: ListLoopRecentTasksParams, options?: RequestInit): Promise<listLoopRecentTasksResponse> => {
-
+  
   return customInstance<listLoopRecentTasksResponse>(getListLoopRecentTasksUrl(id,params),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -947,7 +947,7 @@ export const getListLoopRecentTasksQueryKey = (id: string,
     ] as const;
     }
 
-
+    
 export const getListLoopRecentTasksQueryOptions = <TData = Awaited<ReturnType<typeof listLoopRecentTasks>>, TError = ErrorType<unknown>>(id: string,
     params?: ListLoopRecentTasksParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLoopRecentTasks>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
@@ -956,13 +956,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListLoopRecentTasksQueryKey(id,params);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listLoopRecentTasks>>> = ({ signal }) => listLoopRecentTasks(id,params, { signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLoopRecentTasks>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -1002,7 +1002,7 @@ export function useListLoopRecentTasks<TData = Awaited<ReturnType<typeof listLoo
 export function useListLoopRecentTasks<TData = Awaited<ReturnType<typeof listLoopRecentTasks>>, TError = ErrorType<unknown>>(
  id: string,
     params?: ListLoopRecentTasksParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listLoopRecentTasks>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getListLoopRecentTasksQueryOptions(id,params,options)

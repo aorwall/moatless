@@ -392,10 +392,15 @@ than baking them into the pod. Two flows matter for lifecycle:
 ## Build Caches & Toolchain
 
 - Volumes per pod: `workspace-data` (PVC, emptyDir, or task hostPath according
-  to storage mode),
-  `shared-data` (emptyDir), `build-cache` (emptyDir, sized by
-  `K8S_SANDBOX_BUILD_CACHE_SIZE`, default 1536Mi — lost on pod restart),
-  `tmp` (memory-backed).
+  to storage mode), `shared-data` (emptyDir), `build-cache` (emptyDir by
+  default, sized by `K8S_SANDBOX_BUILD_CACHE_SIZE`, default 1536Mi), and
+  `tmp` (memory-backed). Per-repo `resources.buildCacheMode: "node"` moves
+  `build-cache` to node hostPath storage under
+  `/mnt/cache/build-cache/tasks/<task-id>` when `buildCacheScope` is `"task"`
+  (the default) or `/mnt/cache/build-cache/shared` when the scope is `"node"`.
+  The task-scoped form is cleaned with the task; the node-scoped form is shared
+  by all sandboxes on the same Kubernetes node. `resources.buildCache` is not a
+  Kubernetes size cap for hostPath.
 - The sandbox images pin their Rust toolchain to the workspace's
   `rust-toolchain.toml` (1.94.0); a CI `toolchain-drift` job fails any PR
   where `docker/Dockerfile.sandbox-base` and `rust-toolchain.toml` disagree
@@ -435,7 +440,7 @@ All read from env at backend startup (`backend/src/config.rs`).
 |---|---|---|
 | `K8S_SANDBOX_DEFAULT_STORAGE_MODE` | `ebs` | Default K8s workspace mode (`ebs`, `ephemeral`, `s3`, or `node`); per-repository config wins |
 | `K8S_SANDBOX_NODE_ARCHIVE_ENABLED` | `false` | Track node storage in ConfigMaps, pin retained replacements, and clean recorded hostPath directories |
-| `K8S_SANDBOX_CACHE_HOST_ROOT` | `/mnt/cache` | Host root containing `node`-mode `workspaces/<task-id>` and `docker/<task-id>` archives |
+| `K8S_SANDBOX_CACHE_HOST_ROOT` | `/mnt/cache` | Host root containing `node`-mode `workspaces/<task-id>`, `docker/<task-id>`, and build-cache hostPath directories |
 | `CONTAINER_DATA_DIR` | `/data` | Docker provider data root; each task's disk archive is stored below `tasks/<task-id>` |
 
 ### Resources & storage
@@ -445,7 +450,7 @@ All read from env at backend startup (`backend/src/config.rs`).
 | `K8S_RESOURCE_REQUEST_CPU` / `_MEMORY` | `1` / `2Gi` | Sandbox container requests |
 | `K8S_RESOURCE_LIMIT_CPU` / `_MEMORY` | `4` / `16Gi` | Sandbox container limits (per-repo `resources` overrides win) |
 | `K8S_SANDBOX_STORAGE_ENABLED` / `_SIZE` | `true` / `3Gi` | Workspace PVC |
-| `K8S_SANDBOX_BUILD_CACHE_SIZE` | `1536Mi` | build-cache emptyDir size |
+| `K8S_SANDBOX_BUILD_CACHE_SIZE` | `1536Mi` | build-cache emptyDir size (per-workspace `resources.buildCache` overrides; ignored by hostPath build caches) |
 | `K8S_SANDBOX_SHARED_DATA_SIZE` | `2Gi` | shared-data emptyDir size |
 | `K8S_SANDBOX_PERSIST_TOOLCHAIN` | `false` | PVC-backed cargo registry/git caches |
 | `K8S_SANDBOX_CARGO_TARGET_ON_BUILD_CACHE` | `false` | CARGO_TARGET_DIR on build-cache |

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use utoipa::ToSchema;
 
 pub use moatless_api_schemas::sandbox::{
-    derive_mount_name, sanitize_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV,
+    RepoCheckout, WORKSPACE_REPOS_ENV, derive_mount_name, sanitize_mount_name,
 };
 
 // Keep pod-status extraction available from the sandbox model surface.
@@ -148,8 +148,8 @@ pub struct ServerConfig {
     #[serde(default)]
     pub env_vars: Option<HashMap<String, String>>,
     /// Per-server resource requests/limits. Falls back to the repo-wide
-    /// `resources` when unset. Only `requests`/`limits` apply; storage fields
-    /// are repo-wide and ignored here.
+    /// `resources` when unset. Only `requests`/`limits` apply; storage/cache
+    /// fields are repo-wide and ignored here.
     #[serde(default)]
     pub resources: Option<crate::repository::models::ResourceConfig>,
 }

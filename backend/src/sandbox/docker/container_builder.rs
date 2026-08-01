@@ -762,15 +762,11 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
-            requests: None,
             limits: Some(HashMap::from([
                 ("memory".to_string(), "8Gi".to_string()),
                 ("cpu".to_string(), "4".to_string()),
             ])),
-            storage: None,
-            storage_mode: None,
-            docker_storage: None,
-            docker_storage_mode: None,
+            ..Default::default()
         });
         let cc = build_container_config(&config, "task-1", &plan, None);
         let hc = cc.host_config.unwrap();

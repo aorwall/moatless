@@ -9,7 +9,7 @@ import type { LoopSyncSkip } from './loopSyncSkip';
 import type { LoopSyncWarning } from './loopSyncWarning';
 
 /**
- * Summary of reconciling a repo's `.moatless/loops/` into the trigger tables.
+ * Summary of reconciling a repo's `.moatless/loops/` into Loop tables.
  */
 export interface LoopSyncSummary {
   /**
@@ -18,7 +18,7 @@ export interface LoopSyncSummary {
    */
   approvalsRevoked: number;
   /**
-   * Loops inserted as new triggers.
+   * Loops inserted.
    * @minimum 0
    */
   created: number;
@@ -28,14 +28,14 @@ export interface LoopSyncSummary {
    */
   overridesSkipped: number;
   /**
-   * Loop triggers removed because their directory is gone.
+   * Loops removed because their directory is gone.
    * @minimum 0
    */
   removed: number;
   /** Loops that were present but not synced, with reasons. */
   skipped: LoopSyncSkip[];
   /**
-   * Existing loop triggers updated in place.
+   * Existing Loops updated in place.
    * @minimum 0
    */
   updated: number;

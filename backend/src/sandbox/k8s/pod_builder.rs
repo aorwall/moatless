@@ -18,7 +18,7 @@ use super::naming::generate_pod_name;
 use crate::config::Config;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt::{self, MintedSandboxTokens};
-use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
+use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
 use crate::sandbox::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
 use crate::sandbox::server_runner::build_server_start_script;
 
@@ -145,15 +145,9 @@ pub fn build_pod(
     // volume shared across the sandbox and server containers, with `/tmp` served
     // from its `tmp` subPath so `/tmp` never charges against the pod's memory
     // budget.
+    let build_cache_backend = resolve_build_cache_backend(plan);
     let mut volumes = vec![
-        Volume {
-            name: "build-cache".to_string(),
-            empty_dir: Some(EmptyDirVolumeSource {
-                size_limit: Some(Quantity(config.sandbox.build_cache_size.clone())),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
+        build_cache_volume(config, task_id, plan, build_cache_backend),
         Volume {
             name: "shared-data".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
@@ -228,6 +222,9 @@ pub fn build_pod(
     // The whole block is gated on a non-empty list, so default sandboxes stay
     // hardened (no privileged init container, no hostPath).
     let mut init_containers: Vec<Container> = Vec::new();
+    if build_cache_backend.is_node() {
+        init_containers.push(build_node_build_cache_setup_container(config, plan));
+    }
     if storage_backend == super::storage::StorageBackend::Node {
         init_containers.push(build_node_sandbox_setup_container(config, plan));
     }
@@ -404,9 +401,106 @@ fn resolve_sandbox_size(config: &Config, plan: &ProvisionPlan) -> String {
         .map_or_else(|| config.sandbox.storage_size.clone(), ToString::to_string)
 }
 
+/// Resolve the transient `build-cache` emptyDir size: a per-repo
+/// `resources.buildCache` override wins over `K8S_SANDBOX_BUILD_CACHE_SIZE`.
+fn resolve_build_cache_size(config: &Config, plan: &ProvisionPlan) -> String {
+    plan.repo_config
+        .resources
+        .as_ref()
+        .and_then(|r| r.build_cache.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map_or_else(
+            || config.sandbox.build_cache_size.clone(),
+            ToString::to_string,
+        )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildCacheBackend {
+    EmptyDir,
+    NodeTask,
+    NodeShared,
+}
+
+impl BuildCacheBackend {
+    fn is_node(self) -> bool {
+        matches!(self, Self::NodeTask | Self::NodeShared)
+    }
+}
+
+fn resolve_build_cache_backend(plan: &ProvisionPlan) -> BuildCacheBackend {
+    let mode = plan
+        .repo_config
+        .resources
+        .as_ref()
+        .and_then(|r| r.build_cache_mode.as_deref())
+        .map(str::trim)
+        .map(str::to_ascii_lowercase);
+    match mode.as_deref() {
+        Some("node") => {
+            let scope = plan
+                .repo_config
+                .resources
+                .as_ref()
+                .and_then(|r| r.build_cache_scope.as_deref())
+                .map(str::trim)
+                .map(str::to_ascii_lowercase);
+            match scope.as_deref() {
+                Some("node") => BuildCacheBackend::NodeShared,
+                _ => BuildCacheBackend::NodeTask,
+            }
+        }
+        _ => BuildCacheBackend::EmptyDir,
+    }
+}
+
+fn build_cache_volume(
+    config: &Config,
+    task_id: &str,
+    plan: &ProvisionPlan,
+    backend: BuildCacheBackend,
+) -> Volume {
+    let mut volume = Volume {
+        name: "build-cache".to_string(),
+        ..Default::default()
+    };
+    match backend {
+        BuildCacheBackend::EmptyDir => {
+            volume.empty_dir = Some(EmptyDirVolumeSource {
+                size_limit: Some(Quantity(resolve_build_cache_size(config, plan))),
+                ..Default::default()
+            });
+        }
+        BuildCacheBackend::NodeTask => {
+            volume.host_path = Some(HostPathVolumeSource {
+                path: node_task_build_cache_host_path(config, task_id),
+                type_: Some("DirectoryOrCreate".to_string()),
+            });
+        }
+        BuildCacheBackend::NodeShared => {
+            volume.host_path = Some(HostPathVolumeSource {
+                path: node_shared_build_cache_host_path(config),
+                type_: Some("DirectoryOrCreate".to_string()),
+            });
+        }
+    }
+    volume
+}
+
 fn node_sandbox_host_path(config: &Config, task_id: &str) -> String {
     let root = config.sandbox.cache_host_root.trim_end_matches('/');
     format!("{root}/workspaces/{task_id}")
+}
+
+fn node_task_build_cache_host_path(config: &Config, task_id: &str) -> String {
+    let root = config.sandbox.cache_host_root.trim_end_matches('/');
+    format!("{root}/build-cache/tasks/{task_id}")
+}
+
+fn node_shared_build_cache_host_path(config: &Config) -> String {
+    let root = config.sandbox.cache_host_root.trim_end_matches('/');
+    format!("{root}/build-cache/shared")
 }
 
 fn node_docker_host_path(config: &Config, task_id: &str) -> String {
@@ -462,6 +556,37 @@ fn build_node_sandbox_setup_container(config: &Config, plan: &ProvisionPlan) -> 
         volume_mounts: Some(vec![VolumeMount {
             name: "workspace-data".to_string(),
             mount_path: "/workspace".to_string(),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    }
+}
+
+fn build_node_build_cache_setup_container(config: &Config, plan: &ProvisionPlan) -> Container {
+    Container {
+        name: "build-cache-setup".to_string(),
+        image: Some(resolve_sandbox_image(config, plan)),
+        image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
+        command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
+        args: Some(vec![
+            "mkdir -p /build-cache && chown 1000:1000 /build-cache && chmod 0775 /build-cache"
+                .to_string(),
+        ]),
+        security_context: Some(root_init_security_context()),
+        resources: Some(ResourceRequirements {
+            requests: Some(BTreeMap::from([
+                ("cpu".to_string(), Quantity("25m".to_string())),
+                ("memory".to_string(), Quantity("32Mi".to_string())),
+            ])),
+            limits: Some(BTreeMap::from([
+                ("cpu".to_string(), Quantity("100m".to_string())),
+                ("memory".to_string(), Quantity("128Mi".to_string())),
+            ])),
+            ..Default::default()
+        }),
+        volume_mounts: Some(vec![VolumeMount {
+            name: "build-cache".to_string(),
+            mount_path: "/build-cache".to_string(),
             ..Default::default()
         }]),
         ..Default::default()
@@ -797,10 +922,10 @@ fn build_sandbox_container(
         }
     }
 
-    // Incremental Rust compiles survive container restarts when the target
-    // dir rides the `build-cache` emptyDir (opt-in — the volume's size limit
-    // must be raised to fit the repo's target dir first, or the pod gets
-    // evicted for exceeding it).
+    // Incremental Rust compiles avoid the workspace volume when the target dir
+    // rides the `build-cache` volume. With the default emptyDir backend, its
+    // size limit must fit the repo's target dir or the kubelet evicts the pod;
+    // with the node hostPath backend, capacity is the node filesystem instead.
     if config.sandbox.cargo_target_on_build_cache {
         env.push(env_var(
             "CARGO_TARGET_DIR",
@@ -1601,7 +1726,7 @@ mod tests {
                 docker_networks: None,
                 sandbox_service_account: None,
                 network_profile: None,
-                },
+            },
             git_clone_url: "https://github.com/test/repo.git".into(),
             git_branch: None,
             git_provider: "github".into(),
@@ -1728,10 +1853,7 @@ mod tests {
         plan.repo_config.resources = Some(ResourceConfig {
             requests: Some(HashMap::from([("memory".to_string(), "4Gi".to_string())])),
             limits: Some(HashMap::from([("memory".to_string(), "16Gi".to_string())])),
-            storage: None,
-            storage_mode: None,
-            docker_storage: None,
-            docker_storage_mode: None,
+            ..Default::default()
         });
 
         let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
@@ -1810,12 +1932,9 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
-            requests: None,
-            limits: None,
             storage: Some("7Gi".into()),
             storage_mode: Some("ephemeral".into()),
-            docker_storage: None,
-            docker_storage_mode: None,
+            ..Default::default()
         });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
@@ -1888,12 +2007,9 @@ mod tests {
         config.sandbox.cache_host_root = "/mnt/cache".into();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
-            requests: None,
-            limits: None,
             storage: Some("30Gi".into()),
             storage_mode: Some("node".into()),
-            docker_storage: None,
-            docker_storage_mode: None,
+            ..Default::default()
         });
 
         let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
@@ -2422,7 +2538,10 @@ mod tests {
             .and_then(|e| e.value.clone())
             .expect("WORKSPACE_REPOS present");
 
-        assert!(!raw.contains("secret"), "WORKSPACE_REPOS leaked credentials");
+        assert!(
+            !raw.contains("secret"),
+            "WORKSPACE_REPOS leaked credentials"
+        );
         let parsed: Vec<RepoCheckout> = serde_json::from_str(&raw).unwrap();
         assert_eq!(parsed[0].clone_url, "https://github.com/test/repo.git");
         assert_eq!(parsed[1].clone_url, "https://gitlab.com/acme/shared.git");
@@ -2857,14 +2976,18 @@ mod tests {
             .resources
             .as_ref()
             .expect("nvme-setup must declare resources");
-        assert!(resources
-            .requests
-            .as_ref()
-            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory")));
-        assert!(resources
-            .limits
-            .as_ref()
-            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory")));
+        assert!(
+            resources
+                .requests
+                .as_ref()
+                .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory"))
+        );
+        assert!(
+            resources
+                .limits
+                .as_ref()
+                .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory"))
+        );
     }
 
     /// The toolchain-persistence and cargo-target flags are off by default —
@@ -2902,6 +3025,112 @@ mod tests {
         assert!(
             !env.iter().any(|e| e.name == "CARGO_TARGET_DIR"),
             "no CARGO_TARGET_DIR without the build-cache flag"
+        );
+    }
+
+    #[test]
+    fn build_cache_size_can_be_overridden_per_repo() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+            build_cache: Some("40Gi".into()),
+            ..Default::default()
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let volumes = pod.spec.as_ref().unwrap().volumes.as_ref().unwrap();
+        let build_cache = volumes
+            .iter()
+            .find(|v| v.name == "build-cache")
+            .expect("build-cache volume present");
+        assert_eq!(
+            build_cache
+                .empty_dir
+                .as_ref()
+                .and_then(|e| e.size_limit.as_ref())
+                .map(|q| q.0.as_str()),
+            Some("40Gi")
+        );
+    }
+
+    #[test]
+    fn build_cache_can_use_task_scoped_node_host_path() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+            build_cache: Some("40Gi".into()),
+            build_cache_mode: Some("node".into()),
+            build_cache_scope: Some("task".into()),
+            ..Default::default()
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+        let build_cache = spec
+            .volumes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "build-cache")
+            .expect("build-cache volume present");
+        assert_eq!(
+            build_cache
+                .host_path
+                .as_ref()
+                .map(|host_path| host_path.path.as_str()),
+            Some("/mnt/cache/build-cache/tasks/task-1")
+        );
+        assert!(
+            build_cache.empty_dir.is_none(),
+            "node build-cache must not keep the emptyDir size cap"
+        );
+
+        let setup = spec
+            .init_containers
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|container| container.name == "build-cache-setup")
+            .expect("build-cache setup init container present");
+        assert!(setup.volume_mounts.as_ref().is_some_and(|mounts| {
+            mounts
+                .iter()
+                .any(|mount| mount.name == "build-cache" && mount.mount_path == "/build-cache")
+        }));
+    }
+
+    #[test]
+    fn build_cache_can_use_shared_node_host_path() {
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+            build_cache_mode: Some("node".into()),
+            build_cache_scope: Some("node".into()),
+            ..Default::default()
+        });
+
+        let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
+        let spec = pod.spec.as_ref().unwrap();
+        let build_cache = spec
+            .volumes
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|v| v.name == "build-cache")
+            .expect("build-cache volume present");
+        assert_eq!(
+            build_cache
+                .host_path
+                .as_ref()
+                .map(|host_path| host_path.path.as_str()),
+            Some("/mnt/cache/build-cache/shared")
+        );
+        assert!(
+            spec.init_containers
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|container| container.name == "build-cache-setup")
         );
     }
 

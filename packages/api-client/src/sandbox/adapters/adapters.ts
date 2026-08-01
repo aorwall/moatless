@@ -51,7 +51,7 @@ export type listAdaptersResponse200 = {
   data: string[]
   status: 200
 }
-
+    
 export type listAdaptersResponseSuccess = (listAdaptersResponse200) & {
   headers: Headers;
 };
@@ -62,19 +62,19 @@ export type listAdaptersResponse = (listAdaptersResponseSuccess)
 export const getListAdaptersUrl = () => {
 
 
-
+  
 
   return `/api/v1/adapters`
 }
 
 export const listAdapters = async ( options?: RequestInit): Promise<listAdaptersResponse> => {
-
+  
   return customInstance<listAdaptersResponse>(getListAdaptersUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -88,7 +88,7 @@ export const getListAdaptersQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getListAdaptersQueryOptions = <TData = Awaited<ReturnType<typeof listAdapters>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAdapters>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -96,13 +96,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListAdaptersQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdapters>>> = ({ signal }) => listAdapters({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdapters>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -138,7 +138,7 @@ export function useListAdapters<TData = Awaited<ReturnType<typeof listAdapters>>
 
 export function useListAdapters<TData = Awaited<ReturnType<typeof listAdapters>>, TError = ErrorType<unknown>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAdapters>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getListAdaptersQueryOptions(options)
@@ -166,7 +166,7 @@ export type listAdapterConnectionsResponse200 = {
   data: AdapterConnectionResponse[]
   status: 200
 }
-
+    
 export type listAdapterConnectionsResponseSuccess = (listAdapterConnectionsResponse200) & {
   headers: Headers;
 };
@@ -177,19 +177,19 @@ export type listAdapterConnectionsResponse = (listAdapterConnectionsResponseSucc
 export const getListAdapterConnectionsUrl = () => {
 
 
-
+  
 
   return `/api/v1/adapters/connections`
 }
 
 export const listAdapterConnections = async ( options?: RequestInit): Promise<listAdapterConnectionsResponse> => {
-
+  
   return customInstance<listAdapterConnectionsResponse>(getListAdapterConnectionsUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -203,7 +203,7 @@ export const getListAdapterConnectionsQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getListAdapterConnectionsQueryOptions = <TData = Awaited<ReturnType<typeof listAdapterConnections>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAdapterConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -211,13 +211,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getListAdapterConnectionsQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdapterConnections>>> = ({ signal }) => listAdapterConnections({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdapterConnections>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -253,7 +253,7 @@ export function useListAdapterConnections<TData = Awaited<ReturnType<typeof list
 
 export function useListAdapterConnections<TData = Awaited<ReturnType<typeof listAdapterConnections>>, TError = ErrorType<unknown>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listAdapterConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getListAdapterConnectionsQueryOptions(options)
@@ -281,7 +281,7 @@ export type createAdapterConnectionResponse200 = {
   data: AdapterConnectionResponse
   status: 200
 }
-
+    
 export type createAdapterConnectionResponseSuccess = (createAdapterConnectionResponse200) & {
   headers: Headers;
 };
@@ -292,15 +292,15 @@ export type createAdapterConnectionResponse = (createAdapterConnectionResponseSu
 export const getCreateAdapterConnectionUrl = () => {
 
 
-
+  
 
   return `/api/v1/adapters/connections`
 }
 
 export const createAdapterConnection = async (createAdapterConnectionRequest: CreateAdapterConnectionRequest, options?: RequestInit): Promise<createAdapterConnectionResponse> => {
-
+  
   return customInstance<createAdapterConnectionResponse>(getCreateAdapterConnectionUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -323,7 +323,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAdapterConnection>>, {data: CreateAdapterConnectionRequest}> = (props) => {
@@ -334,7 +334,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -362,7 +362,7 @@ export type deleteAdapterConnectionResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type deleteAdapterConnectionResponseSuccess = (deleteAdapterConnectionResponse204) & {
   headers: Headers;
 };
@@ -375,19 +375,19 @@ export type deleteAdapterConnectionResponse = (deleteAdapterConnectionResponseSu
 export const getDeleteAdapterConnectionUrl = (id: string,) => {
 
 
-
+  
 
   return `/api/v1/adapters/connections/${id}`
 }
 
 export const deleteAdapterConnection = async (id: string, options?: RequestInit): Promise<deleteAdapterConnectionResponse> => {
-
+  
   return customInstance<deleteAdapterConnectionResponse>(getDeleteAdapterConnectionUrl(id),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -405,7 +405,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteAdapterConnection>>, {id: string}> = (props) => {
@@ -416,13 +416,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteAdapterConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAdapterConnection>>>
-
+    
     export type DeleteAdapterConnectionMutationError = ErrorType<ErrorBody>
 
     export const useDeleteAdapterConnection = <TError = ErrorType<ErrorBody>,
@@ -439,7 +439,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: void
   status: 200
 }
-
+    
 export type githubWebhookResponseSuccess = (githubWebhookResponse200) & {
   headers: Headers;
 };
@@ -450,19 +450,19 @@ export type githubWebhookResponse = (githubWebhookResponseSuccess)
 export const getGithubWebhookUrl = () => {
 
 
-
+  
 
   return `/api/v1/adapters/github/webhook`
 }
 
 export const githubWebhook = async (githubWebhookBody: string, options?: RequestInit): Promise<githubWebhookResponse> => {
-
+  
   return customInstance<githubWebhookResponse>(getGithubWebhookUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'text/plain', ...options?.headers },
-    body:
+    body: 
       githubWebhookBody,
   }
 );}
@@ -481,7 +481,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof githubWebhook>>, {data: string}> = (props) => {
@@ -492,7 +492,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -515,7 +515,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: void
   status: 200
 }
-
+    
 export type linearWebhookResponseSuccess = (linearWebhookResponse200) & {
   headers: Headers;
 };
@@ -526,19 +526,19 @@ export type linearWebhookResponse = (linearWebhookResponseSuccess)
 export const getLinearWebhookUrl = () => {
 
 
-
+  
 
   return `/api/v1/adapters/linear/webhook`
 }
 
 export const linearWebhook = async (linearWebhookBody: string, options?: RequestInit): Promise<linearWebhookResponse> => {
-
+  
   return customInstance<linearWebhookResponse>(getLinearWebhookUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'text/plain', ...options?.headers },
-    body:
+    body: 
       linearWebhookBody,
   }
 );}
@@ -557,7 +557,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof linearWebhook>>, {data: string}> = (props) => {
@@ -568,7 +568,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -601,7 +601,7 @@ export type adapterSendResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type adapterSendResponseSuccess = (adapterSendResponse200) & {
   headers: Headers;
 };
@@ -614,15 +614,15 @@ export type adapterSendResponse = (adapterSendResponseSuccess | adapterSendRespo
 export const getAdapterSendUrl = () => {
 
 
-
+  
 
   return `/api/v1/adapters/send`
 }
 
 export const adapterSend = async (adapterSendRequest: AdapterSendRequest, options?: RequestInit): Promise<adapterSendResponse> => {
-
+  
   return customInstance<adapterSendResponse>(getAdapterSendUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -645,7 +645,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adapterSend>>, {data: AdapterSendRequest}> = (props) => {
@@ -656,7 +656,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -679,7 +679,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: void
   status: 200
 }
-
+    
 export type slackWebhookResponseSuccess = (slackWebhookResponse200) & {
   headers: Headers;
 };
@@ -690,19 +690,19 @@ export type slackWebhookResponse = (slackWebhookResponseSuccess)
 export const getSlackWebhookUrl = () => {
 
 
-
+  
 
   return `/api/v1/adapters/slack/webhook`
 }
 
 export const slackWebhook = async (slackWebhookBody: string, options?: RequestInit): Promise<slackWebhookResponse> => {
-
+  
   return customInstance<slackWebhookResponse>(getSlackWebhookUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'text/plain', ...options?.headers },
-    body:
+    body: 
       slackWebhookBody,
   }
 );}
@@ -721,7 +721,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof slackWebhook>>, {data: string}> = (props) => {
@@ -732,7 +732,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -755,7 +755,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   data: void
   status: 200
 }
-
+    
 export type telegramWebhookResponseSuccess = (telegramWebhookResponse200) & {
   headers: Headers;
 };
@@ -766,15 +766,15 @@ export type telegramWebhookResponse = (telegramWebhookResponseSuccess)
 export const getTelegramWebhookUrl = () => {
 
 
-
+  
 
   return `/api/v1/adapters/telegram/webhook`
 }
 
 export const telegramWebhook = async (telegramWebhookBody: TelegramWebhookBody, options?: RequestInit): Promise<telegramWebhookResponse> => {
-
+  
   return customInstance<telegramWebhookResponse>(getTelegramWebhookUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -797,7 +797,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof telegramWebhook>>, {data: TelegramWebhookBody}> = (props) => {
@@ -808,7 +808,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -835,7 +835,7 @@ not that a Task exists — the Task is created later, by the worker, out of the
 record this wrote. Anything that failed to record reaches the caller as a
 failure so its own retry is the recovery path.
 
-Deactivated triggers are rejected before admission. A trigger can also be
+Deactivated loops are rejected before admission. A Loop can also be
 paused or resynced after admission; the worker rechecks runnable state and
 then terminates the durable delivery without creating a Task.
  * @summary Take durable ownership of one inbound webhook delivery.
@@ -844,7 +844,7 @@ export type webhookInboundResponse200 = {
   data: WebhookAccepted
   status: 200
 }
-
+    
 export type webhookInboundResponseSuccess = (webhookInboundResponse200) & {
   headers: Headers;
 };
@@ -852,19 +852,19 @@ export type webhookInboundResponseSuccess = (webhookInboundResponse200) & {
 
 export type webhookInboundResponse = (webhookInboundResponseSuccess)
 
-export const getWebhookInboundUrl = (triggerId: string,) => {
+export const getWebhookInboundUrl = (loopId: string,) => {
 
 
+  
 
-
-  return `/api/v1/adapters/webhook/${triggerId}`
+  return `/api/v1/adapters/webhook/${loopId}`
 }
 
-export const webhookInbound = async (triggerId: string,
+export const webhookInbound = async (loopId: string,
     webhookPayload: WebhookPayload, options?: RequestInit): Promise<webhookInboundResponse> => {
-
-  return customInstance<webhookInboundResponse>(getWebhookInboundUrl(triggerId),
-  {
+  
+  return customInstance<webhookInboundResponse>(getWebhookInboundUrl(loopId),
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -877,8 +877,8 @@ export const webhookInbound = async (triggerId: string,
 
 
 export const getWebhookInboundMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{triggerId: string;data: WebhookPayload}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{triggerId: string;data: WebhookPayload}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{loopId: string;data: WebhookPayload}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{loopId: string;data: WebhookPayload}, TContext> => {
 
 const mutationKey = ['webhookInbound'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -887,18 +887,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
+      
 
 
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof webhookInbound>>, {loopId: string;data: WebhookPayload}> = (props) => {
+          const {loopId,data} = props ?? {};
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof webhookInbound>>, {triggerId: string;data: WebhookPayload}> = (props) => {
-          const {triggerId,data} = props ?? {};
-
-          return  webhookInbound(triggerId,data,requestOptions)
+          return  webhookInbound(loopId,data,requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -911,12 +911,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Take durable ownership of one inbound webhook delivery.
  */
 export const useWebhookInbound = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{triggerId: string;data: WebhookPayload}, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof webhookInbound>>, TError,{loopId: string;data: WebhookPayload}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof webhookInbound>>,
         TError,
-        {triggerId: string;data: WebhookPayload},
+        {loopId: string;data: WebhookPayload},
         TContext
       > => {
       return useMutation(getWebhookInboundMutationOptions(options), queryClient);
     }
+    

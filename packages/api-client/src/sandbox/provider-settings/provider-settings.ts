@@ -76,7 +76,7 @@ export type adminListAdapterAppsResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminListAdapterAppsResponseSuccess = (adminListAdapterAppsResponse200) & {
   headers: Headers;
 };
@@ -89,19 +89,19 @@ export type adminListAdapterAppsResponse = (adminListAdapterAppsResponseSuccess 
 export const getAdminListAdapterAppsUrl = () => {
 
 
-
+  
 
   return `/api/v1/admin/settings/adapter-apps`
 }
 
 export const adminListAdapterApps = async ( options?: RequestInit): Promise<adminListAdapterAppsResponse> => {
-
+  
   return customInstance<adminListAdapterAppsResponse>(getAdminListAdapterAppsUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -115,7 +115,7 @@ export const getAdminListAdapterAppsQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getAdminListAdapterAppsQueryOptions = <TData = Awaited<ReturnType<typeof adminListAdapterApps>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListAdapterApps>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -123,13 +123,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getAdminListAdapterAppsQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListAdapterApps>>> = ({ signal }) => adminListAdapterApps({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListAdapterApps>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -165,7 +165,7 @@ export function useAdminListAdapterApps<TData = Awaited<ReturnType<typeof adminL
 
 export function useAdminListAdapterApps<TData = Awaited<ReturnType<typeof adminListAdapterApps>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListAdapterApps>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getAdminListAdapterAppsQueryOptions(options)
@@ -208,7 +208,7 @@ export type adminSaveAdapterAppResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminSaveAdapterAppResponseSuccess = (adminSaveAdapterAppResponse200) & {
   headers: Headers;
 };
@@ -222,7 +222,7 @@ export const getAdminSaveAdapterAppUrl = (adapterKind: string,
     appKey: string,) => {
 
 
-
+  
 
   return `/api/v1/admin/settings/adapter-apps/${adapterKind}/${appKey}`
 }
@@ -230,9 +230,9 @@ export const getAdminSaveAdapterAppUrl = (adapterKind: string,
 export const adminSaveAdapterApp = async (adapterKind: string,
     appKey: string,
     saveAdapterAppRequest: SaveAdapterAppRequest, options?: RequestInit): Promise<adminSaveAdapterAppResponse> => {
-
+  
   return customInstance<adminSaveAdapterAppResponse>(getAdminSaveAdapterAppUrl(adapterKind,appKey),
-  {
+  {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -255,7 +255,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveAdapterApp>>, {adapterKind: string;appKey: string;data: SaveAdapterAppRequest}> = (props) => {
@@ -266,7 +266,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -304,7 +304,7 @@ export type adminDeleteAdapterAppResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminDeleteAdapterAppResponseSuccess = (adminDeleteAdapterAppResponse204) & {
   headers: Headers;
 };
@@ -318,20 +318,20 @@ export const getAdminDeleteAdapterAppUrl = (adapterKind: string,
     appKey: string,) => {
 
 
-
+  
 
   return `/api/v1/admin/settings/adapter-apps/${adapterKind}/${appKey}`
 }
 
 export const adminDeleteAdapterApp = async (adapterKind: string,
     appKey: string, options?: RequestInit): Promise<adminDeleteAdapterAppResponse> => {
-
+  
   return customInstance<adminDeleteAdapterAppResponse>(getAdminDeleteAdapterAppUrl(adapterKind,appKey),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -349,7 +349,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteAdapterApp>>, {adapterKind: string;appKey: string}> = (props) => {
@@ -360,13 +360,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type AdminDeleteAdapterAppMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteAdapterApp>>>
-
+    
     export type AdminDeleteAdapterAppMutationError = ErrorType<ErrorBody>
 
     export const useAdminDeleteAdapterApp = <TError = ErrorType<ErrorBody>,
@@ -404,7 +404,7 @@ export type adminSaveGlobalCodexAuthResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminSaveGlobalCodexAuthResponseSuccess = (adminSaveGlobalCodexAuthResponse200) & {
   headers: Headers;
 };
@@ -417,15 +417,15 @@ export type adminSaveGlobalCodexAuthResponse = (adminSaveGlobalCodexAuthResponse
 export const getAdminSaveGlobalCodexAuthUrl = () => {
 
 
-
+  
 
   return `/api/v1/admin/settings/codex/config`
 }
 
 export const adminSaveGlobalCodexAuth = async (saveCodexAuthRequest: SaveCodexAuthRequest, options?: RequestInit): Promise<adminSaveGlobalCodexAuthResponse> => {
-
+  
   return customInstance<adminSaveGlobalCodexAuthResponse>(getAdminSaveGlobalCodexAuthUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -448,7 +448,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveGlobalCodexAuth>>, {data: SaveCodexAuthRequest}> = (props) => {
@@ -459,7 +459,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -498,7 +498,7 @@ export type adminDeleteGlobalCodexConfigResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminDeleteGlobalCodexConfigResponseSuccess = (adminDeleteGlobalCodexConfigResponse200) & {
   headers: Headers;
 };
@@ -511,19 +511,19 @@ export type adminDeleteGlobalCodexConfigResponse = (adminDeleteGlobalCodexConfig
 export const getAdminDeleteGlobalCodexConfigUrl = () => {
 
 
-
+  
 
   return `/api/v1/admin/settings/codex/config`
 }
 
 export const adminDeleteGlobalCodexConfig = async ( options?: RequestInit): Promise<adminDeleteGlobalCodexConfigResponse> => {
-
+  
   return customInstance<adminDeleteGlobalCodexConfigResponse>(getAdminDeleteGlobalCodexConfigUrl(),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -541,24 +541,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteGlobalCodexConfig>>, void> = () => {
-
+          
 
           return  adminDeleteGlobalCodexConfig(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type AdminDeleteGlobalCodexConfigMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteGlobalCodexConfig>>>
-
+    
     export type AdminDeleteGlobalCodexConfigMutationError = ErrorType<ErrorBody>
 
     /**
@@ -588,7 +588,7 @@ export type adminListGithubAppsResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminListGithubAppsResponseSuccess = (adminListGithubAppsResponse200) & {
   headers: Headers;
 };
@@ -601,19 +601,19 @@ export type adminListGithubAppsResponse = (adminListGithubAppsResponseSuccess | 
 export const getAdminListGithubAppsUrl = () => {
 
 
-
+  
 
   return `/api/v1/admin/settings/github/apps`
 }
 
 export const adminListGithubApps = async ( options?: RequestInit): Promise<adminListGithubAppsResponse> => {
-
+  
   return customInstance<adminListGithubAppsResponse>(getAdminListGithubAppsUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -627,7 +627,7 @@ export const getAdminListGithubAppsQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getAdminListGithubAppsQueryOptions = <TData = Awaited<ReturnType<typeof adminListGithubApps>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListGithubApps>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -635,13 +635,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getAdminListGithubAppsQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListGithubApps>>> = ({ signal }) => adminListGithubApps({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListGithubApps>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -677,7 +677,7 @@ export function useAdminListGithubApps<TData = Awaited<ReturnType<typeof adminLi
 
 export function useAdminListGithubApps<TData = Awaited<ReturnType<typeof adminListGithubApps>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminListGithubApps>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getAdminListGithubAppsQueryOptions(options)
@@ -725,7 +725,7 @@ export type adminRegisterGithubAppResponse409 = {
   data: ErrorBody
   status: 409
 }
-
+    
 export type adminRegisterGithubAppResponseSuccess = (adminRegisterGithubAppResponse201) & {
   headers: Headers;
 };
@@ -738,15 +738,15 @@ export type adminRegisterGithubAppResponse = (adminRegisterGithubAppResponseSucc
 export const getAdminRegisterGithubAppUrl = () => {
 
 
-
+  
 
   return `/api/v1/admin/settings/github/apps`
 }
 
 export const adminRegisterGithubApp = async (registerGitHubAppRequest: RegisterGitHubAppRequest, options?: RequestInit): Promise<adminRegisterGithubAppResponse> => {
-
+  
   return customInstance<adminRegisterGithubAppResponse>(getAdminRegisterGithubAppUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -769,7 +769,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRegisterGithubApp>>, {data: RegisterGitHubAppRequest}> = (props) => {
@@ -780,7 +780,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -818,7 +818,7 @@ export type adminRemoveGithubAppResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type adminRemoveGithubAppResponseSuccess = (adminRemoveGithubAppResponse200) & {
   headers: Headers;
 };
@@ -831,19 +831,19 @@ export type adminRemoveGithubAppResponse = (adminRemoveGithubAppResponseSuccess 
 export const getAdminRemoveGithubAppUrl = (githubAppKey: string,) => {
 
 
-
+  
 
   return `/api/v1/admin/settings/github/apps/${githubAppKey}`
 }
 
 export const adminRemoveGithubApp = async (githubAppKey: string, options?: RequestInit): Promise<adminRemoveGithubAppResponse> => {
-
+  
   return customInstance<adminRemoveGithubAppResponse>(getAdminRemoveGithubAppUrl(githubAppKey),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -861,7 +861,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRemoveGithubApp>>, {githubAppKey: string}> = (props) => {
@@ -872,13 +872,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type AdminRemoveGithubAppMutationResult = NonNullable<Awaited<ReturnType<typeof adminRemoveGithubApp>>>
-
+    
     export type AdminRemoveGithubAppMutationError = ErrorType<ErrorBody>
 
     export const useAdminRemoveGithubApp = <TError = ErrorType<ErrorBody>,
@@ -915,7 +915,7 @@ export type adminRotateGithubAppKeyResponse404 = {
   data: ErrorBody
   status: 404
 }
-
+    
 export type adminRotateGithubAppKeyResponseSuccess = (adminRotateGithubAppKeyResponse200) & {
   headers: Headers;
 };
@@ -928,16 +928,16 @@ export type adminRotateGithubAppKeyResponse = (adminRotateGithubAppKeyResponseSu
 export const getAdminRotateGithubAppKeyUrl = (githubAppKey: string,) => {
 
 
-
+  
 
   return `/api/v1/admin/settings/github/apps/${githubAppKey}/key`
 }
 
 export const adminRotateGithubAppKey = async (githubAppKey: string,
     rotateGitHubAppKeyRequest: RotateGitHubAppKeyRequest, options?: RequestInit): Promise<adminRotateGithubAppKeyResponse> => {
-
+  
   return customInstance<adminRotateGithubAppKeyResponse>(getAdminRotateGithubAppKeyUrl(githubAppKey),
-  {
+  {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -960,7 +960,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRotateGithubAppKey>>, {githubAppKey: string;data: RotateGitHubAppKeyRequest}> = (props) => {
@@ -971,7 +971,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1004,7 +1004,7 @@ export type adminGetGlobalGithubInstallationResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminGetGlobalGithubInstallationResponseSuccess = (adminGetGlobalGithubInstallationResponse200) & {
   headers: Headers;
 };
@@ -1017,19 +1017,19 @@ export type adminGetGlobalGithubInstallationResponse = (adminGetGlobalGithubInst
 export const getAdminGetGlobalGithubInstallationUrl = () => {
 
 
-
+  
 
   return `/api/v1/admin/settings/github/installation`
 }
 
 export const adminGetGlobalGithubInstallation = async ( options?: RequestInit): Promise<adminGetGlobalGithubInstallationResponse> => {
-
+  
   return customInstance<adminGetGlobalGithubInstallationResponse>(getAdminGetGlobalGithubInstallationUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -1043,7 +1043,7 @@ export const getAdminGetGlobalGithubInstallationQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getAdminGetGlobalGithubInstallationQueryOptions = <TData = Awaited<ReturnType<typeof adminGetGlobalGithubInstallation>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubInstallation>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -1051,13 +1051,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getAdminGetGlobalGithubInstallationQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetGlobalGithubInstallation>>> = ({ signal }) => adminGetGlobalGithubInstallation({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubInstallation>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -1093,7 +1093,7 @@ export function useAdminGetGlobalGithubInstallation<TData = Awaited<ReturnType<t
 
 export function useAdminGetGlobalGithubInstallation<TData = Awaited<ReturnType<typeof adminGetGlobalGithubInstallation>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGetGlobalGithubInstallation>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getAdminGetGlobalGithubInstallationQueryOptions(options)
@@ -1136,7 +1136,7 @@ export type adminPutGlobalGithubInstallationResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminPutGlobalGithubInstallationResponseSuccess = (adminPutGlobalGithubInstallationResponse200) & {
   headers: Headers;
 };
@@ -1149,15 +1149,15 @@ export type adminPutGlobalGithubInstallationResponse = (adminPutGlobalGithubInst
 export const getAdminPutGlobalGithubInstallationUrl = () => {
 
 
-
+  
 
   return `/api/v1/admin/settings/github/installation`
 }
 
 export const adminPutGlobalGithubInstallation = async (gitHubInstallationBindingRequest: GitHubInstallationBindingRequest, options?: RequestInit): Promise<adminPutGlobalGithubInstallationResponse> => {
-
+  
   return customInstance<adminPutGlobalGithubInstallationResponse>(getAdminPutGlobalGithubInstallationUrl(),
-  {
+  {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1180,7 +1180,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminPutGlobalGithubInstallation>>, {data: GitHubInstallationBindingRequest}> = (props) => {
@@ -1191,7 +1191,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1224,7 +1224,7 @@ export type adminDeleteGlobalGithubInstallationResponse403 = {
   data: ErrorBody
   status: 403
 }
-
+    
 export type adminDeleteGlobalGithubInstallationResponseSuccess = (adminDeleteGlobalGithubInstallationResponse200) & {
   headers: Headers;
 };
@@ -1237,19 +1237,19 @@ export type adminDeleteGlobalGithubInstallationResponse = (adminDeleteGlobalGith
 export const getAdminDeleteGlobalGithubInstallationUrl = () => {
 
 
-
+  
 
   return `/api/v1/admin/settings/github/installation`
 }
 
 export const adminDeleteGlobalGithubInstallation = async ( options?: RequestInit): Promise<adminDeleteGlobalGithubInstallationResponse> => {
-
+  
   return customInstance<adminDeleteGlobalGithubInstallationResponse>(getAdminDeleteGlobalGithubInstallationUrl(),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -1267,24 +1267,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteGlobalGithubInstallation>>, void> = () => {
-
+          
 
           return  adminDeleteGlobalGithubInstallation(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type AdminDeleteGlobalGithubInstallationMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteGlobalGithubInstallation>>>
-
+    
     export type AdminDeleteGlobalGithubInstallationMutationError = ErrorType<ErrorBody>
 
     export const useAdminDeleteGlobalGithubInstallation = <TError = ErrorType<ErrorBody>,
@@ -1309,7 +1309,7 @@ export type getCodexConfigResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type getCodexConfigResponseSuccess = (getCodexConfigResponse200) & {
   headers: Headers;
 };
@@ -1322,19 +1322,19 @@ export type getCodexConfigResponse = (getCodexConfigResponseSuccess | getCodexCo
 export const getGetCodexConfigUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/codex/config`
 }
 
 export const getCodexConfig = async ( options?: RequestInit): Promise<getCodexConfigResponse> => {
-
+  
   return customInstance<getCodexConfigResponse>(getGetCodexConfigUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -1348,7 +1348,7 @@ export const getGetCodexConfigQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getGetCodexConfigQueryOptions = <TData = Awaited<ReturnType<typeof getCodexConfig>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -1356,13 +1356,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetCodexConfigQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getCodexConfig>>> = ({ signal }) => getCodexConfig({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -1401,7 +1401,7 @@ export function useGetCodexConfig<TData = Awaited<ReturnType<typeof getCodexConf
 
 export function useGetCodexConfig<TData = Awaited<ReturnType<typeof getCodexConfig>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCodexConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getGetCodexConfigQueryOptions(options)
@@ -1445,7 +1445,7 @@ export type saveCodexAuthResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type saveCodexAuthResponseSuccess = (saveCodexAuthResponse200) & {
   headers: Headers;
 };
@@ -1458,15 +1458,15 @@ export type saveCodexAuthResponse = (saveCodexAuthResponseSuccess | saveCodexAut
 export const getSaveCodexAuthUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/codex/config`
 }
 
 export const saveCodexAuth = async (saveCodexAuthRequest: SaveCodexAuthRequest, options?: RequestInit): Promise<saveCodexAuthResponse> => {
-
+  
   return customInstance<saveCodexAuthResponse>(getSaveCodexAuthUrl(),
-  {
+  {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1489,7 +1489,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveCodexAuth>>, {data: SaveCodexAuthRequest}> = (props) => {
@@ -1500,7 +1500,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1534,7 +1534,7 @@ export type deleteCodexConfigResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type deleteCodexConfigResponseSuccess = (deleteCodexConfigResponse200) & {
   headers: Headers;
 };
@@ -1547,19 +1547,19 @@ export type deleteCodexConfigResponse = (deleteCodexConfigResponseSuccess | dele
 export const getDeleteCodexConfigUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/codex/config`
 }
 
 export const deleteCodexConfig = async ( options?: RequestInit): Promise<deleteCodexConfigResponse> => {
-
+  
   return customInstance<deleteCodexConfigResponse>(getDeleteCodexConfigUrl(),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -1577,24 +1577,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCodexConfig>>, void> = () => {
-
+          
 
           return  deleteCodexConfig(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteCodexConfigMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCodexConfig>>>
-
+    
     export type DeleteCodexConfigMutationError = ErrorType<ErrorBody>
 
     /**
@@ -1629,7 +1629,7 @@ export type pollCodexDeviceLoginResponse502 = {
   data: ErrorBody
   status: 502
 }
-
+    
 export type pollCodexDeviceLoginResponseSuccess = (pollCodexDeviceLoginResponse200) & {
   headers: Headers;
 };
@@ -1642,15 +1642,15 @@ export type pollCodexDeviceLoginResponse = (pollCodexDeviceLoginResponseSuccess 
 export const getPollCodexDeviceLoginUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/codex/login/poll`
 }
 
 export const pollCodexDeviceLogin = async (codexDeviceCodePollRequest: CodexDeviceCodePollRequest, options?: RequestInit): Promise<pollCodexDeviceLoginResponse> => {
-
+  
   return customInstance<pollCodexDeviceLoginResponse>(getPollCodexDeviceLoginUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1673,7 +1673,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof pollCodexDeviceLogin>>, {data: CodexDeviceCodePollRequest}> = (props) => {
@@ -1684,7 +1684,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -1726,7 +1726,7 @@ export type startCodexDeviceLoginResponse502 = {
   data: ErrorBody
   status: 502
 }
-
+    
 export type startCodexDeviceLoginResponseSuccess = (startCodexDeviceLoginResponse200) & {
   headers: Headers;
 };
@@ -1739,19 +1739,19 @@ export type startCodexDeviceLoginResponse = (startCodexDeviceLoginResponseSucces
 export const getStartCodexDeviceLoginUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/codex/login/start`
 }
 
 export const startCodexDeviceLogin = async ( options?: RequestInit): Promise<startCodexDeviceLoginResponse> => {
-
+  
   return customInstance<startCodexDeviceLoginResponse>(getStartCodexDeviceLoginUrl(),
-  {
+  {      
     ...options,
     method: 'POST'
-
-
+    
+    
   }
 );}
 
@@ -1769,24 +1769,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof startCodexDeviceLogin>>, void> = () => {
-
+          
 
           return  startCodexDeviceLogin(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type StartCodexDeviceLoginMutationResult = NonNullable<Awaited<ReturnType<typeof startCodexDeviceLogin>>>
-
+    
     export type StartCodexDeviceLoginMutationError = ErrorType<ErrorBody>
 
     /**
@@ -1815,7 +1815,7 @@ export type getGithubConfigResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type getGithubConfigResponseSuccess = (getGithubConfigResponse200) & {
   headers: Headers;
 };
@@ -1828,19 +1828,19 @@ export type getGithubConfigResponse = (getGithubConfigResponseSuccess | getGithu
 export const getGetGithubConfigUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/github/config`
 }
 
 export const getGithubConfig = async ( options?: RequestInit): Promise<getGithubConfigResponse> => {
-
+  
   return customInstance<getGithubConfigResponse>(getGetGithubConfigUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -1854,7 +1854,7 @@ export const getGetGithubConfigQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getGetGithubConfigQueryOptions = <TData = Awaited<ReturnType<typeof getGithubConfig>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -1862,13 +1862,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetGithubConfigQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getGithubConfig>>> = ({ signal }) => getGithubConfig({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGithubConfig>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -1907,7 +1907,7 @@ export function useGetGithubConfig<TData = Awaited<ReturnType<typeof getGithubCo
 
 export function useGetGithubConfig<TData = Awaited<ReturnType<typeof getGithubConfig>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getGetGithubConfigQueryOptions(options)
@@ -1946,7 +1946,7 @@ export type deleteGithubConfigResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type deleteGithubConfigResponseSuccess = (deleteGithubConfigResponse200) & {
   headers: Headers;
 };
@@ -1959,19 +1959,19 @@ export type deleteGithubConfigResponse = (deleteGithubConfigResponseSuccess | de
 export const getDeleteGithubConfigUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/github/config`
 }
 
 export const deleteGithubConfig = async ( options?: RequestInit): Promise<deleteGithubConfigResponse> => {
-
+  
   return customInstance<deleteGithubConfigResponse>(getDeleteGithubConfigUrl(),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -1989,24 +1989,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteGithubConfig>>, void> = () => {
-
+          
 
           return  deleteGithubConfig(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteGithubConfigMutationResult = NonNullable<Awaited<ReturnType<typeof deleteGithubConfig>>>
-
+    
     export type DeleteGithubConfigMutationError = ErrorType<ErrorBody>
 
     /**
@@ -2034,7 +2034,7 @@ export type exchangeGithubTokenResponse400 = {
   data: ErrorBody
   status: 400
 }
-
+    
 export type exchangeGithubTokenResponseSuccess = (exchangeGithubTokenResponse200) & {
   headers: Headers;
 };
@@ -2047,15 +2047,15 @@ export type exchangeGithubTokenResponse = (exchangeGithubTokenResponseSuccess | 
 export const getExchangeGithubTokenUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/github/oauth/token`
 }
 
 export const exchangeGithubToken = async (exchangeTokenRequest: ExchangeTokenRequest, options?: RequestInit): Promise<exchangeGithubTokenResponse> => {
-
+  
   return customInstance<exchangeGithubTokenResponse>(getExchangeGithubTokenUrl(),
-  {
+  {      
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2078,7 +2078,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof exchangeGithubToken>>, {data: ExchangeTokenRequest}> = (props) => {
@@ -2089,7 +2089,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2123,7 +2123,7 @@ export type getGithubOauthUrlResponse400 = {
   data: ErrorBody
   status: 400
 }
-
+    
 export type getGithubOauthUrlResponseSuccess = (getGithubOauthUrlResponse200) & {
   headers: Headers;
 };
@@ -2136,19 +2136,19 @@ export type getGithubOauthUrlResponse = (getGithubOauthUrlResponseSuccess | getG
 export const getGetGithubOauthUrlUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/github/oauth/url`
 }
 
 export const getGithubOauthUrl = async ( options?: RequestInit): Promise<getGithubOauthUrlResponse> => {
-
+  
   return customInstance<getGithubOauthUrlResponse>(getGetGithubOauthUrlUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -2162,7 +2162,7 @@ export const getGetGithubOauthUrlQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getGetGithubOauthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getGithubOauthUrl>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -2170,13 +2170,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetGithubOauthUrlQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getGithubOauthUrl>>> = ({ signal }) => getGithubOauthUrl({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -2215,7 +2215,7 @@ export function useGetGithubOauthUrl<TData = Awaited<ReturnType<typeof getGithub
 
 export function useGetGithubOauthUrl<TData = Awaited<ReturnType<typeof getGithubOauthUrl>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getGetGithubOauthUrlQueryOptions(options)
@@ -2254,7 +2254,7 @@ export type saveGithubPatResponse400 = {
   data: ErrorBody
   status: 400
 }
-
+    
 export type saveGithubPatResponseSuccess = (saveGithubPatResponse200) & {
   headers: Headers;
 };
@@ -2267,15 +2267,15 @@ export type saveGithubPatResponse = (saveGithubPatResponseSuccess | saveGithubPa
 export const getSaveGithubPatUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/github/pat`
 }
 
 export const saveGithubPat = async (savePatRequest: SavePatRequest, options?: RequestInit): Promise<saveGithubPatResponse> => {
-
+  
   return customInstance<saveGithubPatResponse>(getSaveGithubPatUrl(),
-  {
+  {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2298,7 +2298,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveGithubPat>>, {data: SavePatRequest}> = (props) => {
@@ -2309,7 +2309,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2348,7 +2348,7 @@ export type deleteGithubPatOverrideResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type deleteGithubPatOverrideResponseSuccess = (deleteGithubPatOverrideResponse200) & {
   headers: Headers;
 };
@@ -2361,19 +2361,19 @@ export type deleteGithubPatOverrideResponse = (deleteGithubPatOverrideResponseSu
 export const getDeleteGithubPatOverrideUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/github/pat`
 }
 
 export const deleteGithubPatOverride = async ( options?: RequestInit): Promise<deleteGithubPatOverrideResponse> => {
-
+  
   return customInstance<deleteGithubPatOverrideResponse>(getDeleteGithubPatOverrideUrl(),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -2391,24 +2391,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteGithubPatOverride>>, void> = () => {
-
+          
 
           return  deleteGithubPatOverride(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteGithubPatOverrideMutationResult = NonNullable<Awaited<ReturnType<typeof deleteGithubPatOverride>>>
-
+    
     export type DeleteGithubPatOverrideMutationError = ErrorType<ErrorBody>
 
     /**
@@ -2436,7 +2436,7 @@ export type getGitnessConfigResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type getGitnessConfigResponseSuccess = (getGitnessConfigResponse200) & {
   headers: Headers;
 };
@@ -2449,19 +2449,19 @@ export type getGitnessConfigResponse = (getGitnessConfigResponseSuccess | getGit
 export const getGetGitnessConfigUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/gitness/config`
 }
 
 export const getGitnessConfig = async ( options?: RequestInit): Promise<getGitnessConfigResponse> => {
-
+  
   return customInstance<getGitnessConfigResponse>(getGetGitnessConfigUrl(),
-  {
+  {      
     ...options,
     method: 'GET'
-
-
+    
+    
   }
 );}
 
@@ -2475,7 +2475,7 @@ export const getGetGitnessConfigQueryKey = () => {
     ] as const;
     }
 
-
+    
 export const getGetGitnessConfigQueryOptions = <TData = Awaited<ReturnType<typeof getGitnessConfig>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
@@ -2483,13 +2483,13 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetGitnessConfigQueryKey();
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitnessConfig>>> = ({ signal }) => getGitnessConfig({ signal, ...requestOptions });
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
 }
@@ -2528,7 +2528,7 @@ export function useGetGitnessConfig<TData = Awaited<ReturnType<typeof getGitness
 
 export function useGetGitnessConfig<TData = Awaited<ReturnType<typeof getGitnessConfig>>, TError = ErrorType<ErrorBody>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitnessConfig>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
   const queryOptions = getGetGitnessConfigQueryOptions(options)
@@ -2567,7 +2567,7 @@ export type deleteGitnessConfigResponse401 = {
   data: ErrorBody
   status: 401
 }
-
+    
 export type deleteGitnessConfigResponseSuccess = (deleteGitnessConfigResponse200) & {
   headers: Headers;
 };
@@ -2580,19 +2580,19 @@ export type deleteGitnessConfigResponse = (deleteGitnessConfigResponseSuccess | 
 export const getDeleteGitnessConfigUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/gitness/config`
 }
 
 export const deleteGitnessConfig = async ( options?: RequestInit): Promise<deleteGitnessConfigResponse> => {
-
+  
   return customInstance<deleteGitnessConfigResponse>(getDeleteGitnessConfigUrl(),
-  {
+  {      
     ...options,
     method: 'DELETE'
-
-
+    
+    
   }
 );}
 
@@ -2610,24 +2610,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteGitnessConfig>>, void> = () => {
-
+          
 
           return  deleteGitnessConfig(requestOptions)
         }
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteGitnessConfigMutationResult = NonNullable<Awaited<ReturnType<typeof deleteGitnessConfig>>>
-
+    
     export type DeleteGitnessConfigMutationError = ErrorType<ErrorBody>
 
     /**
@@ -2655,7 +2655,7 @@ export type saveGitnessPatResponse400 = {
   data: ErrorBody
   status: 400
 }
-
+    
 export type saveGitnessPatResponseSuccess = (saveGitnessPatResponse200) & {
   headers: Headers;
 };
@@ -2668,15 +2668,15 @@ export type saveGitnessPatResponse = (saveGitnessPatResponseSuccess | saveGitnes
 export const getSaveGitnessPatUrl = () => {
 
 
-
+  
 
   return `/api/v1/settings/gitness/pat`
 }
 
 export const saveGitnessPat = async (saveGitnessPATRequest: SaveGitnessPATRequest, options?: RequestInit): Promise<saveGitnessPatResponse> => {
-
+  
   return customInstance<saveGitnessPatResponse>(getSaveGitnessPatUrl(),
-  {
+  {      
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2699,7 +2699,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
-
+      
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveGitnessPat>>, {data: SaveGitnessPATRequest}> = (props) => {
@@ -2710,7 +2710,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-
+        
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -2732,3 +2732,4 @@ export const useSaveGitnessPat = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getSaveGitnessPatMutationOptions(options), queryClient);
     }
+    

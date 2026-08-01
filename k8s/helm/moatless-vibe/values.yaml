@@ -771,10 +771,12 @@ kubernetes:
   #         npm_config_cache: /npm-cache
   sandboxCacheVolumes: []
   # -- Host root for node-local sandbox caches and best-effort hostPath storage
-  # (`workspaces/<task-id>` and `docker/<task-id>`). When node archive
-  # management is enabled, the janitor prunes old per-task directories here.
+  # (`workspaces/<task-id>`, `docker/<task-id>`,
+  # `build-cache/tasks/<task-id>`, and `build-cache/shared`). When node archive
+  # management is enabled, the janitor prunes old per-task directories here; the
+  # shared node build cache is deliberately not task-owned.
   sandboxCacheHostRoot: "/mnt/cache"
-  # -- Manage node-local workspace/Docker archives across pod lifecycles.
+  # -- Manage node-local workspace/Docker/task-build-cache archives across pod lifecycles.
   # When disabled, `node` storage still uses hostPath volumes, but the backend
   # does not create archive ConfigMaps, pin replacements to recorded nodes, or
   # run deterministic per-node cleanup. Enabling this also grants the backend
@@ -788,7 +790,8 @@ kubernetes:
   sandboxCacheInitImage: ""
   # -- Janitor that bounds managed node-local hostPath storage growth. It renders
   # only when nodeArchive.enabled is also true, runs on sandbox nodes, and
-  # deletes per-task workspace/docker directories older than retentionHours.
+  # deletes per-task workspace/docker/build-cache directories older than
+  # retentionHours.
   # S3 transcripts/workspaces remain the durable state.
   nodeStorageJanitor:
     enabled: true

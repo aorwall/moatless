@@ -305,9 +305,10 @@ pub struct SandboxConfig {
     /// Env `K8S_SANDBOX_PERSIST_TOOLCHAIN` (default `false`).
     pub persist_toolchain: bool,
     /// Point `CARGO_TARGET_DIR` at the `build-cache` volume so incremental
-    /// compiles survive container restarts (not pod replacement). Only enable
-    /// together with a `build_cache_size` sized for the repo's target dir —
-    /// overflowing the emptyDir limit evicts the pod. Env
+    /// compiles avoid the workspace volume. With the emptyDir backend, only
+    /// enable together with a `build_cache_size` sized for the repo's target dir
+    /// because overflowing the emptyDir limit evicts the pod. With the hostPath
+    /// backend, capacity is the node filesystem instead. Env
     /// `K8S_SANDBOX_CARGO_TARGET_ON_BUILD_CACHE` (default `false`).
     pub cargo_target_on_build_cache: bool,
     /// Whether PVC storage is enabled for sandbox pods

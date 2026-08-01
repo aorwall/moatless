@@ -15,11 +15,11 @@ export interface CreateTaskBindingRequest {
   /** @nullable */
   destinationConfig?: CreateTaskBindingRequestDestinationConfig;
   /** @nullable */
+  loopId?: string | null;
+  /** @nullable */
   metadata?: CreateTaskBindingRequestMetadata;
   /** @nullable */
   origin?: string | null;
   subjectKey: string;
   subjectKind: string;
-  /** @nullable */
-  triggerId?: string | null;
 }

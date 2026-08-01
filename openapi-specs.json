@@ -1364,17 +1364,17 @@
         }
       }
     },
-    "/api/v1/adapters/webhook/{trigger_id}": {
+    "/api/v1/adapters/webhook/{loop_id}": {
       "post": {
         "tags": [
           "adapters"
         ],
         "summary": "Take durable ownership of one inbound webhook delivery.",
-        "description": "Everything the caller is answered with is decided before any routing runs:\nthe delivery is verified, parsed, and written to the Adapter delivery seam,\nand only then acknowledged. A 200 therefore means the backend owns the delivery,\nnot that a Task exists — the Task is created later, by the worker, out of the\nrecord this wrote. Anything that failed to record reaches the caller as a\nfailure so its own retry is the recovery path.\n\nDeactivated triggers are rejected before admission. A trigger can also be\npaused or resynced after admission; the worker rechecks runnable state and\nthen terminates the durable delivery without creating a Task.",
+        "description": "Everything the caller is answered with is decided before any routing runs:\nthe delivery is verified, parsed, and written to the Adapter delivery seam,\nand only then acknowledged. A 200 therefore means the backend owns the delivery,\nnot that a Task exists — the Task is created later, by the worker, out of the\nrecord this wrote. Anything that failed to record reaches the caller as a\nfailure so its own retry is the recovery path.\n\nDeactivated loops are rejected before admission. A Loop can also be\npaused or resynced after admission; the worker rechecks runnable state and\nthen terminates the durable delivery without creating a Task.",
         "operationId": "webhook_inbound",
         "parameters": [
           {
-            "name": "trigger_id",
+            "name": "loop_id",
             "in": "path",
             "required": true,
             "schema": {
@@ -2993,6 +2993,87 @@
           },
           "502": {
             "description": "GitHub API error / no usable GitHub token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/github/repos/{owner}/{repo}/pulls/{number}/bind": {
+      "post": {
+        "tags": [
+          "github"
+        ],
+        "operationId": "bind_pr",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "description": "Repository owner (org or user)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "description": "Repository name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "description": "PR number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GithubBindPrRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pull request bound to task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubBindPrResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / adapter not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -10161,7 +10242,7 @@
         "required": [
           "name",
           "kind",
-          "rule",
+          "config",
           "source"
         ],
         "properties": {
@@ -10171,15 +10252,15 @@
               "null"
             ]
           },
+          "config": {
+            "$ref": "#/components/schemas/CreateLoopConfig"
+          },
           "kind": {
             "$ref": "#/components/schemas/LoopKind"
           },
           "name": {
             "type": "string",
             "description": "Human-readable name. Required and must not be blank."
-          },
-          "rule": {
-            "$ref": "#/components/schemas/CreateLoopConfig"
           },
           "scope": {
             "oneOf": [
@@ -10389,6 +10470,12 @@
               "null"
             ]
           },
+          "loopId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "metadata": {
             "type": [
               "object",
@@ -10406,12 +10493,6 @@
           },
           "subjectKind": {
             "type": "string"
-          },
-          "triggerId": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -11464,6 +11545,43 @@
           }
         }
       },
+      "GithubBindPrRequest": {
+        "type": "object",
+        "description": "`POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/bind` — bind an\nexisting PR to a task without mutating GitHub.",
+        "required": [
+          "taskId"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string"
+          }
+        }
+      },
+      "GithubBindPrResponse": {
+        "type": "object",
+        "description": "Response for binding an existing PR.",
+        "required": [
+          "number",
+          "htmlUrl"
+        ],
+        "properties": {
+          "bindingId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when the task binding upsert succeeded."
+          },
+          "htmlUrl": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "GithubCommentRequest": {
         "type": "object",
         "description": "`POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` —\npost a comment on a PR or issue (GitHub's issues API covers both).",
@@ -12102,12 +12220,15 @@
           "syncedFromGit",
           "deleted",
           "executionState",
-          "rule",
+          "config",
           "source"
         ],
         "properties": {
           "active": {
             "type": "boolean"
+          },
+          "config": {
+            "$ref": "#/components/schemas/LoopConfig"
           },
           "configSource": {
             "$ref": "#/components/schemas/LoopConfigSource"
@@ -12139,9 +12260,6 @@
               "string",
               "null"
             ]
-          },
-          "rule": {
-            "$ref": "#/components/schemas/LoopConfig"
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
@@ -12193,7 +12311,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Per-trigger inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`\nwhen this trigger spawns a task."
+            "description": "Per-Loop inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`\nwhen this Loop spawns a task."
           },
           "ongoingTaskId": {
             "type": [
@@ -12269,7 +12387,7 @@
               },
               {
                 "$ref": "#/components/schemas/TaskBindingResponse",
-                "description": "`None` for schedule triggers (no return-channel binding) and for\nadapter-event tasks that lost their original binding."
+                "description": "`None` for schedule loops (no return-channel binding) and for\nadapter-event tasks that lost their original binding."
               }
             ]
           },
@@ -12340,7 +12458,7 @@
       },
       "LoopSyncSummary": {
         "type": "object",
-        "description": "Summary of reconciling a repo's `.moatless/loops/` into the trigger tables.",
+        "description": "Summary of reconciling a repo's `.moatless/loops/` into Loop tables.",
         "required": [
           "created",
           "updated",
@@ -12360,7 +12478,7 @@
           "created": {
             "type": "integer",
             "format": "int32",
-            "description": "Loops inserted as new triggers.",
+            "description": "Loops inserted.",
             "minimum": 0
           },
           "overridesSkipped": {
@@ -12372,7 +12490,7 @@
           "removed": {
             "type": "integer",
             "format": "int32",
-            "description": "Loop triggers removed because their directory is gone.",
+            "description": "Loops removed because their directory is gone.",
             "minimum": 0
           },
           "skipped": {
@@ -12385,7 +12503,7 @@
           "updated": {
             "type": "integer",
             "format": "int32",
-            "description": "Existing loop triggers updated in place.",
+            "description": "Existing Loops updated in place.",
             "minimum": 0
           },
           "warnings": {
@@ -13271,6 +13389,27 @@
         "type": "object",
         "description": "Per-repository K8s resource requests/limits configuration.",
         "properties": {
+          "buildCache": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-repository size cap for the transient `build-cache` emptyDir mounted\nat `/opt/moatless/build-cache` (e.g. \"40Gi\"). Use with workspace env vars\nsuch as `CARGO_TARGET_DIR=/opt/moatless/build-cache/target` for large\nbuild artifacts that should not fill the workspace volume. Exceeding the\ncap gets the pod **evicted** by the kubelet. When unset, the global\n`K8S_SANDBOX_BUILD_CACHE_SIZE` default applies."
+          },
+          "buildCacheMode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Storage backend for the `build-cache` volume mounted at\n`/opt/moatless/build-cache`:\n- `\"emptyDir\"` (default) — node-local emptyDir capped by `buildCache`.\n- `\"node\"` — node-local hostPath under `K8S_SANDBOX_CACHE_HOST_ROOT`.\n  Kubernetes does not enforce `buildCache` as a size cap for this mode."
+          },
+          "buildCacheScope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Scope for `buildCacheMode: \"node\"`:\n- `\"task\"` (default) — per-task hostPath, cleaned up with the task.\n- `\"node\"` — shared by all sandboxes scheduled on the same node."
+          },
           "dockerStorage": {
             "type": [
               "string",
@@ -14502,7 +14641,7 @@
               },
               {
                 "$ref": "#/components/schemas/ResourceConfig",
-                "description": "Per-server resource requests/limits. Falls back to the repo-wide\n`resources` when unset. Only `requests`/`limits` apply; storage fields\nare repo-wide and ignored here."
+                "description": "Per-server resource requests/limits. Falls back to the repo-wide\n`resources` when unset. Only `requests`/`limits` apply; storage/cache\nfields are repo-wide and ignored here."
               }
             ]
           },
@@ -15237,6 +15376,12 @@
               "null"
             ]
           },
+          "loopId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "metadata": {
             "type": "object"
           },
@@ -15251,12 +15396,6 @@
           },
           "taskId": {
             "type": "string"
-          },
-          "triggerId": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -15264,7 +15403,7 @@
         "type": "object",
         "description": "External adapter binding summary attached to a task response.",
         "required": [
-          "triggerId",
+          "loopId",
           "adapterKind",
           "sourceId"
         ],
@@ -15292,6 +15431,9 @@
               "null"
             ],
             "description": "ISO-8601 timestamp of the last event seen on the binding."
+          },
+          "loopId": {
+            "type": "string"
           },
           "origin": {
             "type": [
@@ -15323,9 +15465,6 @@
             ],
             "format": "int32",
             "description": "Deprecated legacy thread identifier. Canonical callers should use\n`binding_id`, which carries the task binding id."
-          },
-          "triggerId": {
-            "type": "string"
           }
         }
       },
@@ -16449,14 +16588,7 @@
       "UpdateLoopRequest": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Rename the Loop. Omit to keep the current name; a name cannot be cleared."
-          },
-          "rule": {
+          "config": {
             "oneOf": [
               {
                 "type": "null"
@@ -16465,6 +16597,13 @@
                 "$ref": "#/components/schemas/UpdateLoopConfig"
               }
             ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Rename the Loop. Omit to keep the current name; a name cannot be cleared."
           },
           "scope": {
             "oneOf": [

@@ -22,8 +22,8 @@ use tracing::info;
 use super::client::K8sClient;
 use super::naming::sanitize_k8s_name;
 use crate::config::Config;
-use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 use crate::sandbox::lifecycle::RuntimeError;
+use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
 
 const CLEANUP_MOUNT_PATH: &str = "/host-cache";
 const CLEANUP_TIMEOUT: Duration = Duration::from_mins(5);
@@ -111,12 +111,7 @@ pub(crate) fn pod_uses_node_archives(pod: &Pod) -> bool {
     pod.spec
         .as_ref()
         .and_then(|spec| spec.volumes.as_ref())
-        .is_some_and(|volumes| {
-            volumes.iter().any(|volume| {
-                matches!(volume.name.as_str(), "workspace-data" | "docker-storage")
-                    && volume.host_path.is_some()
-            })
-        })
+        .is_some_and(|volumes| volumes.iter().any(volume_uses_task_scoped_node_archive))
 }
 
 pub(crate) fn deployment_uses_node_archives(deployment: &Deployment) -> bool {
@@ -125,12 +120,18 @@ pub(crate) fn deployment_uses_node_archives(deployment: &Deployment) -> bool {
         .as_ref()
         .and_then(|spec| spec.template.spec.as_ref())
         .and_then(|spec| spec.volumes.as_ref())
-        .is_some_and(|volumes| {
-            volumes.iter().any(|volume| {
-                matches!(volume.name.as_str(), "workspace-data" | "docker-storage")
-                    && volume.host_path.is_some()
-            })
-        })
+        .is_some_and(|volumes| volumes.iter().any(volume_uses_task_scoped_node_archive))
+}
+
+fn volume_uses_task_scoped_node_archive(volume: &Volume) -> bool {
+    let Some(host_path) = volume.host_path.as_ref() else {
+        return false;
+    };
+    match volume.name.as_str() {
+        "workspace-data" | "docker-storage" => true,
+        "build-cache" => host_path.path.contains("/build-cache/tasks/"),
+        _ => false,
+    }
 }
 
 /// Merge one observation without allowing an older watcher event to lower the
@@ -409,8 +410,7 @@ fn build_cleanup_pod(
                 image_pull_policy: Some(image_pull_policy.to_string()),
                 command: Some(vec!["/bin/sh".to_string(), "-c".to_string()]),
                 args: Some(vec![
-                    "rm -rf -- \"/host-cache/workspaces/$TASK_ID\" \"/host-cache/docker/$TASK_ID\""
-                        .to_string(),
+                    "rm -rf -- \"/host-cache/workspaces/$TASK_ID\" \"/host-cache/docker/$TASK_ID\" \"/host-cache/build-cache/tasks/$TASK_ID\"".to_string(),
                 ]),
                 env: Some(vec![k8s_openapi::api::core::v1::EnvVar {
                     name: "TASK_ID".to_string(),
@@ -626,21 +626,52 @@ mod tests {
         assert_eq!(security.run_as_user, Some(0));
         assert_eq!(security.privileged, Some(false));
         assert_eq!(security.allow_privilege_escalation, Some(false));
-        assert!(security
-            .capabilities
-            .as_ref()
-            .and_then(|capabilities| capabilities.drop.as_ref())
-            .is_some_and(|drop| drop == &["ALL".to_string()]));
-        assert!(security
-            .capabilities
-            .as_ref()
-            .and_then(|capabilities| capabilities.add.as_ref())
-            .is_some_and(|add| add == &["DAC_OVERRIDE".to_string()]));
-        assert!(!pod
-            .metadata
-            .labels
-            .as_ref()
-            .is_some_and(|labels| labels.contains_key("moatless.io/task-id")));
+        assert!(
+            security
+                .capabilities
+                .as_ref()
+                .and_then(|capabilities| capabilities.drop.as_ref())
+                .is_some_and(|drop| drop == &["ALL".to_string()])
+        );
+        assert!(
+            security
+                .capabilities
+                .as_ref()
+                .and_then(|capabilities| capabilities.add.as_ref())
+                .is_some_and(|add| add == &["DAC_OVERRIDE".to_string()])
+        );
+        assert!(
+            !pod.metadata
+                .labels
+                .as_ref()
+                .is_some_and(|labels| labels.contains_key("moatless.io/task-id"))
+        );
+        assert!(
+            container
+                .args
+                .as_ref()
+                .is_some_and(|args| args[0].contains("/host-cache/build-cache/tasks/$TASK_ID"))
+        );
+    }
+
+    #[test]
+    fn task_scoped_build_cache_uses_node_archives_but_shared_cache_does_not() {
+        assert!(volume_uses_task_scoped_node_archive(&Volume {
+            name: "build-cache".to_string(),
+            host_path: Some(HostPathVolumeSource {
+                path: "/mnt/cache/build-cache/tasks/task-1".to_string(),
+                type_: Some("DirectoryOrCreate".to_string()),
+            }),
+            ..Default::default()
+        }));
+        assert!(!volume_uses_task_scoped_node_archive(&Volume {
+            name: "build-cache".to_string(),
+            host_path: Some(HostPathVolumeSource {
+                path: "/mnt/cache/build-cache/shared".to_string(),
+                type_: Some("DirectoryOrCreate".to_string()),
+            }),
+            ..Default::default()
+        }));
     }
 
     #[test]

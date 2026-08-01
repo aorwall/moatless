@@ -27,6 +27,7 @@ export interface TaskBindingSummary {
    * @nullable
    */
   lastEventAt?: string | null;
+  loopId: string;
   /**
    * Binding origin (e.g. `ingress`, `direct_send`, `scheduled_job`).
    * @nullable
@@ -46,5 +47,4 @@ export interface TaskBindingSummary {
    * @nullable
    */
   threadId?: number | null;
-  triggerId: string;
 }

@@ -999,7 +999,7 @@ module owning them is named for the rows that dominate it.
   same gap existed before this change (the carrier row was a `system` Message, which moved no listing
   row either), so it is not a regression; it is simply still there.
 - **~~`get_subagent_aggregates` reads rows Decision 13 deletes.~~ Answered: a third table.** Usage is
-  admitted against the Message's uuid in `task_message_usage` (migration `0118`,
+  admitted against the Message's uuid in `task_message_usage` (migration `0119`,
   `activities::admit_usage`), and `get_subagent_aggregates` sums that instead of `task_messages`. A turn
   that only called tools reports almost all of a subagent's tokens and has no Message row to hang them
   on, so neither the row nor the activity was the right carrier. Step 2 of the runbook backfills it

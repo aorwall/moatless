@@ -13,6 +13,32 @@ import type { ResourceConfigRequests } from './resourceConfigRequests';
  */
 export interface ResourceConfig {
   /**
+   * Per-repository size cap for the transient `build-cache` emptyDir mounted
+at `/opt/moatless/build-cache` (e.g. "40Gi"). Use with workspace env vars
+such as `CARGO_TARGET_DIR=/opt/moatless/build-cache/target` for large
+build artifacts that should not fill the workspace volume. Exceeding the
+cap gets the pod **evicted** by the kubelet. When unset, the global
+`K8S_SANDBOX_BUILD_CACHE_SIZE` default applies.
+   * @nullable
+   */
+  buildCache?: string | null;
+  /**
+   * Storage backend for the `build-cache` volume mounted at
+`/opt/moatless/build-cache`:
+- `"emptyDir"` (default) — node-local emptyDir capped by `buildCache`.
+- `"node"` — node-local hostPath under `K8S_SANDBOX_CACHE_HOST_ROOT`.
+  Kubernetes does not enforce `buildCache` as a size cap for this mode.
+   * @nullable
+   */
+  buildCacheMode?: string | null;
+  /**
+   * Scope for `buildCacheMode: "node"`:
+- `"task"` (default) — per-task hostPath, cleaned up with the task.
+- `"node"` — shared by all sandboxes scheduled on the same node.
+   * @nullable
+   */
+  buildCacheScope?: string | null;
+  /**
    * Per-repository size cap for the `dind` sidecar's `/var/lib/docker`
 emptyDir (e.g. "50Gi"). Only meaningful for repos with `dockerAccess`
 and `dockerStorageMode: "emptyDir"`. Exceeding the cap gets the pod

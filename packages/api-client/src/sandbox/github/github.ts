@@ -17,6 +17,8 @@ import type {
 
 import type {
   ErrorBody,
+  GithubBindPrRequest,
+  GithubBindPrResponse,
   GithubCommentRequest,
   GithubCommentResponse,
   GithubCreatePrRequest,
@@ -229,6 +231,99 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getCreatePrMutationOptions(options), queryClient);
+    }
+    export type bindPrResponse200 = {
+  data: GithubBindPrResponse
+  status: 200
+}
+
+export type bindPrResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type bindPrResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type bindPrResponseSuccess = (bindPrResponse200) & {
+  headers: Headers;
+};
+export type bindPrResponseError = (bindPrResponse400 | bindPrResponse404) & {
+  headers: Headers;
+};
+
+export type bindPrResponse = (bindPrResponseSuccess | bindPrResponseError)
+
+export const getBindPrUrl = (owner: string,
+    repo: string,
+    number: number,) => {
+
+
+  
+
+  return `/api/v1/github/repos/${owner}/${repo}/pulls/${number}/bind`
+}
+
+export const bindPr = async (owner: string,
+    repo: string,
+    number: number,
+    githubBindPrRequest: GithubBindPrRequest, options?: RequestInit): Promise<bindPrResponse> => {
+  
+  return customInstance<bindPrResponse>(getBindPrUrl(owner,repo,number),
+  {      
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      githubBindPrRequest,)
+  }
+);}
+
+
+
+
+export const getBindPrMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bindPr>>, TError,{owner: string;repo: string;number: number;data: GithubBindPrRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof bindPr>>, TError,{owner: string;repo: string;number: number;data: GithubBindPrRequest}, TContext> => {
+
+const mutationKey = ['bindPr'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bindPr>>, {owner: string;repo: string;number: number;data: GithubBindPrRequest}> = (props) => {
+          const {owner,repo,number,data} = props ?? {};
+
+          return  bindPr(owner,repo,number,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BindPrMutationResult = NonNullable<Awaited<ReturnType<typeof bindPr>>>
+    export type BindPrMutationBody = GithubBindPrRequest
+    export type BindPrMutationError = ErrorType<ErrorBody>
+
+    export const useBindPr = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bindPr>>, TError,{owner: string;repo: string;number: number;data: GithubBindPrRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof bindPr>>,
+        TError,
+        {owner: string;repo: string;number: number;data: GithubBindPrRequest},
+        TContext
+      > => {
+      return useMutation(getBindPrMutationOptions(options), queryClient);
     }
     export type replyToReviewCommentResponse200 = {
   data: GithubCommentResponse

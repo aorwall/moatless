@@ -112,7 +112,7 @@ spec:
               }
 
               while true; do
-                for dir in /host-cache/workspaces /host-cache/docker; do
+                for dir in /host-cache/workspaces /host-cache/docker /host-cache/build-cache/tasks; do
                   mkdir -p "$dir"
                   find "$dir" -mindepth 1 -maxdepth 1 -type d -mmin +"$retention_minutes" -print | while IFS= read -r path; do
                     task_id="$(basename "$path")"

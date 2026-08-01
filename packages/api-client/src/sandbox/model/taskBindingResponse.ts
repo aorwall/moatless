@@ -21,11 +21,11 @@ export interface TaskBindingResponse {
   lastEventAt: string;
   /** @nullable */
   lastExternalEventId?: string | null;
+  /** @nullable */
+  loopId?: string | null;
   metadata: TaskBindingResponseMetadata;
   origin: string;
   subjectKey: string;
   subjectKind: string;
   taskId: string;
-  /** @nullable */
-  triggerId?: string | null;
 }

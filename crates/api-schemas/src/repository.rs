@@ -24,6 +24,26 @@ pub struct ResourceConfig {
     /// into container resource specs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+    /// Per-repository size cap for the transient `build-cache` emptyDir mounted
+    /// at `/opt/moatless/build-cache` (e.g. "40Gi"). Use with workspace env vars
+    /// such as `CARGO_TARGET_DIR=/opt/moatless/build-cache/target` for large
+    /// build artifacts that should not fill the workspace volume. Exceeding the
+    /// cap gets the pod **evicted** by the kubelet. When unset, the global
+    /// `K8S_SANDBOX_BUILD_CACHE_SIZE` default applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache: Option<String>,
+    /// Storage backend for the `build-cache` volume mounted at
+    /// `/opt/moatless/build-cache`:
+    /// - `"emptyDir"` (default) — node-local emptyDir capped by `buildCache`.
+    /// - `"node"` — node-local hostPath under `K8S_SANDBOX_CACHE_HOST_ROOT`.
+    ///   Kubernetes does not enforce `buildCache` as a size cap for this mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache_mode: Option<String>,
+    /// Scope for `buildCacheMode: "node"`:
+    /// - `"task"` (default) — per-task hostPath, cleaned up with the task.
+    /// - `"node"` — shared by all sandboxes scheduled on the same node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cache_scope: Option<String>,
     /// Per-repository storage tier. One of [`STORAGE_MODES`]:
     /// - `"ebs"` (default) — a per-task EBS PVC mounted at `/opt/moatless`,
     ///   surviving pod restarts.
@@ -58,6 +78,8 @@ pub struct ResourceConfig {
 /// fallback; the effective default for repos that leave `storage_mode` unset is
 /// set per-deployment via `K8S_SANDBOX_DEFAULT_STORAGE_MODE`.
 pub const STORAGE_MODES: [&str; 4] = ["ebs", "ephemeral", "s3", "node"];
+pub const BUILD_CACHE_MODES: [&str; 2] = ["emptyDir", "node"];
+pub const BUILD_CACHE_SCOPES: [&str; 2] = ["task", "node"];
 pub const DOCKER_STORAGE_MODES: [&str; 2] = ["emptyDir", "node"];
 
 /// Whether `mode` is a recognized [`ResourceConfig::storage_mode`] value.
@@ -76,6 +98,19 @@ pub fn is_valid_docker_storage_mode(mode: &str) -> bool {
         mode.trim().to_ascii_lowercase().as_str(),
         "emptydir" | "node"
     )
+}
+
+#[must_use]
+pub fn is_valid_build_cache_mode(mode: &str) -> bool {
+    matches!(
+        mode.trim().to_ascii_lowercase().as_str(),
+        "emptydir" | "node"
+    )
+}
+
+#[must_use]
+pub fn is_valid_build_cache_scope(scope: &str) -> bool {
+    matches!(scope.trim().to_ascii_lowercase().as_str(), "task" | "node")
 }
 
 // =============================================================================
@@ -109,8 +144,8 @@ pub struct ServerConfig {
     #[serde(default)]
     pub env_vars: Option<HashMap<String, String>>,
     /// Per-server resource requests/limits. Falls back to the repo-wide
-    /// `resources` when unset. Only `requests`/`limits` apply; storage fields
-    /// are repo-wide and ignored here.
+    /// `resources` when unset. Only `requests`/`limits` apply; storage/cache
+    /// fields are repo-wide and ignored here.
     #[serde(default)]
     pub resources: Option<ResourceConfig>,
 }
@@ -228,11 +263,23 @@ mod tests {
     #[test]
     fn resource_config_serializes_docker_storage_as_camel_case() {
         let cfg = ResourceConfig {
+            build_cache: Some("40Gi".to_string()),
+            build_cache_mode: Some("node".to_string()),
+            build_cache_scope: Some("task".to_string()),
             docker_storage: Some("50Gi".to_string()),
             docker_storage_mode: Some("node".to_string()),
             ..Default::default()
         };
         let value = serde_json::to_value(&cfg).expect("serialize ResourceConfig");
+        assert_eq!(value.get("buildCache"), Some(&serde_json::json!("40Gi")));
+        assert_eq!(
+            value.get("buildCacheMode"),
+            Some(&serde_json::json!("node"))
+        );
+        assert_eq!(
+            value.get("buildCacheScope"),
+            Some(&serde_json::json!("task"))
+        );
         assert_eq!(value.get("dockerStorage"), Some(&serde_json::json!("50Gi")));
         assert_eq!(
             value.get("dockerStorageMode"),
@@ -246,6 +293,37 @@ mod tests {
             value.get("docker_storage_mode").is_none(),
             "snake_case key must not be emitted"
         );
+        assert!(
+            value.get("build_cache").is_none(),
+            "snake_case key must not be emitted"
+        );
+        assert!(
+            value.get("build_cache_mode").is_none(),
+            "snake_case key must not be emitted"
+        );
+        assert!(
+            value.get("build_cache_scope").is_none(),
+            "snake_case key must not be emitted"
+        );
+    }
+
+    #[test]
+    fn resource_config_deserializes_camel_case_build_cache() {
+        let cfg: ResourceConfig =
+            serde_json::from_value(serde_json::json!({ "buildCache": "40Gi" }))
+                .expect("deserialize ResourceConfig");
+        assert_eq!(cfg.build_cache.as_deref(), Some("40Gi"));
+    }
+
+    #[test]
+    fn resource_config_deserializes_camel_case_build_cache_mode_and_scope() {
+        let cfg: ResourceConfig = serde_json::from_value(serde_json::json!({
+            "buildCacheMode": "node",
+            "buildCacheScope": "task"
+        }))
+        .expect("deserialize ResourceConfig");
+        assert_eq!(cfg.build_cache_mode.as_deref(), Some("node"));
+        assert_eq!(cfg.build_cache_scope.as_deref(), Some("task"));
     }
 
     #[test]
@@ -294,5 +372,23 @@ mod tests {
         assert!(is_valid_docker_storage_mode("  EMPTYDIR "));
         assert!(!is_valid_docker_storage_mode("s3"));
         assert!(!is_valid_docker_storage_mode(""));
+    }
+
+    #[test]
+    fn build_cache_mode_validation_accepts_known_and_normalizes() {
+        assert!(is_valid_build_cache_mode("node"));
+        assert!(is_valid_build_cache_mode("emptyDir"));
+        assert!(is_valid_build_cache_mode("  EMPTYDIR "));
+        assert!(!is_valid_build_cache_mode("s3"));
+        assert!(!is_valid_build_cache_mode(""));
+    }
+
+    #[test]
+    fn build_cache_scope_validation_accepts_known_and_normalizes() {
+        assert!(is_valid_build_cache_scope("task"));
+        assert!(is_valid_build_cache_scope("node"));
+        assert!(is_valid_build_cache_scope("  NODE "));
+        assert!(!is_valid_build_cache_scope("shared"));
+        assert!(!is_valid_build_cache_scope(""));
     }
 }

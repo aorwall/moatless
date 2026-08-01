@@ -14,6 +14,7 @@ import type { Scope } from './scope';
 
 export interface Loop {
   active: boolean;
+  config: LoopConfig;
   configSource: LoopConfigSource;
   createdAt: string;
   createdBy: string;
@@ -26,7 +27,6 @@ comes from the `name` frontmatter of `.moatless/loops/<dir>/LOOP.md`. */
   name: string;
   /** @nullable */
   ownerUserId?: string | null;
-  config: LoopConfig;
   scope: Scope;
   source: LoopSource;
   /** @nullable */

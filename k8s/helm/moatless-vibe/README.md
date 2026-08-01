@@ -236,7 +236,7 @@ so it is never configured twice.
 | `kubernetes.sandboxStorage.defaultMode` | Default workspace tier (`ebs`/`ephemeral`/`s3`/`node`) | `s3` |
 | `kubernetes.nodeArchive.enabled` | Track, retain, and clean node-local archives | `false` |
 | `kubernetes.imagePrepull.enabled` | DaemonSet that pre-pulls the sandbox image | `true` |
-| `kubernetes.nodeStorageJanitor.enabled` | Per-node cleanup of stale workspace/docker dirs when node archives are enabled | `true` |
+| `kubernetes.nodeStorageJanitor.enabled` | Per-node cleanup of stale workspace/docker/task build-cache dirs when node archives are enabled | `true` |
 
 #### Claude transcript persistence on S3
 
@@ -282,6 +282,16 @@ images, and volumes can survive stop/start on the same node. Use
 `dockerStorageMode: "emptyDir"` plus `dockerStorage` when you need a hard
 Kubernetes size cap instead.
 
+Build-cache storage is controlled with `buildCacheMode`. The default
+`buildCacheMode: "emptyDir"` keeps `/opt/moatless/build-cache` as an emptyDir
+capped by `buildCache` or `K8S_SANDBOX_BUILD_CACHE_SIZE`. Set
+`buildCacheMode: "node"` to use hostPath storage under
+`K8S_SANDBOX_CACHE_HOST_ROOT/build-cache`. `buildCacheScope: "task"` stores each
+task under `build-cache/tasks/<task-id>` and is cleaned with the task; use
+`buildCacheScope: "node"` to share one cache across all sandboxes scheduled on
+the same Kubernetes node. HostPath build caches have no Kubernetes
+`emptyDir.sizeLimit`; they are bounded by node disk capacity and cleanup policy.
+
 Set `kubernetes.nodeArchive.enabled=true` (environment variable
 `K8S_SANDBOX_NODE_ARCHIVE_ENABLED=true`) to manage node storage across
 lifecycles. The backend then records scheduled nodes and operation generations
@@ -303,6 +313,8 @@ Declaratively via `.moatless/config.json`, then sync:
   "resources": {
     "storageMode": "s3",
     "storage": "30Gi",
+    "buildCacheMode": "node",
+    "buildCacheScope": "task",
     "dockerStorageMode": "node",
     "dockerStorage": "30Gi"
   }

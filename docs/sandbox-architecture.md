@@ -749,9 +749,14 @@ The base image (`Dockerfile.sandbox-base`) bakes a full Rust toolchain
   multiple Gi on top of the default 3Gi workspace.
 - `K8S_SANDBOX_CARGO_TARGET_ON_BUILD_CACHE=true` (default off) sets
   `CARGO_TARGET_DIR=/opt/moatless/build-cache/target` so incremental compiles
-  survive container restarts. Raise `K8S_SANDBOX_BUILD_CACHE_SIZE` (default
-  `1536Mi`) to fit the repo's target dir first — overflowing the emptyDir
-  limit evicts the pod.
+  avoid the workspace volume. With the default `buildCacheMode: "emptyDir"`,
+  raise `resources.buildCache` on the workspace or the deployment-wide
+  `K8S_SANDBOX_BUILD_CACHE_SIZE` (default `1536Mi`) to fit the repo's target dir
+  first — overflowing the emptyDir limit evicts the pod. For large Rust targets,
+  use `buildCacheMode: "node"` and choose `buildCacheScope: "task"` (per-task
+  hostPath, cleaned up with the task) or `"node"` (shared by all sandboxes on
+  the same node). Kubernetes does not enforce `resources.buildCache` as a size
+  cap for hostPath; capacity is the node filesystem.
 
 **Sizing Rust-heavy repos**: a full `cargo build` of a multi-crate workspace
 peaks around 5 GiB of RSS and grows `target/` past several Gi, so a sandbox on
@@ -760,22 +765,29 @@ the deployment defaults is prone to two evictions: node-pressure eviction
 `Usage of EmptyDir volume 'workspace-data' exceeds the limit` (the workspace
 volume fills with build artifacts). Give such repos an explicit per-repo
 `resources` block — via the `.moatless/workspaces.json` entry (git-synced) or
-the workspace API — with a raised memory request/limit and a sized `storage`,
-for example:
+the workspace API — with a raised memory request/limit, sized `storage`, and a
+large transient `buildCache`, for example:
 
 ```json
 "resources": {
   "requests": { "cpu": "1", "memory": "4Gi" },
   "limits":   { "cpu": "4", "memory": "8Gi" },
-  "storage":  "20Gi"
+  "storage":  "20Gi",
+  "buildCacheMode": "node",
+  "buildCacheScope": "task"
+},
+"envVars": {
+  "CARGO_TARGET_DIR": "/opt/moatless/build-cache/target",
+  "TMPDIR": "/opt/moatless/build-cache"
 }
 ```
 
 The container's requests/limits are copied **verbatim** from this block
 (`pod_builder.rs`). Note it is all-or-nothing: a `resources` block that sets
-only `storage`/`dockerStorage` and omits `requests`/`limits` leaves the sandbox
-container **BestEffort** (no env-default fallback) — the first OOM/eviction
-target — so always pair a `storage` override with explicit `requests`/`limits`.
+only `storage`/`buildCache`/`dockerStorage` and omits `requests`/`limits` leaves
+the sandbox container **BestEffort** (no env-default fallback) — the first
+OOM/eviction target — so always pair storage/cache overrides with explicit
+`requests`/`limits`.
 
 ### User
 

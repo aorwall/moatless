@@ -13,10 +13,10 @@ import type { Scope } from './scope';
 export interface CreateLoopRequest {
   /** @nullable */
   active?: boolean | null;
+  config: CreateLoopConfig;
   kind: LoopKind;
   /** Human-readable name. Required and must not be blank. */
   name: string;
-  config: CreateLoopConfig;
   scope?: null | Scope;
   source: CreateLoopSource;
 }

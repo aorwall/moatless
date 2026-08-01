@@ -114,6 +114,8 @@ export * from './getTaskConnectionsParams';
 export * from './gitHubAppOption';
 export * from './gitHubAppRegistrationResponse';
 export * from './gitHubAppsResponse';
+export * from './githubBindPrRequest';
+export * from './githubBindPrResponse';
 export * from './githubCommentRequest';
 export * from './githubCommentResponse';
 export * from './gitHubConfigResponse';
