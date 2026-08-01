@@ -32,6 +32,29 @@ async fn task_is_closed(state: &AppState, task_id: &str) -> bool {
     }
 }
 
+fn attached_file_ids(file_ids: &[String], contexts: &[MessageContextInput]) -> Vec<String> {
+    let mut attached = Vec::new();
+
+    for file_id in file_ids {
+        if !file_id.is_empty() && !attached.contains(file_id) {
+            attached.push(file_id.clone());
+        }
+    }
+
+    for context in contexts {
+        match context {
+            MessageContextInput::File { reference_id, .. }
+                if !reference_id.is_empty() && !attached.contains(reference_id) =>
+            {
+                attached.push(reference_id.clone());
+            }
+            _ => {}
+        }
+    }
+
+    attached
+}
+
 /// The main message flow — called by message handlers, task creation, and external inbound.
 #[allow(clippy::too_many_arguments)]
 pub async fn send_message_flow(
@@ -161,13 +184,14 @@ pub async fn send_message_flow(
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = message_uuid.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let normalized_file_ids = attached_file_ids(file_ids, contexts);
 
     // Persist the attached file IDs so the sandbox can fetch them via gRPC
     // before invoking the agent.
-    let attachments = if file_ids.is_empty() {
+    let attachments = if normalized_file_ids.is_empty() {
         None
     } else {
-        Some(serde_json::json!({ "file_ids": file_ids }))
+        Some(serde_json::json!({ "file_ids": &normalized_file_ids }))
     };
 
     let msg_row = TaskMessage {
@@ -228,8 +252,12 @@ pub async fn send_message_flow(
     // file contexts so the read path can surface uploaded files alongside the
     // other context items. The `attachments` JSON column is still written
     // above for the sandbox gRPC pre-fetch path.
-    let mut all_contexts: Vec<MessageContextInput> = contexts.to_vec();
-    for file_id in file_ids {
+    let mut all_contexts: Vec<MessageContextInput> = contexts
+        .iter()
+        .filter(|context| !matches!(context, MessageContextInput::File { .. }))
+        .cloned()
+        .collect();
+    for file_id in &normalized_file_ids {
         let data = match state.files.find_by_id(file_id).await {
             Ok(Some(meta)) => FileContextData {
                 filename: meta.filename,
@@ -575,6 +603,43 @@ pub async fn send_tool_response_flow(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn attached_file_ids_include_file_context_references() {
+        let contexts = vec![MessageContextInput::File {
+            reference_id: "ctx-file".to_string(),
+            data: FileContextData {
+                filename: "screenshot.png".to_string(),
+                mime_type: "image/png".to_string(),
+                size: 128,
+            },
+        }];
+
+        assert_eq!(attached_file_ids(&[], &contexts), vec!["ctx-file"]);
+    }
+
+    #[test]
+    fn attached_file_ids_dedupe_explicit_and_context_references() {
+        let explicit = vec!["explicit-file".to_string(), "ctx-file".to_string()];
+        let contexts = vec![
+            MessageContextInput::File {
+                reference_id: "ctx-file".to_string(),
+                data: FileContextData::default(),
+            },
+            MessageContextInput::PreviewUrl {
+                reference_id: "preview".to_string(),
+                data: crate::task::schemas::PreviewUrlContextData {
+                    path: "/".to_string(),
+                    url: None,
+                },
+            },
+        ];
+
+        assert_eq!(
+            attached_file_ids(&explicit, &contexts),
+            vec!["explicit-file", "ctx-file"]
+        );
+    }
 
     /// A resumed session has no memory of having asked: the CLI drops an
     /// unanswered call on resume and the text around it with it. So the answer
