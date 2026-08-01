@@ -161,7 +161,7 @@ async fn listing_change_count(pool: &PgPool, task_id: &str) -> i64 {
         .unwrap()
 }
 
-/// What the person wrote, which is the Message itself now — prose lives on the
+/// What the person wrote, which is the Message itself now — text lives on the
 /// row, so there is no block list to reassemble it from.
 async fn message_text(pool: &PgPool, uuid: &str) -> Option<String> {
     sqlx::query_scalar("SELECT message_text FROM task_messages WHERE uuid = $1")

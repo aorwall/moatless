@@ -1,6 +1,6 @@
 //! What *happened* in a conversation, as rows.
 //!
-//! A Message is what somebody said — a role and prose. An activity is everything
+//! A Message is what somebody said — a role and text. An activity is everything
 //! on the way there: a tool call carrying its own outcome, a stretch of thinking,
 //! a Sandbox status change, a Sandbox error. An activity is identified by where
 //! it came from rather than by when it was written —

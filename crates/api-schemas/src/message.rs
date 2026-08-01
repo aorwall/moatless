@@ -226,7 +226,7 @@ pub struct PendingMessageItem {
     pub uuid: String,
     pub message_type: MessageType,
     pub timestamp: String,
-    /// What the person wrote, as prose.
+    /// What the person wrote, as text.
     // Not a block list: the enrichment the agent sees is rebuilt at delivery
     // time and was never part of this.
     #[serde(skip_serializing_if = "Option::is_none")]

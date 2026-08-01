@@ -55,7 +55,7 @@ impl Activity {
 
     /// The transport's structured view of the outcome, where it reported one.
     /// This is what `enrich_codex_typed_result` validates; the block content
-    /// `result()` returns is the prose the tool printed.
+    /// `result()` returns is the text the tool printed.
     pub fn typed_result(&self) -> Option<&Value> {
         self.payload.get("typedResult")
     }

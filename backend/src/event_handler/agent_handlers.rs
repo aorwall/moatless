@@ -674,7 +674,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
 
     // Per-block source events carry `blockIndex` plus a single-block content
     // array. The block index is the stable identity for conversation mapping:
-    // it determines the activity id and prose slot without reading the current
+    // it determines the activity id and text slot without reading the current
     // Message row back first. Coalesced events carry the whole content array,
     // whose first block is at index 0.
     let block_index = event
@@ -776,7 +776,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         request_id: None,
         timestamp: event.timestamp.clone(),
         message_role,
-        // Left unset: the prose is spliced in block by block by the append
+        // Left unset: the text is spliced in block by block by the append
         // itself, from `conversation.text`, and the insert must not overwrite
         // what earlier blocks already put there.
         message_text: None,

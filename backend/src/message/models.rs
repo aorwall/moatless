@@ -48,7 +48,7 @@ pub struct TaskMessage {
     pub request_id: Option<String>,
     pub timestamp: String,
     pub message_role: MessageRole,
-    /// What was said, as prose. `None` for a Message with no prose — which
+    /// What was said, as text. `None` for a Message with no text — which
     /// after the conversation split is a row that should not exist, and does
     /// only where something wrote one before its text arrived.
     pub message_text: Option<String>,
@@ -69,7 +69,7 @@ pub struct TaskMessage {
     pub tool_use_result: Option<serde_json::Value>,
     /// A person's answer to an interactive tool call, with its structure intact:
     /// `{toolUseId, toolName, answers?, approved?, feedback?}`. What reaches the
-    /// sandbox as a prompt response rather than as prose. `None` unless this row
+    /// sandbox as a prompt response rather than as text. `None` unless this row
     /// is a tool response.
     pub tool_response: Option<serde_json::Value>,
     pub sdk_metadata: Option<serde_json::Value>,

@@ -331,7 +331,7 @@ fn agent_message_and_reasoning_are_ordered_assistant_text_blocks() {
     let events = drain(&mut p);
     let s = sources(&events);
     assert_eq!(s.len(), 2);
-    // Reasoning and prose both normalize to renderable assistant text, in order.
+    // Reasoning and answer both normalize to renderable assistant text, in order.
     assert_eq!(s[0].block_json()["type"], "text");
     assert_eq!(
         s[0].block_json()["text"],

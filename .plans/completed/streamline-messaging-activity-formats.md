@@ -12,7 +12,7 @@ The current solution already separates what somebody said from what happened on 
 
 | Area | Current behaviour | Evidence |
 |---|---|---|
-| Stored user and assistant prose | `task_messages.message_text` stores prose. It is not the pre-rendered prompt sent to the agent. | `backend/migrations/0118_task_activities.sql:103`, `backend/src/message/models.rs:51` |
+| Stored user and assistant text | `task_messages.message_text` stores text. It is not the pre-rendered prompt sent to the agent. | `backend/migrations/0118_task_activities.sql:103`, `backend/src/message/models.rs:51` |
 | Stored tool and runtime work | `task_activities` stores tool calls, thinking, sandbox status, sandbox errors, activity identity, status, payload, preview detail, and stream position. | `backend/migrations/0118_task_activities.sql:13`, `backend/src/task_activities/mod.rs:1` |
 | Pending input durability | Pending user messages remain rows in `task_messages` until the sandbox acknowledges them after harness acceptance. | `backend/src/message/send.rs:261`, `backend/src/sandbox/grpc_server.rs:999`, `sandbox/src/agent/dispatcher.rs:180` |
 | Agent event ingress | `agent.message` payload durability is the ingress outbox until the conversation write commits. `task_events` no longer carries message skeletons. | `backend/src/event_ingress/mod.rs:9` |
@@ -24,7 +24,7 @@ Current backend-to-sandbox delivery trace:
 
 1. `backend/src/message/send.rs:261` persists a user `TaskMessage` with `message_text`, contexts, file ids, and pending delivery fields.
 2. `backend/src/sandbox/grpc_server.rs:844` loads unacknowledged user rows with `get_pending_user`.
-3. `backend/src/message/enricher.rs:108` rebuilds agent-facing content blocks from prose, contexts, file ids, source task attribution, and backend config.
+3. `backend/src/message/enricher.rs:108` rebuilds agent-facing content blocks from text, contexts, file ids, source task attribution, and backend config.
 4. `backend/src/sandbox/grpc_server.rs:977` serializes those enriched blocks through `serde_json::Value`.
 5. `backend/src/sandbox/grpc_server.rs:1968` parses that JSON through a local `DbContentBlock` enum and converts it into `sandbox_proto::ContentBlock`.
 6. `sandbox/src/agent/dispatcher.rs:496` converts proto content blocks back into a prompt string.
@@ -111,7 +111,7 @@ The change should make the backend/sandbox seam and the activity projection seam
 
 | Given | When | Then |
 |---|---|---|
-| A task has one pending user message with prose only | A ready sandbox fetches pending deliveries | The sandbox receives one delivery with `message_uuids = [uuid]` and `prompt_text` equal to the enriched prose. |
+| A task has one pending user message with text only | A ready sandbox fetches pending deliveries | The sandbox receives one delivery with `message_uuids = [uuid]` and `prompt_text` equal to the enriched text. |
 | A task has several pending user messages before the first `start_fresh` message | A ready sandbox fetches pending deliveries | The backend returns one delivery for the messages before `start_fresh`; the `start_fresh` message is left pending for the next fetch or returned as a separate delivery if it is first. |
 | A task has a `start_fresh` pending message at the head | A ready sandbox fetches pending deliveries | The delivery has no `resume_session_id`, has `start_fresh = true`, and contains only that message uuid. |
 | A pending message has an external adapter header or internal sender header | The backend builds the delivery | The header is already included in `prompt_text`; the sandbox does not build or prepend headers. |
@@ -125,9 +125,9 @@ The change should make the backend/sandbox seam and the activity projection seam
 |---|---|---|
 | An assistant message contains text and tool calls | The backend persists `agent.message` | Text lands on `task_messages.message_text`; tool calls land in `task_activities`; both share one conversation position. |
 | A later tool result arrives | The backend persists `agent.message` | The existing tool-call activity is settled by `(task_id, tool_use_id)`. |
-| A turn only called tools and said no prose | The backend persists the turn | No empty assistant message bubble is written; activities still project in order. |
+| A turn only called tools and said no text | The backend persists the turn | No empty assistant message bubble is written; activities still project in order. |
 | T3 subscribes to a thread snapshot or delta | The backend projects the conversation | T3 receives the same public `thread.activity-appended` shape as before this spec. |
-| Moatless frontend reads the conversation | The backend transforms messages | Moatless receives prose messages with tool calls and tool results assembled from activities. |
+| Moatless frontend reads the conversation | The backend transforms messages | Moatless receives text messages with tool calls and tool results assembled from activities. |
 
 ### Architecture and key flows
 
@@ -216,7 +216,7 @@ classDiagram
 
 #### `task_messages`
 
-`task_messages` remains the durable queue for user input and the durable record of prose.
+`task_messages` remains the durable queue for user input and the durable record of text.
 
 | Column | Type | Meaning in this spec |
 |---|---|---|
@@ -294,7 +294,7 @@ External contracts:
 | Sandbox dispatcher | `BackendSandboxService.AcknowledgeMessages` in `crates/sandbox-proto/proto/sandbox/v1/sandbox.proto` | Acknowledges `message_uuids` after harness input acceptance, with run identity. | Unchanged |
 | Moatless REST clients | `GET /api/v1/tasks/{task_id}/messages/pending` in `backend/src/message/handlers.rs:519` | Returns pending row data for reading or diagnostics. It is not the sandbox delivery contract. | Unchanged |
 | T3 client | `thread.message-sent` and `thread.activity-appended` from `backend/src/ui_rpc/projection.rs` | Payload shape stays compatible in phase one. | Unchanged |
-| Moatless frontend | `UiMessage` in `crates/api-schemas/src/message.rs:13` | Messages contain prose; tool details resolve from activities. | Compatible |
+| Moatless frontend | `UiMessage` in `crates/api-schemas/src/message.rs:13` | Messages contain text; tool details resolve from activities. | Compatible |
 
 Internal interfaces:
 
@@ -314,7 +314,7 @@ The implementer may rename the concrete Rust types if the responsibilities remai
 |---|---|---|---|---|---|
 | Sandbox crashes before harness acceptance | Pending rows have `sent_at IS NULL`. | Rows remain pending. | A later sandbox fetch receives the same `message_uuids`. | Safe | Ack is after `InputAccepted`; no ack was sent. |
 | Sandbox crashes after harness acceptance but before backend ack commits | Harness may have accepted the input. Rows may still be pending. | Rows may redeliver. | The next run may receive duplicate prompt text. | Existing risk, bounded | Current dispatcher holds a single-flight guard and retries ack; this spec does not weaken it. |
-| Backend cannot load contexts or files while building prompt | Pending rows exist. | Delivery still contains the user's prose and logs the missing enrichment. | Harness receives a reduced prompt. | Safe | Builder follows existing `build_pending_content_blocks` best-effort behaviour. |
+| Backend cannot load contexts or files while building prompt | Pending rows exist. | Delivery still contains the user's text and logs the missing enrichment. | Harness receives a reduced prompt. | Safe | Builder follows existing `build_pending_content_blocks` best-effort behaviour. |
 | Old sandbox image calls removed proto shape | Backend and sandbox are version-skewed. | Fetch fails. | Sandbox cannot process new work. | Not safe | No compatibility phase. Deploy backend and sandbox together. |
 | Activity projection receives an unknown stored kind | Activity row exists with invalid `kind`. | Projection fails in tests or logs and skips only where forward compatibility is deliberate. | Client does not receive a malformed activity. | Depends on event idempotency | Closed-set parsing in `ActivityKind`. |
 | T3 projection drifts from existing payload | Storage is correct, compatibility promise is broken. | Contract test fails. | No deploy if test is gating. | N/A | Snapshot and incremental golden tests. |
@@ -339,7 +339,7 @@ Unit tests:
 
 | Module | Cases |
 |---|---|
-| `AgentPromptBuilder` | Prose only; external header; internal `sent_by`; source task attribution; preview URL; selected element; file ids; missing file metadata; model default; `start_fresh`; cut at first `start_fresh`. |
+| `AgentPromptBuilder` | Text only; external header; internal `sent_by`; source task attribution; preview URL; selected element; file ids; missing file metadata; model default; `start_fresh`; cut at first `start_fresh`. |
 | `sandbox/agent/dispatcher.rs` | Consumes `PendingAgentDelivery`; fetches uploads; sends exact `prompt_text`; acks exact `message_uuids`; returns early on empty prompt. |
 | `task_activities` canonical view | Tool call in progress; completed tool call; failed tool call; thinking; sandbox status; sandbox error; external claim; detail preview. |
 
@@ -347,11 +347,11 @@ Integration tests:
 
 | Test area | Cases |
 |---|---|
-| Backend gRPC `GetPendingMessages` | Pending rows become deliveries with prompt text and metadata; Closed task returns empty; missing context degrades to prose; `start_fresh` splits. |
+| Backend gRPC `GetPendingMessages` | Pending rows become deliveries with prompt text and metadata; Closed task returns empty; missing context degrades to text; `start_fresh` splits. |
 | Backend gRPC `AcknowledgeMessages` | Ack stamps every uuid in the delivery and associates them with the accepted run. |
 | `agent.message` persistence | Text-only assistant, tool-call assistant, tool-result user, tool-only turn, redelivery by same event id. |
 | T3 UI-RPC projection | Snapshot preserves existing message and activity payloads; incremental change preserves sequence semantics and payload shape. |
-| Moatless message transform | `UiMessage` prose, tool calls, tool results, pending user input, external claim source chip. |
+| Moatless message transform | `UiMessage` text, tool calls, tool results, pending user input, external claim source chip. |
 
 Contract tests:
 
@@ -359,7 +359,7 @@ Contract tests:
 |---|---|
 | Sandbox proto | Generated Rust compiles with `PendingAgentDelivery`; no code path still requires `PendingMessage.content`. |
 | T3 activity payload | Golden JSON for representative `thread.activity-appended` events remains compatible. |
-| T3 snapshot | Golden JSON for a transcript with prose, tool call, tool result, thinking, and sandbox activity remains compatible. |
+| T3 snapshot | Golden JSON for a transcript with text, tool call, tool result, thinking, and sandbox activity remains compatible. |
 
 Manual verification:
 
@@ -424,7 +424,7 @@ That would reduce one conversion but would keep a block-oriented contract that n
 
 Backend owns the data required to build the prompt:
 
-- stored prose
+- stored text
 - external adapter metadata
 - sender login lookup
 - source task id

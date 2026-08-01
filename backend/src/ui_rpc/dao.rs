@@ -103,7 +103,7 @@ pub struct TranscriptMessage {
     pub message_type: MessageType,
     pub message_role: MessageRole,
     /// What was said, and only that. A user Message holds the person's own
-    /// prose: the files, contexts and attribution the agent is sent are rebuilt
+    /// text: the files, contexts and attribution the agent is sent are rebuilt
     /// at delivery time and were never part of this column.
     pub message_text: Option<String>,
     /// Which kind of `user` row this is. The agent's tool responses are
@@ -445,7 +445,7 @@ impl PgConversationDao {
                -- own ordering, allocated at write time, so unlike the `id` this
                -- used to read it is not a serial made visible at COMMIT.
                --
-               -- What this no longer clears on is prose: a question followed by
+               -- What this no longer clears on is text: a question followed by
                -- a reply that called nothing keeps reading as pending until the
                -- agent's next call. A Message carries no position, so the two
                -- cannot be ordered against each other in one index scan, and

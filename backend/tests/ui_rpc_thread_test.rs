@@ -77,7 +77,7 @@ fn tool_result(id: &str) -> serde_json::Value {
 
 /// A result reaches the reader as a change to the row it answers.
 ///
-/// The result carries no prose, so it is no Message of its own. It settles the
+/// The result carries no text, so it is no Message of its own. It settles the
 /// call's activity and records a change naming the *calling* Message — which is
 /// why the reader needs no run before it, and why the rows the batch happens to
 /// name alongside it no longer matter.

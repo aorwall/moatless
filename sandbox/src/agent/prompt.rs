@@ -47,7 +47,7 @@ pub enum PromptResponse {
     /// it finds no answer for is dropped from what the model is told.
     #[serde(rename = "askUserAnswer")]
     AskUserAnswer { answers: serde_json::Value },
-    /// Freeform prose answering AskUserQuestion, from someone who wrote instead
+    /// Freeform text answering AskUserQuestion, from someone who wrote instead
     /// of choosing. The CLI carries it in its own field beside `answers` and
     /// tells the model "The user responded: …", so it needs no question to
     /// belong to — which is what makes it the shape for an answer that arrives

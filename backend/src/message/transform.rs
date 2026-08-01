@@ -453,7 +453,7 @@ fn build_user_contexts(
 }
 
 fn transform_assistant(msg: &TaskMessage, activities: &[&Activity], is_last: bool) -> UiMessage {
-    // Prose first, then the calls in the order they were made. The prose is one
+    // Text first, then the calls in the order they were made. The text is one
     // folded string rather than a run of blocks, so there is no native order to
     // interleave them by — and nothing renders them interleaved.
     let mut content = Vec::new();
@@ -536,7 +536,7 @@ fn transform_user(
     // What the person wrote, and only that. The enrichment the agent sees — the
     // preview URL, the selected element, the attribution, the attachments — is
     // rebuilt at delivery time and was never what this rendered.
-    let content = prose_blocks(msg.message_text.as_deref());
+    let content = text_blocks(msg.message_text.as_deref());
 
     let external_source = msg.external_adapter.as_ref().map(|adapter_kind| {
         let external_id = msg.external_event_id.clone();
@@ -579,7 +579,7 @@ fn transform_user(
 }
 
 fn transform_result(msg: &TaskMessage) -> UiMessage {
-    let content = prose_blocks(msg.message_text.as_deref());
+    let content = text_blocks(msg.message_text.as_deref());
 
     UiMessage {
         uuid: msg.uuid.clone(),
@@ -611,12 +611,12 @@ fn transform_result(msg: &TaskMessage) -> UiMessage {
     }
 }
 
-/// A Message's prose, as the one content block the frontend renders it from.
+/// A Message's text, as the one content block the frontend renders it from.
 ///
 /// Empty where there is none, which is what a caller that has already decided
-/// this row is worth rendering needs — a Message with no prose is not written at
+/// this row is worth rendering needs — a Message with no text is not written at
 /// all, so this only ever fires for rows that predate the change.
-fn prose_blocks(text: Option<&str>) -> Vec<UiContentBlock> {
+fn text_blocks(text: Option<&str>) -> Vec<UiContentBlock> {
     text.filter(|text| !text.is_empty())
         .map(|text| {
             vec![UiContentBlock {

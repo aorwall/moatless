@@ -44,11 +44,11 @@ All measurements below were taken against the shared dev database on 2026-07-31.
 `message_type` is the axis both readers branch on. `message_role` is a second, coarser column and is
 not the one the code uses.
 
-| `message_type` | Rows | With prose | What it is |
+| `message_type` | Rows | With text | What it is |
 |---|---|---|---|
 | `assistant` | 794,145 | 229,024 | The agent speaking. The other 565,121 carry only `tool_use` blocks. |
 | `user` | 52,758 | 52,646 | A person writing. 2.0% of the table. |
-| `system` | 474,018 | 7,860 | 466,158 are tool-result carrier rows. The 7,860 with prose are compaction summaries and injected skill text. |
+| `system` | 474,018 | 7,860 | 466,158 are tool-result carrier rows. The 7,860 with text are compaction summaries and injected skill text. |
 | `result` | 1,165,256 | 1,164,948 | 1,162,114 are the identical string "Stopped by user request". |
 | `error` | 141,497 | 141,497 | 137,189 are "Sandbox terminated: Container is in CrashLoopBackOff". |
 
@@ -59,7 +59,7 @@ three Tasks. Every other month runs a few hundred of each.
 153 rows hold a bare jsonb string rather than an array. Every one of them is the literal text `{}`,
 all written in one week in February 2026 across 33 Tasks.
 
-Folded to prose — `string_agg` over the `text` blocks — the whole table is 193 MB, averaging 127
+Folded to text — `string_agg` over the `text` blocks — the whole table is 193 MB, averaging 127
 characters and peaking at 847,553.
 
 ### The trace: an assistant turn's blocks arriving, in seven hops
@@ -148,17 +148,17 @@ The equivalent split is what t3 stores natively: `projection_thread_messages` ho
 
 - `task_activities` — one row per tool call carrying its own outcome, per stretch of thinking, and
   per Sandbox status change or error.
-- `task_messages.message_text` (`text`) — a Message's prose, as prose.
+- `task_messages.message_text` (`text`) — what a Message says, as plain text.
 - One block-to-row mapping shared by the live writer and the migration, so the two cannot drift.
-- A batched migration that folds prose, deletes the rows that are not conversation, and drops
+- A batched migration that folds text, deletes the rows that are not conversation, and drops
   `task_message_content_blocks` and `task_messages.message_content`.
 
 **Changes materially**
 
 - `event_handler/agent_handlers.rs` — a block becomes a typed row instead of a splice into a shared
   JSON array; only `text` still folds.
-- `task_messages` — role and prose only. A row exists when a person or the agent said something.
-  2,627,130 rows become 281,670; 3,080 MB of jsonb becomes 96 MB of prose.
+- `task_messages` — role and text only. A row exists when a person or the agent said something.
+  2,627,130 rows become 281,670; 3,080 MB of jsonb becomes 96 MB of text.
 - `message/transform.rs` and `message/dao.rs` — conversation assembly returns two ordered collections
   instead of one assembled blob per Message.
 - `ui_rpc/projection.rs` — `rendered_transcript` reads the two collections instead of computing them
@@ -314,7 +314,7 @@ Batched and resumable, in this order, and the order is what makes it affordable:
 1. `ALTER TABLE task_messages ADD COLUMN message_text text` — a nullable add, no rewrite.
 2. Batched `UPDATE`: fold `message_content`'s `text` blocks into `message_text` for `message_type IN
    ('user', 'assistant')`. 281,670 rows, 96 MB.
-3. Batched `DELETE` of every other row: `system`, `result`, `error`, the prose-less `user` and
+3. Batched `DELETE` of every other row: `system`, `result`, `error`, the text-less `user` and
    `assistant` rows, and the 153 rows holding `{}`. 2,345,460 rows.
 4. `ALTER TABLE task_messages DROP COLUMN message_content`.
 5. `DROP TABLE task_message_content_blocks`.
@@ -330,7 +330,7 @@ No activity backfill runs (Decision 9).
 A **conversation** is one ordered stream belonging to a Task, made of two kinds of thing:
 
 - A **Message** is something a person or the agent *said*. It has a role — `user` or `assistant` —
-  and prose. Nothing else. It is original: no log stands behind it, and it cannot be rebuilt.
+  and text. Nothing else. It is original: no log stands behind it, and it cannot be rebuilt.
 - An **activity** is something that *happened* on the way: a tool call and its outcome, a stretch of
   thinking, a Sandbox status change, a Sandbox error. It is identified by where it came from rather
   than by when it was written, which is what makes redelivery a no-op. It is created by one block and
@@ -353,7 +353,7 @@ New table `task_activities`:
 | `activity_id` | `text` PRIMARY KEY | Derived from the source, never generated. `{message_uuid}:{block_index}` for a tool or thinking activity — the id `projection.rs:736`/`:795` already emits — or the event id for a Sandbox activity. Redelivery is `ON CONFLICT DO UPDATE` on this key. |
 | `task_id` | `text` NOT NULL | The conversation. No foreign key: a record must outlive what it names. |
 | `position` | `bigint` NOT NULL | From `task_conversation_position`. Indexed with `task_id`. |
-| `message_uuid` | `text` NULL | Provenance, not a foreign key — the Message row may not exist (a prose-less turn creates none). Null for a Sandbox activity. |
+| `message_uuid` | `text` NULL | Provenance, not a foreign key — the Message row may not exist (a text-less turn creates none). Null for a Sandbox activity. |
 | `kind` | `text` NOT NULL | Closed set: `tool_call`, `thinking`, `sandbox_status`, `sandbox_error`. A value outside the set is a bug, not an extension point. The mapping onto T3's kinds stays in `projection.rs`. |
 | `status` | `text` NOT NULL | For `tool_call`: `in_progress` until the result lands, then `completed` or `failed`. This is what makes one row per call work. |
 | `tool_use_id` | `text` NULL | UNIQUE with `task_id`. Load-bearing: a result arrives on a later Message than its call (`projection.rs:827`), so this is how it finds the row. |
@@ -379,9 +379,9 @@ Changes to `task_messages`:
 
 | Column | Change |
 |---|---|
-| `message_text` `text` | **New.** The Message's prose. 96 MB across 281,670 rows. Still assembled by read-modify-write — an append to a string rather than a splice into a JSON document. |
+| `message_text` `text` | **New.** The Message's text. 96 MB across 281,670 rows. Still assembled by read-modify-write — an append to a string rather than a splice into a JSON document. |
 | `message_content` `jsonb` | **Dropped.** Everything it held has a home: text in `message_text`, tool calls, results and thinking in activities. 3,080 MB reclaimed. |
-| the rows themselves | **89.3% deleted.** A row exists when somebody said something: `user` and `assistant` with prose. |
+| the rows themselves | **89.3% deleted.** A row exists when somebody said something: `user` and `assistant` with text. |
 | `turn_status`, `turn_result` | Unchanged and still unread — `ui_rpc/dao.rs:369` takes the turn's status from `task_turns`, never from the Message. |
 
 Dropped whole: `task_message_content_blocks`. Both surviving readers move to typed columns —
@@ -499,7 +499,7 @@ has, and `backend/tests/ui_rpc_thread_test.rs` is where it lives.
 
 - Given a Task the migration has converted, when its conversation is rendered, then it matches what
   the same Task rendered before the migration.
-- Given a Message whose prose was folded, when it is rendered, then it is character-identical to what
+- Given a Message whose text was folded, when it is rendered, then it is character-identical to what
   that Message rendered from its text blocks.
 - Given the migration is run twice, when it finishes, then no activity is duplicated.
 - Given blocks arriving out of order or twice, when the conversation is read, then it matches what
@@ -522,7 +522,7 @@ has, and `backend/tests/ui_rpc_thread_test.rs` is where it lives.
   is written and the event row is still recorded.
 - Given a Sandbox event outside Decision 10's set, when it is admitted, then it appears in the Events
   tab and in no conversation.
-- Given a stored Message that is a tool-result carrier, a prose-less tool call, a stop marker or an
+- Given a stored Message that is a tool-result carrier, a text-less tool call, a stop marker or an
   error row, when the migration finishes, then it does not exist and no conversation renders a gap
   where it was.
 - Given a turn stopped by the user, when the conversation is read, then no Message says so and the
@@ -677,7 +677,7 @@ purpose of; and closing the PR, which would mean rewriting the allocator here.
 
 ### 8. Does the Message go slim, with a `task_activities` table beside it?
 
-**Yes, and it is the focus of the spec.** A Message becomes role and prose. Tool calls, tool results,
+**Yes, and it is the focus of the spec.** A Message becomes role and text. Tool calls, tool results,
 thinking and Sandbox lifecycle become activities.
 
 This is not a new model. `ui_rpc/projection.rs:514` already states it as the difference between how a
@@ -805,7 +805,7 @@ tables.
 
 **Yes to both, and only `user` and `assistant` Messages survive the fold.**
 
-The column was never in question. After Decision 8 a Message is role and prose, and after Decision 12
+The column was never in question. After Decision 8 a Message is role and text, and after Decision 12
 nothing left in `message_content` lacks a typed home. A jsonb array of one element per block describes
 a shape that no longer exists. It becomes `task_messages.message_text`, `text` — which is exactly what
 the other consumer of this conversation already has: `projection_thread_messages.text` is one flat
@@ -821,9 +821,9 @@ not be, because an unfolded row renders **blank**, where a Task with no activiti
 results, every branch drops an empty message, and `message/transform.rs:184` and `:196` make the same
 two exclusions for the frontend. Decision 13 stops storing what both of them throw away.
 
-**Result:** 2,627,130 Messages become **281,670** — 10.7%, holding 96 MB of prose where 3,080 MB of
+**Result:** 2,627,130 Messages become **281,670** — 10.7%, holding 96 MB of text where 3,080 MB of
 jsonb stands today. The 153 rows holding the literal text `{}` are deleted rather than folded. The
-narrowing also removes the "39% of Messages carry no prose" problem rather than living with it: those
+narrowing also removes the "39% of Messages carry no text" problem rather than living with it: those
 rows are not kept with an empty string, they do not survive. A Message row exists when somebody said
 something.
 
@@ -898,7 +898,7 @@ threaded through to reach it.
 `find_task_id_by_any_external_event_id` now consult `task_activities` as well as `task_messages` —
 both, not either, because inbound claims still land on the Message the delivery created and those rows
 are not going anywhere. `transform.rs::claimed_external_source` gives the UI the same chip it had, read
-off the turn's activities, for both the prose and the tool-only turn.
+off the turn's activities, for both the text and the tool-only turn.
 
 Rejected: writing a Message row solely to hold the claim, which reintroduces the empty rows Decision 13
 deletes and puts a row in the conversation that nobody said. And rejected: keeping the claim on the

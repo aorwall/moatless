@@ -325,7 +325,7 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
 ///
 /// 1. The Message's bubble, as `thread.message-sent`. The client upserts on the
 ///    message id, so re-sending an unchanged bubble is free, and the appends
-///    that assemble one Message's prose from its blocks are exactly why it is
+///    that assemble one Message's text from its blocks are exactly why it is
 ///    re-sent.
 /// 2. Its work-log rows, as `thread.activity-appended`. Also an upsert, keyed
 ///    on the activity id — which is what makes a tool result cheap here: the

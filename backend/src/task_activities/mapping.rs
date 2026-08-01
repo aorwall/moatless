@@ -17,8 +17,8 @@ pub struct BlockContext<'a> {
     /// The `Agent` tool-use id this Message's subagent transcript hangs under,
     /// or `None` for the Task's own conversation.
     pub parent_uuid: Option<&'a str>,
-    /// The Message's type, which is what decides whether prose is a Message at
-    /// all. Both readers already drop `system`, `result` and `error` prose; this
+    /// The Message's type, which is what decides whether text is a Message at
+    /// all. Both readers already drop `system`, `result` and `error` text; this
     /// is where storage stops writing what they throw away.
     pub message_type: MessageType,
     /// The block's native index within its Message, from source-event
@@ -29,7 +29,7 @@ pub struct BlockContext<'a> {
 /// The row-level change one block represents.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockRow {
-    /// Prose, spliced into the Message's text at `block_index`.
+    /// The block's text, spliced into the Message at `block_index`.
     Text(TextPart),
     /// The rows one block writes: a tool call or a stretch of thinking, and —
     /// for the calls a client renders as a panel rather than a work-log card —
@@ -259,7 +259,7 @@ pub fn map_block(context: BlockContext<'_>, block: &Value) -> BlockRow {
     }
 }
 
-/// Prose, but only where prose is a Message.
+/// A block's text, but only where what was said is a Message.
 ///
 /// The narrowing to `user` and `assistant` is not a new rule. It is the rule
 /// both readers already apply on every read: a `system` row is dropped outright,
@@ -810,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn text_is_prose_on_the_message_it_arrived_on() {
+    fn a_text_block_lands_on_the_message_it_arrived_on() {
         assert_eq!(
             map_block(context(), &json!({ "type": "text", "text": "hello" })),
             BlockRow::Text(TextPart {
@@ -829,10 +829,10 @@ mod tests {
         );
     }
 
-    /// Decision 13: only `user` and `assistant` prose survives, because that is
+    /// Decision 13: only `user` and `assistant` text survives, because that is
     /// the exclusion both readers already apply on every read.
     #[test]
-    fn prose_on_a_row_nobody_said_is_not_stored() {
+    fn text_on_a_row_nobody_said_is_not_stored() {
         for dropped in [MessageType::System, MessageType::Result, MessageType::Error] {
             let context = BlockContext {
                 message_type: dropped,
@@ -841,7 +841,7 @@ mod tests {
             assert_eq!(
                 map_block(context, &json!({ "type": "text", "text": "hello" })),
                 BlockRow::None,
-                "{dropped} prose is dropped by both readers already"
+                "{dropped} text is dropped by both readers already"
             );
         }
     }
@@ -1038,7 +1038,7 @@ mod tests {
     }
 
     #[test]
-    fn a_message_written_as_a_bare_string_is_still_prose() {
+    fn a_message_written_as_a_bare_string_is_still_text() {
         let write = map_content(context(), &json!("just text"));
         assert_eq!(write.text.len(), 1);
         assert_eq!(write.text[0].text, "just text");

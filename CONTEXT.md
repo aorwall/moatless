@@ -356,7 +356,7 @@ reaper runs and that turn stays open. Four things lose an event and each is
 counted and announced separately on the stream: capacity eviction, refusal at
 lifecycle saturation, a terminal backend rejection (`INVALID_ARGUMENT`), and an
 event type the wire cannot represent.
-_Avoid_: calling it an outbox in prose; describing lifecycle events as
+_Avoid_: calling it an outbox in writing; describing lifecycle events as
 undroppable; treating a graceful flush as a delivery guarantee (it is bounded
 and best-effort).
 

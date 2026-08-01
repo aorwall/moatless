@@ -29,7 +29,7 @@
 //! Which families are dropped and why is settled in the spec
 //! (`.plans/codex-app-server-harness.md`, *Data model*); the short version is
 //! that the canonical vocabulary here is `text` plus a fixed set of `codex.*`
-//! tool names, and inventing assistant prose or a fake tool call for a status
+//! tool names, and inventing assistant text or a fake tool call for a status
 //! notice reads worse to the person watching than the notice being absent.
 
 use moatless_api_schemas::content::CanonicalContentBlock;
@@ -150,7 +150,7 @@ pub(super) fn plan_blocks(plan: &[TurnPlanStep], tool_use_id: &str) -> Vec<ItemB
 /// is known and deliberately renders nothing — see the module docs.
 pub(super) fn item_blocks(item: &ThreadItem, tool_use_id: &str) -> Option<Vec<ItemBlock>> {
     let blocks = match item {
-        // Assistant prose and model reasoning both render as assistant text.
+        // Assistant text and model reasoning both render as assistant text.
         // There is no `error` item on this transport — a failed Turn reports its
         // error on the terminal instead.
         ThreadItem::AgentMessage(m) => vec![text(Role::Assistant, &m.text)],

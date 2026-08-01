@@ -638,7 +638,7 @@ pub(crate) struct HookPromptItem {
     pub(crate) id: String,
 }
 
-/// Assistant prose. The wire also carries a `phase` (`commentary` for mid-Turn
+/// Assistant text. The wire also carries a `phase` (`commentary` for mid-Turn
 /// narration, `final_answer` for the Turn's answer); `codex exec` reported no
 /// such distinction and the canonical `text` block has nowhere to put it, so it
 /// is left on the wire.

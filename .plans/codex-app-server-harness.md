@@ -1144,7 +1144,7 @@ stops recovery burning retries on a stale value. Worth revisiting once the typed
    hook injected, so rendering it as assistant text would attribute someone else's words to the
    agent. The rest are status notices — a sub-agent lifecycle tick, a file the agent looked at, a
    wait, a generated image, review-mode boundaries the sandbox never enters, an automatic
-   compaction — with no content a `text` or `tool_use` block could carry. Inventing assistant prose
+   compaction — with no content a `text` or `tool_use` block could carry. Inventing assistant text
    or a fake tool call for a status notice reads worse to the person watching than the notice being
    absent, and each would need a canonical block type that does not exist. If one is wanted later it
    is an additive change with a UI counterpart, not a mapping decision.

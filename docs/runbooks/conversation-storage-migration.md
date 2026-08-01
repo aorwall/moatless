@@ -12,7 +12,7 @@ this order, from a psql session against the primary.
 
 | Step | Reversible? |
 |---|---|
-| 1 · Fold prose into `message_text` | Yes — `message_content` still holds every document |
+| 1 · Fold text into `message_text` | Yes — `message_content` still holds every document |
 | 2 · Backfill `task_message_usage` | Yes — derived from rows still present |
 | 3 · Delete the rows that are not conversation | Yes — restore from a snapshot |
 | 4 · Delete `agent.message` skeletons | Yes — restore from a snapshot |
@@ -31,7 +31,7 @@ migration, not a revert.
 ## Before you start
 
 The deployed backend already writes both shapes and reads only the new one, so
-a Task whose prose has not been folded **renders blank** until step 1 reaches
+a Task whose text has not been folded **renders blank** until step 1 reaches
 it. Run step 1 promptly after the deploy; it is online and takes no exclusive
 lock.
 
@@ -46,7 +46,7 @@ SELECT
 FROM task_messages;
 ```
 
-## 1 · Fold prose into `message_text`
+## 1 · Fold text into `message_text`
 
 The text blocks of `message_content` in `sort_order`, joined with a blank line —
 which is what `ui_rpc/projection.rs` computed on every read and what
@@ -89,7 +89,7 @@ FROM folded
 WHERE m.id = folded.id;
 ```
 
-`''` rather than NULL for a Message with no prose: NULL is what the predicate
+`''` rather than NULL for a Message with no text: NULL is what the predicate
 reads as "not folded yet", so a row that folds to nothing would be re-selected
 for ever. An empty `message_text` renders no bubble, which is correct — an
 assistant turn that only called tools said nothing.
@@ -224,7 +224,7 @@ ORDER BY pg_total_relation_size(oid) DESC;
 4,962 conversations written before the deploy show their messages and **none of
 their tool calls, thinking or Sandbox lifecycle** (Decision 9: no activity
 backfill — an activity backfill would have to invent a kind mapping, a status
-inference and ids, where the prose fold invents nothing). Their statistics say
+inference and ids, where the text fold invents nothing). Their statistics say
 the counts are unknown rather than reporting zero as a fact.
 
 This is expected. It is not a failed migration.

@@ -24,7 +24,7 @@ use serde_json::Value;
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CanonicalContentBlock {
-    /// Assistant or user prose.
+    /// Assistant or user text.
     Text { text: String },
 
     /// An assistant tool invocation. `input` is the tool's own argument object,

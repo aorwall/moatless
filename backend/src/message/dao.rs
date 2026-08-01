@@ -400,7 +400,7 @@ pub trait MessageDao: Send + Sync {
     /// the way in.
     ///
     /// Returns `None` for a subagent row (`parent_uuid` set — those ride the
-    /// progress path), and for a uuid this Task has neither prose nor activity
+    /// progress path), and for a uuid this Task has neither text nor activity
     /// under.
     async fn get_message_for_assembly(
         &self,
@@ -509,7 +509,7 @@ impl MessageDao for PgMessageDao {
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
-                -- Prose is spliced below, at each block's own index. A whole
+                -- Text is spliced below, at each block's own index. A whole
                 -- string arriving here belongs to a caller that wrote its
                 -- Message in one piece, and must not blank out a Message the
                 -- per-block path is still assembling.
@@ -604,7 +604,7 @@ impl MessageDao for PgMessageDao {
             .await?;
         }
 
-        // Prose, spliced at each block's own index.
+        // Text, spliced at each block's own index.
         //
         // `message_text_parts[i]` is subscripted assignment, which enlarges the
         // array — and creates it when the column is NULL — so an out-of-order or
@@ -621,7 +621,7 @@ impl MessageDao for PgMessageDao {
         }
         if !conversation.text.is_empty() {
             // `array_to_string` skips NULL holes, which is what the slots for
-            // blocks that are not prose are. The separator is the blank line
+            // blocks that are not text are. The separator is the blank line
             // markdown needs between paragraphs — what `push_paragraph` and the
             // per-block render this replaces both produced.
             sqlx::query(
@@ -1072,8 +1072,8 @@ impl MessageDao for PgMessageDao {
                          AND turn_number = $2
                          AND message_type <> 'user'
                          -- An empty assistant placeholder: a row that stopped
-                         -- for no stated reason and said nothing. Prose is the
-                         -- row itself, so an empty one is a row with no prose
+                         -- for no stated reason and said nothing. Text is the
+                         -- row itself, so an empty one is a row with no text
                          -- on it.
                          AND NOT (
                            message_type = 'assistant'
@@ -1342,7 +1342,7 @@ impl MessageDao for PgMessageDao {
             task_activities::dao::for_messages(&self.0, task_id, &named),
         )?;
 
-        // Neither prose nor activity under this uuid: a change naming a Message
+        // Neither text nor activity under this uuid: a change naming a Message
         // this Task does not have.
         if changed.is_none() && activities.is_empty() {
             return Ok(None);

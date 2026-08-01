@@ -11,7 +11,7 @@
 //! A native assistant Message may arrive as several canonical source events —
 //! one per content block, each tagged with its native `blockIndex` and (for a
 //! CLI that repeats it) the same usage. The backend must fold these into one
-//! Message carrying the folded prose and one activity per call, with usage
+//! Message carrying the folded text and one activity per call, with usage
 //! admitted exactly once, idempotent under duplicate delivery, and an
 //! interleaved tool result settling the call it answers rather than landing as
 //! a Message of its own. Coalesced full-content events (no `blockIndex`) must
@@ -145,12 +145,12 @@ async fn per_block_events_assemble_into_one_ordered_message(pool: PgPool) {
     let assistant: Vec<_> = rows.iter().filter(|m| m.uuid == uuid).collect();
     assert_eq!(assistant.len(), 1, "one row per native Message identity");
 
-    // The two prose blocks fold into one string, in native block order. The
+    // The two text blocks fold into one string, in native block order. The
     // tool_use between them left a hole in the parts array rather than text.
     assert_eq!(
         assistant[0].message_text.as_deref(),
         Some("first\n\nsecond"),
-        "prose folded in native order, the call skipped"
+        "text folded in native order, the call skipped"
     );
 
     // The call is an activity keyed by its own block, written once.
@@ -162,7 +162,7 @@ async fn per_block_events_assemble_into_one_ordered_message(pool: PgPool) {
     assert_eq!(calls[0].status, ActivityStatus::InProgress);
 
     // The read seam assembles exactly one top-level UI Message: the folded
-    // prose, then the call.
+    // text, then the call.
     let ui = transform_to_ui(&rows, &contexts, &activities);
     let ui_assistant: Vec<_> = ui.iter().filter(|m| m.uuid == uuid).collect();
     assert_eq!(ui_assistant.len(), 1, "one assembled UI Message");
@@ -222,7 +222,7 @@ async fn duplicate_per_block_delivery_is_idempotent(pool: PgPool) {
 
     assert!(
         on_message(&activities, uuid).is_empty(),
-        "prose-only blocks record no activity"
+        "text-only blocks record no activity"
     );
     assert_eq!(row.assistant_usage_output_tokens, Some(50));
 }
@@ -266,7 +266,7 @@ async fn interleaved_tool_result_settles_the_call_on_its_parent(pool: PgPool) {
         .await
         .unwrap();
 
-    // The result carried no prose, so it wrote no Message of its own — it
+    // The result carried no text, so it wrote no Message of its own — it
     // settled the activity the call already wrote, in place.
     assert!(
         rows.iter().all(|m| m.uuid != "tr-p"),
@@ -409,7 +409,7 @@ async fn subagent_per_block_rows_are_excluded_from_top_level(pool: PgPool) {
     assert_eq!(calls[0].parent_uuid.as_deref(), Some(parent));
 
     // The subagent's own transcript, scoped by its tool-use id, includes it with
-    // its prose and its call.
+    // its text and its call.
     let transcript = transform_subagent_transcript(&sub_rows, &sub_contexts, &sub_activities, parent);
     let assembled = transcript
         .iter()
@@ -448,7 +448,7 @@ async fn paginated_read_folds_per_block_rows_into_one_message(pool: PgPool) {
     assert_eq!(
         row.message_text.as_deref(),
         Some("one\n\nthree"),
-        "paginated read returns the fully folded per-block prose"
+        "paginated read returns the fully folded per-block text"
     );
     let calls = on_message(&activities, uuid);
     assert_eq!(

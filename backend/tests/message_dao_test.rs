@@ -20,7 +20,7 @@ use sqlx::PgPool;
 
 use common::{make_message_row, make_repository_row, make_task_row};
 
-/// Map one Message's content the way the write path does: prose onto the row,
+/// Map one Message's content the way the write path does: text onto the row,
 /// each call and each outcome onto the conversation. Every test that used to
 /// hand `append` a block list goes through the same seam the live writer does.
 fn conversation_write(
@@ -274,7 +274,7 @@ async fn append_with_contexts_and_activities(pool: PgPool) {
         },
     ];
     // What the agent said, and the one thing it did — the split the write path
-    // makes: the prose goes on the row, the call becomes an activity.
+    // makes: the text goes on the row, the call becomes an activity.
     let conversation = map_content(
         BlockContext {
             task_id: "task-1",
@@ -603,7 +603,7 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
 async fn get_message_for_assembly_loads_the_named_message_with_its_activities(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
-    // A turn that said nothing and called one tool: no prose, so no Message row
+    // A turn that said nothing and called one tool: no text, so no Message row
     // beyond the skeleton the call hangs on.
     let mut assistant = make_message_row("task-1", "a1");
     assistant.message_type = MessageType::Assistant;
@@ -933,7 +933,7 @@ async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgP
         "2026-07-14T11:00:01.000Z",
     );
     // Said nothing: the placeholder a coalescing CLI leaves behind carries no
-    // prose at all, which is what makes it insubstantial here.
+    // text at all, which is what makes it insubstantial here.
     empty_placeholder.message_text = None;
     message_dao::append(&pool, &empty_placeholder, &[], &ConversationWrite::default())
         .await

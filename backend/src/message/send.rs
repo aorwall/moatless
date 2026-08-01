@@ -438,10 +438,10 @@ fn restate(
 /// The answer leaves here twice, in two shapes, because two paths read it. The
 /// structured one on `tool_response` is what the sandbox delivers to a run still
 /// parked on the call — an answer per question, a rejection as a rejection. The
-/// prose in `message_text` is what the agent is *told* when no run is parked:
+/// text in `message_text` is what the agent is *told* when no run is parked:
 /// the question restated with the answer, because a resumed session has no
 /// memory of having asked. The CLI drops an unanswered call on resume, and the
-/// prose around it with it, so a bare "Option A" would answer nothing.
+/// text around it with it, so a bare "Option A" would answer nothing.
 pub async fn send_tool_response_flow(
     state: &AppState,
     task_id: &str,
@@ -577,7 +577,7 @@ mod tests {
     use serde_json::json;
 
     /// A resumed session has no memory of having asked: the CLI drops an
-    /// unanswered call on resume and the prose around it with it. So the answer
+    /// unanswered call on resume and the text around it with it. So the answer
     /// travels with the question restated around it.
     #[test]
     fn an_answer_carries_the_question_it_answers() {

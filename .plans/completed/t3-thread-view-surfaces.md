@@ -143,7 +143,7 @@ unanswered call rather than erroring or synthesising a result. A control transcr
 with the `tool_result` present, kept the call and its result — so the repair is the CLI's, not a
 rejected fixture.
 
-In the same probe the assistant turn's prose went with the dropped call, replaced by "No response
+In the same probe the assistant turn's text went with the dropped call, replaced by "No response
 requested." The resumed model therefore has no memory of having asked. That is what the answer
 delivery has to repair, and it is why the delivery restates the question.
 
@@ -278,7 +278,7 @@ not a storage rule.
 - `backend/src/task_activities/dao.rs:128-150` — the insert and its conflict clause
 - `backend/src/task_activities/mapping.rs:391-394` — the id rule gains a suffix for the joined row
 - `backend/src/ui_rpc/commands.rs:270-275` — the hard-coded tool name
-- `backend/src/message/send.rs:369-386` — the answers object stops being serialised into prose
+- `backend/src/message/send.rs:369-386` — the answers object stops being serialised into text
 - `sandbox/src/agent/dispatcher.rs:378-397` — the `{"text": blob}` wrap and the substring rejection
 - `sandbox/src/agent/options.rs:132-136` and its two tests at `:626-638` — the deny list
 - `sandbox/src/agent/permission_handler.rs:54-98` — the parked run reports waiting
@@ -390,13 +390,13 @@ reclaimed (`task/reaper.rs:458-467`). One unanswered question holds a pod indefi
   by a racing message. One handling covers both.
 
 Where a delivery carries no structured answer — someone typed into the chat box while a question was
-parked — the prose travels as `AskUserResponse { response }` and reaches the CLI as `input.response`,
+parked — the text travels as `AskUserResponse { response }` and reaches the CLI as `input.response`,
 not as an entry in `input.answers`. The CLI's `AskUserQuestion` takes both: `answers` is
 `record(string, string)` keyed on each question's own full text ("multi-select answers are
 comma-separated"), and `response` is "freeform text the user typed instead of selecting a structured
 option". Its result renderer reads `answers[question]` per question and **drops any question it finds
 no answer for**, then prefers `response` over the rendered answers when telling the model what
-happened — `The user responded: …`. So prose under a key no question matches does not degrade: every
+happened — `The user responded: …`. So text under a key no question matches does not degrade: every
 question drops, nothing remains, and the model is told `The user did not answer the questions.` One
 freeform field also removes the question of which of several questions a single typed message
 answers: it belongs to the call, which is the shape the message actually has.
@@ -459,7 +459,7 @@ comma-separated string; the CLI accepts both, and this backend sends the joined 
   the real object as result (`:441-459`).
 - **Proposed responsibility** — carry an answer to the sandbox with its structure intact.
 - **Proposed change** — the tool name comes from the stored call, not from a literal; the answers
-  object travels on the delivery rather than inside prose. Settling stays exactly as it is.
+  object travels on the delivery rather than inside text. Settling stays exactly as it is.
 - **Evidence** — `INTERACTIVE_TOOLS` (`message/dao.rs:34`) is the set the stored call is matched
   against.
 
@@ -568,7 +568,7 @@ returns nothing for a tool-only turn — so an index counted while walking shift
 whether the caller's slice contained that Message at all. Reserving the slot removes the dependency. A
 change with nothing to say leaves a gap, which costs one slot of the 1,024 and nothing else: a
 sequence is a cursor, never a count, and the client's only use of it is a numeric difference
-(`session-logic.ts:1305`). Ordinals skip for the same harmless reason wherever a block became prose
+(`session-logic.ts:1305`). Ordinals skip for the same harmless reason wherever a block became text
 instead of an activity.
 
 There is a second rule in that client which reads sequences as strictly consecutive:
@@ -577,7 +577,7 @@ There is a second rule in that client which reads sequences as strictly consecut
 `createOrchestrationRecoveryCoordinator` is imported nowhere outside its own test — so this change
 meets no live consumer. But our sequences are not consecutive and never were: the ~1,024 between
 changes predates all of this, the reserved slot leaves a hole in every tool-only turn, and ordinals
-skip wherever a block became prose. Whoever wires that coordinator up has to reconcile it with the
+skip wherever a block became text. Whoever wires that coordinator up has to reconcile it with the
 comparator at `session-logic.ts:1305` first, and the T3 side should hear it from us rather than find
 it.
 
@@ -685,7 +685,7 @@ Two of these need more than a row.
 (`dispatcher.rs:105`): the run was reclaimed, or the prompt was consumed by a racing message. In both
 the agent must receive the question with the answer, because a bare "Option A" against nothing is not
 an answer — and the probe showed the resumed model has no memory of asking, since the CLI drops the
-unanswered call *and* the prose around it. The question text is on the stored call's `payload.input`
+unanswered call *and* the text around it. The question text is on the stored call's `payload.input`
 (`mapping.rs:265-273`) and the tool-use id the delivery already carries finds it. This is a
 requirement of the delivery, not a branch of the waiting policy.
 

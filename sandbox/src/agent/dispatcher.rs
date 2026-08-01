@@ -386,10 +386,10 @@ async fn resolve_pending_prompt(state: &SandboxState) {
 /// feedback. Nothing is inferred from the words.
 ///
 /// A delivery that carries none is an ordinary message that arrived while the
-/// prompt was parked. A question takes it as prose, which is how someone
+/// prompt was parked. A question takes it as text, which is how someone
 /// answering in the chat box answers, and it travels as the freeform response
 /// rather than as an answer to any one question: the CLI keys answers on each
-/// question's own text and drops a question it finds none for, so prose under
+/// question's own text and drops a question it finds none for, so text under
 /// any other key would leave the model told that nobody answered. A proposed
 /// plan does **not**: an approval is a specific thing to say, and reading a
 /// passing remark as one would let the agent act on a plan nobody approved. It
@@ -527,14 +527,14 @@ mod tests {
     /// than to any one question. An answer keyed on anything but a question's
     /// own text reaches the model as no answer at all.
     #[test]
-    fn prose_answers_a_parked_question() {
+    fn text_answers_a_parked_question() {
         let response = prompt_response(
             &PromptToolName::AskUserQuestion,
             None,
             "use Postgres".to_string(),
         );
         let PromptResponse::AskUserResponse { response } = response else {
-            panic!("prose is a freeform response: {response:?}");
+            panic!("text is a freeform response: {response:?}");
         };
         assert_eq!(response, "use Postgres");
     }

@@ -221,8 +221,8 @@ async fn outbox_event_ids(pool: &PgPool) -> Vec<String> {
         .unwrap()
 }
 
-/// What the Task's Messages say, in order. Prose is the Message now — the blocks
-/// that are not prose are activities and have rows of their own.
+/// What the Task's Messages say, in order. Text is the Message now — the blocks
+/// that are not text are activities and have rows of their own.
 async fn message_texts(pool: &PgPool, task_id: &str) -> Vec<Option<String>> {
     sqlx::query_scalar("SELECT message_text FROM task_messages WHERE task_id = $1 ORDER BY id")
         .bind(task_id)

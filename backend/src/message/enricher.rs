@@ -42,8 +42,8 @@ pub struct AgentDelivery {
 /// A person's answer to an interactive tool call, as the sandbox resolves it.
 ///
 /// Read off the answering row's own `tool_response` column rather than parsed
-/// back out of the prompt text: the prose is what an agent that has forgotten
-/// asking is told, and prose is not an answer per question.
+/// back out of the prompt text: the text is what an agent that has forgotten
+/// asking is told, and text is not an answer per question.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptResponse {
     pub tool_use_id: String,
@@ -449,10 +449,10 @@ mod tests {
         )
     }
 
-    /// The prose is what an agent that has forgotten asking is told; the answer
+    /// The text is what an agent that has forgotten asking is told; the answer
     /// per question travels structurally beside it.
     #[test]
-    fn an_answer_is_read_off_its_own_column_not_out_of_the_prose() {
+    fn an_answer_is_read_off_its_own_column_not_out_of_the_text() {
         let mut row = pending_message(1, "msg-1", "You asked, and the answer is: Postgres");
         row.tool_response = Some(json!({
             "toolUseId": "tu-1",

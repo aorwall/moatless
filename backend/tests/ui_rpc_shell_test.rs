@@ -72,7 +72,7 @@ use common::{
     make_workspace_row, seed_team, test_app_state,
 };
 
-/// Map one Message's content the way the write path does: prose onto the row,
+/// Map one Message's content the way the write path does: text onto the row,
 /// each call and each outcome onto the conversation. Tests that used to hand
 /// `append` a block list go through the same seam the live writer does.
 fn conversation_write(
