@@ -762,13 +762,12 @@ fn message_row(
 
 /// One stored activity as the work-log row the contract carries.
 ///
-/// The stored `payload` is already this contract's shape — the writer builds it
-/// there, in [`crate::task_activities::mapping`], so the two cannot drift. The
-/// preview it carries is stored too, in its own column, cut once when the result
-/// arrived rather than on every send. `input`, `result` and `typedResult` are
-/// stripped: they are kept whole for the Moatless frontend, which asks for one
-/// activity at a time, and this contract re-sends its whole snapshot every time
-/// the conversation moves.
+/// The stored payload owns the title, status and complete call data. The
+/// canonical activity view projects that into this client's compact shape. The
+/// preview is stored too, in its own column, cut once when the result arrived
+/// rather than on every send. Full `input`, `result` and `typedResult` stay in
+/// storage for the Moatless frontend, which asks for one activity at a time;
+/// this contract re-sends its whole snapshot whenever the conversation moves.
 ///
 /// `sequence` is the number this row's own event carries — see
 /// [`activity_sequence`]. An activity delivered on its own, long after the
@@ -780,7 +779,7 @@ fn activity_row(activity: &Activity, turn: &Value, at: &str) -> Value {
         "id": view.activity_id(),
         "tone": view.t3_tone(),
         "kind": view.t3_kind(),
-        "summary": view.summary(),
+        "summary": view.t3_summary(),
         "payload": Value::Object(view.t3_payload()),
         "turnId": turn,
         "sequence": activity_sequence(activity),
@@ -2166,8 +2165,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 json!("Thinking"),
-                json!("Bash"),
-                json!("Edit"),
+                json!("Command run"),
+                json!("File change"),
                 json!("Thinking")
             ]
         );
@@ -2233,18 +2232,34 @@ mod tests {
         assert_eq!(ran["tone"], "tool");
         assert_eq!(ran["payload"]["status"], "completed");
         assert_eq!(ran["payload"]["itemType"], "command_execution");
-        assert_eq!(ran["payload"]["command"], "cargo build");
-        assert_eq!(ran["payload"]["detail"], "Compiling");
+        assert!(ran["payload"]["data"].get("command").is_none());
+        assert_eq!(ran["payload"]["detail"], "Bash: cargo build");
         assert_eq!(ran["payload"]["data"]["toolCallId"], "call-1");
 
         let failed = &work[2];
         assert_eq!(failed["tone"], "error");
         assert_eq!(failed["payload"]["status"], "failed");
         assert_eq!(failed["payload"]["itemType"], "file_change");
-        assert!(
-            failed["payload"].get("command").is_none(),
-            "a call with no command has no terminal row to render"
+        assert!(failed["payload"]["data"].get("files").is_none());
+        assert_eq!(
+            failed["payload"]["detail"],
+            r#"Edit: {"file_path":"src/main.rs"}"#
         );
+    }
+
+    #[test]
+    fn a_codex_shell_call_reaches_the_client_as_t3s_ran_command_row() {
+        let mut conversation = a_conversation();
+        let call = &mut conversation.activities[1];
+        call.summary = "codex.shell".to_string();
+        call.payload["title"] = json!("codex.shell");
+
+        let ran = &detail(&conversation)["activities"][1];
+        assert_eq!(ran["summary"], "Ran command");
+        assert_eq!(ran["payload"]["itemType"], "command_execution");
+        assert_eq!(ran["payload"]["detail"], "cargo build");
+        assert_eq!(ran["payload"]["data"]["command"], "cargo build");
+        assert!(ran["payload"].get("title").is_none());
     }
 
     /// A call still running is reported as an update, not a completion: the
@@ -2266,20 +2281,19 @@ mod tests {
         let work = detail(&waiting)["activities"].as_array().unwrap().clone();
         assert_eq!(work[1]["kind"], "tool.updated");
         assert_eq!(work[1]["payload"]["status"], "inProgress");
-        assert!(work[1]["payload"].get("detail").is_none());
+        assert_eq!(work[1]["payload"]["detail"], "Bash: cargo build");
     }
 
-    /// The preview is carried through as stored, not re-derived. Cutting it here
-    /// would mean cutting it again on every send, and a subscription re-sends
-    /// the whole transcript every time the conversation moves.
+    /// T3 presents what the tool was asked to do. A stored result preview is
+    /// Moatless UI data and must not replace that provider-derived request.
     #[test]
-    fn the_stored_preview_is_what_reaches_the_client() {
+    fn a_stored_result_preview_does_not_replace_the_tool_request() {
         let mut conversation = a_conversation();
         conversation.activities[1].payload["result"] = json!("x".repeat(10_000));
         conversation.activities[1].detail = Some("xxx\n… truncated".to_string());
         assert_eq!(
             detail(&conversation)["activities"][1]["payload"]["detail"],
-            "xxx\n… truncated"
+            "Bash: cargo build"
         );
     }
 
@@ -2660,7 +2674,7 @@ mod tests {
             .iter()
             .map(|event| event["payload"]["activity"]["summary"].as_str().unwrap())
             .collect();
-        assert_eq!(summaries, vec!["Thinking", "Bash", "Edit"]);
+        assert_eq!(summaries, vec!["Thinking", "Command run", "File change"]);
         assert_eq!(sent[0]["payload"]["threadId"], "task-a");
     }
 
@@ -2684,7 +2698,10 @@ mod tests {
                 )
             })
             .collect();
-        assert_eq!(resolved, vec![("Bash", "completed"), ("Edit", "failed")]);
+        assert_eq!(
+            resolved,
+            vec![("Command run", "completed"), ("File change", "failed")]
+        );
         assert_eq!(sent[1]["payload"]["activity"]["id"], "msg-2:1");
     }
 
