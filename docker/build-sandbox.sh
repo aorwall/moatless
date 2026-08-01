@@ -304,7 +304,8 @@ if [ "$BUILD_SANDBOX_BASE" = true ]; then
   build_image "Dockerfile.sandbox-base" "moatless-sandbox-base" \
     "--build-arg CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION} \
      --build-arg CODEX_CLI_VERSION=${CODEX_CLI_VERSION} \
-     --build-arg TASK_VERSION=${TASK_VERSION}"
+     --build-arg TASK_VERSION=${TASK_VERSION} \
+     --build-arg INSPECTOR_VERSION=${INSPECTOR_VERSION}"
 fi
 
 if [ "$BUILD_SANDBOX" = true ]; then

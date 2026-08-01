@@ -1,10 +1,10 @@
 # moatless-sandbox-base: Stable base image for all sandbox variants.
 #
 # Contains: Ubuntu, Node.js, npm, Claude Code CLI, Codex CLI, Task, Bun, pnpm,
-# yarn, TypeScript/tsx, Vite+ (`vp`), Playwright + Chromium, the Rust toolchain
-# (rustup/cargo/clippy/rustfmt) plus protoc/pkg-config so agents can build Rust
-# projects — including moatless-vibe itself — inside the sandbox, git, system
-# tools, moatless user.
+# yarn, TypeScript/tsx, Vite+ (`vp`), Playwright + Chromium, @moatless/inspector
+# in /opt/node_modules, the Rust toolchain (rustup/cargo/clippy/rustfmt) plus
+# protoc/pkg-config so agents can build Rust projects — including moatless-vibe
+# itself — inside the sandbox, git, system tools, moatless user.
 # Does NOT contain: the compiled sandbox/moat binaries or entrypoint scripts —
 # those are added by leaf images (Dockerfile.sandbox, Dockerfile.sandbox-full)
 # so the expensive layers here cache across normal code changes.
@@ -249,3 +249,30 @@ RUN apt-get update \
     && chmod -R o+rx /opt/playwright-browsers \
     && printf '#!/bin/sh\nexec xvfb-run --auto-servernum npx playwright "$@"\n' > /usr/local/bin/playwright-cli \
     && chmod +x /usr/local/bin/playwright-cli
+
+# Bake @moatless/inspector so a previewed project can use it without installing
+# it — no npm reach-out, no lockfile churn, and the version is the one the image
+# ships rather than whatever a task happens to resolve.
+#
+# It lands in /opt/node_modules because that is where an arbitrary project will
+# find it. Node resolves a bare specifier by checking `node_modules` in every
+# directory from the importer upward, and repos are checked out under
+# /opt/moatless/workspace/<repo>, so /opt is on that walk. It has to be /opt and
+# not /opt/moatless: the latter is a mounted volume at runtime and anything
+# baked underneath it is masked.
+#
+# --install-strategy=nested keeps the inspector's own dependencies (@babel/parser,
+# magic-string, estree-walker) nested under it instead of hoisted, so the only
+# thing this adds to every project's resolution is @moatless itself — a project
+# with an undeclared `magic-string` import still fails, as it should.
+#
+# This is delivery only: the project still adds `inspectorPlugin()` to its Vite
+# config. Nothing is injected into a project that did not ask for it.
+# renovate: datasource=npm depName=@moatless/inspector
+ARG INSPECTOR_VERSION=0.3.0
+RUN npm install --prefix /opt/moatless-inspector --install-strategy=nested \
+        --no-audit --no-fund "@moatless/inspector@${INSPECTOR_VERSION}" \
+    && ln -s /opt/moatless-inspector/node_modules /opt/node_modules \
+    && chmod -R a+rX /opt/moatless-inspector \
+    && test -f /opt/node_modules/@moatless/inspector/dist/client.js \
+    && test -f /opt/node_modules/@moatless/inspector/dist/t3-annotation-client.js

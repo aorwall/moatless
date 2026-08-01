@@ -132,6 +132,9 @@ normal code changes — only the binary `COPY` in the leaf images invalidates.
 - Bun, pnpm, yarn, TypeScript, tsx
 - Vite+ (`vp`) at `VP_HOME=/opt/vite-plus` — https://viteplus.dev/guide/
 - Playwright + Chromium
+- `@moatless/inspector` at `/opt/node_modules` — resolvable by any repo under
+  `/opt/moatless/workspace` without installing it, so a previewed project only
+  has to add `inspectorPlugin()` to its Vite config
 - Rust toolchain (rustup/cargo/clippy/rustfmt) + protoc, pkg-config —
   enough to build the moatless-vibe Rust workspace in-sandbox
 - Git, curl, wget, jq, ripgrep

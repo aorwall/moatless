@@ -164,6 +164,42 @@ committed version actually works.
 **Completion criterion:** the override is gone, the config lives in the repo or
 the workspace row, and a fresh sandbox reaches `started` without it.
 
+## Making a preview inspectable
+
+Element selection in the Moatless UI, and element picking from T3 Code, both
+need `@moatless/inspector`'s client script to be *in* the previewed page. A
+cross-origin frame cannot be injected into from outside, so the page has to load
+it — nothing in the ingress adds it.
+
+The package is baked into the sandbox image at `/opt/node_modules`, which is on
+Node's resolution walk from any repo under `/opt/moatless/workspace`. So there
+is nothing to install; a Vite project only adds the plugin:
+
+```ts
+// vite.config.ts
+import inspectorPlugin from '@moatless/inspector/vite'
+import componentTagger from '@moatless/inspector/vite-tagger'
+
+export default defineConfig({
+  plugins: [
+    { ...componentTagger(), enforce: 'pre' as const },  // before the JSX compiler
+    // ...the project's own plugins
+    inspectorPlugin(),
+  ],
+})
+```
+
+`componentTagger()` stamps `data-component-id` onto every JSX element and must
+run before `@vitejs/plugin-react`, or there is no JSX left to tag — that is what
+maps a click back to a source location. `inspectorPlugin()` inlines the client
+into the served HTML, and also the T3 annotation client, which resolves sources
+by walking React fibers and so works without the tagger.
+
+Restart the server after editing the config. Confirm it took with
+`curl -s localhost:$PORT | grep -c INSPECTOR_SCRIPT_LOADED` — a page serving the
+client contains that string. Non-Vite projects (Next.js, Remix) need the webpack
+loader for tagging and have no injection hook; treat them as not yet supported.
+
 ## Symptoms
 
 | Symptom | Most likely | Next move |
@@ -175,6 +211,7 @@ the workspace row, and a fresh sandbox reaches `started` without it.
 | Env var missing in the app | workspace-level `envVars` never reach sidecars — a known gap | set it per-server, or live via `servers set --env` |
 | Change to a `package.json` script had no effect | the repo mount is shared, but the running process isn't re-read | `moat tasks servers $TASK_ID restart <name>` |
 | Wrong start command running | a stale override from earlier debugging | `servers list`, then `servers reset` |
+| Preview loads, but element selection is unavailable | the project never added `inspectorPlugin()` — nothing injects it for you | [Making a preview inspectable](#making-a-preview-inspectable) |
 
 For anything wider than the server container — pod evictions, OOM of the sandbox
 itself, the agent unresponsive, the task stuck — switch to the
