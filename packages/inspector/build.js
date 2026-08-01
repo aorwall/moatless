@@ -1,9 +1,15 @@
 import { build } from 'esbuild'
-import { mkdir } from 'node:fs/promises'
+import { copyFile, mkdir } from 'node:fs/promises'
 
 // Ensure dist directories exist
 await mkdir('dist', { recursive: true })
 await mkdir('dist/tagger', { recursive: true })
+
+// The T3 annotation client arrives prebuilt from t3code (see
+// scripts/sync-t3-annotation.mjs) — there is nothing to compile, only to ship.
+await copyFile('vendor/t3-annotation-client.js', 'dist/t3-annotation-client.js')
+
+console.log('Copied: dist/t3-annotation-client.js')
 
 // Bundle the client-side inspector into a single IIFE file
 // This is the script that gets injected into preview iframes

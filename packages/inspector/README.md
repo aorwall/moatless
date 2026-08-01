@@ -9,6 +9,9 @@ The package has two sides:
 - **Build-time (tagger)** — Babel/AST transformer that annotates every JSX element with `data-component-id` and `data-component-name` attributes so the runtime can identify components from DOM clicks.
 - **Runtime (client)** — A browser IIFE (`dist/client.js`) injected into the preview iframe. Communicates with the parent via `postMessage`.
 
+The Vite plugin injects a second client alongside it, so the same preview is
+also annotatable from T3 Code — see [T3 Code annotation](#t3-code-annotation).
+
 ## Server-side injection (primary use)
 
 The preview-server proxy injects the client script into HTML responses before they reach the iframe. Use the two utilities exported from the package root:
@@ -72,6 +75,43 @@ export default defineConfig({
   plugins: [inspectorPlugin({ serverId: 'vite-dev' })],
 })
 ```
+
+## T3 Code annotation
+
+The Vite plugin injects a second client, `dist/t3-annotation-client.js`, which
+lets [T3 Code](https://github.com/soaplabs/t3code) pick, draw on and comment
+about elements in the previewed page. Nothing to configure: a project already
+using `inspectorPlugin()` becomes annotatable from T3 Code as well as
+inspectable from the Moatless UI.
+
+The two clients do not know about each other. Each talks to whatever framed the
+page over `postMessage` and ignores traffic it does not recognise — the
+inspector filters on `source: 'preview-iframe'`, the annotation client on
+`source: 't3code:preview-annotation'` — so the one whose host is on the other
+side of the frame simply stays idle. The annotation client also resolves
+component sources by walking React fibers at runtime, so unlike the element
+inspector it works without the tagger.
+
+It is roughly 80 kB of inlined script. A project previewed only in the Moatless
+UI can leave it out:
+
+```ts
+inspectorPlugin({ annotation: false })
+```
+
+### Updating the vendored client
+
+The client is built in [soaplabs/t3code](https://github.com/soaplabs/t3code)
+(`packages/preview-annotation`) and vendored here as
+`vendor/t3-annotation-client.js`, which `build.js` copies into `dist/`. It is
+generated — do not edit it. To pull in a newer build:
+
+```bash
+node scripts/sync-t3-annotation.mjs ../path/to/t3code
+```
+
+The script builds the package in that checkout, copies the bundle, and stamps
+the source revision into a header comment.
 
 ## In-iframe API: `window.__moatless`
 

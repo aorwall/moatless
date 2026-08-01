@@ -115,6 +115,14 @@ describe('Inspector Vite Plugin Integration', () => {
     expect(html).toContain('data-component-id')
   })
 
+  it('injects the T3 annotation client alongside it', async () => {
+    const response = await fetch(`http://localhost:${port}/`)
+    const html = await response.text()
+
+    expect(html).toContain('T3PreviewAnnotation')
+    expect(html).toContain('preview:element-picked')
+  })
+
   it('serves inspector script with correct serverId', async () => {
     const response = await fetch(`http://localhost:${port}/`)
     const html = await response.text()
