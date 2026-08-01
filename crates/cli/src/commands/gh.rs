@@ -8,6 +8,9 @@
 //! - `moat gh issue comment <number> …`
 //! - `moat gh pr reply <number> <comment_id> …` (moat-only; real `gh` has no
 //!   such subcommand, so a parse failure falls through and errors there)
+//! - `moat gh stack …` runs the official `gh stack` extension with the
+//!   sandbox's fresh GitHub token when one is available, then binds stack PRs
+//!   to the task after `stack link` / `stack submit`.
 //!
 //! Everything else — and any of these with flags the typed parser doesn't
 //! understand (`--fill`, `--body-file`, …) — passes through verbatim to the
@@ -17,8 +20,10 @@
 
 use clap::Parser;
 use moatless_api_schemas::github::{
-    GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
+    GithubBindPrRequest, GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
 };
+use std::collections::HashSet;
+use std::io::Write;
 
 use crate::client::MoatClient;
 use crate::config::Config;
@@ -98,12 +103,21 @@ struct ReplyArgs {
     json: bool,
 }
 
+/// `moat gh stack ...` invocation. The payload is intentionally raw so the
+/// official gh-stack extension remains the command grammar owner.
+#[derive(Debug, PartialEq, Eq)]
+struct StackInvocation {
+    args: Vec<String>,
+    task: Option<String>,
+}
+
 /// A gh invocation we intercept and proxy through the backend.
 #[derive(Debug, PartialEq, Eq)]
 enum TypedInvocation {
     PrCreate(PrCreateArgs),
     Comment(CommentArgs),
     PrReply(ReplyArgs),
+    Stack(StackInvocation),
 }
 
 pub async fn run(
@@ -125,6 +139,7 @@ pub async fn run(
             let json = json || a.json;
             run_pr_reply(client, cfg, a, json).await
         }
+        Some(TypedInvocation::Stack(a)) => run_stack(client, cfg, a, json).await,
         None => passthrough(&args),
     }
 }
@@ -146,6 +161,10 @@ fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
         ("pr", "reply") => ReplyArgs::try_parse_from(rest)
             .ok()
             .map(TypedInvocation::PrReply),
+        ("stack", _) => match strip_moat_task_flag(args) {
+            Ok((args, task)) => Some(TypedInvocation::Stack(StackInvocation { args, task })),
+            Err(_) => None,
+        },
         _ => None,
     }
 }
@@ -243,14 +262,306 @@ async fn run_pr_reply(
     Ok(())
 }
 
+async fn run_stack(
+    client: &MoatClient,
+    cfg: &Config,
+    invocation: StackInvocation,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let token = github_token_for_gh();
+    let status = gh_command(&invocation.args, token.as_deref())
+        .status()
+        .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let Some(subcommand) = invocation.args.get(1).map(String::as_str) else {
+        return Ok(());
+    };
+    if !matches!(subcommand, "link" | "submit") {
+        return Ok(());
+    }
+
+    let Some(task_id) = non_empty_task_id(
+        invocation
+            .task
+            .or_else(|| cfg.task_id().map(str::to_string)),
+    ) else {
+        return Ok(());
+    };
+
+    let prs = stack_prs_to_bind(&invocation.args, token.as_deref())?;
+    if prs.is_empty() {
+        return Ok(());
+    }
+
+    let mut bound = Vec::new();
+    for pr in prs {
+        let req = GithubBindPrRequest {
+            task_id: task_id.clone(),
+        };
+        let resp = client
+            .api()
+            .github_bind_pr(&pr.owner, &pr.repo, pr.number, &req)
+            .await?;
+        bound.push(resp);
+    }
+
+    if json {
+        output::print_json_typed(&bound);
+    } else {
+        for pr in bound {
+            println!("Stack PR linked to task: {}", pr.html_url);
+            if let Some(bid) = pr.binding_id {
+                println!("Bound to task via: {bid}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Exec the local `gh` binary with the original args, inheriting stdio, and
 /// propagate its exit code.
 fn passthrough(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let status = std::process::Command::new("gh")
-        .args(args)
+    let status = gh_command(args, None)
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
     std::process::exit(status.code().unwrap_or(1));
+}
+
+fn gh_command(args: &[String], token: Option<&str>) -> std::process::Command {
+    let mut cmd = std::process::Command::new("gh");
+    cmd.args(args);
+    if let Some(token) = token {
+        cmd.env("GH_TOKEN", token);
+    }
+    cmd
+}
+
+fn github_token_for_gh() -> Option<String> {
+    if std::env::var("GH_TOKEN").is_ok_and(|v| !v.trim().is_empty())
+        || std::env::var("GITHUB_TOKEN").is_ok_and(|v| !v.trim().is_empty())
+    {
+        return None;
+    }
+    git_credential_password("github.com").ok()
+}
+
+fn git_credential_password(host: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let mut child = std::process::Command::new("git")
+        .args(["credential", "fill"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to run git credential fill: {e}"))?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or("failed to open git credential fill stdin")?;
+        write!(stdin, "protocol=https\nhost={host}\n\n")?;
+    }
+
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        return Err("git credential fill did not return a GitHub token".into());
+    }
+
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines()
+        .find_map(|line| line.strip_prefix("password="))
+        .map(str::trim)
+        .filter(|password| !password.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "git credential fill did not return a password".into())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PullRequestRef {
+    owner: String,
+    repo: String,
+    number: u64,
+}
+
+fn stack_prs_to_bind(
+    args: &[String],
+    token: Option<&str>,
+) -> Result<Vec<PullRequestRef>, Box<dyn std::error::Error>> {
+    let subcommand = args.get(1).map(String::as_str);
+    let (owner, repo) = resolve_repo(None)?;
+    let mut refs = Vec::new();
+
+    match subcommand {
+        Some("link") => {
+            for operand in stack_link_operands(&args[2..]) {
+                if let Some(pr) = parse_pull_request_url(&operand) {
+                    refs.push(pr);
+                    continue;
+                }
+                if let Some(pr) = resolve_pr_target(&owner, &repo, &operand, token)? {
+                    refs.push(pr);
+                }
+            }
+        }
+        Some("submit") => {
+            for branch in stack_view_branch_names(token)? {
+                if let Some(pr) = resolve_pr_target(&owner, &repo, &branch, token)? {
+                    refs.push(pr);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    let mut seen = HashSet::new();
+    refs.retain(|pr| seen.insert(pr.clone()));
+    Ok(refs)
+}
+
+fn stack_link_operands(args: &[String]) -> Vec<String> {
+    let mut operands = Vec::new();
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--" => {
+                operands.extend(iter.cloned());
+                break;
+            }
+            "--base" | "--remote" => {
+                let _ = iter.next();
+            }
+            "--open" => {}
+            value if value.starts_with("--base=") || value.starts_with("--remote=") => {}
+            value if value.starts_with('-') => {}
+            value => operands.push(value.to_string()),
+        }
+    }
+    operands
+}
+
+fn stack_view_branch_names(token: Option<&str>) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let args = vec![
+        "stack".to_string(),
+        "view".to_string(),
+        "--json".to_string(),
+    ];
+    let out = gh_command_output(&args, token)?;
+    let value: serde_json::Value = serde_json::from_slice(&out)?;
+    let branches = value
+        .get("branches")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|branch| branch.get("name").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect();
+    Ok(branches)
+}
+
+fn resolve_pr_target(
+    owner: &str,
+    repo: &str,
+    target: &str,
+    token: Option<&str>,
+) -> Result<Option<PullRequestRef>, Box<dyn std::error::Error>> {
+    let repo_flag = format!("{owner}/{repo}");
+    let args = vec![
+        "pr".to_string(),
+        "view".to_string(),
+        target.to_string(),
+        "--repo".to_string(),
+        repo_flag,
+        "--json".to_string(),
+        "number,url".to_string(),
+    ];
+    let out = match gh_command_output(&args, token) {
+        Ok(out) => out,
+        Err(_) => return Ok(None),
+    };
+    let value: serde_json::Value = serde_json::from_slice(&out)?;
+    if let Some(url) = value.get("url").and_then(serde_json::Value::as_str) {
+        if let Some(pr) = parse_pull_request_url(url) {
+            return Ok(Some(pr));
+        }
+    }
+    let Some(number) = value.get("number").and_then(serde_json::Value::as_u64) else {
+        return Ok(None);
+    };
+    Ok(Some(PullRequestRef {
+        owner: owner.to_string(),
+        repo: repo.to_string(),
+        number,
+    }))
+}
+
+fn gh_command_output(
+    args: &[String],
+    token: Option<&str>,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let output = gh_command(args, token)
+        .output()
+        .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
+    if output.status.success() {
+        return Ok(output.stdout);
+    }
+    Err(format!(
+        "`gh {}` failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
+    .into())
+}
+
+fn parse_pull_request_url(url: &str) -> Option<PullRequestRef> {
+    let path = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))?;
+    let path = path.strip_suffix('/').unwrap_or(path);
+    let mut parts = path.split('/');
+    let owner = parts.next()?.to_string();
+    let repo = parts.next()?.to_string();
+    if parts.next()? != "pull" {
+        return None;
+    }
+    let number = parts.next()?.parse().ok()?;
+    if owner.is_empty() || repo.is_empty() || parts.next().is_some() {
+        return None;
+    }
+    Some(PullRequestRef {
+        owner,
+        repo,
+        number,
+    })
+}
+
+fn strip_moat_task_flag(args: &[String]) -> Result<(Vec<String>, Option<String>), String> {
+    let mut stripped = Vec::new();
+    let mut task = None;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--task" {
+            let Some(value) = iter.next() else {
+                return Err("--task requires a value".to_string());
+            };
+            task = Some(value.to_string());
+        } else if let Some(value) = arg.strip_prefix("--task=") {
+            if value.is_empty() {
+                return Err("--task requires a value".to_string());
+            }
+            task = Some(value.to_string());
+        } else {
+            stripped.push(arg.to_string());
+        }
+    }
+    Ok((stripped, task))
+}
+
+fn non_empty_task_id(task_id: Option<String>) -> Option<String> {
+    task_id.filter(|value| !value.trim().is_empty())
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +766,71 @@ mod tests {
             parse_typed(&argv(&["pr", "reply", "42", "--body", "x"])),
             None
         );
+    }
+
+    #[test]
+    fn parses_stack_invocation_and_strips_task_flag() {
+        let parsed = parse_typed(&argv(&[
+            "stack", "link", "207", "208", "--task", "t_1", "--open",
+        ]));
+        let Some(TypedInvocation::Stack(a)) = parsed else {
+            panic!("expected stack invocation, got {parsed:?}");
+        };
+        assert_eq!(a.task.as_deref(), Some("t_1"));
+        assert_eq!(a.args, argv(&["stack", "link", "207", "208", "--open"]));
+
+        let parsed = parse_typed(&argv(&["stack", "submit", "--task=t_1", "--auto"]));
+        let Some(TypedInvocation::Stack(a)) = parsed else {
+            panic!("expected stack invocation, got {parsed:?}");
+        };
+        assert_eq!(a.task.as_deref(), Some("t_1"));
+        assert_eq!(a.args, argv(&["stack", "submit", "--auto"]));
+    }
+
+    #[test]
+    fn stack_missing_task_value_falls_through() {
+        assert_eq!(parse_typed(&argv(&["stack", "link", "1", "--task"])), None);
+        assert_eq!(parse_typed(&argv(&["stack", "link", "1", "--task="])), None);
+    }
+
+    #[test]
+    fn empty_task_id_is_absent_for_stack_binding() {
+        assert_eq!(non_empty_task_id(None), None);
+        assert_eq!(non_empty_task_id(Some("".into())), None);
+        assert_eq!(non_empty_task_id(Some("  ".into())), None);
+        assert_eq!(non_empty_task_id(Some("t_1".into())), Some("t_1".into()));
+    }
+
+    #[test]
+    fn extracts_stack_link_operands_around_flags() {
+        assert_eq!(
+            stack_link_operands(&argv(&[
+                "--base",
+                "main",
+                "207",
+                "--remote=origin",
+                "feat/top",
+                "--open"
+            ])),
+            argv(&["207", "feat/top"])
+        );
+    }
+
+    #[test]
+    fn parses_pull_request_urls() {
+        assert_eq!(
+            parse_pull_request_url("https://github.com/soaplabs/moatless/pull/208"),
+            Some(PullRequestRef {
+                owner: "soaplabs".into(),
+                repo: "moatless".into(),
+                number: 208,
+            })
+        );
+        assert_eq!(
+            parse_pull_request_url("https://github.com/soaplabs/moatless/issues/208"),
+            None
+        );
+        assert_eq!(parse_pull_request_url("not-a-url"), None);
     }
 
     #[test]

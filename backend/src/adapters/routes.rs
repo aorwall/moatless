@@ -3,7 +3,7 @@
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use axum::{routing::post, Router};
+use axum::{Router, routing::post};
 
 use super::{github_pr, handlers, linear, slack, telegram, webhook};
 use crate::bindings;
@@ -37,6 +37,7 @@ use crate::state::AppState;
         github_pr::api_routes::create_pr,
         github_pr::api_routes::post_comment,
         github_pr::api_routes::reply_to_review_comment,
+        github_pr::api_routes::bind_pr,
         linear::handlers::linear_webhook,
         linear::api_routes::get_issue,
         linear::api_routes::create_issue,
@@ -75,6 +76,7 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(github_pr::api_routes::create_pr))
         .routes(routes!(github_pr::api_routes::post_comment))
         .routes(routes!(github_pr::api_routes::reply_to_review_comment))
+        .routes(routes!(github_pr::api_routes::bind_pr))
         .routes(routes!(linear::handlers::linear_webhook))
         .routes(routes!(linear::api_routes::get_issue))
         .routes(routes!(linear::api_routes::create_issue))

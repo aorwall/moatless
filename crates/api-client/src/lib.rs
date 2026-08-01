@@ -1323,6 +1323,23 @@ impl ApiClient {
         )
         .await
     }
+
+    /// POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/bind
+    ///
+    /// Bind an existing pull request to a task without mutating GitHub.
+    pub async fn github_bind_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        req: &moatless_api_schemas::github::GithubBindPrRequest,
+    ) -> Result<moatless_api_schemas::github::GithubBindPrResponse, ApiError> {
+        self.post(
+            &format!("/api/v1/github/repos/{owner}/{repo}/pulls/{number}/bind"),
+            req,
+        )
+        .await
+    }
 }
 
 /// Build the `?connectionId=...` query string fragment (or empty).

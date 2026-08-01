@@ -16,13 +16,13 @@
 //! is consulted, which is also what lets these routes reach a repository the
 //! task isn't bound to: the user's own access is the only thing that decides.
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use moatless_api_schemas::github::{
-    GithubCommentRequest, GithubCommentResponse, GithubCreatePrRequest, GithubCreatePrResponse,
-    GithubReplyRequest,
+    GithubBindPrRequest, GithubBindPrResponse, GithubCommentRequest, GithubCommentResponse,
+    GithubCreatePrRequest, GithubCreatePrResponse, GithubReplyRequest,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use crate::adapters::common::ensure_task_access;
@@ -256,6 +256,54 @@ pub async fn reply_to_review_comment(
 
     Ok(Json(GithubCommentResponse {
         id: new_id,
+        html_url,
+        binding_id,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/github/repos/{owner}/{repo}/pulls/{number}/bind",
+    tag = "github",
+    params(
+        ("owner" = String, Path, description = "Repository owner (org or user)"),
+        ("repo" = String, Path, description = "Repository name"),
+        ("number" = u64, Path, description = "PR number"),
+    ),
+    request_body = GithubBindPrRequest,
+    responses(
+        (status = 200, description = "Pull request bound to task", body = GithubBindPrResponse),
+        (status = 400, description = "Bad request / adapter not configured", body = crate::error::ErrorBody),
+        (status = 404, description = "Task not found", body = crate::error::ErrorBody),
+    )
+)]
+pub async fn bind_pr(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((owner, repo, number)): Path<(String, String, u64)>,
+    Json(req): Json<GithubBindPrRequest>,
+) -> Result<Json<GithubBindPrResponse>, AdapterError> {
+    let ctx = auth.scope_context();
+    ensure_task_access(&state, &ctx, &req.task_id).await?;
+
+    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
+    let pr = api.get_pr(&owner, &repo, number).await?;
+    let html_url = pr
+        .html_url
+        .unwrap_or_else(|| format!("https://github.com/{owner}/{repo}/pull/{number}"));
+
+    let binding_id = bind_task_to_pr(
+        &state,
+        &owner,
+        &repo,
+        number,
+        &req.task_id,
+        &auth.user_id.to_string(),
+    )
+    .await;
+
+    Ok(Json(GithubBindPrResponse {
+        number,
         html_url,
         binding_id,
     }))

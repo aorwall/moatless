@@ -1,8 +1,9 @@
 //! GitHub API schemas — request/response DTOs for the typed
-//! `/api/v1/github/*` endpoints. These let sandbox agents create PRs and
-//! post comments through the backend (via `moat gh`), so task bindings, the
-//! `Moatless task:` footer, and webhook echo dedup happen as part of the API
-//! call instead of being reconstructed from shell-command parsing.
+//! `/api/v1/github/*` endpoints. These let sandbox agents create PRs,
+//! post comments, and bind existing PRs through the backend (via `moat gh`),
+//! so task bindings, the `Moatless task:` footer, and webhook echo dedup happen
+//! as part of the API call instead of being reconstructed from shell-command
+//! parsing.
 
 use serde::{Deserialize, Serialize};
 
@@ -80,6 +81,27 @@ pub struct GithubCommentResponse {
     pub html_url: String,
     /// Set only when the request included a `task_id` and the binding upsert
     /// succeeded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_id: Option<String>,
+}
+
+/// `POST /api/v1/github/repos/{owner}/{repo}/pulls/{number}/bind` — bind an
+/// existing PR to a task without mutating GitHub.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct GithubBindPrRequest {
+    pub task_id: String,
+}
+
+/// Response for binding an existing PR.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct GithubBindPrResponse {
+    pub number: u64,
+    pub html_url: String,
+    /// Set when the task binding upsert succeeded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_id: Option<String>,
 }
