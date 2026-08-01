@@ -61,6 +61,18 @@ pub enum SandboxError {
         source: tonic::Status,
     },
 
+    /// The sandbox answered that it does not serve the method that was called:
+    /// its image predates it. Backend and sandbox images roll out separately,
+    /// so this is a version skew a redeploy resolves, and it is worth telling
+    /// apart from a sandbox that could not be reached at all — the request got
+    /// there, and waiting will not change the answer.
+    #[error("Sandbox does not implement {operation}")]
+    Unsupported {
+        operation: String,
+        #[source]
+        source: tonic::Status,
+    },
+
     /// The gRPC endpoint for a sandbox could not be built.
     #[error("Sandbox gRPC client could not be created")]
     GrpcClient(#[from] crate::sandbox::client::ClientError),
@@ -187,6 +199,7 @@ impl IntoResponse for SandboxError {
             | Self::Docker { .. }
             | Self::DockerConfig(_)
             | Self::Grpc { .. }
+            | Self::Unsupported { .. }
             | Self::GrpcClient(_)
             | Self::Database { .. }
             | Self::Authorization(_)

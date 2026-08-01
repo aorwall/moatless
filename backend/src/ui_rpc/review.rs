@@ -24,6 +24,7 @@ use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::client::classify_grpc_error;
+use crate::sandbox::error::SandboxError;
 use moatless_backend_core::scope::ScopeContext;
 use sandbox_proto::{GetGitDiffPreviewResponse, GetGitStatusResponse, ListGitRefsResponse};
 
@@ -172,6 +173,24 @@ pub fn no_refs() -> Value {
         "nextCursor": Value::Null,
         "totalCount": 0,
     })
+}
+
+/// Whether a failed ref listing should answer [`no_refs`] rather than fail.
+///
+/// The bar is whether the person could do anything with being told. A Sandbox
+/// that is absent, stopped, or from an image older than the method is a state
+/// of the conversation, and the client would surface it once per poll. A
+/// Sandbox that is up and refusing, or a database that would not answer, is
+/// this deployment failing, and hiding that behind an empty ref list would make
+/// the branch picker look merely empty.
+pub fn refs_are_quiet(error: &WorkspaceAccessError) -> bool {
+    matches!(
+        error,
+        WorkspaceAccessError::NoWorktree
+            | WorkspaceAccessError::Unaddressable
+            | WorkspaceAccessError::NotRunning(_)
+            | WorkspaceAccessError::Sandbox(SandboxError::Unsupported { .. })
+    )
 }
 
 /// One `vcs.listRefs` request, as this surface reads it.
@@ -332,17 +351,7 @@ pub async fn status(
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<Value, WorkspaceAccessError> {
-    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
-    let status = sandboxes
-        .sandbox_client(&task_id)
-        .await
-        .map_err(WorkspaceAccessError::NotRunning)?
-        .get_git_status()
-        .await
-        .map_err(|status| {
-            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "get_git_status"))
-        })?;
-
+    let status = read_status(conversations, sandboxes, viewer, cwd).await?;
     Ok(status_snapshot(&status))
 }
 
@@ -353,6 +362,60 @@ pub async fn status(
 /// dirty paths and the ahead/behind counts, so splitting them would report a
 /// remote half this backend never asked for separately.
 fn status_snapshot(status: &GetGitStatusResponse) -> Value {
+    json!({
+        "_tag": "snapshot",
+        "local": local_status(status),
+        "remote": remote_status(status),
+    })
+}
+
+/// The same branch state, flattened, as `vcs.refreshStatus` returns it.
+///
+/// The subscription and this method read one `git status`, so a refresh is the
+/// same call the poll makes rather than a second notion of what the status is.
+/// The client merges the stream's two halves into exactly this shape, which is
+/// why the difference between them is only where the seam falls.
+pub async fn status_result(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    cwd: &str,
+) -> Result<Value, WorkspaceAccessError> {
+    let status = read_status(conversations, sandboxes, viewer, cwd).await?;
+    Ok(flat_status(&status))
+}
+
+/// Both halves in one object, which is what the client's own reducer builds out
+/// of the stream's `snapshot`.
+fn flat_status(status: &GetGitStatusResponse) -> Value {
+    let mut flat = local_status(status);
+    if let (Some(flat), Value::Object(remote)) = (flat.as_object_mut(), remote_status(status)) {
+        flat.extend(remote);
+    }
+    flat
+}
+
+async fn read_status(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    cwd: &str,
+) -> Result<GetGitStatusResponse, WorkspaceAccessError> {
+    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
+    sandboxes
+        .sandbox_client(&task_id)
+        .await
+        .map_err(WorkspaceAccessError::NotRunning)?
+        .get_git_status()
+        .await
+        .map_err(|status| {
+            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "get_git_status"))
+        })
+}
+
+/// The half of the status one `git status --porcelain=2 --branch` reads about
+/// the checkout itself.
+fn local_status(status: &GetGitStatusResponse) -> Value {
     let insertions: u32 = status
         .working_tree_files
         .iter()
@@ -364,39 +427,41 @@ fn status_snapshot(status: &GetGitStatusResponse) -> Value {
         .map(|file| file.deletions)
         .sum();
     json!({
-        "_tag": "snapshot",
-        "local": {
-            "isRepo": status.is_repo,
-            "hasPrimaryRemote": status.has_primary_remote,
-            "isDefaultRef": status.is_default_ref,
-            "refName": if status.ref_name.is_empty() {
-                Value::Null
-            } else {
-                json!(status.ref_name)
-            },
-            "hasWorkingTreeChanges": status.has_working_tree_changes,
-            "workingTree": {
-                "files": status
-                    .working_tree_files
-                    .iter()
-                    .map(|file| json!({
-                        "path": file.path,
-                        "insertions": file.insertions,
-                        "deletions": file.deletions,
-                    }))
-                    .collect::<Vec<Value>>(),
-                "insertions": insertions,
-                "deletions": deletions,
-            },
+        "isRepo": status.is_repo,
+        "hasPrimaryRemote": status.has_primary_remote,
+        "isDefaultRef": status.is_default_ref,
+        "refName": if status.ref_name.is_empty() {
+            Value::Null
+        } else {
+            json!(status.ref_name)
         },
-        "remote": {
-            "hasUpstream": status.has_upstream,
-            "aheadCount": status.ahead_count,
-            "behindCount": status.behind_count,
-            // Moatless opens pull requests through its own adapters rather than
-            // from a checkout, so a Sandbox knows of none.
-            "pr": Value::Null,
+        "hasWorkingTreeChanges": status.has_working_tree_changes,
+        "workingTree": {
+            "files": status
+                .working_tree_files
+                .iter()
+                .map(|file| json!({
+                    "path": file.path,
+                    "insertions": file.insertions,
+                    "deletions": file.deletions,
+                }))
+                .collect::<Vec<Value>>(),
+            "insertions": insertions,
+            "deletions": deletions,
         },
+    })
+}
+
+/// The half about where the checkout stands against its upstream. Read from the
+/// same command, so it is never reported without the local half beside it.
+fn remote_status(status: &GetGitStatusResponse) -> Value {
+    json!({
+        "hasUpstream": status.has_upstream,
+        "aheadCount": status.ahead_count,
+        "behindCount": status.behind_count,
+        // Moatless opens pull requests through its own adapters rather than
+        // from a checkout, so a Sandbox knows of none.
+        "pr": Value::Null,
     })
 }
 
@@ -636,5 +701,58 @@ mod tests {
         });
         assert_eq!(snapshot["local"]["refName"], Value::Null);
         assert_eq!(snapshot["local"]["workingTree"]["files"], json!([]));
+    }
+
+    /// The four states a person cannot act on, against the two this deployment
+    /// owns. Getting the second group wrong hides a broken backend behind a
+    /// branch picker that merely looks empty.
+    #[test]
+    fn only_a_sandbox_nobody_can_ask_makes_an_empty_ref_list_honest() {
+        assert!(refs_are_quiet(&WorkspaceAccessError::NoWorktree));
+        assert!(refs_are_quiet(&WorkspaceAccessError::Unaddressable));
+        assert!(refs_are_quiet(&WorkspaceAccessError::NotRunning(
+            SandboxError::NotReady("t-1".into())
+        )));
+        assert!(refs_are_quiet(&WorkspaceAccessError::Sandbox(
+            SandboxError::Unsupported {
+                operation: "list_git_refs".into(),
+                source: tonic::Status::unimplemented("unknown method"),
+            }
+        )));
+
+        assert!(!refs_are_quiet(&WorkspaceAccessError::Sandbox(
+            SandboxError::Grpc {
+                operation: "list_git_refs".into(),
+                source: tonic::Status::internal("boom"),
+            }
+        )));
+        assert!(!refs_are_quiet(&WorkspaceAccessError::Database(
+            sqlx::Error::RowNotFound
+        )));
+    }
+
+    /// `vcs.refreshStatus` returns what the stream's two halves merge into, so
+    /// a refresh and a poll cannot disagree about the same repository.
+    #[test]
+    fn a_refresh_returns_the_halves_of_a_snapshot_merged_into_one_object() {
+        let status = GetGitStatusResponse {
+            is_repo: true,
+            ref_name: "feature".into(),
+            has_upstream: true,
+            ahead_count: 2,
+            ..GetGitStatusResponse::default()
+        };
+        let snapshot = status_snapshot(&status);
+        let flat = flat_status(&status);
+
+        for (key, value) in snapshot["local"]
+            .as_object()
+            .into_iter()
+            .chain(snapshot["remote"].as_object())
+            .flatten()
+        {
+            assert_eq!(&flat[key], value, "{key} differs from the snapshot's");
+        }
+        assert!(flat.get("_tag").is_none(), "a result, not a stream event");
     }
 }

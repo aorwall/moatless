@@ -1484,13 +1484,30 @@ impl ProtocolSession {
                 .await
                 {
                     Ok(refs) => vec![success_exit(&id, refs)],
-                    // A conversation with no Sandbox to ask is not an error the
-                    // person should be shown; see [`review::no_refs`].
-                    Err(
-                        WorkspaceAccessError::NoWorktree
-                        | WorkspaceAccessError::Unaddressable
-                        | WorkspaceAccessError::NotRunning(_),
-                    ) => vec![success_exit(&id, review::no_refs())],
+                    Err(error) if review::refs_are_quiet(&error) => {
+                        vec![success_exit(&id, review::no_refs())]
+                    }
+                    Err(error) => vec![review_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
+            "vcs.refreshStatus" => {
+                let Some(cwd) = workspace_cwd(&payload) else {
+                    return vec![review_failure_exit(
+                        &id,
+                        &tag,
+                        &WorkspaceAccessError::Unaddressable,
+                        identity,
+                    )];
+                };
+                match review::status_result(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer_scope(identity),
+                    &cwd,
+                )
+                .await
+                {
+                    Ok(status) => vec![success_exit(&id, status)],
                     Err(error) => vec![review_failure_exit(&id, &tag, &error, identity)],
                 }
             }
@@ -3019,6 +3036,31 @@ mod tests {
             .await;
 
         assert!(output.frames.is_empty(), "no chunk, and no failure either");
+    }
+
+    /// The client calls this one on its own schedule and when a worktree is
+    /// cleaned up, so an unanswerable `cwd` has to come back as the method's
+    /// error rather than the defect an unimplemented method produces.
+    #[tokio::test]
+    async fn a_status_refresh_answers_rather_than_dying() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request(
+                    "101",
+                    "vcs.refreshStatus",
+                    json!({ "cwd": "/moatless/tasks/task-a" }),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+        let cause = &output.frames[0]["exit"]["cause"][0];
+        assert_eq!(cause["_tag"], "Fail", "a typed refusal, not a Die defect");
+        assert_eq!(cause["error"]["_tag"], "GitCommandError");
+        assert_eq!(cause["error"]["operation"], "vcs.refreshStatus");
     }
 
     /// The composer is disabled while the provider list is empty

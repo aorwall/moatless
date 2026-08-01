@@ -82,6 +82,11 @@ impl WorkspaceAccessError {
             Self::Sandbox(SandboxError::BadRequest(detail)) => {
                 format!("The sandbox refused the request: {detail}")
             }
+            Self::Sandbox(SandboxError::Unsupported { .. }) => {
+                "This sandbox is running an image from before this feature. Redeploy it to use \
+                 this here."
+                    .into()
+            }
             Self::Sandbox(_) => "The sandbox could not be reached.".into(),
             Self::Database(_) => "This conversation's workspace could not be read.".into(),
         }
@@ -134,5 +139,22 @@ mod tests {
         let down = WorkspaceAccessError::NotRunning(SandboxError::NotReady("t-1".into()));
         let silent = WorkspaceAccessError::Sandbox(SandboxError::NotReady("list_files".into()));
         assert_ne!(down.message(), silent.message());
+    }
+
+    /// A sandbox from before a method existed answers the call and refuses it,
+    /// so "could not be reached" describes the wrong thing and points at the
+    /// wrong fix. The only thing that resolves it is redeploying the sandbox.
+    #[test]
+    fn a_sandbox_too_old_for_a_method_is_not_a_sandbox_that_is_unreachable() {
+        let stale = WorkspaceAccessError::Sandbox(SandboxError::Unsupported {
+            operation: "list_git_refs".into(),
+            source: tonic::Status::unimplemented("unknown method"),
+        });
+        let unreachable = WorkspaceAccessError::Sandbox(SandboxError::Grpc {
+            operation: "list_git_refs".into(),
+            source: tonic::Status::internal("boom"),
+        });
+        assert_ne!(stale.message(), unreachable.message());
+        assert!(stale.message().contains("Redeploy"), "{}", stale.message());
     }
 }

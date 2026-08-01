@@ -90,6 +90,7 @@ pub enum ClientError {
 ///   (tonic's transport timeout surfaces as `Cancelled` with "Timeout expired")
 /// - `NotFound` → `NotFound` (404)
 /// - `FailedPrecondition`/`InvalidArgument` → `BadRequest` (400)
+/// - `Unimplemented` → `Unsupported` (the sandbox image predates the method)
 /// - everything else → `Internal` (500)
 pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
     match e.code() {
@@ -100,6 +101,12 @@ pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
         tonic::Code::FailedPrecondition | tonic::Code::InvalidArgument => {
             SandboxError::BadRequest(e.message().to_string())
         }
+        // A sandbox from an image older than the method. The call arrived and
+        // was refused, so this is neither unreachable nor retryable.
+        tonic::Code::Unimplemented => SandboxError::Unsupported {
+            operation: operation.to_string(),
+            source: e,
+        },
         _ => SandboxError::Grpc {
             operation: operation.to_string(),
             source: e,
@@ -534,6 +541,22 @@ mod tests {
         assert!(matches!(err, SandboxError::Grpc { .. }), "got {err:?}");
         let source = std::error::Error::source(&err).expect("tonic status is the source");
         assert!(source.to_string().contains("boom"));
+    }
+
+    /// Backend and sandbox images roll out separately, so any method added to
+    /// `SandboxService` meets sandboxes that predate it. That is version skew a
+    /// redeploy fixes, not an unreachable sandbox to wait on.
+    #[test]
+    fn classify_an_unimplemented_method_as_a_sandbox_too_old_to_serve_it() {
+        let err = classify_grpc_error(
+            tonic::Status::unimplemented("unknown service"),
+            "list_git_refs",
+        );
+        assert!(
+            matches!(err, SandboxError::Unsupported { .. }),
+            "got {err:?}"
+        );
+        assert!(err.to_string().contains("list_git_refs"));
     }
 
     #[test]

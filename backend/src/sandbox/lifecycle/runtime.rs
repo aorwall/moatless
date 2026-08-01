@@ -77,6 +77,7 @@ pub(crate) fn map_sandbox_error(error: SandboxError) -> RuntimeError {
         | SandboxError::Docker { .. }
         | SandboxError::DockerConfig(_)
         | SandboxError::Grpc { .. }
+        | SandboxError::Unsupported { .. }
         | SandboxError::GrpcClient(_)
         | SandboxError::Database { .. }
         | SandboxError::Authorization(_)
