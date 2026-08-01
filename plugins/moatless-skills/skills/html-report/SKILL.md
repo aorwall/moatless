@@ -114,7 +114,7 @@ For before/after comparisons, put the two diagrams side by side in two columns, 
 - Lean editorial, not corporate-dashboard. Generous whitespace. Serif optional for headings (`font-serif` works well with stone/slate).
 - Colour sparingly: one accent (emerald or indigo) plus red for problems and amber for warnings.
 - Use `text-xs uppercase tracking-wider` for labels inside diagrams — they should read as schematic, not as UI.
-- Prose is sparse and plain; the diagrams carry the weight. If a diagram needs a paragraph to be understood, redraw the diagram.
+- Supporting text is sparse and plain; the diagrams carry the weight. If a diagram needs a paragraph to be understood, redraw the diagram.
 - The only scripts are the Tailwind CDN and the Mermaid ESM import. The report is otherwise static — no app code, no interactivity beyond Mermaid's own rendering.
 - **Read-only.** No forms, no buttons, no answering by clicking. The user acts in chat; the page holds state they would otherwise have to.
 

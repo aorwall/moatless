@@ -11,7 +11,7 @@ These rules are true of every turn a person reads. **A turn that asks the user t
 
 ## Seven always-rules
 
-1. **The ask or the verdict is the first line** — not "Two things I found that change the shape of this." If the answer is a command, path, or snippet, it goes first; prose after, if at all.
+1. **The ask or the verdict is the first line** — not "Two things I found that change the shape of this." If the answer is a command, path, or snippet, it goes first; explanation after, if at all.
 2. **Only the reasoning that could change the verdict follows it.** Everything else is named and linked, not narrated — a finding already on the page does not get re-told. Name it, "two more findings there, dedup and naming", and link.
 3. **Estimate the work in concrete units** — "about 15 minutes if tests already cover this, an afternoon if not." Never estimate the reading.
 4. **State the new capability, not the actions taken.** "Login now works with magic links" — not "I've updated the auth flow, tightened the decision table, and…".

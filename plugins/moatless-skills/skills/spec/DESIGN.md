@@ -11,12 +11,12 @@ The elements below serve both surfaces — the **page**, where the user agrees t
 | **Locate** | "Where am I, and what kind of thing is this?" | Fixed heading order · deep links |
 | **Chunk** | A wall of text has no handholds — you can't enter or leave it | Tables · one instruction per line · short sections |
 | **Signal state** | The reader can't hold what's settled, shipped, or blocked | Status line · progress bar · graph node colours · task lists |
-| **Show shape** | Relationships prose can't carry | Mermaid graphs · before/after trees |
+| **Show shape** | Relationships paragraphs can't carry | Mermaid graphs · before/after trees |
 | **Ground** | "Is this a fact about the repo, or a proposal?" | Observed/proposed split · `file:line` evidence |
 
 If an element does none of the five, it is decoration. Cut it.
 
-## No section is prose-only
+## No section is paragraphs only
 
 The failure mode isn't length, it's flatness — a stretch with nothing for the eye to land on.
 
@@ -66,9 +66,9 @@ For a decision that is still open, add a fifth *row* rather than a fifth column:
 
 **A diagram that is mostly text is a table.** Check the shape is the point before drawing — an information model whose value is the *reason* beside each field reads better as annotated facts than as boxes. The data model is where this is already settled: the diagram carries the shape and the tables carry the reasons, so neither has to be both.
 
-**Only a stored entity gets a box.** A state, a lifecycle stage or a flag is a *field on an entity*, not an entity of its own — "deleted override" is a column on the row that already exists, and giving it a box invents a table that never will. Something read and never persisted, such as a file in a repository, is not in the model either: it belongs in the prose, or in the flow that reads it. The test is "would this be a row somewhere after the change". Model the tables; the concepts around them are what the other sections are for.
+**Only a stored entity gets a box.** A state, a lifecycle stage or a flag is a *field on an entity*, not an entity of its own — "deleted override" is a column on the row that already exists, and giving it a box invents a table that never will. Something read and never persisted, such as a file in a repository, is not in the model either: it belongs in the surrounding text, or in the flow that reads it. The test is "would this be a row somewhere after the change". Model the tables; the concepts around them are what the other sections are for.
 
-**Write a field as `name : type`, never as `+type name`.** Mermaid accepts both; only one reads. `+text run_as_user_id` puts the least interesting word first and prefixes a visibility marker that means nothing for a database column, while `run_as_user_id : text` reads as the schema does. A qualifier in the type position reads as a type — `+ignored active` looks like a type named `ignored` — so qualifiers go in the prose beside the diagram, never in the type.
+**Write a field as `name : type`, never as `+type name`.** Mermaid accepts both; only one reads. `+text run_as_user_id` puts the least interesting word first and prefixes a visibility marker that means nothing for a database column, while `run_as_user_id : text` reads as the schema does. A qualifier in the type position reads as a type — `+ignored active` looks like a type named `ignored` — so qualifiers go in the note beside the diagram, never in the type.
 
 **A class label is the entity's real name and nothing else.** Not `triggers — a Loop is a row here`, not `task_messages — now derived`. A description in the label is the same content as the line under that entity's table, set in the smallest type on the page and stretching the box that carries it; the diagram is the map, and a map labels places rather than explaining them. Where the state must survive a reader who cannot distinguish the fills, use a `<<new>>` or `<<changes>>` stereotype above the name — a marker, not a sentence.
 
@@ -138,7 +138,7 @@ Rules for the diagram itself:
 | Consumer | The interface it depends on | What it can rely on | Status |
 |---|---|---|---|
 | `apps/frontend` conversation view | `ConversationPayload.activities` — `api-schemas/src/message.rs:32` | Every tool call and Sandbox status as its own item, with `kind` and `summary` renderable without parsing content blocks | **New** |
-| `apps/frontend` conversation view | `ConversationPayload.content` | Role and prose. No `tool_use` blocks | **Breaking** on deploy |
+| `apps/frontend` conversation view | `ConversationPayload.content` | Role and message text. No `tool_use` blocks | **Breaking** on deploy |
 | The paired T3 client | `ui_rpc/projection.rs` — `messages`, `activities` | The same shapes it reads today | Unchanged |
 | Any live client | `SSE /api/tasks/{id}/events` | Lifecycle types only. `agent.message` is never emitted again; the variant stays so old rows replay | Changed, compatibly |
 | An operator | `moat tasks rebuild <id>` | One conversation rebuilt from the block log, and a refusal naming the gap when the log does not cover all of it | **New** |

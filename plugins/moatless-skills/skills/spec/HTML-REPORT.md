@@ -35,7 +35,7 @@ Then the same sections as the spec — see `/spec`, "The sections, and when each
 
 **One table per entity, never one table for the whole model.** A twenty-row table whose Field column repeats `task_activities.` fourteen times is a schema dump: the prefix is the loudest thing in every cell, the reader cannot see where one entity ends, and no single set of columns fits five different tables. The entity name goes in the heading, once, and each table then picks **the columns that entity's change actually turns on** — key membership where identity moves, nullability where it is the point, the index where the query depends on it. Name and type are the only two that appear every time.
 
-**An entity the change only reads gets a box in the diagram and no block of its own.** It is context, and the diagram is where context belongs. A field it holds that the change depends on goes in the prose under the diagram — not in a table nobody needs to scan.
+**An entity the change only reads gets a box in the diagram and no block of its own.** It is context, and the diagram is where context belongs. A field it holds that the change depends on goes in the note under the diagram — not in a table nobody needs to scan.
 
 **The data model is the one place the page uses the real names.** Elsewhere it says "the App record"; here the heading is `github_apps` and the row is `app_key`, because a person approving a data model is approving the entity and the column, and "the record" does not say what changes.
 

@@ -22,7 +22,7 @@ Every line in `SKILL.md` must change what the agent does when the skill runs. Ke
 
 Prune content that fits these descriptions:
 
-- Human-facing overview prose.
+- Human-facing overview text.
 - Motivational language.
 - Creation history.
 - Installation or usage notes for people.
@@ -193,7 +193,7 @@ Run the available skill validator or schema check for the target runtime. If the
 - Every referenced file exists and is linked from `SKILL.md`.
 - No removed or renamed skill is still referenced.
 
-Forward-test when the skill is new, broad, sensitive, or changed in a way that could alter behavior. Use a fresh agent or fresh context if available. Give it the skill and a realistic task, not your expected answer. Review whether the skill changed the process, not whether the final prose sounds nice.
+Forward-test when the skill is new, broad, sensitive, or changed in a way that could alter behavior. Use a fresh agent or fresh context if available. Give it the skill and a realistic task, not your expected answer. Review whether the skill changed the process, not whether the final wording sounds nice.
 
 ### 11. Present the change
 

@@ -66,7 +66,7 @@ export function activityToState(activity: TaskActivity | undefined): TaskActivit
  * of typed blocks (`text`, `tool_use`, …). Returns `null` when there is nothing
  * worth showing so the previous preview is preserved.
  */
-/** Derive a preview from a raw SDK content array: prose first, else the tool. */
+/** Derive a preview from a raw SDK content array: text first, else the tool. */
 function previewFromContentArray(content: unknown[]): string | null {
   const texts: string[] = []
   let toolName: string | null = null

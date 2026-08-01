@@ -12880,7 +12880,7 @@
               "string",
               "null"
             ],
-            "description": "What the person wrote, as prose."
+            "description": "What the person wrote as message text."
           },
           "messageType": {
             "$ref": "#/components/schemas/MessageType"

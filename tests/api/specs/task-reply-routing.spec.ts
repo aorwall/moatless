@@ -128,7 +128,7 @@ test('INT-42: Replying to a task with several bindings answers 400 and lists the
     expect(body.targets).toHaveLength(2)
     for (const target of body.targets) {
       expect(target.kind).toBe('binding')
-      // The hint is a command fragment, not prose — it is meant to be pasted.
+      // The hint is a command fragment, not explanatory text — it is meant to be pasted.
       expect(target.flagHint.startsWith('--binding ')).toBe(true)
     }
   } finally {

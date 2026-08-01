@@ -45,7 +45,7 @@ describe('extractMessagePreview', () => {
     expect(extractMessagePreview(agentMessageEvent(content))).toBe('First line second third')
   })
 
-  it('falls back to the tool name when a message has no prose', () => {
+  it('falls back to the tool name when a message has no text', () => {
     const content = [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }]
     expect(extractMessagePreview(agentMessageEvent(content))).toBe('Using Bash…')
   })

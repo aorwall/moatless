@@ -41,9 +41,9 @@ Fields render as monospace with their value, `∅` for null. Guard fields get a 
 
 The connecting line is the point: it makes the sequence a shape rather than an enumeration, so a reader can see how far through they are without counting. Number the hops as well — the numbers are what someone quotes back at you.
 
-**`file:line` is monospace, accented, and on its own line above the prose.** It is the landmark a reader scans for, so it must be findable without reading the sentence.
+**`file:line` is monospace, accented, and on its own line above the explanation.** It is the landmark a reader scans for, so it must be findable without reading the sentence.
 
-**A hop that changes state carries its delta as a chip row**, directly under the prose — same colours as the lifecycle above. A hop that changes nothing carries no chip, which makes the mutating hops findable by scanning:
+**A hop that changes state carries its delta as a chip row**, directly under the explanation — same colours as the lifecycle above. A hop that changes nothing carries no chip, which makes the mutating hops findable by scanning:
 
 ```html
 <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">

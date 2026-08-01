@@ -40,7 +40,7 @@ Top-level `.plans/*.md` files are active or in-flight specs. `.plans/completed/*
 
 **Same sections on both surfaces, different resolution.** A section that earns a place in the markdown appears on the page too, at high level — the same model, drawn with the words a person uses instead of the types in the code. What the page never carries: module inventories, migrations, function signatures, error codes, test commands.
 
-**Design against flatness, not against length.** Every section carries a table, list, diagram or code block — a section that would be pure prose is either wrong or too long.
+**Design against flatness, not against length.** Every section carries a table, list, diagram or code block — a section that would be only paragraphs is either wrong or too long.
 
 Neighbours that are not this:
 
@@ -77,7 +77,7 @@ An interview that only asks ranked decisions produces a decision table and nothi
 The turn itself is four things, in this order, and nothing else — `/asking-questions` owns the shape:
 
 1. **What is being decided**, in one line.
-2. **The options**, as a real numbered list, recommendation first. Never a fork in prose: "do you want X, or is there a reason for Y I'm not seeing" is answered by retyping X, which is the tell that no list was offered.
+2. **The options**, as a real numbered list, recommendation first. Never a fork buried in a paragraph: "do you want X, or is there a reason for Y I'm not seeing" is answered by retyping X, which is the tell that no list was offered.
 3. **At most one line of stake** — what it costs to pick wrong.
 4. **The link**, naming what is on the page: "the protocol difference and the SDK bug are under Decision 5."
 
