@@ -162,6 +162,70 @@ helm install moatless ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-l
 | `backend.image.repository` | Backend image repository | `aorwall/moatless-backend` |
 | `sandboxImage.repository` | Sandbox image repository | `aorwall/moatless-sandbox` |
 
+### T3 Code UI
+
+An alternative front end for the same backend, built from
+[soaplabs/t3code](https://github.com/soaplabs/t3code) and published as
+`aorwall/moatless-t3`.
+
+```bash
+helm upgrade --install moatless-vibe ./k8s/helm/moatless-vibe \
+  --set t3.enabled=true \
+  --set t3.host=vibe-t3.example.com
+```
+
+That one value does three things: deploys the T3 SPA, gives it a SPA catch-all
+to answer, and switches on the backend's T3 compatibility router
+(`T3_UI_RPC_ENABLED`) with the T3 origin allow-listed for the WebSocket.
+Enabling the UI without the backend router would leave a shell that cannot
+bootstrap, so they are not separate switches.
+
+**`t3.host` decides whether the two front ends coexist.** Each owns `/` and
+everything under it that is not a backend route, so they cannot share one
+origin:
+
+- **`t3.host` set** — T3 gets that hostname, the Moatless SPA keeps the app
+  host, and both are reachable. Every backend route is served on both hosts, so
+  the T3 client — which derives its HTTP and WebSocket origins from
+  `window.location` — needs nothing beyond the hostname resolving here.
+- **`t3.host` empty** — T3 replaces the Moatless SPA on the app host.
+
+Setting it to the app host itself is rejected at render time rather than taken
+as either meaning: it reads as "give T3 its own origin", so the chart would
+leave the Moatless SPA on the app host and add a second catch-all for the same
+host at the same priority, and which front end answers `/` would be the
+controller's decision rather than the chart's.
+
+Setting `t3.enabled=false` puts the Moatless SPA back; nothing about it is
+one-way.
+
+The hostname itself is not the chart's to arrange: it has to resolve to this
+deployment's load balancer, and that load balancer's certificate has to cover
+it. Session cookies are shared with the app host only when `auth.cookieDomain`
+is a parent of both.
+
+Before enabling it on a shared environment: the T3 UI covers less than the
+Moatless UI. The shell, workspace listing and conversation views work; most
+other commands are still refused. See
+[`docs/t3-code-current-state.md`](../../../docs/t3-code-current-state.md) for
+what is actually wired.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `t3.enabled` | Serve the T3 UI | `false` |
+| `t3.host` | Hostname for the T3 UI; empty replaces the Moatless SPA on the app host | `""` |
+| `t3.image.repository` | T3 SPA image repository | `aorwall/moatless-t3` |
+| `t3.image.tag` | Image tag | `latest` |
+| `t3.replicaCount` | Number of T3 SPA replicas | `1` |
+| `t3.environmentId` | Stable id for this T3 environment | Release name |
+| `t3.label` | Environment name shown in the client | `Moatless` |
+| `t3.extraAllowedOrigins` | Extra origins allowed to open the backend WebSocket | `[]` |
+
+`t3.extraAllowedOrigins` is only needed for a client served from another host —
+a desktop or mobile build pointed at this deployment. The origin T3 is served
+on is derived from `t3.host` (or `ingress.hosts[0].host`) and `proxy.protocol`,
+so it is never configured twice.
+
 ### Kubernetes execution
 
 | Parameter | Description | Default |

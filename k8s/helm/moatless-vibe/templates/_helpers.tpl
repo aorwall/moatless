@@ -60,6 +60,76 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Name of the Service that answers the SPA catch-all on the app host.
+
+T3 and the Moatless SPA cannot share an origin — both own `/` and every path
+under it that is not a backend route. With t3.host set they get one origin
+each, so the app host keeps the Moatless SPA; without it, T3 takes the app host
+over. Both routing modes read this, so the two cannot disagree about which
+front end is being served.
+*/}}
+{{- define "moatless-vibe.spaServiceName" -}}
+{{- if (and .Values.t3.enabled (not .Values.t3.host)) }}
+{{- printf "%s-t3" (include "moatless-vibe.fullname" .) }}
+{{- else }}
+{{- include "moatless-vibe.fullname" . }}
+{{- end }}
+{{- end }}
+
+{{/*
+Hostname the T3 UI is served on: its own when t3.host is set, the app host
+otherwise. Empty when T3 is not deployed.
+
+Setting t3.host TO the app host is rejected rather than treated as either
+meaning. It is the one value that makes the two modes contradict each other:
+t3.host set says "give T3 its own origin", so the app host keeps the Moatless
+SPA and a second catch-all is rendered for the T3 host — which is now the same
+host, at the same priority, pointing somewhere else. Traefik gets two routers
+with an identical rule; ALB gets two `/` rules at group.order 100. Which front
+end answers `/` then depends on the controller, not the chart.
+
+The two things it could have meant are both already reachable: leave t3.host
+empty to serve T3 on the app host in place of the Moatless SPA, or set it to a
+different hostname to serve both.
+*/}}
+{{- define "moatless-vibe.t3Host" -}}
+{{- if .Values.t3.enabled -}}
+{{- $appHost := (index .Values.ingress.hosts 0).host -}}
+{{- if (and .Values.t3.host (eq .Values.t3.host $appHost)) -}}
+{{- fail (printf "t3.host is set to %q, which is already the app host (ingress.hosts[0].host). Leave t3.host empty to serve the T3 UI on the app host in place of the Moatless SPA, or set it to a different hostname to serve both." .Values.t3.host) -}}
+{{- end -}}
+{{- .Values.t3.host | default $appHost -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Every hostname the backend has to answer its own routes on. The app host
+always, plus the T3 host when that is a separate one — a T3 client served from
+its own origin calls /api, /ws, /.well-known/t3 and /oauth/token relative to
+that origin, so the edge has to route them there too.
+*/}}
+{{- define "moatless-vibe.backendHosts" -}}
+{{- $hosts := list (index .Values.ingress.hosts 0).host -}}
+{{- if (and .Values.t3.enabled .Values.t3.host) -}}
+{{- $hosts = append $hosts .Values.t3.host -}}
+{{- end -}}
+{{- toJson $hosts -}}
+{{- end }}
+
+{{/*
+Browser origin the T3 UI runs on, e.g. https://vibe-t3.example.com.
+
+This is the Origin header the backend sees on its WebSocket upgrade, so it is
+what T3_UI_RPC_ALLOWED_ORIGINS has to contain. Derived rather than configured:
+a second place to write the host is a second place for it to be wrong, and a
+mismatch fails at the socket upgrade — after the page has loaded and looked
+fine.
+*/}}
+{{- define "moatless-vibe.t3Origin" -}}
+{{- printf "%s://%s" (.Values.proxy.protocol | default "https") (include "moatless-vibe.t3Host" .) -}}
+{{- end }}
+
+{{/*
 Get the secrets name
 */}}
 {{- define "moatless-vibe.secretsName" -}}

@@ -116,6 +116,22 @@ spec:
             - name: TRANSCRIPT_S3_PREFIX
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.t3.enabled }}
+            # The T3 compatibility router is opt-in in the backend and serving
+            # the T3 client is the only reason to want it, so one value drives
+            # both rather than leaving a front end that cannot bootstrap and a
+            # backend surface nothing calls as two ways to be half-configured.
+            - name: T3_UI_RPC_ENABLED
+              value: "true"
+            - name: T3_UI_RPC_ENVIRONMENT_ID
+              value: {{ .Values.t3.environmentId | default .Release.Name | quote }}
+            - name: T3_UI_RPC_LABEL
+              value: {{ .Values.t3.label | default "Moatless" | quote }}
+            # The Origin allow-list for the WebSocket upgrade. The T3 origin is
+            # derived, not configured — see the t3Origin helper.
+            - name: T3_UI_RPC_ALLOWED_ORIGINS
+              value: {{ concat (list (include "moatless-vibe.t3Origin" .)) .Values.t3.extraAllowedOrigins | join "," | quote }}
+            {{- end }}
             - name: K8S_POD_STARTUP_TIMEOUT_SECS
               value: {{ .Values.kubernetes.podStartupTimeout | default "120" | quote }}
             - name: K8S_SANDBOX_LIVENESS_ENABLED

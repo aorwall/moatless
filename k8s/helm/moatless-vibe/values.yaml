@@ -86,6 +86,90 @@ frontendContainerSecurityContext:
 # "https: http://*.preview.moatless.localhost".
 cspFrameSrc: "https:"
 
+# T3 Code UI — an alternative front end for this same backend, built from
+# soaplabs/t3code and published as aorwall/moatless-t3.
+#
+# The two front ends cannot share an origin: each owns `/` and every path under
+# it that is not a backend route. `host` decides which way that is resolved.
+#
+#   host set    T3 gets its own hostname and the Moatless SPA keeps the app
+#               host. Both are reachable. The backend answers its routes on
+#               both hosts, so the T3 client — which derives its HTTP and
+#               WebSocket origins from window.location — needs nothing beyond
+#               the hostname resolving to this deployment.
+#   host empty  T3 REPLACES the Moatless SPA on the app host.
+#
+# Set enabled=false to get the Moatless SPA back; nothing about the switch is
+# one-way.
+#
+# Two consequences worth knowing before flipping it in a shared environment:
+#
+#   - The T3 UI covers less than the Moatless UI does. Its shell, workspace
+#     listing and conversation views work; most other commands are still
+#     refused. See docs/t3-code-current-state.md for what is actually wired.
+#   - This also switches on the backend's T3 compatibility router
+#     (T3_UI_RPC_ENABLED) and allow-lists the T3 origin for its WebSocket.
+t3:
+  # -- Serve the T3 Code UI.
+  enabled: false
+  # -- Hostname to serve the T3 UI on, e.g. vibe-t3.example.com. Empty serves
+  # it on the app host instead, replacing the Moatless SPA.
+  #
+  # The hostname must resolve to this deployment's load balancer and its
+  # certificate must cover it — neither is the chart's to arrange. Session
+  # cookies are shared with the app host only if auth.cookieDomain is the
+  # parent domain of both.
+  host: ""
+  image:
+    # -- Docker image repository
+    repository: aorwall/moatless-t3
+    # -- Image pull policy. Always, because the published tag is mutable.
+    pullPolicy: Always
+    # -- Image tag
+    tag: "latest"
+  # -- Number of T3 SPA replicas
+  replicaCount: 1
+  # -- Stable identifier for this deployment's T3 environment. Defaults to the
+  # release name. The backend publishes this with a digest of the database
+  # identity appended, so clients cannot resume a cached listing against a
+  # different database.
+  environmentId: ""
+  # -- Human-readable environment name shown in the T3 client.
+  label: ""
+  # -- Additional browser origins allowed to open the backend WebSocket. The
+  # origin the T3 UI is served on is always included. Add entries only for
+  # clients served from another host — a desktop or mobile build against this
+  # deployment, say. Each is matched exactly, or as `*.<domain>` for one level
+  # of subdomain.
+  extraAllowedOrigins: []
+  # -- Resources for the T3 SPA pod
+  resources: {}
+  # -- Pod-level security context for the T3 SPA. Mirrors the Moatless
+  # frontend's hardening.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101          # nginx image UID
+    runAsGroup: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+    sysctls:
+      - name: net.ipv4.ip_unprivileged_port_start
+        value: "80"
+  # -- Container-level security context for the T3 SPA. readOnlyRootFilesystem
+  # triggers emptyDir mounts for the paths nginx writes at runtime — but NOT for
+  # /etc/nginx/conf.d, unlike the Moatless frontend: the T3 image bakes its
+  # config in rather than rendering a template at startup, so mounting over that
+  # directory would hide it.
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - NET_BIND_SERVICE
+
 service:
   # -- Service type
   type: ClusterIP

@@ -2,6 +2,13 @@
 {{- if .Values.ingress.enabled -}}
 {{- $fullname := include "moatless-vibe.fullname" . -}}
 {{- $host := (index .Values.ingress.hosts 0).host -}}
+{{- $t3Host := include "moatless-vibe.t3Host" . -}}
+{{/*
+The app host, plus the T3 host when that is a separate one. Every backend rule
+below is rendered for each: a T3 UI on its own hostname calls the backend
+relative to that origin, so those paths have to reach the backend there too.
+*/}}
+{{- $backendHosts := include "moatless-vibe.backendHosts" . | fromJsonArray -}}
 {{- if .Values.proxy.traefikIngressRoute.enabled }}
 # When Traefik IngressRoutes handle internal routing, the main Ingress
 # is a catch-all that routes ALL traffic to Traefik.
@@ -32,16 +39,18 @@ spec:
     {{- end }}
   {{- end }}
   rules:
-    - host: {{ $host | quote }}
+    {{- range $backendHosts }}
+    - host: {{ . | quote }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ .Values.proxyIngress.targetServiceName | default "traefik" }}
+                name: {{ $.Values.proxyIngress.targetServiceName | default "traefik" }}
                 port:
-                  number: {{ .Values.proxyIngress.targetServicePort | default 80 }}
+                  number: {{ $.Values.proxyIngress.targetServicePort | default 80 }}
+    {{- end }}
 {{- else }}
 # Nginx/ALB mode: path-specific Ingress resources with nginx auth annotations.
 # Public API routes — NO ForwardAuth (auth endpoints, feature flags, openapi spec)
@@ -62,7 +71,8 @@ spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
   rules:
-    - host: {{ $host | quote }}
+    {{- range $backendHosts }}
+    - host: {{ . | quote }}
       http:
         paths:
           - path: /api/v1/auth
@@ -121,6 +131,7 @@ spec:
                 name: {{ $fullname }}-backend
                 port:
                   number: 8080
+    {{- end }}
 ---
 # Sandbox API routes — NO ForwardAuth (sandbox uses task tokens)
 apiVersion: networking.k8s.io/v1
@@ -140,7 +151,8 @@ spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
   rules:
-    - host: {{ $host | quote }}
+    {{- range $backendHosts }}
+    - host: {{ . | quote }}
       http:
         paths:
           - path: /api/sandbox
@@ -150,6 +162,7 @@ spec:
                 name: {{ $fullname }}-backend
                 port:
                   number: 8080
+    {{- end }}
 ---
 # Backend API routes — WITH ForwardAuth (session/API key required)
 apiVersion: networking.k8s.io/v1
@@ -171,7 +184,8 @@ spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
   rules:
-    - host: {{ $host | quote }}
+    {{- range $backendHosts }}
+    - host: {{ . | quote }}
       http:
         paths:
           - path: /api
@@ -181,8 +195,69 @@ spec:
                 name: {{ $fullname }}-backend
                 port:
                   number: 8080
+    {{- end }}
 ---
-# Frontend/SPA catch-all — NO ForwardAuth (public assets, SPA handles auth redirects)
+# T3 UI-RPC surface — the backend routes that sit outside /api. Without these
+# the SPA catch-all below answers them, and it answers them with HTTP 200 and
+# index.html, so the client sees a malformed response rather than a miss: the
+# page loads, the socket never opens, and nothing in the logs says why.
+#
+# Rendered unconditionally, matching the equivalent IngressRoute in
+# app-ingressroute.yaml: the backend mounts these routes off T3_UI_RPC_ENABLED,
+# which t3.enabled sets but which can also be set on its own (T3 served from
+# somewhere else). The two routing modes must not disagree about the host.
+# With the backend routes absent the paths 404 instead of returning index.html,
+# which is the honest answer.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-t3-surface
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    # Below the catch-all's 100 so ALB evaluates these first. Nginx picks the
+    # longest matching prefix and does not read this.
+    alb.ingress.kubernetes.io/group.order: "60"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+    {{- range $backendHosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-backend
+                port:
+                  number: 8080
+          - path: /.well-known/t3
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-backend
+                port:
+                  number: 8080
+          - path: /oauth/token
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-backend
+                port:
+                  number: 8080
+    {{- end }}
+---
+# Frontend/SPA catch-all — NO ForwardAuth (public assets, SPA handles auth
+# redirects). One host only, unlike the backend rules above: a catch-all is the
+# one rule that cannot be shared, because it is what decides which front end a
+# host serves.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -207,8 +282,42 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ $fullname }}
+                # Moatless SPA, or T3 when it has no host of its own — see the
+                # spaServiceName helper.
+                name: {{ include "moatless-vibe.spaServiceName" . }}
                 port:
                   number: 80
+{{- if (and .Values.t3.enabled .Values.t3.host) }}
+---
+# T3 SPA catch-all on the T3 host.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-t3
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: t3
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    alb.ingress.kubernetes.io/group.order: "100"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+    - host: {{ $t3Host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-t3
+                port:
+                  number: 80
+{{- end }}
 {{- end }}
 {{- end }}
