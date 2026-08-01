@@ -73,9 +73,9 @@ pub struct Task {
     /// Inactive TTL in days. The reaper auto-closes the task when no activity
     /// has occurred for this many days. `0` means "indefinite — never close".
     pub inactive_ttl_days: i32,
-    /// Trigger that spawned this task (route + schedule). Independent from any
-    /// communication binding — schedule triggers never create a binding.
-    pub trigger_id: Option<String>,
+    /// Loop that spawned this task (subscription + schedule). Independent from any
+    /// communication binding — schedule loops never create a binding.
+    pub loop_id: Option<String>,
     /// Server names auto-disabled for this task after repeatedly crash-looping.
     /// JSON array of strings (e.g. `["storybook"]`). `None`/null means none
     /// disabled. Stored per-task so it survives stop/start and never leaks to

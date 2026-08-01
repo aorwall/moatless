@@ -97,7 +97,7 @@ pub(super) async fn receive(
     // a private chat — and verify that Subscription's secret, which is how an
     // update could route under a Subscription whose secret was never checked
     // (spec Decision 5).
-    let Some((connection, rule)) = crate::bindings::runtime::resolve_chat_provider_event(
+    let Some((connection, subscription)) = crate::bindings::runtime::resolve_chat_provider_event(
         state, "telegram", "default", &source_id,
     )
     .await
@@ -113,10 +113,10 @@ pub(super) async fn receive(
     // The secret belongs to the Subscription the delivery routes under, so it
     // is checked here: after resolution, before anything is normalized.
     if let Transport::Webhook { secret_header } = transport {
-        verify_secret(&rule, secret_header).map_err(IngressError::Ingress)?;
+        verify_secret(&subscription, secret_header).map_err(IngressError::Ingress)?;
     }
 
-    let config = crate::bindings::runtime::trigger_context(&rule, "telegram");
+    let config = crate::bindings::runtime::subscription_context(&subscription, "telegram");
     let tg_config = TelegramAdapterConfig::from_config(&config);
     let api = adapter
         .app_api(crate::adapter_apps::app_key_from_transport_config(
@@ -164,7 +164,7 @@ pub(super) async fn receive(
                 update_id.to_string(),
                 InboundDeliveryPayload {
                     connection_id: connection.id.clone(),
-                    rule_id: rule.id.clone(),
+                    loop_id: subscription.id.clone(),
                     subject_kind: destination.subject_kind.to_string(),
                     subject_key: destination.subject_key,
                     destination_config: destination.destination_config,
@@ -220,7 +220,7 @@ fn classify_normalization(error: AdapterError) -> IngressError {
 /// one that has a token accepts only that exact value.
 fn verify_secret(rule: &SubscriptionMatch, provided: Option<&str>) -> Result<(), AdapterError> {
     let expected = rule
-        .provider_config
+        .adapter_config
         .as_ref()
         .and_then(|c| c.get("secret_token"))
         .and_then(|v| v.as_str());
@@ -246,7 +246,7 @@ fn verify_secret(rule: &SubscriptionMatch, provided: Option<&str>) -> Result<(),
 pub(super) async fn apply_effects(
     api: &TelegramApi,
     db: &DbPool,
-    trigger_id: &str,
+    loop_id: &str,
     effects: Vec<Effect>,
 ) -> Result<(), AdapterError> {
     for effect in effects {
@@ -260,13 +260,9 @@ pub(super) async fn apply_effects(
                 meta,
             } => {
                 let from_id_str = from_id.to_string();
-                let req = super::pairing::upsert_pairing_request(
-                    db,
-                    trigger_id,
-                    &from_id_str,
-                    Some(meta),
-                )
-                .await?;
+                let req =
+                    super::pairing::upsert_pairing_request(db, loop_id, &from_id_str, Some(meta))
+                        .await?;
 
                 let message = format!(
                     "Your Telegram user ID: `{from_id}`\n\n\
@@ -282,7 +278,7 @@ pub(super) async fn apply_effects(
                 info!(
                     from_id,
                     code = %req.code,
-                    trigger_id = %trigger_id,
+                    loop_id = %loop_id,
                     "Pairing code sent to Telegram user"
                 );
             }
@@ -296,9 +292,9 @@ mod tests {
     use super::super::test_support::test_rule;
     use super::*;
 
-    fn rule_with(provider_config: Option<serde_json::Value>) -> SubscriptionMatch {
+    fn rule_with(adapter_config: Option<serde_json::Value>) -> SubscriptionMatch {
         SubscriptionMatch {
-            provider_config,
+            adapter_config,
             ..test_rule("telegram", "111")
         }
     }

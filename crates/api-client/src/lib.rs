@@ -755,11 +755,9 @@ impl ApiClient {
         self.post(&format!("/api/v1/users/{login}/dm"), req).await
     }
 
-    /// GET a Loop list from `base` (`/api/v1/loops` or its `/api/v1/triggers`
-    /// alias), applying the optional `kind` / `adapterKind` filters.
-    async fn list_loops_at(
+    /// GET /api/v1/loops
+    pub async fn list_loops(
         &self,
-        base: &str,
         kind: Option<&str>,
         adapter_kind: Option<&str>,
     ) -> Result<Vec<moatless_api_schemas::loops::Loop>, ApiError> {
@@ -775,17 +773,7 @@ impl ApiClient {
         } else {
             format!("?{}", params.join("&"))
         };
-        self.get(&format!("{base}{qs}")).await
-    }
-
-    /// GET /api/v1/loops
-    pub async fn list_loops(
-        &self,
-        kind: Option<&str>,
-        adapter_kind: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::loops::Loop>, ApiError> {
-        self.list_loops_at("/api/v1/loops", kind, adapter_kind)
-            .await
+        self.get(&format!("/api/v1/loops{qs}")).await
     }
 
     /// POST /api/v1/loops
@@ -882,63 +870,6 @@ impl ApiClient {
         .await
     }
 
-    // The `*_trigger*` methods below have no `moat` command behind them: they
-    // exist so `crates/integration-tests` can assert the deprecated
-    // `/api/v1/triggers` alias still serves the same handlers as `/api/v1/loops`.
-    // Remove them only together with the alias itself.
-
-    /// GET /api/v1/triggers — deprecated alias of [`Self::list_loops`].
-    pub async fn list_triggers(
-        &self,
-        kind: Option<&str>,
-        adapter_kind: Option<&str>,
-    ) -> Result<Vec<moatless_api_schemas::loops::Loop>, ApiError> {
-        self.list_loops_at("/api/v1/triggers", kind, adapter_kind)
-            .await
-    }
-
-    /// POST /api/v1/triggers — deprecated alias of [`Self::create_loop`].
-    pub async fn create_trigger(
-        &self,
-        req: &moatless_api_schemas::loops::CreateLoopRequest,
-    ) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
-        self.post("/api/v1/triggers", req).await
-    }
-
-    /// GET /api/v1/triggers/{id} — deprecated alias of [`Self::get_loop`].
-    pub async fn get_trigger(
-        &self,
-        id: &str,
-    ) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
-        self.get(&format!("/api/v1/triggers/{id}")).await
-    }
-
-    /// PUT /api/v1/triggers/{id} — deprecated alias of [`Self::update_loop`].
-    pub async fn update_trigger(
-        &self,
-        id: &str,
-        req: &moatless_api_schemas::loops::UpdateLoopRequest,
-    ) -> Result<moatless_api_schemas::loops::Loop, ApiError> {
-        self.put(&format!("/api/v1/triggers/{id}"), req).await
-    }
-
-    /// DELETE /api/v1/triggers/{id} — deprecated alias of [`Self::delete_loop`].
-    pub async fn delete_trigger(&self, id: &str) -> Result<(), ApiError> {
-        self.delete_request(&format!("/api/v1/triggers/{id}")).await
-    }
-
-    /// GET /api/v1/triggers/{id}/tasks — deprecated alias of
-    /// [`Self::list_loop_recent_tasks`].
-    pub async fn list_trigger_recent_tasks(
-        &self,
-        id: &str,
-        limit: Option<u32>,
-    ) -> Result<Vec<moatless_api_schemas::loops::LoopRecentTaskItem>, ApiError> {
-        let qs = limit
-            .map(|limit| format!("?limit={limit}"))
-            .unwrap_or_default();
-        self.get(&format!("/api/v1/triggers/{id}/tasks{qs}")).await
-    }
     /// GET /api/v1/tasks/{task_id}/bindings
     pub async fn list_task_bindings(
         &self,

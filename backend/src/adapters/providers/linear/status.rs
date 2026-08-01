@@ -107,11 +107,11 @@ mod tests {
         TaskBinding {
             id: "b1".into(),
             task_id: "t1".into(),
-            provider: "linear".into(),
+            adapter_kind: "linear".into(),
             subject_kind: "linear_issue".into(),
             subject_key: "issue-uuid".into(),
             connection_id: "c1".into(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: config,
             metadata: serde_json::json!({}),
             last_external_event_id: None,

@@ -1,7 +1,7 @@
 //! Prometheus counters for binding inbound routing and outbound send.
 //!
-//! `trigger_id` and `connection_id` are emitted as labels so the admin UI
-//! can render per-trigger / per-connection counts.
+//! `loop_id` and `connection_id` are emitted as labels so the admin UI
+//! can render per-loop / per-connection counts.
 
 pub(crate) const BINDING_INBOUND_TOTAL: &str = "moatless_binding_inbound_total";
 pub(crate) const BINDING_OUTBOUND_TOTAL: &str = "moatless_binding_outbound_total";
@@ -12,11 +12,11 @@ pub(crate) const BINDING_OUTBOUND_TOTAL: &str = "moatless_binding_outbound_total
 pub fn describe_binding_metrics() {
     metrics::describe_counter!(
         BINDING_INBOUND_TOTAL,
-        "Inbound binding routing outcomes (success | ignored | error) by provider, trigger, connection, and reason"
+        "Inbound binding routing outcomes (success | ignored | error) by provider, loop, connection, and reason"
     );
     metrics::describe_counter!(
         BINDING_OUTBOUND_TOTAL,
-        "Outbound binding send outcomes (success | ignored | error) by provider, trigger, connection, and reason"
+        "Outbound binding send outcomes (success | ignored | error) by provider, loop, connection, and reason"
     );
 }
 
@@ -35,11 +35,11 @@ pub fn describe_binding_metrics() {
 pub(crate) mod inbound_reason {
     /// No adapter connection matched the event's scope.
     pub(crate) const NO_CONNECTION: &str = "no_connection";
-    /// No trigger matched the event's source.
+    /// No subscription matched the event's source.
     pub(crate) const NO_RULE_MATCH: &str = "no_rule_match";
-    /// The matched trigger belongs to a different connection.
+    /// The matched subscription belongs to a different connection.
     pub(crate) const WRONG_CONNECTION: &str = "wrong_connection";
-    /// The trigger is deactivated.
+    /// The subscription is deactivated.
     pub(crate) const INACTIVE_RULE: &str = "inactive_rule";
     /// The binding's own task authored the event.
     pub(crate) const SELF_ECHO: &str = "self_echo";
@@ -63,7 +63,7 @@ pub(crate) fn record_inbound(
     provider: &str,
     outcome: &'static str,
     reason: &'static str,
-    trigger_id: &str,
+    loop_id: &str,
     connection_id: &str,
 ) {
     metrics::counter!(
@@ -71,7 +71,7 @@ pub(crate) fn record_inbound(
         "provider" => provider.to_string(),
         "outcome" => outcome,
         "reason" => reason,
-        "trigger_id" => trigger_id.to_string(),
+        "loop_id" => loop_id.to_string(),
         "connection_id" => connection_id.to_string(),
     )
     .increment(1);
@@ -82,7 +82,7 @@ pub(crate) fn record_outbound(
     provider: &str,
     outcome: &'static str,
     reason: &'static str,
-    trigger_id: &str,
+    loop_id: &str,
     connection_id: &str,
 ) {
     metrics::counter!(
@@ -90,7 +90,7 @@ pub(crate) fn record_outbound(
         "provider" => provider.to_string(),
         "outcome" => outcome,
         "reason" => reason,
-        "trigger_id" => trigger_id.to_string(),
+        "loop_id" => loop_id.to_string(),
         "connection_id" => connection_id.to_string(),
     )
     .increment(1);

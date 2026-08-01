@@ -1,8 +1,8 @@
 //! Repository HTTP handlers.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 
 use tracing::{debug, info, warn};
 
@@ -18,13 +18,13 @@ use moatless_backend_core::scope::Scope;
 
 use super::access::{access_error_for, parse_github_owner_repo, resolve_repository_github_token};
 use super::config_reader::{
-    validate_repository_access_target, verify_repository_access, AccessStatus,
+    AccessStatus, validate_repository_access_target, verify_repository_access,
 };
 use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use super::schemas::*;
-use crate::workspace::git_sync::{sync_repo_workspaces, SyncForce};
+use crate::workspace::git_sync::{SyncForce, sync_repo_workspaces};
 
 pub(crate) fn validate_non_secret_env_vars(
     env_vars: Option<&std::collections::HashMap<String, String>>,
@@ -1101,7 +1101,7 @@ pub async fn sync_config(
 }
 
 /// Reconcile a repository's committed `.moatless/loops/` + git-declared
-/// workspaces into the trigger tables and `workspaces` rows.
+/// workspaces into the loop tables and `workspaces` rows.
 ///
 /// Run-config from `.moatless/config.json` / `.moatless/workspaces.json` flows
 /// into the workspace (via `sync_repo_workspaces`), not into repo columns — a

@@ -72,7 +72,7 @@ pub enum BindingAction {
         #[arg(long)]
         subject_key: String,
         #[arg(long)]
-        trigger_id: Option<String>,
+        loop_id: Option<String>,
         #[arg(long)]
         destination_config: Option<String>,
         #[arg(long)]
@@ -190,14 +190,14 @@ pub async fn run_bindings(
             connection_id,
             subject_kind,
             subject_key,
-            trigger_id,
+            loop_id,
             destination_config,
             metadata,
         } => {
             let req = CreateTaskBindingRequest {
                 adapter_kind: parse_adapter_kind(&adapter)?,
                 connection_id,
-                trigger_id,
+                loop_id,
                 subject_kind,
                 subject_key,
                 destination_config: parse_json_opt(destination_config.as_deref())?,

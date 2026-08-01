@@ -1,6 +1,6 @@
 //! Adapter-layer router for events delivered to an already-bound external subject.
 //!
-//! Provider runtimes still decide how to parse a subject and which bindings
+//! Adapter runtimes still decide how to parse a subject and which bindings
 //! exist. The shared binding runtime owns recipient resolution, receipt
 //! deduplication, self-echo filtering, and sandbox notification.
 
@@ -8,11 +8,11 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch, TaskBinding};
 use crate::state::AppState;
 
-/// One provider event and the active bindings listening to its subject.
+/// One Adapter event and the active bindings listening to its subject.
 pub(crate) struct SubjectEvent<'a> {
     /// Adapter label used for message rows and metrics.
-    pub(crate) provider_label: &'a str,
-    /// Provider key used for subject bindings and event receipts.
+    pub(crate) adapter_label: &'a str,
+    /// Adapter key used for subject bindings and event receipts.
     pub(crate) binding_provider: &'a str,
     pub(crate) subject_kind: &'a str,
     pub(crate) subject_key: &'a str,
@@ -23,21 +23,21 @@ pub(crate) struct SubjectEvent<'a> {
     pub(crate) new_task_binding_id: Option<&'a str>,
 }
 
-/// Route a provider event to the tasks bound to its external subject.
+/// Route an Adapter event to the tasks bound to its external subject.
 pub(crate) async fn route_subject_event(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: &SubscriptionMatch,
+    subscription: &SubscriptionMatch,
     msg: &InboundMessage,
     event: SubjectEvent<'_>,
 ) -> Result<String, AdapterError> {
     crate::bindings::runtime::fan_out(
         state,
         connection,
-        rule,
+        subscription,
         msg,
         crate::bindings::runtime::Fanout {
-            provider_label: event.provider_label,
+            adapter_label: event.adapter_label,
             binding_provider: event.binding_provider,
             subject_kind: event.subject_kind,
             subject_key: event.subject_key,

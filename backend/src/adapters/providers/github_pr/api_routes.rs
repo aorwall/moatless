@@ -439,7 +439,7 @@ async fn bind_task_to_pr(
             info!(
                 task_id,
                 pr_number,
-                rule_id = rule.as_ref().map_or("<none>", |r| r.id.as_str()),
+                subscription_id = rule.as_ref().map_or("<none>", |r| r.id.as_str()),
                 binding_id = %binding.id,
                 "Connected GitHub PR binding via typed API"
             );

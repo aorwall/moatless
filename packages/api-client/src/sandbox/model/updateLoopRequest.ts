@@ -15,7 +15,7 @@ export interface UpdateLoopRequest {
    * @nullable
    */
   name?: string | null;
-  rule?: null | UpdateLoopConfig;
+  config?: null | UpdateLoopConfig;
   scope?: null | Scope;
   source?: null | UpdateLoopSource;
 }

@@ -227,7 +227,7 @@ pub(crate) trait AdapterBindingReply: AdapterOutboundContent {
                 "Provider needs a trigger-backed binding for outbound replies".into(),
             ));
         };
-        let config = crate::bindings::runtime::trigger_context(rule, self.provider_key());
+        let config = crate::bindings::runtime::subscription_context(rule, self.provider_key());
         let thread = crate::bindings::runtime::binding_context(binding);
         self.send_reply(&thread, &config, message).await
     }

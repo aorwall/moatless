@@ -46,7 +46,7 @@ pub async fn github_webhook(
         Ok(Outcome::Ignored {
             event_type,
             reason,
-            rule_id,
+            subscription_id,
             connection_id,
         }) => {
             record_webhook(
@@ -54,7 +54,7 @@ pub async fn github_webhook(
                 "ignored",
                 reason,
                 &event_type,
-                &rule_id,
+                &subscription_id,
                 &connection_id,
             );
         }

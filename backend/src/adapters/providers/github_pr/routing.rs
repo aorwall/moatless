@@ -1,4 +1,4 @@
-//! GitHub PR routing on top of provider connections, task triggers, and task bindings.
+//! GitHub PR routing on top of provider connections, task loops, and task bindings.
 
 use std::fmt::Write as _;
 
@@ -53,7 +53,7 @@ pub(super) fn delivery_only_rule(
     let now = Utc::now();
     SubscriptionMatch {
         id: format!("virtual:{}", connection.id),
-        provider: super::delivery::ADAPTER.to_string(),
+        adapter_kind: super::delivery::ADAPTER.to_string(),
         connection_id: connection.id.clone(),
         source_matcher: repo_full_name.to_string(),
         source_name: None,
@@ -67,7 +67,7 @@ pub(super) fn delivery_only_rule(
         agent_type: String::new(),
         inactive_ttl_days: None,
         allow_direct_send: false,
-        provider_config: None,
+        adapter_config: None,
         ongoing_task_id: None,
         close_task_on_close: false,
         notify_on_success: false,
@@ -99,7 +99,7 @@ pub(super) async fn route_event(
     if let Some(rule) = rule {
         if !rule.active {
             debug!(
-                rule_id = %rule.id,
+                subscription_id = %rule.id,
                 source_matcher = %rule.source_matcher,
                 "Ignoring GitHub PR message: task trigger inactive"
             );
@@ -245,7 +245,7 @@ pub(super) async fn route_event(
 
                     info!(
                         task_id = %task_id,
-                        rule_id = %rule.id,
+                        subscription_id = %rule.id,
                         subject_key = %subject_key,
                         "Created provider event task for GitHub PR binding"
                     );
@@ -261,7 +261,7 @@ pub(super) async fn route_event(
                 // delivery below.
                 Err(TaskCreationError::Preflight(reason)) => {
                     warn!(
-                        rule_id = %rule.id,
+                        subscription_id = %rule.id,
                         subject_key = %subject_key,
                         error = %reason,
                         "GitHub PR review task failed preflight; skipping new-task delivery"
@@ -325,7 +325,7 @@ pub(super) async fn route_event(
         &delivery_rule,
         &msg,
         crate::adapters::subject_events::SubjectEvent {
-            provider_label: ADAPTER_LABEL,
+            adapter_label: ADAPTER_LABEL,
             binding_provider: ADAPTER,
             subject_kind: SUBJECT_KIND,
             subject_key: &subject_key,
@@ -360,7 +360,7 @@ pub(super) async fn close_subject(
         .into_iter()
         .filter(|b| {
             b.origin == ADAPTER_EVENT_BINDING_ORIGIN
-                && b.trigger_id.as_deref() == Some(rule.id.as_str())
+                && b.loop_id.as_deref() == Some(rule.id.as_str())
         })
         .collect::<Vec<_>>();
 
@@ -507,7 +507,7 @@ async fn build_close_inbound_message(
     let user_id = super::auth::resolve_sender_user(&info.sender_login, rule, &state.db).await;
 
     InboundMessage {
-        provider: AdapterKind::GithubPr,
+        adapter_kind: AdapterKind::GithubPr,
         source_id: rule.source_matcher.clone(),
         thread_id: None, // skip thread-context fetch (matches `opened`)
         message_thread_id: info.pr_number.to_string(),
@@ -519,7 +519,7 @@ async fn build_close_inbound_message(
             "repo": repo,
             "pr_number": info.pr_number,
         }),
-        provider_context: serde_json::json!({}),
+        adapter_context: serde_json::json!({}),
         external_event_id: Some(super::external_id::pr_event("closed", info.pr_number, None)),
         source_task_id: None,
         audience: Audience::Everyone,
@@ -561,7 +561,7 @@ async fn upsert_binding(
 /// Translate a GitHub PR provider event into a [`NewTaskRequest`] and hand it to
 /// the shared [`TaskCreationService`]. The service owns short-id generation,
 /// preflight, insert, tags, provision, and the task event; this function only
-/// maps the trigger route + inbound message onto the normalised request.
+/// maps the subscription + inbound message onto the normalised request.
 ///
 /// The binding upsert and first-message delivery stay with the caller
 /// ([`route_event`]), so no first message is passed here.
@@ -581,7 +581,7 @@ async fn create_provider_event_task(
     // `source_matcher` event metadata; `related_to` is recorded by the caller
     // after creation succeeds, and the first message is delivered through the
     // binding.
-    let config = crate::bindings::runtime::trigger_context(rule, ADAPTER_LABEL);
+    let config = crate::bindings::runtime::subscription_context(rule, ADAPTER_LABEL);
     let outcome = crate::loops::firing::inbound::create_task_from_loop(
         state,
         &config,
@@ -600,7 +600,7 @@ async fn create_provider_event_task(
     .await?;
 
     let task_id = outcome.task.task_id;
-    info!(task_id = %task_id, rule_id = %rule.id, "Created task from GitHub PR provider event");
+    info!(task_id = %task_id, subscription_id = %rule.id, "Created task from GitHub PR provider event");
     Ok(task_id)
 }
 
@@ -697,7 +697,7 @@ mod tests {
         let now = Utc::now();
         let connection = AdapterConnection {
             id: "pc_org".to_string(),
-            provider: "github".to_string(),
+            adapter_kind: "github".to_string(),
             connection_kind: "org_webhook".to_string(),
             scope_value: "acme".to_string(),
             credential_ref: None,
@@ -739,11 +739,11 @@ mod tests {
                 .map(|task_id| TaskBinding {
                     id: format!("ts_{task_id}"),
                     task_id: (*task_id).to_string(),
-                    provider: "github".to_string(),
+                    adapter_kind: "github".to_string(),
                     subject_kind: "github_pr".to_string(),
                     subject_key: "acme/widget#42".to_string(),
                     connection_id: "pc_org".to_string(),
-                    trigger_id: None,
+                    loop_id: None,
                     destination_config: serde_json::json!({}),
                     metadata: serde_json::json!({}),
                     last_external_event_id: None,

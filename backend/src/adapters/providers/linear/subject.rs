@@ -77,7 +77,7 @@ pub(super) async fn bindings_in_scope(
     // is what guarantees it.
     sqlx::query_as::<_, TaskBinding>(
         "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
-                trigger_id, destination_config, metadata, last_external_event_id, \
+                loop_id, destination_config, metadata, last_external_event_id, \
                 origin, created_at, last_event_at \
          FROM task_bindings \
          WHERE adapter_kind = $1 \
@@ -153,8 +153,8 @@ pub(super) async fn rule_for_binding(
     state: &AppState,
     binding: &TaskBinding,
 ) -> Result<Option<SubscriptionMatch>, AdapterError> {
-    match binding.trigger_id {
-        Some(ref trigger_id) => Ok(state.loops.find_subscription_by_id(trigger_id).await?),
+    match binding.loop_id {
+        Some(ref loop_id) => Ok(state.loops.find_subscription_by_id(loop_id).await?),
         None => Ok(None),
     }
 }

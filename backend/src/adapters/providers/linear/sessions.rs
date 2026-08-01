@@ -289,7 +289,7 @@ async fn provision_session_task(
         .await
     {
         Ok(id) => {
-            info!(task_id = %id, rule_id = %rule.id, "Created task from Linear AgentSession");
+            info!(task_id = %id, subscription_id = %rule.id, "Created task from Linear AgentSession");
             id
         }
         // Preflight failed: the task exists but is errored, and no binding/turn

@@ -265,7 +265,7 @@ mod tests {
         let now = chrono::Utc::now();
         BindingContext {
             binding_id: "tb_test".to_string(),
-            trigger_id: None,
+            loop_id: None,
             task_id: "task_test".to_string(),
             subject_kind: "github_pr".to_string(),
             subject_key: "soaplabs/repo#42".to_string(),

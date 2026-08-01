@@ -51,20 +51,20 @@ import type {
   ActivationReach,
   ActivationResponse,
   AdapterConnectionResponse,
-  AdapterEventTriggerSourceResponse,
+  AdapterEventSubscriptionSourceResponse,
   CreatePluginRequest,
   EffectivePluginResponse,
   FileTreeResponse,
   ListTasksFilters,
   ListTasksResponse,
+  LoopResponse,
   PluginResponse,
   PluginSkillResponse,
   SearchByNameResult,
-  TaskTriggerFixtureConfig,
-  TaskTriggerFixtureResponse,
+  TaskLoopFixtureConfig,
+  TaskLoopFixtureResponse,
   TeamMemberResponse,
   TeamResponse,
-  TriggerResponse,
 } from './types'
 
 /** The shape `moat tasks create` prints. */
@@ -671,11 +671,6 @@ export class MoatApi {
 
   // =========================================================================
   // Loops
-  //
-  // `/api/v1/loops` is the documented path; `/api/v1/triggers` is the older
-  // alias kept working for existing clients. The CLI speaks the documented one,
-  // so the alias is reached through the raw call — which is the point of the
-  // test that compares them.
   // =========================================================================
 
   /**
@@ -757,31 +752,12 @@ export class MoatApi {
   /**
    * The tasks a loop recently produced.
    *
-   * Driven by the task's own `triggerId`, not by a binding — a schedule loop
+   * Driven by the task's own `loopId`, not by a binding — a schedule loop
    * never creates one, and its tasks still have to surface here.
    */
   async listLoopRecentTasks(id: string, limit = 10): Promise<LoopRecentTaskItem[]> {
     return this.expect<LoopRecentTaskItem[]>(
-      await this.moat.raw('GET', `/api/v1/triggers/${id}/tasks?limit=${limit}`),
-    )
-  }
-
-  /** Read a loop through whichever of the two paths the caller names. */
-  async getLoopVia(path: 'loops' | 'triggers', id: string): Promise<unknown> {
-    return this.expect<unknown>(await this.moat.raw('GET', `/api/v1/${path}/${id}`))
-  }
-
-  /** List loops through whichever of the two paths the caller names. */
-  async listLoopsVia(
-    path: 'loops' | 'triggers',
-    filters: { kind?: string; adapterKind?: string } = {},
-  ): Promise<unknown[]> {
-    const params = new URLSearchParams()
-    if (filters.kind) params.set('kind', filters.kind)
-    if (filters.adapterKind) params.set('adapterKind', filters.adapterKind)
-    const query = params.toString()
-    return this.expect<unknown[]>(
-      await this.moat.raw('GET', `/api/v1/${path}${query ? `?${query}` : ''}`),
+      await this.moat.raw('GET', `/api/v1/loops/${id}/tasks?limit=${limit}`),
     )
   }
 
@@ -916,14 +892,12 @@ export class MoatApi {
   }
 
   // =========================================================================
-  // Triggers — created as a connection plus an adapter-event trigger
+  // Loops — created as a connection plus an adapter-event subscription
   // =========================================================================
 
-  async createTaskTriggerFixture(
-    config: TaskTriggerFixtureConfig,
-  ): Promise<TaskTriggerFixtureResponse> {
+  async createTaskTriggerFixture(config: TaskLoopFixtureConfig): Promise<TaskLoopFixtureResponse> {
     return toTaskTriggerFixture(
-      this.expect<TriggerResponse>(await this.createTaskTriggerFixtureRaw(config)),
+      this.expect<LoopResponse>(await this.createTaskTriggerFixtureRaw(config)),
     )
   }
 
@@ -946,9 +920,9 @@ export class MoatApi {
   }
 
   /** Create one and report how the API answered, for a rejection assertion. */
-  async createTaskTriggerFixtureRaw(config: TaskTriggerFixtureConfig): Promise<RawResponse> {
+  async createTaskTriggerFixtureRaw(config: TaskLoopFixtureConfig): Promise<RawResponse> {
     const adapterKind = config.adapterKind ?? config.provider ?? 'webhook'
-    // A live trigger routes inbound events into new tasks, so on a shared
+    // A live loop routes inbound events into new tasks, so on a shared
     // environment it is the one leftover that keeps doing something. Both the
     // matcher and the name carry the run, so the sweep can find it.
     const sourceId = scopedSlug(config.sourceId)
@@ -960,15 +934,15 @@ export class MoatApi {
         sourceName,
         connectionKind:
           config.connectionKind ?? (adapterKind === 'webhook' ? 'webhook' : 'bot_api'),
-        webhookSecret: providerConfigSecret(config.providerConfig),
+        webhookSecret: adapterConfigSecret(config.adapterConfig),
       }),
     )
 
-    return this.moat.raw('POST', '/api/v1/triggers', {
+    return this.moat.raw('POST', '/api/v1/loops', {
       name: sourceName,
       kind: 'adapter_event',
       active: true,
-      rule: {
+      config: {
         repositoryId: config.repositoryId,
         routingMode: normalizeRoutingMode(config.routingMode),
         prompt: config.promptTemplate ?? null,
@@ -980,7 +954,7 @@ export class MoatApi {
         sourceMatcher: config.sourceMatcher ?? sourceId,
         sourceName,
         eventFilter: {},
-        adapterConfig: config.providerConfig ?? {},
+        adapterConfig: config.adapterConfig ?? {},
         allowDirectSend: false,
         closeTaskOnClose: true,
         notifyOnSuccess: false,
@@ -988,11 +962,9 @@ export class MoatApi {
     })
   }
 
-  async getTaskTriggerFixture(id: string): Promise<TaskTriggerFixtureResponse> {
-    const trigger = this.expect<TriggerResponse>(
-      await this.moat.raw('GET', `/api/v1/triggers/${id}`),
-    )
-    return toTaskTriggerFixture(trigger)
+  async getTaskTriggerFixture(id: string): Promise<TaskLoopFixtureResponse> {
+    const loop = this.expect<LoopResponse>(await this.moat.raw('GET', `/api/v1/loops/${id}`))
+    return toTaskTriggerFixture(loop)
   }
 
   async updateTaskTriggerFixture(
@@ -1003,14 +975,14 @@ export class MoatApi {
       promptTemplate?: string | null
       taskName?: string | null
       active?: boolean
-      providerConfig?: Record<string, unknown>
+      adapterConfig?: Record<string, unknown>
     },
-  ): Promise<TaskTriggerFixtureResponse> {
+  ): Promise<TaskLoopFixtureResponse> {
     const current = await this.getTaskTriggerFixture(id)
-    const trigger = this.expect<TriggerResponse>(
-      await this.moat.raw('PUT', `/api/v1/triggers/${id}`, {
+    const loop = this.expect<LoopResponse>(
+      await this.moat.raw('PUT', `/api/v1/loops/${id}`, {
         active: data.active ?? current.active,
-        rule: {
+        config: {
           routingMode: data.routingMode
             ? normalizeRoutingMode(data.routingMode)
             : current.routingMode,
@@ -1025,34 +997,34 @@ export class MoatApi {
             data.sourceName === undefined
               ? (current.sourceName ?? null)
               : scopedName(data.sourceName),
-          adapterConfig: data.providerConfig ?? current.providerConfig ?? {},
+          adapterConfig: data.adapterConfig ?? current.adapterConfig ?? {},
         },
       }),
     )
-    return toTaskTriggerFixture(trigger)
+    return toTaskTriggerFixture(loop)
   }
 
   async deleteTaskTriggerFixture(id: string): Promise<void> {
-    this.expect(await this.moat.raw('DELETE', `/api/v1/triggers/${id}`))
+    this.expect(await this.moat.raw('DELETE', `/api/v1/loops/${id}`))
   }
 
   async deleteTaskTriggerFixtureRaw(id: string): Promise<RawResponse> {
-    return this.moat.raw('DELETE', `/api/v1/triggers/${id}`)
+    return this.moat.raw('DELETE', `/api/v1/loops/${id}`)
   }
 
   async listTaskTriggerFixtures(filters?: {
     adapterKind?: string
     provider?: string
     repositoryId?: string
-  }): Promise<TaskTriggerFixtureResponse[]> {
+  }): Promise<TaskLoopFixtureResponse[]> {
     const params = new URLSearchParams({ kind: 'adapter_event' })
     const adapterKind = filters?.adapterKind ?? filters?.provider
     if (adapterKind) params.set('adapterKind', adapterKind)
 
-    const triggers = this.expect<TriggerResponse[]>(
-      await this.moat.raw('GET', `/api/v1/triggers?${params.toString()}`),
+    const loops = this.expect<LoopResponse[]>(
+      await this.moat.raw('GET', `/api/v1/loops?${params.toString()}`),
     )
-    return triggers
+    return loops
       .map(toTaskTriggerFixture)
       .filter((fixture) => !filters?.repositoryId || fixture.repositoryId === filters.repositoryId)
   }
@@ -1276,8 +1248,8 @@ export class MoatApi {
   }
 }
 
-function providerConfigSecret(providerConfig?: Record<string, unknown>): string | null {
-  const secret = providerConfig?.secret_token ?? providerConfig?.webhook_secret
+function adapterConfigSecret(adapterConfig?: Record<string, unknown>): string | null {
+  const secret = adapterConfig?.secret_token ?? adapterConfig?.webhook_secret
   return typeof secret === 'string' && secret.length > 0 ? secret : null
 }
 
@@ -1286,31 +1258,31 @@ function normalizeRoutingMode(mode: string): string {
 }
 
 function isAdapterEventSource(
-  source: TriggerResponse['source'],
-): source is AdapterEventTriggerSourceResponse {
+  source: LoopResponse['source'],
+): source is AdapterEventSubscriptionSourceResponse {
   return 'adapterKind' in source
 }
 
-function toTaskTriggerFixture(trigger: TriggerResponse): TaskTriggerFixtureResponse {
-  if (!isAdapterEventSource(trigger.source)) {
-    throw new Error(`Trigger is not an adapter-event trigger: ${trigger.id}`)
+function toTaskTriggerFixture(loop: LoopResponse): TaskLoopFixtureResponse {
+  if (!isAdapterEventSource(loop.source)) {
+    throw new Error(`Loop is not an adapter-event subscription loop: ${loop.id}`)
   }
   return {
-    id: trigger.id,
-    connectionId: trigger.source.connectionId,
-    adapterKind: trigger.source.adapterKind,
-    sourceId: trigger.source.sourceMatcher,
-    sourceName: trigger.source.sourceName ?? undefined,
-    repositoryId: trigger.rule.repositoryId,
-    routingMode: trigger.rule.routingMode,
-    promptTemplate: trigger.rule.prompt ?? undefined,
-    taskName: trigger.rule.taskName ?? undefined,
-    active: trigger.active,
-    providerConfig: trigger.source.adapterConfig ?? undefined,
-    ongoingTaskId: trigger.rule.ongoingTaskId ?? undefined,
-    createdBy: trigger.createdBy,
-    createdAt: trigger.createdAt,
-    updatedAt: trigger.updatedAt,
+    id: loop.id,
+    connectionId: loop.source.connectionId,
+    adapterKind: loop.source.adapterKind,
+    sourceId: loop.source.sourceMatcher,
+    sourceName: loop.source.sourceName ?? undefined,
+    repositoryId: loop.config.repositoryId,
+    routingMode: loop.config.routingMode,
+    promptTemplate: loop.config.prompt ?? undefined,
+    taskName: loop.config.taskName ?? undefined,
+    active: loop.active,
+    adapterConfig: loop.source.adapterConfig ?? undefined,
+    ongoingTaskId: loop.config.ongoingTaskId ?? undefined,
+    createdBy: loop.createdBy,
+    createdAt: loop.createdAt,
+    updatedAt: loop.updatedAt,
   }
 }
 

@@ -25,11 +25,11 @@ pub(super) const OWNER: &str = "user-owner";
 /// of them; spelling the rest out per module is how two copies drift into
 /// disagreeing about what a default Subscription is. Set what your test is
 /// about on the value this returns.
-pub(super) fn test_rule(provider: &str, source_matcher: &str) -> SubscriptionMatch {
+pub(super) fn test_rule(adapter_kind: &str, source_matcher: &str) -> SubscriptionMatch {
     let now = chrono::Utc::now();
     SubscriptionMatch {
         id: "tt_test".into(),
-        provider: provider.into(),
+        adapter_kind: adapter_kind.into(),
         connection_id: "pc_test".into(),
         source_matcher: source_matcher.into(),
         source_name: None,
@@ -43,7 +43,7 @@ pub(super) fn test_rule(provider: &str, source_matcher: &str) -> SubscriptionMat
         agent_type: "claude-code".into(),
         inactive_ttl_days: None,
         allow_direct_send: true,
-        provider_config: None,
+        adapter_config: None,
         ongoing_task_id: None,
         close_task_on_close: true,
         notify_on_success: false,
@@ -95,7 +95,7 @@ pub(super) fn test_loop_context(source_id: &str) -> LoopContext {
     let now = chrono::Utc::now();
     LoopContext {
         id: "tt_test".into(),
-        provider: "telegram".into(),
+        adapter_kind: "telegram".into(),
         source_id: source_id.into(),
         source_name: None,
         repository_id: "repo-1".into(),
@@ -103,7 +103,7 @@ pub(super) fn test_loop_context(source_id: &str) -> LoopContext {
         prompt_template: None,
         active: true,
         allow_direct_send: false,
-        provider_config: None,
+        adapter_config: None,
         ongoing_task_id: None,
         scope: Scope::User,
         task_name: None,

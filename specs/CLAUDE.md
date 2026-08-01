@@ -115,7 +115,7 @@ Specs are organized into per-domain directories. Each domain has a `00-design.md
 
 ```
 specs/
-├── CLAUDE.md                          # This authoring guide
+├── AGENTS.md                          # This authoring guide
 ├── tasks/
 │   ├── 00-design.md                   # Tasks + tags
 │   └── 01-task-scenarios.md           # TASK-01 through TASK-11, plus TASK-02

@@ -260,8 +260,8 @@ impl AdapterDestinationBuilder for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::{BindingContext, NewThreadInfo, RoutingMode, SubscriptionMatch};
     use crate::adapters::AdapterDestinationBuilder;
+    use crate::adapters::models::{BindingContext, NewThreadInfo, RoutingMode, SubscriptionMatch};
     use moatless_backend_core::scope::Scope;
 
     use super::super::adapter::SlackAdapter;
@@ -464,7 +464,7 @@ mod tests {
         let now = chrono::Utc::now();
         BindingContext {
             binding_id: "tb_1".into(),
-            trigger_id: None,
+            loop_id: None,
             task_id: "task-1".into(),
             subject_kind: "slack_thread".into(),
             subject_key: "T1:C1:1700000000.000100".into(),
@@ -535,11 +535,11 @@ mod tests {
         assert_eq!(reply_config["ts"], "1700000000.000900");
     }
 
-    fn test_rule(provider: &str, source_matcher: &str) -> SubscriptionMatch {
+    fn test_rule(adapter_kind: &str, source_matcher: &str) -> SubscriptionMatch {
         let now = chrono::Utc::now();
         SubscriptionMatch {
             id: "tt_test".into(),
-            provider: provider.into(),
+            adapter_kind: adapter_kind.into(),
             connection_id: "pc_test".into(),
             source_matcher: source_matcher.into(),
             source_name: None,
@@ -553,7 +553,7 @@ mod tests {
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             allow_direct_send: true,
-            provider_config: None,
+            adapter_config: None,
             ongoing_task_id: None,
             close_task_on_close: true,
             notify_on_success: false,

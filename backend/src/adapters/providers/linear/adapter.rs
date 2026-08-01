@@ -264,7 +264,7 @@ impl AdapterMessageReply for LinearAdapter {
 impl AdapterDirectDestination for LinearAdapter {
     /// Post a comment on a Linear issue. Destination format:
     /// `issue:<identifier-or-uuid>` (e.g. `issue:SP-123` or
-    /// `issue:bf0e…`). The single Linear connection in `integration_connections`
+    /// `issue:bf0e…`). The single Linear connection in `adapter_connections`
     /// is used as the workspace context — multi-org callers must use the
     /// typed `/api/v1/linear/*` endpoints instead.
     async fn post_to_destination(
@@ -401,7 +401,7 @@ impl AdapterBindingStatus for LinearAdapter {
         let (issue_id, org_id) = status::binding_subject(binding)?;
 
         let row = sqlx::query_as::<_, (serde_json::Value,)>(
-            "SELECT transport_config FROM integration_connections WHERE id = $1",
+            "SELECT transport_config FROM adapter_connections WHERE id = $1",
         )
         .bind(&binding.connection_id)
         .fetch_optional(&self.db)

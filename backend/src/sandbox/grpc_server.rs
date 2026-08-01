@@ -45,8 +45,8 @@ use crate::repository::dao::RepositoryDao;
 use crate::sandbox::event_dedup::Admission;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
-    resolve_server_env, resolve_task_credentials, resolve_task_repository, resolve_task_ssh_keys,
-    TaskCredentialInputs,
+    TaskCredentialInputs, resolve_server_env, resolve_task_credentials, resolve_task_repository,
+    resolve_task_ssh_keys,
 };
 use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
@@ -54,7 +54,7 @@ use crate::task::dao::TaskDao;
 use crate::task::relations::TaskRelationDao;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use crate::task_turn::dao::{TaskTurnDao, TurnStateEvent};
-use crate::task_turn::models::{classify_turn_transition, TurnStatus};
+use crate::task_turn::models::{TurnStatus, classify_turn_transition};
 use crate::workspace::dao::WorkspaceDao;
 
 /// Known credential env var names.
@@ -352,7 +352,9 @@ impl SandboxAuthorizer {
                         user_id = %claims.user_id,
                         "Rejected sandbox gRPC call: token task binding does not match request"
                     );
-                    return Err(Status::permission_denied("Token is not valid for this task"));
+                    return Err(Status::permission_denied(
+                        "Token is not valid for this task",
+                    ));
                 }
                 self.resolve_control(&claims, request_task_id).await
             }
@@ -642,9 +644,7 @@ impl BackendSandboxServiceImpl {
 /// an unknown event-type discriminant, an absent event id — without which
 /// neither deduplication nor idempotent persistence can converge (ADR-0006
 /// requires a *stable, non-empty* id) — and a payload that is not JSON.
-fn decode_request(
-    event: &PublishEventRequest,
-) -> Result<(&'static str, Value), AdmissionError> {
+fn decode_request(event: &PublishEventRequest) -> Result<(&'static str, Value), AdmissionError> {
     // `event_type` is an open integer on the wire. Validate it here, at
     // ingress, so an unknown discriminant is rejected instead of defaulting
     // to a variant. The dispatch strings come from the domain enum so they
@@ -677,9 +677,8 @@ fn decode_request(
     let payload = if event.payload_json.is_empty() {
         Value::Null
     } else {
-        serde_json::from_str(&event.payload_json).map_err(|e| {
-            AdmissionError::Invalid(format!("payload_json is not valid JSON: {e}"))
-        })?
+        serde_json::from_str(&event.payload_json)
+            .map_err(|e| AdmissionError::Invalid(format!("payload_json is not valid JSON: {e}")))?
     };
 
     Ok((event_type, payload))
@@ -720,8 +719,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let event = request.into_inner();
         tracing::Span::current().record("task_id", event.task_id.as_str());
 
-        let (event_type_str, payload) = decode_request(&event)
-            .map_err(|e| e.into_status(&event.task_id, &event.event_id))?;
+        let (event_type_str, payload) =
+            decode_request(&event).map_err(|e| e.into_status(&event.task_id, &event.event_id))?;
 
         // Log sequence gaps/resets for observability (never gates admission).
         self.event_dedup
@@ -750,8 +749,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 }));
             }
             Admission::InFlight => {
-                return Err(AdmissionError::AdmissionInFlight
-                    .into_status(&event.task_id, &event.event_id));
+                return Err(
+                    AdmissionError::AdmissionInFlight.into_status(&event.task_id, &event.event_id)
+                );
             }
         };
 
@@ -1139,7 +1139,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // grant confirms the caller may operate on this task before we resolve
         // and return its provider credentials.
         let task_id = request.get_ref().task_id.clone();
-        let grant = self.authorizer.authorize_bootstrap(&request, &task_id).await?;
+        let grant = self
+            .authorizer
+            .authorize_bootstrap(&request, &task_id)
+            .await?;
         let req = request.into_inner();
         tracing::Span::current().record("task_id", req.task_id.as_str());
         tracing::Span::current().record("user_id", grant.ctx.user_id.as_str());
@@ -1253,37 +1256,38 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // Route through the credential service (production path) so the broadcast
         // fan-out fires for every running sandbox the user owns — minus the
         // originating one (race-loop guard).
-        let result: Result<(), Box<dyn std::error::Error + Send + Sync>> =
-            if let Some(ref svc) = self.credentials_svc {
-                // Routes GITHUB_TOKEN into the encrypted store instead of writing
-                // it plaintext to `provider_tokens.access_token`.
-                svc.store(
-                    &grant.ctx.user_id,
-                    &req.key,
-                    &req.value,
-                    WriteSource::SandboxRotation {
-                        task_id: req.task_id.clone(),
-                    },
-                )
+        let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = if let Some(ref svc) =
+            self.credentials_svc
+        {
+            // Routes GITHUB_TOKEN into the encrypted store instead of writing
+            // it plaintext to `provider_tokens.access_token`.
+            svc.store(
+                &grant.ctx.user_id,
+                &req.key,
+                &req.value,
+                WriteSource::SandboxRotation {
+                    task_id: req.task_id.clone(),
+                },
+            )
+            .await
+            .map_err(Into::into)
+        } else if req.key == crate::sandbox::secrets::GITHUB_TOKEN {
+            // No credential service means no encrypted store; refuse rather
+            // than resurrect a plaintext GitHub token.
+            warn!(
+                task_id = %req.task_id,
+                user_id = %grant.ctx.user_id,
+                "UpdateCredential rejected: cannot persist a GitHub token without the credential service"
+            );
+            return Err(Status::failed_precondition(
+                "Cannot persist a GitHub token without the credential service",
+            ));
+        } else {
+            provider_tokens
+                .upsert_token(&grant.ctx.user_id, provider, &req.value, None, None, None)
                 .await
                 .map_err(Into::into)
-            } else if req.key == crate::sandbox::secrets::GITHUB_TOKEN {
-                // No credential service means no encrypted store; refuse rather
-                // than resurrect a plaintext GitHub token.
-                warn!(
-                    task_id = %req.task_id,
-                    user_id = %grant.ctx.user_id,
-                    "UpdateCredential rejected: cannot persist a GitHub token without the credential service"
-                );
-                return Err(Status::failed_precondition(
-                    "Cannot persist a GitHub token without the credential service",
-                ));
-            } else {
-                provider_tokens
-                    .upsert_token(&grant.ctx.user_id, provider, &req.value, None, None, None)
-                    .await
-                    .map_err(Into::into)
-            };
+        };
 
         if let Err(e) = result {
             warn!(
@@ -2241,9 +2245,12 @@ mod tests {
 
     #[test]
     fn an_empty_payload_is_a_legitimate_no_field_event() {
-        let (_, payload) =
-            decode_request(&request(sandbox_proto::EventType::Sandbox as i32, "evt-1", ""))
-                .expect("decodes");
+        let (_, payload) = decode_request(&request(
+            sandbox_proto::EventType::Sandbox as i32,
+            "evt-1",
+            "",
+        ))
+        .expect("decodes");
         assert_eq!(payload, Value::Null);
     }
 
@@ -2338,7 +2345,7 @@ mod tests {
             headless: false,
             ttl_minutes: 0,
             inactive_ttl_days: 0,
-            trigger_id: None,
+            loop_id: None,
             workspace_id: None,
             disabled_servers: None,
         }
@@ -2441,11 +2448,12 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
             users_regular(),
         );
-        assert!(svc
-            .authorizer
-            .resolve_control(&claims_for("owner"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            svc.authorizer
+                .resolve_control(&claims_for("owner"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -2500,11 +2508,13 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::Global, None))),
             users_admin(),
         );
-        assert!(allowed
-            .authorizer
-            .resolve_control(&claims_for("admin"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            allowed
+                .authorizer
+                .resolve_control(&claims_for("admin"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -2514,11 +2524,12 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("other-user")))),
             users_admin(),
         );
-        assert!(svc
-            .authorizer
-            .resolve_control(&claims_for("admin"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            svc.authorizer
+                .resolve_control(&claims_for("admin"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

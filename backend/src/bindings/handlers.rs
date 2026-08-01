@@ -50,31 +50,31 @@ pub async fn create_task_binding(
 ) -> Result<Json<TaskBindingResponse>, AdapterError> {
     let ctx = auth.scope_context();
     let task = ensure_task_access(&state, &ctx, &task_id).await?;
-    let provider = req.adapter_kind.as_str().to_string();
+    let adapter_kind = req.adapter_kind.as_str().to_string();
     let connection = load_adapter_connection_for_auth(&state, &ctx, &req.connection_id).await?;
-    if connection.provider != provider {
+    if connection.adapter_kind != adapter_kind {
         return Err(AdapterError::BadRequest(format!(
-            "Connection {} is for provider {}, not {}",
-            connection.id, connection.provider, provider
+            "Connection {} is for adapter {}, not {}",
+            connection.id, connection.adapter_kind, adapter_kind
         )));
     }
-    if let Some(trigger_id) = req.trigger_id.as_deref() {
-        let trigger = load_loop_for_auth(&state, &ctx, trigger_id).await?;
+    if let Some(loop_id) = req.loop_id.as_deref() {
+        let trigger = load_loop_for_auth(&state, &ctx, loop_id).await?;
         let crate::loops::dao::LoopSourceRow::AdapterEvent(source) = trigger.source else {
             return Err(AdapterError::BadRequest(format!(
-                "Trigger {trigger_id} is not an adapter-event trigger"
+                "Loop {loop_id} is not an adapter-event Loop"
             )));
         };
-        if source.adapter_kind != provider {
+        if source.adapter_kind != adapter_kind {
             return Err(AdapterError::BadRequest(format!(
-                "Trigger {} is for adapter {}, not {}",
-                trigger.trigger.id, source.adapter_kind, provider
+                "Loop {} is for adapter {}, not {}",
+                trigger.loop_.id, source.adapter_kind, adapter_kind
             )));
         }
         if source.connection_id != req.connection_id {
             return Err(AdapterError::BadRequest(format!(
-                "Trigger {} belongs to connection {}, not {}",
-                trigger.trigger.id, source.connection_id, req.connection_id
+                "Loop {} belongs to connection {}, not {}",
+                trigger.loop_.id, source.connection_id, req.connection_id
             )));
         }
     }
@@ -82,11 +82,11 @@ pub async fn create_task_binding(
     let row = TaskBinding {
         id: format!("tb_{}", uuid::Uuid::new_v4()),
         task_id: task.task_id,
-        provider,
+        adapter_kind,
         subject_kind: req.subject_kind,
         subject_key: req.subject_key,
         connection_id: req.connection_id,
-        trigger_id: req.trigger_id,
+        loop_id: req.loop_id,
         destination_config: req
             .destination_config
             .unwrap_or_else(|| serde_json::json!({})),

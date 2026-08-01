@@ -25,7 +25,7 @@ use super::config::TelegramAdapterConfig;
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct PairingRequest {
     pub id: i32,
-    pub trigger_id: String,
+    pub loop_id: String,
     pub adapter_kind: String,
     pub provider_user_id: String,
     pub code: String,
@@ -50,17 +50,17 @@ pub fn generate_code() -> String {
 /// Upsert a pending pairing request. Returns existing code if already pending.
 pub async fn upsert_pairing_request(
     db: &DbPool,
-    trigger_id: &str,
+    loop_id: &str,
     provider_user_id: &str,
     meta: Option<serde_json::Value>,
 ) -> Result<PairingRequest, AdapterError> {
     // Check for existing pending request
     let existing: Option<PairingRequest> = sqlx::query_as(
         "SELECT * FROM integration_pairing_requests \
-         WHERE trigger_id = $1 AND adapter_kind = 'telegram' AND provider_user_id = $2 AND status = 'pending' \
+         WHERE loop_id = $1 AND adapter_kind = 'telegram' AND provider_user_id = $2 AND status = 'pending' \
          LIMIT 1",
     )
-    .bind(trigger_id)
+    .bind(loop_id)
     .bind(provider_user_id)
     .fetch_optional(db)
     .await
@@ -73,11 +73,11 @@ pub async fn upsert_pairing_request(
     let code = generate_code();
 
     let row: PairingRequest = sqlx::query_as(
-        "INSERT INTO integration_pairing_requests (trigger_id, adapter_kind, provider_user_id, code, status, meta) \
+        "INSERT INTO integration_pairing_requests (loop_id, adapter_kind, provider_user_id, code, status, meta) \
          VALUES ($1, 'telegram', $2, $3, 'pending', $4) \
          RETURNING *",
     )
-    .bind(trigger_id)
+    .bind(loop_id)
     .bind(provider_user_id)
     .bind(&code)
     .bind(&meta)
@@ -86,7 +86,7 @@ pub async fn upsert_pairing_request(
     .map_err(AdapterError::Db)?;
 
     info!(
-        trigger_id,
+        loop_id,
         provider_user_id,
         code = %row.code,
         "Created pairing request"
@@ -98,15 +98,15 @@ pub async fn upsert_pairing_request(
 /// Find a pending request by code.
 pub async fn find_by_code(
     db: &DbPool,
-    trigger_id: &str,
+    loop_id: &str,
     code: &str,
 ) -> Result<Option<PairingRequest>, AdapterError> {
     let row: Option<PairingRequest> = sqlx::query_as(
         "SELECT * FROM integration_pairing_requests \
-         WHERE trigger_id = $1 AND code = $2 AND status = 'pending' \
+         WHERE loop_id = $1 AND code = $2 AND status = 'pending' \
          LIMIT 1",
     )
-    .bind(trigger_id)
+    .bind(loop_id)
     .bind(code)
     .fetch_optional(db)
     .await
@@ -116,16 +116,13 @@ pub async fn find_by_code(
 }
 
 /// List all pending requests for a config.
-pub async fn list_pending(
-    db: &DbPool,
-    trigger_id: &str,
-) -> Result<Vec<PairingRequest>, AdapterError> {
+pub async fn list_pending(db: &DbPool, loop_id: &str) -> Result<Vec<PairingRequest>, AdapterError> {
     let rows: Vec<PairingRequest> = sqlx::query_as(
         "SELECT * FROM integration_pairing_requests \
-         WHERE trigger_id = $1 AND status = 'pending' \
+         WHERE loop_id = $1 AND status = 'pending' \
          ORDER BY created_at DESC",
     )
-    .bind(trigger_id)
+    .bind(loop_id)
     .fetch_all(db)
     .await
     .map_err(AdapterError::Db)?;
@@ -133,14 +130,14 @@ pub async fn list_pending(
     Ok(rows)
 }
 
-/// List all pending pairing requests for triggers owned by the given user.
+/// List all pending pairing requests for loops owned by the given user.
 pub async fn list_pending_for_user(
     db: &DbPool,
     user_id: &str,
 ) -> Result<Vec<PairingRequest>, AdapterError> {
     let rows: Vec<PairingRequest> = sqlx::query_as(
         "SELECT p.* FROM integration_pairing_requests p \
-         JOIN triggers t ON t.id = p.trigger_id \
+         JOIN loops t ON t.id = p.loop_id \
          WHERE t.created_by = $1 AND p.status = 'pending' \
          ORDER BY p.created_at DESC",
     )
@@ -155,11 +152,11 @@ pub async fn list_pending_for_user(
 /// Approve a pairing request: mark approved + add user ID to dm_allowlist.
 pub async fn approve_request(
     db: &DbPool,
-    trigger_id: &str,
+    loop_id: &str,
     code: &str,
 ) -> Result<PairingRequest, AdapterError> {
     // Find the pending request
-    let req = find_by_code(db, trigger_id, code)
+    let req = find_by_code(db, loop_id, code)
         .await?
         .ok_or_else(|| AdapterError::BadRequest("Pairing code not found or already used".into()))?;
 
@@ -173,10 +170,10 @@ pub async fn approve_request(
     .await
     .map_err(AdapterError::Db)?;
 
-    // Read current provider_config and append user to dm_allowlist
+    // Read current adapter_config and append user to dm_allowlist
     let store = LoopDao::new(db.clone());
     let current_config = store
-        .get_adapter_config(trigger_id)
+        .get_adapter_config(loop_id)
         .await
         .map_err(AdapterError::Db)?;
 
@@ -195,12 +192,12 @@ pub async fn approve_request(
         serde_json::to_value(&tg_config).map_err(AdapterError::ConfigSerialization)?;
 
     store
-        .set_adapter_config(trigger_id, &updated_config)
+        .set_adapter_config(loop_id, &updated_config)
         .await
         .map_err(AdapterError::Db)?;
 
     info!(
-        trigger_id,
+        loop_id,
         code,
         provider_user_id = %req.provider_user_id,
         "Pairing request approved, user added to dm_allowlist"
@@ -297,10 +294,11 @@ mod error_source_tests {
             .expect_err("unreachable database must fail");
 
         assert!(matches!(err, AdapterError::Db(_)), "got {err:?}");
-        assert!(err
-            .source()
-            .and_then(|s| s.downcast_ref::<sqlx::Error>())
-            .is_some());
+        assert!(
+            err.source()
+                .and_then(|s| s.downcast_ref::<sqlx::Error>())
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -308,10 +306,11 @@ mod error_source_tests {
         let serde_err = serde_json::from_str::<serde_json::Value>("nope").unwrap_err();
         let err = AdapterError::ConfigSerialization(serde_err);
 
-        assert!(err
-            .source()
-            .and_then(|s| s.downcast_ref::<serde_json::Error>())
-            .is_some());
+        assert!(
+            err.source()
+                .and_then(|s| s.downcast_ref::<serde_json::Error>())
+                .is_some()
+        );
 
         let (status, body) = response_snapshot(err.into_response()).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);

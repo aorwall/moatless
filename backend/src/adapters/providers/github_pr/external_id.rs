@@ -48,7 +48,7 @@ pub(super) fn synchronize_sha(external_id: &str) -> Option<&str> {
 /// `github:commit:<sha>` — a commit a task pushed.
 ///
 /// Not a webhook identifier: a push produces no event of its own, and the
-/// `pull_request.synchronize` notification it triggers is keyed on the pull
+/// `pull_request.synchronize` notification it loops is keyed on the pull
 /// request, whose number this path deliberately never looks up. It tags the
 /// assistant row so the chat renders the push's source chip.
 pub(super) fn pushed_commit(sha: &str) -> String {

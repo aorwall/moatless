@@ -25,7 +25,7 @@ use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 
 use moatless_vibe_backend::adapters::delivery::{
-    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
+    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, spawn_adapter_delivery_worker,
 };
 use moatless_vibe_backend::state::AppState;
 
@@ -77,7 +77,7 @@ fn request(
 
 async fn seed_connection(pool: &PgPool, id: &str, adapter_kind: &str, account: &str) {
     sqlx::query(
-        "INSERT INTO integration_connections \
+        "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope) \
          VALUES ($1, $2, 'env', $3, 'user-1', 'global')",
     )

@@ -8,7 +8,7 @@ use moatless_api_schemas::loops::{
 };
 use serde::Deserialize;
 
-use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
+use crate::access_control::{ResolvedScope, ensure_can_use_repository, resolve_scope_for_create};
 use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
@@ -29,14 +29,14 @@ pub struct LoopFilter {
     pub adapter_kind: Option<AdapterKind>,
 }
 
-pub(crate) fn parse_adapter_kind(provider: &str) -> AdapterKind {
-    AdapterKind::parse(provider).unwrap_or(AdapterKind::Webhook)
+pub(crate) fn parse_adapter_kind(adapter_kind: &str) -> AdapterKind {
+    AdapterKind::parse(adapter_kind).unwrap_or(AdapterKind::Webhook)
 }
 
 pub(crate) fn adapter_connection_response(row: &AdapterConnection) -> AdapterConnectionResponse {
     AdapterConnectionResponse {
         id: row.id.clone(),
-        adapter_kind: parse_adapter_kind(&row.provider),
+        adapter_kind: parse_adapter_kind(&row.adapter_kind),
         connection_kind: row.connection_kind.clone(),
         external_account_id: row.scope_value.clone(),
         created_by: row.created_by.clone(),
@@ -48,12 +48,12 @@ pub(crate) fn adapter_connection_response(row: &AdapterConnection) -> AdapterCon
 }
 
 pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
-    let kind = LoopKind::try_from(record.trigger.kind.as_str()).unwrap_or(LoopKind::Manual);
-    let config_source = LoopConfigSource::try_from(record.trigger.config_source.as_str())
+    let kind = LoopKind::try_from(record.loop_.kind.as_str()).unwrap_or(LoopKind::Manual);
+    let config_source = LoopConfigSource::try_from(record.loop_.config_source.as_str())
         .unwrap_or(LoopConfigSource::Manual);
-    let execution_state = if record.trigger.active {
+    let execution_state = if record.loop_.active {
         LoopExecutionState::Active
-    } else if record.rule.run_as_user_id.is_some() {
+    } else if record.config.run_as_user_id.is_some() {
         LoopExecutionState::Paused
     } else {
         LoopExecutionState::AwaitingApproval
@@ -83,32 +83,32 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
     };
 
     Loop {
-        id: record.trigger.id.clone(),
-        name: record.trigger.name.clone(),
+        id: record.loop_.id.clone(),
+        name: record.loop_.name.clone(),
         kind,
-        active: record.trigger.active,
-        scope: record.trigger.scope,
-        owner_user_id: record.trigger.owner_user_id.clone(),
-        created_by: record.trigger.created_by.clone(),
-        created_at: record.trigger.created_at.to_rfc3339(),
-        updated_at: record.trigger.updated_at.to_rfc3339(),
+        active: record.loop_.active,
+        scope: record.loop_.scope,
+        owner_user_id: record.loop_.owner_user_id.clone(),
+        created_by: record.loop_.created_by.clone(),
+        created_at: record.loop_.created_at.to_rfc3339(),
+        updated_at: record.loop_.updated_at.to_rfc3339(),
         config_source,
-        synced_from_git: config_source == LoopConfigSource::Git && !record.trigger.deleted,
-        source_repository_id: record.trigger.source_repository_id.clone(),
-        source_key: record.trigger.source_key.clone(),
-        source_config_path: record.trigger.source_config_path.clone(),
-        deleted: record.trigger.deleted,
+        synced_from_git: config_source == LoopConfigSource::Git && !record.loop_.deleted,
+        source_repository_id: record.loop_.source_repository_id.clone(),
+        source_key: record.loop_.source_key.clone(),
+        source_config_path: record.loop_.source_config_path.clone(),
+        deleted: record.loop_.deleted,
         execution_state,
         config: LoopConfig {
-            repository_id: record.rule.repository_id.clone(),
-            routing_mode: record.rule.routing_mode,
-            ongoing_task_id: record.rule.ongoing_task_id.clone(),
-            task_name: record.rule.task_name.clone(),
-            prompt: record.rule.prompt.clone(),
-            tag_ids: record.rule.tag_ids.clone(),
-            run_as_user_id: record.rule.run_as_user_id.clone(),
-            agent_type: record.rule.agent_type.clone(),
-            inactive_ttl_days: record.rule.inactive_ttl_days,
+            repository_id: record.config.repository_id.clone(),
+            routing_mode: record.config.routing_mode,
+            ongoing_task_id: record.config.ongoing_task_id.clone(),
+            task_name: record.config.task_name.clone(),
+            prompt: record.config.prompt.clone(),
+            tag_ids: record.config.tag_ids.clone(),
+            run_as_user_id: record.config.run_as_user_id.clone(),
+            agent_type: record.config.agent_type.clone(),
+            inactive_ttl_days: record.config.inactive_ttl_days,
         },
         source,
     }
@@ -118,9 +118,9 @@ pub(crate) fn task_binding_response(row: &TaskBinding) -> TaskBindingResponse {
     TaskBindingResponse {
         id: row.id.clone(),
         task_id: row.task_id.clone(),
-        adapter_kind: parse_adapter_kind(&row.provider),
+        adapter_kind: parse_adapter_kind(&row.adapter_kind),
         connection_id: row.connection_id.clone(),
-        trigger_id: row.trigger_id.clone(),
+        loop_id: row.loop_id.clone(),
         subject_kind: row.subject_kind.clone(),
         subject_key: row.subject_key.clone(),
         destination_config: row.destination_config.clone(),
@@ -210,7 +210,7 @@ pub(crate) async fn load_loop_for_auth(
         .loops
         .get(id, ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Trigger {id} not found")))
+        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))
 }
 
 /// Load and authorize a task for the calling user.
@@ -243,10 +243,10 @@ pub(crate) async fn resolve_connection(
 ) -> Result<AdapterConnection, AdapterError> {
     if let Some(id) = connection_id {
         let conn = load_adapter_connection_for_auth(state, ctx, id).await?;
-        if conn.provider != kind.as_str() {
+        if conn.adapter_kind != kind.as_str() {
             return Err(AdapterError::BadRequest(format!(
-                "Connection {id} is for provider {}, not {}",
-                conn.provider,
+                "Connection {id} is for adapter {}, not {}",
+                conn.adapter_kind,
                 kind.as_str()
             )));
         }

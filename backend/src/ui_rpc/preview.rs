@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::task::dao::TaskDao;
@@ -392,7 +392,7 @@ mod tests {
             headless: false,
             ttl_minutes: 0,
             inactive_ttl_days: 0,
-            trigger_id: None,
+            loop_id: None,
             workspace_id: None,
             disabled_servers: None,
         }
@@ -425,7 +425,11 @@ mod tests {
             .unwrap();
         assert_eq!(listed["sessions"], json!([]));
         assert_eq!(listed["revision"], 0);
-        assert!(listed["serverEpoch"].as_str().is_some_and(|e| !e.is_empty()));
+        assert!(
+            listed["serverEpoch"]
+                .as_str()
+                .is_some_and(|e| !e.is_empty())
+        );
     }
 
     #[tokio::test]
@@ -501,7 +505,10 @@ mod tests {
         assert_eq!(moved["navStatus"]["url"], "https://elsewhere.example");
         let event = events.recv().await.unwrap();
         assert_eq!(event["type"], "navigated");
-        assert_eq!(event["snapshot"]["navStatus"]["url"], "https://elsewhere.example");
+        assert_eq!(
+            event["snapshot"]["navStatus"]["url"],
+            "https://elsewhere.example"
+        );
         assert!(event["revision"].as_u64().unwrap() > 0);
     }
 
@@ -539,7 +546,8 @@ mod tests {
         let opened = open(&state, &viewer(), &json!({ "threadId": "task" }))
             .await
             .unwrap();
-        let viewport = json!({ "_tag": "preset", "width": 390, "height": 844, "presetId": "iphone-12-pro" });
+        let viewport =
+            json!({ "_tag": "preset", "width": 390, "height": 844, "presetId": "iphone-12-pro" });
         let resized = resize(
             &state,
             &viewer(),

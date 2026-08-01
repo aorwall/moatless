@@ -80,7 +80,7 @@ pub enum LoopsAction {
         #[arg(long, default_value_t = false)]
         notify_on_success: bool,
         #[command(flatten)]
-        rule: CreateRuleArgs,
+        config: CreateConfigArgs,
         /// Human-readable name for the loop
         #[arg(long)]
         name: String,
@@ -94,7 +94,7 @@ pub enum LoopsAction {
         #[arg(long)]
         message_template: String,
         #[command(flatten)]
-        rule: CreateRuleArgs,
+        config: CreateConfigArgs,
         /// Human-readable name for the loop
         #[arg(long)]
         name: String,
@@ -102,7 +102,7 @@ pub enum LoopsAction {
         #[arg(long)]
         active: Option<bool>,
     },
-    /// Update loop base, rule, or source fields
+    /// Update loop base, config, or source fields
     ///
     /// Adapter-specific knobs live in a free-form `adapter_config` JSON object.
     /// Set them with repeatable ops instead of hand-writing JSON:
@@ -234,7 +234,7 @@ pub enum LoopsAction {
 }
 
 #[derive(clap::Args)]
-pub struct CreateRuleArgs {
+pub struct CreateConfigArgs {
     #[arg(long)]
     repository_id: String,
     #[arg(long, default_value = "by_subject")]
@@ -287,7 +287,7 @@ pub async fn run_loops(
             allow_direct_send,
             close_task_on_close,
             notify_on_success,
-            rule,
+            config,
             name,
         } => {
             let base = parse_json_opt(adapter_config.as_deref())?;
@@ -297,7 +297,7 @@ pub async fn run_loops(
                 kind: LoopKind::AdapterEvent,
                 active: None,
                 scope: None,
-                config: create_rule(rule)?,
+                config: create_config(config)?,
                 source: CreateLoopSource::AdapterEvent(CreateSubscription {
                     adapter_kind: parse_adapter_kind(&adapter)?,
                     connection_id,
@@ -317,7 +317,7 @@ pub async fn run_loops(
             cron_expression,
             timezone,
             message_template,
-            rule,
+            config,
             name,
             active,
         } => {
@@ -326,7 +326,7 @@ pub async fn run_loops(
                 kind: LoopKind::Schedule,
                 active,
                 scope: None,
-                config: create_rule(rule)?,
+                config: create_config(config)?,
                 source: CreateLoopSource::Schedule(CreateSchedule {
                     cron_expression,
                     timezone,
@@ -385,7 +385,7 @@ pub async fn run_loops(
                 config_unset,
             )
             .await?;
-            let rule = update_rule(
+            let config = update_config(
                 repository_id,
                 routing_mode,
                 ongoing_task_id,
@@ -417,7 +417,7 @@ pub async fn run_loops(
             let req = UpdateLoopRequest {
                 name,
                 scope,
-                config: rule,
+                config,
                 source,
             };
             let updated = client.api().update_loop(&id, &req).await?;
@@ -470,7 +470,7 @@ pub async fn run_loops(
     Ok(())
 }
 
-fn create_rule(args: CreateRuleArgs) -> Result<CreateLoopConfig, ClientError> {
+fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError> {
     Ok(CreateLoopConfig {
         repository_id: args.repository_id,
         routing_mode: parse_routing_mode(&args.routing_mode)?,
@@ -484,10 +484,10 @@ fn create_rule(args: CreateRuleArgs) -> Result<CreateLoopConfig, ClientError> {
     })
 }
 
-// reason: the loop-rule update API exposes a clear/value pair per
+// reason: the loop-config update API exposes a clear/value pair per
 // nullable field, so the bool count is intrinsic to the surface.
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
-fn update_rule(
+fn update_config(
     repository_id: Option<String>,
     routing_mode: Option<RoutingMode>,
     ongoing_task_id: Option<String>,
@@ -503,7 +503,7 @@ fn update_rule(
     clear_inactive_ttl_days: bool,
 ) -> Result<Option<UpdateLoopConfig>, ClientError> {
     let tag_ids = fold_tag_ids(tag_ids, clear_tags)?;
-    let rule = UpdateLoopConfig {
+    let config = UpdateLoopConfig {
         repository_id,
         routing_mode,
         ongoing_task_id: fold_clearable(ongoing_task_id, clear_ongoing_task_id, "ongoing-task-id")?,
@@ -517,18 +517,18 @@ fn update_rule(
             "inactive-ttl-days",
         )?,
     };
-    if rule.repository_id.is_none()
-        && rule.routing_mode.is_none()
-        && rule.ongoing_task_id.is_none()
-        && rule.prompt.is_none()
-        && rule.task_name.is_none()
-        && rule.tag_ids.is_none()
-        && rule.agent_type.is_none()
-        && rule.inactive_ttl_days.is_none()
+    if config.repository_id.is_none()
+        && config.routing_mode.is_none()
+        && config.ongoing_task_id.is_none()
+        && config.prompt.is_none()
+        && config.task_name.is_none()
+        && config.tag_ids.is_none()
+        && config.agent_type.is_none()
+        && config.inactive_ttl_days.is_none()
     {
         Ok(None)
     } else {
-        Ok(Some(rule))
+        Ok(Some(config))
     }
 }
 

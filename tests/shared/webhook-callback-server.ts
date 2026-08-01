@@ -9,8 +9,8 @@
  * Usage:
  *   const server = new WebhookCallbackServer();
  *   await server.start();
- *   // ... create webhook trigger config with callback_url = server.url
- *   // ... trigger agent execution
+ *   // ... create webhook subscription loop with callback_url = server.url
+ *   // ... start agent execution
  *   const callback = await server.waitForCallback(30_000);
  *   expect(callback.body).toMatchObject({ task_id: expect.any(String) });
  *   await server.stop();
@@ -54,7 +54,7 @@ export class WebhookCallbackServer {
   /** Server port (assigned after start) */
   public port = 0
 
-  /** Full callback URL to pass to webhook trigger adapterConfig.callback_url */
+  /** Full callback URL to pass to webhook subscription adapterConfig.callback_url */
   public url = ''
 
   constructor(options?: { debug?: boolean }) {

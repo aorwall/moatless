@@ -49,7 +49,7 @@ describe('loopsApi', () => {
       kind: LoopKind.adapter_event,
       name: 'Slack triage',
       active: true,
-      rule: {
+      config: {
         repositoryId: 'repo-1',
         routingMode: RoutingMode.by_subject,
         prompt: null,
@@ -81,7 +81,7 @@ describe('loopsApi', () => {
       sourceConfigPath: null,
       syncedFromGit: false,
       scope: Scope.user,
-      rule: {
+      config: {
         repositoryId: 'repo-1',
         routingMode: RoutingMode.by_subject,
         ongoingTaskId: null,

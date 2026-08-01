@@ -21,7 +21,7 @@ use crate::db::DbPool;
 use super::adapter::TelegramAdapter;
 use super::api::TelegramApi;
 use super::config::TelegramAdapterConfig;
-use super::test_support::{bot_api_stub, test_loop_context, BotApiStub};
+use super::test_support::{BotApiStub, bot_api_stub, test_loop_context};
 use super::webhook::{Normalization, NormalizeContext};
 
 /// The outcome of normalizing one update, in the vocabulary the assertions use.
@@ -100,16 +100,13 @@ async fn normalize(
 /// and both access policies open.
 fn config(source_id: &str) -> LoopContext {
     LoopContext {
-        provider_config: Some(serde_json::json!({ "bot_username": "@testbot" })),
+        adapter_config: Some(serde_json::json!({ "bot_username": "@testbot" })),
         ..test_loop_context(source_id)
     }
 }
 
-fn with_provider_config(
-    mut config: LoopContext,
-    provider_config: serde_json::Value,
-) -> LoopContext {
-    config.provider_config = Some(provider_config);
+fn with_adapter_config(mut config: LoopContext, adapter_config: serde_json::Value) -> LoopContext {
+    config.adapter_config = Some(adapter_config);
     config
 }
 
@@ -409,7 +406,7 @@ async fn a_blocking_access_decision_ignores_the_update_without_a_bot_call() {
         let outcome = normalize(
             &provider,
             &update,
-            &with_provider_config(config("111"), policy_config.clone()),
+            &with_adapter_config(config("111"), policy_config.clone()),
             is_private,
             &unreachable_pool(),
         )
@@ -430,7 +427,7 @@ async fn a_group_never_gets_a_pairing_code() {
     let outcome = normalize(
         &provider,
         &group_message("do the thing"),
-        &with_provider_config(
+        &with_adapter_config(
             config("-100123"),
             serde_json::json!({ "group_access_policy": "pairing" }),
         ),
@@ -457,8 +454,8 @@ async fn a_group_never_gets_a_pairing_code() {
 mod db_tests {
     use sqlx::PgPool;
 
-    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::Audience;
 
     use super::super::test_support::OWNER;
     use super::*;
@@ -494,7 +491,7 @@ mod db_tests {
         .unwrap()
         .message();
 
-        assert_eq!(message.provider, AdapterKind::Telegram);
+        assert_eq!(message.adapter_kind, AdapterKind::Telegram);
         assert_eq!(message.source_id, "111");
         assert_eq!(message.thread_id.as_deref(), Some("111"));
         assert_eq!(message.message_thread_id, "111");
@@ -502,7 +499,7 @@ mod db_tests {
         assert_eq!(message.user_id, OWNER, "an unmapped sender falls back");
         assert_eq!(message.external_event_id.as_deref(), Some("tg:m:42"));
         assert_eq!(message.audience, Audience::Everyone);
-        assert_eq!(message.provider_context, serde_json::json!({}));
+        assert_eq!(message.adapter_context, serde_json::json!({}));
         assert!(message.file_ids.is_empty());
         assert_eq!(
             message.thread_properties,
@@ -656,7 +653,7 @@ mod db_tests {
     async fn a_pairing_policy_upserts_one_request_and_sends_one_message(pool: PgPool) {
         seed_trigger(&pool, "tt_test").await;
         let (provider, stub) = provider_with_stub().await;
-        let subscription = with_provider_config(
+        let subscription = with_adapter_config(
             config("111"),
             serde_json::json!({ "dm_access_policy": "pairing" }),
         );
@@ -676,7 +673,7 @@ mod db_tests {
 
         let (code, status, meta): (String, String, serde_json::Value) = sqlx::query_as(
             "SELECT code, status, meta FROM integration_pairing_requests \
-             WHERE trigger_id = 'tt_test' AND provider_user_id = '999'",
+             WHERE loop_id = 'tt_test' AND provider_user_id = '999'",
         )
         .fetch_one(&pool)
         .await
@@ -700,7 +697,7 @@ mod db_tests {
         .await
         .unwrap();
         let rows: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM integration_pairing_requests WHERE trigger_id = 'tt_test'",
+            "SELECT COUNT(*) FROM integration_pairing_requests WHERE loop_id = 'tt_test'",
         )
         .fetch_one(&pool)
         .await
@@ -717,7 +714,7 @@ mod db_tests {
         let message = normalize(
             &provider,
             &private_message("do the thing"),
-            &with_provider_config(
+            &with_adapter_config(
                 config("111"),
                 serde_json::json!({ "dm_access_policy": "pairing", "dm_allowlist": ["999"] }),
             ),
@@ -732,10 +729,10 @@ mod db_tests {
         assert!(stub.methods().is_empty());
     }
 
-    /// The `triggers` row `integration_pairing_requests.trigger_id` references.
+    /// The `loops` row `integration_pairing_requests.loop_id` references.
     async fn seed_trigger(pool: &PgPool, id: &str) {
         sqlx::query(
-            "INSERT INTO triggers (id, name, kind, active, scope, created_by) \
+            "INSERT INTO loops (id, name, kind, active, scope, created_by) \
              VALUES ($1, 'telegram', 'adapter_event', true, 'global', 'system')",
         )
         .bind(id)

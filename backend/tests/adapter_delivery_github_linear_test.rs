@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use moatless_vibe_backend::adapters::delivery::{
-    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
+    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, spawn_adapter_delivery_worker,
 };
 use moatless_vibe_backend::adapters::linear;
 use moatless_vibe_backend::state::AppState;
@@ -43,13 +43,13 @@ const GITHUB_CLOSE: &str = "github.close";
 const GITHUB_POST_MERGE: &str = "github.post_merge";
 const GITHUB_MERGE_CONFLICT: &str = "github.merge_conflict";
 
-/// One `integration_connections` row — the only fixture every handler needs to
+/// One `adapter_connections` row — the only fixture every handler needs to
 /// get past its "does this tenant still exist?" guard.
 async fn seed_connection(pool: &PgPool, id: &str, adapter_kind: &str, account: &str) {
     sqlx::query(
         // `owner_user_id` is not decoration: a user-scoped connection without
-        // one violates `integration_connections_owner_scope_chk`.
-        r#"INSERT INTO integration_connections
+        // one violates `adapter_connections_owner_scope_chk`.
+        r#"INSERT INTO adapter_connections
                (id, adapter_kind, connection_kind, external_account_id, created_by, scope,
                 owner_user_id)
            VALUES ($1, $2, 'org', $3, 'user-1', 'user', 'user-1')
@@ -66,9 +66,9 @@ async fn seed_connection(pool: &PgPool, id: &str, adapter_kind: &str, account: &
 fn github_context(connection_id: &str) -> serde_json::Value {
     serde_json::json!({
         "connection_id": connection_id,
-        // No trigger: the repo has a connection but no task trigger, which is
+        // No loop: the repo has a connection but no subscription loop, which is
         // the delivery-only shape every handler has to tolerate.
-        "trigger_id": serde_json::Value::Null,
+        "loop_id": serde_json::Value::Null,
         "repo_full_name": "acme/widgets",
     })
 }

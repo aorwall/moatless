@@ -73,7 +73,7 @@ pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<
     crate::event_ingress::describe_ingress_metrics();
     crate::adapters::metrics::describe_adapter_metrics();
     crate::adapters::delivery::describe_adapter_delivery_metrics();
-    crate::loops::firing::metrics::describe_trigger_metrics();
+    crate::loops::firing::metrics::describe_loop_firing_metrics();
     crate::bindings::metrics::describe_binding_metrics();
     crate::event_handler::metrics::describe_agent_metrics();
     crate::sandbox::metrics::describe_sandbox_metrics();

@@ -66,7 +66,7 @@ struct Routed {
     source_id: String,
     connection_id: String,
     app_key: String,
-    rule_id: String,
+    subscription_id: String,
     config: LoopContext,
     destination: BindingDestination,
     is_tracked_thread: bool,
@@ -132,7 +132,7 @@ async fn resolve(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
-    let Some((connection, rule)) =
+    let Some((connection, subscription)) =
         crate::bindings::runtime::resolve_chat_provider_event(state, "slack", team_id, source_id)
             .await?
     else {
@@ -178,12 +178,12 @@ async fn resolve(
     };
 
     Ok(Routing::Verifiable(Verifiable::Routed(Box::new(Routed {
-        config: crate::bindings::runtime::trigger_context(&rule, "slack"),
+        config: crate::bindings::runtime::subscription_context(&subscription, "slack"),
         source_id: source_id.to_string(),
         connection_id: connection.id,
         app_key: crate::adapter_apps::app_key_from_transport_config(&connection.transport_config)
             .to_string(),
-        rule_id: rule.id,
+        subscription_id: subscription.id,
         destination,
         is_tracked_thread,
     }))))
@@ -299,7 +299,7 @@ pub(super) async fn receive(
         source_id,
         connection_id,
         app_key,
-        rule_id,
+        subscription_id,
         config,
         destination,
         is_tracked_thread,
@@ -318,7 +318,7 @@ pub(super) async fn receive(
             return Ok(Received::Delivery(Outcome::Ignored {
                 event_type,
                 reason,
-                rule_id,
+                subscription_id,
                 connection_id,
             }));
         }
@@ -332,7 +332,7 @@ pub(super) async fn receive(
         event_id.clone(),
         InboundDeliveryPayload {
             connection_id,
-            rule_id,
+            loop_id: subscription_id,
             subject_kind: destination.subject_kind.to_string(),
             subject_key: destination.subject_key,
             destination_config: destination.destination_config,
@@ -468,11 +468,11 @@ mod characterization {
             .unwrap()
     }
 
-    pub(super) fn trigger(provider_config: Option<serde_json::Value>) -> LoopContext {
+    pub(super) fn trigger(adapter_config: Option<serde_json::Value>) -> LoopContext {
         let now = chrono::Utc::now();
         LoopContext {
             id: "tt_slack".into(),
-            provider: "slack".into(),
+            adapter_kind: "slack".into(),
             source_id: "C1".into(),
             source_name: None,
             repository_id: "repo-1".into(),
@@ -480,7 +480,7 @@ mod characterization {
             prompt_template: None,
             active: true,
             allow_direct_send: false,
-            provider_config,
+            adapter_config,
             ongoing_task_id: None,
             scope: Scope::Global,
             task_name: None,
@@ -718,7 +718,7 @@ mod characterization {
 
     // -- ignore reasons raised before the sender lookup ----------------------
 
-    /// Each row is `(reason, is_tracked_thread, provider_config, event)`, and
+    /// Each row is `(reason, is_tracked_thread, adapter_config, event)`, and
     /// each names a `record_webhook` label the dashboards already carry.
     fn reasons_before_the_sender_lookup() -> Vec<(
         &'static str,
@@ -800,8 +800,7 @@ mod characterization {
 
     #[tokio::test]
     async fn every_reason_before_the_sender_lookup_keeps_its_label_and_spends_nothing() {
-        for (reason, is_tracked_thread, provider_config, event) in
-            reasons_before_the_sender_lookup()
+        for (reason, is_tracked_thread, adapter_config, event) in reasons_before_the_sender_lookup()
         {
             let stub = slack_stub(human(Some("alice@example.com"))).await;
             let adapter = adapter(&stub, Some(BOT_USER_ID));
@@ -814,7 +813,7 @@ mod characterization {
             let result = parse(
                 &adapter,
                 &body,
-                &trigger(provider_config),
+                &trigger(adapter_config),
                 &unreachable_pool(),
                 is_tracked_thread,
             )
@@ -944,7 +943,7 @@ mod tests {
 
     fn message(external_event_id: Option<&str>) -> InboundMessage {
         InboundMessage {
-            provider: AdapterKind::Slack,
+            adapter_kind: AdapterKind::Slack,
             source_id: "C1".into(),
             thread_id: None,
             message_thread_id: "1700000000.000100".into(),
@@ -952,7 +951,7 @@ mod tests {
             text: "hello".into(),
             file_ids: vec![],
             thread_properties: serde_json::json!({}),
-            provider_context: serde_json::json!({}),
+            adapter_context: serde_json::json!({}),
             external_event_id: external_event_id.map(str::to_string),
             source_task_id: None,
             audience: Audience::Everyone,
@@ -1138,7 +1137,7 @@ mod characterization_db {
         );
 
         assert_eq!(message.user_id, OWNER);
-        assert_eq!(message.provider, AdapterKind::Slack);
+        assert_eq!(message.adapter_kind, AdapterKind::Slack);
         assert_eq!(message.source_id, "C1");
         assert_eq!(message.thread_id.as_deref(), Some("1700000000.000100"));
         assert_eq!(message.message_thread_id, "1700000000.000100");
@@ -1163,7 +1162,7 @@ mod characterization_db {
             })
         );
         assert_eq!(
-            message.provider_context,
+            message.adapter_context,
             serde_json::json!({
                 "team_id": "T1",
                 "user_id": "U1HUMAN",
@@ -1238,7 +1237,7 @@ mod characterization_db {
         let message = message(parse(&adapter, &body, &trigger(None), &pool, true).await);
         assert_eq!(message.user_id, OWNER);
         assert_eq!(
-            message.provider_context["is_bot_mentioned"],
+            message.adapter_context["is_bot_mentioned"],
             serde_json::json!(false)
         );
     }

@@ -1,8 +1,8 @@
 /**
- * Chain 1: Task Route and Trigger CRUD (integrations-triggers-bindings.md)
+ * Chain 1: Subscription Loop CRUD (integrations-triggers-bindings.md)
  * Chain 2: Schedule Loop CRUD (specs/channels/01-channel-scenarios.md)
  *
- * Pure API chains — trigger and loop creation, retrieval, updates, deletion.
+ * Pure API chains — subscription and schedule loop creation, retrieval, updates, deletion.
  *
  * A subscription loop fires on an inbound adapter event; a schedule loop fires
  * on a cron expression it carries. Both are the same resource on the same
@@ -38,7 +38,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     }
   })
 
-  // ─── INT-01: Create webhook task trigger fixture ────────────────────────
+  // ─── INT-01: Create webhook subscription loop fixture ───────────────────
 
   test('INT-01: Create webhook task trigger fixture', async ({ api }) => {
     const sourceId = `crud-test-${Date.now()}`
@@ -71,7 +71,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     expect(found).toBe(true)
   })
 
-  // ─── INT-02: Get task trigger fixture by ID ─────────────────────────────
+  // ─── INT-02: Get subscription loop fixture by ID ────────────────────────
 
   test('INT-02: Get task trigger fixture by ID', async ({ api }) => {
     const config = await api.getTaskTriggerFixture(ctx.get<string>('triggerId')!)
@@ -82,7 +82,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     expect(config.active).toBe(true)
   })
 
-  // ─── INT-03: Update task trigger fixture ────────────────────────────────
+  // ─── INT-03: Update subscription loop fixture ───────────────────────────
 
   test('INT-03: Update task trigger fixture', async ({ api }) => {
     const updated = await api.updateTaskTriggerFixture(ctx.get<string>('triggerId')!, {
@@ -99,7 +99,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     expect(updated.routingMode).toBe('by_subject')
   })
 
-  // ─── INT-04: Deactivate task trigger fixture ────────────────────────────
+  // ─── INT-04: Deactivate subscription loop fixture ───────────────────────
 
   test('INT-04: Deactivate task trigger fixture', async ({ api }) => {
     const updated = await api.updateTaskTriggerFixture(ctx.get<string>('triggerId')!, {
@@ -114,7 +114,7 @@ test.describe('Chain 1: Task Route and Trigger CRUD', () => {
     expect(found).toBe(true)
   })
 
-  // ─── INT-05: Delete task trigger fixture ────────────────────────────────
+  // ─── INT-05: Delete subscription loop fixture ───────────────────────────
 
   test('INT-05: Delete task trigger fixture', async ({ api }) => {
     const response = await api.deleteTaskTriggerFixtureRaw(ctx.get<string>('triggerId')!)
@@ -177,10 +177,10 @@ test.describe('Chain 2: Schedule Loop CRUD', () => {
 
     expect(loop.kind).toBe('schedule')
     expect(loop.active).toBe(false)
-    expect(loop.rule.repositoryId).toBe(ctx.repositoryId)
-    expect(loop.rule.routingMode).toBe('by_subject')
-    expect(loop.rule.taskName).toBe(scopedName('Scheduled smoke task'))
-    expect(loop.rule.prompt).toBe('Scheduled prompt: {message}')
+    expect(loop.config.repositoryId).toBe(ctx.repositoryId)
+    expect(loop.config.routingMode).toBe('by_subject')
+    expect(loop.config.taskName).toBe(scopedName('Scheduled smoke task'))
+    expect(loop.config.prompt).toBe('Scheduled prompt: {message}')
 
     const source = loop.source as Schedule
     expect(source.cronExpression).toBe(cron)

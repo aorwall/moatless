@@ -30,15 +30,15 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use sqlx::Row;
 
+use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::adapters::error::AdapterError;
 use moatless_vibe_backend::adapters::linear;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::state::AppState;
 
 use common::{
-    drain_linear_adapter_delivery, linear_config, test_app_state_with_config, test_config, USER_1,
+    USER_1, drain_linear_adapter_delivery, linear_config, test_app_state_with_config, test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -82,7 +82,7 @@ async fn deliver(
 /// fixture a delivery needs in order to be recorded.
 async fn seed_connection(pool: &PgPool) {
     sqlx::query(
-        "INSERT INTO integration_connections \
+        "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
          VALUES ($1, 'linear', 'org', $2, $3, 'user', $3)",
     )

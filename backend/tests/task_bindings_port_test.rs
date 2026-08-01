@@ -27,8 +27,8 @@ use moatless_vibe_backend::task::dao as task_dao;
 use moatless_vibe_backend::task::routes::task_router;
 
 use common::{
-    authed_request, body_json, make_repository_row, make_task_row, seed_team, test_app_state,
-    user_scope, USER_1,
+    USER_1, authed_request, body_json, make_repository_row, make_task_row, seed_team,
+    test_app_state, user_scope,
 };
 
 /// Seed the team + repository a task's FKs require, then the task itself.
@@ -43,7 +43,7 @@ async fn seed_task(pool: &PgPool, task_id: &str, user_id: &str) {
         .expect("seed task row");
 }
 
-/// Write an `integration_connections` row through the injected port and return
+/// Write an `adapter_connections` row through the injected port and return
 /// its id. `task_bindings.connection_id` has an FK onto this table.
 async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {
     let now = Utc::now();
@@ -78,7 +78,7 @@ fn binding(id: &str, task_id: &str, connection_id: &str, subject_key: &str) -> T
         subject_kind: "github_pr".to_string(),
         subject_key: subject_key.to_string(),
         connection_id: connection_id.to_string(),
-        trigger_id: None,
+        loop_id: None,
         destination_config: serde_json::json!({"owner": "acme", "repo": "web", "pr_number": 7}),
         metadata: serde_json::json!({}),
         last_external_event_id: None,

@@ -37,18 +37,18 @@ use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use sqlx::PgPool;
 
+use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{
-    drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row, seed_team,
-    test_app_state_with_config, test_config, USER_1,
+    USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
+    seed_team, test_app_state_with_config, test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -160,7 +160,7 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
 
     let now = Utc::now();
     sqlx::query(
-        "INSERT INTO integration_connections \
+        "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
          VALUES ($1, 'linear', 'org', $2, $3, 'user', $3)",
     )
@@ -178,7 +178,7 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
         subject_kind: "linear_agent_session".to_string(),
         subject_key: SESSION.to_string(),
         connection_id: CONNECTION.to_string(),
-        trigger_id: None,
+        loop_id: None,
         destination_config: serde_json::json!({"session_id": SESSION, "issue_id": ISSUE}),
         metadata: serde_json::json!({}),
         last_external_event_id: None,
@@ -223,7 +223,7 @@ async fn seed_rule(state: &AppState) {
             agent_type: "claude-code".to_string(),
             inactive_ttl_days: None,
             allow_direct_send: false,
-            provider_config: None,
+            adapter_config: None,
             ongoing_task_id: None,
             // The task under test must survive the transition; closing it is a
             // different behaviour with its own coverage.

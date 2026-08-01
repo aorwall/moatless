@@ -107,7 +107,7 @@ fn legacy_webhook_aliases(state: AppState) -> Router {
             post(github_pr::handlers::github_webhook),
         )
         .route(
-            "/api/v1/channels/webhook/{trigger_id}",
+            "/api/v1/channels/webhook/{loop_id}",
             post(webhook::handlers::webhook_inbound),
         )
         .with_state(state)

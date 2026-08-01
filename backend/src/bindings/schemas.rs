@@ -1,4 +1,4 @@
-//! Adapter, trigger, and binding API request/response schemas.
+//! Adapter, Loop, Subscription, and Binding API request/response schemas.
 //!
 //! Re-exported from the `moatless-api-schemas` crate.
 //! Conversion functions live here since we can't define inherent impls on foreign types.
@@ -11,10 +11,13 @@ use crate::adapters::common::parse_adapter_kind;
 
 pub fn task_binding_summary_from_binding(
     binding: &crate::adapters::models::TaskBinding,
-    rule: Option<&crate::adapters::models::SubscriptionMatch>,
+    subscription: Option<&crate::adapters::models::SubscriptionMatch>,
 ) -> TaskBindingSummary {
-    let source_id = rule.map_or_else(|| binding.subject_key.clone(), |r| r.source_matcher.clone());
-    let external_thread_id = match binding.provider.as_str() {
+    let source_id = subscription.map_or_else(
+        || binding.subject_key.clone(),
+        |subscription| subscription.source_matcher.clone(),
+    );
+    let external_thread_id = match binding.adapter_kind.as_str() {
         "github" => binding
             .destination_config
             .get("pr_number")
@@ -34,8 +37,10 @@ pub fn task_binding_summary_from_binding(
     };
 
     TaskBindingSummary {
-        trigger_id: rule.map(|r| r.id.clone()).unwrap_or_default(),
-        adapter_kind: parse_adapter_kind(&binding.provider),
+        loop_id: subscription
+            .map(|subscription| subscription.id.clone())
+            .unwrap_or_default(),
+        adapter_kind: parse_adapter_kind(&binding.adapter_kind),
         source_id: source_id.clone(),
         source_name: Some(source_id),
         thread_id: None,

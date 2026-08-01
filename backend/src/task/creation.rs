@@ -5,10 +5,10 @@
 //! preflight, insert the task row, assign tags, record relations, provision the
 //! sandbox, send an optional first message, and publish a task event. This
 //! sequence used to be copy-pasted across the HTTP handler and three
-//! trigger/adapter paths; [`TaskCreationService`] collapses it behind one entry
+//! loop/adapter paths; [`TaskCreationService`] collapses it behind one entry
 //! point so a provisioning fix lands once instead of four times.
 //!
-//! Callers normalise their domain input (HTTP payload, webhook, trigger config)
+//! Callers normalise their domain input (HTTP payload, webhook, loop config)
 //! into a [`NewTaskRequest`] and hand the service the two `AppState`-coupled
 //! steps as callbacks (first-message delivery and success-event enrichment).
 //! The service owns *when* each step runs and, crucially, the two consistency
@@ -33,7 +33,7 @@ use crate::events::EventPublisher;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::models::Repository;
 use crate::sandbox::preflight::{
-    preflight_validate_github_token, GithubValidator, PreflightCredentials, PreflightError,
+    GithubValidator, PreflightCredentials, PreflightError, preflight_validate_github_token,
 };
 use crate::shared_models::{AgentMode, AgentType};
 use crate::tag::dao::TagDao;
@@ -41,7 +41,7 @@ use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
 use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::task::relations::{
-    record_created_by, record_related_to, CreatedByParent, RelatedTask, TaskRelationDao,
+    CreatedByParent, RelatedTask, TaskRelationDao, record_created_by, record_related_to,
 };
 use crate::task::schemas::MessageContextInput;
 
@@ -95,9 +95,9 @@ impl PreflightPort for RealPreflight {
     }
 }
 
-/// Normalised task-creation input. Every call path (HTTP handler, triggers,
+/// Normalised task-creation input. Every call path (HTTP handler, loops,
 /// adapters) translates its domain input into this; the service never inspects
-/// HTTP payloads, webhooks, or trigger configs.
+/// HTTP payloads, webhooks, or loop configs.
 pub struct NewTaskRequest {
     pub repository_id: String,
     pub agent_type: AgentType,
@@ -110,14 +110,14 @@ pub struct NewTaskRequest {
     pub visibility: Visibility,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
-    pub trigger_id: Option<String>,
+    pub loop_id: Option<String>,
     pub workspace_id: Option<String>,
     pub template_id: Option<String>,
     pub vibe: Option<bool>,
     pub append_system_prompt: Option<String>,
     pub ttl_minutes: i32,
     pub inactive_ttl_days: i32,
-    /// Pre-resolved tag ids to attach (adapters pass their trigger's tag ids;
+    /// Pre-resolved tag ids to attach (adapters pass their Loop's tag ids;
     /// the HTTP path passes none).
     pub tag_ids: Vec<String>,
     /// Optional `created_by` parent relation to record after insert.
@@ -138,7 +138,7 @@ pub struct NewTaskRequest {
     /// anyone has typed into it.
     pub provision: bool,
     /// Task-event subtype to publish — `Created` on the HTTP path, `Open` on
-    /// trigger/adapter paths. Kept per-caller by design.
+    /// loop/adapter paths. Kept per-caller by design.
     pub event_subtype: TaskSubType,
     /// Optionally pre-fetched repository. When `Some`, the service uses it and
     /// skips its own lookup (the HTTP path already fetched the repo for access
@@ -306,7 +306,7 @@ impl TaskCreationService {
             headless: req.headless,
             ttl_minutes: req.ttl_minutes,
             inactive_ttl_days: req.inactive_ttl_days,
-            trigger_id: req.trigger_id.clone(),
+            loop_id: req.loop_id.clone(),
             workspace_id: req.workspace_id.clone(),
             disabled_servers: None,
         };
@@ -317,8 +317,8 @@ impl TaskCreationService {
         let repo = if let Some(repo) = req.repository.take() {
             repo
         } else {
-            // reason: non-HTTP creation paths (adapters, triggers) resolve
-            // the repository configured on the trigger, not user input; the
+            // reason: non-HTTP creation paths (adapters, loops) resolve
+            // the repository configured on the Loop, not user input; the
             // HTTP path passes an already access-checked repository.
             #[allow(clippy::disallowed_methods)]
             let sys_ctx = ScopeContext::system();
@@ -507,7 +507,7 @@ mod tests {
             visibility: Visibility::Private,
             scope: Scope::User,
             owner_user_id: Some("user1".into()),
-            trigger_id: None,
+            loop_id: None,
             task_id: None,
             provision: true,
             workspace_id: None,
@@ -755,10 +755,7 @@ mod tests {
             .await
             .expect("creation succeeds");
 
-        assert_eq!(
-            outcome.task.task_id,
-            "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30"
-        );
+        assert_eq!(outcome.task.task_id, "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30");
     }
 
     /// A Thread created without a first message is a Task nobody has spoken to

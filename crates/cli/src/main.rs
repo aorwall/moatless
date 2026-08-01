@@ -85,7 +85,6 @@ enum SharedCommands {
         args: Vec<String>,
     },
     /// Loop management (recurring agent work fired by subscriptions or schedules)
-    #[command(alias = "triggers")]
     Loops {
         #[command(subcommand)]
         action: Box<commands::loops::LoopsAction>,

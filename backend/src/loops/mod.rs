@@ -9,8 +9,7 @@
 //! - [`firing`] — schedule runner, inbound event handling, receipts, metrics.
 //! - [`sync`] — reconciling `.moatless/loops/<name>/LOOP.md` from a repo's git
 //!   tree into the Loop tables with explicit configuration authority.
-//! - [`http`] — the `/api/v1/loops` HTTP surface (and its `/api/v1/triggers`
-//!   deprecated alias).
+//! - [`http`] — the `/api/v1/loops` HTTP surface.
 
 pub mod dao;
 pub mod firing;

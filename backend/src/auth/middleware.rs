@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use axum::http::{Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -55,7 +55,7 @@ fn is_exempt(path: &str) -> bool {
 
     // Webhook and slash-command endpoints use adapter-specific verification (HMAC, secret token, etc.)
     // Match /api/v1/adapters/{adapter}/webhook,
-    // /api/v1/adapters/webhook/{trigger_id}, and
+    // /api/v1/adapters/webhook/{loop_id}, and
     // /api/v1/adapters/{adapter}/slash.
     if let Some(rest) = path.strip_prefix("/api/v1/adapters/") {
         let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
@@ -356,7 +356,7 @@ mod tests {
         assert!(!is_exempt("/api/v1/channels/slack/slash"));
         // Non-webhook integration routes should NOT be exempt.
         assert!(!is_exempt("/api/v1/adapters/connections"));
-        assert!(!is_exempt("/api/v1/triggers"));
+        assert!(!is_exempt("/api/v1/loops"));
     }
 
     #[test]

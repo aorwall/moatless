@@ -211,7 +211,7 @@ pub(crate) async fn receive(
 
     let delivery_context = super::delivery::DeliveryContext {
         connection_id: connection.id.clone(),
-        trigger_id: rule.as_ref().map(|r| r.id.clone()),
+        loop_id: rule.as_ref().map(|r| r.id.clone()),
         repo_full_name: repo_full_name.to_string(),
     };
     let event_id = delivery_event_id(delivery_id, body);

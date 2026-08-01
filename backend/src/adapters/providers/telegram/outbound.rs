@@ -64,8 +64,8 @@ impl AdapterBindingReply for TelegramAdapter {
         let api = self.app_api(app_key).await?;
         let _config = rule.map_or_else(
             || LoopContext {
-                id: binding.trigger_id.clone().unwrap_or_default(),
-                provider: "telegram".to_string(),
+                id: binding.loop_id.clone().unwrap_or_default(),
+                adapter_kind: "telegram".to_string(),
                 source_id: binding
                     .destination_config
                     .get("chat_id")
@@ -78,7 +78,7 @@ impl AdapterBindingReply for TelegramAdapter {
                 prompt_template: None,
                 active: true,
                 allow_direct_send: false,
-                provider_config: None,
+                adapter_config: None,
                 ongoing_task_id: None,
                 scope: moatless_backend_core::scope::Scope::Global,
                 task_name: None,
@@ -90,7 +90,7 @@ impl AdapterBindingReply for TelegramAdapter {
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
             },
-            |r| crate::bindings::runtime::trigger_context(r, "telegram"),
+            |r| crate::bindings::runtime::subscription_context(r, "telegram"),
         );
         let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
         api.send_message(
@@ -216,11 +216,11 @@ mod tests {
         TaskBinding {
             id: "tb_test".into(),
             task_id: "task_test".into(),
-            provider: "telegram".into(),
+            adapter_kind: "telegram".into(),
             subject_kind: SUBJECT_KIND.into(),
             subject_key: "999:thread:42".into(),
             connection_id: "pc_test".into(),
-            trigger_id: Some("tt_test".into()),
+            loop_id: Some("tt_test".into()),
             destination_config,
             metadata: serde_json::json!({}),
             last_external_event_id: None,
@@ -242,7 +242,7 @@ mod tests {
         let now = chrono::Utc::now();
         AdapterConnection {
             id: "pc_test".into(),
-            provider: "telegram".into(),
+            adapter_kind: "telegram".into(),
             connection_kind: "env".into(),
             scope_value: "default".into(),
             credential_ref: None,

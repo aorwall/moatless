@@ -41,7 +41,7 @@ pub struct LinearWebhookEnvelope {
     pub event_type: String,
 
     /// Workspace identifier — used to route webhooks to the right
-    /// integration_connections row.
+    /// adapter_connections row.
     #[serde(default, rename = "organizationId")]
     pub organization_id: Option<String>,
 

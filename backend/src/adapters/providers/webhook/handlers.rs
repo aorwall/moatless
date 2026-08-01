@@ -1,11 +1,11 @@
+use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use axum::Json;
 use tracing::{debug, info};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
 use crate::adapters::ingress::admit_delivery;
 use crate::state::AppState;
 
@@ -21,12 +21,12 @@ use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
 /// record this wrote. Anything that failed to record reaches the caller as a
 /// failure so its own retry is the recovery path.
 ///
-/// Deactivated triggers are rejected before admission. A trigger can also be
+/// Deactivated loops are rejected before admission. A Loop can also be
 /// paused or resynced after admission; the worker rechecks runnable state and
 /// then terminates the durable delivery without creating a Task.
 #[utoipa::path(
     post,
-    path = "/api/v1/adapters/webhook/{trigger_id}",
+    path = "/api/v1/adapters/webhook/{loop_id}",
     tag = "adapters",
     request_body = super::adapter::WebhookPayload,
     responses((
@@ -37,28 +37,28 @@ use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
 )]
 pub async fn webhook_inbound(
     State(state): State<AppState>,
-    Path(trigger_id): Path<String>,
+    Path(loop_id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<WebhookAccepted>, AdapterError> {
-    info!(trigger_id = %trigger_id, "Webhook inbound received");
+    info!(loop_id = %loop_id, "Webhook inbound received");
 
-    let rule = state
+    let subscription = state
         .loops
-        .find_runnable_subscription_by_id(&trigger_id)
+        .find_runnable_subscription_by_id(&loop_id)
         .await?
-        .ok_or_else(|| AdapterError::ConfigNotFound(trigger_id.clone()))?;
+        .ok_or_else(|| AdapterError::ConfigNotFound(loop_id.clone()))?;
 
-    if rule.provider != ADAPTER {
+    if subscription.adapter_kind != ADAPTER {
         return Err(AdapterError::BadRequest(format!(
-            "Trigger {trigger_id} is not a webhook trigger"
+            "Loop {loop_id} is not a webhook Subscription"
         )));
     }
 
     let signature = headers
         .get("x-webhook-signature")
         .and_then(|v| v.to_str().ok());
-    let config = crate::bindings::runtime::trigger_context(&rule, ADAPTER);
+    let config = crate::bindings::runtime::subscription_context(&subscription, ADAPTER);
     let delivery = WebhookAdapter::parse_inbound(&config, &body, signature)?;
     let message = delivery.message;
     let thread_id = message
@@ -82,8 +82,8 @@ pub async fn webhook_inbound(
         INBOUND_MESSAGE,
         delivery.delivery_id.clone(),
         InboundDeliveryPayload {
-            connection_id: rule.connection_id.clone(),
-            rule_id: rule.id.clone(),
+            connection_id: subscription.connection_id.clone(),
+            loop_id: subscription.id.clone(),
             subject_kind: SUBJECT_KIND.to_string(),
             subject_key,
             destination_config: serde_json::json!({}),
@@ -99,7 +99,7 @@ pub async fn webhook_inbound(
     let admission = admit_delivery(&state.adapter_delivery, request).await?;
 
     debug!(
-        trigger_id = %trigger_id,
+        loop_id = %loop_id,
         delivery_id = %delivery.delivery_id,
         admission = admission.as_str(),
         "Webhook delivery admitted for routing"

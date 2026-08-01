@@ -1,13 +1,13 @@
 //! `LoopDao` — the single home for every read and write of the four tables
-//! that persist a Loop: `triggers`, `trigger_rules`,
-//! `adapter_event_trigger_sources`, and `schedule_trigger_sources`.
+//! that persist a Loop: `loops`, `loop_configs`,
+//! `subscriptions`, and `schedules`.
 //!
 //! A Loop is the standing definition of recurring agent work (CONTEXT.md,
 //! ADR-0001). Its persistence was previously spread across `dao.rs`,
-//! `rule_dao.rs`, HTTP handlers, the schedule runner, and the git-loop
+//! earlier config DAO, HTTP handlers, the schedule runner, and the git-loop
 //! reconciler, each hand-rolling overlapping SQL. This module consolidates all
 //! of that behind one plain struct holding a `DbPool` (the
-//! `TaskCreationService` precedent, ADR-0004) — no new single-impl trait.
+//! `TaskCreationService` precedent, ADR-0004).
 //!
 //! The SQL here is a verbatim relocation of the previous call sites: same
 //! queries, same transactions, one home.
@@ -23,7 +23,7 @@ use crate::adapters::models::{LoopSpawnConfig, RoutingMode, Schedule, Subscripti
 use crate::db::DbPool;
 
 // =============================================================================
-// Joined trigger record — the read shape used by the HTTP surface.
+// Joined loop record — the read shape used by the HTTP surface.
 // =============================================================================
 
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ pub struct LoopRow {
 
 #[derive(Debug, Clone)]
 pub struct LoopConfigRow {
-    pub trigger_id: String,
+    pub loop_id: String,
     pub repository_id: String,
     pub routing_mode: RoutingMode,
     pub ongoing_task_id: Option<String>,
@@ -60,7 +60,7 @@ pub struct LoopConfigRow {
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionRow {
-    pub trigger_id: String,
+    pub loop_id: String,
     pub adapter_kind: String,
     pub connection_id: String,
     pub source_matcher: String,
@@ -74,7 +74,7 @@ pub struct SubscriptionRow {
 
 #[derive(Debug, Clone)]
 pub struct ScheduleRow {
-    pub trigger_id: String,
+    pub loop_id: String,
     pub cron_expression: String,
     pub timezone: String,
     pub message_template: String,
@@ -93,8 +93,8 @@ pub enum LoopSourceRow {
 
 #[derive(Debug, Clone)]
 pub struct LoopRecord {
-    pub trigger: LoopRow,
-    pub rule: LoopConfigRow,
+    pub loop_: LoopRow,
+    pub config: LoopConfigRow,
     pub source: LoopSourceRow,
 }
 
@@ -143,7 +143,7 @@ struct JoinedLoopRecordRow {
 
 impl JoinedLoopRecordRow {
     fn into_record(self) -> Result<LoopRecord, sqlx::Error> {
-        let trigger = LoopRow {
+        let loop_ = LoopRow {
             id: self.id.clone(),
             name: self.name,
             kind: self.kind.clone(),
@@ -159,8 +159,8 @@ impl JoinedLoopRecordRow {
             source_config_path: self.source_config_path,
             deleted: self.deleted,
         };
-        let rule = LoopConfigRow {
-            trigger_id: self.id.clone(),
+        let config = LoopConfigRow {
+            loop_id: self.id.clone(),
             repository_id: self.repository_id,
             routing_mode: self.routing_mode,
             ongoing_task_id: self.ongoing_task_id,
@@ -173,7 +173,7 @@ impl JoinedLoopRecordRow {
         };
         let source = match self.kind.as_str() {
             "adapter_event" => LoopSourceRow::AdapterEvent(SubscriptionRow {
-                trigger_id: self.id,
+                loop_id: self.id,
                 adapter_kind: self.adapter_kind.ok_or(sqlx::Error::RowNotFound)?,
                 connection_id: self.connection_id.ok_or(sqlx::Error::RowNotFound)?,
                 source_matcher: self.source_matcher.ok_or(sqlx::Error::RowNotFound)?,
@@ -185,7 +185,7 @@ impl JoinedLoopRecordRow {
                 notify_on_success: self.notify_on_success.unwrap_or(false),
             }),
             "schedule" => LoopSourceRow::Schedule(ScheduleRow {
-                trigger_id: self.id,
+                loop_id: self.id,
                 cron_expression: self.cron_expression.ok_or(sqlx::Error::RowNotFound)?,
                 timezone: self.timezone.unwrap_or_else(|| "UTC".to_string()),
                 message_template: self.message_template.ok_or(sqlx::Error::RowNotFound)?,
@@ -198,8 +198,8 @@ impl JoinedLoopRecordRow {
         };
 
         Ok(LoopRecord {
-            trigger,
-            rule,
+            loop_,
+            config,
             source,
         })
     }
@@ -251,10 +251,10 @@ const LOOP_RECORD_SELECT: &str = r#"
            sts.next_fire_at,
            sts.locked_by,
            sts.locked_until
-    FROM triggers t
-    JOIN trigger_rules r ON r.trigger_id = t.id
-    LEFT JOIN adapter_event_trigger_sources aes ON aes.trigger_id = t.id
-    LEFT JOIN schedule_trigger_sources sts ON sts.trigger_id = t.id
+    FROM loops t
+    JOIN loop_configs r ON r.loop_id = t.id
+    LEFT JOIN subscriptions aes ON aes.loop_id = t.id
+    LEFT JOIN schedules sts ON sts.loop_id = t.id
 "#;
 
 // =============================================================================
@@ -272,11 +272,11 @@ pub struct NewLoop {
     pub owner_user_id: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
-    pub rule: NewLoopConfig,
+    pub config: NewLoopConfig,
     pub source: NewLoopSource,
 }
 
-/// Resolved `trigger_rules` values shared by create and update.
+/// Resolved `loop_configs` values shared by create and update.
 pub struct NewLoopConfig {
     pub repository_id: String,
     pub routing_mode: RoutingMode,
@@ -314,7 +314,7 @@ pub struct NewScheduleSource {
     pub next_fire_at: DateTime<Utc>,
 }
 
-/// Resolved `triggers` columns to update (identity + scope, not the rule/source).
+/// Resolved `loops` columns to update (identity + scope, not config/source).
 pub struct LoopUpdate {
     pub name: String,
     pub scope: Scope,
@@ -450,12 +450,12 @@ impl LoopDao {
             .collect()
     }
 
-    /// Insert a Loop (trigger + rule + optional source) in one transaction.
+    /// Insert a Loop (row + config + optional source) in one transaction.
     pub async fn create(&self, new: NewLoop) -> Result<(), sqlx::Error> {
         let mut tx = self.db.begin().await?;
 
         sqlx::query(
-            r#"INSERT INTO triggers
+            r#"INSERT INTO loops
                (id, name, kind, active, scope, owner_user_id,
                 created_by, config_source, deleted, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, 'manual', false, $8, $8)"#,
@@ -471,7 +471,7 @@ impl LoopDao {
         .execute(&mut *tx)
         .await?;
 
-        insert_config(&mut tx, &new.id, &new.rule).await?;
+        insert_config(&mut tx, &new.id, &new.config).await?;
 
         match &new.source {
             NewLoopSource::AdapterEvent(source) => {
@@ -486,13 +486,13 @@ impl LoopDao {
         tx.commit().await
     }
 
-    /// Update a Loop's trigger row, and optionally its rule and/or source.
+    /// Update a Loop's row, and optionally its config and/or source.
     /// Returns `false` when the id is not found or the caller lacks control.
     pub async fn update(
         &self,
         id: &str,
-        trigger: LoopUpdate,
-        rule: Option<NewLoopConfig>,
+        loop_update: LoopUpdate,
+        config: Option<NewLoopConfig>,
         source: Option<UpdateLoopSource>,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
@@ -500,7 +500,7 @@ impl LoopDao {
         lock_git_origin(&mut tx, id).await?;
         let ctrl = ctx.control_filter("t.", 5);
         let sql = format!(
-            r#"UPDATE triggers t
+            r#"UPDATE loops t
                SET name = $2,
                    scope = $3,
                    owner_user_id = $4,
@@ -513,9 +513,9 @@ impl LoopDao {
         );
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
-            .bind(&trigger.name)
-            .bind(trigger.scope)
-            .bind(&trigger.owner_user_id)
+            .bind(&loop_update.name)
+            .bind(loop_update.scope)
+            .bind(&loop_update.owner_user_id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .execute(&mut *tx)
@@ -524,9 +524,9 @@ impl LoopDao {
             return Ok(false);
         }
 
-        if let Some(rule) = rule {
+        if let Some(config) = config {
             sqlx::query(
-                r#"UPDATE trigger_rules
+                r#"UPDATE loop_configs
                    SET repository_id = $2,
                        routing_mode = $3,
                        ongoing_task_id = $4,
@@ -536,18 +536,18 @@ impl LoopDao {
                        run_as_user_id = $8,
                        agent_type = $9,
                        inactive_ttl_days = $10
-                   WHERE trigger_id = $1"#,
+                   WHERE loop_id = $1"#,
             )
             .bind(id)
-            .bind(&rule.repository_id)
-            .bind(rule.routing_mode)
-            .bind(&rule.ongoing_task_id)
-            .bind(&rule.prompt)
-            .bind(&rule.task_name)
-            .bind(&rule.tag_ids)
-            .bind(&rule.run_as_user_id)
-            .bind(&rule.agent_type)
-            .bind(rule.inactive_ttl_days)
+            .bind(&config.repository_id)
+            .bind(config.routing_mode)
+            .bind(&config.ongoing_task_id)
+            .bind(&config.prompt)
+            .bind(&config.task_name)
+            .bind(&config.tag_ids)
+            .bind(&config.run_as_user_id)
+            .bind(&config.agent_type)
+            .bind(config.inactive_ttl_days)
             .execute(&mut *tx)
             .await?;
         }
@@ -555,7 +555,7 @@ impl LoopDao {
         match source {
             Some(UpdateLoopSource::AdapterEvent(source)) => {
                 sqlx::query(
-                    r#"UPDATE adapter_event_trigger_sources
+                    r#"UPDATE subscriptions
                        SET connection_id = $2,
                            source_matcher = $3,
                            source_name = $4,
@@ -564,7 +564,7 @@ impl LoopDao {
                            allow_direct_send = $7,
                            close_task_on_close = $8,
                            notify_on_success = $9
-                       WHERE trigger_id = $1"#,
+                       WHERE loop_id = $1"#,
                 )
                 .bind(id)
                 .bind(&source.connection_id)
@@ -580,12 +580,12 @@ impl LoopDao {
             }
             Some(UpdateLoopSource::Schedule(source)) => {
                 sqlx::query(
-                    r#"UPDATE schedule_trigger_sources
+                    r#"UPDATE schedules
                        SET cron_expression = $2,
                            timezone = $3,
                            message_template = $4,
                            next_fire_at = $5
-                       WHERE trigger_id = $1"#,
+                       WHERE loop_id = $1"#,
                 )
                 .bind(id)
                 .bind(&source.cron_expression)
@@ -610,7 +610,7 @@ impl LoopDao {
         lock_git_origin(&mut tx, id).await?;
         let ctrl = ctx.control_filter("t.", 2);
         let sql = format!(
-            "SELECT t.source_repository_id FROM triggers t WHERE t.id = $1 AND {} FOR UPDATE",
+            "SELECT t.source_repository_id FROM loops t WHERE t.id = $1 AND {} FOR UPDATE",
             ctrl.sql()
         );
         let provenance: Option<Option<String>> = sqlx::query_scalar(AssertSqlSafe(sql))
@@ -625,19 +625,19 @@ impl LoopDao {
 
         if source_repository_id.is_some() {
             sqlx::query(
-                "UPDATE triggers
+                "UPDATE loops
                  SET active = false, config_source = 'manual', deleted = true, updated_at = now()
                  WHERE id = $1",
             )
             .bind(id)
             .execute(&mut *tx)
             .await?;
-            sqlx::query("UPDATE trigger_rules SET run_as_user_id = NULL WHERE trigger_id = $1")
+            sqlx::query("UPDATE loop_configs SET run_as_user_id = NULL WHERE loop_id = $1")
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
         } else {
-            sqlx::query("DELETE FROM triggers WHERE id = $1")
+            sqlx::query("DELETE FROM loops WHERE id = $1")
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
@@ -657,29 +657,29 @@ impl LoopDao {
         let ctrl = ctx.control_filter("t.", 2);
         let sql = format!(
             "SELECT t.id
-             FROM triggers t
-             JOIN trigger_rules r ON r.trigger_id = t.id
+             FROM loops t
+             JOIN loop_configs r ON r.loop_id = t.id
              WHERE t.id = $1
                AND t.deleted = false
                AND {}
              FOR UPDATE OF t, r",
             ctrl.sql()
         );
-        let trigger_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
+        let loop_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&mut *tx)
             .await?;
-        if trigger_id.is_none() {
+        if loop_id.is_none() {
             return Ok(false);
         }
-        sqlx::query("UPDATE trigger_rules SET run_as_user_id = $2 WHERE trigger_id = $1")
+        sqlx::query("UPDATE loop_configs SET run_as_user_id = $2 WHERE loop_id = $1")
             .bind(id)
             .bind(run_as_user_id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE triggers SET active = true, updated_at = now() WHERE id = $1")
+        sqlx::query("UPDATE loops SET active = true, updated_at = now() WHERE id = $1")
             .bind(id)
             .execute(&mut *tx)
             .await?;
@@ -692,21 +692,21 @@ impl LoopDao {
         lock_git_origin(&mut tx, id).await?;
         let ctrl = ctx.control_filter("t.", 2);
         let sql = format!(
-            "SELECT t.id FROM triggers t
+            "SELECT t.id FROM loops t
              WHERE t.id = $1 AND t.deleted = false AND {}
              FOR UPDATE",
             ctrl.sql()
         );
-        let trigger_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
+        let loop_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&mut *tx)
             .await?;
-        if trigger_id.is_none() {
+        if loop_id.is_none() {
             return Ok(false);
         }
-        sqlx::query("UPDATE triggers SET active = false, updated_at = now() WHERE id = $1")
+        sqlx::query("UPDATE loops SET active = false, updated_at = now() WHERE id = $1")
             .bind(id)
             .execute(&mut *tx)
             .await?;
@@ -720,8 +720,8 @@ impl LoopDao {
         let ctrl = ctx.control_filter("t.", 2);
         let sql = format!(
             "SELECT t.id
-             FROM triggers t
-             JOIN trigger_rules r ON r.trigger_id = t.id
+             FROM loops t
+             JOIN loop_configs r ON r.loop_id = t.id
              WHERE t.id = $1
                AND r.run_as_user_id IS NOT NULL
                AND t.deleted = false
@@ -729,16 +729,16 @@ impl LoopDao {
              FOR UPDATE OF t, r",
             ctrl.sql()
         );
-        let trigger_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
+        let loop_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&mut *tx)
             .await?;
-        if trigger_id.is_none() {
+        if loop_id.is_none() {
             return Ok(false);
         }
-        sqlx::query("UPDATE triggers SET active = true, updated_at = now() WHERE id = $1")
+        sqlx::query("UPDATE loops SET active = true, updated_at = now() WHERE id = $1")
             .bind(id)
             .execute(&mut *tx)
             .await?;
@@ -751,7 +751,7 @@ impl LoopDao {
         lock_git_origin(&mut tx, id).await?;
         let ctrl = ctx.control_filter("t.", 2);
         let sql = format!(
-            "SELECT t.id FROM triggers t
+            "SELECT t.id FROM loops t
              WHERE t.id = $1
                AND t.config_source = 'git'
                AND t.deleted = false
@@ -759,17 +759,17 @@ impl LoopDao {
              FOR UPDATE",
             ctrl.sql()
         );
-        let trigger_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
+        let loop_id: Option<String> = sqlx::query_scalar(AssertSqlSafe(sql))
             .bind(id)
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
             .fetch_optional(&mut *tx)
             .await?;
-        if trigger_id.is_none() {
+        if loop_id.is_none() {
             return Ok(false);
         }
         sqlx::query(
-            "UPDATE triggers
+            "UPDATE loops
              SET config_source = 'manual', updated_at = now()
              WHERE id = $1",
         )
@@ -781,7 +781,7 @@ impl LoopDao {
     }
 
     // ---------------------------------------------------------------------
-    // Adapter-event route surface (canonical trigger+route view).
+    // Adapter-event subscription lookup surface.
     // ---------------------------------------------------------------------
 
     pub async fn find_subscription_by_id(
@@ -826,7 +826,7 @@ impl LoopDao {
         .await
     }
 
-    /// Return ALL rules for a given (provider, source_matcher) — used by
+    /// Return all subscriptions for a given (adapter, source_matcher) — used by
     /// Linear, where multiple listeners can share a team UUID.
     pub async fn list_subscriptions_by_source_matcher(
         &self,
@@ -873,7 +873,7 @@ impl LoopDao {
         let mut tx = self.db.begin().await?;
 
         sqlx::query(
-            r#"INSERT INTO triggers
+            r#"INSERT INTO loops
                (id, name, kind, active, scope, owner_user_id,
                 created_by, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -886,7 +886,7 @@ impl LoopDao {
                    updated_at      = EXCLUDED.updated_at"#,
         )
         .bind(&row.id)
-        // `triggers.name` is NOT NULL; an unnamed subscription falls back to
+        // `loops.name` is NOT NULL; an unnamed subscription falls back to
         // the matcher it listens on.
         .bind(row.source_name.as_deref().unwrap_or(&row.source_matcher))
         .bind("adapter_event")
@@ -900,11 +900,11 @@ impl LoopDao {
         .await?;
 
         sqlx::query(
-            r#"INSERT INTO trigger_rules
-               (trigger_id, repository_id, routing_mode, ongoing_task_id, prompt,
+            r#"INSERT INTO loop_configs
+               (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
                 task_name, tag_ids, run_as_user_id, agent_type, inactive_ttl_days)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-               ON CONFLICT (trigger_id) DO UPDATE
+               ON CONFLICT (loop_id) DO UPDATE
                SET repository_id     = EXCLUDED.repository_id,
                    routing_mode      = EXCLUDED.routing_mode,
                    ongoing_task_id   = EXCLUDED.ongoing_task_id,
@@ -929,12 +929,12 @@ impl LoopDao {
         .await?;
 
         sqlx::query(
-            r#"INSERT INTO adapter_event_trigger_sources
-               (trigger_id, adapter_kind, connection_id, source_matcher, source_name,
+            r#"INSERT INTO subscriptions
+               (loop_id, adapter_kind, connection_id, source_matcher, source_name,
                 event_filter, adapter_config,
                 allow_direct_send, close_task_on_close, notify_on_success)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-               ON CONFLICT (trigger_id) DO UPDATE
+               ON CONFLICT (loop_id) DO UPDATE
                SET adapter_kind         = EXCLUDED.adapter_kind,
                    connection_id        = EXCLUDED.connection_id,
                    source_matcher       = EXCLUDED.source_matcher,
@@ -946,12 +946,12 @@ impl LoopDao {
                    notify_on_success    = EXCLUDED.notify_on_success"#,
         )
         .bind(&row.id)
-        .bind(&row.provider)
+        .bind(&row.adapter_kind)
         .bind(&row.connection_id)
         .bind(&row.source_matcher)
         .bind(&row.source_name)
         .bind(&row.event_filter)
-        .bind(&row.provider_config)
+        .bind(&row.adapter_config)
         .bind(row.allow_direct_send)
         .bind(row.close_task_on_close)
         .bind(row.notify_on_success)
@@ -969,39 +969,36 @@ impl LoopDao {
     // Telegram pairing: adapter_config read-modify-write.
     // ---------------------------------------------------------------------
 
-    /// Read the `adapter_config` JSON for an adapter-event trigger's source.
-    /// Returns `Ok(None)` when the trigger has no adapter-event source row (the
+    /// Read the `adapter_config` JSON for an adapter-event subscription.
+    /// Returns `Ok(None)` when the Loop has no adapter-event source row (the
     /// outer `Option` is the `adapter_config` column, which is itself nullable).
     pub async fn get_adapter_config(
         &self,
-        trigger_id: &str,
+        loop_id: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let row: Option<(Option<serde_json::Value>,)> = sqlx::query_as(
-            "SELECT adapter_config FROM adapter_event_trigger_sources WHERE trigger_id = $1",
-        )
-        .bind(trigger_id)
-        .fetch_optional(&self.db)
-        .await?;
+        let row: Option<(Option<serde_json::Value>,)> =
+            sqlx::query_as("SELECT adapter_config FROM subscriptions WHERE loop_id = $1")
+                .bind(loop_id)
+                .fetch_optional(&self.db)
+                .await?;
         Ok(row.and_then(|(config,)| config))
     }
 
-    /// Overwrite the `adapter_config` JSON for an adapter-event trigger's source
-    /// and bump the trigger's `updated_at`, in one transaction.
+    /// Overwrite the `adapter_config` JSON for an adapter-event subscription
+    /// and bump the Loop's `updated_at`, in one transaction.
     pub async fn set_adapter_config(
         &self,
-        trigger_id: &str,
+        loop_id: &str,
         config: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         let mut tx = self.db.begin().await?;
-        sqlx::query(
-            "UPDATE adapter_event_trigger_sources SET adapter_config = $1 WHERE trigger_id = $2",
-        )
-        .bind(config)
-        .bind(trigger_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query("UPDATE triggers SET updated_at = now() WHERE id = $1")
-            .bind(trigger_id)
+        sqlx::query("UPDATE subscriptions SET adapter_config = $1 WHERE loop_id = $2")
+            .bind(config)
+            .bind(loop_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE loops SET updated_at = now() WHERE id = $1")
+            .bind(loop_id)
             .execute(&mut *tx)
             .await?;
         tx.commit().await
@@ -1035,8 +1032,8 @@ impl LoopDao {
             let existing: Option<(String, String, bool, bool)> = sqlx::query_as(
                 "SELECT t.id, t.config_source, t.deleted,
                         (t.active OR r.run_as_user_id IS NOT NULL) AS approved
-                 FROM triggers t
-                 JOIN trigger_rules r ON r.trigger_id = t.id
+                 FROM loops t
+                 JOIN loop_configs r ON r.loop_id = t.id
                  WHERE t.source_repository_id = $1 AND t.source_key = $2
                  FOR UPDATE",
             )
@@ -1045,7 +1042,7 @@ impl LoopDao {
             .fetch_optional(&mut *tx)
             .await?;
 
-            let trigger_id = match existing {
+            let loop_id = match existing {
                 Some((_, config_source, deleted, _)) if config_source == "manual" || deleted => {
                     summary.overrides_skipped += 1;
                     summary.skipped_overrides.push(ManagedLoopOverrideSkip {
@@ -1056,7 +1053,7 @@ impl LoopDao {
                 }
                 Some((id, _, _, approved)) => {
                     sqlx::query(
-                        "UPDATE triggers
+                        "UPDATE loops
                          SET name = $2, kind = $3, active = false, scope = $4,
                              owner_user_id = $5, source_config_path = $6,
                              deleted = false, updated_at = $7
@@ -1080,7 +1077,7 @@ impl LoopDao {
                 None => {
                     let id = format!("tr_{}", uuid::Uuid::new_v4());
                     sqlx::query(
-                        "INSERT INTO triggers
+                        "INSERT INTO loops
                          (id, name, kind, active, scope, owner_user_id, created_by,
                           config_source, source_repository_id, source_key,
                           source_config_path, deleted, created_at, updated_at)
@@ -1104,12 +1101,12 @@ impl LoopDao {
                 }
             };
 
-            replace_managed_loop_rows(&mut tx, &trigger_id, input).await?;
+            replace_managed_loop_rows(&mut tx, &loop_id, input).await?;
         }
 
         let existing: Vec<(String, String, String, bool)> = sqlx::query_as(
             "SELECT id, source_key, config_source, deleted
-             FROM triggers
+             FROM loops
              WHERE source_repository_id = $1 AND source_key IS NOT NULL
              FOR UPDATE",
         )
@@ -1121,7 +1118,7 @@ impl LoopDao {
                 continue;
             }
             if config_source == "git" {
-                sqlx::query("DELETE FROM triggers WHERE id = $1")
+                sqlx::query("DELETE FROM loops WHERE id = $1")
                     .bind(&id)
                     .execute(&mut *tx)
                     .await?;
@@ -1148,7 +1145,7 @@ impl LoopDao {
             .execute(&mut *tx)
             .await?;
         let id: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM triggers
+            "SELECT id FROM loops
              WHERE source_repository_id = $1 AND source_key = $2
              FOR UPDATE",
         )
@@ -1160,7 +1157,7 @@ impl LoopDao {
             return Ok(false);
         };
         sqlx::query(
-            "UPDATE triggers
+            "UPDATE loops
              SET name = $2, kind = $3, active = false, scope = $4,
                  owner_user_id = $5, config_source = 'git',
                  source_config_path = $6, deleted = false, updated_at = now()
@@ -1183,8 +1180,8 @@ impl LoopDao {
     // Schedule runner: claim due schedules, record a fire, resolve the route.
     // ---------------------------------------------------------------------
 
-    /// Select due, unlocked schedule jobs and lock each one for `worker_id`.
-    /// Returns the jobs that were successfully locked. System-level query —
+    /// Select due, unlocked schedules and lock each one for `worker_id`.
+    /// Returns the schedules that were successfully locked. System-level query —
     /// no scope filter applied (the schedule runner acts across all owners).
     pub async fn claim_due_schedules(
         &self,
@@ -1208,9 +1205,9 @@ impl LoopDao {
                       t.owner_user_id,
                       t.created_at,
                       t.updated_at
-               FROM triggers t
-               JOIN trigger_rules r ON r.trigger_id = t.id
-               JOIN schedule_trigger_sources sts ON sts.trigger_id = t.id
+               FROM loops t
+               JOIN loop_configs r ON r.loop_id = t.id
+               JOIN schedules sts ON sts.loop_id = t.id
                WHERE t.kind = 'schedule'
                  AND t.active = true
                  AND t.deleted = false
@@ -1228,16 +1225,16 @@ impl LoopDao {
         for job in due_jobs {
             let job_lock = sqlx::query_as::<_, Schedule>(
                 r#"WITH locked_source AS (
-                       UPDATE schedule_trigger_sources
+                       UPDATE schedules
                        SET locked_by = $2,
                            locked_until = now() + interval '2 minutes'
-                       WHERE trigger_id = $1
+                       WHERE loop_id = $1
                          AND next_fire_at <= now()
                          AND (locked_until IS NULL OR locked_until < now())
                        RETURNING *
                    ),
                    touched_trigger AS (
-                       UPDATE triggers
+                       UPDATE loops
                        SET updated_at = now()
                        WHERE id = $1 AND active = true AND deleted = false AND kind = 'schedule'
                        RETURNING *
@@ -1259,8 +1256,8 @@ impl LoopDao {
                           t.created_at,
                           t.updated_at
                    FROM touched_trigger t
-                   JOIN trigger_rules r ON r.trigger_id = t.id
-                   JOIN locked_source s ON s.trigger_id = t.id
+                   JOIN loop_configs r ON r.loop_id = t.id
+                   JOIN locked_source s ON s.loop_id = t.id
                    WHERE r.run_as_user_id IS NOT NULL"#,
             )
             .bind(&job.id)
@@ -1280,28 +1277,28 @@ impl LoopDao {
     /// and release the lock.
     pub async fn record_schedule_fire(
         &self,
-        trigger_id: &str,
+        loop_id: &str,
         next_fire_at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            r#"UPDATE schedule_trigger_sources
+            r#"UPDATE schedules
                SET last_fired_at = now(),
                    next_fire_at = $2,
                    locked_by = NULL,
                    locked_until = NULL
-               WHERE trigger_id = $1"#,
+               WHERE loop_id = $1"#,
         )
-        .bind(trigger_id)
+        .bind(loop_id)
         .bind(next_fire_at)
         .execute(&self.db)
         .await?;
         Ok(())
     }
 
-    /// Resolve the `LoopSpawnConfig` (trigger + rule) for a schedule job.
+    /// Resolve the `LoopSpawnConfig` for a schedule firing.
     pub async fn find_loop_spawn_config(
         &self,
-        trigger_id: &str,
+        loop_id: &str,
     ) -> Result<LoopSpawnConfig, sqlx::Error> {
         // System-level query — schedule runner acts across all owners, no scope filter needed.
         sqlx::query_as::<_, LoopSpawnConfig>(
@@ -1320,28 +1317,28 @@ impl LoopDao {
                       t.created_by,
                       t.created_at,
                       t.updated_at
-               FROM triggers t
-               JOIN trigger_rules r ON r.trigger_id = t.id
+               FROM loops t
+               JOIN loop_configs r ON r.loop_id = t.id
                WHERE t.id = $1"#,
         )
-        .bind(trigger_id)
+        .bind(loop_id)
         .fetch_one(&self.db)
         .await
     }
 
-    /// Point a Loop's rule at an ongoing task and bump the trigger's
+    /// Point a Loop's config at an ongoing task and bump the Loop's
     /// `updated_at`. The single home for the `ongoing_task_id` update.
     pub async fn set_ongoing_task(&self, loop_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"WITH updated_rule AS (
-                   UPDATE trigger_rules
+                   UPDATE loop_configs
                    SET ongoing_task_id = $2
-                   WHERE trigger_id = $1
-                   RETURNING trigger_id
+                   WHERE loop_id = $1
+                   RETURNING loop_id
                )
-               UPDATE triggers
+               UPDATE loops
                SET updated_at = now()
-               WHERE id IN (SELECT trigger_id FROM updated_rule)"#,
+               WHERE id IN (SELECT loop_id FROM updated_rule)"#,
         )
         .bind(loop_id)
         .bind(task_id)
@@ -1367,7 +1364,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.agent_type,
            r.inactive_ttl_days,
            aes.allow_direct_send,
-           aes.adapter_config AS provider_config,
+           aes.adapter_config AS adapter_config,
            r.ongoing_task_id,
            aes.close_task_on_close,
            aes.notify_on_success,
@@ -1377,9 +1374,9 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            t.owner_user_id,
            t.created_at,
            t.updated_at
-    FROM triggers t
-    JOIN trigger_rules r ON r.trigger_id = t.id
-    JOIN adapter_event_trigger_sources aes ON aes.trigger_id = t.id
+    FROM loops t
+    JOIN loop_configs r ON r.loop_id = t.id
+    JOIN subscriptions aes ON aes.loop_id = t.id
 "#;
 
 // =============================================================================
@@ -1392,11 +1389,11 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
 /// local edits, tombstones, resets, and lifecycle changes against Git sync.
 async fn lock_git_origin(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
+    loop_id: &str,
 ) -> Result<(), sqlx::Error> {
     let repository_id: Option<String> =
-        sqlx::query_scalar("SELECT source_repository_id FROM triggers WHERE id = $1")
-            .bind(trigger_id)
+        sqlx::query_scalar("SELECT source_repository_id FROM loops WHERE id = $1")
+            .bind(loop_id)
             .fetch_optional(&mut **tx)
             .await?
             .flatten();
@@ -1411,32 +1408,32 @@ async fn lock_git_origin(
 
 async fn replace_managed_loop_rows(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
+    loop_id: &str,
     input: &ManagedLoopUpsert,
 ) -> Result<(), sqlx::Error> {
     let ongoing_task_id: Option<String> =
-        sqlx::query_scalar("SELECT ongoing_task_id FROM trigger_rules WHERE trigger_id = $1")
-            .bind(trigger_id)
+        sqlx::query_scalar("SELECT ongoing_task_id FROM loop_configs WHERE loop_id = $1")
+            .bind(loop_id)
             .fetch_optional(&mut **tx)
             .await?
             .flatten();
 
-    sqlx::query("DELETE FROM trigger_rules WHERE trigger_id = $1")
-        .bind(trigger_id)
+    sqlx::query("DELETE FROM loop_configs WHERE loop_id = $1")
+        .bind(loop_id)
         .execute(&mut **tx)
         .await?;
-    sqlx::query("DELETE FROM adapter_event_trigger_sources WHERE trigger_id = $1")
-        .bind(trigger_id)
+    sqlx::query("DELETE FROM subscriptions WHERE loop_id = $1")
+        .bind(loop_id)
         .execute(&mut **tx)
         .await?;
-    sqlx::query("DELETE FROM schedule_trigger_sources WHERE trigger_id = $1")
-        .bind(trigger_id)
+    sqlx::query("DELETE FROM schedules WHERE loop_id = $1")
+        .bind(loop_id)
         .execute(&mut **tx)
         .await?;
 
     insert_config(
         tx,
-        trigger_id,
+        loop_id,
         &NewLoopConfig {
             repository_id: input.source_repository_id.clone(),
             routing_mode: input.routing_mode,
@@ -1452,35 +1449,35 @@ async fn replace_managed_loop_rows(
     .await?;
 
     if let Some(adapter) = &input.adapter {
-        insert_adapter_event_source(tx, trigger_id, adapter).await?;
+        insert_adapter_event_source(tx, loop_id, adapter).await?;
     }
     if let Some(schedule) = &input.schedule {
-        insert_schedule_source(tx, trigger_id, schedule).await?;
+        insert_schedule_source(tx, loop_id, schedule).await?;
     }
     Ok(())
 }
 
 async fn insert_config(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
-    rule: &NewLoopConfig,
+    loop_id: &str,
+    config: &NewLoopConfig,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        r#"INSERT INTO trigger_rules
-           (trigger_id, repository_id, routing_mode, ongoing_task_id, prompt,
+        r#"INSERT INTO loop_configs
+           (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
             task_name, tag_ids, run_as_user_id, agent_type, inactive_ttl_days)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
     )
-    .bind(trigger_id)
-    .bind(&rule.repository_id)
-    .bind(rule.routing_mode)
-    .bind(&rule.ongoing_task_id)
-    .bind(&rule.prompt)
-    .bind(&rule.task_name)
-    .bind(&rule.tag_ids)
-    .bind(&rule.run_as_user_id)
-    .bind(&rule.agent_type)
-    .bind(rule.inactive_ttl_days)
+    .bind(loop_id)
+    .bind(&config.repository_id)
+    .bind(config.routing_mode)
+    .bind(&config.ongoing_task_id)
+    .bind(&config.prompt)
+    .bind(&config.task_name)
+    .bind(&config.tag_ids)
+    .bind(&config.run_as_user_id)
+    .bind(&config.agent_type)
+    .bind(config.inactive_ttl_days)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1488,17 +1485,17 @@ async fn insert_config(
 
 async fn insert_adapter_event_source(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
+    loop_id: &str,
     source: &NewAdapterEventSource,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        r#"INSERT INTO adapter_event_trigger_sources
-           (trigger_id, adapter_kind, connection_id, source_matcher, source_name,
+        r#"INSERT INTO subscriptions
+           (loop_id, adapter_kind, connection_id, source_matcher, source_name,
             event_filter, adapter_config, allow_direct_send, close_task_on_close,
             notify_on_success)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
     )
-    .bind(trigger_id)
+    .bind(loop_id)
     .bind(&source.adapter_kind)
     .bind(&source.connection_id)
     .bind(&source.source_matcher)
@@ -1515,15 +1512,15 @@ async fn insert_adapter_event_source(
 
 async fn insert_schedule_source(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    trigger_id: &str,
+    loop_id: &str,
     source: &NewScheduleSource,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        r#"INSERT INTO schedule_trigger_sources
-           (trigger_id, cron_expression, timezone, message_template, next_fire_at)
+        r#"INSERT INTO schedules
+           (loop_id, cron_expression, timezone, message_template, next_fire_at)
            VALUES ($1, $2, $3, $4, $5)"#,
     )
-    .bind(trigger_id)
+    .bind(loop_id)
     .bind(&source.cron_expression)
     .bind(&source.timezone)
     .bind(&source.message_template)

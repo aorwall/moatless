@@ -71,7 +71,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         agent_type: "claude-code".to_string(),
         inactive_ttl_days: None,
         allow_direct_send: false,
-        provider_config: None,
+        adapter_config: None,
         ongoing_task_id: None,
         close_task_on_close: true,
         notify_on_success: false,
@@ -136,7 +136,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
     let task_id = "task-pr-create";
     let state = seed(&pool, task_id).await;
 
-    // The org-webhook connection + trigger route must exist before the agent's
+    // The org-webhook connection + subscription loop must exist before the agent's
     // gh-pr-create hook can attach a task binding.
     seed_github_trigger(&pool, "foo", "bar", "repo-1").await;
 
@@ -199,7 +199,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
     assert_eq!(bindings[0].subject_kind, "github_pr");
     assert_eq!(bindings[0].subject_key, "foo/bar#99");
     assert_eq!(bindings[0].connection_id, connection.id);
-    assert_eq!(bindings[0].trigger_id.as_deref(), Some(trigger.id.as_str()));
+    assert_eq!(bindings[0].loop_id.as_deref(), Some(trigger.id.as_str()));
 
     // 4. The parent assistant row should now carry channel metadata so the
     //    UI can render a "PR #99 opened" chip on it.

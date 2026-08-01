@@ -15,7 +15,7 @@
 //! is the GitHub-specific half: the stable kinds and payloads.
 //!
 //! Ingress supplies the sender delivery identity. Dedup is per
-//! `(adapter, kind, event_id)`, so one delivery that triggers both a message and
+//! `(adapter, kind, event_id)`, so one delivery that loops both a message and
 //! a merge-conflict check is two records that retry and fail independently.
 //!
 //! # The only deduplication mechanism
@@ -68,8 +68,8 @@ use tracing::info;
 
 use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::{
-    register_typed_delivery, AdapterDeliveryFailure, AdapterDeliveryHandlers,
-    AdapterDeliveryRequest,
+    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
+    register_typed_delivery,
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
@@ -138,9 +138,9 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct DeliveryContext {
     pub(super) connection_id: String,
-    pub(super) trigger_id: Option<String>,
-    /// `owner/repo`, used to synthesize the delivery-only trigger config when
-    /// the repo has no trigger of its own.
+    pub(super) loop_id: Option<String>,
+    /// `owner/repo`, used to synthesize the delivery-only loop config when
+    /// the repo has no subscription of its own.
     pub(super) repo_full_name: String,
 }
 
@@ -167,7 +167,7 @@ impl DeliveryContext {
                 ))
             })?;
 
-        let trigger = match self.trigger_id.as_deref() {
+        let trigger = match self.loop_id.as_deref() {
             Some(id) => state
                 .loops
                 .find_runnable_subscription_by_id(id)
@@ -330,22 +330,22 @@ pub(super) fn log_admission(
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::Audience;
 
     use super::*;
 
     fn context() -> DeliveryContext {
         DeliveryContext {
             connection_id: "conn-1".to_string(),
-            trigger_id: Some("trigger-1".to_string()),
+            loop_id: Some("trigger-1".to_string()),
             repo_full_name: "acme/widgets".to_string(),
         }
     }
 
     fn message() -> InboundMessage {
         InboundMessage {
-            provider: AdapterKind::GithubPr,
+            adapter_kind: AdapterKind::GithubPr,
             source_id: "acme/widgets".to_string(),
             thread_id: Some("42".to_string()),
             message_thread_id: "42".to_string(),
@@ -355,7 +355,7 @@ mod tests {
             thread_properties: serde_json::json!({
                 "owner": "acme", "repo": "widgets", "pr_number": 42
             }),
-            provider_context: serde_json::json!({}),
+            adapter_context: serde_json::json!({}),
             external_event_id: Some("github:pr:opened:42".to_string()),
             source_task_id: None,
             audience: Audience::Everyone,
@@ -374,7 +374,7 @@ mod tests {
         let back: PrMessageDelivery = serde_json::from_value(value).expect("deserialize");
 
         assert_eq!(back.context.connection_id, "conn-1");
-        assert_eq!(back.context.trigger_id.as_deref(), Some("trigger-1"));
+        assert_eq!(back.context.loop_id.as_deref(), Some("trigger-1"));
         assert_eq!(back.context.repo_full_name, "acme/widgets");
         assert_eq!(back.message.text, "hello");
         assert_eq!(back.message.user_id, "user-1");
@@ -382,7 +382,7 @@ mod tests {
             back.message.external_event_id.as_deref(),
             Some("github:pr:opened:42")
         );
-        assert_eq!(back.message.provider, AdapterKind::GithubPr);
+        assert_eq!(back.message.adapter_kind, AdapterKind::GithubPr);
         assert_eq!(
             back.message.thread_properties,
             delivery.message.thread_properties
@@ -398,7 +398,7 @@ mod tests {
     fn the_close_payload_is_stored_flat_with_a_nested_close() {
         let stored = serde_json::json!({
             "connection_id": "conn-1",
-            "trigger_id": "trigger-1",
+            "loop_id": "trigger-1",
             "repo_full_name": "acme/widgets",
             "close": {
                 "pr_number": 42,
@@ -420,7 +420,7 @@ mod tests {
     fn the_post_merge_payload_is_stored_flat_with_a_nested_run() {
         let stored = serde_json::json!({
             "connection_id": "conn-1",
-            "trigger_id": serde_json::Value::Null,
+            "loop_id": serde_json::Value::Null,
             "repo_full_name": "acme/widgets",
             "owner": "acme",
             "repo": "widgets",
@@ -437,7 +437,7 @@ mod tests {
         let delivery: PostMergeDelivery =
             serde_json::from_value(stored.clone()).expect("deserialize");
 
-        assert!(delivery.context.trigger_id.is_none());
+        assert!(delivery.context.loop_id.is_none());
         assert_eq!(delivery.execution.owner, "acme");
         // A run id is a `u64` behind a `flatten`ed sibling, which routes through
         // serde's buffering representation; assert it comes back unrounded.
@@ -448,7 +448,7 @@ mod tests {
     fn a_merge_conflict_payload_survives_the_round_trip() {
         let delivery = MergeConflictDelivery {
             context: DeliveryContext {
-                trigger_id: None,
+                loop_id: None,
                 ..context()
             },
             execution: super::super::merge_conflict::Execution {
@@ -461,7 +461,7 @@ mod tests {
         let back: MergeConflictDelivery =
             serde_json::from_value(serde_json::to_value(&delivery).expect("serialize"))
                 .expect("deserialize");
-        assert!(back.context.trigger_id.is_none());
+        assert!(back.context.loop_id.is_none());
         assert_eq!(back.execution.pr_number, 42);
         assert_eq!(back.execution.sender_login, "octocat");
     }
@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(request.payload["connection_id"], "conn-1");
     }
 
-    /// Every kind is distinct, so one delivery that triggers several of them
+    /// Every kind is distinct, so one delivery that loops several of them
     /// produces several records under the same `event_id` rather than one.
     #[test]
     fn the_kinds_are_distinct_and_namespaced() {

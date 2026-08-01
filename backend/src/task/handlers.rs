@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
@@ -19,7 +19,7 @@ use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 use crate::repository::models::RepositoryProvider;
 
-use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingDao};
+use crate::bindings::dao::{TaskBindingDao, get_bindings_for_tasks};
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;
@@ -244,8 +244,8 @@ pub async fn list_tasks(
                 .iter()
                 .filter(|c| c.task_id == row.task_id)
                 .map(|c| TaskBindingSummary {
-                    trigger_id: c.trigger_id.clone(),
-                    adapter_kind: crate::adapters::common::parse_adapter_kind(&c.provider),
+                    loop_id: c.loop_id.clone(),
+                    adapter_kind: crate::adapters::common::parse_adapter_kind(&c.adapter_kind),
                     source_id: c.source_id.clone(),
                     source_name: c.source_name.clone(),
                     thread_id: None,
@@ -1506,10 +1506,10 @@ async fn resolve_task_bindings(state: &AppState, task_id: &str) -> Vec<TaskBindi
 
     let mut summaries = Vec::new();
     for binding in &bindings {
-        let trigger = if let Some(ref trigger_id) = binding.trigger_id {
+        let trigger = if let Some(ref loop_id) = binding.loop_id {
             state
                 .loops
-                .find_subscription_by_id(trigger_id)
+                .find_subscription_by_id(loop_id)
                 .await
                 .ok()
                 .flatten()
@@ -1685,7 +1685,7 @@ mod tests {
         }
         async fn find_recent_for_loop(
             &self,
-            _trigger_id: &str,
+            _loop_id: &str,
             _limit: i64,
         ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
             unimplemented!("not reachable from deactivate_task_bindings")

@@ -13,16 +13,16 @@ use serde::Deserialize;
 pub struct LoopFrontmatter {
     /// Event source: `github_pr`, `schedule`, `slack`, or `linear`.
     pub on: String,
-    /// Human-readable name (`triggers.name`). Required — the directory name is
+    /// Human-readable name (`loops.name`). Required — the directory name is
     /// the reconciliation key, not a name anybody chose.
     pub name: String,
-    /// Agent type (`trigger_rules.agent_type`, default `claude-code`).
+    /// Agent type (`loop_configs.agent_type`, default `claude-code`).
     #[serde(default)]
     pub agent_type: Option<String>,
-    /// Routing mode (`trigger_rules.routing_mode`, default `by_subject`).
+    /// Routing mode (`loop_configs.routing_mode`, default `by_subject`).
     #[serde(default)]
     pub routing_mode: Option<String>,
-    /// Tag names resolved to ids for `trigger_rules.tag_ids`.
+    /// Tag names resolved to ids for `loop_configs.tag_ids`.
     #[serde(default)]
     pub tags: Option<Vec<String>>,
     /// Legacy Git field retained for compatibility. Sync reports and ignores
@@ -39,25 +39,25 @@ pub struct LoopFrontmatter {
     #[serde(default)]
     pub team_id: Option<String>,
     /// `on: linear` only — Linear workflow state NAMES whose ENTRY spawns a task
-    /// (e.g. `["Ready"]`). Maps to `provider_config.trigger_states`.
+    /// (e.g. `["Ready"]`). Maps to `adapter_config.trigger_states`.
     #[serde(default)]
     pub trigger_states: Option<Vec<String>>,
     /// `on: linear` only — Linear project UUIDs to restrict task creation to.
-    /// Maps to `provider_config.project_ids`. Empty/absent = any project.
+    /// Maps to `adapter_config.project_ids`. Empty/absent = any project.
     #[serde(default)]
     pub project_ids: Option<Vec<String>>,
     /// `on: linear` only — issue must carry every label here to spawn a task.
-    /// Maps to `provider_config.require_labels`.
+    /// Maps to `adapter_config.require_labels`.
     #[serde(default)]
     pub require_labels: Option<Vec<String>>,
     /// `on: linear` only — workflow-state NAME to move the issue into when a
     /// task is created (e.g. `"In Progress"`). Maps to
-    /// `provider_config.start_state`.
+    /// `adapter_config.start_state`.
     #[serde(default)]
     pub start_state: Option<String>,
     /// `on: linear` only — whether an `Issue.update` that moves the issue into a
     /// `trigger_states` value spawns a task. Maps to
-    /// `provider_config.create_on_status_entry`. `None` keeps the default-on
+    /// `adapter_config.create_on_status_entry`. `None` keeps the default-on
     /// behavior (and the `adapterConfig` escape hatch); set `false` to author a
     /// mention-mode loop where only `@mention`/assignment spawns tasks.
     #[serde(default)]
@@ -65,14 +65,14 @@ pub struct LoopFrontmatter {
     /// Adapter-event filter JSON (default `[]`).
     #[serde(default)]
     pub event_filter: Option<serde_json::Value>,
-    /// Adapter-specific config JSON stored on the trigger source.
+    /// Adapter-specific config JSON stored on the subscription.
     #[serde(default)]
     pub adapter_config: Option<serde_json::Value>,
     /// Legacy Git field retained for compatibility. Sync reports and ignores
     /// it because Git configuration cannot approve Loop execution.
     #[serde(default)]
     pub active: Option<bool>,
-    /// Per-trigger task inactivity TTL in days (`trigger_rules.inactive_ttl_days`).
+    /// Per-loop task inactivity TTL in days (`loop_configs.inactive_ttl_days`).
     /// `None` inherits the platform default (`TASK_INACTIVE_TIMEOUT_DAYS`).
     #[serde(default)]
     pub inactive_ttl_days: Option<i32>,

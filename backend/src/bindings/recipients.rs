@@ -16,7 +16,7 @@
 //! Identity plays no part: the resolver is never given a user identity. A task
 //! is passed over only where it can be *named* as the author of what arrived.
 
-use crate::adapters::models::{Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, Audience, TaskBinding};
 
 /// What the event says about who wrote it, resolved before the resolver runs.
 ///
@@ -112,10 +112,10 @@ fn is_producer(binding: &TaskBinding) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_recipients, EventProvenance};
+    use super::{EventProvenance, resolve_recipients};
     use crate::adapters::models::{
-        Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
-        TASK_OWNED_BINDING_ORIGIN,
+        ADAPTER_EVENT_BINDING_ORIGIN, Audience, CONNECTED_THREAD_BINDING_ORIGIN,
+        TASK_OWNED_BINDING_ORIGIN, TaskBinding,
     };
     use chrono::Utc;
 
@@ -127,11 +127,11 @@ mod tests {
         TaskBinding {
             id: format!("ts_{task_id}"),
             task_id: task_id.to_string(),
-            provider: "github".to_string(),
+            adapter_kind: "github".to_string(),
             subject_kind: "subject".to_string(),
             subject_key: "acme/widgets#1".to_string(),
             connection_id: "pc_1".to_string(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: serde_json::json!({}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,
@@ -313,7 +313,11 @@ mod tests {
             Row {
                 case: "parent's author, the parent is a responder — it and the producer receive",
                 audience: parent_reply("evt:parent"),
-                bindings: vec![producer("t_prod"), responder("t_resp"), responder("t_other")],
+                bindings: vec![
+                    producer("t_prod"),
+                    responder("t_resp"),
+                    responder("t_other"),
+                ],
                 author_task_id: None,
                 parent_author_task_id: Some("t_resp"),
                 expected: vec!["t_prod", "t_resp"],

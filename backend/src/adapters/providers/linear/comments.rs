@@ -238,11 +238,11 @@ mod tests {
         TaskBinding {
             id: format!("ts_{task_id}"),
             task_id: task_id.to_string(),
-            provider: ADAPTER.to_string(),
+            adapter_kind: ADAPTER.to_string(),
             subject_kind: subject_kind.to_string(),
             subject_key: "issue-1".to_string(),
             connection_id: "pc_1".to_string(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: serde_json::json!({ "issue_id": "issue-1" }),
             metadata: serde_json::json!({}),
             last_external_event_id: None,

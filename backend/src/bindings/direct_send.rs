@@ -1,5 +1,5 @@
-use crate::adapters::error::AdapterError;
 use crate::adapters::Adapters;
+use crate::adapters::error::AdapterError;
 use crate::state::AppState;
 
 pub struct DirectSendService<'a> {
@@ -14,7 +14,7 @@ impl<'a> DirectSendService<'a> {
 
     pub async fn send_to_trigger(
         &self,
-        trigger_id: &str,
+        loop_id: &str,
         task_id: Option<&str>,
         text: &str,
         file_ids: &[String],
@@ -22,7 +22,7 @@ impl<'a> DirectSendService<'a> {
         crate::bindings::outbound::direct_send_to_rule(
             self.state,
             self.providers,
-            trigger_id,
+            loop_id,
             task_id,
             text,
             file_ids,

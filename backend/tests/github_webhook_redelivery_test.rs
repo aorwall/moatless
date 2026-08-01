@@ -31,11 +31,11 @@ use axum::http::{HeaderMap, Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Json, Router};
+use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::adapters::delivery::{
-    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
+    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, spawn_adapter_delivery_worker,
 };
 use moatless_vibe_backend::adapters::routes::adapter_router;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::auth::github::service::GitHubAppService;
 use moatless_vibe_backend::repository::dao as repository_dao;
@@ -84,8 +84,8 @@ impl Drop for GithubApiBaseRestore {
     }
 }
 
-async fn request_counting_github_stub(
-) -> (String, Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>) {
+async fn request_counting_github_stub()
+-> (String, Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>) {
     async fn handle(
         State(requests): State<Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>>,
         request: axum::extract::Request,
@@ -194,7 +194,7 @@ async fn seed_fixtures(pool: &PgPool, task_id: &str) {
         .expect("seed repository");
 
     sqlx::query(
-        r#"INSERT INTO integration_connections
+        r#"INSERT INTO adapter_connections
                (id, adapter_kind, connection_kind, external_account_id, created_by,
                 scope, owner_user_id)
            VALUES ($1, 'github', 'org', $2, $3, 'user', $3)
@@ -392,7 +392,7 @@ fn merge_conflict_request(event_id: &str) -> AdapterDeliveryRequest {
         event_id: event_id.to_string(),
         payload: serde_json::json!({
             "connection_id": CONNECTION_ID,
-            "trigger_id": serde_json::Value::Null,
+            "loop_id": serde_json::Value::Null,
             "repo_full_name": REPO_FULL_NAME,
             "owner": OWNER,
             "repo": "widgets",
@@ -409,7 +409,7 @@ fn post_merge_request(event_id: &str, run_id: u64) -> AdapterDeliveryRequest {
         event_id: event_id.to_string(),
         payload: serde_json::json!({
             "connection_id": CONNECTION_ID,
-            "trigger_id": serde_json::Value::Null,
+            "loop_id": serde_json::Value::Null,
             "repo_full_name": REPO_FULL_NAME,
             "owner": OWNER,
             "repo": "widgets",

@@ -119,7 +119,7 @@ pub(super) async fn execute(
 
     let pr_is_open = pr.state.eq_ignore_ascii_case("open");
     let conflict_message = InboundMessage {
-        provider: AdapterKind::GithubPr,
+        adapter_kind: AdapterKind::GithubPr,
         source_id: rule.source_matcher.clone(),
         thread_id: Some(execution.pr_number.to_string()),
         message_thread_id: execution.pr_number.to_string(),
@@ -136,7 +136,7 @@ pub(super) async fn execute(
             "repo": execution.repo,
             "pr_number": execution.pr_number,
         }),
-        provider_context: serde_json::json!({}),
+        adapter_context: serde_json::json!({}),
         external_event_id: Some(super::external_id::merge_conflict(
             execution.pr_number,
             &pr.head.sha,

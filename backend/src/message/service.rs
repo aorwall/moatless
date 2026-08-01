@@ -8,7 +8,7 @@
 //!
 //! [`send_message_flow`](super::send::send_message_flow) below this is the
 //! persistence step alone; it neither checks access nor wakes anything, which is
-//! why the adapters and triggers call it directly and callers acting for a
+//! why the adapters and loops call it directly and callers acting for a
 //! person call this instead.
 
 use crate::shared_models::AgentMode;
@@ -121,7 +121,8 @@ pub async fn send_user_message(
         }
     };
 
-    if let Err(error_msg) = crate::sandbox::notify::ensure_sandbox_and_notify(state, task_id).await {
+    if let Err(error_msg) = crate::sandbox::notify::ensure_sandbox_and_notify(state, task_id).await
+    {
         send::persist_error_result(state, task_id, &error_msg).await;
     }
 

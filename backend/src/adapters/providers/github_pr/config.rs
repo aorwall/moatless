@@ -1,8 +1,8 @@
-//! Typed view of GitHub PR task trigger fields used by the webhook parser.
+//! Typed view of GitHub PR subscription-loop fields used by the webhook parser.
 
 use crate::adapters::models::SubscriptionMatch;
 
-/// Senders ignored by default when `provider_config.ignored_senders` is not
+/// Senders ignored by default when `adapter_config.ignored_senders` is not
 /// set. `linear-code[bot]` is Linear's GitHub App: their servers post
 /// `<!-- linear-linkback -->` metadata comments on any PR referencing a
 /// Linear issue — pure noise that no bound task ever wants delivered.
@@ -27,7 +27,7 @@ pub(super) struct GithubPrRuleConfig {
     /// can neither create nor close tasks.
     ///
     /// Defaults to `DEFAULT_IGNORED_SENDERS` when the key is absent from
-    /// `provider_config`. An explicit array replaces the default verbatim:
+    /// `adapter_config`. An explicit array replaces the default verbatim:
     /// opt out with `{"ignored_senders": []}`, extend by listing the full
     /// set, e.g. `["linear-code[bot]", "dependabot[bot]"]`.
     pub ignored_senders: Vec<String>,
@@ -39,7 +39,7 @@ pub(super) struct GithubPrRuleConfig {
 }
 
 impl GithubPrRuleConfig {
-    /// Parse from an `SubscriptionMatch`'s `event_filter` and `provider_config`
+    /// Parse from an `SubscriptionMatch`'s `event_filter` and `adapter_config`
     /// JSONB columns plus scalar boolean columns.
     pub(super) fn from_rule(rule: &SubscriptionMatch) -> Self {
         let events_filter = rule
@@ -55,8 +55,8 @@ impl GithubPrRuleConfig {
             events_filter,
             close_task_on_close: rule.close_task_on_close,
             notify_on_success: rule.notify_on_success,
-            ignored_senders: ignored_senders(rule.provider_config.as_ref()),
-            ignored_title_patterns: ignored_title_patterns(rule.provider_config.as_ref()),
+            ignored_senders: ignored_senders(rule.adapter_config.as_ref()),
+            ignored_title_patterns: ignored_title_patterns(rule.adapter_config.as_ref()),
         }
     }
 
@@ -77,15 +77,15 @@ impl GithubPrRuleConfig {
     }
 }
 
-/// Parse `ignored_senders` from a `provider_config` JSONB value. Key absent,
+/// Parse `ignored_senders` from a `adapter_config` JSONB value. Key absent,
 /// null config, or non-array value → `DEFAULT_IGNORED_SENDERS`; an explicit
 /// array replaces the default verbatim (`[]` opts out).
 ///
 /// Shared by webhook ingress (`GithubPrRuleConfig::from_rule`) and the
 /// `fetch_context` comment backfill, which has a `LoopContext` rather than
 /// a full `SubscriptionMatch`.
-pub(super) fn ignored_senders(provider_config: Option<&serde_json::Value>) -> Vec<String> {
-    provider_config
+pub(super) fn ignored_senders(adapter_config: Option<&serde_json::Value>) -> Vec<String> {
+    adapter_config
         .and_then(|pc| pc.get("ignored_senders"))
         .and_then(|v| v.as_array())
         .map_or_else(
@@ -104,12 +104,12 @@ pub(super) fn ignored_senders(provider_config: Option<&serde_json::Value>) -> Ve
         )
 }
 
-/// Parse `ignored_title_patterns` from a `provider_config` JSONB value. Unlike
+/// Parse `ignored_title_patterns` from a `adapter_config` JSONB value. Unlike
 /// `ignored_senders`, title filtering is opt-in: an absent key, null config, or
 /// non-array value all yield an empty list (no filtering). An explicit array of
 /// strings is used verbatim as case-insensitive regexes.
-pub(super) fn ignored_title_patterns(provider_config: Option<&serde_json::Value>) -> Vec<String> {
-    provider_config
+pub(super) fn ignored_title_patterns(adapter_config: Option<&serde_json::Value>) -> Vec<String> {
+    adapter_config
         .and_then(|pc| pc.get("ignored_title_patterns"))
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -131,18 +131,18 @@ mod tests {
         close_task_on_close: bool,
         notify_on_success: bool,
     ) -> SubscriptionMatch {
-        rule_with_provider_config(events_filter, close_task_on_close, notify_on_success, None)
+        rule_with_adapter_config(events_filter, close_task_on_close, notify_on_success, None)
     }
 
-    fn rule_with_provider_config(
+    fn rule_with_adapter_config(
         events_filter: serde_json::Value,
         close_task_on_close: bool,
         notify_on_success: bool,
-        provider_config: Option<serde_json::Value>,
+        adapter_config: Option<serde_json::Value>,
     ) -> SubscriptionMatch {
         SubscriptionMatch {
             id: "ir_test".into(),
-            provider: "github".into(),
+            adapter_kind: "github".into(),
             connection_id: "pc_test".into(),
             source_matcher: "soaplabs/repo".into(),
             source_name: None,
@@ -156,7 +156,7 @@ mod tests {
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             allow_direct_send: false,
-            provider_config,
+            adapter_config,
             ongoing_task_id: None,
             close_task_on_close,
             notify_on_success,
@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn null_provider_config_uses_default_ignored_senders() {
+    fn null_adapter_config_uses_default_ignored_senders() {
         let rule = rule_with(serde_json::json!([]), true, false);
         let cfg = GithubPrRuleConfig::from_rule(&rule);
         assert_eq!(cfg.ignored_senders, vec!["linear-code[bot]"]);
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn empty_ignored_senders_opts_out_of_default() {
-        let rule = rule_with_provider_config(
+        let rule = rule_with_adapter_config(
             serde_json::json!([]),
             true,
             false,
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn explicit_ignored_senders_replace_default() {
-        let rule = rule_with_provider_config(
+        let rule = rule_with_adapter_config(
             serde_json::json!([]),
             true,
             false,
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn non_array_ignored_senders_falls_back_to_default() {
-        let rule = rule_with_provider_config(
+        let rule = rule_with_adapter_config(
             serde_json::json!([]),
             true,
             false,
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn explicit_ignored_title_patterns_parsed() {
-        let rule = rule_with_provider_config(
+        let rule = rule_with_adapter_config(
             serde_json::json!([]),
             true,
             false,
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn non_array_ignored_title_patterns_is_empty() {
-        let rule = rule_with_provider_config(
+        let rule = rule_with_adapter_config(
             serde_json::json!([]),
             true,
             false,
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn is_ignored_sender_matches_case_insensitively() {
-        let rule = rule_with_provider_config(
+        let rule = rule_with_adapter_config(
             serde_json::json!([]),
             true,
             false,

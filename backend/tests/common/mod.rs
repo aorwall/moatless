@@ -24,7 +24,7 @@ use moatless_vibe_backend::sandbox::lifecycle::{
 };
 use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::shared_models::AgentType;
-use moatless_vibe_backend::state::{build_lifecycle, AppState};
+use moatless_vibe_backend::state::{AppState, build_lifecycle};
 use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_vibe_backend::task::reaper::AgentStatusPort;
 use moatless_vibe_backend::workspace::models::{Workspace, WorkspaceRepo};

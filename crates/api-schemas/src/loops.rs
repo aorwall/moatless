@@ -94,9 +94,9 @@ pub struct LoopConfig {
     pub tag_ids: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
-    /// Per-trigger inactivity TTL in days. `None` means "inherit the global
+    /// Per-Loop inactivity TTL in days. `None` means "inherit the global
     /// default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into `tasks.inactive_ttl_days`
-    /// when this trigger spawns a task.
+    /// when this Loop spawns a task.
     pub inactive_ttl_days: Option<i32>,
 }
 
@@ -266,7 +266,6 @@ pub struct Loop {
     pub source_config_path: Option<String>,
     pub deleted: bool,
     pub execution_state: LoopExecutionState,
-    #[serde(rename = "rule")]
     pub config: LoopConfig,
     pub source: LoopSource,
 }
@@ -280,7 +279,6 @@ pub struct CreateLoopRequest {
     pub kind: LoopKind,
     pub active: Option<bool>,
     pub scope: Option<Scope>,
-    #[serde(rename = "rule")]
     pub config: CreateLoopConfig,
     pub source: CreateLoopSource,
 }
@@ -292,7 +290,6 @@ pub struct UpdateLoopRequest {
     /// Rename the Loop. Omit to keep the current name; a name cannot be cleared.
     pub name: Option<String>,
     pub scope: Option<Scope>,
-    #[serde(rename = "rule")]
     pub config: Option<UpdateLoopConfig>,
     pub source: Option<UpdateLoopSource>,
 }
@@ -330,7 +327,7 @@ pub struct LoopRecentTaskSummary {
 #[serde(rename_all = "camelCase")]
 pub struct LoopRecentTaskItem {
     pub task: LoopRecentTaskSummary,
-    /// `None` for schedule triggers (no return-channel binding) and for
+    /// `None` for schedule loops (no return-channel binding) and for
     /// adapter-event tasks that lost their original binding.
     pub binding: Option<TaskBindingResponse>,
 }
@@ -358,16 +355,16 @@ pub struct LoopSyncWarning {
     pub message: String,
 }
 
-/// Summary of reconciling a repo's `.moatless/loops/` into the trigger tables.
+/// Summary of reconciling a repo's `.moatless/loops/` into Loop tables.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct LoopSyncSummary {
-    /// Loops inserted as new triggers.
+    /// Loops inserted.
     pub created: u32,
-    /// Existing loop triggers updated in place.
+    /// Existing Loops updated in place.
     pub updated: u32,
-    /// Loop triggers removed because their directory is gone.
+    /// Loops removed because their directory is gone.
     pub removed: u32,
     /// Existing Git-synced Loops whose approval was revoked.
     pub approvals_revoked: u32,

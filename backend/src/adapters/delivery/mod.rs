@@ -82,7 +82,7 @@
 //! **Per-connection webhook outcome telemetry.** The metric here is only
 //! `{adapter, kind, outcome}` and is deliberately low-cardinality, whereas
 //! [`record_webhook`](crate::adapters::metrics) carries `event_type`,
-//! `trigger_id`, and `connection_id` — which is what makes a single broken
+//! `loop_id`, and `connection_id` — which is what makes a single broken
 //! Adapter connection visible. The seam's metric is not a replacement: a
 //! handler must keep emitting its own webhook outcome metric, or per-connection
 //! failure visibility is lost. The chat handler does, from inside `execute`,
@@ -124,7 +124,7 @@ pub use models::{
 };
 pub use store::AdapterDeliveryStore;
 pub(crate) use typed::{
-    register_connection_delivery, register_typed_delivery, ConnectionDeliveryPayload,
+    ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery,
 };
 pub use worker::spawn_adapter_delivery_worker;
 

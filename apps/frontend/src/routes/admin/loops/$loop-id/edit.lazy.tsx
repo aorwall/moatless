@@ -44,7 +44,7 @@ function EditLoopPage() {
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold">Edit Loop</h1>
-        <p className="text-sm text-muted-foreground">Update loop source and rule fields.</p>
+        <p className="text-sm text-muted-foreground">Update loop source and config fields.</p>
       </div>
       <LoopForm loop={loop} onSuccess={goBack} onCancel={goBack} />
     </div>

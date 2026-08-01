@@ -1,8 +1,8 @@
 //! Prometheus counters for adapter webhook ingress.
 //!
-//! `trigger_id` and `connection_id` are emitted as labels so the admin UI
-//! can render per-trigger and per-connection counts. Pass empty strings
-//! at call sites where the IDs aren't yet known (e.g. before rule lookup).
+//! `loop_id` and `connection_id` are emitted as labels so the admin UI
+//! can render per-loop and per-connection counts. Pass empty strings
+//! at call sites where the IDs aren't yet known (e.g. before subscription lookup).
 //!
 //! `event_type` is the provider's own event name — for GitHub it's the
 //! `X-GitHub-Event` header (`check_run`, `pull_request`, ...); for Slack
@@ -10,9 +10,9 @@
 //! plus the synthetic `"slash_command"` for slash-command deliveries. The
 //! vocabulary is bounded by each provider's API so cardinality is safe.
 //!
-//! Cardinality note: number of active triggers × connections × adapters ×
+//! Cardinality note: number of active loops × connections × adapters ×
 //! outcomes × reasons × event_types. Keep the `reason` vocabulary small
-//! and prune unused triggers/connections to avoid runaway series in
+//! and prune unused loops/connections to avoid runaway series in
 //! Prometheus.
 
 pub(crate) const ADAPTER_WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
@@ -51,14 +51,14 @@ pub fn describe_adapter_metrics() {
 /// `"delivery_failed"`); pass `""` when not applicable.
 /// `event_type` is the provider's event name (see module doc); pass `""`
 /// when the request errored before the type could be determined.
-/// `trigger_id` / `connection_id` are passed as empty strings when not
+/// `loop_id` / `connection_id` are passed as empty strings when not
 /// resolved yet (e.g. early validation failures).
 pub(crate) fn record_webhook(
     adapter: &'static str,
     outcome: &'static str,
     reason: &'static str,
     event_type: &str,
-    trigger_id: &str,
+    loop_id: &str,
     connection_id: &str,
 ) {
     metrics::counter!(
@@ -67,7 +67,7 @@ pub(crate) fn record_webhook(
         "outcome" => outcome,
         "reason" => reason,
         "event_type" => event_type.to_string(),
-        "trigger_id" => trigger_id.to_string(),
+        "loop_id" => loop_id.to_string(),
         "connection_id" => connection_id.to_string(),
     )
     .increment(1);

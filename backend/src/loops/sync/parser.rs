@@ -259,7 +259,9 @@ mod tests {
                 .schedule
                 .as_ref()
                 .and_then(|s| s.cron.as_deref())
-                .unwrap_or_else(|| panic!("{name}: a schedule loop without schedule.cron is skipped by sync"));
+                .unwrap_or_else(|| {
+                    panic!("{name}: a schedule loop without schedule.cron is skipped by sync")
+                });
             let schedule: cron::Schedule = expression
                 .parse()
                 .unwrap_or_else(|e| panic!("{name}: cron '{expression}' is invalid: {e}"));

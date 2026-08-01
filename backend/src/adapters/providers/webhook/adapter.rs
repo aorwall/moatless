@@ -117,7 +117,7 @@ impl WebhookAdapter {
     ) -> Result<WebhookDelivery, AdapterError> {
         // 1. Verify signature if webhook_secret is configured
         let webhook_secret = config
-            .provider_config
+            .adapter_config
             .as_ref()
             .and_then(|c| c.get("webhook_secret"))
             .and_then(|v| v.as_str());
@@ -142,7 +142,7 @@ impl WebhookAdapter {
             .user_id
             .or_else(|| {
                 config
-                    .provider_config
+                    .adapter_config
                     .as_ref()
                     .and_then(|c| c.get("user_id"))
                     .and_then(|v| v.as_str())
@@ -158,7 +158,7 @@ impl WebhookAdapter {
 
         // 5. Build thread properties
         let thread_properties = serde_json::json!({
-            "trigger_id": config.id,
+            "loop_id": config.id,
             "metadata": payload.metadata,
         });
 
@@ -180,7 +180,7 @@ impl WebhookAdapter {
         Ok(WebhookDelivery {
             delivery_id,
             message: InboundMessage {
-                provider: AdapterKind::Webhook,
+                adapter_kind: AdapterKind::Webhook,
                 source_id: config.source_id.clone(),
                 thread_id: payload.thread_id,
                 message_thread_id,
@@ -188,7 +188,7 @@ impl WebhookAdapter {
                 text: payload.text,
                 file_ids: vec![],
                 thread_properties,
-                provider_context: serde_json::json!({}),
+                adapter_context: serde_json::json!({}),
                 external_event_id: Some(external_event_id),
                 source_task_id: None,
                 // A webhook payload carries no audience distinction: every event
@@ -234,18 +234,18 @@ impl AdapterBindingReply for WebhookAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let callback_url = config
-            .provider_config
+            .adapter_config
             .as_ref()
             .and_then(|c| c.get("callback_url"))
             .and_then(|v| v.as_str());
 
         let Some(callback_url) = callback_url else {
-            debug!(trigger_id = %config.id, "No callback_url configured, skipping outbound webhook");
+            debug!(loop_id = %config.id, "No callback_url configured, skipping outbound webhook");
             return Ok(None);
         };
 
         let callback_headers: std::collections::HashMap<String, String> = config
-            .provider_config
+            .adapter_config
             .as_ref()
             .and_then(|c| c.get("callback_headers"))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -267,19 +267,19 @@ impl AdapterBindingReply for WebhookAdapter {
 
         match req.send().await {
             Ok(resp) if resp.status().is_success() => {
-                debug!(trigger_id = %config.id, url = %callback_url, "Webhook callback sent successfully");
+                debug!(loop_id = %config.id, url = %callback_url, "Webhook callback sent successfully");
                 Ok(None)
             }
             Ok(resp) => {
                 let status = resp.status();
                 let text = resp.text().await.unwrap_or_default();
-                warn!(trigger_id = %config.id, url = %callback_url, status = %status, body = %text, "Webhook callback failed");
+                warn!(loop_id = %config.id, url = %callback_url, status = %status, body = %text, "Webhook callback failed");
                 Err(AdapterError::AdapterApi(format!(
                     "Webhook callback returned {status}: {text}"
                 )))
             }
             Err(e) => {
-                warn!(trigger_id = %config.id, url = %callback_url, "Webhook callback request failed");
+                warn!(loop_id = %config.id, url = %callback_url, "Webhook callback request failed");
                 Err(AdapterError::provider_unreachable("Webhook callback", e))
             }
         }
@@ -306,10 +306,10 @@ mod tests {
     use super::*;
     use crate::adapters::models::RoutingMode;
 
-    fn test_config(provider_config: Option<serde_json::Value>) -> LoopContext {
+    fn test_config(adapter_config: Option<serde_json::Value>) -> LoopContext {
         LoopContext {
             id: "cfg-1".into(),
-            provider: "webhook".into(),
+            adapter_kind: "webhook".into(),
             source_id: "my-webhook".into(),
             source_name: None,
             repository_id: "repo-1".into(),
@@ -317,7 +317,7 @@ mod tests {
             prompt_template: None,
             active: true,
             allow_direct_send: false,
-            provider_config,
+            adapter_config,
             ongoing_task_id: None,
             scope: moatless_backend_core::scope::Scope::User,
             task_name: None,
@@ -340,7 +340,7 @@ mod tests {
             .message;
 
         assert_eq!(msg.text, "hello world");
-        assert_eq!(msg.provider, AdapterKind::Webhook);
+        assert_eq!(msg.adapter_kind, AdapterKind::Webhook);
         assert_eq!(msg.source_id, "my-webhook");
         assert_eq!(msg.user_id, "default-user");
         assert!(msg.thread_id.is_none());

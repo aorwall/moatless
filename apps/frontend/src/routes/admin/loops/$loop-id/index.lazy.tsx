@@ -115,21 +115,21 @@ function SourceInfoSection({
   )
 }
 
-function RuleInfoSection({ loop }: { loop: Loop }) {
+function ConfigInfoSection({ loop }: { loop: Loop }) {
   return (
     <div className="rounded-md border p-4">
-      <h2 className="mb-4 text-sm font-semibold">Rule</h2>
+      <h2 className="mb-4 text-sm font-semibold">Config</h2>
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <DetailItem label="Repository ID" value={loop.rule.repositoryId} />
-        <DetailItem label="Routing mode" value={loop.rule.routingMode} />
-        <DetailItem label="Ongoing task ID" value={loop.rule.ongoingTaskId ?? '-'} />
-        <DetailItem label="Task name" value={loop.rule.taskName ?? '-'} />
-        <DetailItem label="Run as user ID" value={loop.rule.runAsUserId ?? '-'} />
-        <DetailItem label="Agent type" value={loop.rule.agentType} />
-        <DetailItem label="Tags count" value={String(loop.rule.tagIds.length)} />
+        <DetailItem label="Repository ID" value={loop.config.repositoryId} />
+        <DetailItem label="Routing mode" value={loop.config.routingMode} />
+        <DetailItem label="Ongoing task ID" value={loop.config.ongoingTaskId ?? '-'} />
+        <DetailItem label="Task name" value={loop.config.taskName ?? '-'} />
+        <DetailItem label="Run as user ID" value={loop.config.runAsUserId ?? '-'} />
+        <DetailItem label="Agent type" value={loop.config.agentType} />
+        <DetailItem label="Tags count" value={String(loop.config.tagIds.length)} />
         <div className="sm:col-span-2">
           <dt className="text-xs font-medium text-muted-foreground">Prompt</dt>
-          <dd className="mt-1 whitespace-pre-wrap text-sm">{loop.rule.prompt ?? '-'}</dd>
+          <dd className="mt-1 whitespace-pre-wrap text-sm">{loop.config.prompt ?? '-'}</dd>
         </div>
       </dl>
     </div>
@@ -152,9 +152,9 @@ function ExecutionPanel({ loop }: { loop: Loop }) {
   const activateLoop = useActivateLoop()
   const pauseLoop = usePauseLoop()
   const resumeLoop = useResumeLoop()
-  const [runAsUserId, setRunAsUserId] = useState(loop.rule.runAsUserId ?? '')
+  const [runAsUserId, setRunAsUserId] = useState(loop.config.runAsUserId ?? '')
   const isPending = activateLoop.isPending || pauseLoop.isPending || resumeLoop.isPending
-  const selectedUser = usersQuery.data?.users.find((user) => user.id === loop.rule.runAsUserId)
+  const selectedUser = usersQuery.data?.users.find((user) => user.id === loop.config.runAsUserId)
 
   const activate = () => {
     if (!runAsUserId) {
@@ -237,9 +237,9 @@ function ExecutionPanel({ loop }: { loop: Loop }) {
           </Button>
         </div>
       </div>
-      {loop.rule.runAsUserId ? (
+      {loop.config.runAsUserId ? (
         <p className="mt-2 text-xs text-muted-foreground">
-          Approved user: {selectedUser?.name || selectedUser?.login || loop.rule.runAsUserId}
+          Approved user: {selectedUser?.name || selectedUser?.login || loop.config.runAsUserId}
         </p>
       ) : null}
     </div>
@@ -448,7 +448,7 @@ function LoopDetailPage() {
         </dl>
       </div>
       <SourceInfoSection loop={loop} connection={connection} />
-      <RuleInfoSection loop={loop} />
+      <ConfigInfoSection loop={loop} />
       {!loop.deleted ? <ExecutionPanel key={`${loop.id}:${loop.updatedAt}`} loop={loop} /> : null}
       <div className="rounded-md border p-4">
         <h2 className="mb-4 text-sm font-semibold">Recent Tasks</h2>

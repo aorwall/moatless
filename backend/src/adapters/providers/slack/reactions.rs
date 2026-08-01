@@ -75,7 +75,7 @@ mod tests {
         let now = chrono::Utc::now();
         BindingContext {
             binding_id: "tb_1".into(),
-            trigger_id: None,
+            loop_id: None,
             task_id: "task-1".into(),
             subject_kind: "slack_thread".into(),
             subject_key: "T1:C1:1700000000.000100".into(),

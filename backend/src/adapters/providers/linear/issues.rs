@@ -168,7 +168,7 @@ async fn create_tasks_for_status_entry(
         if !cfg.project_allowed(project_id.as_deref()) {
             debug!(
                 issue = %issue.identifier,
-                rule_id = %rule.id,
+                subscription_id = %rule.id,
                 "Linear status-entry skipped: issue project not in allowlist"
             );
             continue;
@@ -176,7 +176,7 @@ async fn create_tasks_for_status_entry(
         if !cfg.labels_allowed(&labels) {
             debug!(
                 issue = %issue.identifier,
-                rule_id = %rule.id,
+                subscription_id = %rule.id,
                 "Linear status-entry skipped: required labels missing"
             );
             continue;
@@ -184,7 +184,7 @@ async fn create_tasks_for_status_entry(
         if let Err(e) = provision_issue_task(state, api, connection, rule, &cfg, issue).await {
             warn!(
                 issue = %issue.identifier,
-                rule_id = %rule.id,
+                subscription_id = %rule.id,
                 error = %e,
                 "Failed to provision Linear status-entry task"
             );
@@ -210,12 +210,13 @@ async fn provision_issue_task(
     let existing = PgTaskBindingDao(state.db.clone())
         .find_active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
         .await?;
-    if existing.iter().any(|b| {
-        b.connection_id == connection.id && b.trigger_id.as_deref() == Some(rule.id.as_str())
-    }) {
+    if existing
+        .iter()
+        .any(|b| b.connection_id == connection.id && b.loop_id.as_deref() == Some(rule.id.as_str()))
+    {
         info!(
             issue = %issue.identifier,
-            rule_id = %rule.id,
+            subscription_id = %rule.id,
             "Linear issue already has an active task for this trigger — skipping status-entry creation"
         );
         return Ok(());
@@ -322,7 +323,7 @@ async fn provision_issue_task(
     info!(
         task_id = %task_id,
         issue = %issue.identifier,
-        rule_id = %rule.id,
+        subscription_id = %rule.id,
         "Created task from Linear issue status entry"
     );
     Ok(())
@@ -527,7 +528,7 @@ pub(super) async fn insert_event_task(
     // it as `AccessDenied` so callers can post the reason back to Linear — the
     // service's error event alone stays invisible there because no turn gate is
     // open for a task that never got a binding.
-    let config = crate::bindings::runtime::trigger_context(rule, ADAPTER_LABEL);
+    let config = crate::bindings::runtime::subscription_context(rule, ADAPTER_LABEL);
     let outcome = crate::loops::firing::inbound::create_task_from_loop(
         state,
         &config,

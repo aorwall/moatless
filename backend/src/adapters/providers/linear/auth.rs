@@ -153,8 +153,8 @@ pub(super) async fn api_for_single_workspace(
     let db = adapter.db();
     let rows = sqlx::query_as::<_, (String, serde_json::Value)>(
         "SELECT external_account_id AS scope_value, transport_config \
-         FROM integration_connections \
-         WHERE provider = 'linear' LIMIT 2",
+         FROM adapter_connections \
+         WHERE adapter_kind = 'linear' LIMIT 2",
     )
     .fetch_all(db)
     .await

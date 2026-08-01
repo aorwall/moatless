@@ -234,11 +234,11 @@ mod tests {
         TaskBinding {
             id: "b1".into(),
             task_id: "t1".into(),
-            provider: "github".into(),
+            adapter_kind: "github".into(),
             subject_kind: "github_pr".into(),
             subject_key: "acme/web#7".into(),
             connection_id: "c1".into(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: config,
             metadata: serde_json::json!({}),
             last_external_event_id: None,

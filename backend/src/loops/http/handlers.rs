@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
@@ -12,8 +12,8 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::adapters::common::{
-    ensure_repository_exists, load_adapter_connection_for_auth, load_loop_for_auth, loop_response,
-    next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create, LoopFilter,
+    LoopFilter, ensure_repository_exists, load_adapter_connection_for_auth, load_loop_for_auth,
+    loop_response, next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create,
 };
 use crate::adapters::error::AdapterError;
 use crate::bindings::dao::LoopRecentTaskRow;
@@ -61,7 +61,7 @@ fn map_recent_task_item(row: &LoopRecentTaskRow) -> LoopRecentTaskItem {
     let status = TaskStatus::try_from(row.status.as_str()).unwrap_or(TaskStatus::Open);
     let binding = match (
         row.binding_id.as_ref(),
-        row.provider.as_ref(),
+        row.adapter_kind.as_ref(),
         row.connection_id.as_ref(),
         row.subject_kind.as_ref(),
         row.subject_key.as_ref(),
@@ -87,7 +87,7 @@ fn map_recent_task_item(row: &LoopRecentTaskRow) -> LoopRecentTaskItem {
             task_id: row.task_id.clone(),
             adapter_kind: parse_adapter_kind(provider),
             connection_id: connection_id.clone(),
-            trigger_id: row.trigger_id.clone(),
+            loop_id: row.loop_id.clone(),
             subject_kind: subject_kind.clone(),
             subject_key: subject_key.clone(),
             destination_config: destination_config.clone(),
@@ -195,10 +195,10 @@ pub async fn create_loop(
         let adapter_kind = source.adapter_kind.as_str().to_string();
         let connection =
             load_adapter_connection_for_auth(&state, &ctx, &source.connection_id).await?;
-        if connection.provider != adapter_kind {
+        if connection.adapter_kind != adapter_kind {
             return Err(AdapterError::BadRequest(format!(
                 "Connection {} is for adapter {}, not {}",
-                connection.id, connection.provider, adapter_kind
+                connection.id, connection.adapter_kind, adapter_kind
             )));
         }
     }
@@ -252,7 +252,7 @@ pub async fn create_loop(
             owner_user_id: resolved.owner_user_id,
             created_by: auth.user_id.to_string(),
             created_at: now,
-            rule: NewLoopConfig {
+            config: NewLoopConfig {
                 repository_id: req.config.repository_id.clone(),
                 routing_mode: req.config.routing_mode,
                 ongoing_task_id: req.config.ongoing_task_id.clone(),
@@ -295,7 +295,7 @@ pub async fn update_loop(
     require_admin(&auth)?;
     let ctx = auth.scope_context();
     let current = load_loop_for_auth(&state, &ctx, &id).await?;
-    if current.trigger.config_source != "manual" || current.trigger.deleted {
+    if current.loop_.config_source != "manual" || current.loop_.deleted {
         return Err(AdapterError::Conflict(
             "Git-synced Loops are read-only; override the Loop before editing it".to_string(),
         ));
@@ -303,7 +303,7 @@ pub async fn update_loop(
 
     let next_name = match req.name.as_deref() {
         Some(name) => require_name(name)?,
-        None => current.trigger.name.clone(),
+        None => current.loop_.name.clone(),
     };
 
     if let Some(rule) = &req.config {
@@ -317,7 +317,7 @@ pub async fn update_loop(
         let resolved = resolve_scope_for_adapter_create(&ctx, Some(requested))?;
         (resolved.scope, resolved.owner_user_id)
     } else {
-        (current.trigger.scope, current.trigger.owner_user_id.clone())
+        (current.loop_.scope, current.loop_.owner_user_id.clone())
     };
 
     if let Some(UpdateLoopSource::AdapterEvent(source)) = &req.source {
@@ -332,10 +332,10 @@ pub async fn update_loop(
             .unwrap_or_else(|| current_source.connection_id.clone());
         let connection =
             load_adapter_connection_for_auth(&state, &ctx, &next_connection_id).await?;
-        if connection.provider != current_source.adapter_kind {
+        if connection.adapter_kind != current_source.adapter_kind {
             return Err(AdapterError::BadRequest(format!(
                 "Connection {} is for adapter {}, not {}",
-                connection.id, connection.provider, current_source.adapter_kind
+                connection.id, connection.adapter_kind, current_source.adapter_kind
             )));
         }
     }
@@ -357,23 +357,25 @@ pub async fn update_loop(
     let rule_update = req.config.map(|rule| NewLoopConfig {
         repository_id: rule
             .repository_id
-            .unwrap_or_else(|| current.rule.repository_id.clone()),
-        routing_mode: rule.routing_mode.unwrap_or(current.rule.routing_mode),
+            .unwrap_or_else(|| current.config.repository_id.clone()),
+        routing_mode: rule.routing_mode.unwrap_or(current.config.routing_mode),
         ongoing_task_id: rule
             .ongoing_task_id
-            .unwrap_or_else(|| current.rule.ongoing_task_id.clone()),
-        prompt: rule.prompt.unwrap_or_else(|| current.rule.prompt.clone()),
+            .unwrap_or_else(|| current.config.ongoing_task_id.clone()),
+        prompt: rule.prompt.unwrap_or_else(|| current.config.prompt.clone()),
         task_name: rule
             .task_name
-            .unwrap_or_else(|| current.rule.task_name.clone()),
-        tag_ids: rule.tag_ids.unwrap_or_else(|| current.rule.tag_ids.clone()),
-        run_as_user_id: current.rule.run_as_user_id.clone(),
+            .unwrap_or_else(|| current.config.task_name.clone()),
+        tag_ids: rule
+            .tag_ids
+            .unwrap_or_else(|| current.config.tag_ids.clone()),
+        run_as_user_id: current.config.run_as_user_id.clone(),
         agent_type: rule
             .agent_type
-            .unwrap_or_else(|| current.rule.agent_type.clone()),
+            .unwrap_or_else(|| current.config.agent_type.clone()),
         inactive_ttl_days: rule
             .inactive_ttl_days
-            .unwrap_or(current.rule.inactive_ttl_days),
+            .unwrap_or(current.config.inactive_ttl_days),
     });
 
     let source_update = match req.source {
@@ -450,7 +452,7 @@ pub async fn update_loop(
         .await?;
 
     if !updated {
-        return Err(AdapterError::NotFound(format!("trigger {id}")));
+        return Err(AdapterError::NotFound(format!("Loop {id}")));
     }
 
     let record = state
@@ -522,7 +524,7 @@ pub async fn delete_loop(
     let result = state.loops.delete(&id, &ctx).await?;
 
     if result == 0 {
-        return Err(AdapterError::NotFound(format!("trigger {id}")));
+        return Err(AdapterError::NotFound(format!("Loop {id}")));
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -643,12 +645,12 @@ pub async fn reset_git_loop(
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
     let repository_id = current
-        .trigger
+        .loop_
         .source_repository_id
         .as_deref()
         .ok_or_else(|| AdapterError::BadRequest("Loop has no Git provenance".to_string()))?;
     let source_key = current
-        .trigger
+        .loop_
         .source_key
         .as_deref()
         .ok_or_else(|| AdapterError::BadRequest("Loop has no Git source key".to_string()))?;

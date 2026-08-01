@@ -5,7 +5,7 @@ use sqlx::AssertSqlSafe;
 
 use crate::db::DbPool;
 
-use crate::adapters::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
 
 #[async_trait::async_trait]
 pub trait TaskBindingDao: Send + Sync {
@@ -13,14 +13,14 @@ pub trait TaskBindingDao: Send + Sync {
 
     async fn find_by_subject(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error>;
 
     async fn find_all_by_subject_excluding_task(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
         exclude_task_id: &str,
@@ -31,14 +31,14 @@ pub trait TaskBindingDao: Send + Sync {
     async fn find_by_task_id_and_subject(
         &self,
         task_id: &str,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error>;
 
     async fn find_provider_event_created_for_subject(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error>;
@@ -50,7 +50,7 @@ pub trait TaskBindingDao: Send + Sync {
     /// through the JSONB path expression.
     async fn find_active_by_destination_field(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         field_name: &str,
         field_value: &str,
@@ -68,7 +68,7 @@ pub trait TaskBindingDao: Send + Sync {
     async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error>;
 
     async fn touch_cursor(&self, id: &str, last_external_event_id: &str)
-        -> Result<(), sqlx::Error>;
+    -> Result<(), sqlx::Error>;
 
     /// Persist the external status of a binding's connected subject (GitHub PR
     /// / Linear issue). Writes the dedicated `external_status*` columns and
@@ -92,7 +92,7 @@ pub trait TaskBindingDao: Send + Sync {
     /// [`PgTaskBindingDao::find_recent_for_loop`] for the join semantics.
     async fn find_recent_for_loop(
         &self,
-        trigger_id: &str,
+        loop_id: &str,
         limit: i64,
     ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error>;
 }
@@ -100,7 +100,7 @@ pub trait TaskBindingDao: Send + Sync {
 pub struct PgTaskBindingDao(pub DbPool);
 
 /// Flat row returned by `find_recent_for_loop`. Binding columns are
-/// optional — schedule triggers spawn tasks without a binding.
+/// optional — schedule loops spawn tasks without a binding.
 #[derive(sqlx::FromRow, Debug)]
 pub struct LoopRecentTaskRow {
     pub task_id: String,
@@ -108,13 +108,13 @@ pub struct LoopRecentTaskRow {
     pub title: Option<String>,
     pub status: String,
     pub task_created_at: String,
-    // binding fields (None for schedule triggers — no return-channel binding)
+    // binding fields (None for schedule loops — no return-channel binding)
     pub binding_id: Option<String>,
-    pub provider: Option<String>,
+    pub adapter_kind: Option<String>,
     pub subject_kind: Option<String>,
     pub subject_key: Option<String>,
     pub connection_id: Option<String>,
-    pub trigger_id: Option<String>,
+    pub loop_id: Option<String>,
     pub destination_config: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
     pub last_external_event_id: Option<String>,
@@ -127,8 +127,8 @@ pub struct LoopRecentTaskRow {
 #[derive(sqlx::FromRow, Debug)]
 pub struct TaskBindingInfo {
     pub task_id: String,
-    pub trigger_id: String,
-    pub provider: String,
+    pub loop_id: String,
+    pub adapter_kind: String,
     pub source_id: String,
     pub source_name: Option<String>,
 }
@@ -141,23 +141,23 @@ impl TaskBindingDao for PgTaskBindingDao {
 
     async fn find_by_subject(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
-        PgTaskBindingDao::find_by_subject(self, provider, subject_kind, subject_key).await
+        PgTaskBindingDao::find_by_subject(self, adapter_kind, subject_kind, subject_key).await
     }
 
     async fn find_all_by_subject_excluding_task(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
         exclude_task_id: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
         PgTaskBindingDao::find_all_by_subject_excluding_task(
             self,
-            provider,
+            adapter_kind,
             subject_kind,
             subject_key,
             exclude_task_id,
@@ -172,14 +172,14 @@ impl TaskBindingDao for PgTaskBindingDao {
     async fn find_by_task_id_and_subject(
         &self,
         task_id: &str,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error> {
         PgTaskBindingDao::find_by_task_id_and_subject(
             self,
             task_id,
-            provider,
+            adapter_kind,
             subject_kind,
             subject_key,
         )
@@ -188,13 +188,13 @@ impl TaskBindingDao for PgTaskBindingDao {
 
     async fn find_provider_event_created_for_subject(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error> {
         PgTaskBindingDao::find_provider_event_created_for_subject(
             self,
-            provider,
+            adapter_kind,
             subject_kind,
             subject_key,
         )
@@ -203,14 +203,14 @@ impl TaskBindingDao for PgTaskBindingDao {
 
     async fn find_active_by_destination_field(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         field_name: &str,
         field_value: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
         PgTaskBindingDao::find_active_by_destination_field(
             self,
-            provider,
+            adapter_kind,
             subject_kind,
             field_name,
             field_value,
@@ -258,10 +258,10 @@ impl TaskBindingDao for PgTaskBindingDao {
 
     async fn find_recent_for_loop(
         &self,
-        trigger_id: &str,
+        loop_id: &str,
         limit: i64,
     ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
-        PgTaskBindingDao::find_recent_for_loop(self, trigger_id, limit).await
+        PgTaskBindingDao::find_recent_for_loop(self, loop_id, limit).await
     }
 }
 
@@ -275,14 +275,14 @@ pub async fn get_bindings_for_tasks(
     }
     sqlx::query_as::<_, TaskBindingInfo>(
         r#"SELECT tb.task_id,
-                  COALESCE(aes.trigger_id, '') AS trigger_id,
-                  tb.adapter_kind AS provider,
+                  COALESCE(aes.loop_id, '') AS loop_id,
+                  tb.adapter_kind AS adapter_kind,
                   COALESCE(aes.source_matcher, tb.subject_key) AS source_id,
                   aes.source_name
            FROM task_bindings tb
-           -- adapter_event_trigger_sources is owned by loops::dao; this is a
+           -- subscriptions is owned by loops::dao; this is a
            -- read-only enrichment join (source_matcher/source_name for display).
-           LEFT JOIN adapter_event_trigger_sources aes ON aes.trigger_id = tb.trigger_id
+           LEFT JOIN subscriptions aes ON aes.loop_id = tb.loop_id
            WHERE tb.task_id = ANY($1)"#,
     )
     .bind(task_ids)
@@ -293,11 +293,11 @@ pub async fn get_bindings_for_tasks(
 const TASK_BINDING_SELECT: &str = r#"
     SELECT id,
            task_id,
-           adapter_kind AS provider,
+           adapter_kind AS adapter_kind,
            subject_kind,
            subject_key,
            connection_id,
-           trigger_id AS trigger_id,
+           loop_id AS loop_id,
            destination_config AS destination_config,
            metadata,
            last_external_event_id AS last_external_event_id,
@@ -323,14 +323,14 @@ impl PgTaskBindingDao {
 
     pub async fn find_by_subject(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
         sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 ORDER BY created_at ASC"
         )))
-        .bind(provider)
+        .bind(adapter_kind)
         .bind(subject_kind)
         .bind(subject_key)
         .fetch_all(&self.0)
@@ -339,7 +339,7 @@ impl PgTaskBindingDao {
 
     pub async fn find_all_by_subject_excluding_task(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
         exclude_task_id: &str,
@@ -347,7 +347,7 @@ impl PgTaskBindingDao {
         sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 AND task_id <> $4 ORDER BY created_at ASC"
         )))
-        .bind(provider)
+        .bind(adapter_kind)
         .bind(subject_kind)
         .bind(subject_key)
         .bind(exclude_task_id)
@@ -367,7 +367,7 @@ impl PgTaskBindingDao {
     pub async fn find_by_task_id_and_subject(
         &self,
         task_id: &str,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error> {
@@ -375,7 +375,7 @@ impl PgTaskBindingDao {
             "{TASK_BINDING_SELECT} WHERE task_id = $1 AND adapter_kind = $2 AND subject_kind = $3 AND subject_key = $4 LIMIT 1"
         )))
         .bind(task_id)
-        .bind(provider)
+        .bind(adapter_kind)
         .bind(subject_kind)
         .bind(subject_key)
         .fetch_optional(&self.0)
@@ -384,14 +384,14 @@ impl PgTaskBindingDao {
 
     pub async fn find_provider_event_created_for_subject(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<Option<TaskBinding>, sqlx::Error> {
         sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(format!(
             "{TASK_BINDING_SELECT} WHERE adapter_kind = $1 AND subject_kind = $2 AND subject_key = $3 AND origin = $4 ORDER BY created_at ASC LIMIT 1"
         )))
-        .bind(provider)
+        .bind(adapter_kind)
         .bind(subject_kind)
         .bind(subject_key)
         .bind(ADAPTER_EVENT_BINDING_ORIGIN)
@@ -407,7 +407,7 @@ impl PgTaskBindingDao {
 
     pub async fn find_active_by_destination_field(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         subject_kind: &str,
         field_name: &str,
         field_value: &str,
@@ -425,7 +425,7 @@ impl PgTaskBindingDao {
              ORDER BY created_at ASC"
         );
         sqlx::query_as::<_, TaskBinding>(AssertSqlSafe(sql))
-            .bind(provider)
+            .bind(adapter_kind)
             .bind(subject_kind)
             .bind(field_value)
             .fetch_all(&self.0)
@@ -436,23 +436,23 @@ impl PgTaskBindingDao {
         sqlx::query_as::<_, TaskBinding>(
             r#"INSERT INTO task_bindings
                (id, task_id, adapter_kind, subject_kind, subject_key, connection_id,
-                trigger_id, destination_config, metadata,
+                loop_id, destination_config, metadata,
                 last_external_event_id, origin, created_at, last_event_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                ON CONFLICT (task_id, adapter_kind, subject_kind, subject_key) DO UPDATE
                SET connection_id            = EXCLUDED.connection_id,
-                   trigger_id               = COALESCE(task_bindings.trigger_id, EXCLUDED.trigger_id),
+                   loop_id               = COALESCE(task_bindings.loop_id, EXCLUDED.loop_id),
                    destination_config      = EXCLUDED.destination_config,
                    metadata                 = task_bindings.metadata || EXCLUDED.metadata,
                    last_external_event_id   = COALESCE(EXCLUDED.last_external_event_id, task_bindings.last_external_event_id),
                    last_event_at            = GREATEST(task_bindings.last_event_at, EXCLUDED.last_event_at)
                RETURNING id,
                          task_id,
-                         adapter_kind AS provider,
+                         adapter_kind AS adapter_kind,
                          subject_kind,
                          subject_key,
                          connection_id,
-                         trigger_id AS trigger_id,
+                         loop_id AS loop_id,
                          destination_config AS destination_config,
                          metadata,
                          last_external_event_id AS last_external_event_id,
@@ -464,11 +464,11 @@ impl PgTaskBindingDao {
         )
         .bind(&row.id)
         .bind(&row.task_id)
-        .bind(&row.provider)
+        .bind(&row.adapter_kind)
         .bind(&row.subject_kind)
         .bind(&row.subject_key)
         .bind(&row.connection_id)
-        .bind(&row.trigger_id)
+        .bind(&row.loop_id)
         .bind(&row.destination_config)
         .bind(&row.metadata)
         .bind(&row.last_external_event_id)
@@ -511,40 +511,40 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
-    /// Fetch the most recent tasks created via the given trigger. Drives from
-    /// `tasks.trigger_id` so all trigger kinds — including schedule triggers
+    /// Fetch the most recent tasks created via the given Loop. Drives from
+    /// `tasks.loop_id` so all Loop kinds — including schedule loops
     /// that never create a binding — are reachable. A LEFT JOIN LATERAL pulls
-    /// the earliest matching binding for adapter-event triggers; schedule
-    /// triggers yield NULL binding columns. Tasks scoped via `trigger_id`
-    /// inherit the trigger's scope by construction, so no additional
+    /// the earliest matching binding for adapter-event loops; schedule
+    /// loops yield NULL binding columns. Tasks scoped via `loop_id`
+    /// inherit the Loop's scope by construction, so no additional
     /// task-level scope predicate is needed.
     pub async fn find_recent_for_loop(
         &self,
-        trigger_id: &str,
+        loop_id: &str,
         limit: i64,
     ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
         sqlx::query_as::<_, LoopRecentTaskRow>(
             r#"SELECT t.task_id, t.short_id, t.name AS title, t.status,
                       t.created_at AS task_created_at,
-                      tb.id AS binding_id, tb.adapter_kind AS provider, tb.subject_kind, tb.subject_key,
-                      tb.connection_id, tb.trigger_id, tb.destination_config, tb.metadata,
+                      tb.id AS binding_id, tb.adapter_kind AS adapter_kind, tb.subject_kind, tb.subject_key,
+                      tb.connection_id, tb.loop_id, tb.destination_config, tb.metadata,
                       tb.last_external_event_id, tb.origin,
                       tb.created_at AS binding_created_at, tb.last_event_at
                FROM tasks t
                LEFT JOIN LATERAL (
                    SELECT id, adapter_kind, subject_kind, subject_key, connection_id,
-                          trigger_id, destination_config, metadata,
+                          loop_id, destination_config, metadata,
                           last_external_event_id, origin, created_at, last_event_at
                    FROM task_bindings
-                   WHERE task_id = t.task_id AND trigger_id = $1
+                   WHERE task_id = t.task_id AND loop_id = $1
                    ORDER BY created_at ASC
                    LIMIT 1
                ) tb ON true
-               WHERE t.trigger_id = $1
+               WHERE t.loop_id = $1
                ORDER BY t.created_at DESC
                LIMIT $2"#,
         )
-        .bind(trigger_id)
+        .bind(loop_id)
         .bind(limit)
         .fetch_all(&self.0)
         .await
@@ -642,11 +642,11 @@ impl PgTaskBindingDao {
         sqlx::query_as::<_, TaskBinding>(
             r#"SELECT id,
                       task_id,
-                      adapter_kind AS provider,
+                      adapter_kind AS adapter_kind,
                       subject_kind,
                       subject_key,
                       connection_id,
-                      trigger_id,
+                      loop_id,
                       destination_config,
                       metadata,
                       last_external_event_id,

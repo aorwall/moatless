@@ -13,8 +13,8 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
-use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::adapters::AdapterBindingStatus;
+use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
@@ -85,7 +85,7 @@ pub async fn get_or_fetch(
     let status = state
         .adapters
         .as_ref()?
-        .binding_status_by_name(&binding.provider)?;
+        .binding_status_by_name(&binding.adapter_kind)?;
     let key = status.binding_status_key(binding)?;
     if let Some(cached) = cache().get(&key).await {
         return Some(cached);
@@ -148,11 +148,11 @@ mod tests {
         TaskBinding {
             id: "b1".into(),
             task_id: "t1".into(),
-            provider: "stub".into(),
+            adapter_kind: "stub".into(),
             subject_kind: "stub_subject".into(),
             subject_key: "acme/web#7".into(),
             connection_id: "c1".into(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: serde_json::json!({}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,

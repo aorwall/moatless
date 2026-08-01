@@ -53,7 +53,7 @@ test('INT-52: Webhook with invalid signature is rejected', async ({ api }) => {
 
   const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
     sourceId: `sig-test-${Date.now()}`,
-    providerConfig: {
+    adapterConfig: {
       webhook_secret: 'my-secret-key',
     },
   })

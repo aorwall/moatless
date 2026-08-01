@@ -3,11 +3,11 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use tracing::{error, info, warn};
@@ -470,11 +470,13 @@ pub async fn list_server_config_handler(
     Ok(Json(ServerOverridesResponse {
         overrides: overrides
             .into_iter()
-            .map(|(server_name, (config_override, generation))| ServerOverrideEntry {
-                server_name,
-                config_override,
-                generation,
-            })
+            .map(
+                |(server_name, (config_override, generation))| ServerOverrideEntry {
+                    server_name,
+                    config_override,
+                    generation,
+                },
+            )
             .collect(),
     }))
 }
@@ -862,7 +864,7 @@ mod authz_tests {
             headless: false,
             ttl_minutes: 0,
             inactive_ttl_days: 0,
-            trigger_id: None,
+            loop_id: None,
             workspace_id: None,
             disabled_servers: None,
         }
@@ -899,9 +901,11 @@ mod authz_tests {
     async fn read_allows_when_scoped_lookup_returns_task() {
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
         let scope = Some(ctx("owner", false));
-        assert!(authorize_task_read_inner(Some(&tasks), &scope, "task-1")
-            .await
-            .is_ok());
+        assert!(
+            authorize_task_read_inner(Some(&tasks), &scope, "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

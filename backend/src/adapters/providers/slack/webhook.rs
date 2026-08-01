@@ -9,11 +9,11 @@
 
 use tracing::{debug, info, warn};
 
+use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AccessDecision, Audience, InboundMessage, LoopContext, MessageTrigger,
 };
-use crate::adapters::AdapterKind;
 use crate::db::DbPool;
 
 use super::access::enforce_slack_access;
@@ -145,7 +145,7 @@ impl<'a> SlackEvent<'a> {
 
 /// Slack `message` events carry a `subtype` for system notifications — channel
 /// join/leave, topic/purpose/name changes, archives, pins, edits, deletes, … —
-/// rather than genuine user input. These must never be treated as task triggers:
+/// rather than genuine user input. These must never be treated as task loops:
 /// in `all_messages` mode an unfiltered `channel_join` ("X has joined the
 /// channel") otherwise spawns a task for every new member.
 ///
@@ -457,7 +457,7 @@ pub(super) async fn normalize(
 
     Ok(Normalization::Message {
         message: Box::new(InboundMessage {
-            provider: AdapterKind::Slack,
+            adapter_kind: AdapterKind::Slack,
             source_id: event.channel.to_string(),
             thread_id: event.thread_ts.map(ToString::to_string),
             message_thread_id: thread_ts.to_string(),
@@ -470,7 +470,7 @@ pub(super) async fn normalize(
                 "thread_ts": thread_ts,
                 "team_id": team_id,
             }),
-            provider_context: serde_json::json!({
+            adapter_context: serde_json::json!({
                 "team_id": team_id,
                 "user_id": event.user,
                 "is_bot_mentioned": is_bot_mentioned,

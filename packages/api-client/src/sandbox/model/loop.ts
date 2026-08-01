@@ -26,7 +26,7 @@ comes from the `name` frontmatter of `.moatless/loops/<dir>/LOOP.md`. */
   name: string;
   /** @nullable */
   ownerUserId?: string | null;
-  rule: LoopConfig;
+  config: LoopConfig;
   scope: Scope;
   source: LoopSource;
   /** @nullable */

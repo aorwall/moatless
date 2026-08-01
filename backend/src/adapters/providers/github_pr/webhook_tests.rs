@@ -1,7 +1,7 @@
 use crate::adapters::models::{Audience, RoutingMode, SubscriptionMatch};
 use crate::db::DbPool;
 
-use super::{normalize, title_is_ignored, IgnoredWebhook, NormalizeContext, PrimaryWebhook};
+use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
 use crate::adapters::providers::github_pr::status::WebhookStatusObservation;
 
 fn fake_db_pool() -> DbPool {
@@ -18,7 +18,7 @@ fn fake_rule() -> SubscriptionMatch {
 
     SubscriptionMatch {
         id: "ir_test".into(),
-        provider: "github".into(),
+        adapter_kind: "github".into(),
         connection_id: "pc_test".into(),
         source_matcher: "soaplabs/repo".into(),
         source_name: None,
@@ -32,7 +32,7 @@ fn fake_rule() -> SubscriptionMatch {
         agent_type: "claude-code".into(),
         inactive_ttl_days: None,
         allow_direct_send: false,
-        provider_config: None,
+        adapter_config: None,
         ongoing_task_id: None,
         close_task_on_close: false,
         notify_on_success: false,
@@ -366,7 +366,7 @@ async fn configured_sender_and_title_filters_preserve_opt_out_behavior() {
         "comment": {"id": 123, "body": "Linked"}
     });
     let mut custom_ignore = fake_rule();
-    custom_ignore.provider_config =
+    custom_ignore.adapter_config =
         Some(serde_json::json!({"ignored_senders": ["Linear-Code[Bot]"]}));
     let ignored = normalize_payload("issue_comment", &bot_comment, &custom_ignore).await;
     assert!(matches!(
@@ -375,7 +375,7 @@ async fn configured_sender_and_title_filters_preserve_opt_out_behavior() {
     ));
 
     let mut opt_out = fake_rule();
-    opt_out.provider_config = Some(serde_json::json!({"ignored_senders": []}));
+    opt_out.adapter_config = Some(serde_json::json!({"ignored_senders": []}));
     assert!(matches!(
         normalize_payload("issue_comment", &bot_comment, &opt_out)
             .await
@@ -394,7 +394,7 @@ async fn configured_sender_and_title_filters_preserve_opt_out_behavior() {
         }
     });
     let mut title_filter = fake_rule();
-    title_filter.provider_config =
+    title_filter.adapter_config =
         Some(serde_json::json!({"ignored_title_patterns": ["^chore\\(deps"]}));
     assert!(matches!(
         normalize_payload("pull_request", &dependency_pr, &title_filter)

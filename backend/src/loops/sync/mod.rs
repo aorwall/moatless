@@ -1,7 +1,7 @@
-//! Reconcile a repo's committed `.moatless/loops/` into the trigger tables.
+//! Reconcile a repo's committed `.moatless/loops/` into the loop tables.
 //!
 //! A "loop" is an agent automation declared in git. Each `LOOP.md` maps to a
-//! row in the existing `triggers` / `trigger_rules` / `*_trigger_sources`
+//! row in the existing `loops` / `loop_configs` / source tables
 //! tables with Git configuration authority and stable repository provenance.
 //! Manual overrides retain that provenance so reconciliation can skip them.
 
@@ -126,7 +126,7 @@ pub async fn reset_repo_loop(
         .map_err(LoopError::from)
 }
 
-/// Reconcile a set of already-parsed loops into the trigger tables.
+/// Reconcile a set of already-parsed loops into the loop tables.
 ///
 /// Reconciles by `(source_repository_id, source_key)` and removes Git-owned
 /// rows whose Loop directory is confirmed absent.
@@ -215,10 +215,10 @@ async fn sync_loops_snapshot(
     Ok(summary)
 }
 
-/// Resolved values for one loop, ready to write to the trigger tables.
+/// Resolved values for one loop, ready to write to the loop tables.
 struct ResolvedLoop {
     kind: LoopKind,
-    /// Display name for `triggers.name`, from the required `name` frontmatter.
+    /// Display name for `loops.name`, from the required `name` frontmatter.
     name: String,
     routing_mode: RoutingMode,
     agent_type: String,
@@ -249,7 +249,7 @@ enum ResolveOutcome {
     Skipped(String),
 }
 
-/// Resolve a parsed loop into concrete trigger values, or a skip reason.
+/// Resolve a parsed loop into concrete persistence values, or a skip reason.
 ///
 /// Hard errors (DB lookups) propagate; logical problems (no connection,
 /// invalid cron, unknown `on`) become a `Skipped` outcome.
@@ -577,7 +577,7 @@ pub(crate) fn default_schedule_message(loop_name: &str) -> String {
     format!("Run the `{loop_name}` loop.")
 }
 
-/// Build the `provider_config` (stored as `adapter_config`) for an `on: linear`
+/// Build the `adapter_config` (stored as `adapter_config`) for an `on: linear`
 /// loop: start from any user-provided `adapterConfig` object, layer the loop's
 /// first-class status/project/label knobs on top, and default
 /// `create_on_status_entry` on unless the user set it — the original Linear loop

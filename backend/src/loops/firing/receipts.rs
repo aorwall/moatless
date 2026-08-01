@@ -1,4 +1,4 @@
-//! Durable trigger event deduplication.
+//! Durable adapter-event deduplication.
 
 use crate::db::DbPool;
 
@@ -31,7 +31,7 @@ impl PgEventReceiptDao {
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
-            r#"INSERT INTO trigger_receipts
+            r#"INSERT INTO adapter_event_receipts
                (adapter_kind, external_event_id, subject_kind, subject_key, task_id)
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (adapter_kind, external_event_id, task_id) DO NOTHING"#,

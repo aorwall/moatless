@@ -32,9 +32,9 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::adapters::routes::adapter_router;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::Scope;
@@ -42,7 +42,7 @@ use moatless_vibe_backend::state::AppState;
 use sqlx::{PgPool, Row};
 use tower::ServiceExt;
 
-use common::{make_repository_row, seed_team, test_app_state_with_adapters, test_config, USER_1};
+use common::{USER_1, make_repository_row, seed_team, test_app_state_with_adapters, test_config};
 
 const CONNECTION: &str = "conn-telegram-1";
 const TRIGGER: &str = "tt-telegram-1";
@@ -126,7 +126,7 @@ fn private_update(update_id: i64, text: &str) -> serde_json::Value {
 async fn seed_connection(pool: &PgPool) {
     seed_team(pool, &format!("personal-{USER_1}")).await;
     sqlx::query(
-        "INSERT INTO integration_connections \
+        "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
          VALUES ($1, 'telegram', 'env', 'default', $2, 'user', $2)",
     )
@@ -167,7 +167,7 @@ async fn seed_subscription(
             agent_type: "claude-code".to_string(),
             inactive_ttl_days: None,
             allow_direct_send: false,
-            provider_config: secret
+            adapter_config: secret
                 .map(|secret| serde_json::json!({ "secret_token": secret }))
                 .or_else(|| Some(serde_json::json!({}))),
             ongoing_task_id: None,

@@ -109,7 +109,7 @@ async fn deliver_signed_bytes(
 
 async fn seed_connection(pool: &PgPool) {
     sqlx::query(
-        "INSERT INTO integration_connections \
+        "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
          VALUES ($1, 'linear', 'org', $2, $3, 'user', $3)",
     )
@@ -171,7 +171,7 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
             inactive_ttl_days: None,
             allow_direct_send: false,
             close_task_on_close: false,
-            provider_config: None,
+            adapter_config: None,
             ongoing_task_id: None,
             notify_on_success: false,
             active: true,

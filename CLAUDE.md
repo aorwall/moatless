@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Repository Agent Guidance
 
-Guidance for Claude Code in this repository.
+Guidance for coding agents in this repository.
 
 ## Commands
 
@@ -55,12 +55,6 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 - Rust: `cargo clippy -p <crate> -- -D warnings` and `cargo test -p <crate>`
 - Frontend: `bun run type:check` and `bun run biome:check` (quick loop: `bun run post-edit-hook`)
 - Lint ratchet: `noFloatingPromises`, `noMisusedPromises`, `useExhaustiveSwitchCases` are baselined per file in `biome-baseline.json`. Touch a file with baselined violations → fix them, then `bun run lint:ratchet:update`. New files must be clean; the baseline only shrinks.
-
-## Pragmatic coding
-- Minimum code that solves the problem — nothing speculative, no single-use abstractions, no unrequested flexibility or configuration.
-- Surgical changes: touch only what the task needs. Prefer deleting code. When the code you are changing sits in the wrong module, move it there first as its own commit, then change it.
-- No new trait/interface with a single implementation (a test mock counts only if a test uses it).
-- State assumptions when uncertain; define a verifiable success criterion (failing test, reproducible check) before starting.
 
 ## Commits
 Conventional commits, enforced by commitlint; header ≤100 chars. Types: `feat fix docs style refactor test chore`. Optional scopes (others rejected): `components layout routes styles utils hooks`. Pre-push runs `bun run test:fast`.

@@ -4,9 +4,9 @@ use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
+use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
-use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
@@ -202,7 +202,7 @@ pub(super) async fn execute(
     }
 
     let notice = InboundMessage {
-        provider: AdapterKind::GithubPr,
+        adapter_kind: AdapterKind::GithubPr,
         source_id: rule.source_matcher.clone(),
         thread_id: Some(pr_number.to_string()),
         message_thread_id: pr_number.to_string(),
@@ -214,7 +214,7 @@ pub(super) async fn execute(
             "repo": execution.repo,
             "pr_number": pr_number,
         }),
-        provider_context: serde_json::json!({}),
+        adapter_context: serde_json::json!({}),
         external_event_id: Some(super::external_id::workflow_run(execution.run.run_id)),
         source_task_id: None,
         audience: Audience::SubjectProducer,
@@ -233,7 +233,7 @@ pub(super) async fn execute(
 
 #[cfg(test)]
 mod tests {
-    use super::{candidate, post_merge_ci_text, PostMergeRun};
+    use super::{PostMergeRun, candidate, post_merge_ci_text};
 
     fn workflow_run_payload(
         action: &str,

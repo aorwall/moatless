@@ -8,18 +8,18 @@ use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
+use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{Audience, InboundMessage, SubscriptionMatch};
-use crate::adapters::AdapterKind;
 use crate::db::DbPool;
 
 use super::config::GithubPrRuleConfig;
 use super::signals::ReviewDecision;
-use super::status::{github_external_status, WebhookStatusObservation};
+use super::status::{WebhookStatusObservation, github_external_status};
 use super::subject::GithubPrSubject;
 use super::text::{
-    issue_comment_text, pr_opened_text, pr_synchronized_text, review_comment_text, review_text,
-    PrOpenedText, ReviewCommentText,
+    PrOpenedText, ReviewCommentText, issue_comment_text, pr_opened_text, pr_synchronized_text,
+    review_comment_text, review_text,
 };
 
 /// Everything downstream workflows can derive from one raw webhook.
@@ -678,7 +678,7 @@ async fn inbound_message(
     let user_id =
         super::auth::resolve_sender_user(context.sender_login, context.rule, context.db).await;
     InboundMessage {
-        provider: AdapterKind::GithubPr,
+        adapter_kind: AdapterKind::GithubPr,
         source_id: context.rule.source_matcher.clone(),
         thread_id,
         message_thread_id: pr_number.to_string(),
@@ -690,7 +690,7 @@ async fn inbound_message(
             "repo": context.repo,
             "pr_number": pr_number,
         }),
-        provider_context: serde_json::json!({}),
+        adapter_context: serde_json::json!({}),
         external_event_id: Some(external_event_id),
         source_task_id: None,
         audience,

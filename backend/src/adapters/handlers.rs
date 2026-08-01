@@ -87,12 +87,12 @@ pub async fn create_adapter_connection(
 
     let ctx = auth.scope_context();
     let now = Utc::now();
-    let provider = req.adapter_kind.as_str().to_string();
+    let adapter_kind = req.adapter_kind.as_str().to_string();
     let resolved = resolve_scope_for_adapter_create(&ctx, req.scope)?;
     let repo = &state.adapter_connections;
     let row = AdapterConnection {
         id: format!("pc_{}", uuid::Uuid::new_v4()),
-        provider,
+        adapter_kind,
         connection_kind: req.connection_kind.unwrap_or_else(|| "webhook".to_string()),
         scope_value: req.external_account_id,
         credential_ref: None,

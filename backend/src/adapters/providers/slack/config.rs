@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::adapters::models::{LoopContext, MessageTrigger, SourceAccessPolicy};
 
-/// Typed representation of `provider_config` JSONB for Slack channels.
+/// Typed representation of `adapter_config` JSONB for Slack channels.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SlackAdapterConfig {
     /// When to process messages: mention-only (default) or all messages.
@@ -43,13 +43,13 @@ impl Default for SlackAdapterConfig {
 }
 
 impl SlackAdapterConfig {
-    /// Parse from a `LoopContext`'s `provider_config` field.
+    /// Parse from a `LoopContext`'s `adapter_config` field.
     /// Returns default config if field is absent or unparseable.
     ///
     /// Also supports legacy untyped configs where `trigger` was a plain string.
     pub fn from_config(config: &LoopContext) -> Self {
         config
-            .provider_config
+            .adapter_config
             .as_ref()
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
@@ -109,10 +109,10 @@ mod tests {
     }
 
     #[test]
-    fn from_config_with_none_provider_config() {
+    fn from_config_with_none_adapter_config() {
         let config = LoopContext {
             id: "test".into(),
-            provider: "slack".into(),
+            adapter_kind: "slack".into(),
             source_id: "C123".into(),
             source_name: None,
             repository_id: "repo1".into(),
@@ -120,7 +120,7 @@ mod tests {
             prompt_template: None,
             active: true,
             allow_direct_send: false,
-            provider_config: None,
+            adapter_config: None,
             ongoing_task_id: None,
             scope: moatless_backend_core::scope::Scope::User,
             task_name: None,

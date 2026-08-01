@@ -53,7 +53,7 @@ impl Adapters {
         providers.register_slack(Arc::new(slack));
         tracing::info!("Slack adapter registered");
 
-        // Webhook adapter is always available (config is per trigger source).
+        // Webhook adapter is always available (config is per subscription).
         providers.register_webhook(Arc::new(
             crate::adapters::webhook::adapter::WebhookAdapter::new(),
         ));
@@ -66,7 +66,7 @@ impl Adapters {
         providers.register_telegram(Arc::new(telegram));
         tracing::info!("Telegram adapter registered");
 
-        // GitHub PR adapter is always available; config is per trigger source.
+        // GitHub PR adapter is always available; config is per subscription.
         {
             let github_pr = crate::adapters::github_pr::adapter::GithubPrAdapter::new(
                 config.github_pr.webhook_secret.clone(),

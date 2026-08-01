@@ -1,7 +1,7 @@
 /**
  * Standalone: Loop recent tasks (specs/channels/01-channel-scenarios.md)
  *
- * `GET /api/v1/triggers/{id}/tasks` answers from the task's own loop id, not
+ * `GET /api/v1/loops/{id}/tasks` answers from the task's own loop id, not
  * from a binding. That distinction is the whole point: a schedule loop never
  * creates a binding, so a listing driven by bindings would report that a loop
  * firing every night has produced nothing.
@@ -44,7 +44,7 @@ test.describe('Standalone: Schedule loop recent tasks', () => {
       psql(
         'INSERT INTO tasks (task_id, short_id, created_at, last_message_at, agent_type, ' +
           'repository_id, status, total_cost_usd, visibility, scope, team_id, headless, ' +
-          `ttl_minutes, inactive_ttl_days, trigger_id) VALUES ('${taskId}', ` +
+          `ttl_minutes, inactive_ttl_days, loop_id) VALUES ('${taskId}', ` +
           `'${taskId.slice(0, 8)}', (now() AT TIME ZONE 'UTC')::text, ` +
           `(now() AT TIME ZONE 'UTC')::text, 'claude-code', '${repo.id}', 'open', 0, ` +
           `'private', 'global', 'system', true, 15, 7, '${loop.id}')`,
@@ -66,18 +66,18 @@ test.describe('Standalone: Schedule loop recent tasks', () => {
 
 test("INT-46: A subscription loop's tasks are listed with their binding", async ({ api }) => {
   const repo = await api.ensureTemplateRepository()
-  const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
+  const { loopId } = await createWebhookTriggerFixture(api, repo.id, {
     sourceId: `recent-tasks-adapter-${Date.now()}`,
   })
 
-  const inbound = await api.sendWebhookMessage(triggerId, {
+  const inbound = await api.sendWebhookMessage(loopId, {
     text: 'trigger-recent-binding-test',
   })
   expect(inbound.status).toBe(200)
   const taskId = (inbound.body as { taskId: string }).taskId
 
   try {
-    const items = await api.listLoopRecentTasks(triggerId)
+    const items = await api.listLoopRecentTasks(loopId)
 
     const item = items.find((entry) => entry.task.taskId === taskId)
     expect(item).toBeDefined()
@@ -86,6 +86,6 @@ test("INT-46: A subscription loop's tasks are listed with their binding", async 
     expect(item?.binding?.subjectKey).toBeTruthy()
   } finally {
     await discardTask(api, taskId)
-    await api.deleteLoop(triggerId).catch(() => {})
+    await api.deleteLoop(loopId).catch(() => {})
   }
 })

@@ -603,7 +603,7 @@ pub struct AuthConfig {
 /// One GitHub App registration, used by the `GitHubAppRegistry`.
 #[derive(Clone, Deserialize)]
 pub struct GitHubAppConfig {
-    /// Stable key referenced from trigger config (e.g. `"dev-bot"`).
+    /// Stable key referenced from loop config (e.g. `"dev-bot"`).
     pub key: String,
     /// GitHub App numeric ID.
     pub app_id: u64,

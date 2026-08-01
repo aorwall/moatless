@@ -143,7 +143,7 @@ pub struct AuthState {
     /// override, and the validated PAT itself.
     pub secrets: Arc<SecretService>,
     pub tasks: Option<Arc<dyn crate::task::dao::TaskDao>>,
-    /// Adapter connections (`integration_connections`). The Linear OAuth
+    /// Adapter connections (`adapter_connections`). The Linear OAuth
     /// callback mirrors the authorized workspace into this table so inbound
     /// Linear webhooks resolve a connection.
     pub adapter_connections: Arc<dyn AdapterConnectionDao>,
@@ -2333,10 +2333,10 @@ async fn linear_install_handler(State(state): State<AuthState>) -> Result<Respon
 /// 1. CSRF check via cookie.
 /// 2. Exchange code → workspace token (form-encoded).
 /// 3. Fetch viewer + organization to identify the agent + workspace.
-/// 4. Upsert `integration_connections(provider="linear", external_account_id=org_id)`.
+/// 4. Upsert `adapter_connections(adapter_kind="linear", external_account_id=org_id)`.
 /// 5. Upsert the global `provider_tokens(provider="linear")` row (workspace
 ///    OAuth tokens are stored globally — the Linear org UUID lives in
-///    `integration_connections.scope_value` and `provider_tokens.metadata`).
+///    `adapter_connections.external_account_id` and `provider_tokens.metadata`).
 async fn linear_callback_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -2362,7 +2362,7 @@ async fn linear_callback_handler(
         .fetch_install_identity(&tokens.access_token)
         .await?;
 
-    // Upsert the workspace-level integration_connections row.
+    // Upsert the workspace-level adapter_connections row.
     use crate::adapters::models::AdapterConnection;
     let conn_repo = &state.adapter_connections;
 
@@ -2383,7 +2383,7 @@ async fn linear_callback_handler(
         id: existing
             .as_ref()
             .map_or_else(|| format!("pc_{}", uuid::Uuid::new_v4()), |c| c.id.clone()),
-        provider: "linear".to_string(),
+        adapter_kind: "linear".to_string(),
         connection_kind: "workspace".to_string(),
         scope_value: identity.organization_id.clone(),
         credential_ref: None,

@@ -9,8 +9,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use futures::stream::{self, StreamExt};
 
 use moatless_api_schemas::enums::TaskStatus;
@@ -20,8 +20,8 @@ use moatless_api_schemas::task_connections::{
     TaskConnectionsResponse,
 };
 
-use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::adapters::AdapterBindingStatus;
+use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
 use crate::message::dao::ConnectionMessageCount;
@@ -166,7 +166,7 @@ pub async fn list_task_connections(
                 .iter()
                 .map(|b| {
                     decode_connection(
-                        binding_status_for(&state, &b.provider),
+                        binding_status_for(&state, &b.adapter_kind),
                         b,
                         &count_by_binding,
                     )
@@ -269,7 +269,7 @@ pub async fn get_task_connections(
         .iter()
         .map(|b| {
             decode_connection(
-                binding_status_for(&state, &b.provider),
+                binding_status_for(&state, &b.adapter_kind),
                 b,
                 &count_by_binding,
             )
@@ -306,7 +306,7 @@ async fn refresh_stale_statuses(
         .iter()
         .filter(|b| {
             adapters
-                .binding_status_by_name(&b.provider)
+                .binding_status_by_name(&b.adapter_kind)
                 .is_some_and(|status| status_service::should_refresh(status, b, cutoff))
         })
         .cloned()
@@ -395,7 +395,7 @@ fn match_counts(
     let mut bindings_by_adapter: HashMap<&str, Vec<&TaskBinding>> = HashMap::new();
     for b in task_bindings {
         bindings_by_adapter
-            .entry(normalize_adapter(&b.provider))
+            .entry(normalize_adapter(&b.adapter_kind))
             .or_default()
             .push(b);
     }
@@ -461,7 +461,7 @@ fn decode_connection(
 
     Connection {
         binding_id: b.id.clone(),
-        adapter_kind: crate::adapters::common::parse_adapter_kind(&b.provider),
+        adapter_kind: crate::adapters::common::parse_adapter_kind(&b.adapter_kind),
         kind: connection_kind(&b.subject_kind),
         label,
         url,
@@ -513,11 +513,11 @@ mod tests {
         TaskBinding {
             id: id.to_string(),
             task_id: "task_1".to_string(),
-            provider: provider.to_string(),
+            adapter_kind: provider.to_string(),
             subject_kind: subject_kind.to_string(),
             subject_key: subject_key.to_string(),
             connection_id: "conn_1".to_string(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: serde_json::json!({}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,

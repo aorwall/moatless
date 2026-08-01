@@ -76,8 +76,8 @@ impl AdapterBindingReply for SlackAdapter {
         let thread = crate::bindings::runtime::binding_context(binding);
         let _config = rule.map_or_else(
             || LoopContext {
-                id: binding.trigger_id.clone().unwrap_or_default(),
-                provider: "slack".to_string(),
+                id: binding.loop_id.clone().unwrap_or_default(),
+                adapter_kind: "slack".to_string(),
                 source_id: subject::thread_coordinates(&binding.destination_config)
                     .channel
                     .unwrap_or_default()
@@ -88,7 +88,7 @@ impl AdapterBindingReply for SlackAdapter {
                 prompt_template: None,
                 active: true,
                 allow_direct_send: false,
-                provider_config: None,
+                adapter_config: None,
                 ongoing_task_id: None,
                 scope: moatless_backend_core::scope::Scope::Global,
                 task_name: None,
@@ -100,7 +100,7 @@ impl AdapterBindingReply for SlackAdapter {
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
             },
-            |r| crate::bindings::runtime::trigger_context(r, "slack"),
+            |r| crate::bindings::runtime::subscription_context(r, "slack"),
         );
         let coordinates = subject::thread_coordinates(&thread.destination_config);
         let channel = coordinates
@@ -271,7 +271,7 @@ mod tests {
         let now = chrono::Utc::now();
         BindingContext {
             binding_id: "tb_1".into(),
-            trigger_id: None,
+            loop_id: None,
             task_id: "task-1".into(),
             subject_kind: "slack_thread".into(),
             subject_key: "T1:C1:1700000000.000100".into(),
@@ -287,7 +287,7 @@ mod tests {
         let now = chrono::Utc::now();
         LoopContext {
             id: "tt_1".into(),
-            provider: "slack".into(),
+            adapter_kind: "slack".into(),
             source_id: source_id.into(),
             source_name: None,
             repository_id: "repo-1".into(),
@@ -295,7 +295,7 @@ mod tests {
             prompt_template: None,
             active: true,
             allow_direct_send: true,
-            provider_config: None,
+            adapter_config: None,
             ongoing_task_id: None,
             scope: Scope::Global,
             task_name: None,

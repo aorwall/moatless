@@ -213,7 +213,7 @@ async fn handle_gh_pr_create(
             info!(
                 task_id,
                 pr_number = pr.number,
-                rule_id = rule.as_ref().map_or("<none>", |r| r.id.as_str()),
+                subscription_id = rule.as_ref().map_or("<none>", |r| r.id.as_str()),
                 binding_id = %binding.id,
                 "Auto-connected GitHub PR binding for PR created by agent"
             );
@@ -1789,8 +1789,7 @@ mod tests {
     fn created_id_falls_back_to_html_url_anchor() {
         // Output the JSON parser cannot take — a preceding line from the same
         // shell command, or a truncated body.
-        let review_comment =
-            "posting…\n{\"id\": 987, \"html_url\": \"https://github.com/o/r/pull/42#discussion_r987\"";
+        let review_comment = "posting…\n{\"id\": 987, \"html_url\": \"https://github.com/o/r/pull/42#discussion_r987\"";
         assert_eq!(
             parse_created_id(review_comment, GhApiCreated::ReviewComment),
             Some(987)
@@ -1817,11 +1816,13 @@ mod tests {
         );
         // The anchor must match the shape — a review submission's response
         // does not name a review comment.
-        assert!(parse_created_id(
-            "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
-            GhApiCreated::ReviewComment
-        )
-        .is_none());
+        assert!(
+            parse_created_id(
+                "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
+                GhApiCreated::ReviewComment
+            )
+            .is_none()
+        );
     }
 
     #[test]

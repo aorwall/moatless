@@ -159,7 +159,7 @@ async fn drain(pool: &PgPool, stub: &ProviderStub) {
 
 async fn seed_connection(pool: &PgPool) {
     sqlx::query(
-        "INSERT INTO integration_connections \
+        "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
          VALUES ($1, 'linear', 'org', $2, $3, 'user', $3)",
     )
@@ -253,7 +253,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
                 .and_then(|c| c.get("close_task_on_close"))
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false),
-            provider_config: config,
+            adapter_config: config,
             ongoing_task_id: None,
             notify_on_success: false,
             active: true,
@@ -277,7 +277,7 @@ async fn seed_binding(
     subject_kind: &str,
     subject_key: &str,
     destination_config: serde_json::Value,
-    trigger_id: Option<&str>,
+    loop_id: Option<&str>,
     origin: &str,
 ) {
     task_dao::insert_task(pool, &make_task_row(task_id, USER_1))
@@ -294,7 +294,7 @@ async fn seed_binding(
             subject_kind: subject_kind.to_string(),
             subject_key: subject_key.to_string(),
             connection_id: CONNECTION.to_string(),
-            trigger_id: trigger_id.map(str::to_string),
+            loop_id: loop_id.map(str::to_string),
             destination_config,
             metadata: serde_json::json!({}),
             last_external_event_id: None,
@@ -316,7 +316,7 @@ async fn seed_binding(
 
 /// The Subscription and then a session bound under it.
 ///
-/// Order matters: a binding's `trigger_id` references the Subscription, so the
+/// Order matters: a binding's `loop_id` references the Subscription, so the
 /// rule has to exist first.
 async fn seed_rule_then_session(
     state: &AppState,
@@ -599,7 +599,11 @@ async fn provisioning_a_project_scoped_session_fetches_the_issue_once(pool: PgPo
     seed_connection(&pool).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
-    seed_rule(&state, Some(serde_json::json!({"project_ids": ["project-1"]}))).await;
+    seed_rule(
+        &state,
+        Some(serde_json::json!({"project_ids": ["project-1"]})),
+    )
+    .await;
 
     deliver(&state, &session_created()).await;
     drain(&pool, &stub).await;
@@ -624,7 +628,11 @@ async fn provisioning_moves_the_issue_to_the_start_state_once(pool: PgPool) {
     seed_connection(&pool).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
-    seed_rule(&state, Some(serde_json::json!({"start_state": "In Progress"}))).await;
+    seed_rule(
+        &state,
+        Some(serde_json::json!({"start_state": "In Progress"})),
+    )
+    .await;
 
     deliver(&state, &session_created()).await;
     drain(&pool, &stub).await;
@@ -688,10 +696,12 @@ async fn a_second_provisioning_attempt_creates_no_second_task(pool: PgPool) {
 
     // Re-run the admitted work by hand: reset the record to pending and drain
     // again, which is what a restart mid-attempt produces.
-    sqlx::query("UPDATE adapter_delivery SET status = 'pending', attempts = 0, next_attempt_at = NOW()")
-        .execute(&pool)
-        .await
-        .expect("re-arm the record");
+    sqlx::query(
+        "UPDATE adapter_delivery SET status = 'pending', attempts = 0, next_attempt_at = NOW()",
+    )
+    .execute(&pool)
+    .await
+    .expect("re-arm the record");
     drain(&pool, &stub).await;
 
     let tasks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
@@ -833,11 +843,12 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
             subject_kind: "linear_issue".to_string(),
             subject_key: ISSUE.to_string(),
             connection_id: CONNECTION.to_string(),
-            trigger_id: Some(RULE.to_string()),
+            loop_id: Some(RULE.to_string()),
             destination_config: serde_json::json!({"issue_id": ISSUE}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,
-            origin: moatless_vibe_backend::adapters::models::ADAPTER_EVENT_BINDING_ORIGIN.to_string(),
+            origin: moatless_vibe_backend::adapters::models::ADAPTER_EVENT_BINDING_ORIGIN
+                .to_string(),
             created_at: now,
             last_event_at: now,
             external_status: None,
@@ -877,7 +888,12 @@ async fn a_task_does_not_receive_back_its_own_comment(pool: PgPool) {
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
 
-    let frontend = state.config.auth.frontend_url.trim_end_matches('/').to_string();
+    let frontend = state
+        .config
+        .auth
+        .frontend_url
+        .trim_end_matches('/')
+        .to_string();
     let body = format!("done\n\n---\nMoatless task: [T]({frontend}/tasks/{TASK})");
     deliver(&state, &comment_created("comment-3", None, &body)).await;
     drain(&pool, &stub).await;
@@ -999,7 +1015,12 @@ async fn a_terminal_transition_without_the_flag_leaves_the_task_open(pool: PgPoo
     seed_connection(&pool).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
-    seed_rule_then_session(&state, &pool, Some(serde_json::json!({"terminal_states": ["completed"]}))).await;
+    seed_rule_then_session(
+        &state,
+        &pool,
+        Some(serde_json::json!({"terminal_states": ["completed"]})),
+    )
+    .await;
 
     deliver(&state, &issue_updated("s0", "s9", "Done", "completed")).await;
     drain(&pool, &stub).await;
@@ -1044,11 +1065,12 @@ async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
             subject_kind: "linear_issue".to_string(),
             subject_key: "issue-other".to_string(),
             connection_id: CONNECTION.to_string(),
-            trigger_id: Some(RULE.to_string()),
+            loop_id: Some(RULE.to_string()),
             destination_config: serde_json::json!({"issue_id": "issue-other"}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,
-            origin: moatless_vibe_backend::adapters::models::ADAPTER_EVENT_BINDING_ORIGIN.to_string(),
+            origin: moatless_vibe_backend::adapters::models::ADAPTER_EVENT_BINDING_ORIGIN
+                .to_string(),
             created_at: now,
             last_event_at: now,
             external_status: None,

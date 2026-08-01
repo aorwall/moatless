@@ -21,11 +21,11 @@ use moatless_events::TaskSubType;
 
 use super::creation::{FirstMessage, NewTaskRequest, TaskCreationOutcome};
 use super::error::TaskError;
+use super::models::Task;
 use super::relations::CreatedByParent;
 use super::schemas::CreateTaskRequest;
 use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create};
 use crate::agent::catalog;
-use super::models::Task;
 use crate::repository::models::RepositoryKind;
 use crate::shared_models::AgentType;
 use crate::state::AppState;
@@ -273,7 +273,7 @@ async fn normalize(
         visibility: Visibility::Private,
         scope: task_scope,
         owner_user_id: task_owner_user_id,
-        trigger_id: None,
+        loop_id: None,
         workspace_id: req.workspace_id.clone(),
         template_id: if is_template {
             Some(repository_id)

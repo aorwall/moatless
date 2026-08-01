@@ -114,14 +114,14 @@ function defaultAdapter(adapters: string[]): AdapterKind {
   return AdapterKind.slack
 }
 
-function makeRuleFields(rule: Loop['rule'] | undefined) {
+function makeConfigFields(config: Loop['config'] | undefined) {
   return {
-    repositoryId: rule?.repositoryId ?? '',
-    routingMode: rule?.routingMode ?? RoutingMode.by_subject,
-    prompt: rule?.prompt ?? '',
-    taskName: rule?.taskName ?? '',
-    tagIdsText: rule?.tagIds.join(', ') ?? '',
-    agentType: rule?.agentType ?? 'claude-code',
+    repositoryId: config?.repositoryId ?? '',
+    routingMode: config?.routingMode ?? RoutingMode.by_subject,
+    prompt: config?.prompt ?? '',
+    taskName: config?.taskName ?? '',
+    tagIdsText: config?.tagIds.join(', ') ?? '',
+    agentType: config?.agentType ?? 'claude-code',
   }
 }
 
@@ -155,7 +155,7 @@ function makeInitialForm(loop: Loop | null | undefined, adapters: string[]): Loo
   return {
     kind: loop?.kind ?? LoopKind.adapter_event,
     name: loop?.name ?? '',
-    ...makeRuleFields(loop?.rule),
+    ...makeConfigFields(loop?.config),
     ...makeAdapterFields(loop?.source, adapters),
     ...makeScheduleFields(loop?.source),
   }
@@ -187,7 +187,7 @@ function validateForm(form: LoopFormState): string | null {
   return null
 }
 
-function buildUpdateRule(form: LoopFormState): NonNullable<UpdateLoopRequest['rule']> {
+function buildUpdateConfig(form: LoopFormState): NonNullable<UpdateLoopRequest['config']> {
   return {
     repositoryId: form.repositoryId,
     routingMode: form.routingMode,
@@ -198,7 +198,7 @@ function buildUpdateRule(form: LoopFormState): NonNullable<UpdateLoopRequest['ru
   }
 }
 
-function buildCreateRule(form: LoopFormState): CreateLoopRequest['rule'] {
+function buildCreateConfig(form: LoopFormState): CreateLoopRequest['config'] {
   return {
     repositoryId: form.repositoryId,
     routingMode: form.routingMode,
@@ -317,7 +317,7 @@ function LoopFormFields({
           id: loop.id,
           request: {
             name,
-            rule: buildUpdateRule(form),
+            config: buildUpdateConfig(form),
             source: buildUpdateSource(form),
           },
         })
@@ -327,7 +327,7 @@ function LoopFormFields({
           name,
           kind: form.kind,
           active: false,
-          rule: buildCreateRule(form),
+          config: buildCreateConfig(form),
           source: buildCreateSource(form),
         })
         toast.success('Loop created')

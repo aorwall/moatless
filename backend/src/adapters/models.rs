@@ -1,4 +1,4 @@
-//! Adapter, trigger, and binding domain types.
+//! Adapter, Loop, Subscription, and Binding domain types.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -29,17 +29,17 @@ pub const CONNECTED_THREAD_BINDING_ORIGIN: &str = "connected_thread";
 pub const TASK_OWNED_BINDING_ORIGIN: &str = "task_owned";
 
 // =============================================================================
-// Provider contexts
+// Adapter contexts
 // =============================================================================
 
-/// Provider-facing route context.
+/// Adapter-facing Loop context.
 ///
-/// This is synthesized from canonical routes, triggers, bindings, or scheduled
-/// jobs before invoking provider-specific delivery/parsing code.
+/// This is synthesized from canonical Loops, Subscriptions, Bindings, or
+/// schedule firings before invoking Adapter-specific delivery/parsing code.
 #[derive(Debug, Clone)]
 pub struct LoopContext {
     pub id: String,
-    pub provider: String,
+    pub adapter_kind: String,
     pub source_id: String,
     pub source_name: Option<String>,
     pub repository_id: String,
@@ -47,14 +47,14 @@ pub struct LoopContext {
     pub prompt_template: Option<String>,
     pub active: bool,
     pub allow_direct_send: bool,
-    pub provider_config: Option<serde_json::Value>,
+    pub adapter_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
     pub scope: Scope,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
-    /// Per-trigger inactivity TTL override (days). `None` means the reaper
+    /// Per-Loop inactivity TTL override (days). `None` means the reaper
     /// falls back to the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`).
     /// Flows into `tasks.inactive_ttl_days` at task creation time.
     pub inactive_ttl_days: Option<i32>,
@@ -78,14 +78,14 @@ impl LoopContext {
 }
 
 // =============================================================================
-/// Provider-facing subject context.
+/// Adapter-facing subject context.
 ///
-/// This is synthesized from a task binding before invoking provider-specific
+/// This is synthesized from a task binding before invoking Adapter-specific
 /// outbound and context-fetching code.
 #[derive(Debug, Clone)]
 pub struct BindingContext {
     pub binding_id: String,
-    pub trigger_id: Option<String>,
+    pub loop_id: Option<String>,
     pub task_id: String,
     pub subject_kind: String,
     pub subject_key: String,
@@ -100,16 +100,16 @@ pub struct BindingContext {
 // Target architecture tables (DB)
 // =============================================================================
 
-/// Row from the `integration_connections` table.
+/// Row from the `adapter_connections` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct AdapterConnection {
     pub id: String,
-    pub provider: String,
+    pub adapter_kind: String,
     pub connection_kind: String,
     pub scope_value: String,
     pub credential_ref: Option<String>,
     pub webhook_secret: Option<String>,
-    /// Provider-specific transport metadata (JSONB). Each provider stores its
+    /// Adapter-specific transport metadata (JSONB). Each Adapter stores its
     /// own flat bag of identifiers and config here so we don't need
     /// per-provider columns on this table.
     ///
@@ -126,7 +126,7 @@ pub struct AdapterConnection {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Row from the `trigger_rules` table.
+/// Row from the `loop_configs` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct LoopSpawnConfig {
     pub id: String,
@@ -157,11 +157,11 @@ impl LoopSpawnConfig {
     }
 }
 
-/// Canonical adapter-event trigger view backed by triggers, sources, and rules.
+/// Canonical Subscription view backed by Loops, Subscriptions, and configs.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct SubscriptionMatch {
     pub id: String,
-    pub provider: String,
+    pub adapter_kind: String,
     pub connection_id: String,
     pub source_matcher: String,
     pub source_name: Option<String>,
@@ -175,7 +175,7 @@ pub struct SubscriptionMatch {
     pub agent_type: String,
     pub inactive_ttl_days: Option<i32>,
     pub allow_direct_send: bool,
-    pub provider_config: Option<serde_json::Value>,
+    pub adapter_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
     pub close_task_on_close: bool,
     pub notify_on_success: bool,
@@ -203,11 +203,11 @@ impl SubscriptionMatch {
 pub struct TaskBinding {
     pub id: String,
     pub task_id: String,
-    pub provider: String,
+    pub adapter_kind: String,
     pub subject_kind: String,
     pub subject_key: String,
     pub connection_id: String,
-    pub trigger_id: Option<String>,
+    pub loop_id: Option<String>,
     pub destination_config: serde_json::Value,
     pub metadata: serde_json::Value,
     pub last_external_event_id: Option<String>,
@@ -276,7 +276,7 @@ pub struct ExternalStatus {
     pub raw: serde_json::Value,
 }
 
-/// Row from the `schedule_trigger_sources` table.
+/// Row from the `schedules` table.
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct Schedule {
     pub id: String,
@@ -303,7 +303,7 @@ pub struct Schedule {
 
 pub use moatless_api_schemas::enums::RoutingMode;
 
-/// Inbound message produced by a provider-specific parser.
+/// Inbound message produced by an Adapter-specific parser.
 ///
 /// Serialized only into `adapter_delivery.payload`, never into an API response:
 /// an Adapter that routes inbound messages through the durable Adapter delivery
@@ -315,8 +315,8 @@ pub use moatless_api_schemas::enums::RoutingMode;
 /// referenced process memory would not be durable work.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InboundMessage {
-    /// Provider type.
-    pub provider: crate::adapters::AdapterKind,
+    /// Adapter type.
+    pub adapter_kind: crate::adapters::AdapterKind,
     /// Source identifier (Slack channelId, email address).
     pub source_id: String,
     /// Thread ID if this is a reply (Slack thread_ts, Email In-Reply-To).
@@ -329,10 +329,10 @@ pub struct InboundMessage {
     pub text: String,
     /// File attachment IDs (already uploaded to S3).
     pub file_ids: Vec<String>,
-    /// Provider-specific properties to store on thread.
+    /// Adapter-specific properties to store on thread.
     pub thread_properties: serde_json::Value,
-    /// Provider-specific context.
-    pub provider_context: serde_json::Value,
+    /// Adapter-specific context.
+    pub adapter_context: serde_json::Value,
     /// External message ID for dedup (e.g., Slack `ts`, Telegram `message_id`).
     /// Must be unique per message — NOT the thread ID.
     pub external_event_id: Option<String>,
@@ -407,7 +407,7 @@ pub struct OutboundReply {
     /// doubles as the inbound echo-filter source. `None` for providers that
     /// don't carry a footer.
     pub footer: Option<String>,
-    /// Preferred system user whose provider credentials should author this
+    /// Preferred system user whose Adapter credentials should author this
     /// reply — the owning task's `owner_user_id`. Providers that resolve a
     /// per-user credential (currently GitHub) prefer this over binding/trigger
     /// identities so a human-owned task replies under the human, and a
@@ -422,9 +422,9 @@ pub struct OutboundReply {
 /// Info returned by `send_message` to create a new `BindingContext`.
 #[derive(Debug)]
 pub struct NewThreadInfo {
-    /// Provider-specific thread/message ID (e.g., Slack message `ts`).
+    /// Adapter-specific thread/message ID (e.g., Slack message `ts`).
     pub external_thread_id: String,
-    /// Provider-specific properties for the thread (e.g., `channel`, `thread_ts`).
+    /// Adapter-specific properties for the thread (e.g., `channel`, `thread_ts`).
     pub properties: serde_json::Value,
 }
 

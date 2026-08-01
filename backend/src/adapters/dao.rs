@@ -1,4 +1,4 @@
-//! Persistence helpers for `integration_connections`.
+//! Persistence helpers for `adapter_connections`.
 
 use sqlx::AssertSqlSafe;
 
@@ -15,19 +15,19 @@ pub trait AdapterConnectionDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<Option<AdapterConnection>, sqlx::Error>;
 
-    /// Look up a connection by provider + external account. Used for webhook
+    /// Look up a connection by Adapter + external account. Used for webhook
     /// routing where we identify the tenant from the inbound event, not from
     /// an authenticated caller — no scope filter applied.
     async fn find_by_external_account(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         external_account_id: &str,
     ) -> Result<Option<AdapterConnection>, sqlx::Error>;
 
     async fn list(
         &self,
         ctx: &ScopeContext,
-        provider: Option<&str>,
+        adapter_kind: Option<&str>,
     ) -> Result<Vec<AdapterConnection>, sqlx::Error>;
 
     async fn upsert(
@@ -43,7 +43,7 @@ pub struct PgAdapterConnectionDao(pub DbPool);
 
 const PROVIDER_CONNECTION_SELECT: &str = r#"
     SELECT id,
-           adapter_kind AS provider,
+           adapter_kind,
            connection_kind,
            external_account_id AS scope_value,
            credential_ref,
@@ -54,7 +54,7 @@ const PROVIDER_CONNECTION_SELECT: &str = r#"
            owner_user_id,
            created_at,
            updated_at
-    FROM integration_connections
+    FROM adapter_connections
 "#;
 
 impl PgAdapterConnectionDao {
@@ -78,38 +78,39 @@ impl PgAdapterConnectionDao {
 
     pub async fn find_by_scope_value(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         scope_value: &str,
     ) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        self.find_by_external_account(provider, scope_value).await
+        self.find_by_external_account(adapter_kind, scope_value)
+            .await
     }
 
-    /// Look up a connection by provider + external account. Used for webhook
+    /// Look up a connection by Adapter + external account. Used for webhook
     /// routing (identifies tenant from inbound event) — no scope filter applied.
     pub async fn find_by_external_account(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         external_account_id: &str,
     ) -> Result<Option<AdapterConnection>, sqlx::Error> {
         sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(format!(
             "{PROVIDER_CONNECTION_SELECT} WHERE adapter_kind = $1 AND external_account_id = $2 LIMIT 1"
         )))
-        .bind(provider)
+        .bind(adapter_kind)
         .bind(external_account_id)
         .fetch_optional(&self.0)
         .await
     }
 
-    /// List all connections for a provider, unscoped. Used by webhook routing
-    /// to enumerate all tenants for a provider — no authenticated caller.
+    /// List all connections for an Adapter, unscoped. Used by webhook routing
+    /// to enumerate all tenants for an Adapter — no authenticated caller.
     pub async fn list_by_provider(
         &self,
-        provider: &str,
+        adapter_kind: &str,
     ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
         sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(format!(
             "{PROVIDER_CONNECTION_SELECT} WHERE adapter_kind = $1 ORDER BY created_at ASC"
         )))
-        .bind(provider)
+        .bind(adapter_kind)
         .fetch_all(&self.0)
         .await
     }
@@ -117,9 +118,9 @@ impl PgAdapterConnectionDao {
     pub async fn list(
         &self,
         ctx: &ScopeContext,
-        provider: Option<&str>,
+        adapter_kind: Option<&str>,
     ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
-        if let Some(provider) = provider {
+        if let Some(adapter_kind) = adapter_kind {
             let access = ctx.access_filter(ScopedEntity::Resource, "", 2);
             let sql = format!(
                 "{PROVIDER_CONNECTION_SELECT} \
@@ -128,7 +129,7 @@ impl PgAdapterConnectionDao {
                 access.sql()
             );
             return sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(sql))
-                .bind(provider)
+                .bind(adapter_kind)
                 .bind(ctx.is_admin)
                 .bind(&ctx.user_id)
                 .fetch_all(&self.0)
@@ -158,9 +159,9 @@ impl PgAdapterConnectionDao {
     ) -> Result<AdapterConnection, sqlx::Error> {
         // In the DO UPDATE arm both the target row and EXCLUDED are in scope,
         // so the filter's columns must be table-qualified.
-        let ctrl = ctx.control_filter("integration_connections.", 13);
+        let ctrl = ctx.control_filter("adapter_connections.", 13);
         let sql = format!(
-            r#"INSERT INTO integration_connections
+            r#"INSERT INTO adapter_connections
                (id, adapter_kind, connection_kind, external_account_id, credential_ref, webhook_secret,
                 transport_config, created_by, scope, owner_user_id,
                 created_at, updated_at)
@@ -176,7 +177,7 @@ impl PgAdapterConnectionDao {
                    updated_at       = EXCLUDED.updated_at
                WHERE {}
                RETURNING id,
-                         adapter_kind AS provider,
+                         adapter_kind,
                          connection_kind,
                          external_account_id AS scope_value,
                          credential_ref,
@@ -191,7 +192,7 @@ impl PgAdapterConnectionDao {
         );
         sqlx::query_as::<_, AdapterConnection>(AssertSqlSafe(sql))
             .bind(&row.id)
-            .bind(&row.provider)
+            .bind(&row.adapter_kind)
             .bind(&row.connection_kind)
             .bind(&row.scope_value)
             .bind(&row.credential_ref)
@@ -212,7 +213,7 @@ impl PgAdapterConnectionDao {
     pub async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {
         let ctrl = ctx.control_filter("", 2);
         let sql = format!(
-            "DELETE FROM integration_connections WHERE id = $1 AND {}",
+            "DELETE FROM adapter_connections WHERE id = $1 AND {}",
             ctrl.sql()
         );
         let result = sqlx::query(AssertSqlSafe(sql))
@@ -237,19 +238,19 @@ impl AdapterConnectionDao for PgAdapterConnectionDao {
 
     async fn find_by_external_account(
         &self,
-        provider: &str,
+        adapter_kind: &str,
         external_account_id: &str,
     ) -> Result<Option<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionDao::find_by_external_account(self, provider, external_account_id)
+        PgAdapterConnectionDao::find_by_external_account(self, adapter_kind, external_account_id)
             .await
     }
 
     async fn list(
         &self,
         ctx: &ScopeContext,
-        provider: Option<&str>,
+        adapter_kind: Option<&str>,
     ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
-        PgAdapterConnectionDao::list(self, ctx, provider).await
+        PgAdapterConnectionDao::list(self, ctx, adapter_kind).await
     }
 
     async fn upsert(

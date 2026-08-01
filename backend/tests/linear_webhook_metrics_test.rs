@@ -78,7 +78,7 @@ fn replica(pool: &PgPool) -> AppState {
 
 async fn seed_connection(pool: &PgPool) {
     sqlx::query(
-        "INSERT INTO integration_connections \
+        "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
          VALUES ($1, 'linear', 'org', $2, $3, 'user', $3)",
     )
@@ -97,7 +97,12 @@ async fn deliver(
     envelope: &serde_json::Value,
     sign: bool,
 ) -> Result<StatusCode, AdapterError> {
-    deliver_bytes(state, serde_json::to_vec(envelope).expect("serialize"), sign).await
+    deliver_bytes(
+        state,
+        serde_json::to_vec(envelope).expect("serialize"),
+        sign,
+    )
+    .await
 }
 
 async fn deliver_bytes(
@@ -128,24 +133,18 @@ struct Row {
     outcome: String,
     reason: String,
     event_type: String,
-    trigger_id: String,
+    loop_id: String,
     connection_id: String,
     count: u64,
 }
 
-fn row(
-    outcome: &str,
-    reason: &str,
-    event_type: &str,
-    trigger_id: &str,
-    connection_id: &str,
-) -> Row {
+fn row(outcome: &str, reason: &str, event_type: &str, loop_id: &str, connection_id: &str) -> Row {
     Row {
         adapter: "linear".to_string(),
         outcome: outcome.to_string(),
         reason: reason.to_string(),
         event_type: event_type.to_string(),
-        trigger_id: trigger_id.to_string(),
+        loop_id: loop_id.to_string(),
         connection_id: connection_id.to_string(),
         count: 1,
     }
@@ -182,7 +181,7 @@ where
             outcome: label(&key, "outcome"),
             reason: label(&key, "reason"),
             event_type: label(&key, "event_type"),
-            trigger_id: label(&key, "trigger_id"),
+            loop_id: label(&key, "loop_id"),
             connection_id: label(&key, "connection_id"),
             count: match value {
                 DebugValue::Counter(count) => count,
@@ -298,7 +297,7 @@ async fn an_unsigned_delivery_is_ignored_as_no_signature(pool: PgPool) {
     );
 }
 
-/// An organization with no `integration_connections` row. Resolution misses
+/// An organization with no `adapter_connections` row. Resolution misses
 /// and the delivery is dropped.
 #[sqlx::test]
 async fn an_unknown_organization_is_ignored_as_no_connection(pool: PgPool) {
@@ -541,7 +540,7 @@ async fn an_identified_issue_update_is_success(pool: PgPool) {
     assert_eq!(rows, vec![row("success", "", "Issue", "", "")]);
 }
 
-/// Every row this route can emit sets `trigger_id` and `connection_id` to the
+/// Every row this route can emit sets `loop_id` and `connection_id` to the
 /// empty string, on every outcome.
 ///
 /// Asserted once, on purpose: the two labels are on the metric's signature and
@@ -563,7 +562,7 @@ async fn no_row_carries_a_trigger_or_connection_label(pool: PgPool) {
     assert_eq!(rows.len(), 3, "one row per delivery: {rows:?}");
     for row in &rows {
         assert_eq!(row.adapter, "linear");
-        assert_eq!(row.trigger_id, "", "trigger_id is never filled: {row:?}");
+        assert_eq!(row.loop_id, "", "loop_id is never filled: {row:?}");
         assert_eq!(
             row.connection_id, "",
             "connection_id is never filled: {row:?}"

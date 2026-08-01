@@ -208,11 +208,11 @@ mod tests {
         TaskBinding {
             id: "tb_test".into(),
             task_id: "task_test".into(),
-            provider: "github_pr".into(),
+            adapter_kind: "github_pr".into(),
             subject_kind: "github_pr".into(),
             subject_key: "soaplabs/repo#42".into(),
             connection_id: "pc_test".into(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: serde_json::json!({
                 "owner": "soaplabs",
                 "repo": "repo",
@@ -239,7 +239,7 @@ mod tests {
         let now = chrono::Utc::now();
         AdapterConnection {
             id: "pc_test".to_string(),
-            provider: "github".to_string(),
+            adapter_kind: "github".to_string(),
             connection_kind: "org".to_string(),
             scope_value: "soaplabs".to_string(),
             credential_ref: None,

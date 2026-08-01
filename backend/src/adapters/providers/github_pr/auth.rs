@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use tracing::debug;
 
+use crate::adapters::AdapterUserIdentity;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{BindingContext, SubscriptionMatch, TaskBinding};
-use crate::adapters::AdapterUserIdentity;
 use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
@@ -278,7 +278,7 @@ impl AdapterUserIdentity for GithubPrAdapter {
 mod tests {
     use super::*;
     use crate::auth::provider_token_dao::ProviderTokenDao;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use crate::auth::test_support::{StubProviderTokens, github_row};
 
     fn fake_github_apps() -> Arc<GitHubAppRegistry> {
         Arc::new(GitHubAppRegistry::default())
@@ -303,11 +303,11 @@ mod tests {
         TaskBinding {
             id: "binding".into(),
             task_id: "task".into(),
-            provider: "github_pr".into(),
+            adapter_kind: "github_pr".into(),
             subject_kind: "github_pr".into(),
             subject_key: "soaplabs/repo#42".into(),
             connection_id: "connection".into(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: filter.clone(),
             metadata: filter,
             last_external_event_id: None,
@@ -332,7 +332,7 @@ mod tests {
 
         SubscriptionMatch {
             id: "rule".into(),
-            provider: "github".into(),
+            adapter_kind: "github".into(),
             connection_id: "connection".into(),
             source_matcher: "soaplabs/repo".into(),
             source_name: None,
@@ -347,7 +347,7 @@ mod tests {
             inactive_ttl_days: None,
             allow_direct_send: false,
             created_by: "creator".into(),
-            provider_config: None,
+            adapter_config: None,
             ongoing_task_id: None,
             close_task_on_close: false,
             notify_on_success: false,
@@ -392,7 +392,7 @@ mod tests {
         );
         let binding = BindingContext {
             binding_id: "binding".into(),
-            trigger_id: None,
+            loop_id: None,
             task_id: "task".into(),
             subject_kind: "github_pr".into(),
             subject_key: "soaplabs/repo#42".into(),
@@ -416,10 +416,12 @@ mod tests {
         );
 
         let empty_global = auth_with_tokens(Some(""), Arc::new(StubProviderTokens::default()));
-        assert!(empty_global
-            .reaction_token(&no_filter, "soaplabs")
-            .await
-            .is_err());
+        assert!(
+            empty_global
+                .reaction_token(&no_filter, "soaplabs")
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -436,10 +438,12 @@ mod tests {
         );
 
         let empty_global = auth_with_tokens(Some(""), Arc::new(StubProviderTokens::default()));
-        assert!(empty_global
-            .resolve_token_for_user("unmapped-user", Some("soaplabs"))
-            .await
-            .is_err());
+        assert!(
+            empty_global
+                .resolve_token_for_user("unmapped-user", Some("soaplabs"))
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
+use crate::adapters::Adapters;
 use crate::adapters::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
-use crate::adapters::Adapters;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
@@ -117,13 +117,13 @@ pub struct AppState {
     /// Task↔external-subject bindings (`task_bindings`) — the return channel a
     /// task replies on. Handlers read and write bindings through this port.
     pub task_bindings: Arc<dyn TaskBindingDao>,
-    /// Adapter connections (`integration_connections`) — the per-provider
+    /// Adapter connections (`adapter_connections`) — the per-provider
     /// credential/webhook-secret rows inbound and outbound calls resolve
     /// against. Handlers read and write connections through this port.
     pub adapter_connections: Arc<dyn AdapterConnectionDao>,
-    /// Single owner of persistence for the four Loop tables (`triggers`,
-    /// `trigger_rules`, `adapter_event_trigger_sources`,
-    /// `schedule_trigger_sources`).
+    /// Single owner of persistence for the four Loop tables (`loops`,
+    /// `loop_configs`, `subscriptions`,
+    /// `schedules`).
     pub loops: Arc<LoopDao>,
     pub messages: Arc<dyn MessageDao>,
     pub feedback: Arc<dyn FeedbackDao>,
@@ -327,7 +327,7 @@ impl AppState {
         let users: Arc<dyn UserDao> = Arc::new(PgUserDao(pool.clone()));
 
         // Wire GitHub-token preflight once here so every task-creation path
-        // (HTTP, triggers, adapters) gets the same check for free.
+        // (HTTP, loops, adapters) gets the same check for free.
         let preflight = Arc::new(RealPreflight::new(
             PreflightCredentials {
                 secrets: secrets.clone(),

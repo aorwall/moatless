@@ -10,9 +10,9 @@
 
 use tracing::{debug, info};
 
+use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AccessDecision, Audience, InboundMessage, LoopContext};
-use crate::adapters::AdapterKind;
 use crate::db::DbPool;
 
 use super::access::{self, DmDecision, DmSender};
@@ -270,7 +270,7 @@ pub(super) async fn normalize(
 
     Ok(Normalization::Message {
         message: Box::new(InboundMessage {
-            provider: AdapterKind::Telegram,
+            adapter_kind: AdapterKind::Telegram,
             source_id: effective_source_id,
             thread_id,
             message_thread_id: msg_thread_id,
@@ -278,7 +278,7 @@ pub(super) async fn normalize(
             text: clean_text,
             file_ids: vec![],
             thread_properties,
-            provider_context: serde_json::json!({}),
+            adapter_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::message(message_id)),
             source_task_id: None,
             // Telegram makes no audience distinction: every event goes to every

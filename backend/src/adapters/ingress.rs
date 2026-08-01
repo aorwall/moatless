@@ -48,7 +48,7 @@ pub(crate) enum Outcome {
         reason: &'static str,
         /// The routing pair the ignore is attributed to, empty when the
         /// delivery was dropped before one was resolved.
-        rule_id: String,
+        subscription_id: String,
         connection_id: String,
     },
 }
@@ -60,7 +60,7 @@ impl Outcome {
         Self::Ignored {
             event_type: event_type.into(),
             reason,
-            rule_id: String::new(),
+            subscription_id: String::new(),
             connection_id: String::new(),
         }
     }
@@ -143,7 +143,7 @@ pub(crate) fn log_admission(
 
 #[cfg(test)]
 mod tests {
-    use super::{admit_delivery, IngressError};
+    use super::{IngressError, admit_delivery};
     use crate::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore, AdmitError};
     use crate::db::DbPool;
 

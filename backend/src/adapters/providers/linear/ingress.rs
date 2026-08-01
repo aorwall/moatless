@@ -61,7 +61,7 @@ pub mod reason {
     /// admitted; the header is absent rather than wrong.
     pub const NO_SIGNATURE: &str = "no_signature";
     /// The envelope names no organization, or names one with no
-    /// `integration_connections` row.
+    /// `adapter_connections` row.
     pub const NO_CONNECTION: &str = "no_connection";
     /// An `type` this Adapter does not handle.
     pub const UNSUPPORTED_EVENT: &str = "unsupported_event";
@@ -330,7 +330,7 @@ async fn requirement_met(
     let Some(Requirement::ActiveSubscription { team_id }) = requires else {
         return Ok(true);
     };
-    // Cheap guard only. The actual rule SELECTION — which may need a
+    // Cheap guard only. The actual subscription selection — which may need a
     // `get_issue` round-trip to learn the issue's project/labels — happens
     // inside the admitted work so it never delays Linear's webhook ack.
     let rules = resolve_rules_for_team(state, connection, team_id).await?;
@@ -390,12 +390,12 @@ async fn admit(
     Ok(())
 }
 
-/// Resolve every active task trigger bound to a given Linear team. Returns
-/// every rule attached to the team — multi-rule support is preserved.
+/// Resolve every active subscription bound to a given Linear team. Returns
+/// every subscription attached to the team — multi-listener support is preserved.
 ///
 /// Also the worker's: `delivery.rs`'s `session_provision` and `notification`
-/// executors re-resolve through here rather than snapshotting the rules the
-/// webhook saw, so an operator disabling a trigger between admission and
+/// executors re-resolve through here rather than snapshotting the subscriptions the
+/// webhook saw, so an operator disabling a loop between admission and
 /// execution stops the work.
 pub(super) async fn resolve_rules_for_team(
     state: &AppState,
@@ -413,7 +413,7 @@ pub(super) async fn resolve_rules_for_team(
                 true
             } else {
                 tracing::debug!(
-                    rule_id = %r.id,
+                    subscription_id = %r.id,
                     "Linear trigger ignored (different connection or inactive)"
                 );
                 false

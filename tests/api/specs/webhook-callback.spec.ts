@@ -52,7 +52,7 @@ test.describe('Chain 6: Webhook Outbound Callback', () => {
     // Clean up callback server
     await callbackServer?.stop()
 
-    // Clean up task trigger fixture
+    // Clean up subscription loop fixture
     const triggerId = ctx.get<string>('triggerId')
     if (triggerId) {
       await api.deleteTaskTriggerFixture(triggerId).catch(() => {})
@@ -69,7 +69,7 @@ test.describe('Chain 6: Webhook Outbound Callback', () => {
   test('INT-60: Create webhook config with callback URL', async ({ api }) => {
     const result = await createWebhookTriggerFixture(api, ctx.repositoryId!, {
       sourceId: `callback-test-${Date.now()}`,
-      providerConfig: {
+      adapterConfig: {
         callback_url: callbackServer.url,
       },
     })

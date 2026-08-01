@@ -98,7 +98,7 @@ pub async fn get_github_config(
 // Repository-scoped GitHub App installation bindings — admin only
 // ============================================================================
 
-/// `adapter_kind` used for GitHub rows in `integration_connections` (matches
+/// `adapter_kind` used for GitHub rows in `adapter_connections` (matches
 /// the webhook ingress and binding resolution lookups).
 const GITHUB_ADAPTER_KIND: &str = "github";
 
@@ -397,7 +397,7 @@ async fn save_installation_binding(
     ))
 }
 
-/// Mirror an installation binding into `integration_connections` so inbound
+/// Mirror an installation binding into `adapter_connections` so inbound
 /// GitHub webhooks and task↔PR bindings resolve for the installation's
 /// account (`external_account_id` = org/user login). Without this row,
 /// `resolve_connection` rejects the org and PRs created from tasks never
@@ -444,7 +444,7 @@ async fn upsert_github_org_connection(
         id: existing
             .as_ref()
             .map_or_else(|| format!("pc_{}", uuid::Uuid::new_v4()), |c| c.id.clone()),
-        provider: GITHUB_ADAPTER_KIND.to_string(),
+        adapter_kind: GITHUB_ADAPTER_KIND.to_string(),
         connection_kind: existing
             .as_ref()
             .map_or_else(|| "org_webhook".to_string(), |c| c.connection_kind.clone()),

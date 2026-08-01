@@ -50,7 +50,7 @@ pub async fn slack_webhook(
         Ok(Received::Delivery(Outcome::Ignored {
             event_type,
             reason,
-            rule_id,
+            subscription_id,
             connection_id,
         })) => {
             record_webhook(
@@ -58,7 +58,7 @@ pub async fn slack_webhook(
                 "ignored",
                 reason,
                 &event_type,
-                &rule_id,
+                &subscription_id,
                 &connection_id,
             );
             Ok(StatusCode::OK.into_response())

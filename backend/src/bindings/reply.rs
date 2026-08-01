@@ -143,8 +143,11 @@ impl<'a> ExternalReplyService<'a> {
                     binding.connection_id
                 ))
             })?;
-        let rule = if let Some(ref rule_id) = binding.trigger_id {
-            self.state.loops.find_subscription_by_id(rule_id).await?
+        let rule = if let Some(ref subscription_id) = binding.loop_id {
+            self.state
+                .loops
+                .find_subscription_by_id(subscription_id)
+                .await?
         } else {
             None
         };
@@ -312,7 +315,7 @@ fn select_binding_for_reply<'a>(
     if let Some(sk) = subject_key {
         if let Some(binding) = rows
             .iter()
-            .find(|b| candidates.contains(&b.provider) && b.subject_key == sk)
+            .find(|b| candidates.contains(&b.adapter_kind) && b.subject_key == sk)
         {
             return Some(binding);
         }
@@ -320,7 +323,7 @@ fn select_binding_for_reply<'a>(
 
     let provider_rows: Vec<&TaskBinding> = rows
         .iter()
-        .filter(|b| candidates.contains(&b.provider))
+        .filter(|b| candidates.contains(&b.adapter_kind))
         .collect();
 
     let ingress: Vec<&TaskBinding> = provider_rows
@@ -348,11 +351,11 @@ mod tests {
         TaskBinding {
             id: id.to_string(),
             task_id: "task_1".to_string(),
-            provider: provider.to_string(),
+            adapter_kind: provider.to_string(),
             subject_kind: "slack_thread".to_string(),
             subject_key: subject_key.to_string(),
             connection_id: "conn_1".to_string(),
-            trigger_id: None,
+            loop_id: None,
             destination_config: serde_json::json!({}),
             metadata: serde_json::json!({}),
             last_external_event_id: None,

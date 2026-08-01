@@ -262,7 +262,7 @@ mod tests {
             headless: false,
             ttl_minutes: 60,
             inactive_ttl_days: 7,
-            trigger_id: None,
+            loop_id: None,
             workspace_id: None,
             disabled_servers: None,
         }

@@ -1,4 +1,4 @@
-//! Durable scheduled-job runner.
+//! Durable schedule-firing runner.
 
 use std::sync::Arc;
 
@@ -7,17 +7,17 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use crate::adapters::AdapterKind;
 use crate::adapters::common::next_fire_at;
 use crate::adapters::models::{Audience, InboundMessage, LoopContext, LoopSpawnConfig, Schedule};
-use crate::adapters::AdapterKind;
 use crate::leader::LeaderGuard;
-use crate::loops::firing::metrics::record_job;
+use crate::loops::firing::metrics::record_schedule_firing;
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::models::TaskStatus;
 use moatless_backend_core::scope::ScopeContext;
 
-/// Spawn the scheduled-job background task.
+/// Spawn the schedule-firing background task.
 ///
 /// The join handle is returned for the root supervisor to own — durable
 /// scheduled work stops firing if this loop ends.
@@ -27,13 +27,13 @@ pub fn spawn_cron_scheduler(
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        info!("Scheduled job runner started");
+        info!("Schedule firing runner started");
         let worker_id = std::env::var("HOSTNAME").unwrap_or_else(|_| "local".to_string());
 
         loop {
             tokio::select! {
                 () = cancel.cancelled() => {
-                    info!("Scheduled job runner shutting down");
+                    info!("Schedule firing runner shutting down");
                     return;
                 }
                 () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
@@ -41,21 +41,21 @@ pub fn spawn_cron_scheduler(
                         match guard.try_acquire_or_renew().await {
                             Ok(true) => {}
                             Ok(false) => {
-                                debug!("Scheduled job runner not leader, skipping tick");
-                                record_job("ignored", "not_leader", "");
+                                debug!("Schedule firing runner not leader, skipping tick");
+                                record_schedule_firing("ignored", "not_leader", "");
                                 continue;
                             }
                             Err(e) => {
-                                warn!(error = %e, "Scheduled job leader election error, skipping tick");
-                                record_job("error", "leader_election_failed", "");
+                                warn!(error = %e, "Schedule firing leader election error, skipping tick");
+                                record_schedule_firing("error", "leader_election_failed", "");
                                 continue;
                             }
                         }
                     }
 
                     if let Err(e) = tick(&state, &worker_id).await {
-                        error!(error = %e, "Scheduled job tick failed");
-                        record_job("error", "tick_failed", "");
+                        error!(error = %e, "Schedule firing tick failed");
+                        record_schedule_firing("error", "tick_failed", "");
                     }
                 }
             }
@@ -67,47 +67,50 @@ async fn tick(
     state: &AppState,
     worker_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let locked_jobs = state.loops.claim_due_schedules(worker_id, 20).await?;
+    let locked_schedules = state.loops.claim_due_schedules(worker_id, 20).await?;
 
-    for locked in locked_jobs {
-        match execute_job(state, &locked).await {
+    for locked in locked_schedules {
+        match execute_schedule_firing(state, &locked).await {
             Ok(()) => {
-                record_job("success", "", &locked.id);
+                record_schedule_firing("success", "", &locked.id);
             }
             Err(e) => {
-                record_job("error", "execution_failed", &locked.id);
-                warn!(job_id = %locked.id, error = %e, "Scheduled job execution failed");
+                record_schedule_firing("error", "execution_failed", &locked.id);
+                warn!(schedule_id = %locked.id, error = %e, "Schedule firing execution failed");
             }
         }
 
-        // Release the lock and reschedule this job. Contain failures per-job so a
+        // Release the lock and reschedule this schedule. Contain failures per-schedule so a
         // single bad cron expression or DB hiccup doesn't strand the rest of the
         // already-locked batch until their 2-minute lock expiry.
         let next = match next_fire_at(&locked.cron_expression) {
             Ok(next) => next,
             Err(e) => {
-                record_job("error", "next_fire_failed", &locked.id);
-                warn!(job_id = %locked.id, error = %e, "Failed to compute next fire time");
+                record_schedule_firing("error", "next_fire_failed", &locked.id);
+                warn!(schedule_id = %locked.id, error = %e, "Failed to compute next fire time");
                 continue;
             }
         };
         if let Err(e) = state.loops.record_schedule_fire(&locked.id, next).await {
-            record_job("error", "record_fire_failed", &locked.id);
-            warn!(job_id = %locked.id, error = %e, "Failed to record schedule fire");
+            record_schedule_firing("error", "record_fire_failed", &locked.id);
+            warn!(schedule_id = %locked.id, error = %e, "Failed to record schedule fire");
         }
     }
 
     Ok(())
 }
 
-async fn execute_job(
+async fn execute_schedule_firing(
     state: &AppState,
-    job: &Schedule,
+    schedule: &Schedule,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let route = state.loops.find_loop_spawn_config(&job.loop_id).await?;
+    let route = state
+        .loops
+        .find_loop_spawn_config(&schedule.loop_id)
+        .await?;
 
-    let config = route_to_config(&route, job);
-    let run_as_user_id = job
+    let config = route_to_config(&route, schedule);
+    let run_as_user_id = schedule
         .run_as_user_id
         .clone()
         .or_else(|| route.run_as_user_id.clone())
@@ -115,16 +118,20 @@ async fn execute_job(
             std::io::Error::other("claimed schedule Loop has no approved run-as user")
         })?;
     let msg = InboundMessage {
-        provider: AdapterKind::Webhook,
-        source_id: job.id.clone(),
+        adapter_kind: AdapterKind::Webhook,
+        source_id: schedule.id.clone(),
         thread_id: None,
-        message_thread_id: format!("scheduled:{}", job.id),
+        message_thread_id: format!("scheduled:{}", schedule.id),
         user_id: run_as_user_id,
-        text: job.message_template.clone(),
+        text: schedule.message_template.clone(),
         file_ids: vec![],
-        thread_properties: serde_json::json!({"scheduled_job_id": job.id}),
-        provider_context: serde_json::json!({"scheduled_job_id": job.id}),
-        external_event_id: Some(format!("scheduled:{}:{}", job.id, Utc::now().timestamp())),
+        thread_properties: serde_json::json!({"schedule_id": schedule.id}),
+        adapter_context: serde_json::json!({"schedule_id": schedule.id}),
+        external_event_id: Some(format!(
+            "scheduled:{}:{}",
+            schedule.id,
+            Utc::now().timestamp()
+        )),
         source_task_id: None,
         audience: Audience::Everyone,
     };
@@ -158,7 +165,7 @@ async fn execute_job(
     crate::message::send::send_message_flow(
         state,
         &task_id,
-        &job.message_template,
+        &schedule.message_template,
         None,
         Option::<&AgentMode>::None,
         &[],
@@ -167,7 +174,7 @@ async fn execute_job(
         msg.external_event_id.as_deref(),
         Some("scheduled"),
         None,
-        Some(&job.id),
+        Some(&schedule.id),
         None,
         false,
         None,
@@ -199,44 +206,44 @@ async fn create_scheduled_task(
         // persisted the task as errored + published a `SandboxStatus::Error`
         // event. Record a distinct metric so a broken token is separable from a
         // transient blip in the generic `execution_failed` counter; the per-tick
-        // cron retry is inherent and left to trigger auto-disable (a separate
+        // cron retry is inherent and left to Loop auto-disable (a separate
         // ticket).
         Err(e @ crate::task::creation::TaskCreationError::Preflight(_)) => {
-            warn!(trigger_id = %config.id, error = %e, "Scheduled task preflight failed");
-            record_job("error", "preflight_failed", &config.id);
+            warn!(loop_id = %config.id, error = %e, "Scheduled task preflight failed");
+            record_schedule_firing("error", "preflight_failed", &config.id);
             return Err(Box::new(e));
         }
         Err(e) => return Err(Box::new(e)),
     };
 
     if outcome.provision == crate::task::creation::ProvisionOutcome::Failed {
-        record_job("error", "provision_failed", &config.id);
+        record_schedule_firing("error", "provision_failed", &config.id);
     }
 
     Ok(outcome.task.task_id)
 }
 
-fn route_to_config(route: &LoopSpawnConfig, job: &Schedule) -> LoopContext {
+fn route_to_config(route: &LoopSpawnConfig, schedule: &Schedule) -> LoopContext {
     LoopContext {
-        id: job.id.clone(),
-        provider: "scheduled".to_string(),
-        source_id: job.id.clone(),
-        source_name: Some(job.id.clone()),
+        id: schedule.id.clone(),
+        adapter_kind: "scheduled".to_string(),
+        source_id: schedule.id.clone(),
+        source_name: Some(schedule.id.clone()),
         repository_id: route.repository_id.clone(),
         routing_mode: route.routing_mode,
         prompt_template: route.prompt_template.clone(),
-        active: job.active,
+        active: schedule.active,
         allow_direct_send: false,
-        provider_config: Some(serde_json::json!({
-            "message": job.message_template,
-            "schedule": job.cron_expression,
-            "timezone": job.timezone,
+        adapter_config: Some(serde_json::json!({
+            "message": schedule.message_template,
+            "schedule": schedule.cron_expression,
+            "timezone": schedule.timezone,
         })),
         ongoing_task_id: route.ongoing_task_id.clone(),
         scope: route.scope,
         task_name: route.task_name.clone(),
         tag_ids: route.tag_ids.clone(),
-        run_as_user_id: job
+        run_as_user_id: schedule
             .run_as_user_id
             .clone()
             .or_else(|| route.run_as_user_id.clone()),

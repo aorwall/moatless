@@ -412,7 +412,7 @@ impl GithubPrApi {
     ///
     /// GitHub computes mergeability asynchronously: a PR read right after a push
     /// returns `mergeable: null` / `mergeable_state: "unknown"`, and the read
-    /// itself is what triggers the background job. We retry a few times with a
+    /// itself is what loops the background job. We retry a few times with a
     /// short backoff so callers get a settled `clean`/`dirty`/… value. If it
     /// never settles within the budget, the last (possibly `unknown`) `PrInfo`
     /// is returned rather than erroring — callers treat `unknown` as
@@ -664,7 +664,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_github_keeps_transport_source() {
@@ -722,8 +722,8 @@ mod error_source_tests {
 
 #[cfg(test)]
 mod request_budget_tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use axum::extract::State;
     use axum::routing::get;

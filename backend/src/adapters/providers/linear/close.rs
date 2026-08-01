@@ -67,7 +67,7 @@ async fn binding_is_close_eligible(
     }
 
     if binding.origin != ADAPTER_EVENT_BINDING_ORIGIN
-        || binding.trigger_id.as_deref() != Some(rule.id.as_str())
+        || binding.loop_id.as_deref() != Some(rule.id.as_str())
     {
         debug!(
             task_id = %binding.task_id,

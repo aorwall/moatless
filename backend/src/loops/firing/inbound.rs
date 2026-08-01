@@ -16,7 +16,7 @@ use crate::adapters::models::InboundMessage;
 /// 1. `origin_prelude` — an optional origin-context line prepended ahead of
 ///    everything else.
 /// 2. `prompt_template` — the loop/subscription's own prompt template.
-/// 3. the reply instructions of the adapter named by `provider_label` (e.g.
+/// 3. the reply instructions of the adapter named by `adapter_label` (e.g.
 ///    mention syntax). The universal `moat messages reply --message <id>`
 ///    guidance lives in the base sandbox-tools prompt — no per-adapter copy
 ///    needed.
@@ -27,7 +27,7 @@ use crate::adapters::models::InboundMessage;
 /// path; a path opts into a prelude purely via the `origin_prelude` argument.
 pub(crate) fn assemble_firing_prompt(
     state: &AppState,
-    provider_label: &str,
+    adapter_label: &str,
     prompt_template: Option<&str>,
     origin_prelude: Option<&str>,
 ) -> Option<String> {
@@ -39,7 +39,7 @@ pub(crate) fn assemble_firing_prompt(
         parts.push(tpl.to_string());
     }
     if let Some(providers) = state.adapters.as_ref() {
-        if let Some(presentation) = providers.inbound_presentation_by_name(provider_label) {
+        if let Some(presentation) = providers.inbound_presentation_by_name(adapter_label) {
             if let Some(extra) = presentation.reply_instructions() {
                 parts.push(extra);
             }
@@ -92,7 +92,7 @@ pub(crate) async fn create_task_from_loop(
 ) -> Result<TaskCreationOutcome, TaskCreationError> {
     let append_system_prompt = assemble_firing_prompt(
         state,
-        &config.provider,
+        &config.adapter_kind,
         config.prompt_template.as_deref(),
         params.origin_prelude,
     );
@@ -110,7 +110,7 @@ pub(crate) async fn create_task_from_loop(
         scope: config.scope,
         owner_user_id: (config.scope == moatless_backend_core::scope::Scope::User)
             .then(|| config.effective_user_id().to_string()),
-        trigger_id: Some(config.id.clone()),
+        loop_id: Some(config.id.clone()),
         workspace_id: None,
         template_id: None,
         vibe: None,
@@ -146,7 +146,7 @@ pub(crate) async fn create_task_from_loop(
 /// Create a new task from an external chat message (Slack / Telegram / Webhook)
 /// or the schedule runner. Thin wrapper over [`create_task_from_loop`] that
 /// fills in the chat-path shape: private visibility, no origin prelude, the
-/// trigger's task name, a truncated message preview, and `{adapter, source_id}`
+/// Loop's task name, a truncated message preview, and `{adapter, source_id}`
 /// event metadata. `related_to` carries the optional peer relation the bindings
 /// path computes; the schedule runner passes `None`.
 pub(crate) async fn create_task_for_external_message(
@@ -165,7 +165,7 @@ pub(crate) async fn create_task_for_external_message(
             origin_prelude: None,
             related_to,
             event_metadata: serde_json::json!({
-                "adapter": config.provider,
+                "adapter": config.adapter_kind,
                 "source_id": config.source_id,
             }),
         },

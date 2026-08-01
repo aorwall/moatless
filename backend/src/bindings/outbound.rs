@@ -14,33 +14,33 @@ use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use moatless_backend_core::scope::ScopeContext;
 
-/// Send a message directly through a task trigger.
+/// Send a message directly through a subscription loop.
 ///
-/// This is the rules-based replacement for direct sends to Slack/Telegram
-/// trigger configs. When `task_id` is provided, a binding is created so
+/// This is the subscription-based replacement for direct sends to Slack/Telegram
+/// adapter configs. When `task_id` is provided, a binding is created so
 /// future replies can target the external thread via `moat reply`.
 pub async fn direct_send_to_rule(
     state: &AppState,
     providers: &Adapters,
-    rule_id: &str,
+    subscription_id: &str,
     task_id: Option<&str>,
     text: &str,
     file_ids: &[String],
 ) -> Result<Option<String>, AdapterError> {
     let rule = state
         .loops
-        .find_subscription_by_id(rule_id)
+        .find_subscription_by_id(subscription_id)
         .await?
-        .ok_or_else(|| AdapterError::ConfigNotFound(rule_id.to_string()))?;
+        .ok_or_else(|| AdapterError::ConfigNotFound(subscription_id.to_string()))?;
 
     if !rule.allow_direct_send {
         return Err(AdapterError::BadRequest(format!(
-            "Task trigger {rule_id} does not allow direct send"
+            "Task trigger {subscription_id} does not allow direct send"
         )));
     }
     if !rule.active {
         return Err(AdapterError::BadRequest(format!(
-            "Task trigger {rule_id} is not active"
+            "Task trigger {subscription_id} is not active"
         )));
     }
 
@@ -51,13 +51,13 @@ pub async fn direct_send_to_rule(
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(rule.connection_id.clone()))?;
 
-    let provider = providers.outbound_for_new_thread_by_name(&rule.provider)?;
-    let provider_label = provider.provider_key();
+    let provider = providers.outbound_for_new_thread_by_name(&rule.adapter_kind)?;
+    let adapter_label = provider.provider_key();
 
     let files = resolve_files(state, file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
         record_outbound(
-            provider_label,
+            adapter_label,
             "error",
             "unsupported_feature",
             &rule.id,
@@ -77,12 +77,12 @@ pub async fn direct_send_to_rule(
         is_error: false,
         files,
     };
-    let config = crate::bindings::runtime::trigger_context(&rule, provider_label);
+    let config = crate::bindings::runtime::subscription_context(&rule, adapter_label);
     let thread_info = match provider.send_message(&config, &reply).await {
         Ok(info) => info,
         Err(e) => {
             record_outbound(
-                provider_label,
+                adapter_label,
                 "error",
                 "send_failed",
                 &rule.id,
@@ -90,7 +90,7 @@ pub async fn direct_send_to_rule(
             );
             return Err(AdapterError::AdapterApi(format!(
                 "Failed to send message via {}: {e}",
-                rule.provider
+                rule.adapter_kind
             )));
         }
     };
@@ -116,7 +116,7 @@ pub async fn direct_send_to_rule(
     }
 
     record_outbound(
-        provider_label,
+        adapter_label,
         "success",
         "direct_send",
         &rule.id,
@@ -219,7 +219,7 @@ pub(crate) async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<
 /// Send a reply to the external target referenced by a task binding.
 ///
 /// Loads the binding, its adapter connection, and its optional
-/// trigger rule, then calls `send_reply_for_binding` on the matching
+/// subscription loop, then calls `send_reply_for_binding` on the matching
 /// adapter. Persists a visible assistant stub up front, tags it with the
 /// returned external id, populates the recently_sent race-window cache, and
 /// advances the binding cursor.
@@ -256,23 +256,23 @@ pub async fn send_to_binding(
             ))
         })?;
 
-    let rule = if let Some(ref rule_id) = binding.trigger_id {
-        state.loops.find_subscription_by_id(rule_id).await?
+    let rule = if let Some(ref subscription_id) = binding.loop_id {
+        state.loops.find_subscription_by_id(subscription_id).await?
     } else {
         None
     };
 
-    let provider = providers.outbound_for_binding_reply_by_name(&binding.provider)?;
-    let provider_label = provider.provider_key();
+    let provider = providers.outbound_for_binding_reply_by_name(&binding.adapter_kind)?;
+    let adapter_label = provider.provider_key();
 
-    let binding_trigger_id = binding.trigger_id.as_deref().unwrap_or("");
+    let binding_loop_id = binding.loop_id.as_deref().unwrap_or("");
     let files = resolve_files(state, file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
         record_outbound(
-            provider_label,
+            adapter_label,
             "error",
             "unsupported_feature",
-            binding_trigger_id,
+            binding_loop_id,
             &binding.connection_id,
         );
         return Ok((
@@ -311,7 +311,7 @@ pub async fn send_to_binding(
     // Persist a visible stub up front so the row shows in the task timeline
     // and we have a uuid to tag with the outbound `external_event_id`.
     let stub_uuid =
-        persist_outbound_stub_for_binding(state, task_id, &reply.text, &binding, provider_label)
+        persist_outbound_stub_for_binding(state, task_id, &reply.text, &binding, adapter_label)
             .await;
 
     let external_id = match provider
@@ -321,17 +321,17 @@ pub async fn send_to_binding(
         Ok(id) => id,
         Err(e) => {
             record_outbound(
-                provider_label,
+                adapter_label,
                 "error",
                 "send_failed",
-                binding_trigger_id,
+                binding_loop_id,
                 &binding.connection_id,
             );
             return Ok((
                 0,
                 vec![format!(
                     "Failed to send reply via {}: {e}",
-                    binding.provider
+                    binding.adapter_kind
                 )],
             ));
         }
@@ -345,7 +345,7 @@ pub async fn send_to_binding(
                 .set_external_source_metadata(
                     msg_id,
                     ext_id,
-                    provider_label,
+                    adapter_label,
                     Some(binding.subject_key.as_str()),
                 )
                 .await
@@ -363,10 +363,10 @@ pub async fn send_to_binding(
     }
 
     record_outbound(
-        provider_label,
+        adapter_label,
         "success",
         "",
-        binding_trigger_id,
+        binding_loop_id,
         &binding.connection_id,
     );
     Ok((1, vec![]))
@@ -378,7 +378,7 @@ pub(crate) async fn persist_outbound_stub_for_binding(
     task_id: &str,
     text: &str,
     binding: &crate::adapters::models::TaskBinding,
-    provider_label: &str,
+    adapter_label: &str,
 ) -> Option<String> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let uuid = uuid::Uuid::new_v4().to_string();
@@ -401,7 +401,7 @@ pub(crate) async fn persist_outbound_stub_for_binding(
     msg.message_role = MessageRole::Assistant;
     msg.user_type = "assistant".to_string();
     msg.turn_number = turn_number;
-    msg.external_adapter = Some(provider_label.to_string());
+    msg.external_adapter = Some(adapter_label.to_string());
     msg.external_source_name = Some(binding.subject_key.clone());
 
     match state

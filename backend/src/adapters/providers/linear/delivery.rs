@@ -1,6 +1,6 @@
 //! Durable admission for every Linear webhook event kind.
 //!
-//! Everything a Linear delivery triggers used to run on the response path:
+//! Everything a Linear delivery loops used to run on the response path:
 //! provisioning the task behind a new agent session was `tokio::spawn`ed, and
 //! the other four kinds — a follow-up prompt on an existing session, an issue
 //! state change, a comment, and a workspace notification — ran inline before

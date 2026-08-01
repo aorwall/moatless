@@ -17,7 +17,7 @@ impl AdapterInboundPresentation for SlackAdapter {
 
     fn sender_label_suffix(&self, msg: &InboundMessage) -> Option<String> {
         let provider_user_id = msg
-            .provider_context
+            .adapter_context
             .get("user_id")
             .and_then(serde_json::Value::as_str)
             .filter(|value| !value.is_empty())?;
@@ -25,7 +25,7 @@ impl AdapterInboundPresentation for SlackAdapter {
     }
 
     fn inbound_message_prefix(&self, msg: &InboundMessage) -> Option<String> {
-        msg.provider_context
+        msg.adapter_context
             .get("is_bot_mentioned")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
@@ -37,7 +37,7 @@ impl AdapterInboundPresentation for SlackAdapter {
 
     fn thread_reply_hint(&self, msg: &InboundMessage) -> Option<String> {
         let is_bot_mentioned = msg
-            .provider_context
+            .adapter_context
             .get("is_bot_mentioned")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
@@ -164,7 +164,7 @@ mod tests {
         let now = chrono::Utc::now();
         BindingContext {
             binding_id: "tb_1".into(),
-            trigger_id: None,
+            loop_id: None,
             task_id: "task-1".into(),
             subject_kind: "slack_thread".into(),
             subject_key: "T1:C1:1700000000.000100".into(),
@@ -176,11 +176,11 @@ mod tests {
         }
     }
 
-    fn loop_context(provider_config: Option<serde_json::Value>) -> LoopContext {
+    fn loop_context(adapter_config: Option<serde_json::Value>) -> LoopContext {
         let now = chrono::Utc::now();
         LoopContext {
             id: "tt_1".into(),
-            provider: "slack".into(),
+            adapter_kind: "slack".into(),
             source_id: "C1".into(),
             source_name: None,
             repository_id: "repo-1".into(),
@@ -188,7 +188,7 @@ mod tests {
             prompt_template: None,
             active: true,
             allow_direct_send: true,
-            provider_config,
+            adapter_config,
             ongoing_task_id: None,
             scope: Scope::Global,
             task_name: None,
@@ -202,9 +202,9 @@ mod tests {
         }
     }
 
-    fn message(provider_context: serde_json::Value) -> InboundMessage {
+    fn message(adapter_context: serde_json::Value) -> InboundMessage {
         InboundMessage {
-            provider: AdapterKind::Slack,
+            adapter_kind: AdapterKind::Slack,
             source_id: "C1".into(),
             thread_id: None,
             message_thread_id: "1700000000.000100".into(),
@@ -212,7 +212,7 @@ mod tests {
             text: "hello".into(),
             file_ids: vec![],
             thread_properties: serde_json::json!({}),
-            provider_context,
+            adapter_context,
             external_event_id: None,
             source_task_id: None,
             audience: Audience::Everyone,

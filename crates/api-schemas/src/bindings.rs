@@ -39,7 +39,7 @@ pub struct TaskBindingResponse {
     pub task_id: String,
     pub adapter_kind: AdapterKind,
     pub connection_id: String,
-    pub trigger_id: Option<String>,
+    pub loop_id: Option<String>,
     pub subject_kind: String,
     pub subject_key: String,
     #[cfg_attr(feature = "openapi", schema(value_type = Object))]
@@ -58,7 +58,7 @@ pub struct TaskBindingResponse {
 pub struct CreateTaskBindingRequest {
     pub adapter_kind: AdapterKind,
     pub connection_id: String,
-    pub trigger_id: Option<String>,
+    pub loop_id: Option<String>,
     pub subject_kind: String,
     pub subject_key: String,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
@@ -73,7 +73,7 @@ pub struct CreateTaskBindingRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct TaskBindingSummary {
-    pub trigger_id: String,
+    pub loop_id: String,
     pub adapter_kind: AdapterKind,
     pub source_id: String,
     pub source_name: Option<String>,

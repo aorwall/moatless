@@ -41,7 +41,7 @@ pub struct BotIdentity {
 
 /// GitHub App service for installation tokens and user token refresh.
 pub struct GitHubAppService {
-    /// Stable key used by trigger config to select this App (e.g. `"dev-bot"`).
+    /// Stable key used by loop config to select this App (e.g. `"dev-bot"`).
     key: String,
     app_id: u64,
     private_key: EncodingKey,

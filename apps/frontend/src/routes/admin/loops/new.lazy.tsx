@@ -14,7 +14,7 @@ function NewLoopPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold">New Loop</h1>
         <p className="text-sm text-muted-foreground">
-          Create a subscription or schedule loop with its embedded rule.
+          Create a subscription or schedule loop with its embedded config.
         </p>
       </div>
       <LoopForm loop={null} onSuccess={goBack} onCancel={goBack} />

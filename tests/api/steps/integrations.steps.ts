@@ -8,10 +8,10 @@
 import type { LoopRecentTaskItem } from '@moatless/api-client/sandbox/model'
 import type { RawResponse } from '../../shared/moat'
 import type { MoatApi } from '../../shared/moat-api'
-import type { TaskTriggerFixtureResponse } from '../../shared/types'
+import type { TaskLoopFixtureResponse } from '../../shared/types'
 
 // =============================================================================
-// INT-01: Create webhook task trigger fixture
+// INT-01: Create webhook subscription loop fixture
 // =============================================================================
 
 export async function createWebhookTriggerFixture(
@@ -22,9 +22,9 @@ export async function createWebhookTriggerFixture(
     sourceName?: string
     routingMode?: string
     promptTemplate?: string
-    providerConfig?: Record<string, unknown>
+    adapterConfig?: Record<string, unknown>
   },
-): Promise<{ triggerId: string; config: TaskTriggerFixtureResponse }> {
+): Promise<{ triggerId: string; loopId: string; config: TaskLoopFixtureResponse }> {
   const config = await api.createTaskTriggerFixture({
     adapterKind: 'webhook',
     sourceId: options?.sourceId ?? `webhook-${Date.now()}`,
@@ -32,9 +32,9 @@ export async function createWebhookTriggerFixture(
     repositoryId,
     routingMode: options?.routingMode ?? 'by_subject',
     promptTemplate: options?.promptTemplate,
-    providerConfig: options?.providerConfig,
+    adapterConfig: options?.adapterConfig,
   })
-  return { triggerId: config.id, config }
+  return { triggerId: config.id, loopId: config.id, config }
 }
 
 // =============================================================================
@@ -47,13 +47,13 @@ export async function createWebhookTriggerFixtureWithRouting(
   routingMode: string,
   options?: {
     sourceId?: string
-    providerConfig?: Record<string, unknown>
+    adapterConfig?: Record<string, unknown>
   },
-): Promise<{ triggerId: string; config: TaskTriggerFixtureResponse }> {
+): Promise<{ triggerId: string; loopId: string; config: TaskLoopFixtureResponse }> {
   return createWebhookTriggerFixture(api, repositoryId, {
     routingMode,
     sourceId: options?.sourceId,
-    providerConfig: options?.providerConfig,
+    adapterConfig: options?.adapterConfig,
   })
 }
 

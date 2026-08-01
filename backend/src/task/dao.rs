@@ -188,7 +188,7 @@ impl TaskDao for PgTaskDao {
         // Resolve the workspace this task belongs to. Callers may set
         // `workspace_id` explicitly (future multi-repo flows); when unset, ensure
         // the repository's deterministic shadow workspace exists and use it — so
-        // every creation path (HTTP handler, adapters, triggers) persists a
+        // every creation path (HTTP handler, adapters, loops) persists a
         // workspace_id consistently, exactly as the Phase A backfill did for
         // pre-existing tasks. Applied here at the DAO layer, mirroring the
         // auto-follow below, so no creation path can silently skip it.
@@ -209,7 +209,7 @@ impl TaskDao for PgTaskDao {
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, owner_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
-                inactive_ttl_days, trigger_id, disabled_servers, model,
+                inactive_ttl_days, loop_id, disabled_servers, model,
                 workspace_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
@@ -242,7 +242,7 @@ impl TaskDao for PgTaskDao {
         .bind(row.headless)
         .bind(row.ttl_minutes)
         .bind(row.inactive_ttl_days)
-        .bind(&row.trigger_id)
+        .bind(&row.loop_id)
         .bind(&row.disabled_servers)
         .bind(&row.model)
         .bind(&workspace_id)
@@ -256,7 +256,7 @@ impl TaskDao for PgTaskDao {
 
         // Auto-follow the task for its creator so it lands in their personal
         // task list. Applied at the DAO layer so every creation path (HTTP
-        // handler, adapters, triggers) follows consistently. Best-effort — a
+        // handler, adapters, loops) follows consistently. Best-effort — a
         // follow failure must never fail task insertion.
         //
         // Deliberately after the commit rather than inside it: an error inside a
@@ -314,7 +314,7 @@ impl TaskDao for PgTaskDao {
             headless: Option<bool>,
             ttl_minutes: Option<i32>,
             inactive_ttl_days: Option<i32>,
-            trigger_id: Option<String>,
+            loop_id: Option<String>,
             disabled_servers: Option<serde_json::Value>,
         }
 
@@ -359,7 +359,7 @@ impl TaskDao for PgTaskDao {
                     headless: self.headless?,
                     ttl_minutes: self.ttl_minutes?,
                     inactive_ttl_days: self.inactive_ttl_days?,
-                    trigger_id: self.trigger_id,
+                    loop_id: self.loop_id,
                     disabled_servers: self.disabled_servers,
                 })
             }
@@ -389,7 +389,7 @@ impl TaskDao for PgTaskDao {
                     t.model, t.created_by, t.visibility, t.scope, t.owner_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
-                    t.inactive_ttl_days, t.trigger_id, t.disabled_servers
+                    t.inactive_ttl_days, t.loop_id, t.disabled_servers
                 FROM tasks t
                 WHERE {}
                   AND ($3::text IS NULL OR t.status = $3)
@@ -603,10 +603,7 @@ impl TaskDao for PgTaskDao {
 
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         let ctrl = ctx.control_filter("", 2);
-        let sql = format!(
-            "DELETE FROM tasks WHERE task_id = $1 AND {}",
-            ctrl.sql()
-        );
+        let sql = format!("DELETE FROM tasks WHERE task_id = $1 AND {}", ctrl.sql());
         let mut tx = self.0.begin().await?;
         let res = sqlx::query(AssertSqlSafe(sql))
             .bind(task_id)
@@ -929,9 +926,7 @@ pub async fn find_by_id(
     task_id: &str,
     ctx: &ScopeContext,
 ) -> Result<Option<Task>, sqlx::Error> {
-    PgTaskDao(pool.clone())
-        .find_by_id(task_id, ctx)
-        .await
+    PgTaskDao(pool.clone()).find_by_id(task_id, ctx).await
 }
 
 /// List tasks with individual filter arguments (convenience wrapper).
@@ -980,14 +975,10 @@ pub async fn delete_task(
     task_id: &str,
     ctx: &ScopeContext,
 ) -> Result<bool, sqlx::Error> {
-    PgTaskDao(pool.clone())
-        .delete_task(task_id, ctx)
-        .await
+    PgTaskDao(pool.clone()).delete_task(task_id, ctx).await
 }
 
 /// Check if a task with the given short_id exists (convenience wrapper).
 pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, sqlx::Error> {
-    PgTaskDao(pool.clone())
-        .exists_by_short_id(short_id)
-        .await
+    PgTaskDao(pool.clone()).exists_by_short_id(short_id).await
 }

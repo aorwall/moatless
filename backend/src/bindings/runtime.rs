@@ -1,4 +1,4 @@
-//! Shared binding runtime backed by adapter connections, triggers, rules,
+//! Shared binding runtime backed by adapter connections, loops, subscriptions,
 //! and task bindings.
 
 use chrono::Utc;
@@ -12,7 +12,7 @@ use crate::adapters::models::{
 };
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
-use crate::bindings::recipients::{resolve_recipients, EventProvenance};
+use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::firing::inbound;
 use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
@@ -24,30 +24,30 @@ pub use crate::adapters::models::{
     CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD,
 };
 
-/// Build a synthetic `LoopContext` from a trigger+route view for provider
+/// Build a synthetic `LoopContext` from a subscription view for adapter
 /// trait methods that still accept a config-shaped value.
-pub fn trigger_context(rule: &SubscriptionMatch, provider_label: &str) -> LoopContext {
+pub fn subscription_context(subscription: &SubscriptionMatch, adapter_label: &str) -> LoopContext {
     LoopContext {
-        id: rule.id.clone(),
-        provider: provider_label.to_string(),
-        source_id: rule.source_matcher.clone(),
-        source_name: rule.source_name.clone(),
-        repository_id: rule.repository_id.clone(),
-        routing_mode: rule.routing_mode,
-        prompt_template: rule.prompt_template.clone(),
-        active: rule.active,
-        allow_direct_send: rule.allow_direct_send,
-        provider_config: rule.provider_config.clone(),
-        ongoing_task_id: rule.ongoing_task_id.clone(),
-        scope: rule.scope,
-        task_name: rule.task_name.clone(),
-        tag_ids: rule.tag_ids.clone(),
-        run_as_user_id: rule.run_as_user_id.clone(),
-        agent_type: rule.agent_type.clone(),
-        inactive_ttl_days: rule.inactive_ttl_days,
-        created_by: rule.created_by.clone(),
-        created_at: rule.created_at,
-        updated_at: rule.updated_at,
+        id: subscription.id.clone(),
+        adapter_kind: adapter_label.to_string(),
+        source_id: subscription.source_matcher.clone(),
+        source_name: subscription.source_name.clone(),
+        repository_id: subscription.repository_id.clone(),
+        routing_mode: subscription.routing_mode,
+        prompt_template: subscription.prompt_template.clone(),
+        active: subscription.active,
+        allow_direct_send: subscription.allow_direct_send,
+        adapter_config: subscription.adapter_config.clone(),
+        ongoing_task_id: subscription.ongoing_task_id.clone(),
+        scope: subscription.scope,
+        task_name: subscription.task_name.clone(),
+        tag_ids: subscription.tag_ids.clone(),
+        run_as_user_id: subscription.run_as_user_id.clone(),
+        agent_type: subscription.agent_type.clone(),
+        inactive_ttl_days: subscription.inactive_ttl_days,
+        created_by: subscription.created_by.clone(),
+        created_at: subscription.created_at,
+        updated_at: subscription.updated_at,
     }
 }
 
@@ -65,7 +65,7 @@ pub fn binding_context(binding: &TaskBinding) -> BindingContext {
 
     BindingContext {
         binding_id: binding.id.clone(),
-        trigger_id: binding.trigger_id.clone(),
+        loop_id: binding.loop_id.clone(),
         task_id: binding.task_id.clone(),
         subject_kind: binding.subject_kind.clone(),
         subject_key: binding.subject_key.clone(),
@@ -100,12 +100,14 @@ pub async fn resolve_chat_provider_event(
         return Ok(None);
     };
 
-    let rule_repo = state.loops.clone();
-    let rule = rule_repo
+    let subscription_repo = state.loops.clone();
+    let subscription = subscription_repo
         .find_subscription_by_source_matcher(provider, source_id)
         .await?
-        .or(rule_repo.find_subscription_wildcard(provider).await?);
-    let Some(rule) = rule else {
+        .or(subscription_repo
+            .find_subscription_wildcard(provider)
+            .await?);
+    let Some(subscription) = subscription else {
         record_inbound(
             provider,
             "ignored",
@@ -116,11 +118,11 @@ pub async fn resolve_chat_provider_event(
         return Ok(None);
     };
 
-    if rule.connection_id != connection.id {
+    if subscription.connection_id != connection.id {
         debug!(
             provider,
             source_id,
-            rule_id = %rule.id,
+            subscription_id = %subscription.id,
             connection_id = %connection.id,
             "Task trigger belongs to a different connection"
         );
@@ -128,36 +130,36 @@ pub async fn resolve_chat_provider_event(
             provider,
             "ignored",
             inbound_reason::WRONG_CONNECTION,
-            &rule.id,
+            &subscription.id,
             &connection.id,
         );
         return Ok(None);
     }
 
-    Ok(Some((connection, rule)))
+    Ok(Some((connection, subscription)))
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn route_inbound_message(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: &SubscriptionMatch,
+    subscription: &SubscriptionMatch,
     msg: InboundMessage,
-    provider_label: &str,
+    adapter_label: &str,
     subject_kind: &str,
     subject_key: &str,
     destination_config: serde_json::Value,
 ) -> Result<String, AdapterError> {
-    if !rule.active {
-        debug!(rule_id = %rule.id, "Ignoring external message: task trigger inactive");
+    if !subscription.active {
+        debug!(subscription_id = %subscription.id, "Ignoring external message: task trigger inactive");
         record_inbound(
-            provider_label,
+            adapter_label,
             "ignored",
             inbound_reason::INACTIVE_RULE,
-            &rule.id,
+            &subscription.id,
             &connection.id,
         );
-        return Err(AdapterError::ConfigNotFound(rule.id.clone()));
+        return Err(AdapterError::ConfigNotFound(subscription.id.clone()));
     }
 
     let binding_repo = PgTaskBindingDao(state.db.clone());
@@ -168,7 +170,7 @@ pub async fn route_inbound_message(
         Some(task_id) => Some(task_id),
         None => match msg.external_event_id.as_deref() {
             Some(ext_id) => {
-                let candidates = external_id_aliases(state, provider_label, ext_id);
+                let candidates = external_id_aliases(state, adapter_label, ext_id);
                 state
                     .messages
                     .find_task_id_by_any_external_event_id(&candidates)
@@ -179,7 +181,7 @@ pub async fn route_inbound_message(
     };
 
     let mut bindings = binding_repo
-        .find_by_subject(provider_label, subject_kind, subject_key)
+        .find_by_subject(adapter_label, subject_kind, subject_key)
         .await?;
 
     // Skip bindings whose task has closed — a closed task is terminal and must
@@ -192,9 +194,9 @@ pub async fn route_inbound_message(
             let sub = upsert_binding(
                 state,
                 connection,
-                Some(rule),
+                Some(subscription),
                 origin_task_id,
-                provider_label,
+                adapter_label,
                 subject_kind,
                 subject_key,
                 destination_config.clone(),
@@ -206,8 +208,8 @@ pub async fn route_inbound_message(
         }
     }
 
-    if rule.routing_mode == RoutingMode::Ongoing {
-        if let Some(task_id) = open_ongoing_task_id(state, rule).await {
+    if subscription.routing_mode == RoutingMode::Ongoing {
+        if let Some(task_id) = open_ongoing_task_id(state, subscription).await {
             if !bindings.iter().any(|s| s.task_id == task_id) {
                 // Pass None so a newly attached binding starts with no cursor —
                 // `deliver_to_binding` then fetches the full prior thread as
@@ -217,9 +219,9 @@ pub async fn route_inbound_message(
                 let sub = upsert_binding(
                     state,
                     connection,
-                    Some(rule),
+                    Some(subscription),
                     &task_id,
-                    provider_label,
+                    adapter_label,
                     subject_kind,
                     subject_key,
                     destination_config.clone(),
@@ -233,7 +235,7 @@ pub async fn route_inbound_message(
     }
 
     let mut new_task_binding_id = None;
-    if should_create_binding_task(state, rule, &bindings).await? {
+    if should_create_binding_task(state, subscription, &bindings).await? {
         // The earliest binding for this subject (if any) belongs to the task
         // that originated it — typically a `connected_thread` binding placed
         // when an earlier task produced the resource. We link the new task
@@ -245,20 +247,23 @@ pub async fn route_inbound_message(
                 related_task_id: b.task_id.clone(),
                 context: serde_json::json!({
                     "via": "binding_webhook",
-                    "adapter": provider_label,
+                    "adapter": adapter_label,
                     "subject_kind": subject_kind,
                     "subject_key": subject_key,
                     "origin_binding_id": b.id,
                 }),
             });
-        let config = trigger_context(rule, provider_label);
+        let config = subscription_context(subscription, adapter_label);
         // The creation service records the `related_to` relation and provisions
         // the sandbox as part of the owned sequence.
         match inbound::create_task_for_external_message(state, &config, &msg, related).await {
             Ok(outcome) => {
                 let task_id = outcome.task.task_id;
-                if rule.routing_mode == RoutingMode::Ongoing {
-                    state.loops.set_ongoing_task(&rule.id, &task_id).await?;
+                if subscription.routing_mode == RoutingMode::Ongoing {
+                    state
+                        .loops
+                        .set_ongoing_task(&subscription.id, &task_id)
+                        .await?;
                 }
                 // Seed the cursor as None so `fetch_context` retrieves the full
                 // prior thread on the first delivery; `touch_cursor` advances it
@@ -266,9 +271,9 @@ pub async fn route_inbound_message(
                 let sub = upsert_binding(
                     state,
                     connection,
-                    Some(rule),
+                    Some(subscription),
                     &task_id,
-                    provider_label,
+                    adapter_label,
                     subject_kind,
                     subject_key,
                     destination_config.clone(),
@@ -278,7 +283,7 @@ pub async fn route_inbound_message(
                 .await?;
                 new_task_binding_id = Some(sub.id.clone());
                 bindings.push(sub);
-                info!(task_id = %task_id, rule_id = %rule.id, provider = provider_label, "Created task from provider event");
+                info!(task_id = %task_id, subscription_id = %subscription.id, provider = adapter_label, "Created task from provider event");
             }
             // Permanent failure (e.g. a bad GitHub token). The service already
             // persisted the task as errored + published a `SandboxStatus::Error`
@@ -287,7 +292,7 @@ pub async fn route_inbound_message(
             // makes sources like Slack redeliver, and every redelivery inserts
             // another errored row.
             Err(TaskCreationError::Preflight(reason)) => {
-                warn!(rule_id = %rule.id, provider = provider_label, reason = %reason, "Skipping task creation from provider event: preflight failed");
+                warn!(subscription_id = %subscription.id, provider = adapter_label, reason = %reason, "Skipping task creation from provider event: preflight failed");
             }
             // Transient failure (Db / ShortId / RepoNotFound) — propagate so the
             // source retries, exactly as before this migration.
@@ -298,11 +303,11 @@ pub async fn route_inbound_message(
     fan_out(
         state,
         connection,
-        rule,
+        subscription,
         &msg,
         Fanout {
-            provider_label,
-            binding_provider: provider_label,
+            adapter_label,
+            binding_provider: adapter_label,
             subject_kind,
             subject_key,
             bindings,
@@ -324,9 +329,9 @@ pub struct Fanout<'a> {
     /// The adapter label the event is delivered and metered under: the value
     /// `task_messages.external_adapter` carries, and the key the adapter
     /// registry answers to for external-id aliases.
-    pub provider_label: &'a str,
+    pub adapter_label: &'a str,
     /// The provider key the subject's delivery receipts are stored under — the
-    /// same key its bindings are. Equal to `provider_label` for every adapter
+    /// same key its bindings are. Equal to `adapter_label` for every adapter
     /// whose registry name is also its binding provider; GitHub PR binds under
     /// `github` and delivers as `github_pr`.
     pub binding_provider: &'a str,
@@ -357,12 +362,12 @@ pub struct Fanout<'a> {
 pub async fn fan_out(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: &SubscriptionMatch,
+    subscription: &SubscriptionMatch,
     msg: &InboundMessage,
     subject: Fanout<'_>,
 ) -> Result<String, AdapterError> {
     let Fanout {
-        provider_label,
+        adapter_label,
         binding_provider,
         subject_kind,
         subject_key,
@@ -371,7 +376,7 @@ pub async fn fan_out(
         new_task_binding_id,
     } = subject;
 
-    let parent_author_task_id = parent_author_task_id(state, provider_label, &msg.audience).await?;
+    let parent_author_task_id = parent_author_task_id(state, adapter_label, &msg.audience).await?;
 
     // The single place the delivery decision is made. Membership is by binding
     // id so a task bound twice to the same subject is judged once per binding,
@@ -411,14 +416,14 @@ pub async fn fan_out(
             debug!(
                 task_id = %binding.task_id,
                 subject_key,
-                provider = provider_label,
+                provider = adapter_label,
                 "Skipping binding: the task authored this event"
             );
             record_inbound(
-                provider_label,
+                adapter_label,
                 "ignored",
                 inbound_reason::SELF_ECHO,
-                &rule.id,
+                &subscription.id,
                 &connection.id,
             );
             delivered_task_id = Some(binding.task_id.clone());
@@ -436,14 +441,14 @@ pub async fn fan_out(
             debug!(
                 task_id = %binding.task_id,
                 subject_key,
-                provider = provider_label,
+                provider = adapter_label,
                 "Skipping binding: not in this event's audience"
             );
             record_inbound(
-                provider_label,
+                adapter_label,
                 "ignored",
                 inbound_reason::NOT_IN_AUDIENCE,
-                &rule.id,
+                &subscription.id,
                 &connection.id,
             );
             passed_over.push((binding.task_id, inbound_reason::NOT_IN_AUDIENCE));
@@ -464,14 +469,14 @@ pub async fn fan_out(
                 debug!(
                     task_id = %binding.task_id,
                     external_event_id,
-                    provider = provider_label,
+                    provider = adapter_label,
                     "Skipping duplicate external event receipt"
                 );
                 record_inbound(
-                    provider_label,
+                    adapter_label,
                     "ignored",
                     inbound_reason::DUPLICATE_RECEIPT,
-                    &rule.id,
+                    &subscription.id,
                     &connection.id,
                 );
                 delivered_task_id = Some(binding.task_id.clone());
@@ -481,21 +486,36 @@ pub async fn fan_out(
         }
 
         let this_is_new = new_task_binding_id == Some(binding.id.as_str());
-        match deliver_to_binding(state, rule, &binding, msg, provider_label, this_is_new).await {
+        match deliver_to_binding(
+            state,
+            subscription,
+            &binding,
+            msg,
+            adapter_label,
+            this_is_new,
+        )
+        .await
+        {
             Ok(()) => {
                 let reason = if this_is_new {
                     inbound_reason::NEW_TASK
                 } else {
                     inbound_reason::EXISTING_TASK
                 };
-                record_inbound(provider_label, "success", reason, &rule.id, &connection.id);
+                record_inbound(
+                    adapter_label,
+                    "success",
+                    reason,
+                    &subscription.id,
+                    &connection.id,
+                );
             }
             Err(e) => {
                 record_inbound(
-                    provider_label,
+                    adapter_label,
                     "error",
                     inbound_reason::DELIVER_FAILED,
-                    &rule.id,
+                    &subscription.id,
                     &connection.id,
                 );
                 return Err(e);
@@ -512,7 +532,7 @@ pub async fn fan_out(
     // The word stays what it has always been for this case — the caller decides
     // whether a subject with nothing on it is a failure of its own.
     if passed_over.is_empty() {
-        return Err(AdapterError::ConfigNotFound(rule.id.clone()));
+        return Err(AdapterError::ConfigNotFound(subscription.id.clone()));
     }
 
     // Something *was* expected and no task got it. This used to be a `debug!`
@@ -526,16 +546,16 @@ pub async fn fan_out(
     warn!(
         subject_key,
         external_event_id = msg.external_event_id.as_deref().unwrap_or_default(),
-        provider = provider_label,
+        provider = adapter_label,
         active_bindings,
         passed_over = %reasons,
         "Event reached no task: every binding on the subject was passed over"
     );
     record_inbound(
-        provider_label,
+        adapter_label,
         "error",
         inbound_reason::NO_RECIPIENTS,
-        &rule.id,
+        &subscription.id,
         &connection.id,
     );
     // Permanent by classification (`adapters/delivery`): the same event walking the
@@ -543,7 +563,7 @@ pub async fn fan_out(
     // budget. The record lands in `failed` carrying this message, which is the
     // point — the event is not lost quietly.
     Err(AdapterError::NotFound(format!(
-        "no task binding on {subject_key} could receive this {provider_label} event \
+        "no task binding on {subject_key} could receive this {adapter_label} event \
          ({active_bindings} passed over: {reasons})"
     )))
 }
@@ -555,11 +575,11 @@ pub async fn fan_out(
 /// no input or output of its own — see [`crate::bindings::recipients`]. An
 /// audience that names no parent asks nothing of the database. It is `pub`
 /// because an adapter that still walks its own delivery loop resolves the same
-/// parent for the same resolver; the rule is written once here rather than once
+/// parent for the same resolver; the subscription is written once here rather than once
 /// per adapter.
 pub async fn parent_author_task_id(
     state: &AppState,
-    provider_label: &str,
+    adapter_label: &str,
     audience: &Audience,
 ) -> Result<Option<String>, AdapterError> {
     let Audience::ParentAuthor {
@@ -568,7 +588,7 @@ pub async fn parent_author_task_id(
     else {
         return Ok(None);
     };
-    let candidates = external_id_aliases(state, provider_label, parent_id);
+    let candidates = external_id_aliases(state, adapter_label, parent_id);
     Ok(state
         .messages
         .find_task_id_by_any_external_event_id(&candidates)
@@ -577,13 +597,13 @@ pub async fn parent_author_task_id(
 
 pub fn external_id_aliases(
     state: &AppState,
-    provider_label: &str,
+    adapter_label: &str,
     external_id: &str,
 ) -> Vec<String> {
     state
         .adapters
         .as_ref()
-        .and_then(|providers| providers.inbound_presentation_by_name(provider_label))
+        .and_then(|providers| providers.inbound_presentation_by_name(adapter_label))
         .map_or_else(
             || vec![external_id.to_string()],
             |presentation| presentation.external_id_aliases(external_id),
@@ -592,22 +612,26 @@ pub fn external_id_aliases(
 
 async fn should_create_binding_task(
     state: &AppState,
-    rule: &SubscriptionMatch,
+    subscription: &SubscriptionMatch,
     bindings: &[TaskBinding],
 ) -> Result<bool, AdapterError> {
-    if rule.routing_mode != RoutingMode::Ongoing {
+    if subscription.routing_mode != RoutingMode::Ongoing {
         return Ok(bindings.is_empty());
     }
 
     if !bindings.is_empty() {
         return Ok(false);
     }
-    Ok(open_ongoing_task_id(state, rule).await.is_none())
+    Ok(open_ongoing_task_id(state, subscription).await.is_none())
 }
 
-async fn open_ongoing_task_id(state: &AppState, rule: &SubscriptionMatch) -> Option<String> {
-    let task_id = rule.ongoing_task_id.as_deref()?;
-    #[allow(clippy::disallowed_methods)] // reason: event routing is a background path with no caller identity
+async fn open_ongoing_task_id(
+    state: &AppState,
+    subscription: &SubscriptionMatch,
+) -> Option<String> {
+    let task_id = subscription.ongoing_task_id.as_deref()?;
+    #[allow(clippy::disallowed_methods)]
+    // reason: event routing is a background path with no caller identity
     let sys = ScopeContext::system();
     match state.tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) if task.status == TaskStatus::Open => Some(task.task_id),
@@ -619,7 +643,7 @@ async fn open_ongoing_task_id(state: &AppState, rule: &SubscriptionMatch) -> Opt
 pub async fn upsert_binding(
     state: &AppState,
     connection: &AdapterConnection,
-    rule: Option<&SubscriptionMatch>,
+    subscription: Option<&SubscriptionMatch>,
     task_id: &str,
     provider: &str,
     subject_kind: &str,
@@ -636,11 +660,11 @@ pub async fn upsert_binding(
     let binding = TaskBinding {
         id: format!("ts_{}", uuid::Uuid::new_v4()),
         task_id: task_id.to_string(),
-        provider: provider.to_string(),
+        adapter_kind: provider.to_string(),
         subject_kind: subject_kind.to_string(),
         subject_key: subject_key.to_string(),
         connection_id: connection.id.clone(),
-        trigger_id: rule.map(|r| r.id.clone()),
+        loop_id: subscription.map(|r| r.id.clone()),
         destination_config,
         metadata: serde_json::json!({ "filter_user_id": filter_uid }),
         last_external_event_id,
@@ -656,25 +680,23 @@ pub async fn upsert_binding(
         active: true,
         deactivated_at: None,
     };
-    Ok(PgTaskBindingDao(state.db.clone())
-        .upsert(&binding)
-        .await?)
+    Ok(PgTaskBindingDao(state.db.clone()).upsert(&binding).await?)
 }
 
 async fn deliver_to_binding(
     state: &AppState,
-    rule: &SubscriptionMatch,
+    subscription: &SubscriptionMatch,
     binding: &TaskBinding,
     msg: &InboundMessage,
-    provider_label: &str,
+    adapter_label: &str,
     is_new_task: bool,
 ) -> Result<(), AdapterError> {
-    let config = trigger_context(rule, provider_label);
+    let config = subscription_context(subscription, adapter_label);
     let thread = binding_context(binding);
 
     let thread_context = if msg.thread_id.is_some() {
         if let Some(ref providers) = state.adapters {
-            if let Some(presentation) = providers.inbound_presentation_by_name(provider_label) {
+            if let Some(presentation) = providers.inbound_presentation_by_name(adapter_label) {
                 let mut exclude_ids = state
                     .messages
                     .get_external_event_ids(&binding.task_id)
@@ -687,7 +709,7 @@ async fn deliver_to_binding(
                     .fetch_context(&thread, &config, 20, &exclude_ids)
                     .await
                     .unwrap_or_else(|e| {
-                        warn!(provider = provider_label, error = %e, "Failed to fetch thread context");
+                        warn!(provider = adapter_label, error = %e, "Failed to fetch thread context");
                         None
                     })
             } else {
@@ -705,7 +727,7 @@ async fn deliver_to_binding(
     if let Some(prefix) = state
         .adapters
         .as_ref()
-        .and_then(|providers| providers.inbound_presentation_by_name(provider_label))
+        .and_then(|providers| providers.inbound_presentation_by_name(adapter_label))
         .and_then(|presentation| presentation.inbound_message_prefix(msg))
     {
         message_text = format!("{prefix}\n\n{message_text}");
@@ -713,7 +735,7 @@ async fn deliver_to_binding(
 
     if msg.thread_id.is_some() {
         if let Some(providers) = state.adapters.as_ref() {
-            if let Some(presentation) = providers.inbound_presentation_by_name(provider_label) {
+            if let Some(presentation) = providers.inbound_presentation_by_name(adapter_label) {
                 if let Some(hint) = presentation.thread_reply_hint(msg) {
                     message_text = format!("{hint}\n\n{message_text}");
                 }
@@ -741,9 +763,9 @@ async fn deliver_to_binding(
         &[],
         true,
         msg.external_event_id.as_deref(),
-        Some(provider_label),
+        Some(adapter_label),
         Some(&binding.subject_key),
-        // The source's own name where the trigger carries one, else the matcher
+        // The source's own name where the subscription carries one, else the matcher
         // that identified it — a repository full name, a channel id. A label a
         // reader recognises beats no label at all.
         Some(
@@ -846,10 +868,11 @@ mod error_source_tests {
             sqlx::Error::PoolClosed,
         ));
 
-        assert!(err
-            .source()
-            .and_then(|s| s.downcast_ref::<crate::task::creation::TaskCreationError>())
-            .is_some());
+        assert!(
+            err.source()
+                .and_then(|s| s.downcast_ref::<crate::task::creation::TaskCreationError>())
+                .is_some()
+        );
         let chain = source_chain(&err);
         assert!(
             chain.iter().any(|link| link.contains("closed pool")),
@@ -867,10 +890,11 @@ mod error_source_tests {
             sqlx::Error::PoolClosed,
         ));
 
-        assert!(err
-            .source()
-            .and_then(|s| s.downcast_ref::<crate::message::error::MessageError>())
-            .is_some());
+        assert!(
+            err.source()
+                .and_then(|s| s.downcast_ref::<crate::message::error::MessageError>())
+                .is_some()
+        );
         let chain = source_chain(&err);
         assert!(
             chain.iter().any(|link| link.contains("closed pool")),

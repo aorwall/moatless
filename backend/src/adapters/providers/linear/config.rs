@@ -1,7 +1,7 @@
-//! Typed view of Linear task trigger fields used by the webhook parser.
+//! Typed view of Linear subscription-loop fields used by the webhook parser.
 //!
-//! Each `SubscriptionMatch` is a "listener" with its own filter. Several rules can
-//! share a single Linear team UUID (multi-rule support is what migration
+//! Each `SubscriptionMatch` is a "listener" with its own filter. Several subscriptions can
+//! share a single Linear team UUID (multi-listener support is what migration
 //! `0036` enables) — each one is evaluated independently.
 
 use crate::adapters::models::SubscriptionMatch;
@@ -10,19 +10,19 @@ use crate::adapters::models::SubscriptionMatch;
 const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
 
 /// Default workflow state TYPES whose ENTRY closes associated tasks
-/// (when `close_task_on_close` is set on the rule). These are matched against
+/// (when `close_task_on_close` is set on the subscription). These are matched against
 /// Linear's stable `state.type` enum, not the user-facing state name — so a
 /// workspace that renames "Done" to "Shipped" still closes correctly.
 const DEFAULT_TERMINAL_STATES: &[&str] = &["completed", "canceled"];
 
-/// Extracted Linear-specific knobs from an `SubscriptionMatch`.
+/// Extracted Linear-specific knobs from a `SubscriptionMatch`.
 #[derive(Debug, Clone)]
 pub struct LinearRuleConfig {
     /// Required labels — issue must carry every label here to trigger.
     /// Empty = no label filter.
     pub require_labels: Vec<String>,
     /// States whose ENTRY fires task creation FOR THIS LISTENER. Per-listener:
-    /// each task trigger can configure different trigger states (e.g. one rule
+    /// each subscription can configure different trigger states (e.g. one listener
     /// fires on "Todo", another on "In Progress").
     pub trigger_states: Vec<String>,
     /// State TYPES (Linear's `state.type` enum, e.g. `"completed"`,
@@ -30,12 +30,12 @@ pub struct LinearRuleConfig {
     /// (gated by `close_task_on_close`). Matched against `state.type` rather
     /// than `state.name` so renamed workspace states still trigger close.
     pub terminal_states: Vec<String>,
-    /// Mirror of the rule's scalar `close_task_on_close` column.
+    /// Mirror of the subscription's scalar `close_task_on_close` column.
     pub close_task_on_close: bool,
     /// Opt-in: when `true`, an `Issue.update` that moves the issue INTO one of
     /// `trigger_states` (and satisfies `require_labels` / `project_ids`) spawns
     /// a brand-new Moatless task for the issue. Defaults to `false` so the
-    /// pre-existing mention/assignment-only Linear rules are unaffected — they
+    /// pre-existing mention/assignment-only Linear subscriptions are unaffected — they
     /// carry the legacy non-empty `trigger_states` default but must NOT start
     /// auto-creating tasks on every status change. `on: linear` loops set this
     /// to `true` explicitly.
@@ -50,17 +50,17 @@ pub struct LinearRuleConfig {
 }
 
 impl LinearRuleConfig {
-    /// Parse from an `SubscriptionMatch`'s `provider_config` JSONB column plus
-    /// the scalar `close_task_on_close` column. We use `provider_config` (not
+    /// Parse from an `SubscriptionMatch`'s `adapter_config` JSONB column plus
+    /// the scalar `close_task_on_close` column. We use `adapter_config` (not
     /// `event_filter`) because Linear's filter is an OBJECT — `event_filter`
     /// is typed as `Vec<String>` in the public request DTO, suitable for
     /// GitHub's webhook-event-type list but not for Linear's nested knobs.
     pub fn from_rule(rule: &SubscriptionMatch) -> Self {
-        // `provider_config` may be null when no Linear-specific config was
+        // `adapter_config` may be null when no Linear-specific config was
         // supplied — fall back to an empty object so default state lists kick
         // in below.
         let empty = serde_json::Value::Object(serde_json::Map::new());
-        let filter = rule.provider_config.as_ref().unwrap_or(&empty);
+        let filter = rule.adapter_config.as_ref().unwrap_or(&empty);
 
         let require_labels = string_list(filter, "require_labels").unwrap_or_default();
 
@@ -144,20 +144,21 @@ fn string_list(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
     })
 }
 
-/// Pick the trigger that should spawn a task for a mention/assignment, given the
-/// issue's `project_id` and `labels`. Several Linear rules can share one team
-/// (e.g. an unscoped `soap-specs` rule plus a project-scoped `vulnerability-fix`
-/// rule); team alone can't disambiguate, so we route by project + labels:
+/// Pick the subscription that should spawn a task for a mention/assignment, given the
+/// issue's `project_id` and `labels`. Several Linear listeners can share one team
+/// (e.g. an unscoped `soap-specs` listener plus a project-scoped
+/// `vulnerability-fix` listener); team alone can't disambiguate, so we route by
+/// project + labels:
 ///
-/// - **Tier 1 — scoped match:** the first rule that is project-scoped
+/// - **Tier 1 — scoped match:** the first listener that is project-scoped
 ///   (`project_ids` non-empty) AND whose project allowlist admits `project_id`
 ///   AND whose `require_labels` are all present. A mention on a project that a
-///   scoped rule targets routes to that rule.
-/// - **Tier 2 — fallback:** the first rule with an EMPTY `project_ids` — the
+///   scoped listener targets routes to that listener.
+/// - **Tier 2 — fallback:** the first listener with an EMPTY `project_ids` — the
 ///   unscoped catch-all. Labels are intentionally NOT consulted here: the
-///   catch-all is the default lane for everything not claimed by a scoped rule.
-/// - **Tier 3 — legacy:** no scoped match and no unscoped rule → `rules.first()`,
-///   preserving the previous "oldest rule wins" behavior for teams that predate
+///   catch-all is the default lane for everything not claimed by a scoped listener.
+/// - **Tier 3 — legacy:** no scoped match and no unscoped listener → `rules.first()`,
+///   preserving the previous "oldest listener wins" behavior for teams that predate
 ///   project scoping.
 ///
 /// Returns `None` only when `rules` is empty. A failed issue fetch is modeled by
@@ -168,7 +169,7 @@ pub fn select_spawn_rule<'a>(
     project_id: Option<&str>,
     labels: &[String],
 ) -> Option<&'a SubscriptionMatch> {
-    // Tier 1 — first project-scoped rule that admits this issue's project + labels.
+    // Tier 1 — first project-scoped listener that admits this issue's project + labels.
     if let Some(scoped) = rules.iter().find(|r| {
         let cfg = LinearRuleConfig::from_rule(r);
         !cfg.project_ids.is_empty() && cfg.project_allowed(project_id) && cfg.labels_allowed(labels)
@@ -176,7 +177,7 @@ pub fn select_spawn_rule<'a>(
         return Some(scoped);
     }
 
-    // Tier 2 — first unscoped (empty project_ids) catch-all rule. Labels are
+    // Tier 2 — first unscoped (empty project_ids) catch-all listener. Labels are
     // not consulted for the catch-all.
     if let Some(fallback) = rules
         .iter()
@@ -185,13 +186,13 @@ pub fn select_spawn_rule<'a>(
         return Some(fallback);
     }
 
-    // Tier 3 — no scoped match, no catch-all: oldest rule wins (legacy).
+    // Tier 3 — no scoped match, no catch-all: oldest listener wins (legacy).
     rules.first()
 }
 
-/// Whether selecting a spawn rule requires fetching the full issue (to learn its
-/// project + labels). True iff any rule is project-scoped (`project_ids`
-/// non-empty). When every rule is unscoped, [`select_spawn_rule`] can't be
+/// Whether selecting a spawn listener requires fetching the full issue (to learn its
+/// project + labels). True iff any listener is project-scoped (`project_ids`
+/// non-empty). When every listener is unscoped, [`select_spawn_rule`] can't be
 /// influenced by the project/labels, so the caller skips the extra API round-trip
 /// entirely — all-unscoped teams pay nothing, preserving the pre-scoping path.
 pub fn rules_need_issue_fetch(rules: &[SubscriptionMatch]) -> bool {
@@ -208,12 +209,12 @@ mod tests {
     use moatless_backend_core::scope::Scope;
 
     fn rule_with(
-        provider_config: serde_json::Value,
+        adapter_config: serde_json::Value,
         close_task_on_close: bool,
     ) -> SubscriptionMatch {
         SubscriptionMatch {
             id: "ir_test".into(),
-            provider: "linear".into(),
+            adapter_kind: "linear".into(),
             connection_id: "pc_test".into(),
             source_matcher: "team-uuid".into(),
             source_name: None,
@@ -227,7 +228,7 @@ mod tests {
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,
             allow_direct_send: false,
-            provider_config: Some(provider_config),
+            adapter_config: Some(adapter_config),
             ongoing_task_id: None,
             close_task_on_close,
             notify_on_success: false,
@@ -376,9 +377,9 @@ mod tests {
     }
 
     #[test]
-    fn null_provider_config_uses_defaults() {
+    fn null_adapter_config_uses_defaults() {
         let mut rule = rule_with(serde_json::json!({}), true);
-        rule.provider_config = None;
+        rule.adapter_config = None;
         let cfg = LinearRuleConfig::from_rule(&rule);
         assert_eq!(cfg.trigger_states, vec!["Todo", "In Progress"]);
         assert_eq!(cfg.terminal_states, vec!["completed", "canceled"]);
@@ -402,7 +403,7 @@ mod tests {
 
     // ---- select_spawn_rule / rules_need_issue_fetch ----------------------
 
-    /// A project-scoped rule (`project_ids = ["vuln"]`).
+    /// A project-scoped listener (`project_ids = ["vuln"]`).
     fn scoped_rule() -> SubscriptionMatch {
         rule_with(serde_json::json!({ "project_ids": ["vuln"] }), false)
     }
@@ -412,8 +413,8 @@ mod tests {
         rule_with(serde_json::json!({}), false)
     }
 
-    /// Parsed `project_ids` of the picked rule — used to assert which rule the
-    /// selector returned (the `rule_with` helper gives every rule the same id,
+    /// Parsed `project_ids` of the picked listener — used to assert which listener the
+    /// selector returned (the `rule_with` helper gives every listener the same id,
     /// so we distinguish by parsed config rather than identity).
     fn picked_projects(rule: &SubscriptionMatch) -> Vec<String> {
         LinearRuleConfig::from_rule(rule).project_ids
@@ -421,7 +422,7 @@ mod tests {
 
     #[test]
     fn select_spawn_rule_scoped_wins() {
-        // Unscoped catch-all listed first, scoped rule second — the scoped rule
+        // Unscoped catch-all listed first, scoped listener second — the scoped listener
         // must still win when the issue's project matches it.
         let rules = vec![unscoped_rule(), scoped_rule()];
         let picked = select_spawn_rule(&rules, Some("vuln"), &[]).unwrap();
@@ -430,7 +431,7 @@ mod tests {
 
     #[test]
     fn select_spawn_rule_project_mismatch_falls_back() {
-        // Scoped rule targets "vuln"; the issue is in another project → the
+        // Scoped listener targets "vuln"; the issue is in another project → the
         // unscoped catch-all wins.
         let rules = vec![scoped_rule(), unscoped_rule()];
         let picked = select_spawn_rule(&rules, Some("other"), &[]).unwrap();
@@ -439,7 +440,7 @@ mod tests {
 
     #[test]
     fn select_spawn_rule_label_mismatch_falls_back() {
-        // Scoped rule requires a label the issue lacks → falls back to the
+        // Scoped listener requires a label the issue lacks → falls back to the
         // unscoped catch-all (whose labels are not consulted).
         let scoped = rule_with(
             serde_json::json!({ "project_ids": ["vuln"], "require_labels": ["security"] }),
@@ -452,7 +453,7 @@ mod tests {
 
     #[test]
     fn select_spawn_rule_fetch_failure_falls_back() {
-        // A failed issue fetch is modeled as (None, &[]) — the scoped rule can't
+        // A failed issue fetch is modeled as (None, &[]) — the scoped listener can't
         // match a project-less issue, so the catch-all wins.
         let rules = vec![scoped_rule(), unscoped_rule()];
         let picked = select_spawn_rule(&rules, None, &[]).unwrap();
@@ -461,8 +462,8 @@ mod tests {
 
     #[test]
     fn select_spawn_rule_no_fallback_uses_oldest() {
-        // Two scoped rules, neither matching the issue's project, and no
-        // unscoped catch-all → Tier 3: oldest (first) rule wins.
+        // Two scoped listeners, neither matching the issue's project, and no
+        // unscoped catch-all → Tier 3: oldest (first) listener wins.
         let first = rule_with(serde_json::json!({ "project_ids": ["a"] }), false);
         let second = rule_with(serde_json::json!({ "project_ids": ["b"] }), false);
         let rules = vec![first, second];
@@ -472,9 +473,9 @@ mod tests {
 
     #[test]
     fn select_spawn_rule_first_of_several_scoped_wins() {
-        // Two scoped rules both admit the issue — the first listed wins. They
+        // Two scoped listeners both admit the issue — the first listed wins. They
         // share a project but carry distinct require_labels (both satisfied), so
-        // the picked rule is identifiable by its labels.
+        // the picked listener is identifiable by its labels.
         let first = rule_with(
             serde_json::json!({ "project_ids": ["vuln"], "require_labels": ["a"] }),
             false,
