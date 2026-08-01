@@ -12,8 +12,8 @@ The current solution already separates what somebody said from what happened on 
 
 | Area | Current behaviour | Evidence |
 |---|---|---|
-| Stored user and assistant prose | `task_messages.message_text` stores prose. It is not the pre-rendered prompt sent to the agent. | `backend/migrations/0120_task_activities.sql:103`, `backend/src/message/models.rs:51` |
-| Stored tool and runtime work | `task_activities` stores tool calls, thinking, sandbox status, sandbox errors, activity identity, status, payload, preview detail, and stream position. | `backend/migrations/0120_task_activities.sql:13`, `backend/src/task_activities/mod.rs:1` |
+| Stored user and assistant prose | `task_messages.message_text` stores prose. It is not the pre-rendered prompt sent to the agent. | `backend/migrations/0118_task_activities.sql:103`, `backend/src/message/models.rs:51` |
+| Stored tool and runtime work | `task_activities` stores tool calls, thinking, sandbox status, sandbox errors, activity identity, status, payload, preview detail, and stream position. | `backend/migrations/0118_task_activities.sql:13`, `backend/src/task_activities/mod.rs:1` |
 | Pending input durability | Pending user messages remain rows in `task_messages` until the sandbox acknowledges them after harness acceptance. | `backend/src/message/send.rs:261`, `backend/src/sandbox/grpc_server.rs:999`, `sandbox/src/agent/dispatcher.rs:180` |
 | Agent event ingress | `agent.message` payload durability is the ingress outbox until the conversation write commits. `task_events` no longer carries message skeletons. | `backend/src/event_ingress/mod.rs:9` |
 | T3 projection | T3 receives `thread.message-sent` and `thread.activity-appended` from `ui_rpc/projection.rs`. The wire contract is intentionally unchanged by PR 212. | `backend/src/ui_rpc/projection.rs:286`, `backend/src/ui_rpc/projection.rs:382` |
