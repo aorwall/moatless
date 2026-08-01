@@ -1,7 +1,7 @@
 # Sending messages to Tasks from the T3 Code UI
 
-> **Status:** approved
-> **Updated:** 2026-07-31
+> **Status:** shipped
+> **Updated:** 2026-08-01
 > **Vocabulary:** CONTEXT.md
 
 ## Current solution
@@ -861,7 +861,7 @@ would force the client-minted message id into the **public** `SendMessageRequest
 (`crates/api-schemas/src/message.rs:340`), where any API consumer could set it, purely to serve one
 internal caller.
 
-The extraction is also the move `CLAUDE.md` asks for directly: when the code you are changing sits in
+The extraction is also the move `AGENTS.md` asks for directly: when the code you are changing sits in
 the wrong module, move it there first as its own commit.
 
 ### 7. What a refusal looks like on the wire

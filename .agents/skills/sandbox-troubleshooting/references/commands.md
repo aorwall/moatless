@@ -52,7 +52,7 @@ moat messages list $TASK_ID --json \
 
 # Files in the workspace
 moat tasks files $TASK_ID tree
-moat tasks files $TASK_ID read --path CLAUDE.md
+moat tasks files $TASK_ID read --path AGENTS.md
 
 # Lifecycle actions
 moat tasks restart $TASK_ID      # recreate pod, keep PVC

@@ -1,7 +1,7 @@
 # Storing a conversation as messages and activities
 
-> **Status:** in progress — code complete, run against PostgreSQL, every conversation suite green
-> **Updated:** 2026-08-01 (Decisions 16 and 17)
+> **Status:** shipped
+> **Updated:** 2026-08-01
 > **Vocabulary:** CONTEXT.md
 
 ## Current solution

@@ -1,7 +1,7 @@
 # Deepen the GitHub PR adapter around workflow seams
 
-> **Status:** approved
-> **Updated:** 2026-07-30
+> **Status:** shipped by PR #156
+> **Updated:** 2026-08-01
 > **Vocabulary:** CONTEXT.md
 
 ## Current solution

@@ -67,11 +67,11 @@ Conventional commits, enforced by commitlint; header ≤100 chars. Types: `feat 
 
 ## Architecture & conventions
 - Domain glossary: `CONTEXT.md`. Historical markdown specs and ADRs were removed because they were not maintained; use current code/tests as authority and docs only as routing aids. Read `.plans/` only when asked to implement or review that specific plan.
-- Durable local guidelines and decisions go in the nearest relevant `AGENTS.md`; keep `CLAUDE.md` as a symlink to it for Claude compatibility. When editing a path, read the `AGENTS.md` files in that directory and its parents.
+- Durable local guidelines and decisions go in the nearest relevant `AGENTS.md`. When editing a path, read the `AGENTS.md` files in that directory and its parents.
 - Keep local `AGENTS.md` guidance concise and operational: what future agents must do, what they must not do, and the current reason when it is not obvious. Do not add history dumps, plan transcripts, or long rejected-option writeups.
 - Do not write essays in code comments. Comments should explain local intent, invariants, or non-obvious mechanics; durable rationale and cross-cutting decisions belong in the nearest relevant `AGENTS.md`.
 - Never describe a change as replacing, superseding, or differing from legacy code or old instructions in code comments or durable docs. State the current state and rule only.
 - Rust conventions live in the model-invoked `rust-dev-guidelines` skill for
-  `backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions remain
-  path-scoped in `.claude/rules/frontend-conventions.md`.
+  `backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions live in
+  `.agents/skills/frontend-dev-guidelines/SKILL.md` and its resources.
 - `routeTree.gen.ts` is generated — excluded from lint/format. File naming: kebab-case (frontend, enforced by Biome), snake_case (Rust).

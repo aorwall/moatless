@@ -6,7 +6,7 @@ description: Rust development conventions for Moatless backend, sandbox, and sha
 # Rust Development Guidelines
 
 Apply the repository-specific rules below in addition to the workspace lints and
-the verification commands in `CLAUDE.md`. Do not turn current code patterns into
+the verification commands in `AGENTS.md`. Do not turn current code patterns into
 new conventions without checking that they remain sound.
 
 ## Start from the Boundary
@@ -20,7 +20,7 @@ new conventions without checking that they remain sound.
 4. For a new or materially changed module, interface, or dependency seam, use
    the `codebase-design` skill before settling the design.
 5. Make the smallest change that satisfies the behavior, then run the owning
-   crate's mandatory Clippy and test commands from `CLAUDE.md`.
+   crate's mandatory Clippy and test commands from `AGENTS.md`.
 
 ## Core Rules
 
@@ -110,5 +110,5 @@ Before declaring the Rust change complete:
 - confirm every changed Rust path was checked against its applicable reference;
 - confirm critical task, queue, error, and conversion behavior is explicit where
   the change touches those boundaries;
-- run the crate-specific Clippy and test commands required by `CLAUDE.md`;
+- run the crate-specific Clippy and test commands required by `AGENTS.md`;
 - report any required check that could not be run.

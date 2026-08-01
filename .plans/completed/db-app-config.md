@@ -1,6 +1,6 @@
 # DB-backed Adapter app config
 
-> **Status:** approved
+> **Status:** shipped
 > **Updated:** 2026-08-01
 > **Vocabulary:** CONTEXT.md
 

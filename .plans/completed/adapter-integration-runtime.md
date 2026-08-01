@@ -1,7 +1,7 @@
 # Adapter integration runtime
 
-> **Status:** approved
-> **Updated:** 2026-07-29
+> **Status:** shipped
+> **Updated:** 2026-08-01
 > **Vocabulary:** CONTEXT.md
 
 ## Current solution

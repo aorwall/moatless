@@ -14,6 +14,7 @@ description: Spec a change from research to agreement — research and decisions
 5. **Write `.plans/<slug>.md`, once** — complete and uncapped. It is for the agent that implements.
 
 Nothing goes into `.plans/` before step 5.
+Completed plans do not stay at the top level. When the plan has been implemented and no follow-up ticket still needs `.plans/<slug>.md` as its active spec, move it to `.plans/completed/<slug>.md`.
 
 **Recording and redrawing are different, and only one is a judgement call.** Recording is not optional: an answer lands, it goes on the page before the next question goes out — one `Edit` adding a row. Redrawing rewrites a section an answer made *wrong*, and the test is "wrong", not "out of date" — a section the page already shows as open is incomplete, and incomplete costs nothing.
 
@@ -32,6 +33,8 @@ Everything else in this skill is *how* to do one of those steps:
 
 - **The page** — `scratchpad/<slug>.html`. The only document the user ever works against, from step 2 to step 4. It carries the lede, the research, and every answer as it arrives.
 - **The markdown** — `.plans/<slug>.md`. Written at step 5, for the agent that implements and for `/code-review`'s spec axis.
+
+Top-level `.plans/*.md` files are active or in-flight specs. `.plans/completed/*.md` files are implemented specs kept as history.
 
 **The page is capped by attention; the markdown is capped by nothing.** One screen is what gets approved; the implementing agent gets everything.
 
@@ -201,6 +204,7 @@ Written at step 5, in one pass, with no interview left to run. Headings in this 
 6. **There is no Open questions section and no Ticket breakdown.** A question that blocks implementation means the spec is not approved, and one that does not block belongs to the work item, not to the file an agent builds from — an agent that meets an open question either guesses or stalls, and both are worse than the question having been settled. The breakdown lives in the tracker `/to-tickets` writes to; a copy here says `3/7` until the day it says nothing true.
 7. **Status is edited in place** every session that touches the spec.
 8. **No preamble.** The first heading after the title is `## Current solution`. Not "Background", not "Motivation", not "This document describes".
+9. **Implemented specs are archived.** After the plan is implemented, move `.plans/<slug>.md` to `.plans/completed/<slug>.md` in the same change that records its shipped status, unless another active ticket still needs the top-level path.
 
 ### Current solution — anchors, not a transcription
 

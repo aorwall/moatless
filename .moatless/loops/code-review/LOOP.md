@@ -23,7 +23,7 @@ classify the changed files, load the matching guidelines, and review each domain
 its own rules.
 
 The conventions live in the repo you have checked out: read them from
-`.claude/skills/**` and the root `CLAUDE.md`. This prompt is self-contained — there is
+`.agents/skills/**` and the root `AGENTS.md`. This prompt is self-contained — there is
 no separate review skill to invoke.
 
 ## Scope and Boundaries
@@ -49,19 +49,28 @@ author, branches, description, and often the diff) arrives as the task message.
 
 1. **Checkout the PR branch** — parse the head branch from the message, then
    `git fetch origin <head_ref> && git checkout <head_ref>`.
-2. **Read the workspace `CLAUDE.md`** for project structure, the mandatory-workflow
+2. **Read the workspace `AGENTS.md`** for project structure, the mandatory-workflow
    checks, and the Rust/TypeScript rules.
 3. **Read the guideline docs for the domains this PR touches** — the relevant
-   `.claude/skills/**/SKILL.md` (and its `resources/` / `references/`) per the table
+   `.agents/skills/**/SKILL.md` (and its `resources/` / `references/`) per the table
    below. Load only what the diff needs.
 4. **Check CI** — `gh pr checks <number>` (see CI Verification). Do **not** build or
    test locally.
-5. **Review** the checked-out code against the guidelines and general quality.
-6. **Post inline comments** for line-specific issues via `gh api` (optional but
+5. **Check plan alignment and archival** — if the PR implements a tracked plan
+   or part of one, read the relevant `.plans/<slug>.md` or
+   `.plans/completed/<slug>.md` and verify the diff matches the plan's intended
+   behaviour, scope, constraints, and testing expectations. Flag meaningful
+   deviations unless the PR description explicitly updates or supersedes that
+   part of the plan. If the PR completes the plan, verify the plan moved from
+   `.plans/<slug>.md` to `.plans/completed/<slug>.md`; treat an implemented plan
+   left active at the top level as a review issue unless the PR clearly leaves
+   follow-up work that still needs the active path.
+6. **Review** the checked-out code against the guidelines and general quality.
+7. **Post inline comments** for line-specific issues via `gh api` (optional but
    recommended).
-7. **Resolve** review threads whose issue has left the diff (see Lifecycle Actions).
-8. **Submit `APPROVE`** when no outstanding issues remain (see Approving).
-9. **Send the summary review** via `moat gh pr comment` — **mandatory, exactly once**.
+8. **Resolve** review threads whose issue has left the diff (see Lifecycle Actions).
+9. **Submit `APPROVE`** when no outstanding issues remain (see Approving).
+10. **Send the summary review** via `moat gh pr comment` — **mandatory, exactly once**.
 
 > Use `moat gh pr comment` (not raw `gh pr comment`) for the summary — it routes
 > through the backend, binds the task, and is deduped against the webhook echo. Write
@@ -76,22 +85,22 @@ Classify each changed file, load the matching guideline, and apply its checks.
 
 | Path pattern | Domain | Read for conventions | Key checks |
 |--------------|--------|----------------------|------------|
-| `apps/frontend/src/**/*.{ts,tsx}`, `packages/**/*.ts` | Frontend React/TS | `.claude/skills/frontend-dev-guidelines/SKILL.md` (+ `resources/`) | strict TS (no `any` → use `unknown`; no `import type`); server state in TanStack Query only (never duplicated in `useState`); centralized query keys (`src/lib/api/query-keys.ts`); derived state during render, not `useEffect`+`setState`; feature-based structure (`src/features/<f>/{api,components,hooks,stores}`); handle `isLoading`/`error`; composition over configuration; Tailwind v4 + shadcn/ui |
-| `backend/src/**/*.rs`, `crates/**/*.rs` (except `crates/cli`) | Rust backend | **`CLAUDE.md` → "Critical Development Rules → Rust Safety" + "Backend Module Pattern"** | clippy-clean (`-D warnings`, no `unwrap`/`expect`/`panic!` on runtime paths); `thiserror` enums, not string errors; `Arc` for state shared across async tasks; `CancellationToken` for graceful shutdown; layered `routes → handlers → services → dao`; module layout (`mod/models/dao/schemas/handlers/routes/error.rs`); utoipa OpenAPI annotations on routes; `IntoResponse` for module errors; parameterized SQLx queries |
-| `sandbox/src/**/*.rs` | Rust sandbox | same Rust rules (`CLAUDE.md`) | plus gRPC / Claude-agent orchestration correctness; no blocking calls in async; graceful shutdown; state-machine transitions |
-| `crates/cli/src/**/*.rs` | moat CLI | `.claude/skills/moat-cli/SKILL.md` (+ `references/command-reference.md`) | clap command/flag semantics consistent with the docs; `--json` output; error handling |
+| `apps/frontend/src/**/*.{ts,tsx}`, `packages/**/*.ts` | Frontend React/TS | `.agents/skills/frontend-dev-guidelines/SKILL.md` (+ `resources/`) | strict TS (no `any` → use `unknown`; no `import type`); server state in TanStack Query only (never duplicated in `useState`); centralized query keys (`src/lib/api/query-keys.ts`); derived state during render, not `useEffect`+`setState`; feature-based structure (`src/features/<f>/{api,components,hooks,stores}`); handle `isLoading`/`error`; composition over configuration; Tailwind v4 + shadcn/ui |
+| `backend/src/**/*.rs`, `crates/**/*.rs` (except `crates/cli`) | Rust backend | **`AGENTS.md` → "Critical Development Rules → Rust Safety" + "Backend Module Pattern"** | clippy-clean (`-D warnings`, no `unwrap`/`expect`/`panic!` on runtime paths); `thiserror` enums, not string errors; `Arc` for state shared across async tasks; `CancellationToken` for graceful shutdown; layered `routes → handlers → services → dao`; module layout (`mod/models/dao/schemas/handlers/routes/error.rs`); utoipa OpenAPI annotations on routes; `IntoResponse` for module errors; parameterized SQLx queries |
+| `sandbox/src/**/*.rs` | Rust sandbox | same Rust rules (`AGENTS.md`) | plus gRPC / Claude-agent orchestration correctness; no blocking calls in async; graceful shutdown; state-machine transitions |
+| `crates/cli/src/**/*.rs` | moat CLI | `.agents/skills/moat-cli/SKILL.md` (+ `references/command-reference.md`) | clap command/flag semantics consistent with the docs; `--json` output; error handling |
 | `crates/sandbox-proto/**`, `**/*.proto` | gRPC contract | — | field changes are backward-compatible (no renumbering/repurposing tags); regenerate implications noted |
-| `**/*.test.{ts,tsx}`, `**/*.integration.test.ts`, `tests/**`, `**/tests/*.rs` | Tests | `.claude/skills/testing-guidelines/SKILL.md`; `.claude/skills/e2e-testing/SKILL.md` | test behavior, not implementation; mock only external deps (never your own code); tier-appropriate coverage. Rust tests are `cargo test` (`#[cfg(test)] mod tests`, `tests/`, env-gated E2E like `CLAUDE_SDK_E2E=1` / `SANDBOX_E2E=1`) — **not Vitest**. `any` is allowed in TS test files. |
-| `k8s/helm/moatless-vibe/**` | Helm / K8s | `.claude/skills/k8s-install/references/values-schema.md`; `.claude/skills/dev-loop/references/k8s-deployment.md` | `values.yaml` ↔ template consistency; pod/container security contexts (frontend and backend); sandbox isolation set (networkpolicy incl. Cilium, resourcequota, limitrange, per-task namespace/SA); RBAC least-privilege; **no hardcoded secrets** (use `secrets`/`externalSecrets`); probe / PDB / HPA sanity; bump `Chart.yaml` `version` when templates change |
-| `docker/**`, `docker-compose/**`, `Dockerfile*` | Docker | `.claude/skills/docker-testing/SKILL.md`; `.claude/skills/docker-install/SKILL.md` | multi-stage build correctness; no secrets baked into layers; pinned base images |
+| `**/*.test.{ts,tsx}`, `**/*.integration.test.ts`, `tests/**`, `**/tests/*.rs` | Tests | `.agents/skills/testing-guidelines/SKILL.md`; `.agents/skills/e2e-testing/SKILL.md` | test behavior, not implementation; mock only external deps (never your own code); tier-appropriate coverage. Rust tests are `cargo test` (`#[cfg(test)] mod tests`, `tests/`, env-gated E2E like `CLAUDE_SDK_E2E=1` / `SANDBOX_E2E=1`) — **not Vitest**. `any` is allowed in TS test files. |
+| `k8s/helm/moatless-vibe/**` | Helm / K8s | `.agents/skills/k8s-install/references/values-schema.md`; `.agents/skills/kubernetes-testing/SKILL.md` | `values.yaml` ↔ template consistency; pod/container security contexts (frontend and backend); sandbox isolation set (networkpolicy incl. Cilium, resourcequota, limitrange, per-task namespace/SA); RBAC least-privilege; **no hardcoded secrets** (use `secrets`/`externalSecrets`); probe / PDB / HPA sanity; bump `Chart.yaml` `version` when templates change |
+| `docker/**`, `docker-compose/**`, `Dockerfile*` | Docker | `.agents/skills/docker-testing/SKILL.md`; `.agents/skills/docker-install/SKILL.md` | multi-stage build correctness; no secrets baked into layers; pinned base images |
 | `Cargo.toml`, `Cargo.lock`, `package.json`, `bun.lock`, `drizzle/**` | Build / deps / migrations | — | suspicious or major version bumps; migration file naming and forward-safety |
-| anything else | General | root `CLAUDE.md` | general code quality (below) |
+| anything else | General | root `AGENTS.md` | general code quality (below) |
 
 > **Do not apply `backend-dev-guidelines/SKILL.md` to Rust files.** That skill
 > describes a TypeScript/Hono/InversifyJS/Drizzle backend under `apps/backend/**`,
 > which does not exist in this repo. The real backend is Rust (Axum/Tonic/SQLx) under
 > `backend/`, `sandbox/`, and `crates/`. For those, the authoritative rules are in the
-> root `CLAUDE.md`. `frontend-dev-guidelines` and `testing-guidelines` do match the
+> root `AGENTS.md`. `frontend-dev-guidelines` and `testing-guidelines` do match the
 > code and are used as written.
 
 ## General Code Quality
@@ -217,6 +226,10 @@ compliant or not applicable; `[ ]` = issue, with a `file:line` reference in ital
 - [x] Behavior not implementation; only external deps mocked
 - [x] Correct framework/tier (Vitest for TS, `cargo test` for Rust)
 
+#### Plans  <!-- only if PR implements, completes, or edits a .plans spec -->
+- [x] Implementation aligns with the referenced plan's behaviour, scope, constraints, and testing expectations
+- [x] Completed plans moved from `.plans/<slug>.md` to `.plans/completed/<slug>.md`
+
 #### Helm / Docker  <!-- only if k8s/helm or docker changed -->
 - [x] values↔template consistency; security contexts; sandbox isolation intact
 - [x] No hardcoded secrets; Chart version bumped on template changes
@@ -256,7 +269,7 @@ intentional, ask rather than assert.
 
 ## Execution
 
-1. **Gather** — parse the PR, checkout the branch, read `CLAUDE.md`, load the guideline
+1. **Gather** — parse the PR, checkout the branch, read `AGENTS.md`, load the guideline
    docs for the touched domains, read `gh pr checks`.
 2. **Analyze** — classify files, review against the guidelines and general quality,
    decide which threads to resolve and whether to approve.

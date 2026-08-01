@@ -1,7 +1,7 @@
 # Administering GitHub Apps from the database
 
-> **Status:** approved
-> **Updated:** 2026-07-30
+> **Status:** shipped
+> **Updated:** 2026-08-01
 > **Vocabulary:** CONTEXT.md
 
 ## Current solution

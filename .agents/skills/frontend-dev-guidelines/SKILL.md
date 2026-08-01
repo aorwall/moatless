@@ -5,7 +5,7 @@ description: Moatless Vibe frontend conventions — React 19 + TanStack Query/Ro
 
 # Frontend Development Guidelines
 
-Repo-specific patterns for `apps/frontend`. Baseline conventions (type safety, server state, file organization, task-page layers) auto-attach from `.claude/rules/frontend-conventions.md`; this skill carries the how-to detail.
+Repo-specific patterns for `apps/frontend`. Baseline conventions for type safety, server state, file organization, and task-page layers live in this skill and its resources.
 
 ## Resources
 

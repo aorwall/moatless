@@ -1,12 +1,12 @@
 # Deepen the Slack and Telegram Adapters around workflow seams
 
-> **Status:** approved — in flight as two PRs
-> **Updated:** 2026-07-31
+> **Status:** shipped by PR #174
+> **Updated:** 2026-08-01
 > **Vocabulary:** CONTEXT.md
-> **Predecessors:** `.plans/smarter-github-pr-adapter-breakup.md` (delivered by PR #156),
+> **Predecessors:** `.plans/completed/smarter-github-pr-adapter-breakup.md` (delivered by PR #156),
 > `.plans/remaining-adapter-breakup.md` (this document is the ticket-level expansion of its
 > stages 02–09)
-> **Related:** `.claude/skills/adapter-development`, `.plans/adapter-capability-interfaces.md`
+> **Related:** `.agents/skills/adapter-development`, `.plans/completed/adapter-capability-interfaces.md`
 
 ## Current solution
 
@@ -644,7 +644,7 @@ for the two-PR split:
 
 | Out of scope | Reason |
 |---|---|
-| Changing the capability interfaces or the registry shape | Settled by `.plans/adapter-capability-interfaces.md`. |
+| Changing the capability interfaces or the registry shape | Settled by `.plans/completed/adapter-capability-interfaces.md`. |
 | Making Slack's unmapped-sender notice deduplicated | A behavior change with its own design question (Decision 2). |
 | Scoping Telegram's `update_id` dedup key by connection | Documented at `telegram/adapter.rs:679` and correct while Telegram is single-connection. |
 | Slack's connection scope inconsistency — inbound resolves on `team_id` (`handlers.rs:106`) while outbound binding lookup uses the `"default"` scope (`capabilities.rs:133`, unoverridden) | Real, pre-existing, and not caused by flatness. `subject.rs` is where a fix would land, which is why it is named here. |

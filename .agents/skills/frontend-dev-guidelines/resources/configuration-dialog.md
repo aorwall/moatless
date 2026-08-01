@@ -352,7 +352,7 @@ The `SidebarDialog` component automatically adapts to screen size:
 - **MUST** use local state (`useState`) to track active section
 - **SHOULD** lift state to parent only when section selection needs to be controlled externally
 - **SHOULD** use React Query hooks in section components for server state
-- Derive form state during render — no effects (see `.claude/rules/frontend-conventions.md`)
+- Derive form state during render — no effects (see `../SKILL.md`)
 
 ### Section Components
 

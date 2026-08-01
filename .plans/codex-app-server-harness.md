@@ -671,7 +671,7 @@ numbers above in its doc comment.
 Promises:
 
 - A Turn a message was folded into is still exactly one Run, so the backend's `run_id` → turn
-  number mapping is unchanged (`sandbox/CLAUDE.md`, "Run identity").
+  number mapping is unchanged (`sandbox/AGENTS.md`, "Run identity").
 - An acknowledged message that was folded in carries the running Turn's `run_id`
   (`dispatcher.rs:357-404`), which is what already happens for Claude.
 - A message that cannot be folded in becomes the next Turn. It is never dropped.
@@ -984,7 +984,7 @@ Run, no second Turn number in the backend. This is exactly what `ClaudeProcess` 
 **Rejected: keep producing a visible second Turn, using steering only to make the agent react
 sooner.** It would leave Codex as the only agent where sending a message mid-Turn means something
 different from Claude, with the difference explained nowhere in the product. It would also break
-the invariant that a Turn is exactly one Run (`sandbox/CLAUDE.md`, "Run identity"), because a
+the invariant that a Turn is exactly one Run (`sandbox/AGENTS.md`, "Run identity"), because a
 steered message produces no new execution to mint a `run_id` for.
 
 **Consequence:** an acknowledged message that was folded in carries the running Turn's `run_id`
@@ -1072,7 +1072,7 @@ with a conditional, and the conditional is the only difference.
   achieves, without the second code path.
 
 **Rejected: land the new transport first and delete the old one later.** The deletion is what makes
-the change worth doing under the repository's "prefer deleting code" rule (`CLAUDE.md`, Pragmatic
+the change worth doing under the repository's "prefer deleting code" rule (`AGENTS.md`, Pragmatic
 coding), and a deferred deletion is one that does not happen.
 
 ### 6. Noticing an expired credential

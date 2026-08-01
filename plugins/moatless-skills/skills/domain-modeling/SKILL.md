@@ -55,7 +55,7 @@ Route durable decisions to the smallest artifact that current work already owns:
 
 - In-flight change decisions go in the active `.plans/<slug>.md` Decisions table, but only for the agent implementing or reviewing that plan.
 - Domain vocabulary goes in `CONTEXT.md`; implementation decisions do not.
-- Durable implementation guidelines and decisions go in the nearest relevant `AGENTS.md`; keep `CLAUDE.md` as a symlink to it for Claude compatibility.
+- Durable implementation guidelines and decisions go in the nearest relevant `AGENTS.md`.
 - Shipped behaviour belongs in current code and tests. Do not recreate a standalone markdown specs tree for it.
 
 Plans and old decision records can rot. Treat them as leads, not authority; verify durable architecture and behaviour claims against current code and tests before relying on them.

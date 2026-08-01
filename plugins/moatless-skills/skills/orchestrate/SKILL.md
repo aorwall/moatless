@@ -224,6 +224,9 @@ feature. `moat gh stack merge` merges the stack in order; use the interactive
 flow when a human should choose the method, or `moat gh stack merge --yes
 --squash` only when the project convention and branch protection allow it.
 
+The final step after implementation is archiving the completed plan. Do not
+leave an implemented feature's spec at `.plans/<feature-slug>.md`.
+
 After the stack lands, retire the spec in a final documentation PR or a cleanup
 stack layer:
 
@@ -244,5 +247,7 @@ not archived. Anything in them worth keeping belongs in the spec.
 Report to the user:
 
 - All tickets: title, PR URL, review outcome
+- Completed plan archived at `.plans/completed/<feature-slug>.md`, or why it
+  intentionally remains active
 - Any open items or follow-up work
 - Suggested next steps (merging the feature branch, deployment)

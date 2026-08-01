@@ -3,9 +3,9 @@
 > **Status:** draft
 > **Updated:** 2026-07-31
 > **Vocabulary:** CONTEXT.md
-> **Predecessor:** `.plans/smarter-github-pr-adapter-breakup.md` (delivered by PR #156)
-> **Related:** `.plans/cognitive-complexity-refactor.md`, `.plans/adapter-capability-interfaces.md`
-> **Expanded by:** `.plans/slack-telegram-adapter-breakup.md` — stages 02–09 (Slack and Telegram) at
+> **Predecessor:** `.plans/completed/smarter-github-pr-adapter-breakup.md` (delivered by PR #156)
+> **Related:** `.plans/completed/cognitive-complexity-refactor.md`, `.plans/completed/adapter-capability-interfaces.md`
+> **Expanded by:** `.plans/completed/slack-telegram-adapter-breakup.md` — stages 02–09 (Slack and Telegram) at
 > ticket level: move maps, target module interfaces, and the effect vocabulary. Read that document
 > before starting any of those stages; it supersedes their one-line rows below.
 
@@ -526,13 +526,13 @@ fourth time.
 
 | Out of scope | Reason |
 |---|---|
-| Changing the cross-Adapter capability interfaces or the registry shape | Settled by `.plans/adapter-capability-interfaces.md`. |
+| Changing the cross-Adapter capability interfaces or the registry shape | Settled by `.plans/completed/adapter-capability-interfaces.md`. |
 | Making Slack's unmapped-sender notice deduplicated | A behavior change with its own design question (Decision 3). |
 | Scoping Telegram's `update_id` dedup key by connection | Documented at `telegram/adapter.rs:679` and correct while Telegram is single-connection; making Telegram multi-connection is its own change. |
 | Changing any delivery kind, payload meaning, dedup identity, audience rule, or retry budget | This is an architecture refactor. |
 | Refactoring `linear/api_routes.rs`, `slack/format.rs`, or `telegram/pairing.rs` | Support modules that do not cause the flatness. |
 | Replacing any API client with a third-party SDK | Expands scope and changes error and rate-limit behavior. |
-| Enabling `clippy::cognitive_complexity` as deny | Owned by `.plans/cognitive-complexity-refactor.md`. |
+| Enabling `clippy::cognitive_complexity` as deny | Owned by `.plans/completed/cognitive-complexity-refactor.md`. |
 | Changing external id formats or aliases | They are persisted and participate in echo filtering. |
 
 ## Open questions

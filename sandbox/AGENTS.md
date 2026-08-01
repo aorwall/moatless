@@ -61,4 +61,4 @@ CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --
   acknowledgment. The backend maps `run_id` -> turn number, so a turn is exactly
   one agent run regardless of delivery order.
 - Interactive prompts use `tokio::sync::oneshot` for AskUserQuestion/ExitPlanMode blocking.
-- AGENTS.md is canonical local guidance; CLAUDE.md exists only as the compatibility symlink.
+- AGENTS.md is canonical local guidance.

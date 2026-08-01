@@ -2,7 +2,7 @@
 
 Moving a Task's conversation from one jsonb document per Message to two tables —
 `task_messages` for what somebody said, `task_activities` for what happened on
-the way. Spec: `.plans/event-sourced-conversation.md`.
+the way. Spec: `.plans/completed/event-sourced-conversation.md`.
 
 Migration `0118_task_activities.sql` creates everything and drops nothing. It
 runs at boot and is safe on its own. **Everything below is operator-run**, in

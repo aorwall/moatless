@@ -244,7 +244,7 @@ moat events list <task-id> --errors         # show only errors
 
 # 6. Check files in the workspace
 moat tasks files <task-id> tree
-moat tasks files <task-id> read --path CLAUDE.md
+moat tasks files <task-id> read --path AGENTS.md
 ```
 
 ### Troubleshoot system prompt delivery
