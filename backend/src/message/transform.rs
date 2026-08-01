@@ -14,7 +14,8 @@ use crate::file_storage::models::FileMetadata;
 use crate::message::models::MessageType;
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::dao::Activity;
-use crate::task_activities::mapping::{ActivityKind, ActivityStatus, result_text};
+use crate::task_activities::mapping::{ActivityKind, ActivityStatus};
+use crate::task_activities::view::ActivityView;
 
 use super::schemas::*;
 
@@ -141,7 +142,10 @@ fn turns<'a>(
             key: message.timestamp.clone(),
             uuid: message.uuid.clone(),
             message: Some(message),
-            activities: by_uuid.get(message.uuid.as_str()).cloned().unwrap_or_default(),
+            activities: by_uuid
+                .get(message.uuid.as_str())
+                .cloned()
+                .unwrap_or_default(),
         });
     }
 
@@ -201,7 +205,11 @@ fn transform_scoped(
             // A turn that only called tools. It said nothing, so there is no row
             // to carry its role, timestamp or model — but the calls it made are
             // exactly what the conversation has to show.
-            ui_messages.push(transform_tool_only_turn(&turn.uuid, &turn.activities, is_last));
+            ui_messages.push(transform_tool_only_turn(
+                &turn.uuid,
+                &turn.activities,
+                is_last,
+            ));
             continue;
         };
         let msg_context_rows = contexts_by_msg.get(&msg.id).cloned().unwrap_or_default();
@@ -239,13 +247,14 @@ fn transform_scoped(
 fn call_blocks(activities: &[&Activity]) -> Vec<UiContentBlock> {
     activities
         .iter()
-        .filter(|activity| activity.kind == ActivityKind::ToolCall)
+        .map(|activity| ActivityView::new(activity))
+        .filter(|activity| activity.kind() == ActivityKind::ToolCall)
         .map(|activity| UiContentBlock {
             block_type: "tool_use".to_string(),
             text: None,
-            tool_use_id: activity.tool_use_id.clone(),
-            tool_name: Some(activity.summary.clone()),
-            tool_input: Some(activity.tool_input().clone()).filter(|v| !v.is_null()),
+            tool_use_id: activity.tool_use_id().map(str::to_string),
+            tool_name: Some(activity.summary().to_string()),
+            tool_input: Some(activity.input().clone()).filter(|v| !v.is_null()),
             show_in_ui: None,
             subagent_summary: None,
         })
@@ -256,19 +265,17 @@ fn call_blocks(activities: &[&Activity]) -> Vec<UiContentBlock> {
 fn call_results(activities: &[&Activity]) -> Vec<UiToolResult> {
     activities
         .iter()
-        .filter(|activity| activity.kind == ActivityKind::ToolCall && activity.is_settled())
+        .map(|activity| ActivityView::new(activity))
+        .filter(|activity| activity.kind() == ActivityKind::ToolCall && activity.is_settled())
         .filter_map(|activity| {
-            let tool_use_id = activity.tool_use_id.clone()?;
+            let tool_use_id = activity.tool_use_id()?.to_string();
             Some(UiToolResult {
                 tool_use_id,
-                content: activity
-                    .result()
-                    .and_then(result_text)
-                    .map(std::string::ToString::to_string),
-                is_error: Some(activity.is_error),
+                content: activity.result_text().map(str::to_string),
+                is_error: Some(activity.is_error()),
                 typed_result: enrich_codex_typed_result(
-                    &activity.summary,
-                    Some(activity.tool_input()),
+                    activity.summary(),
+                    Some(activity.input()),
                     activity.typed_result().cloned(),
                 ),
             })
@@ -283,9 +290,10 @@ fn call_results(activities: &[&Activity]) -> Vec<UiToolResult> {
 /// two tools *is* "waiting".
 fn has_unanswered_question(activities: &[&Activity]) -> bool {
     activities.iter().any(|activity| {
-        activity.kind == ActivityKind::ToolCall
-            && activity.status == ActivityStatus::InProgress
-            && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
+        let activity = ActivityView::new(activity);
+        activity.kind() == ActivityKind::ToolCall
+            && activity.status() == ActivityStatus::InProgress
+            && INTERACTIVE_TOOLS.contains(&activity.summary())
     })
 }
 
@@ -296,12 +304,13 @@ fn has_unanswered_question(activities: &[&Activity]) -> bool {
 /// nothing and written no Message row. Rendering reads it back from there.
 fn claimed_external_source(activities: &[&Activity]) -> Option<UiMessageExternalSource> {
     activities.iter().find_map(|activity| {
-        let adapter_kind = activity.external_adapter.clone()?;
-        let external_id = activity.external_event_id.clone();
+        let activity = ActivityView::new(activity);
+        let adapter_kind = activity.external_adapter()?.to_string();
+        let external_id = activity.external_event_id().map(str::to_string);
         let external_label = external_id.as_deref().map(format_external_label);
         Some(UiMessageExternalSource {
             adapter_kind,
-            source_name: activity.external_source_name.clone(),
+            source_name: activity.external_source_name().map(str::to_string),
             external_id,
             external_label,
         })

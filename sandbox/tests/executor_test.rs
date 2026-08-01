@@ -18,14 +18,14 @@ use moatless_sandbox::agent::prompt::{PendingPrompt, PromptResponse, PromptToolN
 use moatless_sandbox::agent::types::{AgentStatus, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
-use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::Dispatcher;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::SandboxState;
 
 use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, PendingMessage, PublishEventRequest,
+    DownloadUploadResponse, GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest,
 };
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -35,7 +35,7 @@ use tokio_util::sync::CancellationToken;
 // =============================================================================
 
 struct MockBackendClient {
-    message_batches: Mutex<Vec<Vec<PendingMessage>>>,
+    message_batches: Mutex<Vec<Vec<PendingAgentDelivery>>>,
     acknowledgments: Mutex<Vec<(String, Vec<String>, String)>>,
     publish_count: AtomicUsize,
     ack_count: AtomicUsize,
@@ -43,7 +43,7 @@ struct MockBackendClient {
 }
 
 impl MockBackendClient {
-    fn new(batches: Vec<Vec<PendingMessage>>) -> Self {
+    fn new(batches: Vec<Vec<PendingAgentDelivery>>) -> Self {
         Self {
             message_batches: Mutex::new(batches),
             acknowledgments: Mutex::new(Vec::new()),
@@ -81,7 +81,7 @@ impl BackendClient for MockBackendClient {
     async fn get_pending_messages(
         &self,
         _task_id: &str,
-    ) -> Result<Vec<PendingMessage>, tonic::Status> {
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
         self.get_pending_count.fetch_add(1, Ordering::SeqCst);
         let mut batches = self.message_batches.lock().unwrap();
         if batches.is_empty() {
@@ -165,25 +165,11 @@ impl BackendClient for MockBackendClient {
 // Helpers
 // =============================================================================
 
-fn make_text_message(text: &str, uuid: Option<&str>) -> PendingMessage {
-    PendingMessage {
-        content: vec![sandbox_proto::ContentBlock {
-            block: Some(sandbox_proto::content_block::Block::Text(
-                sandbox_proto::TextBlock {
-                    text: text.to_string(),
-                },
-            )),
-        }],
-        is_error: None,
-        model: None,
-        system_prompt: None,
-        resume: None,
-        resume_session_id: None,
-        agent_type: None,
-        agent_mode: None,
-        uuid: uuid.map(ToString::to_string),
-        file_ids: vec![],
-        start_fresh: None,
+fn make_text_message(text: &str, uuid: Option<&str>) -> PendingAgentDelivery {
+    PendingAgentDelivery {
+        message_uuids: uuid.map(ToString::to_string).into_iter().collect(),
+        prompt_text: text.to_string(),
+        ..Default::default()
     }
 }
 

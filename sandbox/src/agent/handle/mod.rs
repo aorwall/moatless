@@ -17,12 +17,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use moatless_events::AgentSubType;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{RwLock, mpsc, oneshot};
 
 use crate::backend_client::BackendClient;
 use crate::config::Config;
-use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::Dispatcher;
+use crate::credentials::recovery::CredentialFailureDetector;
 use crate::events::GrpcEventPublisher;
 
 use super::agent_state::AgentState;
@@ -325,21 +325,21 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        build_harness, resolve_agent_harness, spawn_agent, AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX,
+        AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX, build_harness, resolve_agent_harness, spawn_agent,
     };
     use crate::agent::agent_state::AgentState;
     use crate::agent::harness::ErrorClass;
     use crate::agent::heartbeat::Heartbeat;
     use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
     use crate::backend_client::BackendClient;
-    use crate::config::{test_support::minimal_config, Config};
-    use crate::credentials::recovery::CredentialFailureDetector;
+    use crate::config::{Config, test_support::minimal_config};
     use crate::credentials::Dispatcher;
+    use crate::credentials::recovery::CredentialFailureDetector;
     use crate::events::GrpcEventPublisher;
     use crate::outbox::EventOutbox;
     use async_trait::async_trait;
     use sandbox_proto::{
-        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
+        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
         PublishEventRequest,
     };
     use std::time::Duration;
@@ -358,7 +358,7 @@ mod tests {
         async fn get_pending_messages(
             &self,
             _task_id: &str,
-        ) -> Result<Vec<PendingMessage>, Status> {
+        ) -> Result<Vec<PendingAgentDelivery>, Status> {
             Ok(vec![])
         }
         async fn acknowledge_messages(

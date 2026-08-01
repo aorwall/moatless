@@ -1,4 +1,7 @@
-//! Message content enricher — construct enriched content blocks from user input.
+//! Message content enricher — construct agent-facing prompt text from user input.
+
+use std::collections::HashMap;
+use std::fmt::Write;
 
 use serde_json::Value;
 
@@ -18,6 +21,209 @@ pub struct ContentBlock {
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<Value>,
+}
+
+/// One pending harness input assembled by the backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDelivery {
+    pub message_uuids: Vec<String>,
+    pub prompt_text: String,
+    pub file_ids: Vec<String>,
+    pub model: Option<String>,
+    pub agent_type: Option<String>,
+    pub agent_mode: Option<String>,
+    pub resume_session_id: Option<String>,
+    pub resume: bool,
+    pub start_fresh: bool,
+}
+
+/// Builds pending Message rows into the exact unit the sandbox submits.
+///
+/// The interface deliberately hides the transient prompt assembly rules from
+/// the gRPC handler and sandbox: callers get text, upload ids, model metadata,
+/// resume intent, and the uuids to acknowledge after harness acceptance.
+pub struct AgentPromptBuilder<'a> {
+    files: Option<&'a dyn FileDao>,
+    config: Option<&'a Config>,
+    task_agent_type: String,
+    task_model: Option<String>,
+    task_resume_session_id: Option<String>,
+    sender_logins: &'a HashMap<String, String>,
+}
+
+impl<'a> AgentPromptBuilder<'a> {
+    pub fn new(
+        files: Option<&'a dyn FileDao>,
+        config: Option<&'a Config>,
+        task_agent_type: String,
+        task_model: Option<String>,
+        task_resume_session_id: Option<String>,
+        sender_logins: &'a HashMap<String, String>,
+    ) -> Self {
+        Self {
+            files,
+            config,
+            task_agent_type,
+            task_model,
+            task_resume_session_id,
+            sender_logins,
+        }
+    }
+
+    /// Build the pending deliveries for this fetch.
+    ///
+    /// Today the dispatcher submits one harness input per fetch. To preserve
+    /// that invariant while moving batching ownership into the backend, this
+    /// returns at most one delivery: all rows before the first `start_fresh`, or
+    /// the leading `start_fresh` row alone.
+    pub async fn build_pending_deliveries(
+        &self,
+        pending: &[TaskMessage],
+        contexts_by_message: &HashMap<i32, Vec<TaskMessageContext>>,
+    ) -> Vec<AgentDelivery> {
+        let Some((rows, _deferred)) = delivery_slice(pending) else {
+            return Vec::new();
+        };
+
+        let mut parts = Vec::new();
+        let mut message_uuids = Vec::new();
+        let mut file_ids = Vec::new();
+        let mut model = None;
+        let mut agent_mode = None;
+        let start_fresh = rows.iter().any(|row| row.start_fresh);
+        let resume = !start_fresh
+            && self.task_resume_session_id.as_ref().is_some()
+            && rows.last().is_some_and(|row| row.resume);
+
+        for row in rows {
+            let mut text = self
+                .build_message_prompt(
+                    row,
+                    contexts_by_message
+                        .get(&row.id)
+                        .map_or(&[][..], Vec::as_slice),
+                )
+                .await;
+            let header = build_message_header(row, self.sender_logins);
+            if !header.is_empty() {
+                text = format!("{header}{text}");
+            }
+            if !text.is_empty() {
+                parts.push(text);
+            }
+            message_uuids.push(row.uuid.clone());
+            file_ids.extend(row.file_ids());
+            model = effective_model(
+                row.model.clone(),
+                self.task_model.clone(),
+                &self.task_agent_type,
+            )
+            .or(model);
+            if row.agent_mode.is_some() {
+                agent_mode = row.agent_mode.as_ref().map(|mode| mode.0.clone());
+            }
+        }
+
+        if parts.is_empty() {
+            tracing::warn!("Pending delivery has no prompt text");
+            return Vec::new();
+        }
+
+        vec![AgentDelivery {
+            message_uuids,
+            prompt_text: parts.join("\n"),
+            file_ids,
+            model,
+            agent_type: Some(self.task_agent_type.clone()),
+            agent_mode,
+            resume_session_id: if resume {
+                self.task_resume_session_id.clone()
+            } else {
+                None
+            },
+            resume,
+            start_fresh,
+        }]
+    }
+
+    async fn build_message_prompt(
+        &self,
+        message: &TaskMessage,
+        contexts: &[TaskMessageContext],
+    ) -> String {
+        if let (Some(files), Some(config)) = (self.files, self.config) {
+            return build_pending_content_blocks(files, config, message, contexts)
+                .await
+                .into_iter()
+                .filter_map(|block| match block.block_type.as_str() {
+                    "text" => block.text,
+                    _ => None,
+                })
+                .filter(|text| !text.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
+
+        tracing::warn!(
+            message_uuid = %message.uuid,
+            "Delivering pending message without context enrichment because file store or config is unavailable"
+        );
+        attributed_text(
+            message.message_text.as_deref().unwrap_or_default(),
+            message.source_task_id.as_deref(),
+        )
+    }
+}
+
+fn delivery_slice(pending: &[TaskMessage]) -> Option<(&[TaskMessage], usize)> {
+    if pending.is_empty() {
+        return None;
+    }
+    let idx = pending.iter().position(|row| row.start_fresh);
+    let keep = match idx {
+        Some(0) => 1,
+        Some(idx) => idx,
+        None => pending.len(),
+    };
+    Some((&pending[..keep], pending.len() - keep))
+}
+
+/// Resolve the model to deliver for a pending message.
+///
+/// An explicit per-message model is always preserved. When the message carries
+/// no model, agents that pin a model (e.g. `claude-code-fable` -> `fable`) get it
+/// forced here, since the catalog `default_model` is only a UI hint and is not
+/// otherwise applied at runtime.
+pub fn effective_model(
+    row_model: Option<String>,
+    task_model: Option<String>,
+    agent_type: &str,
+) -> Option<String> {
+    row_model.or(task_model).or_else(|| match agent_type {
+        "claude-code-fable" => Some("fable".to_string()),
+        _ => None,
+    })
+}
+
+fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>) -> String {
+    if row.external_event_id.is_some() {
+        let mut header = format!("<message_id>{}</message_id>\n", row.uuid);
+        if let Some(source) = row.external_adapter.as_deref() {
+            let _ = writeln!(header, "<source>{source}</source>");
+        }
+        if let Some(thread) = row.external_subject_key.as_deref() {
+            let _ = writeln!(header, "<thread>{thread}</thread>");
+        }
+        header.push('\n');
+        return header;
+    }
+
+    if let Some(uid) = row.sent_by.as_deref() {
+        if let Some(login) = login_cache.get(uid) {
+            return format!("<sent_by>{login}</sent_by>\n\n");
+        }
+    }
+    String::new()
 }
 
 /// Build content blocks from user input + contexts + attachments.
@@ -166,6 +372,147 @@ mod tests {
     use super::*;
     use crate::file_storage::dao::MockFileDao;
     use crate::file_storage::models::FileMetadata;
+    use serde_json::json;
+
+    fn pending_message(id: i32, uuid: &str, text: &str) -> TaskMessage {
+        let mut message = TaskMessage::new_user_message(
+            "task-1".to_string(),
+            uuid.to_string(),
+            text.to_string(),
+            "2026-08-01T00:00:00Z".to_string(),
+        );
+        message.id = id;
+        message
+    }
+
+    fn prompt_builder(
+        sender_logins: &HashMap<String, String>,
+        resume_session_id: Option<String>,
+    ) -> AgentPromptBuilder<'_> {
+        AgentPromptBuilder::new(
+            None,
+            None,
+            "claude-code".to_string(),
+            None,
+            resume_session_id,
+            sender_logins,
+        )
+    }
+
+    #[test]
+    fn effective_model_forces_fable_when_unset() {
+        assert_eq!(
+            effective_model(None, None, "claude-code-fable"),
+            Some("fable".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_model_uses_task_model_when_message_omits_one() {
+        assert_eq!(
+            effective_model(None, Some("claude-sonnet-4-6".to_string()), "claude-code"),
+            Some("claude-sonnet-4-6".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_model_preserves_explicit_model() {
+        assert_eq!(
+            effective_model(
+                Some("claude-opus-4-6".to_string()),
+                Some("fable".to_string()),
+                "claude-code-fable",
+            ),
+            Some("claude-opus-4-6".to_string())
+        );
+    }
+
+    #[test]
+    fn effective_model_leaves_other_agents_unset() {
+        assert_eq!(effective_model(None, None, "claude-code"), None);
+        assert_eq!(effective_model(None, None, "codex"), None);
+    }
+
+    #[tokio::test]
+    async fn builder_batches_rows_before_first_start_fresh() {
+        let cache = HashMap::new();
+        let mut first = pending_message(1, "msg-1", "hello");
+        first.attachments = Some(json!({ "file_ids": ["file-1"] }));
+        let second = pending_message(2, "msg-2", "world");
+        let mut fresh = pending_message(3, "msg-3", "fresh");
+        fresh.start_fresh = true;
+
+        let deliveries = prompt_builder(&cache, Some("session-1".to_string()))
+            .build_pending_deliveries(&[first, second, fresh], &HashMap::new())
+            .await;
+
+        assert_eq!(deliveries.len(), 1);
+        let delivery = &deliveries[0];
+        assert_eq!(delivery.message_uuids, vec!["msg-1", "msg-2"]);
+        assert_eq!(delivery.prompt_text, "hello\nworld");
+        assert_eq!(delivery.file_ids, vec!["file-1"]);
+        assert_eq!(delivery.resume_session_id.as_deref(), Some("session-1"));
+        assert!(delivery.resume);
+        assert!(!delivery.start_fresh);
+    }
+
+    #[tokio::test]
+    async fn builder_dispatches_leading_start_fresh_alone_without_resume() {
+        let cache = HashMap::new();
+        let mut fresh = pending_message(1, "msg-1", "fresh");
+        fresh.start_fresh = true;
+        let second = pending_message(2, "msg-2", "later");
+
+        let deliveries = prompt_builder(&cache, Some("session-1".to_string()))
+            .build_pending_deliveries(&[fresh, second], &HashMap::new())
+            .await;
+
+        assert_eq!(deliveries.len(), 1);
+        let delivery = &deliveries[0];
+        assert_eq!(delivery.message_uuids, vec!["msg-1"]);
+        assert_eq!(delivery.prompt_text, "fresh");
+        assert_eq!(delivery.resume_session_id, None);
+        assert!(!delivery.resume);
+        assert!(delivery.start_fresh);
+    }
+
+    #[tokio::test]
+    async fn external_row_header_is_in_prompt_text() {
+        let mut cache = HashMap::new();
+        cache.insert("u1".to_string(), "alice".to_string());
+        let mut message = pending_message(1, "msg_abc", "hello");
+        message.external_event_id = Some("slack:ts:1700".to_string());
+        message.external_adapter = Some("slack".to_string());
+        message.external_subject_key = Some("T06:C0A:1781593153.718929".to_string());
+        message.sent_by = Some("u1".to_string());
+
+        let deliveries = prompt_builder(&cache, None)
+            .build_pending_deliveries(&[message], &HashMap::new())
+            .await;
+
+        assert_eq!(
+            deliveries[0].prompt_text,
+            "<message_id>msg_abc</message_id>\n<source>slack</source>\n\
+             <thread>T06:C0A:1781593153.718929</thread>\n\nhello"
+        );
+    }
+
+    #[tokio::test]
+    async fn internal_row_header_uses_resolved_sender() {
+        let mut cache = HashMap::new();
+        cache.insert("u1".to_string(), "alice".to_string());
+        let mut message = pending_message(1, "msg_abc", "hello");
+        message.sent_by = Some("u1".to_string());
+
+        let deliveries = prompt_builder(&cache, None)
+            .build_pending_deliveries(&[message], &HashMap::new())
+            .await;
+
+        assert_eq!(
+            deliveries[0].prompt_text,
+            "<sent_by>alice</sent_by>\n\nhello"
+        );
+    }
 
     #[tokio::test]
     async fn file_attachment_block_renders_on_disk_path() {

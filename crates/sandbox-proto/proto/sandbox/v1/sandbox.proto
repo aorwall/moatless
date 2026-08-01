@@ -161,30 +161,19 @@ message GetPendingMessagesRequest {
 }
 
 message GetPendingMessagesResponse {
-  repeated PendingMessage messages = 1;
+  repeated PendingAgentDelivery deliveries = 1;
 }
 
-message PendingMessage {
-  repeated ContentBlock content = 1;
-  optional string model = 2;
-  optional string system_prompt = 3;
-  optional bool resume = 4;
+message PendingAgentDelivery {
+  repeated string message_uuids = 1;
+  string prompt_text = 2;
+  repeated string file_ids = 3;
+  optional string model = 4;
   optional string agent_type = 5;
-  optional bool is_error = 6;
-  // The agent_session_id from the previous turn — used for --resume <id>
+  optional string agent_mode = 6;
   optional string resume_session_id = 7;
-  // Message UUID for per-message acknowledgment tracking
-  optional string uuid = 8;
-  optional string agent_mode = 9;
-  // File IDs attached to this message — sandbox should fetch these via
-  // DownloadUpload before invoking the agent so the on-disk paths advertised
-  // in the prompt are valid.
-  repeated string file_ids = 10;
-  // When true, the sandbox must start a fresh agent session for this message
-  // (no `--resume`). Used by the user-facing "Start fresh" toggle. Backend
-  // already clears `resume_session_id` for these messages, but this flag is
-  // forwarded so the sandbox can log/observe the user intent.
-  optional bool start_fresh = 11;
+  bool resume = 8;
+  bool start_fresh = 9;
 }
 
 message ContentBlock {

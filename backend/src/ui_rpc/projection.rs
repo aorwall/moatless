@@ -7,17 +7,17 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use tracing::warn;
 
-use super::dao::{Conversation, Transcript, TranscriptMessage};
 use super::AgentModelDefaults;
+use super::dao::{Conversation, Transcript, TranscriptMessage};
 use crate::agent::catalog::{self, AgentKind};
 use crate::message::models::{MessageType, TOOL_RESPONSE_USER_TYPE};
 use crate::sandbox::models::ServerConfig;
-use crate::task_activities::dao::Activity;
-use crate::task_activities::mapping::ActivityKind;
 use crate::task_activities::ConversationChange;
+use crate::task_activities::dao::Activity;
+use crate::task_activities::view::ActivityView;
 use crate::task_turn::models::TurnStatus;
 use crate::workspace::dao::ListedWorkspace;
 use crate::workspace::models::Workspace;
@@ -317,11 +317,10 @@ pub(super) fn change_events(
     // Message is dated by the first activity under it.
     let at = message.map_or_else(
         || {
-            activities
-                .first()
-                .map_or_else(|| instant(created_at(conversation)), |activity| {
-                    instant(activity.created_at)
-                })
+            activities.first().map_or_else(
+                || instant(created_at(conversation)),
+                |activity| instant(activity.created_at),
+            )
         },
         |message| instant(message_instant(conversation, message)),
     );
@@ -366,7 +365,11 @@ fn session_set(conversation: &Conversation, change: &ConversationChange) -> Opti
     if session.is_null() {
         return None;
     }
-    let at = instant(conversation.updated_at.unwrap_or_else(|| created_at(conversation)));
+    let at = instant(
+        conversation
+            .updated_at
+            .unwrap_or_else(|| created_at(conversation)),
+    );
     let sequence = change.sequence(0)?;
     Some(event(
         conversation,
@@ -506,22 +509,23 @@ struct RenderedTranscript {
 /// that only called tools has activities and no Message at all. Ordering is
 /// carried explicitly on each side — Message order for the bubbles, the
 /// conversation's own `position` for the work log.
-fn rendered_transcript(
-    conversation: &Conversation,
-    transcript: &Transcript,
-) -> RenderedTranscript {
+fn rendered_transcript(conversation: &Conversation, transcript: &Transcript) -> RenderedTranscript {
     let mut rendered = RenderedTranscript {
         messages: Vec::new(),
         activities: Vec::new(),
     };
     if transcript.omitted > 0 {
-        rendered.messages.push(elision_notice(conversation, transcript));
+        rendered
+            .messages
+            .push(elision_notice(conversation, transcript));
     }
 
     for message in &transcript.messages {
         let at = instant(message_instant(conversation, message));
         let turn = turn_reference(conversation, message);
-        rendered.messages.extend(message_bubble(message, &turn, &at));
+        rendered
+            .messages
+            .extend(message_bubble(message, &turn, &at));
     }
     for activity in &transcript.activities {
         let (turn, at) = activity_anchor(conversation, transcript, activity);
@@ -553,9 +557,8 @@ fn message_bubble(message: &TranscriptMessage, turn: &Value, at: &str) -> Option
             }
             (!text.is_empty()).then(|| message_row(message, "user", text.to_string(), turn, at))
         }
-        MessageType::Assistant => {
-            (!text.is_empty()).then(|| message_row(message, "assistant", text.to_string(), turn, at))
-        }
+        MessageType::Assistant => (!text.is_empty())
+            .then(|| message_row(message, "assistant", text.to_string(), turn, at)),
         // A run's own closing line, from before those stopped being written as
         // Messages. Neither the person nor the agent said it, and `system` is
         // the contract's role for exactly that.
@@ -613,14 +616,10 @@ fn activity_anchor(
 /// conversation that began there. This is the one message in a transcript that
 /// no row in the database backs, which is why it says so.
 fn elision_notice(conversation: &Conversation, transcript: &Transcript) -> Value {
-    let at = instant(
-        transcript
-            .messages
-            .first()
-            .map_or_else(|| created_at(conversation), |first| {
-                message_instant(conversation, first)
-            }),
-    );
+    let at = instant(transcript.messages.first().map_or_else(
+        || created_at(conversation),
+        |first| message_instant(conversation, first),
+    ));
     json!({
         "id": format!("{}:elided", conversation.task_id),
         "role": "system",
@@ -675,65 +674,25 @@ fn message_row(
 /// own, long after the snapshot it has to sort into, carries the number it was
 /// written with.
 fn activity_row(activity: &Activity, turn: &Value, at: &str) -> Value {
-    let mut payload = match &activity.payload {
-        Value::Object(fields) => fields.clone(),
-        _ => Map::new(),
-    };
-    payload.remove("input");
-    payload.remove("result");
-    payload.remove("typedResult");
-    if let Some(detail) = activity.detail.clone() {
-        payload.insert("detail".into(), Value::String(detail));
-    }
+    let view = ActivityView::new(activity);
 
     json!({
-        "id": activity.activity_id,
-        "tone": tone(activity),
-        "kind": activity_kind(activity),
-        "summary": activity.summary,
-        "payload": Value::Object(payload),
+        "id": view.activity_id(),
+        "tone": view.t3_tone(),
+        "kind": view.t3_kind(),
+        "summary": view.summary(),
+        "payload": Value::Object(view.t3_payload()),
         "turnId": turn,
         "sequence": activity.position,
         "createdAt": at
     })
 }
 
-fn tone(activity: &Activity) -> &'static str {
-    match activity.kind {
-        _ if activity.is_error => "error",
-        ActivityKind::ToolCall => "tool",
-        ActivityKind::Thinking | ActivityKind::SandboxStatus | ActivityKind::SandboxError => "info",
-    }
-}
-
-/// Which of the contract's activity kinds a stored row is.
-///
-/// A call whose result has not arrived is `tool.updated` rather than
-/// `tool.completed`: the client collapses an update into the completion that
-/// follows it, so a call reported complete before it is would keep the
-/// completed row and drop the real outcome.
-///
-/// Thinking and both Sandbox kinds are `task.progress`. That is the kind the
-/// client renders in the thinking tone, and — the part that matters for the
-/// Sandbox — it ends in neither `.started` nor `.completed`, so a Sandbox row
-/// claims no position in the client's own lifecycle sort.
-fn activity_kind(activity: &Activity) -> &'static str {
-    match activity.kind {
-        ActivityKind::ToolCall if activity.is_settled() => "tool.completed",
-        ActivityKind::ToolCall => "tool.updated",
-        ActivityKind::Thinking | ActivityKind::SandboxStatus | ActivityKind::SandboxError => {
-            "task.progress"
-        }
-    }
-}
-
 /// The Turn this Message belongs to, in T3's identity for one.
 fn turn_reference(conversation: &Conversation, message: &TranscriptMessage) -> Value {
-    message
-        .turn_number
-        .map_or(Value::Null, |number| {
-            Value::String(turn_id(&conversation.task_id, number))
-        })
+    message.turn_number.map_or(Value::Null, |number| {
+        Value::String(turn_id(&conversation.task_id, number))
+    })
 }
 
 /// When a Message happened.
@@ -1153,7 +1112,7 @@ mod tests {
     use super::*;
     use crate::message::models::MessageRole;
     use crate::shared_models::AgentType;
-    use crate::task_activities::mapping::ActivityStatus;
+    use crate::task_activities::mapping::{ActivityKind, ActivityStatus};
     use moatless_backend_core::scope::Scope;
 
     // -----------------------------------------------------------------------
@@ -1374,7 +1333,11 @@ mod tests {
             RUNTIME_MODES.contains(&thread["runtimeMode"].as_str().unwrap()),
             "thread.runtimeMode must be one of the contract's literals"
         );
-        for key in ["hasPendingApprovals", "hasPendingUserInput", "hasActionableProposedPlan"] {
+        for key in [
+            "hasPendingApprovals",
+            "hasPendingUserInput",
+            "hasActionableProposedPlan",
+        ] {
             assert!(thread[key].is_boolean(), "thread.{key} must be a boolean");
         }
 
@@ -1531,7 +1494,10 @@ mod tests {
         assert_eq!(model_name(&row, &defaults), "claude-opus-4-5-20260115");
 
         row.agent_type = AgentType("codex".to_string());
-        assert_eq!(model_name(&conversation("task-b", "ws-a"), &defaults), "claude-opus-4-5");
+        assert_eq!(
+            model_name(&conversation("task-b", "ws-a"), &defaults),
+            "claude-opus-4-5"
+        );
         assert_eq!(model_name(&row, &defaults), "claude-opus-4-5-20260115");
     }
 
@@ -1564,11 +1530,7 @@ mod tests {
 
         let listed = threads(
             &[workspace("ws-a", "Alpha")],
-            &[
-                conversation("task-a", "ws-a"),
-                orphan,
-                elsewhere,
-            ],
+            &[conversation("task-a", "ws-a"), orphan, elsewhere],
         );
         assert_eq!(
             listed.iter().map(|t| t["id"].clone()).collect::<Vec<_>>(),
@@ -1588,9 +1550,11 @@ mod tests {
 
         let snapshot = shell_snapshot(&[ws], &[], &AgentModelDefaults::default(), 0);
         assert_keys(&snapshot, "snapshot", SNAPSHOT_REQUIRED, SNAPSHOT_OPTIONAL);
-        assert!(snapshot["snapshotSequence"]
-            .as_i64()
-            .is_some_and(|n| n >= 0));
+        assert!(
+            snapshot["snapshotSequence"]
+                .as_i64()
+                .is_some_and(|n| n >= 0)
+        );
 
         let project = &snapshot["projects"][0];
         assert_keys(project, "project", PROJECT_REQUIRED, PROJECT_OPTIONAL);
@@ -1630,29 +1594,29 @@ mod tests {
         ListedWorkspace {
             readable: true,
             workspace: Workspace {
-            id: id.to_string(),
-            name: name.to_string(),
-            description: None,
-            kind: "blank".to_string(),
-            docker_image: None,
-            docker_access: None,
-            sandbox_service_account: None,
-            system_prompt: None,
-            setup_commands: None,
-            env_vars: None,
-            servers: None,
-            resources: None,
-            network_profile: None,
-            source: "manual".to_string(),
-            source_repository_id: None,
-            source_key: None,
-            source_config_path: None,
-            scope: Scope::User,
-            owner_user_id: Some("user-1".to_string()),
-            created_by: Some("user-1".to_string()),
-            deleted: Some(false),
-            created_at: Some(Utc::now()),
-            updated_at: Some(Utc::now()),
+                id: id.to_string(),
+                name: name.to_string(),
+                description: None,
+                kind: "blank".to_string(),
+                docker_image: None,
+                docker_access: None,
+                sandbox_service_account: None,
+                system_prompt: None,
+                setup_commands: None,
+                env_vars: None,
+                servers: None,
+                resources: None,
+                network_profile: None,
+                source: "manual".to_string(),
+                source_repository_id: None,
+                source_key: None,
+                source_config_path: None,
+                scope: Scope::User,
+                owner_user_id: Some("user-1".to_string()),
+                created_by: Some("user-1".to_string()),
+                deleted: Some(false),
+                created_at: Some(Utc::now()),
+                updated_at: Some(Utc::now()),
             },
         }
     }
@@ -2007,7 +1971,9 @@ mod tests {
 
         let work = thread["activities"].as_array().unwrap();
         assert_eq!(
-            work.iter().map(|a| a["summary"].clone()).collect::<Vec<_>>(),
+            work.iter()
+                .map(|a| a["summary"].clone())
+                .collect::<Vec<_>>(),
             vec![json!("Thinking"), json!("Bash"), json!("Edit")]
         );
     }
@@ -2095,7 +2061,11 @@ mod tests {
         let mut waiting = a_conversation();
         waiting.activities[1].status = ActivityStatus::InProgress;
         waiting.activities[1].payload["status"] = json!("inProgress");
-        waiting.activities[1].payload.as_object_mut().unwrap().remove("result");
+        waiting.activities[1]
+            .payload
+            .as_object_mut()
+            .unwrap()
+            .remove("result");
         waiting.activities[1].detail = None;
 
         let work = detail(&waiting)["activities"].as_array().unwrap().clone();
@@ -2138,12 +2108,17 @@ mod tests {
     fn a_capped_transcript_says_what_it_left_out() {
         let mut conversation = a_conversation();
         conversation.omitted = 12;
-        let messages = detail(&conversation)["messages"].as_array().unwrap().clone();
-        assert_eq!(messages[0]["role"], "system");
-        assert!(messages[0]["text"]
-            .as_str()
+        let messages = detail(&conversation)["messages"]
+            .as_array()
             .unwrap()
-            .starts_with("12 earlier messages"));
+            .clone();
+        assert_eq!(messages[0]["role"], "system");
+        assert!(
+            messages[0]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("12 earlier messages")
+        );
         assert_eq!(messages[0]["turnId"], Value::Null);
         assert_keys(&messages[0], "message", MESSAGE_REQUIRED, MESSAGE_OPTIONAL);
     }
@@ -2155,7 +2130,10 @@ mod tests {
             vec![message(1, MessageType::Result, "Stopped after an error")],
             Vec::new(),
         );
-        let messages = detail(&conversation)["messages"].as_array().unwrap().clone();
+        let messages = detail(&conversation)["messages"]
+            .as_array()
+            .unwrap()
+            .clone();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0]["role"], "system");
         assert_eq!(messages[0]["text"], "Stopped after an error");
@@ -2189,7 +2167,10 @@ mod tests {
     fn every_message_reports_a_comparable_instant() {
         let mut conversation = a_conversation();
         conversation.messages[0].timestamp = "not a timestamp".to_string();
-        let messages = detail(&conversation)["messages"].as_array().unwrap().clone();
+        let messages = detail(&conversation)["messages"]
+            .as_array()
+            .unwrap()
+            .clone();
         for message in &messages {
             let at = message["createdAt"].as_str().unwrap();
             assert!(
@@ -2306,7 +2287,8 @@ mod tests {
         let window = a_conversation();
         let sent = events(&change(4, Some("msg-2")), &window);
         assert!(
-            sent.iter().all(|event| event["type"] == "thread.activity-appended"),
+            sent.iter()
+                .all(|event| event["type"] == "thread.activity-appended"),
             "no bubble for a turn that said nothing: {sent:#?}"
         );
         let summaries: Vec<&str> = sent
@@ -2391,8 +2373,12 @@ mod tests {
             ..running_conversation("task-a", "ws-a")
         };
         assert!(
-            change_events(&without, &change(4, None), &transcript(Vec::new(), Vec::new()))
-                .is_empty()
+            change_events(
+                &without,
+                &change(4, None),
+                &transcript(Vec::new(), Vec::new())
+            )
+            .is_empty()
         );
     }
 

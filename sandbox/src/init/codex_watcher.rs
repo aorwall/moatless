@@ -216,7 +216,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use sandbox_proto::{GetCredentialsResponse, PendingMessage, PublishEventRequest};
+    use sandbox_proto::{GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest};
     use tempfile::TempDir;
 
     use super::*;
@@ -243,7 +243,7 @@ mod tests {
         async fn get_pending_messages(
             &self,
             _task_id: &str,
-        ) -> Result<Vec<PendingMessage>, tonic::Status> {
+        ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
             Ok(vec![])
         }
         async fn acknowledge_messages(

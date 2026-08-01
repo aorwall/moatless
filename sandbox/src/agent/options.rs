@@ -152,9 +152,9 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
 /// describing the workspace layout.
 ///
 /// The backend assembles the bulk of the prompt (task identity, repo/channel
-/// system prompts, preview servers, task URL, CLI reference, GitHub hint) and
-/// stamps it onto every `PendingMessage.system_prompt`. On top of that, the
-/// sandbox prepends a short explanation of the on-disk layout, since only the
+/// system prompts, preview servers, task URL, CLI reference, GitHub hint) when
+/// the coordinator fetches the system prompt. On top of that, the sandbox
+/// prepends a short explanation of the on-disk layout, since only the
 /// sandbox knows the concrete `workspace_dir`/`repo_dir` paths for this pod:
 /// the workspace dir is the persisted working area (the agent's cwd, synced to
 /// durable storage), and the repo dir is the checkout of the task repository
@@ -408,8 +408,8 @@ fn resolve_resume(request: &AgentRunRequest) -> (Option<String>, Option<bool>) {
 mod tests {
     use super::*;
 
-    use moatless_api_schemas::sandbox::RepoCheckout;
     use crate::config::{AgentConfig, ProxyConfig};
+    use moatless_api_schemas::sandbox::RepoCheckout;
     use std::fs;
     use tempfile::tempdir;
 

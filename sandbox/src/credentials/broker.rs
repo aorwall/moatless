@@ -16,11 +16,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Router;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -143,7 +143,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use axum::http::StatusCode as Sc;
-    use sandbox_proto::{GetCredentialsResponse, PendingMessage, PublishEventRequest};
+    use sandbox_proto::{GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest};
     use std::collections::HashMap;
 
     struct StaticBackend {
@@ -158,7 +158,7 @@ mod tests {
         async fn get_pending_messages(
             &self,
             _: &str,
-        ) -> Result<Vec<PendingMessage>, tonic::Status> {
+        ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
             Ok(vec![])
         }
         async fn acknowledge_messages(

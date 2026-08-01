@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use moatless_sandbox::agent::agent_state::AgentState;
-use moatless_sandbox::agent::handle::{spawn_agent, AgentHandle};
+use moatless_sandbox::agent::handle::{AgentHandle, spawn_agent};
 use moatless_sandbox::agent::harness::{
     ClaudeConfig, ErrorClass, Harness, HarnessError, Input, Outcome, Rejection, SessionImpact,
     Signal,
@@ -47,12 +47,12 @@ use moatless_sandbox::agent::harness::{
 use moatless_sandbox::agent::types::{AgentStatus, ResumeSession, StopSource};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::{AgentConfig, Config, ProxyConfig};
-use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::Dispatcher;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
 
 use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
+    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
     PublishEventRequest,
 };
 use tempfile::TempDir;
@@ -132,7 +132,7 @@ impl BackendClient for NoopBackend {
     async fn get_pending_messages(
         &self,
         _task_id: &str,
-    ) -> Result<Vec<PendingMessage>, tonic::Status> {
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
         Ok(vec![])
     }
 

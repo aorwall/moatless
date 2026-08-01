@@ -14,7 +14,9 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
 use async_trait::async_trait;
-use sandbox_proto::{GetCredentialsResponse, InterruptedTurn, PendingMessage, PublishEventRequest};
+use sandbox_proto::{
+    GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
+};
 use tonic::Status;
 
 fn agent_event(sub_type: &str) -> PublishEventRequest {
@@ -149,7 +151,10 @@ impl BackendClient for MockBackend {
         Ok(())
     }
 
-    async fn get_pending_messages(&self, _task_id: &str) -> Result<Vec<PendingMessage>, Status> {
+    async fn get_pending_messages(
+        &self,
+        _task_id: &str,
+    ) -> Result<Vec<PendingAgentDelivery>, Status> {
         Ok(vec![])
     }
 

@@ -86,11 +86,11 @@ async fn refresh_once(state: &SandboxState, interval: Duration) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    use sandbox_proto::{GetCredentialsResponse, PendingMessage, PublishEventRequest};
+    use sandbox_proto::{GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest};
     use tokio::sync::RwLock;
     use tokio_util::sync::CancellationToken;
 
@@ -99,8 +99,8 @@ mod tests {
     use crate::agent::handle::spawn_agent;
     use crate::backend_client::BackendClient;
     use crate::config::{AgentConfig, Config, ProxyConfig};
-    use crate::credentials::recovery::CredentialFailureDetector;
     use crate::credentials::Dispatcher;
+    use crate::credentials::recovery::CredentialFailureDetector;
     use crate::events::GrpcEventPublisher;
     use crate::init::InitPhase;
     use crate::state::SandboxState;
@@ -118,7 +118,7 @@ mod tests {
         async fn get_pending_messages(
             &self,
             _task_id: &str,
-        ) -> Result<Vec<PendingMessage>, tonic::Status> {
+        ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
             Ok(vec![])
         }
 

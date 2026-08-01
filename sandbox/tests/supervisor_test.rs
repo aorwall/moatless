@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
+    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
     PublishEventRequest,
 };
 use tokio::sync::RwLock;
@@ -29,8 +29,8 @@ use moatless_sandbox::agent::heartbeat::Heartbeat;
 use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use moatless_sandbox::backend_client::BackendClient;
 use moatless_sandbox::config::Config;
-use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::Dispatcher;
+use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::outbox::EventOutbox;
@@ -498,7 +498,10 @@ impl BackendClient for RecordingBackend {
         Ok(())
     }
 
-    async fn get_pending_messages(&self, _: &str) -> Result<Vec<PendingMessage>, tonic::Status> {
+    async fn get_pending_messages(
+        &self,
+        _: &str,
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
         Ok(vec![])
     }
 

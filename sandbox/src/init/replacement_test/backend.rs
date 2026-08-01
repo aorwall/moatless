@@ -4,12 +4,12 @@
 //! probe sees it gone — modelling the real ack the startup race hinges on.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
+    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
     PublishEventRequest,
 };
 use tokio::sync::Mutex;
@@ -19,7 +19,7 @@ use crate::backend_client::BackendClient;
 pub(super) struct ReplayBackend {
     /// `Ok(list)` for a normal probe; `Err(())` to model a backend blip. Behind
     /// a `Mutex` only because `acknowledge_messages` prunes it.
-    pending: Mutex<Result<Vec<PendingMessage>, ()>>,
+    pending: Mutex<Result<Vec<PendingAgentDelivery>, ()>>,
     /// The interrupted turn `recover_interrupted_run` returns (immutable).
     interrupted: Option<InterruptedTurn>,
     /// The session-state archive `download_transcript` serves (immutable).
@@ -33,7 +33,7 @@ pub(super) struct ReplayBackend {
 
 impl ReplayBackend {
     pub(super) fn new(
-        pending: Result<Vec<PendingMessage>, ()>,
+        pending: Result<Vec<PendingAgentDelivery>, ()>,
         interrupted: Option<InterruptedTurn>,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -99,7 +99,7 @@ impl BackendClient for ReplayBackend {
     async fn get_pending_messages(
         &self,
         _task_id: &str,
-    ) -> Result<Vec<PendingMessage>, tonic::Status> {
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
         self.get_pending_calls.fetch_add(1, Ordering::SeqCst);
         match &*self.pending.lock().await {
             Ok(msgs) => Ok(msgs.clone()),
@@ -127,7 +127,11 @@ impl BackendClient for ReplayBackend {
         // Prune acked messages so a subsequent probe no longer returns them —
         // exactly what lets the startup race manifest if ordering is wrong.
         if let Ok(msgs) = &mut *self.pending.lock().await {
-            msgs.retain(|m| m.uuid.as_ref().is_none_or(|u| !message_uuids.contains(u)));
+            msgs.retain(|m| {
+                m.message_uuids
+                    .iter()
+                    .all(|uuid| !message_uuids.contains(uuid))
+            });
         }
         Ok(())
     }

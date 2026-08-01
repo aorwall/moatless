@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use sandbox_proto::{InterruptedTurn, PendingMessage};
+use sandbox_proto::{InterruptedTurn, PendingAgentDelivery};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
@@ -17,10 +17,10 @@ use crate::agent::harness::{Harness, Input, Script, SessionId, Step};
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use crate::backend_client::BackendClient;
-use crate::config::test_support::minimal_config;
 use crate::config::Config;
-use crate::credentials::recovery::CredentialFailureDetector;
+use crate::config::test_support::minimal_config;
 use crate::credentials::Dispatcher;
+use crate::credentials::recovery::CredentialFailureDetector;
 use crate::events::GrpcEventPublisher;
 use crate::init::InitPhase;
 use crate::outbox::EventOutbox;
@@ -159,16 +159,10 @@ pub(super) fn restore_state(
 
 // ── Builders ─────────────────────────────────────────────────────────────────
 
-pub(super) fn text_message(text: &str, uuid: &str) -> PendingMessage {
-    PendingMessage {
-        content: vec![sandbox_proto::ContentBlock {
-            block: Some(sandbox_proto::content_block::Block::Text(
-                sandbox_proto::TextBlock {
-                    text: text.to_string(),
-                },
-            )),
-        }],
-        uuid: Some(uuid.to_string()),
+pub(super) fn text_message(text: &str, uuid: &str) -> PendingAgentDelivery {
+    PendingAgentDelivery {
+        message_uuids: vec![uuid.to_string()],
+        prompt_text: text.to_string(),
         ..Default::default()
     }
 }

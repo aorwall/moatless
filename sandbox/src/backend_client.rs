@@ -13,7 +13,7 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, DownloadTranscriptRequest, DownloadUploadRequest,
     DownloadUploadResponse, GetCredentialsRequest, GetCredentialsResponse,
     GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceSyncUrlsRequest,
-    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingMessage, PublishEventRequest,
+    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
     RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, TranscriptChunk,
     UpdateCredentialRequest,
 };
@@ -45,7 +45,7 @@ pub trait BackendClient: Send + Sync {
     async fn get_pending_messages(
         &self,
         task_id: &str,
-    ) -> Result<Vec<PendingMessage>, tonic::Status>;
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status>;
 
     /// Acknowledge that messages have been delivered to a session.
     /// `run_id` identifies the agent run that consumed the messages; the
@@ -59,8 +59,10 @@ pub trait BackendClient: Send + Sync {
     ) -> Result<(), tonic::Status>;
 
     /// Fetch credentials for sandbox initialization.
-    async fn get_credentials(&self, task_id: &str)
-        -> Result<GetCredentialsResponse, tonic::Status>;
+    async fn get_credentials(
+        &self,
+        task_id: &str,
+    ) -> Result<GetCredentialsResponse, tonic::Status>;
 
     /// Push a credential rotated locally inside the sandbox back to the backend
     /// so subsequent `get_credentials` calls return the rotated value.
@@ -229,7 +231,7 @@ impl BackendClient for BackendGrpcClient {
     async fn get_pending_messages(
         &self,
         task_id: &str,
-    ) -> Result<Vec<PendingMessage>, tonic::Status> {
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
         let mut client = self.client.clone();
         let resp = client
             .get_pending_messages(GetPendingMessagesRequest {
@@ -238,7 +240,7 @@ impl BackendClient for BackendGrpcClient {
             })
             .await?;
 
-        Ok(resp.into_inner().messages)
+        Ok(resp.into_inner().deliveries)
     }
 
     async fn acknowledge_messages(

@@ -34,6 +34,7 @@ pub mod dao;
 pub mod mapping;
 pub mod models;
 pub mod pruner;
+pub mod view;
 
 pub use dao::{
     changes_from, current_head, prune_changes, record_message_change, record_session_change,

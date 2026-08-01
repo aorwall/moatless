@@ -1,8 +1,8 @@
 //! Append-system-prompt assembly for agent runs.
 //!
-//! The backend builds the entire `append` system prompt sent to the agent
-//! and stamps it onto every `PendingMessage`. The sandbox is a passive
-//! recipient — it appends the backend-supplied string verbatim.
+//! The backend builds the entire `append` system prompt sent to the agent.
+//! The sandbox fetches it separately and appends the backend-supplied string
+//! verbatim.
 
 use std::sync::Arc;
 

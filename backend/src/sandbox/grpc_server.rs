@@ -803,7 +803,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let Some(ref messages) = self.messages else {
             return Ok(Response::new(GetPendingMessagesResponse {
-                messages: vec![],
+                deliveries: vec![],
             }));
         };
 
@@ -828,7 +828,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         ) {
             debug!(task_id = %req.task_id, "get_pending_messages: task is Closed, returning no messages");
             return Ok(Response::new(GetPendingMessagesResponse {
-                messages: vec![],
+                deliveries: vec![],
             }));
         }
 
@@ -939,102 +939,41 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // each persisted as their own row or column, and pre-rendering them into
         // the Message would only create a second copy that can disagree with
         // them.
-        let contexts_by_message = match (self.files.as_ref(), self.backend_config.as_ref()) {
-            (Some(_), Some(_)) => {
-                let ids: Vec<i32> = pending.iter().map(|row| row.id).collect();
-                messages
-                    .get_contexts_for_messages(&req.task_id, &ids)
-                    .await
-                    .unwrap_or_else(|e| {
-                        warn!(task_id = %req.task_id, error = %e, "Failed to load message contexts; delivering without them");
-                        std::collections::HashMap::new()
-                    })
-            }
-            _ => std::collections::HashMap::new(),
-        };
+        let ids: Vec<i32> = pending.iter().map(|row| row.id).collect();
+        let contexts_by_message = messages
+            .get_contexts_for_messages(&req.task_id, &ids)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(task_id = %req.task_id, error = %e, "Failed to load message contexts; delivering without them");
+                std::collections::HashMap::new()
+            });
 
-        let mut enriched: std::collections::HashMap<String, Value> =
-            std::collections::HashMap::new();
-        if let (Some(files), Some(config)) = (self.files.as_ref(), self.backend_config.as_ref()) {
-            for row in &pending {
-                let blocks = crate::message::enricher::build_pending_content_blocks(
-                    files.as_ref(),
-                    config,
-                    row,
-                    contexts_by_message.get(&row.id).map_or(&[][..], Vec::as_slice),
-                )
-                .await;
-                if let Ok(value) = serde_json::to_value(&blocks) {
-                    enriched.insert(row.uuid.clone(), value);
-                }
-            }
-        }
-
-        // Convert DB rows to proto messages.
-        let messages: Vec<sandbox_proto::PendingMessage> = pending
-            .iter()
-            .filter_map(|row| {
-                let rendered = enriched.get(&row.uuid).cloned().unwrap_or_else(|| {
-                    // No file store or no config — the two the enrichment needs.
-                    // What the person wrote still has to reach the agent.
-                    serde_json::json!([{
-                        "type": "text",
-                        "text": row.message_text.clone().unwrap_or_default(),
-                    }])
-                });
-                let mut content = parse_content_blocks(&rendered);
-                if content.is_empty() {
-                    warn!(task_id = %req.task_id, "Pending message has no parseable content blocks");
-                    return None;
-                }
-
-                let header = build_message_header(
-                    &row.uuid,
-                    row.external_event_id.as_deref(),
-                    row.external_adapter.as_deref(),
-                    row.external_subject_key.as_deref(),
-                    row.sent_by.as_deref(),
-                    &login_cache,
-                );
-                if !header.is_empty() {
-                    prepend_header(&mut content, &header);
-                }
-
-                // Per-message override: the user toggled "Start fresh" on
-                // this specific message. Force resume off regardless of the
-                // task-wide derivation.
-                let (resume_session_id, resume) = if row.start_fresh {
-                    debug!(
-                        task_id = %req.task_id,
-                        uuid = %row.uuid,
-                        "Message has start_fresh=true, suppressing resume"
-                    );
-                    (None, Some(false))
-                } else if task_resume_session_id.is_none() {
-                    // When will_not_resume is set or last turn errored, clear
-                    // the per-message resume flag so the sandbox starts fresh.
-                    (None, Some(false))
-                } else {
-                    (task_resume_session_id.clone(), Some(row.resume))
-                };
-
-                Some(sandbox_proto::PendingMessage {
-                    content,
-                    model: effective_model(row.model.clone(), task_model.clone(), &task_agent_type),
-                    system_prompt: None,
-                    resume,
-                    agent_type: Some(task_agent_type.clone()),
-                    is_error: None,
-                    resume_session_id,
-                    uuid: Some(row.uuid.clone()),
-                    agent_mode: row.agent_mode.as_ref().map(|m| m.0.clone()),
-                    file_ids: row.file_ids(),
-                    start_fresh: Some(row.start_fresh),
-                })
+        let builder = crate::message::enricher::AgentPromptBuilder::new(
+            self.files.as_ref().map(std::convert::AsRef::as_ref),
+            self.backend_config.as_deref(),
+            task_agent_type,
+            task_model,
+            task_resume_session_id,
+            &login_cache,
+        );
+        let deliveries = builder
+            .build_pending_deliveries(&pending, &contexts_by_message)
+            .await
+            .into_iter()
+            .map(|delivery| sandbox_proto::PendingAgentDelivery {
+                message_uuids: delivery.message_uuids,
+                prompt_text: delivery.prompt_text,
+                file_ids: delivery.file_ids,
+                model: delivery.model,
+                agent_type: delivery.agent_type,
+                agent_mode: delivery.agent_mode,
+                resume_session_id: delivery.resume_session_id,
+                resume: delivery.resume,
+                start_fresh: delivery.start_fresh,
             })
             .collect();
 
-        Ok(Response::new(GetPendingMessagesResponse { messages }))
+        Ok(Response::new(GetPendingMessagesResponse { deliveries }))
     }
 
     /// Acknowledge that pending messages have been delivered to an agent session.
@@ -1834,207 +1773,9 @@ fn credential_key_to_provider(key: &str) -> Option<&'static str> {
     }
 }
 
-/// Build the per-message header rendered into the first text block of a
-/// pending user message.
-///
-/// Two shapes, switched on the message's origin:
-///
-/// **External** (`external_event_id` is set — message came in over an
-/// adapter):
-/// ```text
-/// <message_id>msg_abc</message_id>
-/// <source>slack</source>
-///
-/// ```
-/// `<source>` carries the raw `external_adapter` string (`slack`, `telegram`,
-/// `linear`, `github_pr`). The agent passes `<message_id>` to
-/// `moat messages reply --message <id>` to reply on the original channel.
-///
-/// **Internal** (no `external_event_id`):
-/// ```text
-/// <sent_by>alice</sent_by>
-///
-/// ```
-/// `<sent_by>` names the moatless user who initiated the message. There's no
-/// external channel to call back to — the agent just emits a normal assistant
-/// reply.
-///
-/// Returns an empty string when there's nothing to emit (internal row with no
-/// resolvable `sent_by`). Callers must guard against the empty case before
-/// prepending.
-/// Resolve the model to deliver for a pending message.
-///
-/// An explicit per-message model is always preserved. When the message carries
-/// no model, agents that pin a model (e.g. `claude-code-fable` → `fable`) get it
-/// forced here, since the catalog `default_model` is only a UI hint and is not
-/// otherwise applied at runtime.
-fn effective_model(
-    row_model: Option<String>,
-    task_model: Option<String>,
-    agent_type: &str,
-) -> Option<String> {
-    row_model.or(task_model).or_else(|| match agent_type {
-        "claude-code-fable" => Some("fable".to_string()),
-        _ => None,
-    })
-}
-
-fn build_message_header(
-    uuid: &str,
-    external_event_id: Option<&str>,
-    external_adapter: Option<&str>,
-    subject_key: Option<&str>,
-    sent_by: Option<&str>,
-    login_cache: &std::collections::HashMap<String, String>,
-) -> String {
-    use std::fmt::Write;
-    if external_event_id.is_some() {
-        let mut header = format!("<message_id>{uuid}</message_id>\n");
-        if let Some(source) = external_adapter {
-            // Infallible: writing to String never errors.
-            let _ = writeln!(header, "<source>{source}</source>");
-        }
-        // Stable per-thread identity so the agent can tell concurrent threads
-        // apart and recognise continuations within the same ongoing task.
-        if let Some(thread) = subject_key {
-            let _ = writeln!(header, "<thread>{thread}</thread>");
-        }
-        header.push('\n');
-        return header;
-    }
-
-    if let Some(uid) = sent_by {
-        if let Some(login) = login_cache.get(uid) {
-            return format!("<sent_by>{login}</sent_by>\n\n");
-        }
-    }
-    String::new()
-}
-
-/// Prepend `header` to the first text block in `content`, synthesising one
-/// when none exists. Image/tool-result blocks are left untouched.
-fn prepend_header(content: &mut Vec<sandbox_proto::ContentBlock>, header: &str) {
-    for block in content.iter_mut() {
-        if let Some(sandbox_proto::content_block::Block::Text(ref mut text_block)) = block.block {
-            text_block.text = format!("{header}{}", text_block.text);
-            return;
-        }
-    }
-    // No text block in the message — synthesise one at the front carrying just
-    // the header so the agent still sees the message id / sender.
-    let head = sandbox_proto::ContentBlock {
-        block: Some(sandbox_proto::content_block::Block::Text(
-            sandbox_proto::TextBlock {
-                text: header.trim_end().to_string(),
-            },
-        )),
-    };
-    content.insert(0, head);
-}
-
-/// Typed representation of a content block stored in the DB.
-#[derive(serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum DbContentBlock {
-    Text {
-        #[serde(default)]
-        text: String,
-    },
-    Image {
-        #[serde(default)]
-        url: String,
-        #[serde(default)]
-        media_type: String,
-    },
-    /// Tool result from AskUserQuestion / ExitPlanMode responses.
-    ToolResult {
-        #[serde(default)]
-        content: String,
-    },
-    #[serde(other)]
-    Other,
-}
-
-/// Parse the agent-facing content of a Message into proto `ContentBlock`s.
-///
-/// Rebuilt at delivery time by `enricher::build_pending_content_blocks` rather
-/// than read from a column, and shaped as a JSON array:
-/// ```json
-/// [{"type": "text", "text": "Hello"}, {"type": "image", "url": "...", "media_type": "image/png"}]
-/// ```
-/// Also handles a bare string as a single text block.
-fn parse_content_blocks(value: &Value) -> Vec<sandbox_proto::ContentBlock> {
-    match value {
-        Value::Array(items) => items
-            .iter()
-            .filter_map(|item| {
-                match serde_json::from_value::<DbContentBlock>(item.clone()) {
-                    Ok(DbContentBlock::Text { text }) if !text.is_empty() => {
-                        Some(sandbox_proto::ContentBlock {
-                            block: Some(sandbox_proto::content_block::Block::Text(
-                                sandbox_proto::TextBlock { text },
-                            )),
-                        })
-                    }
-                    Ok(DbContentBlock::Image { url, media_type }) => {
-                        Some(sandbox_proto::ContentBlock {
-                            block: Some(sandbox_proto::content_block::Block::Image(
-                                sandbox_proto::ImageBlock { url, media_type },
-                            )),
-                        })
-                    }
-                    Ok(DbContentBlock::ToolResult { content }) if !content.is_empty() => {
-                        Some(sandbox_proto::ContentBlock {
-                            block: Some(sandbox_proto::content_block::Block::Text(
-                                sandbox_proto::TextBlock { text: content },
-                            )),
-                        })
-                    }
-                    Ok(DbContentBlock::ToolResult { .. }) => None, // empty tool result
-                    Ok(DbContentBlock::Other) => {
-                        info!("Unknown content block type, skipping");
-                        None
-                    }
-                    Ok(DbContentBlock::Text { .. }) => None, // empty text
-                    Err(e) => {
-                        warn!(error = %e, "Failed to parse content block, skipping");
-                        None
-                    }
-                }
-            })
-            .collect(),
-        Value::String(s) if !s.is_empty() => {
-            vec![sandbox_proto::ContentBlock {
-                block: Some(sandbox_proto::content_block::Block::Text(
-                    sandbox_proto::TextBlock { text: s.clone() },
-                )),
-            }]
-        }
-        _ => vec![],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-
-    fn text_block(text: &str) -> sandbox_proto::ContentBlock {
-        sandbox_proto::ContentBlock {
-            block: Some(sandbox_proto::content_block::Block::Text(
-                sandbox_proto::TextBlock {
-                    text: text.to_string(),
-                },
-            )),
-        }
-    }
-
-    fn extract_text(block: &sandbox_proto::ContentBlock) -> &str {
-        match block.block {
-            Some(sandbox_proto::content_block::Block::Text(ref t)) => &t.text,
-            _ => panic!("expected text block"),
-        }
-    }
 
     /// `publish_event` derives its dispatch string from the domain enum, and
     /// `classify_turn_transition` plus the Redis consumer key off that exact
@@ -2067,143 +1808,6 @@ mod tests {
         for unknown in [-1, 6, 99] {
             assert!(sandbox_proto::EventType::try_from(unknown).is_err());
         }
-    }
-
-    #[test]
-    fn effective_model_forces_fable_when_unset() {
-        // Fable agent with no per-message model is pinned to "fable".
-        assert_eq!(
-            effective_model(None, None, "claude-code-fable"),
-            Some("fable".to_string())
-        );
-    }
-
-    #[test]
-    fn effective_model_uses_task_model_when_message_omits_one() {
-        assert_eq!(
-            effective_model(None, Some("claude-sonnet-4-6".to_string()), "claude-code"),
-            Some("claude-sonnet-4-6".to_string())
-        );
-    }
-
-    #[test]
-    fn effective_model_preserves_explicit_model() {
-        // An explicit per-message model always wins, even for the fable agent.
-        assert_eq!(
-            effective_model(
-                Some("claude-opus-4-6".to_string()),
-                Some("fable".to_string()),
-                "claude-code-fable",
-            ),
-            Some("claude-opus-4-6".to_string())
-        );
-    }
-
-    #[test]
-    fn effective_model_leaves_other_agents_unset() {
-        // Non-pinned agents keep their None (falls back to deployment default).
-        assert_eq!(effective_model(None, None, "claude-code"), None);
-        assert_eq!(effective_model(None, None, "codex"), None);
-    }
-
-    #[test]
-    fn external_row_emits_message_id_and_source_only() {
-        // External rows (external_event_id is set) get <message_id> + <source>
-        // and no <sent_by>, even when sent_by would otherwise resolve.
-        let mut cache = HashMap::new();
-        cache.insert("u1".to_string(), "alice".to_string());
-        let header = build_message_header(
-            "msg_abc",
-            Some("slack:ts:1700"),
-            Some("slack"),
-            None,
-            Some("u1"),
-            &cache,
-        );
-        assert_eq!(
-            header,
-            "<message_id>msg_abc</message_id>\n<source>slack</source>\n\n"
-        );
-    }
-
-    #[test]
-    fn external_row_with_subject_key_emits_thread_tag() {
-        // When the inbound row carries its thread's subject_key, the header
-        // surfaces it as a stable <thread> id so the agent can distinguish
-        // concurrent threads on the same ongoing task.
-        let cache = HashMap::new();
-        let header = build_message_header(
-            "msg_abc",
-            Some("slack:ts:1700"),
-            Some("slack"),
-            Some("T06:C0A:1781593153.718929"),
-            None,
-            &cache,
-        );
-        assert_eq!(
-            header,
-            "<message_id>msg_abc</message_id>\n<source>slack</source>\n\
-             <thread>T06:C0A:1781593153.718929</thread>\n\n"
-        );
-    }
-
-    #[test]
-    fn external_row_without_adapter_drops_source_tag() {
-        let cache = HashMap::new();
-        let header = build_message_header("msg_abc", Some("ext-id"), None, None, None, &cache);
-        assert_eq!(header, "<message_id>msg_abc</message_id>\n\n");
-    }
-
-    #[test]
-    fn internal_row_with_resolved_sent_by_emits_sent_by_only() {
-        let mut cache = HashMap::new();
-        cache.insert("u1".to_string(), "alice".to_string());
-        let header = build_message_header("msg_abc", None, None, None, Some("u1"), &cache);
-        assert_eq!(header, "<sent_by>alice</sent_by>\n\n");
-    }
-
-    #[test]
-    fn internal_row_without_resolvable_sent_by_emits_nothing() {
-        let cache = HashMap::new();
-        let header = build_message_header("msg_abc", None, None, None, Some("u-missing"), &cache);
-        assert_eq!(header, "");
-
-        let header = build_message_header("msg_abc", None, None, None, None, &cache);
-        assert_eq!(header, "");
-    }
-
-    #[test]
-    fn prepend_header_targets_first_text_block() {
-        let mut content = vec![text_block("hello")];
-        prepend_header(
-            &mut content,
-            "<message_id>msg_1</message_id>\n<source>slack</source>\n\n",
-        );
-        assert_eq!(
-            extract_text(&content[0]),
-            "<message_id>msg_1</message_id>\n<source>slack</source>\n\nhello"
-        );
-    }
-
-    #[test]
-    fn prepend_header_synthesises_text_block_when_none_exists() {
-        let mut content = vec![sandbox_proto::ContentBlock {
-            block: Some(sandbox_proto::content_block::Block::Image(
-                sandbox_proto::ImageBlock {
-                    url: "https://example/img".to_string(),
-                    media_type: "image/png".to_string(),
-                },
-            )),
-        }];
-        prepend_header(
-            &mut content,
-            "<message_id>msg_1</message_id>\n<source>slack</source>\n\n",
-        );
-        assert_eq!(content.len(), 2);
-        assert_eq!(
-            extract_text(&content[0]),
-            "<message_id>msg_1</message_id>\n<source>slack</source>"
-        );
     }
 
     // =========================================================================

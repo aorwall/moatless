@@ -228,7 +228,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use sandbox_proto::{
-        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
+        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
     };
     use tokio_util::sync::CancellationToken;
     use tonic::Status;
@@ -250,7 +250,7 @@ mod tests {
         async fn get_pending_messages(
             &self,
             _task_id: &str,
-        ) -> Result<Vec<PendingMessage>, Status> {
+        ) -> Result<Vec<PendingAgentDelivery>, Status> {
             Err(Status::unimplemented("not used"))
         }
 

@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingMessage,
+    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
     PublishEventRequest,
 };
 use tokio::sync::oneshot;
@@ -44,7 +44,10 @@ impl BackendClient for RecordingBackend {
         Ok(())
     }
 
-    async fn get_pending_messages(&self, _task_id: &str) -> Result<Vec<PendingMessage>, Status> {
+    async fn get_pending_messages(
+        &self,
+        _task_id: &str,
+    ) -> Result<Vec<PendingAgentDelivery>, Status> {
         Ok(vec![])
     }
 
@@ -639,14 +642,14 @@ fn build_resume_falls_back_to_continue_for_claude_only() {
 
 use std::collections::HashMap;
 
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentCommand;
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};
-use crate::config::{test_support::minimal_config, Config};
-use crate::credentials::recovery::{CredentialFailureDetector, CODEX_AUTH_JSON};
+use crate::config::{Config, test_support::minimal_config};
+use crate::credentials::recovery::{CODEX_AUTH_JSON, CredentialFailureDetector};
 use crate::credentials::{CredentialSink, Dispatcher};
 
 use super::CoordinatorService;
@@ -827,7 +830,7 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         flush(&events).await;
-        if recorder.lock().await.len() >= 1 {
+        if !recorder.lock().await.is_empty() {
             break;
         }
         assert!(
@@ -1497,7 +1500,10 @@ impl BackendClient for CredBackend {
     async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), Status> {
         Ok(())
     }
-    async fn get_pending_messages(&self, _task_id: &str) -> Result<Vec<PendingMessage>, Status> {
+    async fn get_pending_messages(
+        &self,
+        _task_id: &str,
+    ) -> Result<Vec<PendingAgentDelivery>, Status> {
         Ok(vec![])
     }
     async fn acknowledge_messages(
