@@ -456,7 +456,7 @@ async fn stop_idle_sandbox(
     // Defense in depth: the activity floor can go stale, so ask the agent
     // itself before pulling the plug. An unreadable status falls through.
     if let Some(status) = agent_status_snapshot(app_state.agent_status.as_ref(), task_id).await {
-        if !matches!(status.status.as_str(), "idle" | "stopped") {
+        if agent_holds_the_sandbox(&status.status) {
             info!(
                 task_id = %task_id,
                 ttl_minutes,
@@ -502,6 +502,15 @@ async fn stop_idle_sandbox(
             false
         }
     }
+}
+
+/// Whether a live agent status is one the sandbox must be kept alive for.
+///
+/// `waiting` is not: the run is parked on a person and doing no work, so the
+/// ordinary idle TTL decides. The question it is parked on is stored, and
+/// answering it after the reclaim starts a fresh turn carrying it.
+fn agent_holds_the_sandbox(status: &str) -> bool {
+    !matches!(status, "idle" | "stopped" | "waiting")
 }
 
 fn log_reaper_stats(stats: ReaperStats) {
@@ -583,7 +592,16 @@ async fn task_desires_running(app_state: &AppState, task_id: &str) -> bool {
 async fn agent_is_terminal(app_state: &AppState, task_id: &str) -> Option<bool> {
     agent_status_snapshot(app_state.agent_status.as_ref(), task_id)
         .await
-        .map(|resp| matches!(resp.status.as_str(), "idle" | "stopped"))
+        .map(|resp| agent_turn_is_over(&resp.status))
+}
+
+/// Whether a live agent status means the turn it was running has ended.
+///
+/// `waiting` does not: the run is parked mid-turn and continues where it left
+/// off the moment the answer lands. That the sandbox under it may be reclaimed
+/// in the meantime is a separate question — see [`agent_holds_the_sandbox`].
+fn agent_turn_is_over(status: &str) -> bool {
+    matches!(status, "idle" | "stopped")
 }
 
 /// Live agent status straight from the sandbox, `None` when unreachable
@@ -1157,6 +1175,29 @@ mod tests {
 
         assert_eq!(status.status, "idle");
         assert_eq!(*port.calls.lock().unwrap(), vec!["task-1"]);
+    }
+
+    /// A parked run is doing no work, so it does not hold its sandbox open past
+    /// the ordinary TTL. Everything the agent is actually running does.
+    #[test]
+    fn a_waiting_agent_does_not_hold_its_sandbox() {
+        assert!(!agent_holds_the_sandbox("waiting"));
+        assert!(!agent_holds_the_sandbox("idle"));
+        assert!(!agent_holds_the_sandbox("stopped"));
+        assert!(agent_holds_the_sandbox("running"));
+        // A status this build does not know is treated as live.
+        assert!(agent_holds_the_sandbox("from-a-newer-sandbox"));
+    }
+
+    /// A turn parked on a person is not a finished turn: it continues where it
+    /// left off the moment the answer lands, so the reconciler leaves its turn
+    /// open even though the reaper may reclaim the sandbox under it.
+    #[test]
+    fn a_waiting_agents_turn_is_not_over() {
+        assert!(!agent_turn_is_over("waiting"));
+        assert!(agent_turn_is_over("idle"));
+        assert!(agent_turn_is_over("stopped"));
+        assert!(!agent_turn_is_over("running"));
     }
 
     fn ts(seconds_ago: i64) -> DateTime<Utc> {

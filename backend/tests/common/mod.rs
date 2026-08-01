@@ -511,6 +511,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         assistant_usage_cache_read_input_tokens: None,
         assistant_usage: None,
         tool_use_result: None,
+        tool_response: None,
         sdk_metadata: None,
         attachments: None,
         agent_session_id: None,

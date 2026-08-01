@@ -90,6 +90,25 @@ impl AgentState {
             .map(|p| serde_json::to_string(&p.tool_name).unwrap_or_default())
     }
 
+    /// Report that the run is parked on a person, for as long as it is.
+    ///
+    /// Only from `Running`, and only back to `Running`: every other status is a
+    /// lifecycle transition that has already cleared the prompt, and moving one
+    /// of those to `Waiting` would report a stopped agent as mid-turn.
+    pub async fn begin_waiting(&self) {
+        let mut inner = self.inner.write().await;
+        if inner.status == AgentStatus::Running {
+            inner.status = AgentStatus::Waiting;
+        }
+    }
+
+    pub async fn end_waiting(&self) {
+        let mut inner = self.inner.write().await;
+        if inner.status == AgentStatus::Waiting {
+            inner.status = AgentStatus::Running;
+        }
+    }
+
     pub async fn set_running(&self, cancel_token: CancellationToken) {
         let mut inner = self.inner.write().await;
         inner.status = AgentStatus::Running;
@@ -318,6 +337,57 @@ mod tests {
         state.set_messages_pending().await;
         assert!(state.take_messages_pending().await);
         assert!(!state.take_messages_pending().await);
+    }
+
+    /// Parked on a person is its own status: the run is open and nothing is
+    /// running, which is what the reaper reads to decide whether the sandbox is
+    /// holding work.
+    #[tokio::test]
+    async fn waiting_is_entered_and_left_from_running() {
+        let state = AgentState::new();
+        state.set_running(CancellationToken::new()).await;
+
+        state.begin_waiting().await;
+        assert_eq!(state.status().await, AgentStatus::Waiting);
+
+        state.end_waiting().await;
+        assert_eq!(state.status().await, AgentStatus::Running);
+    }
+
+    /// Every other status is a lifecycle transition that has already cleared the
+    /// prompt. Moving one of those to waiting would report a stopped agent as
+    /// mid-turn, and moving it back would restart a run that ended.
+    #[tokio::test]
+    async fn waiting_never_overwrites_a_lifecycle_status() {
+        for (transition, expected) in [
+            (AgentStatus::Idle, AgentStatus::Idle),
+            (AgentStatus::Stopped, AgentStatus::Stopped),
+        ] {
+            let state = AgentState::new();
+            state.set_running(CancellationToken::new()).await;
+            match transition {
+                AgentStatus::Idle => state.set_idle().await,
+                _ => state.set_stopped().await,
+            }
+
+            state.begin_waiting().await;
+            assert_eq!(state.status().await, expected);
+            state.end_waiting().await;
+            assert_eq!(state.status().await, expected);
+        }
+    }
+
+    /// A run cancelled while parked is stopped, and the status the coordinator
+    /// set stands — the handler's way out must not put it back to running.
+    #[tokio::test]
+    async fn leaving_a_cancelled_wait_leaves_the_status_alone() {
+        let state = AgentState::new();
+        state.set_running(CancellationToken::new()).await;
+        state.begin_waiting().await;
+
+        state.set_stopped().await;
+        state.end_waiting().await;
+        assert_eq!(state.status().await, AgentStatus::Stopped);
     }
 
     #[tokio::test]

@@ -2207,7 +2207,11 @@ fn descriptor(config: &UiRpcConfig) -> Value {
             "repositoryIdentity": false,
             "connectionProbe": true,
             "threadSettlement": true,
-            "threadSnooze": true
+            "threadSnooze": true,
+            // Whether `thread.user-input.respond` is understood. A client
+            // cannot otherwise tell this server from one that refuses it, and
+            // the descriptor is read before any thread is opened.
+            "userInputResponse": true
         }
     })
 }

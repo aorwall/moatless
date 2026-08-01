@@ -24,7 +24,7 @@ use moatless_vibe_backend::message::dao as message_dao;
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::models::MessageType;
 use moatless_vibe_backend::task_activities::mapping::{
-    map_content, ActivityStatus, BlockContext, ConversationWrite,
+    map_content, ActivityKind, ActivityStatus, BlockContext, ConversationWrite,
 };
 use moatless_vibe_backend::ui_rpc::dao::{ConversationDao, PgConversationDao};
 use sqlx::PgPool;
@@ -167,4 +167,95 @@ async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
         vec![third],
         "a change must not drag the rows before it along"
     );
+}
+
+/// A question is stored twice: as the call it is, and as the question the panel
+/// is derived from. Both rows sit in the same change, at the same block, so they
+/// carry one position and one ordinal — which is what the numbering the client
+/// sorts by is built from.
+///
+/// Held against a real database because it is a property of the column, the
+/// upsert and the read together: the ordinal has to survive a redelivery of the
+/// same block, and the read has to hand both rows back in written order.
+#[sqlx::test]
+async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPool) {
+    seed_task(&pool).await;
+
+    let content = serde_json::json!([
+        { "type": "thinking", "thinking": "what to ask" },
+        {
+            "type": "tool_use",
+            "id": "toolu_ask",
+            "name": "AskUserQuestion",
+            "input": { "questions": [{
+                "question": "Which store?",
+                "options": [{ "label": "Postgres" }, { "label": "Redis" }]
+            }] }
+        }
+    ]);
+    append(&pool, "the-question", content.clone()).await;
+    // The same source event redelivered must change nothing about where its
+    // rows sit.
+    PgMessageDao(pool.clone())
+        .append_activities(
+            TASK,
+            "the-question",
+            &write("the-question", MessageType::Assistant, &content),
+        )
+        .await
+        .unwrap();
+
+    let transcript = PgConversationDao::new(pool.clone())
+        .transcript(TASK)
+        .await
+        .unwrap();
+
+    let rows: Vec<(&str, ActivityKind, i32)> = transcript
+        .activities
+        .iter()
+        .map(|activity| {
+            (
+                activity.activity_id.as_str(),
+                activity.kind,
+                activity.ordinal,
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("the-question:0", ActivityKind::Thinking, 0),
+            ("the-question:1", ActivityKind::ToolCall, 1),
+            (
+                "the-question:1:user-input",
+                ActivityKind::UserInputRequested,
+                1
+            ),
+        ],
+        "the joined row shares the call's block, and the read hands them back in \
+         written order"
+    );
+
+    // All three are one Message's, so they share its change position — the
+    // ordinal is what separates them.
+    let positions: Vec<i64> = transcript
+        .activities
+        .iter()
+        .map(|activity| activity.position)
+        .collect();
+    assert_eq!(positions[0], positions[1]);
+    assert_eq!(positions[1], positions[2]);
+
+    let asked = &transcript.activities[2];
+    assert_eq!(asked.payload["requestId"], "toolu_ask");
+    assert_eq!(asked.payload["questions"][0]["id"], "Which store?");
+
+    // The call itself is still a call, with its input where it has always been.
+    let call = PgConversationDao::new(pool.clone())
+        .interactive_call(TASK, "toolu_ask")
+        .await
+        .unwrap()
+        .expect("the call is stored");
+    assert_eq!(call.tool_name, "AskUserQuestion");
+    assert!(!call.settled, "nobody has answered it yet");
 }

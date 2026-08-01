@@ -204,6 +204,7 @@ pub async fn send_message_flow(
         assistant_usage_cache_read_input_tokens: None,
         assistant_usage: None,
         tool_use_result: None,
+        tool_response: None,
         sdk_metadata: None,
         attachments,
         agent_session_id: None, // Not yet acknowledged
@@ -337,6 +338,7 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         assistant_usage_cache_read_input_tokens: None,
         assistant_usage: None,
         tool_use_result: None,
+        tool_response: None,
         sdk_metadata: None,
         attachments: None,
         agent_session_id: None,
@@ -365,12 +367,86 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
     }
 }
 
+/// The question and the answer, as one thing to say to an agent that has
+/// forgotten asking.
+///
+/// The question comes off the call's own stored input; `asked` is `None` where
+/// that row is gone, and then only the answer survives — still better than
+/// nothing, and the only case where the restatement is partial.
+fn restate(
+    tool_name: &str,
+    asked: Option<&serde_json::Value>,
+    answer: &serde_json::Value,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut text = String::new();
+    if tool_name == crate::task_activities::mapping::PLAN_TOOL {
+        let approved = answer.get("approved").and_then(serde_json::Value::as_bool) == Some(true);
+        if let Some(plan) = asked
+            .and_then(|input| input.get("plan"))
+            .and_then(serde_json::Value::as_str)
+        {
+            let _ = writeln!(text, "You proposed this plan:\n\n{plan}\n");
+        }
+        if approved {
+            text.push_str("The plan is approved. Carry it out.");
+            return text;
+        }
+        text.push_str("The plan is rejected.");
+        if let Some(feedback) = answer
+            .get("feedback")
+            .and_then(serde_json::Value::as_str)
+            .filter(|feedback| !feedback.trim().is_empty())
+        {
+            let _ = write!(text, " Feedback: {feedback}");
+        }
+        return text;
+    }
+
+    let answers = answer.get("answers").and_then(serde_json::Value::as_object);
+    let asked_questions = asked
+        .and_then(|input| input.get("questions"))
+        .and_then(serde_json::Value::as_array);
+    text.push_str("You asked, and the answer is:\n");
+    match answers {
+        Some(answers) if !answers.is_empty() => {
+            for (question, given) in answers {
+                let _ = writeln!(
+                    text,
+                    "\n- {question}\n  {}",
+                    given.as_str().unwrap_or_default()
+                );
+            }
+        }
+        // Nothing keyed by question. Say what was asked so the agent can ask
+        // again rather than proceed on an answer it cannot read.
+        _ => {
+            for question in asked_questions.into_iter().flatten() {
+                if let Some(text_of) = question.get("question").and_then(serde_json::Value::as_str)
+                {
+                    let _ = writeln!(text, "\n- {text_of}\n  (no answer given)");
+                }
+            }
+        }
+    }
+    text
+}
+
 /// Send a tool response (AskUserQuestion / ExitPlanMode).
+///
+/// The answer leaves here twice, in two shapes, because two paths read it. The
+/// structured one on `tool_response` is what the sandbox delivers to a run still
+/// parked on the call — an answer per question, a rejection as a rejection. The
+/// prose in `message_text` is what the agent is *told* when no run is parked:
+/// the question restated with the answer, because a resumed session has no
+/// memory of having asked. The CLI drops an unanswered call on resume, and the
+/// prose around it with it, so a bare "Option A" would answer nothing.
 pub async fn send_tool_response_flow(
     state: &AppState,
     task_id: &str,
     tool_use_id: &str,
-    _tool_name: &str,
+    tool_name: &str,
     tool_response: Option<&serde_json::Value>,
     sent_by: Option<&str>,
 ) -> Result<(), MessageError> {
@@ -383,9 +459,22 @@ pub async fn send_tool_response_flow(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
-    let response_text = tool_response
-        .map(|v| serde_json::to_string(v).unwrap_or_default())
-        .unwrap_or_default();
+    let answer = tool_response.cloned().unwrap_or(serde_json::Value::Null);
+    // The question as it was asked, off the call's own stored input.
+    let asked = crate::task_activities::dao::find_tool_call(&state.db, task_id, tool_use_id)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(task_id, tool_use_id, %error, "Could not read the call being answered");
+            None
+        })
+        .map(|call| call.tool_input().clone());
+    let response_text = restate(tool_name, asked.as_ref(), &answer);
+    let mut structured = serde_json::Map::new();
+    structured.insert("toolUseId".into(), tool_use_id.into());
+    structured.insert("toolName".into(), tool_name.into());
+    for (key, value) in answer.as_object().into_iter().flatten() {
+        structured.insert(key.clone(), value.clone());
+    }
 
     let msg_row = TaskMessage {
         id: 0,
@@ -421,6 +510,7 @@ pub async fn send_tool_response_flow(
         assistant_usage_cache_read_input_tokens: None,
         assistant_usage: None,
         tool_use_result: None,
+        tool_response: Some(serde_json::Value::Object(structured)),
         sdk_metadata: None,
         attachments: None,
         agent_session_id: None,
@@ -444,17 +534,28 @@ pub async fn send_tool_response_flow(
     // `AskUserQuestion` activity stays `in_progress` forever and the question
     // keeps rendering as unanswered — the agent's own tool result never arrives
     // for these, because this row *is* the result.
+    //
+    // The resolved row beside it is what closes the panel: the client keeps a
+    // question open until it sees one naming the same `requestId`.
     let conversation = ConversationWrite {
         outcomes: vec![ToolOutcome {
             task_id: task_id.to_string(),
             tool_use_id: tool_use_id.to_string(),
             status: ActivityStatus::Completed,
-            result: tool_response
-                .cloned()
-                .unwrap_or(serde_json::Value::String(response_text)),
+            result: if answer.is_null() {
+                serde_json::Value::String(response_text.clone())
+            } else {
+                answer.clone()
+            },
             typed_result: None,
             is_error: false,
         }],
+        activities: vec![crate::task_activities::mapping::user_input_resolved(
+            task_id,
+            &msg_row.uuid,
+            tool_use_id,
+            &answer,
+        )],
         ..Default::default()
     };
 
@@ -468,4 +569,88 @@ pub async fn send_tool_response_flow(
     tracing::info!(task_id = %task_id, tool_use_id = %tool_use_id, "Tool response sent");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A resumed session has no memory of having asked: the CLI drops an
+    /// unanswered call on resume and the prose around it with it. So the answer
+    /// travels with the question restated around it.
+    #[test]
+    fn an_answer_carries_the_question_it_answers() {
+        let asked = json!({ "questions": [{ "question": "Which store?" }] });
+        let text = restate(
+            crate::task_activities::mapping::QUESTION_TOOL,
+            Some(&asked),
+            &json!({ "answers": { "Which store?": "Postgres" } }),
+        );
+        assert!(text.contains("Which store?"), "{text}");
+        assert!(text.contains("Postgres"), "{text}");
+    }
+
+    /// The call's row is gone. Only the answer survives, which is still better
+    /// than nothing said at all.
+    #[test]
+    fn an_answer_to_a_call_no_longer_stored_still_says_what_was_answered() {
+        let text = restate(
+            crate::task_activities::mapping::QUESTION_TOOL,
+            None,
+            &json!({ "answers": { "Which store?": "Postgres" } }),
+        );
+        assert!(text.contains("Which store?"), "{text}");
+        assert!(text.contains("Postgres"), "{text}");
+    }
+
+    /// An answer nothing can be read out of asks again rather than letting the
+    /// agent proceed on one it cannot read.
+    #[test]
+    fn an_unreadable_answer_restates_the_question_unanswered() {
+        let asked = json!({ "questions": [{ "question": "Which store?" }] });
+        let text = restate(
+            crate::task_activities::mapping::QUESTION_TOOL,
+            Some(&asked),
+            &json!({}),
+        );
+        assert!(text.contains("Which store?"), "{text}");
+        assert!(text.contains("no answer given"), "{text}");
+    }
+
+    #[test]
+    fn an_approved_plan_is_restated_and_approved() {
+        let asked = json!({ "plan": "1. Do the thing" });
+        let text = restate(
+            crate::task_activities::mapping::PLAN_TOOL,
+            Some(&asked),
+            &json!({ "approved": true }),
+        );
+        assert!(text.contains("1. Do the thing"), "{text}");
+        assert!(text.contains("approved"), "{text}");
+    }
+
+    /// "No, use the second approach" is a rejection *and* the reason for it —
+    /// the agent needs both to plan again.
+    #[test]
+    fn a_rejected_plan_carries_the_feedback_that_rejected_it() {
+        let text = restate(
+            crate::task_activities::mapping::PLAN_TOOL,
+            Some(&json!({ "plan": "1. Do the thing" })),
+            &json!({ "approved": false, "feedback": "use the second approach" }),
+        );
+        assert!(text.contains("rejected"), "{text}");
+        assert!(text.contains("use the second approach"), "{text}");
+    }
+
+    /// Absent `approved` is not approval.
+    #[test]
+    fn a_verdict_that_says_nothing_is_not_an_approval() {
+        let text = restate(
+            crate::task_activities::mapping::PLAN_TOOL,
+            None,
+            &serde_json::Value::Null,
+        );
+        assert!(text.contains("rejected"), "{text}");
+    }
 }

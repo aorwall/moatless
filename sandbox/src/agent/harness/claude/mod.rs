@@ -26,8 +26,8 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use claude_agent_sdk::types::content::{ApiMessage, ContentBlock};
-use claude_agent_sdk::types::messages::{MessagePriority, UserMessage};
+use claude_agent_sdk::types::content::{ApiMessage, ContentBlock, Usage};
+use claude_agent_sdk::types::messages::{MessagePriority, ResultMessage, UserMessage};
 use claude_agent_sdk::{query, QueryHandle, SdkMessage};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -39,9 +39,52 @@ use crate::config::Config;
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
-use super::signal::{Input, InputId, SessionId};
+use super::signal::{ContextWindow, Input, InputId, SessionId};
 
 use self::normalize::Normalizer;
+
+/// What the turn's last model response says about the context window.
+///
+/// The maximum only ever exists on the provider's wire — no column holds one —
+/// and the terminal `ResultMessage` carries it per model, as a running maximum.
+/// The largest is the window the turn ran in; a sub-agent model with a smaller
+/// one would otherwise decide the meter.
+///
+/// Used is that last response's own usage. For one API request the input,
+/// cache-creation and cache-read counts are its prompt and `output_tokens` is
+/// its completion, so the four together are what occupies the window once it
+/// returns. The token counts beside the maximum are running totals instead —
+/// cost accumulates in the same object — so they measure what the turn
+/// processed, and a cached prefix read on every request of a long turn takes
+/// them past the window many times over.
+///
+/// Sub-agent responses are skipped: they occupy their own window, not this one.
+/// Clamped to the maximum, so a reading that cannot be right reads as full
+/// rather than as impossible. `None` before any response has landed — a turn
+/// with nothing to say rather than an empty window.
+fn context_window(result: &ResultMessage, last_response: Option<&Usage>) -> Option<ContextWindow> {
+    let model_usage = match result {
+        ResultMessage::Success(success) => &success.model_usage,
+        ResultMessage::Error(error) => &error.model_usage,
+    };
+    let max_tokens = model_usage
+        .values()
+        .map(|usage| usage.context_window)
+        .max()
+        .filter(|window| *window > 0)
+        .map(|window| i64::try_from(window).unwrap_or(i64::MAX));
+
+    let usage = last_response?;
+    let used = usage.input_tokens
+        + usage.cache_creation_input_tokens.unwrap_or(0)
+        + usage.cache_read_input_tokens.unwrap_or(0)
+        + usage.output_tokens;
+    let used = i64::try_from(used).unwrap_or(i64::MAX);
+    Some(ContextWindow {
+        used_tokens: max_tokens.map_or(used, |max| used.min(max)),
+        max_tokens,
+    })
+}
 
 mod classify;
 mod normalize;
@@ -83,6 +126,9 @@ pub(crate) struct ClaudeProcess {
     resuming: bool,
     /// Shared native-block normalizer (collision-safe ids + Session tracking).
     normalizer: Normalizer,
+    /// Usage from the newest main-thread model response, which is what the
+    /// context window holds. See [`context_window`].
+    last_response: Option<Usage>,
 }
 
 /// Build the `UserMessage` frame for an input injected into a running Session.
@@ -138,6 +184,7 @@ impl ClaudeProcess {
             session_id: None,
             resuming: false,
             normalizer: Normalizer::new(),
+            last_response: None,
         }
     }
 
@@ -167,6 +214,11 @@ impl ClaudeProcess {
                 }
             }
             SdkMessage::Assistant(assistant) => {
+                if assistant.parent_tool_use_id.is_none() {
+                    if let Some(usage) = assistant.message.usage.clone() {
+                        self.last_response = Some(usage);
+                    }
+                }
                 for event in self.normalizer.assistant_blocks(&assistant) {
                     self.pending.push_back(ProcessEvent::Block(event));
                 }
@@ -182,6 +234,9 @@ impl ClaudeProcess {
                 ));
             }
             SdkMessage::Result(result) => {
+                if let Some(window) = context_window(&result, self.last_response.as_ref()) {
+                    self.pending.push_back(ProcessEvent::ContextWindow(window));
+                }
                 self.pending.push_back(ProcessEvent::Terminated {
                     termination: classify::classify_result(&result),
                 });

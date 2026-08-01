@@ -121,6 +121,19 @@ pub struct Activity {
     pub detail: String,
 }
 
+/// What the harness reported about its own context window.
+///
+/// Normalized here so neither the backend nor either client learns the
+/// difference between the two wires: Claude reports a per-model `contextWindow`
+/// on its terminal result, Codex a `modelContextWindow` on a token-usage
+/// notification. `max_tokens` is `None` where the harness reported none, and the
+/// meter then shows a count rather than a percentage of a guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContextWindow {
+    pub used_tokens: i64,
+    pub max_tokens: Option<i64>,
+}
+
 /// A normalized signal emitted by the harness. This is the entire external
 /// output vocabulary; the coordinator reacts only to these.
 // reason: the harness seam deliberately carries one canonical `SourceEvent` by
@@ -141,6 +154,8 @@ pub enum Signal {
     Source(SourceEvent),
     /// Liveness / tool progress; never Message content.
     Activity(Activity),
+    /// What the harness reported about its own context window.
+    ContextWindow(ContextWindow),
     /// The single terminal outcome of a started execution. Exactly one is
     /// emitted per [`Signal::ExecutionStarted`].
     ExecutionFinished { outcome: Outcome },

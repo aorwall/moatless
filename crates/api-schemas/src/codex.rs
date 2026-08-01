@@ -105,12 +105,28 @@ pub struct CodexEditResult {
 }
 
 /// A single entry in a codex `todo_list` plan tracker.
+///
+/// `status` is the step's own three-state state; `completed` is the same fact
+/// narrowed to done/not-done, kept because it is what a `todo_list` item states.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct CodexTodoItem {
     pub text: String,
     pub completed: bool,
+    #[serde(default)]
+    pub status: CodexTodoStatus,
+}
+
+/// A plan step's state.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum CodexTodoStatus {
+    #[default]
+    Pending,
+    InProgress,
+    Completed,
 }
 
 /// Input for `codex.todo_list` tool calls. Codex emits this as a running plan
@@ -395,16 +411,26 @@ mod tests {
                 CodexTodoItem {
                     text: "first step".to_string(),
                     completed: true,
+                    status: CodexTodoStatus::Completed,
                 },
                 CodexTodoItem {
                     text: "second step".to_string(),
                     completed: false,
+                    status: CodexTodoStatus::InProgress,
                 },
             ],
         };
         let value = serde_json::to_value(&input).unwrap();
+        assert_eq!(value["items"][1]["status"], "inProgress");
         let back: CodexTodoListInput = serde_json::from_value(value).unwrap();
         assert_eq!(back, input);
+    }
+
+    #[test]
+    fn todo_item_without_status_is_pending() {
+        let value = json!({ "items": [{ "text": "step", "completed": false }] });
+        let parsed: CodexTodoListInput = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.items[0].status, CodexTodoStatus::Pending);
     }
 
     #[test]

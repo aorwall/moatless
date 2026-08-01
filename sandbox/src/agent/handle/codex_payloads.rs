@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use moatless_api_schemas::codex::{
     CodexCollabAgentState, CodexCollabAgentStatus, CodexCollabInput, CodexCollabResult,
     CodexCollabTool, CodexEditInput, CodexEditResult, CodexMcpInput, CodexMcpResult,
-    CodexShellInput, CodexShellResult, CodexTodoItem, CodexTodoListInput, CodexToolStatus,
-    FileUpdateChange, FileUpdateKind,
+    CodexShellInput, CodexShellResult, CodexTodoItem, CodexTodoListInput, CodexTodoStatus,
+    CodexToolStatus, FileUpdateChange, FileUpdateKind,
 };
 
 use crate::agent::codex_app_server::protocol::{
@@ -202,10 +202,9 @@ pub(crate) fn build_edit_tool_result(edit: &FileChangeItem) -> (serde_json::Valu
 }
 
 /// The running plan tracker. On this transport it arrives as the
-/// `turn/plan/updated` notification rather than a `todo_list` item, and each
-/// step carries a three-state status where the canonical entry has a boolean —
-/// `inProgress` is therefore reported as not-yet-completed, which is what the
-/// `todo_list` item said about a step in flight too.
+/// `turn/plan/updated` notification rather than a `todo_list` item. Each step
+/// keeps its own three-state status alongside the done/not-done boolean, because
+/// *in progress* is the state a plan panel exists to show.
 pub(crate) fn build_codex_todo_list_input(plan: &[TurnPlanStep]) -> CodexTodoListInput {
     CodexTodoListInput {
         items: plan
@@ -213,8 +212,18 @@ pub(crate) fn build_codex_todo_list_input(plan: &[TurnPlanStep]) -> CodexTodoLis
             .map(|step| CodexTodoItem {
                 text: step.step.clone(),
                 completed: step.status == TurnPlanStepStatus::Completed,
+                status: todo_status(step.status),
             })
             .collect(),
+    }
+}
+
+/// An unrecognised status is pending: the step exists and is not claimed done.
+fn todo_status(status: TurnPlanStepStatus) -> CodexTodoStatus {
+    match status {
+        TurnPlanStepStatus::Completed => CodexTodoStatus::Completed,
+        TurnPlanStepStatus::InProgress => CodexTodoStatus::InProgress,
+        TurnPlanStepStatus::Pending | TurnPlanStepStatus::Unknown => CodexTodoStatus::Pending,
     }
 }
 
@@ -394,9 +403,12 @@ mod tests {
         assert_eq!(input.items.len(), 3);
         assert_eq!(input.items[0].text, "first");
         assert!(input.items[0].completed);
-        // A step in flight is not yet completed, as `todo_list` also reported.
+        assert_eq!(input.items[0].status, CodexTodoStatus::Completed);
+        // A step in flight is not yet completed, and says so as its own state.
         assert!(!input.items[1].completed);
+        assert_eq!(input.items[1].status, CodexTodoStatus::InProgress);
         assert!(!input.items[2].completed);
+        assert_eq!(input.items[2].status, CodexTodoStatus::Pending);
     }
 
     #[test]

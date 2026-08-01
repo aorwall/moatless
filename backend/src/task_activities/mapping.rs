@@ -31,8 +31,12 @@ pub struct BlockContext<'a> {
 pub enum BlockRow {
     /// Prose, spliced into the Message's text at `block_index`.
     Text(TextPart),
-    /// A tool call or a stretch of thinking, written as its own row.
-    Activity(Box<ActivityRow>),
+    /// The rows one block writes: a tool call or a stretch of thinking, and —
+    /// for the calls a client renders as a panel rather than a work-log card —
+    /// the named row joined to it. A joined row is not a second block; it is the
+    /// same block said in the vocabulary the panel is derived from, which is why
+    /// it shares the block's ordinal and suffixes its id.
+    Activities(Vec<ActivityRow>),
     /// A tool result, which updates the call's row rather than writing one.
     ToolOutcome(ToolOutcome),
     /// Nothing this conversation stores.
@@ -50,6 +54,11 @@ pub struct TextPart {
 pub struct ActivityRow {
     pub activity_id: String,
     pub task_id: String,
+    /// Where this row sits inside its change: the source block's index, or 0 for
+    /// a row that has no block and is alone in its change. Read off the block
+    /// rather than counted while mapping, so it is the same value on every pass
+    /// — which is what makes it stable for exactly as long as `activity_id` is.
+    pub ordinal: i32,
     pub message_uuid: Option<String>,
     pub parent_uuid: Option<String>,
     pub kind: ActivityKind,
@@ -84,12 +93,27 @@ pub struct ToolOutcome {
 }
 
 /// The closed set. A value outside it is a bug, not an extension point.
+///
+/// It grows by a code change that fails to compile, never by a migration —
+/// which is also why every read narrows to the known kinds in SQL (see
+/// `dao::known_kinds`): a row written by a newer backend is skipped rather than
+/// failing the decode of the whole conversation around it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityKind {
     ToolCall,
     Thinking,
     SandboxStatus,
     SandboxError,
+    /// The agent handed the conversation back to a person: an `AskUserQuestion`,
+    /// or the synthetic approve/reject question in front of a proposed plan.
+    UserInputRequested,
+    /// That question answered — the row that closes the panel the one above
+    /// opened.
+    UserInputResolved,
+    /// The plan the agent is working through, whole, as of this update.
+    PlanUpdated,
+    /// What the harness reported about its own context window.
+    ContextWindowUpdated,
 }
 
 impl ActivityKind {
@@ -99,8 +123,24 @@ impl ActivityKind {
             Self::Thinking => "thinking",
             Self::SandboxStatus => "sandbox_status",
             Self::SandboxError => "sandbox_error",
+            Self::UserInputRequested => "user_input_requested",
+            Self::UserInputResolved => "user_input_resolved",
+            Self::PlanUpdated => "plan_updated",
+            Self::ContextWindowUpdated => "context_window_updated",
         }
     }
+
+    /// Every value, so a test can assert the SQL narrowing names all of them.
+    pub const ALL: &'static [Self] = &[
+        Self::ToolCall,
+        Self::Thinking,
+        Self::SandboxStatus,
+        Self::SandboxError,
+        Self::UserInputRequested,
+        Self::UserInputResolved,
+        Self::PlanUpdated,
+        Self::ContextWindowUpdated,
+    ];
 }
 
 impl std::str::FromStr for ActivityKind {
@@ -112,6 +152,10 @@ impl std::str::FromStr for ActivityKind {
             "thinking" => Ok(Self::Thinking),
             "sandbox_status" => Ok(Self::SandboxStatus),
             "sandbox_error" => Ok(Self::SandboxError),
+            "user_input_requested" => Ok(Self::UserInputRequested),
+            "user_input_resolved" => Ok(Self::UserInputResolved),
+            "plan_updated" => Ok(Self::PlanUpdated),
+            "context_window_updated" => Ok(Self::ContextWindowUpdated),
             other => Err(format!("unknown activity kind: {other:?}")),
         }
     }
@@ -194,7 +238,7 @@ pub fn map_content(context: BlockContext<'_>, content: &Value) -> ConversationWr
         };
         match map_block(context, block) {
             BlockRow::Text(part) => write.text.push(part),
-            BlockRow::Activity(activity) => write.activities.push(*activity),
+            BlockRow::Activities(activities) => write.activities.extend(activities),
             BlockRow::ToolOutcome(outcome) => write.outcomes.push(outcome),
             BlockRow::None => {}
         }
@@ -277,9 +321,10 @@ fn tool_call(context: BlockContext<'_>, block: &Value) -> BlockRow {
         payload.insert("command".into(), Value::String(command.to_string()));
     }
 
-    BlockRow::Activity(Box::new(ActivityRow {
+    let call = ActivityRow {
         activity_id: activity_id(context),
         task_id: context.task_id.to_string(),
+        ordinal: ordinal(context),
         message_uuid: Some(context.message_uuid.to_string()),
         parent_uuid: context.parent_uuid.map(str::to_string),
         kind: ActivityKind::ToolCall,
@@ -288,7 +333,225 @@ fn tool_call(context: BlockContext<'_>, block: &Value) -> BlockRow {
         summary: name.to_string(),
         payload: Value::Object(payload),
         is_error: false,
+    };
+
+    let input = block.get("input").unwrap_or(&Value::Null);
+    let mut rows = vec![call];
+    rows.extend(joined_row(context, name, tool_use_id, input));
+    BlockRow::Activities(rows)
+}
+
+/// The named row a call is *also* stored as, where a client derives a panel from
+/// it rather than a work-log card.
+///
+/// Four calls have one. The call itself is stored unchanged either way — every
+/// Moatless tool renderer still finds the tool call with its input where it has
+/// always been — so this adds a row rather than replacing one.
+fn joined_row(
+    context: BlockContext<'_>,
+    name: &str,
+    tool_use_id: &str,
+    input: &Value,
+) -> Option<ActivityRow> {
+    let (suffix, kind, summary, payload) = match name {
+        QUESTION_TOOL => (
+            "user-input",
+            ActivityKind::UserInputRequested,
+            "Question",
+            json!({
+                "requestId": tool_use_id,
+                "questions": asked_questions(input),
+            }),
+        ),
+        PLAN_TOOL => (
+            "user-input",
+            ActivityKind::UserInputRequested,
+            "Proposed plan",
+            json!({
+                "requestId": tool_use_id,
+                "questions": [plan_question()],
+            }),
+        ),
+        TODO_TOOL | CODEX_TODO_TOOL => (
+            "plan",
+            ActivityKind::PlanUpdated,
+            "Plan updated",
+            json!({ "plan": plan_steps(name, input) }),
+        ),
+        _ => return None,
+    };
+    // A question with nothing to ask, or a plan with no steps, is a call this
+    // panel cannot be derived from. The tool call itself is still stored.
+    if payload
+        .get("questions")
+        .or_else(|| payload.get("plan"))
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty)
+    {
+        return None;
+    }
+    Some(ActivityRow {
+        activity_id: format!("{}:{suffix}", activity_id(context)),
+        task_id: context.task_id.to_string(),
+        // The call's own ordinal: a joined row happened at the block the call
+        // is, not after it.
+        ordinal: ordinal(context),
+        message_uuid: Some(context.message_uuid.to_string()),
+        parent_uuid: context.parent_uuid.map(str::to_string),
+        kind,
+        status: ActivityStatus::Completed,
+        tool_use_id: Some(tool_use_id.to_string()),
+        summary: summary.to_string(),
+        payload,
+        is_error: false,
+    })
+}
+
+/// The tool calls that hand the conversation back to a person. Keep in sync with
+/// `message::dao::INTERACTIVE_TOOLS`, which is the same pair asked about from
+/// the write side.
+pub const QUESTION_TOOL: &str = "AskUserQuestion";
+pub const PLAN_TOOL: &str = "ExitPlanMode";
+/// The plan trackers. `TodoWrite` is the Claude CLI's; `codex.todo_list` is what
+/// the Codex transport's `turn/plan/updated` notification is normalised into.
+const TODO_TOOL: &str = "TodoWrite";
+const CODEX_TODO_TOOL: &str = "codex.todo_list";
+
+/// The questions an `AskUserQuestion` call asked, in the shape the panel parses.
+///
+/// Every question gets a `header` and an `id`, and every option a `description`,
+/// filled from the question's own text where the call carried none: the client's
+/// parser drops a question missing any of the three, while the API shape leaves
+/// `header` and `description` optional and has no id at all. The id **is** the
+/// question text, because that is the key the CLI looks an answer up by — a
+/// synthetic index answers nothing, silently.
+fn asked_questions(input: &Value) -> Vec<Value> {
+    input
+        .get("questions")
+        .and_then(Value::as_array)
+        .map(|questions| {
+            questions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, question)| asked_question(index, question))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn asked_question(index: usize, question: &Value) -> Option<Value> {
+    let text = question
+        .get("question")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())?;
+    let options: Vec<Value> = question
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|options| {
+            options
+                .iter()
+                .filter_map(|option| {
+                    let label = option
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .filter(|label| !label.is_empty())?;
+                    let description = option
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .unwrap_or(label);
+                    Some(json!({ "label": label, "description": description }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if options.is_empty() {
+        return None;
+    }
+    let header = question
+        .get("header")
+        .and_then(Value::as_str)
+        .filter(|header| !header.is_empty())
+        .map_or_else(|| format!("Question {}", index + 1), str::to_string);
+    Some(json!({
+        "id": text,
+        "header": header,
+        "question": text,
+        "multiSelect": question.get("multiSelect").and_then(Value::as_bool).unwrap_or(false),
+        "options": options,
     }))
+}
+
+/// The question in front of a proposed plan.
+///
+/// A plan proposal parks the run on a call only an answer releases, and the
+/// answer panel is the one surface that can send one. So the plan is *asked*
+/// rather than merely shown: the card renders the plan, this renders the two
+/// things a person can do about it.
+pub const PLAN_QUESTION: &str = "Approve this plan?";
+pub const PLAN_APPROVE: &str = "Approve";
+pub const PLAN_REJECT: &str = "Reject";
+
+fn plan_question() -> Value {
+    json!({
+        "id": PLAN_QUESTION,
+        "header": "Proposed plan",
+        "question": PLAN_QUESTION,
+        "multiSelect": false,
+        "options": [
+            { "label": PLAN_APPROVE, "description": "Let the agent carry out the plan as proposed." },
+            { "label": PLAN_REJECT, "description": "Send the agent back to planning. Say what to change." },
+        ],
+    })
+}
+
+/// One plan tracker's steps, each with its own state.
+///
+/// Two wires, one shape. `TodoWrite` states a three-value `status` per todo;
+/// `codex.todo_list` carries the same three states through
+/// [`moatless_api_schemas::codex::CodexTodoItem`]. Neither is flattened to
+/// done/not-done, because *in progress* is the state a plan panel exists to
+/// show.
+fn plan_steps(tool: &str, input: &Value) -> Vec<Value> {
+    let entries = if tool == TODO_TOOL {
+        input.get("todos")
+    } else {
+        input.get("items")
+    };
+    entries
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    let step = entry
+                        .get("content")
+                        .or_else(|| entry.get("text"))
+                        .and_then(Value::as_str)
+                        .filter(|step| !step.is_empty())?;
+                    Some(json!({ "step": step, "status": step_status(entry) }))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A step's state in the client's vocabulary.
+///
+/// `status` is read first and is the only thing either wire says about a step in
+/// flight. An entry carrying no status falls back to its boolean — completed or
+/// not, which is all such an entry says.
+fn step_status(entry: &Value) -> &'static str {
+    match entry.get("status").and_then(Value::as_str) {
+        Some("completed") => return "completed",
+        Some("in_progress" | "inProgress") => return "inProgress",
+        Some("pending") => return "pending",
+        _ => {}
+    }
+    if entry.get("completed").and_then(Value::as_bool) == Some(true) {
+        "completed"
+    } else {
+        "pending"
+    }
 }
 
 fn tool_outcome(context: BlockContext<'_>, block: &Value) -> BlockRow {
@@ -330,9 +593,10 @@ pub const THINKING_SUMMARY: &str = "Thinking";
 /// what keeps `task.progress` reaching that client; storing the text would be
 /// 301 MB nothing reads.
 fn thinking(context: BlockContext<'_>) -> BlockRow {
-    BlockRow::Activity(Box::new(ActivityRow {
+    BlockRow::Activities(vec![ActivityRow {
         activity_id: activity_id(context),
         task_id: context.task_id.to_string(),
+        ordinal: ordinal(context),
         message_uuid: Some(context.message_uuid.to_string()),
         parent_uuid: context.parent_uuid.map(str::to_string),
         kind: ActivityKind::Thinking,
@@ -341,7 +605,7 @@ fn thinking(context: BlockContext<'_>) -> BlockRow {
         summary: THINKING_SUMMARY.to_string(),
         payload: json!({ "summary": THINKING_SUMMARY }),
         is_error: false,
-    }))
+    }])
 }
 
 /// A Sandbox lifecycle change, which happened on no Message.
@@ -363,6 +627,8 @@ pub fn sandbox_activity(
     ActivityRow {
         activity_id: event_id.to_string(),
         task_id: task_id.to_string(),
+        // A Sandbox activity is alone in its change, so slot 0 is its own.
+        ordinal: 0,
         message_uuid: None,
         parent_uuid: None,
         kind: if is_error {
@@ -382,10 +648,79 @@ pub fn sandbox_activity(
     }
 }
 
+/// What a person's answer becomes.
+///
+/// Written on the carrier row that relays the answer to the agent, so it lands
+/// in a change of its own: the call it answers was written on an earlier
+/// Message, and by now that Message's slots are taken.
+pub fn user_input_resolved(
+    task_id: &str,
+    message_uuid: &str,
+    tool_use_id: &str,
+    answers: &Value,
+) -> ActivityRow {
+    ActivityRow {
+        activity_id: format!("{message_uuid}:0:user-input-resolved"),
+        task_id: task_id.to_string(),
+        ordinal: 0,
+        message_uuid: Some(message_uuid.to_string()),
+        parent_uuid: None,
+        kind: ActivityKind::UserInputResolved,
+        status: ActivityStatus::Completed,
+        tool_use_id: Some(tool_use_id.to_string()),
+        summary: "Answered".to_string(),
+        // `requestId` is the tool-use id on both rows, which is the whole join:
+        // the client closes the panel this names.
+        payload: json!({ "requestId": tool_use_id, "answers": answers }),
+        is_error: false,
+    }
+}
+
+/// What the harness said about its own context window.
+///
+/// `max_tokens` is absent where the harness reported none, and the meter shows a
+/// count with no percentage rather than a percentage of a guess. Identified by
+/// the event that carried it, so redelivery writes nothing — the same rule a
+/// Sandbox activity's identity follows, and for the same reason.
+pub fn context_window_updated(
+    event_id: &str,
+    task_id: &str,
+    used_tokens: i64,
+    max_tokens: Option<i64>,
+) -> ActivityRow {
+    let mut payload = Map::new();
+    payload.insert("usedTokens".into(), json!(used_tokens));
+    if let Some(max_tokens) = max_tokens {
+        payload.insert("maxTokens".into(), json!(max_tokens));
+    }
+    ActivityRow {
+        activity_id: event_id.to_string(),
+        task_id: task_id.to_string(),
+        ordinal: 0,
+        message_uuid: None,
+        parent_uuid: None,
+        kind: ActivityKind::ContextWindowUpdated,
+        status: ActivityStatus::Completed,
+        tool_use_id: None,
+        summary: "Context window updated".to_string(),
+        payload: Value::Object(payload),
+        is_error: false,
+    }
+}
+
 /// `{message_uuid}:{block_index}` — the id `projection.rs` already emits, which
 /// is why the T3 client sees no change.
 fn activity_id(context: BlockContext<'_>) -> String {
     format!("{}:{}", context.message_uuid, context.block_index)
+}
+
+/// The block's index, as the column stores it.
+///
+/// Saturating rather than wrapping: a Message with more blocks than an `i32`
+/// holds is impossible, and the projection truncates a change long before this
+/// at [`EVENTS_PER_CHANGE`](super::models::EVENTS_PER_CHANGE) anyway.
+fn ordinal(context: BlockContext<'_>) -> i32 {
+    i32::try_from(context.block_index).unwrap_or(i32::MAX)
 }
 
 /// Which of the contract's closed set of tool shapes a Moatless tool call is.
@@ -456,6 +791,24 @@ mod tests {
         }
     }
 
+    /// The single row a block wrote, for the blocks that join none.
+    fn only(row: BlockRow) -> ActivityRow {
+        let BlockRow::Activities(mut rows) = row else {
+            panic!("expected activity rows, got {row:?}");
+        };
+        assert_eq!(rows.len(), 1, "this block joins no second row");
+        rows.remove(0)
+    }
+
+    /// The rows a block wrote, in the order it wrote them: the call first, then
+    /// whatever is joined to it.
+    fn rows(row: BlockRow) -> Vec<ActivityRow> {
+        let BlockRow::Activities(rows) = row else {
+            panic!("expected activity rows, got {row:?}");
+        };
+        rows
+    }
+
     #[test]
     fn text_is_prose_on_the_message_it_arrived_on() {
         assert_eq!(
@@ -495,7 +848,7 @@ mod tests {
 
     #[test]
     fn a_tool_use_starts_a_call_in_progress() {
-        let BlockRow::Activity(activity) = map_block(
+        let activity = only(map_block(
             context(),
             &json!({
                 "type": "tool_use",
@@ -503,9 +856,7 @@ mod tests {
                 "name": "Bash",
                 "input": { "command": "ls -la" }
             }),
-        ) else {
-            panic!("a tool_use is an activity");
-        };
+        ));
         assert_eq!(activity.activity_id, "msg-1:3");
         assert_eq!(activity.kind, ActivityKind::ToolCall);
         assert_eq!(activity.status, ActivityStatus::InProgress);
@@ -623,12 +974,10 @@ mod tests {
     #[test]
     fn thinking_keeps_only_its_label() {
         for kind in ["thinking", "redacted_thinking"] {
-            let BlockRow::Activity(activity) = map_block(
+            let activity = only(map_block(
                 context(),
                 &json!({ "type": kind, "thinking": "a long private thought" }),
-            ) else {
-                panic!("{kind} is an activity");
-            };
+            ));
             assert_eq!(activity.kind, ActivityKind::Thinking);
             assert_eq!(activity.summary, THINKING_SUMMARY);
             assert_eq!(activity.payload, json!({ "summary": THINKING_SUMMARY }));
@@ -701,13 +1050,241 @@ mod tests {
             parent_uuid: Some("agent-tool-1"),
             ..context()
         };
-        let BlockRow::Activity(activity) = map_block(
+        let activity = only(map_block(
             context,
             &json!({ "type": "tool_use", "id": "tu-1", "name": "Bash" }),
-        ) else {
-            panic!("a tool_use is an activity");
-        };
+        ));
         assert_eq!(activity.parent_uuid.as_deref(), Some("agent-tool-1"));
+    }
+
+    // ── joined rows ─────────────────────────────────────────────────
+
+    /// The panel is derived from a row of its own; the call is still stored as
+    /// a call, so every tool renderer still finds it where it always was.
+    #[test]
+    fn a_question_is_stored_as_a_call_and_as_the_question_it_asked() {
+        let written = rows(map_block(
+            context(),
+            &json!({
+                "type": "tool_use",
+                "id": "tu-1",
+                "name": QUESTION_TOOL,
+                "input": { "questions": [{
+                    "question": "Which store?",
+                    "header": "Storage",
+                    "multiSelect": true,
+                    "options": [
+                        { "label": "Postgres", "description": "The one already deployed." },
+                        { "label": "Redis" },
+                    ],
+                }] }
+            }),
+        ));
+
+        assert_eq!(written.len(), 2);
+        assert_eq!(written[0].kind, ActivityKind::ToolCall);
+        assert_eq!(written[0].activity_id, "msg-1:3");
+
+        let asked = &written[1];
+        assert_eq!(asked.kind, ActivityKind::UserInputRequested);
+        assert_eq!(asked.activity_id, "msg-1:3:user-input");
+        // The joined row happened at the block the call is, not after it.
+        assert_eq!(asked.ordinal, written[0].ordinal);
+        assert_eq!(asked.payload["requestId"], "tu-1");
+        let question = &asked.payload["questions"][0];
+        // The id *is* the question text: that is the key the CLI looks an
+        // answer up by, so a synthetic one answers nothing.
+        assert_eq!(question["id"], "Which store?");
+        assert_eq!(question["header"], "Storage");
+        assert_eq!(question["multiSelect"], true);
+        assert_eq!(
+            question["options"][0]["description"],
+            "The one already deployed."
+        );
+        // The client's parser drops an option with no description, and the API
+        // shape leaves it optional, so the label stands in for one.
+        assert_eq!(question["options"][1]["description"], "Redis");
+    }
+
+    /// A question with no header still has to parse, so one is filled in.
+    #[test]
+    fn a_question_with_no_header_is_numbered() {
+        let written = rows(map_block(
+            context(),
+            &json!({
+                "type": "tool_use",
+                "id": "tu-1",
+                "name": QUESTION_TOOL,
+                "input": { "questions": [
+                    { "question": "First?", "options": [{ "label": "Yes" }] },
+                    { "question": "Second?", "options": [{ "label": "Yes" }] },
+                ] }
+            }),
+        ));
+        let questions = &written[1].payload["questions"];
+        assert_eq!(questions[0]["header"], "Question 1");
+        assert_eq!(questions[1]["header"], "Question 2");
+    }
+
+    /// Nothing to ask means no panel to derive. The call is still a call.
+    #[test]
+    fn a_question_that_asked_nothing_joins_no_row() {
+        for input in [json!({}), json!({ "questions": [] })] {
+            let written = rows(map_block(
+                context(),
+                &json!({
+                    "type": "tool_use", "id": "tu-1", "name": QUESTION_TOOL, "input": input
+                }),
+            ));
+            assert_eq!(written.len(), 1, "only the call itself");
+        }
+    }
+
+    /// A proposed plan parks the run on a call only an answer releases, and the
+    /// answer panel is the one surface that can send one — so the plan is
+    /// asked, not merely shown.
+    #[test]
+    fn a_proposed_plan_asks_whether_to_approve_it() {
+        let written = rows(map_block(
+            context(),
+            &json!({
+                "type": "tool_use",
+                "id": "tu-1",
+                "name": PLAN_TOOL,
+                "input": { "plan": "1. Do the thing" }
+            }),
+        ));
+        assert_eq!(written.len(), 2);
+        let asked = &written[1];
+        assert_eq!(asked.kind, ActivityKind::UserInputRequested);
+        assert_eq!(asked.payload["requestId"], "tu-1");
+        let options = &asked.payload["questions"][0]["options"];
+        assert_eq!(options[0]["label"], PLAN_APPROVE);
+        assert_eq!(options[1]["label"], PLAN_REJECT);
+    }
+
+    /// Both plan trackers carry a three-state status per step, and *in progress*
+    /// is the state a plan panel exists to show.
+    #[test]
+    fn a_plan_tracker_keeps_each_steps_own_state() {
+        let claude = rows(map_block(
+            context(),
+            &json!({
+                "type": "tool_use",
+                "id": "tu-1",
+                "name": TODO_TOOL,
+                "input": { "todos": [
+                    { "content": "first", "status": "completed" },
+                    { "content": "second", "status": "in_progress" },
+                    { "content": "third", "status": "pending" },
+                ] }
+            }),
+        ));
+        let codex = rows(map_block(
+            context(),
+            &json!({
+                "type": "tool_use",
+                "id": "tu-1",
+                "name": CODEX_TODO_TOOL,
+                "input": { "items": [
+                    { "text": "first", "completed": true, "status": "completed" },
+                    { "text": "second", "completed": false, "status": "inProgress" },
+                    { "text": "third", "completed": false, "status": "pending" },
+                ] }
+            }),
+        ));
+
+        let expected = json!([
+            { "step": "first", "status": "completed" },
+            { "step": "second", "status": "inProgress" },
+            { "step": "third", "status": "pending" },
+        ]);
+        for written in [claude, codex] {
+            assert_eq!(written.len(), 2);
+            assert_eq!(written[1].kind, ActivityKind::PlanUpdated);
+            assert_eq!(written[1].activity_id, "msg-1:3:plan");
+            assert_eq!(written[1].payload["plan"], expected);
+        }
+    }
+
+    /// An entry that states no status says only done or not done, and that is
+    /// all it is read as.
+    #[test]
+    fn a_step_with_no_status_falls_back_to_its_boolean() {
+        assert_eq!(step_status(&json!({ "completed": true })), "completed");
+        assert_eq!(step_status(&json!({ "completed": false })), "pending");
+        assert_eq!(step_status(&json!({})), "pending");
+    }
+
+    /// An empty tracker is a panel with nothing in it.
+    #[test]
+    fn an_empty_plan_joins_no_row() {
+        let written = rows(map_block(
+            context(),
+            &json!({
+                "type": "tool_use", "id": "tu-1", "name": TODO_TOOL, "input": { "todos": [] }
+            }),
+        ));
+        assert_eq!(written.len(), 1);
+    }
+
+    /// Every other call is one row, as it always was.
+    #[test]
+    fn an_ordinary_call_joins_nothing() {
+        let written = rows(map_block(
+            context(),
+            &json!({ "type": "tool_use", "id": "tu-1", "name": "Bash" }),
+        ));
+        assert_eq!(written.len(), 1);
+    }
+
+    /// What a person's answer becomes, on the row that carries it to the agent.
+    /// `requestId` is the tool-use id on both rows, which is the whole join: the
+    /// client closes the panel this names.
+    #[test]
+    fn an_answer_is_stored_against_the_call_it_answers() {
+        let resolved = user_input_resolved(
+            "task-1",
+            "msg-9",
+            "tu-1",
+            &json!({ "Which store?": "Postgres" }),
+        );
+        assert_eq!(resolved.kind, ActivityKind::UserInputResolved);
+        assert_eq!(resolved.activity_id, "msg-9:0:user-input-resolved");
+        assert_eq!(resolved.tool_use_id.as_deref(), Some("tu-1"));
+        assert_eq!(resolved.payload["requestId"], "tu-1");
+        assert_eq!(resolved.payload["answers"]["Which store?"], "Postgres");
+    }
+
+    /// The meter shows a count with no percentage rather than a percentage of a
+    /// guess, so a reading with no maximum carries none.
+    #[test]
+    fn a_context_window_reading_carries_a_maximum_only_when_one_was_reported() {
+        let known = context_window_updated("evt-1", "task-1", 1_000, Some(200_000));
+        assert_eq!(known.kind, ActivityKind::ContextWindowUpdated);
+        assert_eq!(known.activity_id, "evt-1");
+        assert_eq!(known.payload["usedTokens"], 1_000);
+        assert_eq!(known.payload["maxTokens"], 200_000);
+        assert!(known.message_uuid.is_none());
+
+        let unknown = context_window_updated("evt-2", "task-1", 1_000, None);
+        assert!(unknown.payload.get("maxTokens").is_none());
+    }
+
+    /// The set is closed in code: a kind that round-trips through the column is
+    /// one this build knows, and one it does not is a compile error rather than
+    /// a row nothing can read.
+    #[test]
+    fn every_kind_round_trips_through_the_column() {
+        use std::str::FromStr;
+        for kind in ActivityKind::ALL {
+            assert_eq!(
+                ActivityKind::from_str(kind.as_str()),
+                Ok(*kind),
+                "{} round-trips",
+                kind.as_str()
+            );
+        }
     }
 
     #[test]

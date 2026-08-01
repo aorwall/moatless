@@ -557,6 +557,42 @@ pub async fn handle_sandbox_fatal(state: &AppState, event: &AgentEvent) {
 /// gate. It writes nothing to the conversation: an `agent` error subtype is not
 /// one of the four activity kinds, and the event itself stays readable in the
 /// Events tab.
+/// Persist a context-window reading as its own activity.
+///
+/// A reading with no `usedTokens` is nothing to show — the client skips such a
+/// row on its way back through the transcript — so it is dropped rather than
+/// written as a row that shadows the last usable one.
+pub async fn handle_agent_context_window(state: &AppState, event: &AgentEvent) {
+    let Some(used_tokens) = event
+        .payload
+        .get("usedTokens")
+        .and_then(serde_json::Value::as_i64)
+        .filter(|used| *used >= 0)
+    else {
+        return;
+    };
+    let max_tokens = event
+        .payload
+        .get("maxTokens")
+        .and_then(serde_json::Value::as_i64)
+        .filter(|max| *max > 0);
+
+    let activity = crate::task_activities::mapping::context_window_updated(
+        &event.event_id,
+        &event.task_id,
+        used_tokens,
+        max_tokens,
+    );
+    if let Err(e) = state.messages.record_standalone_activity(&activity).await {
+        tracing::warn!(
+            task_id = %event.task_id,
+            event_id = %event.event_id,
+            error = %e,
+            "context-window reading could not be recorded"
+        );
+    }
+}
+
 pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentEvent) {
     let resume_error = event
         .payload
@@ -807,6 +843,9 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         source_task_id: None,
         start_fresh: false,
         sent_by: None,
+        // Only a person's answer to a stored question carries one, and this row
+        // is the agent's own output.
+        tool_response: None,
     };
 
     // 7. Decide what each arriving block becomes.

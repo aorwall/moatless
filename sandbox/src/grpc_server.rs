@@ -102,6 +102,7 @@ impl SandboxService for SandboxServiceImpl {
             AgentStatus::Idle => "idle",
             AgentStatus::Running => "running",
             AgentStatus::Stopped => "stopped",
+            AgentStatus::Waiting => "waiting",
         };
 
         let scheduled_jobs = self
@@ -548,7 +549,9 @@ fn should_report_background_processes(
     status: AgentStatus,
     tmux_pane_pid: Option<u32>,
 ) -> bool {
-    if matches!(status, AgentStatus::Running) {
+    // Waiting counts as running here: the CLI process and its children are
+    // still alive, parked mid-turn on the answer.
+    if matches!(status, AgentStatus::Running | AgentStatus::Waiting) {
         return false;
     }
     !use_tmux || tmux_pane_pid.is_some()

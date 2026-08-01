@@ -206,6 +206,14 @@ pub trait MessageDao: Send + Sync {
         activity: &crate::task_activities::mapping::ActivityRow,
     ) -> Result<bool, sqlx::Error>;
 
+    /// Write an activity that happened on no Message, in a change of its own.
+    /// Returns whether a row was written — `false` where the event that carries
+    /// it was redelivered.
+    async fn record_standalone_activity(
+        &self,
+        activity: &crate::task_activities::mapping::ActivityRow,
+    ) -> Result<bool, sqlx::Error>;
+
     /// The context rows attached to a set of Messages, keyed by
     /// `task_message_id`.
     ///
@@ -490,13 +498,14 @@ impl MessageDao for PgMessageDao {
                 will_not_resume, run_metrics,
                 agent_mode, model, resume, external_event_id,
                 external_adapter, external_source_name, source_task_id,
-                start_fresh, sent_by, external_subject_key, assistant_usage
+                start_fresh, sent_by, external_subject_key, assistant_usage,
+                tool_response
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
                 $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                $41
+                $41, $42
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -517,7 +526,8 @@ impl MessageDao for PgMessageDao {
                 assistant_usage_output_tokens = COALESCE(task_messages.assistant_usage_output_tokens, EXCLUDED.assistant_usage_output_tokens),
                 assistant_usage_cache_creation_input_tokens = COALESCE(task_messages.assistant_usage_cache_creation_input_tokens, EXCLUDED.assistant_usage_cache_creation_input_tokens),
                 assistant_usage_cache_read_input_tokens = COALESCE(task_messages.assistant_usage_cache_read_input_tokens, EXCLUDED.assistant_usage_cache_read_input_tokens),
-                assistant_usage = COALESCE(task_messages.assistant_usage, EXCLUDED.assistant_usage)
+                assistant_usage = COALESCE(task_messages.assistant_usage, EXCLUDED.assistant_usage),
+                tool_response = COALESCE(EXCLUDED.tool_response, task_messages.tool_response)
             RETURNING id"#,
         )
         .bind(&msg.task_id)
@@ -561,6 +571,7 @@ impl MessageDao for PgMessageDao {
         .bind(&msg.sent_by)
         .bind(&msg.external_subject_key)
         .bind(&msg.assistant_usage)
+        .bind(&msg.tool_response)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -746,6 +757,17 @@ impl MessageDao for PgMessageDao {
         let position = task_activities::record_session_change(&mut tx, &activity.task_id).await?;
         let written = task_activities::dao::record_sandbox(&mut tx, position, activity)
             .await?;
+        tx.commit().await?;
+        Ok(written)
+    }
+
+    async fn record_standalone_activity(
+        &self,
+        activity: &crate::task_activities::mapping::ActivityRow,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let position = task_activities::record_session_change(&mut tx, &activity.task_id).await?;
+        let written = task_activities::dao::record_standalone(&mut tx, position, activity).await?;
         tx.commit().await?;
         Ok(written)
     }

@@ -67,6 +67,11 @@ pub struct TaskMessage {
     /// tokens + model — the tmux transport never reports `total_cost_usd`.
     pub assistant_usage: Option<serde_json::Value>,
     pub tool_use_result: Option<serde_json::Value>,
+    /// A person's answer to an interactive tool call, with its structure intact:
+    /// `{toolUseId, toolName, answers?, approved?, feedback?}`. What reaches the
+    /// sandbox as a prompt response rather than as prose. `None` unless this row
+    /// is a tool response.
+    pub tool_response: Option<serde_json::Value>,
     pub sdk_metadata: Option<serde_json::Value>,
     pub attachments: Option<serde_json::Value>,
     pub agent_session_id: Option<String>,
@@ -130,6 +135,7 @@ impl TaskMessage {
             assistant_usage_cache_read_input_tokens: None,
             assistant_usage: None,
             tool_use_result: None,
+            tool_response: None,
             sdk_metadata: None,
             attachments: None,
             agent_session_id: None,

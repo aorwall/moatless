@@ -185,7 +185,7 @@ async fn prompt_resolution_is_serialised_under_the_dispatch_guard() {
         .await
         .expect("the prompt must be answered once the guard is free")
     {
-        PromptResponse::AskUserAnswer { answers } => assert_eq!(answers["text"], "approve it"),
+        PromptResponse::AskUserResponse { response } => assert_eq!(response, "approve it"),
         other => panic!("unexpected prompt response: {other:?}"),
     }
     assert!(
@@ -330,7 +330,7 @@ async fn prompt_ack_failure_never_becomes_normal_input() {
 
     // The answer is delivered exactly once with the message text, before the ack.
     match rx.await.expect("the prompt must be answered") {
-        PromptResponse::AskUserAnswer { answers } => assert_eq!(answers["text"], "approve it"),
+        PromptResponse::AskUserResponse { response } => assert_eq!(response, "approve it"),
         other => panic!("unexpected prompt response: {other:?}"),
     }
 

@@ -131,6 +131,16 @@ pub struct Transcript {
     pub omitted: i64,
 }
 
+/// The stored tool call an answer names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InteractiveCall {
+    /// The tool that asked, as the call recorded it.
+    pub tool_name: String,
+    /// Whether it has already come back. An answer to a settled call changes
+    /// nothing, and saying so is more honest than reporting a send failure.
+    pub settled: bool,
+}
+
 /// Read the conversations one viewer's sidebar is built from, and the position
 /// a client watching it resumes from.
 ///
@@ -185,6 +195,20 @@ pub trait ConversationDao: Send + Sync {
     /// the first, which is the drift the narrowed listing query exists to
     /// avoid.
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error>;
+
+    /// The interactive call an answer names, by the id it was made under.
+    ///
+    /// What an answer is depends on which tool asked — an `AskUserQuestion`
+    /// takes answers per question, an `ExitPlanMode` takes a yes or a no — so
+    /// the command reads the name off the stored call rather than assuming one.
+    /// `None` where no call by that id was ever stored.
+    ///
+    /// Unscoped for the reason [`ConversationDao::transcript`] is.
+    async fn interactive_call(
+        &self,
+        task_id: &str,
+        tool_use_id: &str,
+    ) -> Result<Option<InteractiveCall>, sqlx::Error>;
 
     /// The highest position this conversation's change log has reached.
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error>;
@@ -513,6 +537,21 @@ impl ConversationDao for PgConversationDao {
             return Ok(Vec::new());
         }
         self.list(viewer, Some(task_ids)).await
+    }
+
+    async fn interactive_call(
+        &self,
+        task_id: &str,
+        tool_use_id: &str,
+    ) -> Result<Option<InteractiveCall>, sqlx::Error> {
+        Ok(
+            crate::task_activities::dao::find_tool_call(&self.pool, task_id, tool_use_id)
+                .await?
+                .map(|activity| InteractiveCall {
+                    settled: activity.is_settled(),
+                    tool_name: activity.summary.clone(),
+                }),
+        )
     }
 
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {

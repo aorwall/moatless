@@ -478,6 +478,11 @@ impl EventHandlerConsumer {
             // fresh session — persist an inline conversation notice so the
             // context loss is visible in the message history. The run
             // continues, so no task_turn.error and no Linear error activity.
+            // What the harness said about its own context window — an activity of
+            // its own, on no Message, so the meter has a value to read.
+            EventKey::Agent(AgentSubType::ContextWindow) => {
+                agent_handlers::handle_agent_context_window(&self.state, event).await;
+            }
             EventKey::Agent(AgentSubType::SessionContextLost) => {
                 agent_handlers::handle_agent_session_context_lost(&self.state, event).await;
             }

@@ -21,7 +21,7 @@ use tracing::{error, info, warn};
 use crate::files::uploads::fetch_uploads_for_messages;
 use crate::state::SandboxState;
 
-use super::prompt::PromptResponse;
+use super::prompt::{PromptResponse, PromptToolName};
 
 /// Spawn a detached dispatcher task whose termination is never silent (Sandbox
 /// spawned-task rule). The task itself logs every ordinary terminal branch; this
@@ -353,18 +353,11 @@ async fn resolve_pending_prompt(state: &SandboxState) {
 
     info!(tool = ?prompt.tool_name, "Resolving interactive prompt with pending message");
 
-    let response = match prompt.tool_name {
-        super::prompt::PromptToolName::AskUserQuestion => PromptResponse::AskUserAnswer {
-            answers: serde_json::json!({ "text": text }),
-        },
-        super::prompt::PromptToolName::ExitPlanMode => {
-            if text.to_lowercase().contains("reject") || text.to_lowercase().contains("no") {
-                PromptResponse::PlanRejected { feedback: text }
-            } else {
-                PromptResponse::PlanApproved
-            }
-        }
-    };
+    let response = prompt_response(
+        &prompt.tool_name,
+        prompt_delivery.prompt_response.as_ref(),
+        text,
+    );
 
     if prompt.sender.send(response).is_err() {
         warn!("Pending prompt receiver dropped before response was delivered");
@@ -383,6 +376,44 @@ async fn resolve_pending_prompt(state: &SandboxState) {
             "prompt-remaining-redispatch",
             schedule_dispatch(state.clone()),
         );
+    }
+}
+
+/// What the parked call is told.
+///
+/// A delivery that carries a structured answer is one, and the answer is used as
+/// it stands: an answer per question, an approval, or a rejection with its
+/// feedback. Nothing is inferred from the words.
+///
+/// A delivery that carries none is an ordinary message that arrived while the
+/// prompt was parked. A question takes it as prose, which is how someone
+/// answering in the chat box answers, and it travels as the freeform response
+/// rather than as an answer to any one question: the CLI keys answers on each
+/// question's own text and drops a question it finds none for, so prose under
+/// any other key would leave the model told that nobody answered. A proposed
+/// plan does **not**: an approval is a specific thing to say, and reading a
+/// passing remark as one would let the agent act on a plan nobody approved. It
+/// is delivered as a rejection carrying what was said, which is the same thing
+/// the agent would have been told had the person typed it into the reject box.
+fn prompt_response(
+    tool_name: &PromptToolName,
+    answer: Option<&sandbox_proto::PromptResponse>,
+    text: String,
+) -> PromptResponse {
+    match (tool_name, answer) {
+        (PromptToolName::AskUserQuestion, Some(answer)) => PromptResponse::AskUserAnswer {
+            answers: serde_json::json!(answer.answers),
+        },
+        (PromptToolName::AskUserQuestion, None) => {
+            PromptResponse::AskUserResponse { response: text }
+        }
+        (PromptToolName::ExitPlanMode, Some(answer)) if answer.approved => {
+            PromptResponse::PlanApproved
+        }
+        (PromptToolName::ExitPlanMode, Some(answer)) => PromptResponse::PlanRejected {
+            feedback: answer.feedback.clone().unwrap_or_default(),
+        },
+        (PromptToolName::ExitPlanMode, None) => PromptResponse::PlanRejected { feedback: text },
     }
 }
 
@@ -451,6 +482,96 @@ async fn acknowledge_until_settled(
                 }
                 attempt += 1;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn answer(
+        answers: &[(&str, &str)],
+        approved: bool,
+        feedback: Option<&str>,
+    ) -> sandbox_proto::PromptResponse {
+        sandbox_proto::PromptResponse {
+            tool_use_id: "tu-1".to_string(),
+            tool_name: "AskUserQuestion".to_string(),
+            answers: answers
+                .iter()
+                .map(|(q, a)| ((*q).to_string(), (*a).to_string()))
+                .collect(),
+            approved,
+            feedback: feedback.map(str::to_string),
+        }
+    }
+
+    /// The answer is used as it stands: one per question, keyed the way the CLI
+    /// looks them up.
+    #[test]
+    fn a_structured_answer_reaches_the_question_unchanged() {
+        let response = prompt_response(
+            &PromptToolName::AskUserQuestion,
+            Some(&answer(&[("Which store?", "Postgres")], false, None)),
+            "ignored".to_string(),
+        );
+        let PromptResponse::AskUserAnswer { answers } = response else {
+            panic!("a question takes answers: {response:?}");
+        };
+        assert_eq!(answers["Which store?"], "Postgres");
+    }
+
+    /// Someone answering in the chat box while a question is parked is
+    /// answering it — as the freeform response, which belongs to the call rather
+    /// than to any one question. An answer keyed on anything but a question's
+    /// own text reaches the model as no answer at all.
+    #[test]
+    fn prose_answers_a_parked_question() {
+        let response = prompt_response(
+            &PromptToolName::AskUserQuestion,
+            None,
+            "use Postgres".to_string(),
+        );
+        let PromptResponse::AskUserResponse { response } = response else {
+            panic!("prose is a freeform response: {response:?}");
+        };
+        assert_eq!(response, "use Postgres");
+    }
+
+    #[test]
+    fn a_verdict_approves_or_rejects_by_what_it_says() {
+        assert!(matches!(
+            prompt_response(
+                &PromptToolName::ExitPlanMode,
+                Some(&answer(&[], true, None)),
+                String::new()
+            ),
+            PromptResponse::PlanApproved
+        ));
+
+        let rejected = prompt_response(
+            &PromptToolName::ExitPlanMode,
+            Some(&answer(&[], false, Some("use the second approach"))),
+            String::new(),
+        );
+        let PromptResponse::PlanRejected { feedback } = rejected else {
+            panic!("a verdict of no is a rejection: {rejected:?}");
+        };
+        assert_eq!(feedback, "use the second approach");
+    }
+
+    /// An approval is a specific thing to say. A message that merely arrived
+    /// while a plan was parked is not one, however it reads — the agent must
+    /// never act on a plan nobody approved.
+    #[test]
+    fn a_passing_remark_never_approves_a_plan() {
+        for text in ["yes", "sounds good", "go ahead", "approve"] {
+            let response = prompt_response(&PromptToolName::ExitPlanMode, None, text.to_string());
+            let PromptResponse::PlanRejected { feedback } = response else {
+                panic!("{text} must not approve a plan: {response:?}");
+            };
+            assert_eq!(feedback, text, "what was said reaches the agent");
         }
     }
 }

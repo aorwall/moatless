@@ -116,6 +116,10 @@ pub enum AgentStatus {
     Idle,
     Running,
     Stopped,
+    /// Parked on a question only a person can answer. Distinct from `Running`
+    /// because nothing is running: the turn is held open on the answer, and a
+    /// sandbox nobody has answered is reclaimable on the ordinary idle TTL.
+    Waiting,
 }
 
 /// Who initiated an agent stop. Carried on the terminal `agent.stopped`
@@ -197,6 +201,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&AgentStatus::Stopped).unwrap(),
             r#""stopped""#
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentStatus::Waiting).unwrap(),
+            r#""waiting""#
         );
     }
 

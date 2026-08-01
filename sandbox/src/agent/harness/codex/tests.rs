@@ -105,6 +105,27 @@ fn token_usage(input: i64, cached: i64, output: i64, reasoning: i64) -> ServerEv
     })))
 }
 
+/// A reading whose `last` and `total` differ, against a stated window — the
+/// shape the meter is read from.
+fn token_usage_in_window(last: (i64, i64), total: (i64, i64), window: i64) -> ServerEvent {
+    let breakdown = |(input, output): (i64, i64)| {
+        json!({
+            "inputTokens": input,
+            "cachedInputTokens": 0,
+            "outputTokens": output,
+            "reasoningOutputTokens": 0,
+            "totalTokens": input + output,
+        })
+    };
+    ServerEvent::TokenUsage(parse(json!({
+        "tokenUsage": {
+            "last": breakdown(last),
+            "total": breakdown(total),
+            "modelContextWindow": window,
+        },
+    })))
+}
+
 fn plan_updated(steps: &[(&str, &str)]) -> ServerEvent {
     let plan: Vec<Value> = steps
         .iter()
@@ -672,6 +693,45 @@ fn turn_completed_emits_usage_result_then_terminated() {
             termination: ProcessTermination::Completed
         })
     ));
+}
+
+/// The meter measures what occupies the window, which is the last request's own
+/// input and output. `total` is the whole Session's spend and keeps rising past
+/// the window it would be measured against.
+#[test]
+fn the_meter_reads_the_last_request_not_the_sessions_spend() {
+    let mut p = open_process();
+    p.absorb(turn_started("turn-1"));
+    p.absorb(token_usage_in_window((30_000, 500), (400_000, 9_000), 200_000));
+
+    let window = drain(&mut p)
+        .into_iter()
+        .find_map(|event| match event {
+            ProcessEvent::ContextWindow(window) => Some(window),
+            _ => None,
+        })
+        .expect("a reading");
+    assert_eq!(window.used_tokens, 30_500);
+    assert_eq!(window.max_tokens, Some(200_000));
+}
+
+/// A used figure past the window cannot be right. Full is the honest reading of
+/// it; a percentage over 100 is not.
+#[test]
+fn a_reading_past_the_window_reads_as_full() {
+    let mut p = open_process();
+    p.absorb(turn_started("turn-1"));
+    p.absorb(token_usage_in_window((250_000, 1_000), (250_000, 1_000), 200_000));
+
+    let window = drain(&mut p)
+        .into_iter()
+        .find_map(|event| match event {
+            ProcessEvent::ContextWindow(window) => Some(window),
+            _ => None,
+        })
+        .expect("a reading");
+    assert_eq!(window.used_tokens, 200_000);
+    assert_eq!(window.max_tokens, Some(200_000));
 }
 
 /// `total` is cumulative over the Session and is replayed on resume, so the
@@ -1964,6 +2024,9 @@ async fn collect_turn(harness: &mut Harness, mid_turn: Option<(&str, &str)>) -> 
                 }
             }
             Signal::Activity(_) => {}
+            Signal::ContextWindow(window) => {
+                eprintln!("CONTEXT WINDOW {window:?}");
+            }
             Signal::ExecutionFinished { outcome } => {
                 eprintln!("EXECUTION FINISHED {outcome:?}");
                 log.outcome = Some(outcome);

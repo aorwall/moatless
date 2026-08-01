@@ -15,9 +15,10 @@ use super::dao::{Conversation, Transcript, TranscriptMessage};
 use crate::agent::catalog::{self, AgentKind};
 use crate::message::models::{MessageType, TOOL_RESPONSE_USER_TYPE};
 use crate::sandbox::models::ServerConfig;
-use crate::task_activities::ConversationChange;
 use crate::task_activities::dao::Activity;
+use crate::task_activities::mapping::ActivityKind;
 use crate::task_activities::view::ActivityView;
+use crate::task_activities::{ConversationChange, EVENTS_PER_CHANGE};
 use crate::task_turn::models::TurnStatus;
 use crate::workspace::dao::ListedWorkspace;
 use crate::workspace::models::Workspace;
@@ -230,15 +231,13 @@ fn thread(conversation: &Conversation, project_id: &str, defaults: &AgentModelDe
 /// One conversation, in the shape the thread view carries: the shared row plus
 /// the transcript.
 ///
-/// Three of the contract's collections are empty here and stay empty.
-/// `checkpoints` are T3's per-turn worktree snapshots and Moatless captures
-/// none — the diff a person sees comes from the Sandbox's own git state, not
-/// from a checkpoint ref this backend holds. `proposedPlans` are a durable
-/// entity T3 stores and reopens; Moatless has an unanswered `ExitPlanMode` tool
-/// call, which is a fact about the transcript rather than a row, and the shell
-/// already reports it as `hasActionableProposedPlan`. Filling either with
-/// something derived would put a revert button and a plan card in front of a
-/// person that nothing behind them can honour.
+/// `checkpoints` is empty here and stays empty: they are T3's per-turn worktree
+/// snapshots and Moatless captures none — the diff a person sees comes from the
+/// Sandbox's own git state, not from a checkpoint ref this backend holds.
+/// Filling it with something derived would put a revert button in front of a
+/// person that nothing behind it can honour.
+///
+/// `proposedPlans` is read back out of the transcript — see [`proposed_plans`].
 ///
 /// The four shell-only fields are absent rather than false: they are not part
 /// of the contract's full thread, and the client reads a conversation's pending
@@ -259,9 +258,51 @@ pub(super) fn thread_detail(
     row.insert("deletedAt".into(), Value::Null);
     row.insert("messages".into(), Value::Array(rendered.messages));
     row.insert("activities".into(), Value::Array(rendered.activities));
-    row.insert("proposedPlans".into(), Value::Array(Vec::new()));
+    row.insert(
+        "proposedPlans".into(),
+        Value::Array(proposed_plans(conversation, transcript)),
+    );
     row.insert("checkpoints".into(), Value::Array(Vec::new()));
     Value::Object(row)
+}
+
+/// The plans the agent proposed and nobody has answered.
+///
+/// A Moatless proposed plan is an `ExitPlanMode` call still in progress: the run
+/// is parked on it, and it leaves that state the moment the call settles. So the
+/// list is read off the transcript rather than stored — one entry per unanswered
+/// call, identified by the call's own activity id, which is stable across
+/// re-reads because the block that wrote it is.
+///
+/// The card is a rendering of the plan. What answers it is the question joined
+/// to the same call, which reaches the person as the answer panel.
+fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<Value> {
+    transcript
+        .activities
+        .iter()
+        .filter(|activity| {
+            activity.kind == ActivityKind::ToolCall
+                && activity.summary == crate::task_activities::mapping::PLAN_TOOL
+                && !activity.is_settled()
+        })
+        .filter_map(|activity| {
+            let plan = activity
+                .tool_input()
+                .get("plan")
+                .and_then(Value::as_str)
+                .filter(|plan| !plan.trim().is_empty())?;
+            let (turn, at) = activity_anchor(conversation, transcript, activity);
+            Some(json!({
+                "id": activity.activity_id,
+                "turnId": turn,
+                "planMarkdown": plan,
+                "implementedAt": Value::Null,
+                "implementationThreadId": Value::Null,
+                "createdAt": at,
+                "updatedAt": at
+            }))
+        })
+        .collect()
 }
 
 /// Everything one recorded change tells a client that already holds this
@@ -325,11 +366,15 @@ pub(super) fn change_events(
         |message| instant(message_instant(conversation, message)),
     );
 
-    let mut payloads: Vec<(&str, Value)> = Vec::new();
+    // Each item numbered by the slot it owns rather than by where it lands in
+    // this list: the bubble holds slot 0 whether or not it is emitted, and each
+    // activity holds its own `ordinal + 1`. See [`activity_sequence`].
+    let mut payloads: Vec<(usize, &str, Value)> = Vec::new();
     if let Some(message) = message {
         let turn = turn_reference(conversation, message);
         if let Some(bubble) = message_bubble(message, &turn, &at) {
             payloads.push((
+                0,
                 MESSAGE_SENT,
                 message_sent_payload(&conversation.task_id, &bubble),
             ));
@@ -337,16 +382,19 @@ pub(super) fn change_events(
     }
     for activity in activities {
         let (turn, activity_at) = activity_anchor(conversation, window, activity);
-        payloads.push(activity_appended_payload(
+        let (kind, payload) = activity_appended_payload(
             &conversation.task_id,
             activity_row(activity, &turn, &activity_at),
-        ));
+        );
+        let slot = usize::try_from(activity.ordinal).unwrap_or(usize::MAX);
+        payloads.push((slot.saturating_add(1), kind, payload));
     }
 
+    // `filter_map`, not `map_while`: the items are no longer numbered in list
+    // order, so one past the ceiling says nothing about the next.
     payloads
         .into_iter()
-        .enumerate()
-        .map_while(|(index, (kind, payload))| {
+        .filter_map(|(index, kind, payload)| {
             let sequence = change.sequence(index)?;
             Some(event(conversation, sequence, &at, kind, payload))
         })
@@ -532,12 +580,60 @@ fn rendered_transcript(conversation: &Conversation, transcript: &Transcript) -> 
             .messages
             .extend(message_bubble(message, &turn, &at));
     }
+    let surviving = surviving_context_windows(transcript);
     for activity in &transcript.activities {
+        if activity.kind == ActivityKind::ContextWindowUpdated
+            && !surviving.contains(activity.activity_id.as_str())
+        {
+            continue;
+        }
         let (turn, at) = activity_anchor(conversation, transcript, activity);
         rendered.activities.push(activity_row(activity, &turn, &at));
     }
 
     rendered
+}
+
+/// Which context-window readings a snapshot carries: the newest per turn.
+///
+/// The meter shows one number, and the client reads it off the newest reading it
+/// holds — every earlier one in the same turn is a row nothing renders. A
+/// harness reporting per model request can produce several a minute, and this
+/// projection re-sends its whole log every time the conversation moves, so the
+/// superseded ones are dropped on the way out rather than stored differently.
+///
+/// Per turn rather than per conversation, because a Turn is the unit a person
+/// scrolls back to: the reading a finished turn ended on stays legible beside it.
+fn surviving_context_windows(transcript: &Transcript) -> HashSet<&str> {
+    let mut newest: std::collections::HashMap<Value, &Activity> = std::collections::HashMap::new();
+    for activity in &transcript.activities {
+        if activity.kind != ActivityKind::ContextWindowUpdated {
+            continue;
+        }
+        let turn = transcript
+            .messages
+            .iter()
+            .rev()
+            .find(|message| {
+                message
+                    .created_at
+                    .is_some_and(|created| created <= activity.created_at)
+            })
+            .and_then(|message| message.turn_number)
+            .map_or(Value::Null, |number| json!(number));
+        newest
+            .entry(turn)
+            .and_modify(|held| {
+                if (held.position, held.ordinal) <= (activity.position, activity.ordinal) {
+                    *held = activity;
+                }
+            })
+            .or_insert(activity);
+    }
+    newest
+        .into_values()
+        .map(|activity| activity.activity_id.as_str())
+        .collect()
 }
 
 /// The bubble one Message contributes to the conversation, or `None` when it
@@ -674,10 +770,9 @@ fn message_row(
 /// activity at a time, and this contract re-sends its whole snapshot every time
 /// the conversation moves.
 ///
-/// `sequence` is `position` — the conversation's own ordering, allocated at
-/// write time by the same counter Messages use. An activity delivered on its
-/// own, long after the snapshot it has to sort into, carries the number it was
-/// written with.
+/// `sequence` is the number this row's own event carries — see
+/// [`activity_sequence`]. An activity delivered on its own, long after the
+/// snapshot it has to sort into, carries the number it was written with.
 fn activity_row(activity: &Activity, turn: &Value, at: &str) -> Value {
     let view = ActivityView::new(activity);
 
@@ -688,9 +783,32 @@ fn activity_row(activity: &Activity, turn: &Value, at: &str) -> Value {
         "summary": view.summary(),
         "payload": Value::Object(view.t3_payload()),
         "turnId": turn,
-        "sequence": activity.position,
+        "sequence": activity_sequence(activity),
         "createdAt": at
     })
+}
+
+/// Where one activity sits in the conversation's event numbering.
+///
+/// `position * EVENTS_PER_CHANGE + ordinal + 1` — the number
+/// [`ConversationChange::sequence`] computes for the same row, so a client sees
+/// the same value whether it arrived in a snapshot or as an event. That is what
+/// the invariant at `task_activities::models` asks for: "a snapshot's sequence
+/// and an event's sequence have to be the same kind of number for that to mean
+/// anything".
+///
+/// **Slot 0 is the Message's bubble, whether or not one is emitted.** A change
+/// enumerates a list that begins with the bubble only when the Message produced
+/// one, so an index counted while walking would shift by one depending on
+/// whether the caller's slice held that Message at all. Reserving the slot
+/// removes the dependency; a change with nothing to say leaves a gap, and a
+/// sequence is a cursor rather than a count.
+///
+/// The `+1` lives here rather than in the stored column: folding it in would
+/// force either a special case for the rows that name no Message or the rule
+/// written twice.
+fn activity_sequence(activity: &Activity) -> i64 {
+    activity.position * EVENTS_PER_CHANGE + i64::from(activity.ordinal) + 1
 }
 
 /// The Turn this Message belongs to, in T3's identity for one.
@@ -1850,12 +1968,21 @@ mod tests {
         }
     }
 
-    /// One activity of `kind` on `message_uuid`, at `position`.
-    fn activity(message_uuid: &str, position: i64, kind: ActivityKind, summary: &str) -> Activity {
+    /// One activity of `kind`, written by block `ordinal` of the Message at
+    /// `position`. Every activity of one Message shares that Message's single
+    /// change position, which is what the writer stores.
+    fn activity(
+        message_uuid: &str,
+        position: i64,
+        ordinal: i32,
+        kind: ActivityKind,
+        summary: &str,
+    ) -> Activity {
         Activity {
-            activity_id: format!("{message_uuid}:{position}"),
+            activity_id: format!("{message_uuid}:{ordinal}"),
             task_id: "task-a".to_string(),
             position,
+            ordinal,
             message_uuid: Some(message_uuid.to_string()),
             parent_uuid: None,
             kind,
@@ -1873,8 +2000,21 @@ mod tests {
     }
 
     /// One tool call, as the writer stores it once its result has landed.
-    fn call(message_uuid: &str, position: i64, id: &str, name: &str, input: Value) -> Activity {
-        let mut activity = activity(message_uuid, position, ActivityKind::ToolCall, name);
+    fn call(
+        message_uuid: &str,
+        position: i64,
+        ordinal: i32,
+        id: &str,
+        name: &str,
+        input: Value,
+    ) -> Activity {
+        let mut activity = activity(
+            message_uuid,
+            position,
+            ordinal,
+            ActivityKind::ToolCall,
+            name,
+        );
         activity.tool_use_id = Some(id.to_string());
         let mut payload = json!({
             "title": name,
@@ -1904,7 +2044,8 @@ mod tests {
     fn a_conversation() -> Transcript {
         let mut bash = call(
             "msg-2",
-            3,
+            2,
+            1,
             "call-1",
             "Bash",
             json!({ "command": "cargo build" }),
@@ -1913,7 +2054,8 @@ mod tests {
         bash.detail = Some("Compiling".to_string());
         let mut edit = call(
             "msg-2",
-            4,
+            2,
+            2,
             "call-2",
             "Edit",
             json!({ "file_path": "src/main.rs" }),
@@ -1930,9 +2072,12 @@ mod tests {
                 message(4, MessageType::Assistant, "Done."),
             ],
             vec![
-                activity("msg-2", 2, ActivityKind::Thinking, "Thinking"),
+                activity("msg-2", 2, 0, ActivityKind::Thinking, "Thinking"),
                 bash,
                 edit,
+                // The answering Message thought once before it spoke: a bubble
+                // and an activity in the same, later change.
+                activity("msg-4", 4, 0, ActivityKind::Thinking, "Thinking"),
             ],
         )
     }
@@ -2019,7 +2164,12 @@ mod tests {
             work.iter()
                 .map(|a| a["summary"].clone())
                 .collect::<Vec<_>>(),
-            vec![json!("Thinking"), json!("Bash"), json!("Edit")]
+            vec![
+                json!("Thinking"),
+                json!("Bash"),
+                json!("Edit"),
+                json!("Thinking")
+            ]
         );
     }
 
@@ -2184,14 +2334,184 @@ mod tests {
         assert_eq!(messages[0]["text"], "Stopped after an error");
     }
 
+    // ── the four panels ─────────────────────────────────────────────
+
+    /// The card is read off the transcript: a Moatless proposed plan is an
+    /// `ExitPlanMode` call still in progress, and it leaves that state the
+    /// moment the call settles.
+    #[test]
+    fn an_unanswered_plan_is_a_proposed_plan_and_a_settled_one_is_not() {
+        let mut proposed = call(
+            "msg-2",
+            2,
+            0,
+            "call-1",
+            crate::task_activities::mapping::PLAN_TOOL,
+            json!({ "plan": "1. Do the thing" }),
+        );
+        proposed.status = ActivityStatus::InProgress;
+
+        let plans = detail(&transcript(Vec::new(), vec![proposed.clone()]))["proposedPlans"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0]["id"], "msg-2:0");
+        assert_eq!(plans[0]["planMarkdown"], "1. Do the thing");
+        assert_eq!(plans[0]["turnId"], "task-a:3");
+        // Nothing behind these, so neither is claimed.
+        assert_eq!(plans[0]["implementedAt"], Value::Null);
+        assert_eq!(plans[0]["implementationThreadId"], Value::Null);
+
+        let mut answered = proposed;
+        answered.status = ActivityStatus::Completed;
+        answered.payload["result"] = json!({ "approved": true });
+        assert_eq!(
+            detail(&transcript(Vec::new(), vec![answered]))["proposedPlans"],
+            json!([])
+        );
+    }
+
+    /// A card with no plan in it is a card rendering nothing.
+    #[test]
+    fn a_plan_call_carrying_no_plan_proposes_none() {
+        for input in [json!({}), json!({ "plan": "   " })] {
+            let mut proposed = call(
+                "msg-2",
+                2,
+                0,
+                "call-1",
+                crate::task_activities::mapping::PLAN_TOOL,
+                input,
+            );
+            proposed.status = ActivityStatus::InProgress;
+            assert_eq!(
+                detail(&transcript(Vec::new(), vec![proposed]))["proposedPlans"],
+                json!([])
+            );
+        }
+    }
+
+    /// The meter reads the newest reading it holds and every earlier one in the
+    /// same turn renders nothing, so a snapshot carries one per turn rather than
+    /// the thousands a long thread accumulates.
+    #[test]
+    fn a_snapshot_carries_one_context_window_reading_per_turn() {
+        let mut readings: Vec<Activity> = (0..3)
+            .map(|ordinal| {
+                let mut reading = activity(
+                    "msg-2",
+                    2,
+                    ordinal,
+                    ActivityKind::ContextWindowUpdated,
+                    "Context window updated",
+                );
+                reading.message_uuid = None;
+                reading.payload = json!({ "usedTokens": 1_000 * (i64::from(ordinal) + 1) });
+                reading
+            })
+            .collect();
+        readings.push(activity("msg-2", 2, 9, ActivityKind::Thinking, "Thinking"));
+
+        let work = detail(&transcript(Vec::new(), readings))["activities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let meters: Vec<&Value> = work
+            .iter()
+            .filter(|row| row["kind"] == "context-window.updated")
+            .collect();
+        assert_eq!(meters.len(), 1, "only the newest survives: {work:#?}");
+        assert_eq!(meters[0]["payload"]["usedTokens"], 3_000);
+        assert_eq!(work.len(), 2, "everything else is untouched");
+    }
+
+    /// One case per kind the client derives a panel from, pinned against what
+    /// that client's own parser requires. A payload it cannot read is not a
+    /// degraded panel — it is no panel at all, silently.
+    #[test]
+    fn each_panel_reaches_the_client_in_the_shape_its_parser_requires() {
+        let mut asked = activity("msg-2", 2, 0, ActivityKind::UserInputRequested, "Question");
+        asked.payload = json!({
+            "requestId": "call-1",
+            "questions": [{
+                "id": "Which store?",
+                "header": "Storage",
+                "question": "Which store?",
+                "multiSelect": false,
+                "options": [{ "label": "Postgres", "description": "Already deployed." }]
+            }]
+        });
+
+        let mut resolved = activity("msg-3", 3, 0, ActivityKind::UserInputResolved, "Answered");
+        resolved.payload = json!({
+            "requestId": "call-1",
+            "answers": { "Which store?": "Postgres" }
+        });
+
+        let mut plan = activity("msg-2", 2, 1, ActivityKind::PlanUpdated, "Plan updated");
+        plan.payload = json!({
+            "plan": [{ "step": "first", "status": "inProgress" }]
+        });
+
+        let mut meter = activity(
+            "msg-2",
+            2,
+            2,
+            ActivityKind::ContextWindowUpdated,
+            "Context window updated",
+        );
+        meter.message_uuid = None;
+        meter.payload = json!({ "usedTokens": 1_000, "maxTokens": 200_000 });
+
+        let work = detail(&transcript(Vec::new(), vec![asked, plan, meter, resolved]))
+            ["activities"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let by_kind = |kind: &str| {
+            work.iter()
+                .find(|row| row["kind"] == kind)
+                .unwrap_or_else(|| panic!("no {kind} row in {work:#?}"))
+                .clone()
+        };
+
+        // The panel opens on a question whose id, header, question and options
+        // are all present — the parser drops one missing any of them, and every
+        // option needs a description of its own.
+        let asked = by_kind("user-input.requested");
+        assert_eq!(asked["tone"], "info");
+        assert_eq!(asked["payload"]["requestId"], "call-1");
+        let question = &asked["payload"]["questions"][0];
+        for key in ["id", "header", "question"] {
+            assert!(question[key].is_string(), "questions[0].{key}");
+        }
+        assert!(question["options"][0]["label"].is_string());
+        assert!(question["options"][0]["description"].is_string());
+
+        // And closes on a row naming the same request.
+        let resolved = by_kind("user-input.resolved");
+        assert_eq!(resolved["payload"]["requestId"], "call-1");
+
+        // The plan panel reads `payload.plan`, each entry a step and its state.
+        let plan = by_kind("turn.plan.updated");
+        assert_eq!(plan["payload"]["plan"][0]["step"], "first");
+        assert_eq!(plan["payload"]["plan"][0]["status"], "inProgress");
+
+        // The meter reads a used count and, where one is known, a maximum.
+        let meter = by_kind("context-window.updated");
+        assert_eq!(meter["payload"]["usedTokens"], 1_000);
+        assert_eq!(meter["payload"]["maxTokens"], 200_000);
+    }
+
     /// A Sandbox activity belongs to no Message and no turn, and its kind ends
     /// in neither `.started` nor `.completed`, so it claims no position in the
     /// client's own lifecycle sort.
     #[test]
     fn a_sandbox_activity_claims_no_lifecycle_position() {
-        let mut stopped = activity("", 9, ActivityKind::SandboxStatus, "stopped");
+        let mut stopped = activity("", 9, 0, ActivityKind::SandboxStatus, "stopped");
         stopped.message_uuid = None;
-        let mut failed = activity("", 10, ActivityKind::SandboxError, "error");
+        let mut failed = activity("", 10, 0, ActivityKind::SandboxError, "error");
         failed.message_uuid = None;
         failed.is_error = true;
 
@@ -2245,7 +2565,7 @@ mod tests {
     fn a_turn_that_only_called_tools_says_nothing() {
         let conversation = transcript(
             Vec::new(),
-            vec![call("msg-2", 1, "call-1", "Grep", json!({}))],
+            vec![call("msg-2", 1, 0, "call-1", "Grep", json!({}))],
         );
         let detail = detail(&conversation);
         assert!(detail["messages"].as_array().unwrap().is_empty());
@@ -2299,7 +2619,7 @@ mod tests {
     #[test]
     fn the_event_envelope_matches_the_contract_field_for_field() {
         let window = a_conversation();
-        let sent = &events(&change(4, Some("msg-1")), &window)[0];
+        let sent = &events(&change(1, Some("msg-1")), &window)[0];
         assert_keys(sent, "event", EVENT_REQUIRED, &[]);
         assert_eq!(sent["aggregateKind"], "thread");
         assert_eq!(sent["aggregateId"], "task-a");
@@ -2314,7 +2634,7 @@ mod tests {
     #[test]
     fn a_change_to_a_user_message_carries_the_bubble_it_wrote() {
         let window = a_conversation();
-        let sent = events(&change(4, Some("msg-1")), &window);
+        let sent = events(&change(1, Some("msg-1")), &window);
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0]["type"], "thread.message-sent");
         assert_eq!(sent[0]["payload"]["threadId"], "task-a");
@@ -2330,7 +2650,7 @@ mod tests {
     #[test]
     fn a_change_to_a_tool_calling_message_carries_only_its_work_log_rows() {
         let window = a_conversation();
-        let sent = events(&change(4, Some("msg-2")), &window);
+        let sent = events(&change(2, Some("msg-2")), &window);
         assert!(
             sent.iter()
                 .all(|event| event["type"] == "thread.activity-appended"),
@@ -2351,7 +2671,7 @@ mod tests {
     #[test]
     fn a_settled_call_is_re_sent_under_the_id_the_snapshot_gave_it() {
         let window = a_conversation();
-        let sent = events(&change(4, Some("msg-2")), &window);
+        let sent = events(&change(2, Some("msg-2")), &window);
         let resolved: Vec<(&str, &str)> = sent
             .iter()
             .filter(|event| event["payload"]["activity"]["kind"] != "task.progress")
@@ -2365,7 +2685,7 @@ mod tests {
             })
             .collect();
         assert_eq!(resolved, vec![("Bash", "completed"), ("Edit", "failed")]);
-        assert_eq!(sent[1]["payload"]["activity"]["id"], "msg-2:3");
+        assert_eq!(sent[1]["payload"]["activity"]["id"], "msg-2:1");
     }
 
     /// The client drops an event whose sequence it has passed, so two may never
@@ -2373,11 +2693,11 @@ mod tests {
     #[test]
     fn every_event_of_a_change_has_its_own_ascending_sequence() {
         let window = a_conversation();
-        let first: Vec<i64> = events(&change(4, Some("msg-2")), &window)
+        let first: Vec<i64> = events(&change(2, Some("msg-2")), &window)
             .iter()
             .map(|event| event["sequence"].as_i64().unwrap())
             .collect();
-        let second: Vec<i64> = events(&change(5, Some("msg-4")), &window)
+        let second: Vec<i64> = events(&change(4, Some("msg-4")), &window)
             .iter()
             .map(|event| event["sequence"].as_i64().unwrap())
             .collect();
@@ -2385,6 +2705,87 @@ mod tests {
         assert!(
             first.last() < second.first(),
             "a later change is numbered above an earlier one: {first:?} then {second:?}"
+        );
+    }
+
+    /// The invariant the whole numbering exists for: a row a client received as
+    /// an event and the same row read out of a snapshot have to carry one
+    /// number, or sorting one against the other means nothing.
+    #[test]
+    fn an_activitys_event_is_numbered_the_same_as_its_snapshot_row() {
+        let window = a_conversation();
+        let snapshot: HashMap<String, i64> = detail(&window)["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|activity| {
+                (
+                    activity["id"].as_str().unwrap().to_string(),
+                    activity["sequence"].as_i64().unwrap(),
+                )
+            })
+            .collect();
+
+        for change in [change(2, Some("msg-2")), change(4, Some("msg-4"))] {
+            for event in events(&change, &window) {
+                let Some(activity) = event["payload"].get("activity") else {
+                    continue;
+                };
+                let id = activity["id"].as_str().unwrap();
+                assert_eq!(
+                    event["sequence"].as_i64().unwrap(),
+                    snapshot[id],
+                    "activity {id} is numbered the same either way"
+                );
+            }
+        }
+    }
+
+    /// Slot 0 belongs to the bubble whether or not the Message wrote one, so a
+    /// turn's first activity is numbered the same in a change that carries a
+    /// bubble and one that does not.
+    #[test]
+    fn the_bubbles_slot_is_reserved_even_when_no_bubble_is_sent() {
+        let window = a_conversation();
+        let silent = events(&change(2, Some("msg-2")), &window);
+        assert_eq!(silent[0]["payload"]["activity"]["summary"], "Thinking");
+        assert_eq!(silent[0]["sequence"], 2 * EVENTS_PER_CHANGE + 1);
+
+        let spoken = events(&change(4, Some("msg-4")), &window);
+        assert_eq!(spoken[0]["type"], "thread.message-sent");
+        assert_eq!(spoken[0]["sequence"], 4 * EVENTS_PER_CHANGE);
+        assert_eq!(spoken[1]["payload"]["activity"]["summary"], "Thinking");
+        assert_eq!(spoken[1]["sequence"], 4 * EVENTS_PER_CHANGE + 1);
+    }
+
+    /// A turn of ten or more blocks: the client falls back to comparing ids as
+    /// strings, where `…:10` sorts before `…:2`. The number is what keeps the
+    /// tenth block after the second.
+    #[test]
+    fn a_turn_of_ten_blocks_is_numbered_in_block_order() {
+        let activities: Vec<Activity> = (0..12)
+            .map(|ordinal| activity("msg-2", 2, ordinal, ActivityKind::Thinking, "Thinking"))
+            .collect();
+        let ids: Vec<String> = activities
+            .iter()
+            .map(|activity| activity.activity_id.clone())
+            .collect();
+        let mut sorted_by_id = ids.clone();
+        sorted_by_id.sort();
+        assert_ne!(
+            ids, sorted_by_id,
+            "the fixture has to be one the id order gets wrong"
+        );
+
+        let sequences: Vec<i64> = detail(&transcript(Vec::new(), activities))["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|activity| activity["sequence"].as_i64().unwrap())
+            .collect();
+        assert!(
+            sequences.windows(2).all(|pair| pair[0] < pair[1]),
+            "{sequences:?}"
         );
     }
 
@@ -2434,7 +2835,7 @@ mod tests {
         let window = a_conversation();
         let listed = detail(&window);
         let bubble = &listed["messages"].as_array().unwrap()[0];
-        let sent = events(&change(4, Some("msg-1")), &window);
+        let sent = events(&change(1, Some("msg-1")), &window);
         let payload = &sent[0]["payload"];
         assert_eq!(payload["messageId"], bubble["id"]);
         assert_eq!(payload["role"], bubble["role"]);
@@ -2452,7 +2853,7 @@ mod tests {
     fn an_activity_event_and_a_snapshot_activity_agree() {
         let window = a_conversation();
         let listed = detail(&window)["activities"].as_array().unwrap().clone();
-        let sent = events(&change(4, Some("msg-2")), &window);
+        let sent = events(&change(2, Some("msg-2")), &window);
         for (event, activity) in sent.iter().zip(listed.iter()) {
             assert_eq!(event["payload"]["activity"], *activity);
         }

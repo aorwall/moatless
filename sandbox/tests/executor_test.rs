@@ -426,10 +426,10 @@ async fn prompt_response_acknowledges_consumed_message() {
     moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 
     match rx.await.expect("prompt response should be delivered") {
-        PromptResponse::AskUserAnswer { answers } => {
-            assert_eq!(answers["text"], "yes, proceed");
+        PromptResponse::AskUserResponse { response } => {
+            assert_eq!(response, "yes, proceed");
         }
-        other => panic!("expected AskUserAnswer, got {other:?}"),
+        other => panic!("expected AskUserResponse, got {other:?}"),
     }
 
     assert_eq!(backend.ack_count(), 1);

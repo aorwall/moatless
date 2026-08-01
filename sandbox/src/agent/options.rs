@@ -117,10 +117,6 @@ pub fn build_options(
         // Disallowed tools are removed from the CLI's context entirely (a bare
         // tool name in the deny list), so the agent never sees or calls them.
         //
-        // - AskUserQuestion (both modes): we don't surface the CLI's
-        //   multiple-choice question UI; the agent should ask in plain text
-        //   instead. Removing the tool keeps it from offering choice prompts
-        //   we can't render.
         // - Monitor (subprocess mode only): the CLI's built-in Monitor tool
         //   only delivers events while its own process is alive. The
         //   subprocess per-turn `--resume` model kills that process at turn
@@ -129,10 +125,15 @@ pub fn build_options(
         //   error and falls back to Bash background. In tmux mode the TUI
         //   process persists across turns, so Monitor (and the CLI's internal
         //   ScheduleWakeup timer) work natively and Monitor stays allowed.
+        //
+        // AskUserQuestion is allowed in both modes: the question reaches a
+        // person as a durable activity and the answer comes back through the
+        // permission handler, so the choice prompt is rendered rather than
+        // dropped.
         disallowed_tools: Some(if config.use_tmux {
-            vec!["AskUserQuestion".to_string()]
+            Vec::new()
         } else {
-            vec!["Monitor".to_string(), "AskUserQuestion".to_string()]
+            vec!["Monitor".to_string()]
         }),
         ..ClaudeOptions::default()
     }
@@ -627,7 +628,7 @@ mod tests {
         let options = build_test_options(false);
         let disallowed = options.disallowed_tools.expect("disallowed_tools set");
         assert!(disallowed.contains(&"Monitor".to_string()));
-        assert!(disallowed.contains(&"AskUserQuestion".to_string()));
+        assert!(!disallowed.contains(&"AskUserQuestion".to_string()));
     }
 
     #[test]
@@ -635,7 +636,7 @@ mod tests {
         let options = build_test_options(true);
         let disallowed = options.disallowed_tools.expect("disallowed_tools set");
         assert!(!disallowed.contains(&"Monitor".to_string()));
-        assert!(disallowed.contains(&"AskUserQuestion".to_string()));
+        assert!(!disallowed.contains(&"AskUserQuestion".to_string()));
     }
 
     #[test]

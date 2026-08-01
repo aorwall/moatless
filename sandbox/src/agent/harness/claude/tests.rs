@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use claude_agent_sdk::types::content::{ApiMessage, ContentBlock, Usage};
+use claude_agent_sdk::types::content::{ApiMessage, ContentBlock, ModelUsage, Usage};
 use claude_agent_sdk::types::messages::{
     AssistantMessage, ResultError, ResultMessage, ResultSuccess, SystemInitMessage,
     ToolProgressMessage,
@@ -257,6 +257,124 @@ fn success_with_is_error_is_invalid_input() {
         ProcessTermination::Failed(error) => assert_eq!(error.class, ErrorClass::InvalidInput),
         other => panic!("expected failure, got {other:?}"),
     }
+}
+
+/// One model response, with the counts that make up what it left in the window.
+fn responded(prompt: u64, cached: u64, written: u64, subagent: bool) -> AssistantMessage {
+    let mut line = assistant_line(Some("msg_1"), text("a"), true);
+    line.message.usage = Some(Usage {
+        input_tokens: prompt,
+        output_tokens: written,
+        cache_read_input_tokens: Some(cached),
+        cache_creation_input_tokens: None,
+        service_tier: None,
+        cache_creation: None,
+        server_tool_use: None,
+    });
+    if subagent {
+        line.parent_tool_use_id = Some("toolu_agent".to_string());
+    }
+    line
+}
+
+/// A turn's per-model report: a running total of everything it processed, and
+/// the window it ran in.
+fn processed(total: u64, window: u64) -> HashMap<String, ModelUsage> {
+    HashMap::from([(
+        "claude-opus-4-8".to_string(),
+        ModelUsage {
+            input_tokens: total,
+            output_tokens: total,
+            cache_read_input_tokens: total,
+            cache_creation_input_tokens: total,
+            web_search_requests: 0,
+            cost_usd: 12.0,
+            context_window: window,
+            max_output_tokens: 32_000,
+        },
+    )])
+}
+
+fn finished(model_usage: HashMap<String, ModelUsage>) -> SdkMessage {
+    SdkMessage::Result(ResultMessage::Success(ResultSuccess {
+        uuid: "u".to_string(),
+        session_id: "sess".to_string(),
+        duration_ms: 1,
+        duration_api_ms: 1,
+        is_error: false,
+        num_turns: 1,
+        result: "done".to_string(),
+        total_cost_usd: 0.0,
+        usage: usage(),
+        model_usage,
+        permission_denials: vec![],
+        structured_output: None,
+    }))
+}
+
+fn reading(events: &[ProcessEvent]) -> Option<(i64, Option<i64>)> {
+    events.iter().find_map(|event| match event {
+        ProcessEvent::ContextWindow(window) => Some((window.used_tokens, window.max_tokens)),
+        _ => None,
+    })
+}
+
+/// What occupies the window is the newest response's own prompt and completion.
+/// The turn's running totals count a cached prefix again on every request, so a
+/// long turn passes the window it is measured against many times over.
+#[test]
+fn the_meter_reads_what_the_last_response_left_in_the_window() {
+    let mut p = process();
+    p.absorb(SdkMessage::Assistant(responded(1_000, 40_000, 500, false)));
+    p.absorb(SdkMessage::Assistant(responded(1_200, 50_000, 800, false)));
+    drain(&mut p);
+    p.absorb(finished(processed(1_000_000, 200_000)));
+    assert_eq!(
+        reading(&drain(&mut p)),
+        Some((52_000, Some(200_000))),
+        "the newest response, not the turn's running total"
+    );
+}
+
+/// A sub-agent fills its own window, not this one.
+#[test]
+fn a_sub_agents_response_does_not_move_the_meter() {
+    let mut p = process();
+    p.absorb(SdkMessage::Assistant(responded(1_000, 40_000, 500, false)));
+    p.absorb(SdkMessage::Assistant(responded(9_000, 90_000, 900, true)));
+    drain(&mut p);
+    p.absorb(finished(processed(1_000, 200_000)));
+    assert_eq!(reading(&drain(&mut p)), Some((41_500, Some(200_000))));
+}
+
+/// A reading that cannot be right reads as full rather than as impossible.
+#[test]
+fn a_reading_past_the_window_reads_as_full() {
+    let mut p = process();
+    p.absorb(SdkMessage::Assistant(responded(300_000, 0, 100, false)));
+    drain(&mut p);
+    p.absorb(finished(processed(1_000, 200_000)));
+    assert_eq!(reading(&drain(&mut p)), Some((200_000, Some(200_000))));
+}
+
+/// A window nobody reported is a count with no percentage, not a percentage of
+/// a guess.
+#[test]
+fn a_turn_whose_window_went_unreported_still_reports_what_it_holds() {
+    let mut p = process();
+    p.absorb(SdkMessage::Assistant(responded(1_000, 0, 500, false)));
+    drain(&mut p);
+    p.absorb(finished(HashMap::new()));
+    assert_eq!(reading(&drain(&mut p)), Some((1_500, None)));
+}
+
+/// Nothing answered, so there is nothing to say about the window — which is not
+/// the same as saying it is empty.
+#[test]
+fn a_turn_that_never_answered_reports_no_reading() {
+    let mut p = process();
+    p.absorb(finished(processed(1_000, 200_000)));
+    assert_eq!(reading(&drain(&mut p)), None);
 }
 
 #[test]

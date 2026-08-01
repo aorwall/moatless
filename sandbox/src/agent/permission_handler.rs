@@ -65,13 +65,28 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
             // Store the pending prompt
             self.agent_state.set_pending_prompt(prompt).await;
 
-            // Wait for the response (blocks until user responds or agent is cancelled)
-            match rx.await {
+            // Nothing is running while this waits, and the idle reaper asks the
+            // agent before pulling the plug: reported as running, a parked run
+            // holds its pod past every TTL. The status is restored on the way
+            // out so the rest of the turn reports itself normally.
+            self.agent_state.begin_waiting().await;
+
+            // Wait for the response (blocks until user responds or agent is
+            // cancelled). No timeout: a person who answers while the sandbox is
+            // alive continues the same turn, and a sandbox reclaimed underneath
+            // an unanswered question leaves the question standing — it is stored,
+            // and answering it later starts a fresh turn carrying it.
+            let response = rx.await;
+            self.agent_state.end_waiting().await;
+            match response {
                 Ok(response) => {
                     // Convert prompt response to permission result
                     let result_json = match &response {
                         PromptResponse::AskUserAnswer { answers } => {
                             serde_json::json!({ "answers": answers })
+                        }
+                        PromptResponse::AskUserResponse { response } => {
+                            serde_json::json!({ "response": response })
                         }
                         PromptResponse::PlanApproved => {
                             serde_json::json!({ "approved": true })
@@ -255,7 +270,7 @@ mod tests {
         // Resolve the prompt
         let prompt = state.take_pending_prompt().await.unwrap();
         let _ = prompt.sender.send(PromptResponse::AskUserAnswer {
-            answers: serde_json::json!({ "text": "blue" }),
+            answers: serde_json::json!({ "Which colour?": "blue" }),
         });
 
         let result = handle.await.unwrap();
@@ -263,6 +278,60 @@ mod tests {
             matches!(result, claude_agent_sdk::PermissionResult::Allow { .. }),
             "AskUserQuestion should be allowed after response"
         );
+    }
+
+    /// Where each shape of answer lands in the input the tool is finally run
+    /// with. The questions it was asked with survive both, because the merge
+    /// starts from that input: the CLI needs them to render what was answered.
+    #[tokio::test]
+    async fn an_answer_lands_in_the_field_the_cli_reads_it_from() {
+        let asked = || {
+            let mut input = serde_json::Map::new();
+            input.insert(
+                "questions".into(),
+                serde_json::json!([{ "question": "Which store?" }]),
+            );
+            input
+        };
+
+        for (sent, field, expected) in [
+            (
+                PromptResponse::AskUserAnswer {
+                    answers: serde_json::json!({ "Which store?": "Postgres" }),
+                },
+                "answers",
+                serde_json::json!({ "Which store?": "Postgres" }),
+            ),
+            (
+                PromptResponse::AskUserResponse {
+                    response: "use Postgres".to_string(),
+                },
+                "response",
+                serde_json::json!("use Postgres"),
+            ),
+        ] {
+            let state = Arc::new(AgentState::new());
+            let handler = test_handler(Arc::clone(&state));
+            let handle = tokio::spawn(async move {
+                handler
+                    .can_use_tool("AskUserQuestion", &asked(), test_context())
+                    .await
+            });
+
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let prompt = state.take_pending_prompt().await.unwrap();
+            let _ = prompt.sender.send(sent);
+
+            let claude_agent_sdk::PermissionResult::Allow {
+                updated_input: Some(input),
+                ..
+            } = handle.await.unwrap()
+            else {
+                panic!("an answered question runs the tool");
+            };
+            assert_eq!(input[field], expected);
+            assert_eq!(input["questions"][0]["question"], "Which store?");
+        }
     }
 
     #[tokio::test]

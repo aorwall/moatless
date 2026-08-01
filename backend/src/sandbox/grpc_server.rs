@@ -970,6 +970,15 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 resume_session_id: delivery.resume_session_id,
                 resume: delivery.resume,
                 start_fresh: delivery.start_fresh,
+                prompt_response: delivery.prompt_response.map(|response| {
+                    sandbox_proto::PromptResponse {
+                        tool_use_id: response.tool_use_id,
+                        tool_name: response.tool_name,
+                        answers: response.answers.into_iter().collect(),
+                        approved: response.approved,
+                        feedback: response.feedback,
+                    }
+                }),
             })
             .collect();
 

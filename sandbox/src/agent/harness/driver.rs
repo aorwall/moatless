@@ -265,6 +265,10 @@ async fn drive_persistent_event(
             }
             Ok(true)
         }
+        Some(ProcessEvent::ContextWindow(window)) => {
+            emit(signal_tx, Signal::ContextWindow(window)).await?;
+            Ok(true)
+        }
         Some(ProcessEvent::Activity(activity)) => {
             emit(signal_tx, Signal::Activity(activity)).await?;
             Ok(true)
@@ -552,6 +556,9 @@ async fn run_execution<P: AgentProcess>(
                         } else {
                             early.push(block);
                         }
+                    }
+                    Some(ProcessEvent::ContextWindow(window)) => {
+                        emit(signal_tx, Signal::ContextWindow(window)).await?;
                     }
                     Some(ProcessEvent::Activity(activity)) => {
                         emit(signal_tx, Signal::Activity(activity)).await?;

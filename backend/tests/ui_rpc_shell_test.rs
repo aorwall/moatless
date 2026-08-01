@@ -54,7 +54,7 @@ use moatless_vibe_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStat
 use moatless_vibe_backend::task_turn::models::classify_turn_transition;
 use moatless_vibe_backend::ui_rpc::backend as ui_rpc_backend;
 use moatless_vibe_backend::ui_rpc::dao::{
-    Conversation, ConversationDao, PgConversationDao, Transcript,
+    Conversation, ConversationDao, InteractiveCall, PgConversationDao, Transcript,
 };
 use moatless_vibe_backend::ui_rpc::preview_tabs::InMemoryPreviewTabDao;
 use moatless_vibe_backend::ui_rpc::{
@@ -2151,6 +2151,14 @@ impl ConversationDao for RefusesTheRowRead {
         uuids: &[String],
     ) -> Result<Transcript, sqlx::Error> {
         self.0.changed_messages(task_id, uuids).await
+    }
+
+    async fn interactive_call(
+        &self,
+        task_id: &str,
+        tool_use_id: &str,
+    ) -> Result<Option<InteractiveCall>, sqlx::Error> {
+        self.0.interactive_call(task_id, tool_use_id).await
     }
 
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {

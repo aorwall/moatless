@@ -35,6 +35,50 @@ pub struct AgentDelivery {
     pub resume_session_id: Option<String>,
     pub resume: bool,
     pub start_fresh: bool,
+    /// A person's answer, where this delivery is one. See [`PromptResponse`].
+    pub prompt_response: Option<PromptResponse>,
+}
+
+/// A person's answer to an interactive tool call, as the sandbox resolves it.
+///
+/// Read off the answering row's own `tool_response` column rather than parsed
+/// back out of the prompt text: the prose is what an agent that has forgotten
+/// asking is told, and prose is not an answer per question.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptResponse {
+    pub tool_use_id: String,
+    pub tool_name: String,
+    /// One answer per question, keyed on the question's full text. Empty for a
+    /// plan verdict, which answers with [`approved`](Self::approved) instead.
+    pub answers: std::collections::BTreeMap<String, String>,
+    pub approved: bool,
+    pub feedback: Option<String>,
+}
+
+impl PromptResponse {
+    /// The answer a row carries, or `None` where it carries none.
+    fn read(row: &TaskMessage) -> Option<Self> {
+        let stored = row.tool_response.as_ref()?;
+        let field = |name: &str| stored.get(name).and_then(Value::as_str).map(str::to_string);
+        Some(Self {
+            tool_use_id: field("toolUseId")?,
+            tool_name: field("toolName")?,
+            answers: stored
+                .get("answers")
+                .and_then(Value::as_object)
+                .map(|answers| {
+                    answers
+                        .iter()
+                        .filter_map(|(question, given)| {
+                            Some((question.clone(), given.as_str()?.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            approved: stored.get("approved").and_then(Value::as_bool) == Some(true),
+            feedback: field("feedback").filter(|feedback| !feedback.trim().is_empty()),
+        })
+    }
 }
 
 /// Builds pending Message rows into the exact unit the sandbox submits.
@@ -129,8 +173,14 @@ impl<'a> AgentPromptBuilder<'a> {
             return Vec::new();
         }
 
+        // At most one answer per delivery: an answer is sent on its own row, and
+        // the first is the one the run is parked on. A second in the same batch
+        // would be an answer to a call the first has already released.
+        let prompt_response = rows.iter().find_map(PromptResponse::read);
+
         vec![AgentDelivery {
             message_uuids,
+            prompt_response,
             prompt_text: parts.join("\n"),
             file_ids,
             model,
@@ -397,6 +447,72 @@ mod tests {
             resume_session_id,
             sender_logins,
         )
+    }
+
+    /// The prose is what an agent that has forgotten asking is told; the answer
+    /// per question travels structurally beside it.
+    #[test]
+    fn an_answer_is_read_off_its_own_column_not_out_of_the_prose() {
+        let mut row = pending_message(1, "msg-1", "You asked, and the answer is: Postgres");
+        row.tool_response = Some(json!({
+            "toolUseId": "tu-1",
+            "toolName": "AskUserQuestion",
+            "answers": { "Which store?": "Postgres" }
+        }));
+        let answer = PromptResponse::read(&row).expect("the row carries an answer");
+        assert_eq!(answer.tool_use_id, "tu-1");
+        assert_eq!(answer.tool_name, "AskUserQuestion");
+        assert_eq!(answer.answers["Which store?"], "Postgres");
+        assert!(!answer.approved);
+    }
+
+    #[test]
+    fn a_plan_verdict_carries_its_feedback_and_no_answers() {
+        let mut row = pending_message(1, "msg-1", "The plan is rejected.");
+        row.tool_response = Some(json!({
+            "toolUseId": "tu-1",
+            "toolName": "ExitPlanMode",
+            "approved": false,
+            "feedback": "use the second approach"
+        }));
+        let answer = PromptResponse::read(&row).expect("the row carries an answer");
+        assert!(answer.answers.is_empty());
+        assert!(!answer.approved);
+        assert_eq!(answer.feedback.as_deref(), Some("use the second approach"));
+    }
+
+    /// An ordinary message carries no answer, and must not be read as one.
+    #[test]
+    fn an_ordinary_message_carries_no_answer() {
+        assert_eq!(
+            PromptResponse::read(&pending_message(1, "msg-1", "have another look")),
+            None
+        );
+    }
+
+    /// A delivery batching an answer with the messages around it still names
+    /// the answer, so the parked call is released by the row that answers it.
+    #[tokio::test]
+    async fn a_batched_delivery_still_names_the_answer_in_it() {
+        let mut answered = pending_message(2, "msg-2", "The plan is approved. Carry it out.");
+        answered.tool_response = Some(json!({
+            "toolUseId": "tu-1",
+            "toolName": "ExitPlanMode",
+            "approved": true
+        }));
+        let rows = vec![pending_message(1, "msg-1", "and one more thing"), answered];
+
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries = prompt_builder(&logins, None)
+            .build_pending_deliveries(&rows, &contexts)
+            .await;
+        let answer = deliveries[0]
+            .prompt_response
+            .as_ref()
+            .expect("the batch names its answer");
+        assert_eq!(answer.tool_use_id, "tu-1");
+        assert!(answer.approved);
     }
 
     #[test]

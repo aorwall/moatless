@@ -15,6 +15,9 @@ pub use moatless_events::SandboxStatus;
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
     Running,
+    /// Parked on a person: the run is open, and nothing is running until it is
+    /// answered.
+    Waiting,
     Idle,
     Unknown,
 }
@@ -23,6 +26,7 @@ impl From<&str> for AgentStatus {
     fn from(value: &str) -> Self {
         match value {
             "running" => Self::Running,
+            "waiting" => Self::Waiting,
             "idle" | "stopped" => Self::Idle,
             _ => Self::Unknown,
         }
@@ -142,6 +146,7 @@ mod tests {
     fn ready_sandbox_preserves_resolved_agent_status() {
         for agent_status in [
             AgentStatus::Running,
+            AgentStatus::Waiting,
             AgentStatus::Idle,
             AgentStatus::Unknown,
         ] {

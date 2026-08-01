@@ -35,6 +35,7 @@ use super::ports::{
 use super::providers;
 use crate::agent::catalog;
 use crate::shared_models::AgentMode;
+use crate::task_activities::mapping;
 
 /// What the surface needs in order to answer a command.
 pub struct CommandContext<'a> {
@@ -276,27 +277,115 @@ async fn meta_update(
         .await
 }
 
+/// An answer to what the agent asked.
+///
+/// `requestId` is the tool-use id of the call that asked — the panel is derived
+/// from an activity whose `requestId` is exactly that — so the stored call is
+/// what says which tool this answers, and therefore what an answer to it looks
+/// like. Two tools ask, and they take different answers: a question takes one
+/// per question, a proposed plan takes a yes or a no. Assuming either would
+/// label a plan answer as a question answer and send a rejection as a blob.
 async fn respond(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
     command: &Value,
 ) -> Result<(), CommandRefusal> {
     let task_id = thread_id(command)?.to_string();
+    let tool_use_id = command
+        .get("requestId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| missing("requestId"))?
+        .to_string();
+
+    let call = ctx
+        .conversations
+        .interactive_call(&task_id, &tool_use_id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, task_id, tool_use_id, "T3 answer could not resolve its call");
+            CommandRefusal::Failed {
+                message: "Could not reach that thread.".to_string(),
+            }
+        })?
+        .ok_or_else(|| CommandRefusal::Rejected {
+            message: "That request is not one this thread is waiting on.".to_string(),
+        })?;
+    if call.settled {
+        // Answered already — by someone else, or from the Moatless UI. Saying so
+        // is the honest report; a send failure would be a different fact.
+        return Err(CommandRefusal::Rejected {
+            message: "That request has already been answered.".to_string(),
+        });
+    }
+
+    let answers = answers_by_question(command.get("answers"));
+    let payload = match call.tool_name.as_str() {
+        mapping::QUESTION_TOOL => json!({ "answers": answers }),
+        mapping::PLAN_TOOL => plan_verdict(&answers),
+        other => {
+            return Err(CommandRefusal::Rejected {
+                message: format!("`{other}` is not a request this server can be answered on."),
+            });
+        }
+    };
+
     ctx.sink
         .answer_question(
             viewer,
             QuestionAnswer {
                 task_id,
-                tool_use_id: command
-                    .get("requestId")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| missing("requestId"))?
-                    .to_string(),
-                tool_name: "AskUserQuestion".to_string(),
-                payload: command.get("answers").cloned(),
+                tool_use_id,
+                tool_name: call.tool_name,
+                payload: Some(payload),
             },
         )
         .await
+}
+
+/// One answer per question, keyed on the question's full text.
+///
+/// The client accumulates `string | string[]` per question and a multi-select
+/// answer is joined here, on the way in: the CLI merges the value into the tool
+/// input unread, and Moatless's own panel already sends the joined string, so a
+/// second answer shape would buy nothing. Anything that is neither is dropped
+/// rather than stringified into JSON the agent would have to parse.
+fn answers_by_question(answers: Option<&Value>) -> Value {
+    let mut by_question = serde_json::Map::new();
+    for (question, answer) in answers.and_then(Value::as_object).into_iter().flatten() {
+        let answer = match answer {
+            Value::String(text) => text.clone(),
+            Value::Array(parts) => parts
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", "),
+            _ => continue,
+        };
+        by_question.insert(question.clone(), Value::String(answer));
+    }
+    Value::Object(by_question)
+}
+
+/// A proposed plan answered through the question in front of it.
+///
+/// Only the approve option approves. Everything else is a rejection carrying
+/// what was said as feedback — which is what makes "No, use the second
+/// approach" reach the agent as a rejection *and* as the reason.
+fn plan_verdict(answers: &Value) -> Value {
+    let said = answers
+        .get(mapping::PLAN_QUESTION)
+        .and_then(Value::as_str)
+        .or_else(|| {
+            answers
+                .as_object()
+                .and_then(|answers| answers.values().next())
+                .and_then(Value::as_str)
+        })
+        .unwrap_or_default();
+    if said == mapping::PLAN_APPROVE {
+        return json!({ "approved": true });
+    }
+    json!({ "approved": false, "feedback": said })
 }
 
 /// The Task, if this viewer may write to it.
@@ -411,7 +500,7 @@ mod tests {
     use super::*;
     use crate::shared_models::AgentType;
     use crate::task_listing::models::{EnvironmentIdentity, ListingHead};
-    use crate::ui_rpc::dao::MockConversationDao;
+    use crate::ui_rpc::dao::{InteractiveCall, MockConversationDao};
     use async_trait::async_trait;
     use std::sync::Mutex;
 
@@ -456,6 +545,8 @@ mod tests {
         AnswerQuestion {
             task_id: String,
             tool_use_id: String,
+            tool_name: String,
+            payload: Option<Value>,
         },
     }
 
@@ -558,6 +649,8 @@ mod tests {
             self.0.lock().unwrap().push(Call::AnswerQuestion {
                 task_id: answer.task_id,
                 tool_use_id: answer.tool_use_id,
+                tool_name: answer.tool_name,
+                payload: answer.payload,
             });
             Ok(())
         }
@@ -638,6 +731,15 @@ mod tests {
         dao
     }
 
+    /// The stored call an answer names — the unanswered `AskUserQuestion` a
+    /// panel is derived from, unless a test says otherwise.
+    fn asked(tool_name: &str) -> InteractiveCall {
+        InteractiveCall {
+            tool_name: tool_name.to_string(),
+            settled: false,
+        }
+    }
+
     fn viewer() -> ScopeContext {
         ScopeContext {
             user_id: "user-1".to_string(),
@@ -650,11 +752,31 @@ mod tests {
         run_against(command, Some(conversation(AgentType::CLAUDE_CODE))).await
     }
 
+    /// Run one command against a thread whose stored call is `call`.
+    async fn run_answering(
+        command: Value,
+        call: Option<InteractiveCall>,
+    ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
+        let mut dao = conversations(Some(conversation(AgentType::CLAUDE_CODE)));
+        dao.expect_interactive_call()
+            .returning(move |_, _| Ok(call.clone()));
+        dispatch_against(dao, command).await
+    }
+
     async fn run_against(
         command: Value,
         found: Option<Conversation>,
     ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
-        let dao = conversations(found);
+        let mut dao = conversations(found);
+        dao.expect_interactive_call()
+            .returning(|_, _| Ok(Some(asked(mapping::QUESTION_TOOL))));
+        dispatch_against(dao, command).await
+    }
+
+    async fn dispatch_against(
+        dao: MockConversationDao,
+        command: Value,
+    ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
         let sink = RecordingSink::default();
         let agents = StubAgents;
         let ctx = CommandContext {
@@ -685,6 +807,18 @@ mod tests {
             command["modelSelection"] = json!({ "instanceId": instance, "model": slug });
         }
         command
+    }
+
+    /// The client's answer to whatever the thread is waiting on.
+    fn answer(answers: Value) -> Value {
+        json!({
+            "type": "thread.user-input.respond",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+            "requestId": "toolu_1",
+            "answers": answers,
+            "createdAt": "2026-07-01T09:00:00.000Z"
+        })
     }
 
     #[tokio::test]
@@ -997,8 +1131,94 @@ mod tests {
             vec![Call::AnswerQuestion {
                 task_id: "task-1".to_string(),
                 tool_use_id: "toolu_1".to_string(),
+                tool_name: mapping::QUESTION_TOOL.to_string(),
+                payload: Some(json!({ "answers": { "choice": "yes" } })),
             }]
         );
+    }
+
+    /// A plan is answered through the question joined to it, so the same
+    /// command has to become a verdict rather than a blob of answers. Only the
+    /// approve option approves; anything else is a rejection carrying what was
+    /// said, which is what makes "No, use the second approach" reach the agent
+    /// as a rejection *and* as the reason.
+    #[tokio::test]
+    async fn a_plan_is_answered_as_a_verdict() {
+        for (said, expected) in [
+            (mapping::PLAN_APPROVE, json!({ "approved": true })),
+            (
+                "Reject: use the second approach",
+                json!({ "approved": false, "feedback": "Reject: use the second approach" }),
+            ),
+        ] {
+            let (result, calls) = run_answering(
+                answer(json!({ mapping::PLAN_QUESTION: said })),
+                Some(asked(mapping::PLAN_TOOL)),
+            )
+            .await;
+            assert!(result.is_ok(), "{said}");
+            assert_eq!(
+                calls,
+                vec![Call::AnswerQuestion {
+                    task_id: "task-1".to_string(),
+                    tool_use_id: "toolu_1".to_string(),
+                    tool_name: mapping::PLAN_TOOL.to_string(),
+                    payload: Some(expected),
+                }],
+                "{said}"
+            );
+        }
+    }
+
+    /// A multi-select answer arrives as a list and the CLI merges the value into
+    /// the tool input unread, so it is joined here rather than sent as an array
+    /// the agent would have to parse.
+    #[tokio::test]
+    async fn a_multi_select_answer_reaches_the_agent_as_one_string() {
+        let (_, calls) = run_answering(
+            answer(json!({ "Which?": ["Postgres", "Redis"] })),
+            Some(asked(mapping::QUESTION_TOOL)),
+        )
+        .await;
+        let Some(Call::AnswerQuestion { payload, .. }) = calls.first() else {
+            panic!("the answer reaches the sink: {calls:?}");
+        };
+        assert_eq!(
+            payload.as_ref().unwrap()["answers"]["Which?"],
+            "Postgres, Redis"
+        );
+    }
+
+    /// An answer naming a call this thread never stored is not a failed send —
+    /// there is nothing to send it to. The two read differently to the person
+    /// who clicked.
+    #[tokio::test]
+    async fn an_answer_to_a_call_that_was_never_stored_is_refused() {
+        let (result, calls) = run_answering(answer(json!({ "q": "yes" })), None).await;
+        assert!(
+            matches!(result, Err(CommandRefusal::Rejected { .. })),
+            "{result:?}"
+        );
+        assert!(calls.is_empty());
+    }
+
+    /// The call came back already — from the Moatless UI, or from a second
+    /// person. Sending a second answer would reach an agent that has moved on.
+    #[tokio::test]
+    async fn an_answer_to_a_settled_call_is_refused() {
+        let (result, calls) = run_answering(
+            answer(json!({ "q": "yes" })),
+            Some(InteractiveCall {
+                tool_name: mapping::QUESTION_TOOL.to_string(),
+                settled: true,
+            }),
+        )
+        .await;
+        assert!(
+            matches!(result, Err(CommandRefusal::Rejected { .. })),
+            "{result:?}"
+        );
+        assert!(calls.is_empty());
     }
 
     /// Both controls exist on screen and neither has a Moatless meaning.

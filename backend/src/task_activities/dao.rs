@@ -15,6 +15,9 @@ pub struct Activity {
     pub activity_id: String,
     pub task_id: String,
     pub position: i64,
+    /// Where this row sits inside its change. See
+    /// [`ActivityRow::ordinal`](mapping::ActivityRow::ordinal).
+    pub ordinal: i32,
     pub message_uuid: Option<String>,
     pub parent_uuid: Option<String>,
     pub kind: ActivityKind,
@@ -71,6 +74,7 @@ impl sqlx::FromRow<'_, PgRow> for Activity {
             activity_id: row.try_get("activity_id")?,
             task_id: row.try_get("task_id")?,
             position: row.try_get("position")?,
+            ordinal: row.try_get("ordinal")?,
             message_uuid: row.try_get("message_uuid")?,
             parent_uuid: row.try_get("parent_uuid")?,
             kind: kind.parse().map_err(|e: String| sqlx::Error::ColumnDecode {
@@ -101,6 +105,23 @@ impl sqlx::FromRow<'_, PgRow> for Activity {
     }
 }
 
+/// The kinds this build can decode, as SQL.
+///
+/// The narrowing is what keeps a rollback survivable: a row written by a newer
+/// backend carries a kind [`ActivityKind::from_str`] refuses, and a refused
+/// decode fails the whole read — one unknown row would blank a conversation.
+/// Skipped in SQL, it costs that row and nothing else.
+///
+/// Kept honest by `every_known_kind_is_readable`, which is a test rather than a
+/// derive because sqlx 0.9 takes only `&'static str` and the list has to be one.
+macro_rules! known_kinds {
+    () => {
+        "kind IN ('tool_call', 'thinking', 'sandbox_status', 'sandbox_error', \
+          'user_input_requested', 'user_input_resolved', 'plan_updated', \
+          'context_window_updated')"
+    };
+}
+
 /// The columns every read of this table selects, in one place so four queries
 /// cannot drift into four different row shapes.
 ///
@@ -109,10 +130,12 @@ impl sqlx::FromRow<'_, PgRow> for Activity {
 macro_rules! read_activities {
     ($predicate:literal) => {
         concat!(
-            "SELECT activity_id, task_id, position, message_uuid, parent_uuid, ",
+            "SELECT activity_id, task_id, position, ordinal, message_uuid, parent_uuid, ",
             "kind, status, tool_use_id, summary, payload, detail, is_error, ",
             "external_event_id, external_adapter, external_source_name, created_at ",
             "FROM task_activities WHERE ",
+            known_kinds!(),
+            " AND ",
             $predicate
         )
     };
@@ -132,13 +155,14 @@ pub async fn upsert(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO task_activities (
-               activity_id, task_id, position, message_uuid, parent_uuid,
+               activity_id, task_id, position, ordinal, message_uuid, parent_uuid,
                kind, status, tool_use_id, summary, payload, is_error
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            ON CONFLICT (activity_id) DO UPDATE SET
-               -- `position` is deliberately absent: a redelivered block must not
-               -- move where it already sits in the stream. So is `detail`, which
-               -- belongs to a result this statement does not carry.
+               -- `position` and `ordinal` are deliberately absent: a redelivered
+               -- block must not move where it already sits in the stream, and
+               -- between them they are that place. So is `detail`, which belongs
+               -- to a result this statement does not carry.
                summary  = EXCLUDED.summary,
                -- The call is the authority for its own name, shape and input,
                -- so those are re-applied. The result and the status it moved to
@@ -152,6 +176,7 @@ pub async fn upsert(
     .bind(&activity.activity_id)
     .bind(&activity.task_id)
     .bind(position)
+    .bind(activity.ordinal)
     .bind(&activity.message_uuid)
     .bind(&activity.parent_uuid)
     .bind(activity.kind.as_str())
@@ -234,19 +259,34 @@ pub async fn record_sandbox(
         return Ok(false);
     }
 
-    // No merge on conflict: a Sandbox activity's id is its event id, so a
-    // conflict is the same event redelivered and the stored row is already what
-    // it would write.
+    record_standalone(tx, position, activity).await
+}
+
+/// Write an activity that happened on no Message.
+///
+/// A Sandbox lifecycle change and a context-window reading are both this: alone
+/// in their change, named by the event that carried them, ordinal 0.
+///
+/// No merge on conflict — the id *is* the event, so a conflict is the same event
+/// redelivered and the stored row is already what this would write.
+///
+/// Returns whether a row was written.
+pub async fn record_standalone(
+    tx: &mut PgConnection,
+    position: i64,
+    activity: &ActivityRow,
+) -> Result<bool, sqlx::Error> {
     let written = sqlx::query(
         r#"INSERT INTO task_activities (
-               activity_id, task_id, position, message_uuid, parent_uuid,
+               activity_id, task_id, position, ordinal, message_uuid, parent_uuid,
                kind, status, tool_use_id, summary, payload, is_error
-           ) VALUES ($1, $2, $3, NULL, NULL, $4, $5, NULL, $6, $7, $8)
+           ) VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6, NULL, $7, $8, $9)
            ON CONFLICT (activity_id) DO NOTHING"#,
     )
     .bind(&activity.activity_id)
     .bind(&activity.task_id)
     .bind(position)
+    .bind(activity.ordinal)
     .bind(activity.kind.as_str())
     .bind(activity.status.as_str())
     .bind(&activity.summary)
@@ -294,7 +334,7 @@ pub async fn admit_usage(
 /// outnumber the rows that render.
 pub async fn for_task(pool: &DbPool, task_id: &str) -> Result<Vec<Activity>, sqlx::Error> {
     sqlx::query_as::<_, Activity>(read_activities!(
-        "task_id = $1 AND parent_uuid IS NULL ORDER BY position, activity_id"
+        "task_id = $1 AND parent_uuid IS NULL ORDER BY position, ordinal, activity_id"
     ))
     .bind(task_id)
     .fetch_all(pool)
@@ -315,7 +355,7 @@ pub async fn for_task_since(
     sqlx::query_as::<_, Activity>(read_activities!(
         "task_id = $1 AND parent_uuid IS NULL \
          AND ($2::timestamptz IS NULL OR created_at >= $2) \
-         ORDER BY position, activity_id"
+         ORDER BY position, ordinal, activity_id"
     ))
     .bind(task_id)
     .bind(since)
@@ -330,7 +370,7 @@ pub async fn for_subagent(
     parent_uuid: &str,
 ) -> Result<Vec<Activity>, sqlx::Error> {
     sqlx::query_as::<_, Activity>(read_activities!(
-        "task_id = $1 AND parent_uuid = $2 ORDER BY position, activity_id"
+        "task_id = $1 AND parent_uuid = $2 ORDER BY position, ordinal, activity_id"
     ))
     .bind(task_id)
     .bind(parent_uuid)
@@ -348,7 +388,7 @@ pub async fn for_messages(
         return Ok(Vec::new());
     }
     sqlx::query_as::<_, Activity>(read_activities!(
-        "task_id = $1 AND message_uuid = ANY($2) ORDER BY position, activity_id"
+        "task_id = $1 AND message_uuid = ANY($2) ORDER BY position, ordinal, activity_id"
     ))
     .bind(task_id)
     .bind(message_uuids)
@@ -627,4 +667,31 @@ pub async fn prune_changes(pool: &DbPool) -> Result<u64, sqlx::Error> {
     .await?
     .rows_affected();
     Ok(deleted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The SQL narrowing and the enum are two spellings of one list. A kind the
+    /// enum knows but the SQL leaves out is a row this build writes and then
+    /// never reads back.
+    #[test]
+    fn every_known_kind_is_readable() {
+        let narrowing = known_kinds!();
+        for kind in ActivityKind::ALL {
+            assert!(
+                narrowing.contains(&format!("'{}'", kind.as_str())),
+                "{} is written but the read narrows it away",
+                kind.as_str()
+            );
+        }
+        // And nothing else: a name in the SQL that no kind spells is one the
+        // decode would refuse anyway.
+        assert_eq!(
+            narrowing.matches('\'').count() / 2,
+            ActivityKind::ALL.len(),
+            "the SQL names exactly the kinds the enum does"
+        );
+    }
 }

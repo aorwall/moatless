@@ -197,6 +197,9 @@ pub enum AgentSubType {
     /// during a multi-minute tool run instead of freezing at the last
     /// message. SSE-only downstream; never persisted as a message.
     Activity,
+    /// What the harness said about its own context window: how much of it the
+    /// session occupies, and how large it is where the harness states one.
+    ContextWindow,
 }
 
 impl AgentSubType {
@@ -215,6 +218,7 @@ impl AgentSubType {
             Self::RecoveryExhausted => "recovery_exhausted",
             Self::SessionContextLost => "session_context_lost",
             Self::Activity => "activity",
+            Self::ContextWindow => "context_window",
         }
     }
 
@@ -247,6 +251,7 @@ impl TryFrom<&str> for AgentSubType {
             "recovery_exhausted" => Ok(Self::RecoveryExhausted),
             "session_context_lost" => Ok(Self::SessionContextLost),
             "activity" => Ok(Self::Activity),
+            "context_window" => Ok(Self::ContextWindow),
             other => Err(format!("unknown AgentSubType: {other}")),
         }
     }

@@ -67,8 +67,8 @@ use super::handle::{
     AgentCommand, RunAck, AGENT_TYPE_CLAUDE_CODE,
 };
 use super::harness::{
-    Activity, ErrorClass, Harness, HarnessClosed, HarnessError, Input, InputId, Outcome, Rejection,
-    Role, SessionImpact, Signal, SourceEvent,
+    Activity, ContextWindow, ErrorClass, Harness, HarnessClosed, HarnessError, Input, InputId,
+    Outcome, Rejection, Role, SessionImpact, Signal, SourceEvent,
 };
 use super::scheduled_job::{JobKind, ScheduledJobRegistry};
 use super::wakeup_job::WakeupJob;
@@ -267,6 +267,7 @@ impl Coordinator {
                     .await;
             }
             Signal::Activity(activity) => self.publish_activity(&activity).await,
+            Signal::ContextWindow(window) => self.publish_context_window(window).await,
             Signal::ExecutionFinished { outcome } => self.publish_outcome(outcome).await,
             Signal::InputRejected { input, reason } => {
                 let original = self.pending_inputs.remove(&input);
@@ -344,6 +345,25 @@ impl Coordinator {
                 &self.task_id,
                 AgentSubType::Activity,
                 json!({ "detail": activity.detail }),
+            )
+            .await;
+    }
+
+    /// One context-window reading, as its own event.
+    ///
+    /// Not rate-limited the way liveness is: a reading is what the meter shows,
+    /// and dropping one leaves the meter stale. Codex reports per model request,
+    /// so several can arrive in a turn — the projection keeps the newest per turn
+    /// on the way out rather than the writer keeping fewer.
+    async fn publish_context_window(&mut self, window: ContextWindow) {
+        self.run_events()
+            .publish_agent_event(
+                &self.task_id,
+                AgentSubType::ContextWindow,
+                json!({
+                    "usedTokens": window.used_tokens,
+                    "maxTokens": window.max_tokens,
+                }),
             )
             .await;
     }

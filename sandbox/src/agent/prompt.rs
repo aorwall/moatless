@@ -42,9 +42,18 @@ pub struct PendingPrompt {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PromptResponse {
-    /// Answer to AskUserQuestion.
+    /// Answer to AskUserQuestion, one per question. Keyed on the question's own
+    /// full text: that is the key the CLI looks an answer up by, and a question
+    /// it finds no answer for is dropped from what the model is told.
     #[serde(rename = "askUserAnswer")]
     AskUserAnswer { answers: serde_json::Value },
+    /// Freeform prose answering AskUserQuestion, from someone who wrote instead
+    /// of choosing. The CLI carries it in its own field beside `answers` and
+    /// tells the model "The user responded: …", so it needs no question to
+    /// belong to — which is what makes it the shape for an answer that arrives
+    /// as one message against however many questions were asked.
+    #[serde(rename = "askUserResponse")]
+    AskUserResponse { response: String },
     /// Plan approved (ExitPlanMode).
     #[serde(rename = "planApproved")]
     PlanApproved,

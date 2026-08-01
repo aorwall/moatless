@@ -174,6 +174,26 @@ message PendingAgentDelivery {
   optional string resume_session_id = 7;
   bool resume = 8;
   bool start_fresh = 9;
+  // A person's answer to an interactive tool call. Present only on a delivery
+  // that is one. Where the run is still parked on the call, this resolves it
+  // directly; where it is not, `prompt_text` already restates the question with
+  // the answer and the delivery is dispatched as an ordinary message.
+  optional PromptResponse prompt_response = 10;
+}
+
+// An answer with its structure intact.
+message PromptResponse {
+  // The call being answered, and the tool that made it. The tool decides which
+  // of the fields below carry the answer: `AskUserQuestion` answers per
+  // question, `ExitPlanMode` approves or rejects.
+  string tool_use_id = 1;
+  string tool_name = 2;
+  // One answer per question, keyed on the question's **full text** — the key
+  // the CLI looks an answer up by. A multi-select answer arrives already joined
+  // into one ", " string.
+  map<string, string> answers = 3;
+  bool approved = 4;
+  optional string feedback = 5;
 }
 
 message ContentBlock {

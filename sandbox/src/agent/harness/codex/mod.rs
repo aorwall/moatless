@@ -48,7 +48,7 @@ use crate::credentials::recovery::{CredentialFailureDetector, CODEX_AUTH_JSON};
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
-use super::signal::{Input, InputId, SessionId};
+use super::signal::{ContextWindow, Input, InputId, SessionId};
 
 use self::normalize::{Normalizer, TurnUsage};
 
@@ -465,6 +465,18 @@ impl CodexProcess {
                 }
             }
             ServerEvent::TokenUsage(usage) => {
+                // What occupies the window is the last request's own input and
+                // output; `total` is the whole Session's spend and would pass the
+                // window it is measured against. Clamped, so a reading that
+                // cannot be right reads as full rather than as impossible.
+                let used =
+                    usage.token_usage.last.input_tokens + usage.token_usage.last.output_tokens;
+                let max_tokens = usage.token_usage.model_context_window;
+                self.pending
+                    .push_back(ProcessEvent::ContextWindow(ContextWindow {
+                        used_tokens: max_tokens.map_or(used, |max| used.min(max)),
+                        max_tokens,
+                    }));
                 // Before the Turn opens, the reading is the Session's stored
                 // total replayed on resume; from `turn/started` on, every further
                 // reading is this Turn's own growth — including the model

@@ -240,19 +240,17 @@ pub(crate) struct ThreadTokenUsageUpdatedNotification {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ThreadTokenUsage {
     /// Usage for the most recent model *request*, which is not a Turn: a Turn
-    /// that takes three requests reports three of these. Read only by the
-    /// fixture test that pins the distinction; what a Turn spent is the growth
-    /// of `total` while it ran (see `harness::codex::normalize::TurnUsage`).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "per-request, not per-Turn; kept because the fixture test pins why it is unusable"
-        )
-    )]
+    /// that takes three requests reports three of these. What a Turn spent is
+    /// the growth of `total` while it ran (see
+    /// `harness::codex::normalize::TurnUsage`); what currently occupies the
+    /// context window is this, the last request's own input and output.
     pub(crate) last: TokenUsageBreakdown,
     /// Usage accumulated over the whole Session, carried across `thread/resume`.
     pub(crate) total: TokenUsageBreakdown,
+    /// The window the Session's model runs in. Absent where the app-server did
+    /// not state one, which is a reading with no denominator rather than a zero.
+    #[serde(default)]
+    pub(crate) model_context_window: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
