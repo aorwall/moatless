@@ -2,6 +2,7 @@
 
 pub mod git;
 pub mod read_write;
+pub mod review;
 pub mod search;
 pub mod tree;
 pub mod uploads;

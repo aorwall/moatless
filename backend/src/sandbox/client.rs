@@ -11,8 +11,10 @@ use std::time::Duration;
 
 use sandbox_proto::sandbox_service_client::SandboxServiceClient;
 use sandbox_proto::{
-    ApplyServerConfigRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse, GetFileTreeRequest,
-    GetFileTreeResponse, GetServerConfigRequest, ListFilesRequest, NotifyMessagesRequest, ReadFileRequest,
+    ApplyServerConfigRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse,
+    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
+    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, ListFilesRequest,
+    ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest, ReadFileRequest,
     ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
     SearchFilesByNameResponse, StopAgentRequest, WriteFileRequest,
 };
@@ -389,7 +391,7 @@ impl SandboxClient {
             Err(_) => {
                 return Err(tonic::Status::deadline_exceeded(
                     "GetServerConfig gRPC timed out",
-                ))
+                ));
             }
         };
 
@@ -436,6 +438,70 @@ impl SandboxClient {
             Ok(Err(e)) => Err(e),
             Err(_) => Err(tonic::Status::deadline_exceeded(
                 "Search files by name gRPC request timed out",
+            )),
+        }
+    }
+
+    /// Both review diff scopes of the sandbox workspace.
+    ///
+    /// Given a longer deadline than the other file calls: a patch is the whole
+    /// working tree of every repository in the workspace, and the sandbox reads
+    /// it with `git` rather than from an index.
+    pub async fn get_git_diff_preview(
+        &self,
+        base_ref: Option<String>,
+        ignore_whitespace: bool,
+    ) -> Result<GetGitDiffPreviewResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(45), async {
+            client
+                .get_git_diff_preview(GetGitDiffPreviewRequest {
+                    base_ref,
+                    ignore_whitespace,
+                })
+                .await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Git diff preview gRPC request timed out",
+            )),
+        }
+    }
+
+    /// The primary repository's branch state.
+    pub async fn get_git_status(&self) -> Result<GetGitStatusResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.get_git_status(GetGitStatusRequest {}).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Git status gRPC request timed out",
+            )),
+        }
+    }
+
+    /// The primary repository's branches.
+    pub async fn list_git_refs(&self) -> Result<ListGitRefsResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.list_git_refs(ListGitRefsRequest {}).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Git ref listing gRPC request timed out",
             )),
         }
     }

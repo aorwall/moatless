@@ -1,43 +1,28 @@
 //! The workspace-files half of the T3 compatibility module.
 //!
-//! T3 asks for a project's files by the only handle it has for one: the `cwd`
-//! it was given. There is no thread id, no project id and no session on either
-//! request — `{ cwd }` and `{ cwd, relativePath }` are the whole of the
-//! contract's input — so the path *is* the addressing, and everything below
-//! follows from that.
-//!
 //! Moatless has no directory to point at. A conversation's checkout lives
 //! inside its Sandbox, reachable only over that Sandbox's gRPC connection, and
 //! the path it sits at is the same string for every conversation. So the `cwd`
 //! this module answers is the nominal one it issued as the thread's
-//! `worktreePath`, [`projection::task_id_from_cwd`] reads the conversation back
-//! out of it, and the files come from that conversation's Sandbox.
+//! `worktreePath`, [`workspace::addressed_conversation`] reads the conversation
+//! back out of it, and the files come from that conversation's Sandbox.
 //!
-//! Two consequences are worth stating rather than discovering:
-//!
-//! - **A `cwd` is a claim, not a capability.** It arrives from the client and
-//!   names a Task, so every request re-reads that Task through the same follow
-//!   *and* access filter the shell listing uses. A conversation the viewer does
-//!   not follow, or may no longer read, is indistinguishable here from one that
-//!   does not exist — which is what stops a guessed Task id from being a way to
-//!   read someone else's repository.
-//! - **The listing is whatever the Sandbox walks**, and this is the one caller
-//!   that asks it to honour the repositories' ignore rules. Presenting a
-//!   checkout to a person is not the same as reading it: a plain recursive walk
-//!   of a workspace that has been built in is mostly `target/` and `dist/`, and
-//!   at this scale that is not clutter but loss — the whole tree arrives in one
-//!   call, so build output past the cap displaces source that never gets shown.
-//!   A Sandbox from before that flag existed ignores it and answers as it
-//!   always did.
+//! **The listing is whatever the Sandbox walks**, and this is the one caller
+//! that asks it to honour the repositories' ignore rules. Presenting a checkout
+//! to a person is not the same as reading it: a plain recursive walk of a
+//! workspace that has been built in is mostly `target/` and `dist/`, and at
+//! this scale that is not clutter but loss — the whole tree arrives in one
+//! call, so build output past the cap displaces source that never gets shown.
+//! A Sandbox from before that flag existed ignores it and answers as it always
+//! did.
 
 use serde_json::{Value, json};
 use tracing::warn;
 
 use super::dao::ConversationDao;
-use super::projection;
+use super::workspace::{self, WorkspaceAccessError};
 use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::error::SandboxError;
-use moatless_api_schemas::enums::SandboxDesiredState;
 use moatless_backend_core::scope::ScopeContext;
 
 /// The most entries one listing carries.
@@ -56,67 +41,6 @@ const MAX_ENTRIES: usize = 25_000;
 /// whole file, because it is the file's size and not the excerpt's.
 const MAX_FILE_BYTES: usize = 1024 * 1024;
 
-/// Why a workspace-file request could not be answered.
-///
-/// The split is by what the client should be told, not by where the failure
-/// came from: the first three are answers about the request, and the last two
-/// are this deployment failing to produce one.
-#[derive(Debug)]
-pub enum FileAccessError {
-    /// The `cwd` names a project rather than a conversation's worktree, which
-    /// is what the client sends for a conversation reporting no worktree at
-    /// all. A state, not a defect — the conversation has no Sandbox.
-    NoWorktree,
-    /// The `cwd` is not a path this module issues, or names a conversation this
-    /// viewer cannot be shown. Deliberately one variant: telling the two apart
-    /// on the wire would answer whether a Task id exists.
-    Unaddressable,
-    /// The conversation's Sandbox was not ready to be called at all — stopped,
-    /// still starting, or gone. This is the readiness gate refusing, before any
-    /// request is made.
-    NotRunning(SandboxError),
-    /// The Sandbox was ready and the request to it still failed: it refused the
-    /// request, or it never answered. Kept apart from [`Self::NotRunning`]
-    /// because the two send the person to different places — one waits for a
-    /// sandbox to come up, the other is a sandbox that is up and unreachable
-    /// from this backend, and telling the second it is "not running" sends them
-    /// looking in the wrong direction.
-    Sandbox(SandboxError),
-    Database(sqlx::Error),
-}
-
-impl From<sqlx::Error> for FileAccessError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
-    }
-}
-
-impl FileAccessError {
-    /// What the person in front of the client is told.
-    ///
-    /// The client squashes the failure and renders `message` verbatim in the
-    /// file panel, so this is user-facing text and not a log line. Causes stay
-    /// behind: they are logged once, where the frame is built.
-    pub fn message(&self) -> String {
-        match self {
-            Self::NoWorktree => "This conversation has no sandbox, so it has no files yet.".into(),
-            Self::Unaddressable => "This conversation's files are not available.".into(),
-            Self::NotRunning(_) => "The sandbox for this conversation is not running.".into(),
-            Self::Sandbox(SandboxError::NotReady(_)) => {
-                "The sandbox for this conversation did not answer.".into()
-            }
-            Self::Sandbox(SandboxError::NotFound(detail)) => {
-                format!("Not found in the sandbox workspace: {detail}")
-            }
-            Self::Sandbox(SandboxError::BadRequest(detail)) => {
-                format!("The sandbox refused the request: {detail}")
-            }
-            Self::Sandbox(_) => "The sandbox could not be reached.".into(),
-            Self::Database(_) => "This conversation's files could not be read.".into(),
-        }
-    }
-}
-
 /// One conversation's whole file tree, in the shape the contract's
 /// `projects.listEntries` returns.
 pub async fn list_entries(
@@ -124,19 +48,19 @@ pub async fn list_entries(
     sandboxes: &dyn SandboxConnector,
     viewer: &ScopeContext,
     cwd: &str,
-) -> Result<Value, FileAccessError> {
-    let task_id = addressed_conversation(conversations, viewer, cwd).await?;
+) -> Result<Value, WorkspaceAccessError> {
+    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     // Recursive, because the contract has no second call: the client is given
     // the whole tree once and expands it locally. This is the same shape
     // Moatless's own file view fetches.
     let files = sandboxes
         .sandbox_client(&task_id)
         .await
-        .map_err(FileAccessError::NotRunning)?
+        .map_err(WorkspaceAccessError::NotRunning)?
         .list_files(".", true, true)
         .await
         .map_err(|status| {
-            FileAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
+            WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
                 status,
                 "list_files",
             ))
@@ -181,19 +105,19 @@ pub async fn read_file(
     viewer: &ScopeContext,
     cwd: &str,
     relative_path: &str,
-) -> Result<Value, FileAccessError> {
-    let task_id = addressed_conversation(conversations, viewer, cwd).await?;
+) -> Result<Value, WorkspaceAccessError> {
+    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     let file = sandboxes
         .sandbox_client(&task_id)
         .await
-        .map_err(FileAccessError::NotRunning)?
+        .map_err(WorkspaceAccessError::NotRunning)?
         // Without the git overlay: the contract's result carries contents and
         // nothing else, so asking for a diff would only cost the Sandbox a
         // `git` invocation per opened file.
         .read_file(relative_path, false)
         .await
         .map_err(|status| {
-            FileAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
+            WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
                 status,
                 "read_file",
             ))
@@ -203,9 +127,9 @@ pub async fn read_file(
         // The Sandbox base64-encodes what it cannot decode as UTF-8. Returning
         // that as `contents` would put the encoding in the editor as if it were
         // the file, so this is refused in the contract's own terms instead.
-        return Err(FileAccessError::Sandbox(SandboxError::BadRequest(format!(
-            "{relative_path} is a binary file"
-        ))));
+        return Err(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
+            format!("{relative_path} is a binary file"),
+        )));
     }
 
     let byte_length = file.content.len();
@@ -233,43 +157,6 @@ fn truncate_on_char_boundary(contents: &str, max_bytes: usize) -> &str {
         end -= 1;
     }
     &contents[..end]
-}
-
-/// The conversation a `cwd` names, once this viewer is allowed to be told it
-/// exists.
-///
-/// Both filters the shell listing applies are applied again here, through the
-/// same read: a `cwd` is client-supplied, and the fact that one was issued to
-/// *somebody* says nothing about who is holding it now. Following is re-checked
-/// as well as access, so this stays exactly as wide as the sidebar it is
-/// reached from and no wider.
-async fn addressed_conversation(
-    conversations: &dyn ConversationDao,
-    viewer: &ScopeContext,
-    cwd: &str,
-) -> Result<String, FileAccessError> {
-    if projection::is_project_root(cwd) {
-        return Err(FileAccessError::NoWorktree);
-    }
-    let Some(task_id) = projection::task_id_from_cwd(cwd) else {
-        return Err(FileAccessError::Unaddressable);
-    };
-    let named = [task_id.to_string()];
-    let conversation = conversations
-        .list_followed_by_ids(viewer, &named)
-        .await?
-        .into_iter()
-        .next()
-        .ok_or(FileAccessError::Unaddressable)?;
-    // A Sandbox that was removed has had its working copy reclaimed, and this
-    // module reports no worktree for one — so a `cwd` naming it is a path the
-    // client held from before the removal.
-    match conversation.sandbox_desired_state {
-        Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {
-            Ok(conversation.task_id)
-        }
-        Some(SandboxDesiredState::Removed) | None => Err(FileAccessError::NoWorktree),
-    }
 }
 
 #[cfg(test)]
@@ -301,16 +188,6 @@ mod tests {
             assert_eq!(cut.len() % 3, 0, "{cap} cut inside a character");
         }
         assert_eq!(truncate_on_char_boundary(contents, 99), contents);
-    }
-
-    /// Both of these arrive as `NotReady`, and saying "not running" about the
-    /// second one is a lie the person cannot get past: their sandbox *is* up,
-    /// so waiting for it to start never resolves anything.
-    #[test]
-    fn a_sandbox_that_did_not_answer_is_not_a_sandbox_that_is_down() {
-        let down = FileAccessError::NotRunning(SandboxError::NotReady("t-1".into()));
-        let silent = FileAccessError::Sandbox(SandboxError::NotReady("list_files".into()));
-        assert_ne!(down.message(), silent.message());
     }
 
     /// One Sandbox, reached at a URL instead of by service name.
@@ -350,7 +227,7 @@ mod tests {
             turn_status: None,
             turn_started_at: None,
             turn_ended_at: None,
-            sandbox_desired_state: Some(SandboxDesiredState::Running),
+            sandbox_desired_state: Some(moatless_api_schemas::enums::SandboxDesiredState::Running),
             sandbox_stop_reason: None,
             sandbox_started_at: None,
             sandbox_updated_at: None,

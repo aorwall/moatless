@@ -77,11 +77,30 @@ pub struct GitRepo {
 
 // ─── Helper ──────────────────────────────────────────────────────
 
-async fn run_git(
+/// What a git invocation said, whatever it exited with.
+pub(super) struct GitOutput {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl GitOutput {
+    pub(super) fn succeeded(&self) -> bool {
+        self.exit_code == 0
+    }
+}
+
+/// Run a git command and keep its exit status.
+///
+/// A non-zero exit is an answer rather than an error for several of the
+/// commands here — `diff --no-index` reports "they differ" that way, and
+/// `rev-parse` reports "no such ref" — so the status rides along with the
+/// output instead of erasing it.
+pub(super) async fn run_git_capture(
     workspace_dir: &str,
     args: &[&str],
     timeout_secs: u64,
-) -> Result<String, GitError> {
+) -> Result<GitOutput, GitError> {
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
         Command::new("git")
@@ -94,20 +113,31 @@ async fn run_git(
     .await;
 
     match result {
-        Ok(Ok(output)) => {
-            if output.status.success() {
-                Ok(String::from_utf8_lossy(&output.stdout).to_string())
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(GitError::CommandFailed(format!(
-                    "git {} failed: {}",
-                    args.first().unwrap_or(&""),
-                    stderr.trim()
-                )))
-            }
-        }
+        Ok(Ok(output)) => Ok(GitOutput {
+            // A signalled git has no code; treat it as a failure that is not 0.
+            exit_code: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        }),
         Ok(Err(e)) => Err(GitError::CommandFailed(format!("Failed to spawn git: {e}"))),
         Err(_) => Err(GitError::Timeout),
+    }
+}
+
+async fn run_git(
+    workspace_dir: &str,
+    args: &[&str],
+    timeout_secs: u64,
+) -> Result<String, GitError> {
+    let output = run_git_capture(workspace_dir, args, timeout_secs).await?;
+    if output.succeeded() {
+        Ok(output.stdout)
+    } else {
+        Err(GitError::CommandFailed(format!(
+            "git {} failed: {}",
+            args.first().unwrap_or(&""),
+            output.stderr.trim()
+        )))
     }
 }
 

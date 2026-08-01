@@ -37,7 +37,9 @@ mod preview;
 pub mod preview_tabs;
 mod projection;
 mod providers;
+mod review;
 mod servers;
+pub mod workspace;
 
 pub use feed::{ShellFeed, ThreadFeed};
 
@@ -49,13 +51,13 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Extension, Path, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -69,10 +71,10 @@ use crate::task::dao::TaskDao;
 use crate::task_activities::{self, ConversationHead};
 use crate::task_listing::{self, EnvironmentIdentity, Resume};
 use crate::ui_rpc::dao::ConversationDao;
-use crate::ui_rpc::files::FileAccessError;
 use crate::ui_rpc::preview::{PreviewError, PreviewState};
 use crate::ui_rpc::preview_tabs::PreviewTabDao;
 use crate::ui_rpc::servers::{ServersError, ServersState};
+use crate::ui_rpc::workspace::WorkspaceAccessError;
 use crate::workspace::dao::WorkspaceDao;
 use moatless_backend_core::scope::ScopeContext;
 
@@ -97,6 +99,14 @@ const SHELL_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// is the shortest one at which an agent writing continuously does not turn a
 /// transcript into a delivery loop.
 const THREAD_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// How often an open conversation asks its Sandbox about its branch state.
+///
+/// Each pass is a gRPC round trip to a pod that runs `git` for it, so this is
+/// far longer than the two above: nothing on the screen is refreshed by it that
+/// the client is not already refetching on its own, and the panel that reads it
+/// most only needs it once, to pick which scope it opens on.
+const VCS_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Frames a subscription may have queued for the socket before it is dropped.
 ///
@@ -127,7 +137,10 @@ struct UiRpcConfig {
 enum AllowedOrigin {
     Exact(String),
     /// `prefix` is `<scheme>://`, `suffix` is `.<domain>`.
-    Subdomain { prefix: String, suffix: String },
+    Subdomain {
+        prefix: String,
+        suffix: String,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -542,12 +555,7 @@ pub async fn shell_snapshot(
         .list_readable_including(viewer, &referenced_workspace_ids)
         .await?;
     Ok(ShellSnapshot {
-        value: projection::shell_snapshot(
-            &workspaces,
-            &conversations,
-            model_defaults,
-            sequence,
-        ),
+        value: projection::shell_snapshot(&workspaces, &conversations, model_defaults, sequence),
         sequence,
         identity: head.identity,
     })
@@ -1045,7 +1053,11 @@ fn origin_allowed(headers: &HeaderMap, allowed_origins: &[AllowedOrigin]) -> boo
     headers
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|origin| allowed_origins.iter().any(|allowed| allowed.matches(origin)))
+        .is_some_and(|origin| {
+            allowed_origins
+                .iter()
+                .any(|allowed| allowed.matches(origin))
+        })
 }
 
 impl AllowedOrigin {
@@ -1459,22 +1471,67 @@ impl ProtocolSession {
                     "sourceControlProviders": []
                 }),
             )],
-            "vcs.listRefs" => vec![success_exit(
+            "vcs.listRefs" => {
+                let Some(cwd) = workspace_cwd(&payload) else {
+                    return vec![success_exit(&id, review::no_refs())];
+                };
+                match review::list_refs(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer_scope(identity),
+                    &review::RefRequest::from_payload(&cwd, &payload),
+                )
+                .await
+                {
+                    Ok(refs) => vec![success_exit(&id, refs)],
+                    // A conversation with no Sandbox to ask is not an error the
+                    // person should be shown; see [`review::no_refs`].
+                    Err(
+                        WorkspaceAccessError::NoWorktree
+                        | WorkspaceAccessError::Unaddressable
+                        | WorkspaceAccessError::NotRunning(_),
+                    ) => vec![success_exit(&id, review::no_refs())],
+                    Err(error) => vec![review_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
+            "review.getDiffPreview" => {
+                let Some(cwd) = workspace_cwd(&payload) else {
+                    return vec![review_failure_exit(
+                        &id,
+                        &tag,
+                        &WorkspaceAccessError::Unaddressable,
+                        identity,
+                    )];
+                };
+                match review::diff_preview(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer_scope(identity),
+                    &cwd,
+                    payload
+                        .get("baseRef")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|base| !base.is_empty()),
+                    payload
+                        .get("ignoreWhitespace")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                )
+                .await
+                {
+                    Ok(preview) => vec![success_exit(&id, preview)],
+                    Err(error) => vec![review_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
+            "preview.list" => preview_answer(
                 &id,
-                json!({
-                    "refs": [],
-                    "isRepo": false,
-                    "hasPrimaryRemote": false,
-                    "nextCursor": null,
-                    "totalCount": 0
-                }),
-            )],
-            "preview.list" => {
-                preview_answer(&id, preview::list(&state.preview, &viewer_scope(identity), &payload).await)
-            }
-            "preview.open" => {
-                preview_answer(&id, preview::open(&state.preview, &viewer_scope(identity), &payload).await)
-            }
+                preview::list(&state.preview, &viewer_scope(identity), &payload).await,
+            ),
+            "preview.open" => preview_answer(
+                &id,
+                preview::open(&state.preview, &viewer_scope(identity), &payload).await,
+            ),
             "preview.navigate" => preview_answer(
                 &id,
                 preview::navigate(&state.preview, &viewer_scope(identity), &payload).await,
@@ -1516,7 +1573,10 @@ impl ProtocolSession {
             "subscribeServerStatus" => {
                 let viewer = viewer_scope(identity);
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-                    return vec![failure_exit(&id, "subscribeServerStatus requires a threadId")];
+                    return vec![failure_exit(
+                        &id,
+                        "subscribeServerStatus requires a threadId",
+                    )];
                 };
                 let task_id = task_id.to_string();
                 // Seed from the same read the poller makes, so the panel has a
@@ -1568,7 +1628,7 @@ impl ProtocolSession {
                     return vec![file_failure_exit(
                         &id,
                         &tag,
-                        &FileAccessError::Unaddressable,
+                        &WorkspaceAccessError::Unaddressable,
                         identity,
                     )];
                 };
@@ -1595,7 +1655,7 @@ impl ProtocolSession {
                     return vec![file_failure_exit(
                         &id,
                         &tag,
-                        &FileAccessError::Unaddressable,
+                        &WorkspaceAccessError::Unaddressable,
                         identity,
                     )];
                 };
@@ -1814,11 +1874,75 @@ impl ProtocolSession {
                 ));
                 self.start_produced_stream(&id, None, producer)
             }
-            "subscribeVcsStatus"
-            | "subscribeTerminalEvents"
+            "subscribeVcsStatus" => {
+                // A `cwd` this surface does not address is not a failure here:
+                // the client opens this subscription for every thread it shows,
+                // including ones with no sandbox, and a stream that says nothing
+                // is what "there is no repository to report on" looks like.
+                let Some(cwd) = workspace_cwd(&payload) else {
+                    return self.start_stream(&id, None);
+                };
+                let producer = tokio::spawn(Self::watch_vcs_status(
+                    id.clone(),
+                    cwd,
+                    state.clone(),
+                    viewer_scope(identity),
+                    self.frames.clone(),
+                ));
+                self.start_produced_stream(&id, None, producer)
+            }
+            "subscribeTerminalEvents"
             | "subscribeTerminalMetadata"
             | "subscribeDiscoveredLocalServers" => self.start_stream(&id, None),
             _ => vec![unsupported_exit(&id, &tag)],
+        }
+    }
+
+    /// Report one conversation's branch state until its socket goes away.
+    ///
+    /// Polled rather than pushed: the state lives in a Sandbox's checkout,
+    /// which changes when an agent writes files and tells nobody. The interval
+    /// is long because of what reads it — the panel picks its opening scope
+    /// from `hasWorkingTreeChanges` and then reads patches through
+    /// `review.getDiffPreview`, which the client refetches on its own.
+    ///
+    /// A pass that cannot reach the Sandbox says nothing and waits for the next
+    /// one. Ending the stream would present a stopped or still-starting sandbox
+    /// — the ordinary state of most conversations — as a permanent answer the
+    /// client would then hold until it reconnects.
+    async fn watch_vcs_status(
+        request_id: RequestId,
+        cwd: String,
+        state: UiRpcState,
+        viewer: ScopeContext,
+        frames: mpsc::Sender<Value>,
+    ) {
+        let mut last_sent: Option<Value> = None;
+        loop {
+            if let Ok(snapshot) = review::status(
+                state.conversations.as_ref(),
+                state.sandboxes.as_ref(),
+                &viewer,
+                &cwd,
+            )
+            .await
+            {
+                // Re-sending an unchanged snapshot costs the client a rerender
+                // of every surface that reads git status, so only a change goes
+                // on the wire.
+                if last_sent.as_ref() != Some(&snapshot) {
+                    let chunk = json!({
+                        "_tag": "Chunk",
+                        "requestId": request_id.wire(),
+                        "values": [snapshot.clone()]
+                    });
+                    if frames.send(chunk).await.is_err() {
+                        return;
+                    }
+                    last_sent = Some(snapshot);
+                }
+            }
+            tokio::time::sleep(VCS_STATUS_POLL_INTERVAL).await;
         }
     }
 
@@ -2232,7 +2356,7 @@ fn typed_failure_exit(request_id: &RequestId, error: Value) -> Value {
 fn file_failure_exit(
     request_id: &RequestId,
     tag: &str,
-    error: &FileAccessError,
+    error: &WorkspaceAccessError,
     identity: &AuthIdentity,
 ) -> Value {
     let error_tag = match tag {
@@ -2240,24 +2364,67 @@ fn file_failure_exit(
         _ => "ProjectListEntriesError",
     };
     match error {
-        FileAccessError::Database(cause) => {
+        WorkspaceAccessError::Database(cause) => {
             error!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
         }
-        FileAccessError::Sandbox(cause) => {
+        WorkspaceAccessError::Sandbox(cause) => {
             warn!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
         }
         // A sandbox that is not up is the ordinary state of most conversations,
         // so this one is not a warning about the deployment.
-        FileAccessError::NotRunning(cause) => {
+        WorkspaceAccessError::NotRunning(cause) => {
             debug!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
         }
-        FileAccessError::NoWorktree | FileAccessError::Unaddressable => {
+        WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable => {
             debug!(?error, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
         }
     }
     typed_failure_exit(
         request_id,
         json!({ "_tag": error_tag, "message": error.message() }),
+    )
+}
+
+/// Why a review request could not be answered, as the failure its method
+/// declares.
+///
+/// `GitCommandError` is the one shape both methods' error unions carry, and the
+/// client renders its `message` — `Git command failed in {operation} ({cwd}):
+/// {detail}` — in the diff panel. A `Die` would reach the same panel as nothing
+/// but an unexpected server error, and refusing to show a diff is a normal
+/// outcome here: no sandbox, a stopped pod, a conversation this viewer cannot
+/// be told about.
+fn review_failure_exit(
+    request_id: &RequestId,
+    tag: &str,
+    error: &WorkspaceAccessError,
+    identity: &AuthIdentity,
+) -> Value {
+    match error {
+        WorkspaceAccessError::Database(cause) => {
+            error!(%cause, %tag, user_id = %identity.user_id, "T3 UI review request failed");
+        }
+        WorkspaceAccessError::Sandbox(cause) => {
+            warn!(%cause, %tag, user_id = %identity.user_id, "T3 UI review request failed");
+        }
+        // A sandbox that is not up is the ordinary state of most conversations,
+        // so this one is not a warning about the deployment.
+        WorkspaceAccessError::NotRunning(cause) => {
+            debug!(%cause, %tag, user_id = %identity.user_id, "T3 UI review request refused");
+        }
+        WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable => {
+            debug!(?error, %tag, user_id = %identity.user_id, "T3 UI review request refused");
+        }
+    }
+    typed_failure_exit(
+        request_id,
+        json!({
+            "_tag": "GitCommandError",
+            "operation": tag,
+            "command": "git",
+            "cwd": "",
+            "detail": error.message(),
+        }),
     )
 }
 
@@ -2383,7 +2550,8 @@ mod tests {
         async fn sandbox_client(
             &self,
             task_id: &str,
-        ) -> Result<crate::sandbox::client::SandboxClient, crate::sandbox::error::SandboxError> {
+        ) -> Result<crate::sandbox::client::SandboxClient, crate::sandbox::error::SandboxError>
+        {
             Err(unreachable(task_id))
         }
     }
@@ -2682,7 +2850,8 @@ mod tests {
             "a stream's chunks correlate by the same id its request carried"
         );
 
-        let interrupt = serde_json::to_vec(&json!({ "_tag": "Interrupt", "requestId": 4 })).unwrap();
+        let interrupt =
+            serde_json::to_vec(&json!({ "_tag": "Interrupt", "requestId": 4 })).unwrap();
         let output = session.handle_json(&interrupt, &state(), &viewer()).await;
         assert_eq!(output.frames[0]["_tag"], "Exit");
         assert_eq!(output.frames[0]["requestId"], json!(4));
@@ -2699,11 +2868,11 @@ mod tests {
             let output = session
                 .handle_json(&serde_json::to_vec(&frame).unwrap(), &state(), &viewer())
                 .await;
-            let defected = output
-                .frames
-                .iter()
-                .any(|frame| frame["_tag"] == "Defect");
-            assert!(!defected, "{tag} with a numeric id should parse, got {output:?}");
+            let defected = output.frames.iter().any(|frame| frame["_tag"] == "Defect");
+            assert!(
+                !defected,
+                "{tag} with a numeric id should parse, got {output:?}"
+            );
         }
     }
 
@@ -2768,8 +2937,10 @@ mod tests {
         );
     }
 
+    /// The client polls this for every conversation it holds, most of which
+    /// have no Sandbox running to ask.
     #[tokio::test]
-    async fn list_refs_reports_nominal_task_paths_as_not_a_repository() {
+    async fn list_refs_answers_a_conversation_with_no_sandbox_rather_than_failing() {
         let mut session = session();
         let output = session
             .handle_json(
@@ -2799,6 +2970,51 @@ mod tests {
                 "totalCount": 0
             })
         );
+    }
+
+    /// The diff panel is a surface the person opened on purpose, so a
+    /// conversation it cannot read says why — in the error type the method
+    /// declares, which is what the panel renders instead of a defect.
+    #[tokio::test]
+    async fn a_refused_diff_preview_fails_with_the_method_s_own_error() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request(
+                    "99",
+                    "review.getDiffPreview",
+                    json!({ "cwd": "/moatless/tasks/task-a", "ignoreWhitespace": true }),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+        let cause = &output.frames[0]["exit"]["cause"][0]["error"];
+        assert_eq!(cause["_tag"], "GitCommandError");
+        assert_eq!(cause["operation"], "review.getDiffPreview");
+        assert_eq!(
+            cause["detail"], "This conversation's workspace is not available.",
+            "a cwd the viewer's listing does not hold must not report whether the conversation exists"
+        );
+    }
+
+    /// Opened for every conversation the client shows, including the ones this
+    /// surface has no path to. A stream that says nothing is the answer there;
+    /// a failure would be one the client keeps.
+    #[tokio::test]
+    async fn a_vcs_status_subscription_without_an_addressable_cwd_simply_stays_quiet() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request("100", "subscribeVcsStatus", json!({ "cwd": "   " })),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert!(output.frames.is_empty(), "no chunk, and no failure either");
     }
 
     /// The composer is disabled while the provider list is empty
@@ -2842,7 +3058,11 @@ mod tests {
         let mut session = session();
         let state = state();
         let config = session
-            .handle_json(&request("1", "server.getConfig", json!({})), &state, &viewer())
+            .handle_json(
+                &request("1", "server.getConfig", json!({})),
+                &state,
+                &viewer(),
+            )
             .await;
         let refreshed = session
             .handle_json(
@@ -3019,7 +3239,11 @@ mod tests {
         let mut session = session();
         let output = session
             .handle_json(
-                &request("9", "server.reportClientActivity", json!({ "state": "active" })),
+                &request(
+                    "9",
+                    "server.reportClientActivity",
+                    json!({ "state": "active" }),
+                ),
                 &state(),
                 &viewer(),
             )
@@ -3159,7 +3383,7 @@ mod tests {
             assert_eq!(exit["cause"][0]["error"]["_tag"], error_tag);
             assert_eq!(
                 exit["cause"][0]["error"]["message"],
-                "This conversation has no sandbox, so it has no files yet.",
+                "This conversation has no sandbox, so it has no workspace yet.",
                 "a project root is the cwd a thread with no worktree sends"
             );
         }
@@ -3170,7 +3394,11 @@ mod tests {
     /// empty, so this is every conversation.
     #[tokio::test]
     async fn a_cwd_outside_the_viewer_s_listing_is_indistinguishable_from_an_unknown_one() {
-        for cwd in ["/moatless/tasks/task-a", "/somewhere/else", "/moatless/tasks/"] {
+        for cwd in [
+            "/moatless/tasks/task-a",
+            "/somewhere/else",
+            "/moatless/tasks/",
+        ] {
             let mut session = session();
             let output = session
                 .handle_json(
@@ -3183,7 +3411,7 @@ mod tests {
             assert_eq!(exit["cause"][0]["_tag"], "Fail", "{cwd}");
             assert_eq!(
                 exit["cause"][0]["error"]["message"],
-                "This conversation's files are not available.",
+                "This conversation's workspace is not available.",
                 "{cwd} must not report whether the conversation exists"
             );
         }
@@ -3202,7 +3430,9 @@ mod tests {
 
     #[test]
     fn a_ticket_holder_needs_no_origin_and_everyone_else_does() {
-        assert!(!origin_checked(Some(Extension(AuthMethod::WebSocketTicket))));
+        assert!(!origin_checked(Some(Extension(
+            AuthMethod::WebSocketTicket
+        ))));
         assert!(origin_checked(Some(Extension(AuthMethod::SessionCookie))));
         assert!(origin_checked(Some(Extension(AuthMethod::ApiKey))));
         // An upgrade the middleware never saw is treated as the cookie case.
@@ -3301,10 +3531,7 @@ mod tests {
                 body["issued_token_type"],
                 "urn:ietf:params:oauth:token-type:access_token"
             );
-            assert!(body["access_token"]
-                .as_str()
-                .unwrap()
-                .starts_with("mvk_"));
+            assert!(body["access_token"].as_str().unwrap().starts_with("mvk_"));
             // The overlap between what it asked for and what we have.
             assert_eq!(body["scope"], "orchestration:read relay:read");
             assert!(body["expires_in"].as_i64().unwrap() > 0);
@@ -3368,11 +3595,13 @@ mod tests {
                 verify_ws_ticket_jwt(body["ticket"].as_str().unwrap(), TEST_SECRET).unwrap();
             assert_eq!(claims.sub, viewer().user_id);
             // T3 decodes this as a `DateTimeUtc`, so it has to be an instant.
-            assert!(body["expiresAt"]
-                .as_str()
-                .unwrap()
-                .parse::<chrono::DateTime<Utc>>()
-                .is_ok());
+            assert!(
+                body["expiresAt"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<chrono::DateTime<Utc>>()
+                    .is_ok()
+            );
         }
 
         #[tokio::test]

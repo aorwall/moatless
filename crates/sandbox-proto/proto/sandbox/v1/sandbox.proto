@@ -306,6 +306,12 @@ service SandboxService {
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
   rpc SearchFilesByName(SearchFilesByNameRequest) returns (SearchFilesByNameResponse);
+
+  // Git review operations: the patch a person reads, the branch state behind
+  // it, and the refs they can pick to diff against.
+  rpc GetGitDiffPreview(GetGitDiffPreviewRequest) returns (GetGitDiffPreviewResponse);
+  rpc GetGitStatus(GetGitStatusRequest) returns (GetGitStatusResponse);
+  rpc ListGitRefs(ListGitRefsRequest) returns (ListGitRefsResponse);
 }
 
 message RefreshCredentialRequest {
@@ -537,4 +543,87 @@ message SearchFilesByNameResponse {
 message FileNameMatch {
   string path = 1;
   int32 matches = 2;
+}
+
+// ── Git review ───────────────────────────────────────────────────
+//
+// Two scopes a reviewer reads: what is not committed yet, and what this branch
+// has committed since it left its base. Both span every repository in the
+// workspace and carry workspace-relative paths, so a file named by a patch is
+// the same file the tree and read APIs name.
+//
+// Branch state and refs are per-repository namespaces — one HEAD, one set of
+// branch names — so they answer for the primary repository alone.
+
+message GetGitDiffPreviewRequest {
+  // Diff against this ref instead of each repository's detected base. A
+  // repository that cannot resolve it contributes nothing to the branch scope.
+  optional string base_ref = 1;
+  bool ignore_whitespace = 2;
+}
+
+message GetGitDiffPreviewResponse {
+  // Tracked and untracked changes that are not committed, as one patch.
+  string working_tree_diff = 1;
+  bool working_tree_truncated = 2;
+  // `base...HEAD` for every repository, as one patch.
+  string branch_diff = 3;
+  bool branch_truncated = 4;
+  // What each repository was compared against. Empty when the workspace holds
+  // no repository at all.
+  repeated GitRepoRange ranges = 5;
+}
+
+message GitRepoRange {
+  // Workspace-relative repository directory; empty when the workspace root is
+  // itself the repository.
+  string prefix = 1;
+  // The resolved base, empty when none could be resolved.
+  string base_ref = 2;
+  // The current branch, empty when detached or unborn.
+  string head_ref = 3;
+}
+
+message GetGitStatusRequest {}
+
+message GetGitStatusResponse {
+  bool is_repo = 1;
+  // Current branch; empty when detached or unborn.
+  string ref_name = 2;
+  bool is_default_ref = 3;
+  bool has_primary_remote = 4;
+  bool has_upstream = 5;
+  uint32 ahead_count = 6;
+  uint32 behind_count = 7;
+  // Reported separately from `working_tree_files` because a change can carry no
+  // line counts at all — an empty new file, a mode change, a binary rewrite.
+  bool has_working_tree_changes = 8;
+  repeated GitWorkingTreeFile working_tree_files = 9;
+}
+
+message GitWorkingTreeFile {
+  // Workspace-relative, matching the file tree.
+  string path = 1;
+  uint32 insertions = 2;
+  uint32 deletions = 3;
+}
+
+message ListGitRefsRequest {}
+
+message ListGitRefsResponse {
+  bool is_repo = 1;
+  bool has_primary_remote = 2;
+  repeated GitRef refs = 3;
+  // The repository has more refs than one response carries.
+  bool truncated = 4;
+}
+
+message GitRef {
+  // `main` for a local ref, `origin/main` for a remote-tracking one.
+  string name = 1;
+  bool is_remote = 2;
+  // Empty for local refs.
+  string remote_name = 3;
+  bool current = 4;
+  bool is_default = 5;
 }

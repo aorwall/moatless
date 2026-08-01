@@ -11,14 +11,16 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    scheduled_job_info, ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess,
-    BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
-    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetServerConfigRequest,
-    GetServerConfigResponse, ListFilesRequest, ListFilesResponse, NotifyMessagesRequest,
-    NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
-    RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest,
-    SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest, StopAgentResponse,
-    WakeupJobInfo, WriteFileRequest, WriteFileResponse,
+    ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess, BackgroundWatchJobInfo,
+    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
+    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
+    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse,
+    GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest, ListFilesResponse,
+    ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest, NotifyMessagesResponse,
+    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse,
+    ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride,
+    StopAgentRequest, StopAgentResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse,
+    scheduled_job_info,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
@@ -431,6 +433,100 @@ impl SandboxService for SandboxServiceImpl {
                 })
                 .collect(),
             total_matches,
+        }))
+    }
+
+    // ── Git review ───────────────────────────────────────────────
+    //
+    // Diffs span every repository in the workspace and carry
+    // workspace-relative paths, so a file a patch names is a file `ReadFile`
+    // can open. Branch state and refs answer for the primary repository, whose
+    // HEAD and ref namespace are the only ones those questions have.
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn get_git_diff_preview(
+        &self,
+        request: Request<GetGitDiffPreviewRequest>,
+    ) -> Result<Response<GetGitDiffPreviewResponse>, Status> {
+        let req = request.into_inner();
+        let preview = files::review::diff_preview(
+            &self.state.config.workspace_dir,
+            req.base_ref.as_deref(),
+            req.ignore_whitespace,
+        )
+        .await;
+
+        Ok(Response::new(GetGitDiffPreviewResponse {
+            working_tree_diff: preview.working_tree.diff,
+            working_tree_truncated: preview.working_tree.truncated,
+            branch_diff: preview.branch.diff,
+            branch_truncated: preview.branch.truncated,
+            ranges: preview
+                .ranges
+                .into_iter()
+                .map(|range| GitRepoRange {
+                    prefix: range.prefix,
+                    base_ref: range.base_ref.unwrap_or_default(),
+                    head_ref: range.head_ref.unwrap_or_default(),
+                })
+                .collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn get_git_status(
+        &self,
+        _request: Request<GetGitStatusRequest>,
+    ) -> Result<Response<GetGitStatusResponse>, Status> {
+        let status = files::review::status(
+            &self.state.config.workspace_dir,
+            &self.state.config.repo_dir,
+        )
+        .await;
+
+        Ok(Response::new(GetGitStatusResponse {
+            is_repo: status.is_repo,
+            ref_name: status.ref_name.unwrap_or_default(),
+            is_default_ref: status.is_default_ref,
+            has_primary_remote: status.has_primary_remote,
+            has_upstream: status.has_upstream,
+            ahead_count: status.ahead_count,
+            behind_count: status.behind_count,
+            has_working_tree_changes: status.has_working_tree_changes,
+            working_tree_files: status
+                .working_tree_files
+                .into_iter()
+                .map(|file| GitWorkingTreeFile {
+                    path: file.path,
+                    insertions: file.insertions,
+                    deletions: file.deletions,
+                })
+                .collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn list_git_refs(
+        &self,
+        _request: Request<ListGitRefsRequest>,
+    ) -> Result<Response<ListGitRefsResponse>, Status> {
+        let listing = files::review::list_refs(&self.state.config.repo_dir).await;
+
+        Ok(Response::new(ListGitRefsResponse {
+            is_repo: listing.is_repo,
+            has_primary_remote: listing.has_primary_remote,
+            refs: listing
+                .refs
+                .into_iter()
+                .map(|reference| GitRef {
+                    name: reference.name,
+                    is_remote: reference.is_remote,
+                    remote_name: reference.remote_name.unwrap_or_default(),
+                    current: reference.current,
+                    is_default: reference.is_default,
+                })
+                .collect(),
+            truncated: listing.truncated,
         }))
     }
 }
