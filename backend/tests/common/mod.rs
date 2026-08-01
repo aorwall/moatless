@@ -499,7 +499,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         request_id: None,
         timestamp: now,
         message_role: MessageRole::User,
-        message_content: serde_json::json!([{"type": "text", "text": "hello"}]),
+        message_text: Some("hello".to_string()),
         assistant_message_id: None,
         assistant_message_type: None,
         assistant_message_model: None,

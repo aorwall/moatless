@@ -17,9 +17,11 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use super::models::{MessageType, TaskMessage, TaskMessageContentBlock, TaskMessageContext};
+use super::models::{MessageType, TaskMessage, TaskMessageContext};
 use crate::db::DbPool;
-use crate::task_conversation;
+use crate::task_activities;
+use crate::task_activities::dao::{self as activities, Activity};
+use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
 use crate::task_listing;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
@@ -46,30 +48,48 @@ const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
 /// tool result is *not* treated as an answer here for the same reason — every
 /// tool the agent runs produces one, and the answers that matter are the
 /// person's own `user` rows.
-fn moves_a_listing_row(msg: &TaskMessage) -> bool {
+fn moves_a_listing_row(msg: &TaskMessage, conversation: &ConversationWrite) -> bool {
     if msg.message_type == MessageType::User {
         return true;
     }
-    let Some(blocks) = msg.message_content.as_array() else {
-        // `message_content` is `jsonb NOT NULL` with nothing constraining it to
-        // an array; a non-array carries no tool_use block to find.
-        return false;
-    };
-    blocks.iter().any(|block| {
-        block.get("type").and_then(serde_json::Value::as_str) == Some("tool_use")
-            && block
-                .get("name")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|name| INTERACTIVE_TOOLS.contains(&name))
+    // Read off the activities this write creates rather than out of a jsonb
+    // document. Same question, asked of the rows that now answer it.
+    conversation.activities.iter().any(|activity| {
+        activity.kind == ActivityKind::ToolCall && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
     })
 }
 
-/// A page of messages with their associated context rows and content blocks.
-type MessagePage = (
-    Vec<TaskMessage>,
-    Vec<TaskMessageContext>,
-    Vec<TaskMessageContentBlock>,
-);
+/// The next position inside one subagent's own transcript.
+///
+/// A subagent's activities never enter the Task's stream — they are assembled on
+/// demand behind the `Agent` call that spawned them — so they take nothing from
+/// the Task's counter. Within their own transcript they still need an order, and
+/// arrival order is the order they happened in.
+///
+/// A redelivered block does not move: `activities::upsert` deliberately leaves
+/// `position` alone. Two blocks racing can take the same number, which the
+/// reads break on `activity_id` — the block's own index, so the tie resolves the
+/// way the source ordered it.
+async fn next_subagent_position(
+    tx: &mut sqlx::PgConnection,
+    task_id: &str,
+    parent_uuid: &str,
+) -> Result<i64, sqlx::Error> {
+    let (position,): (i64,) = sqlx::query_as(
+        r#"SELECT COALESCE(MAX(position), 0) + 1 FROM task_activities
+           WHERE task_id = $1 AND parent_uuid = $2"#,
+    )
+    .bind(task_id)
+    .bind(parent_uuid)
+    .fetch_one(tx)
+    .await?;
+    Ok(position)
+}
+
+/// A page of Messages with their context rows and the activities that happened
+/// on them — the two ordered collections a conversation is, plus the context
+/// rows the frontend attaches to a user Message.
+pub type MessagePage = (Vec<TaskMessage>, Vec<TaskMessageContext>, Vec<Activity>);
 
 /// Raw tool-call row assembled from the assistant tool_use block plus any
 /// matching tool_result row(s). Keeps JSON values un-transformed so the handler
@@ -155,12 +175,47 @@ pub struct InterruptedTurn {
 pub trait MessageDao: Send + Sync {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error>;
 
+    /// Write a Message and everything its content array changed, in one
+    /// transaction. A reader never sees one without the other.
     async fn append(
         &self,
         msg: &TaskMessage,
         contexts: &[TaskMessageContext],
-        content_blocks: &[TaskMessageContentBlock],
+        conversation: &ConversationWrite,
     ) -> Result<i32, sqlx::Error>;
+
+    /// Write what a turn *did* when the turn said nothing.
+    ///
+    /// A Message row exists when somebody said something, so a turn that only
+    /// called tools — and a carrier row that only relays a result — has none to
+    /// hang its activities off. `message_uuid` is still what the conversation
+    /// change names: for the tool-result case it is the calling Message, which
+    /// is the row a reader will see move.
+    async fn append_activities(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+        conversation: &ConversationWrite,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Write a Sandbox status change or error as an activity, unless it restates
+    /// the one before it. Returns whether a row was written.
+    async fn record_sandbox_activity(
+        &self,
+        activity: &crate::task_activities::mapping::ActivityRow,
+    ) -> Result<bool, sqlx::Error>;
+
+    /// The context rows attached to a set of Messages, keyed by
+    /// `task_message_id`.
+    ///
+    /// The preview URL and the selected element a person sent with a message.
+    /// They are persisted once, on the way in, and rebuilt into the agent's view
+    /// of the message on the way out — which is what this read is for.
+    async fn get_contexts_for_messages(
+        &self,
+        task_id: &str,
+        message_ids: &[i32],
+    ) -> Result<HashMap<i32, Vec<TaskMessageContext>>, sqlx::Error>;
 
     /// Look up a single message by its public uuid. Returns `None` when no
     /// row matches.
@@ -276,6 +331,18 @@ pub trait MessageDao: Send + Sync {
         source_name: Option<&'a str>,
     ) -> Result<bool, sqlx::Error>;
 
+    /// Claim, on the call that made it, what that call created on the other
+    /// side. The Message twin of this writes to a row that a turn which only ran
+    /// the command never created; the call always has one.
+    async fn claim_activity_external_source<'a>(
+        &self,
+        task_id: &'a str,
+        tool_use_id: &'a str,
+        external_id: &'a str,
+        provider: &'a str,
+        source_name: Option<&'a str>,
+    ) -> Result<bool, sqlx::Error>;
+
     async fn has_external_event_id(
         &self,
         task_id: &str,
@@ -314,28 +381,24 @@ pub trait MessageDao: Send + Sync {
         limit: i32,
     ) -> Result<MessagePage, sqlx::Error>;
 
-    /// Load exactly the rows needed to re-assemble the top-level Message
-    /// affected by a change to `message_uuid`, together with the `uuid` of the
-    /// Message the derived upsert should target (the seam's **affected-parent
-    /// resolution** and its **dedicated affected-Message loader**).
+    /// Load exactly the rows needed to re-assemble the Message affected by a
+    /// change to `message_uuid`, together with the `uuid` the derived upsert
+    /// should target.
     ///
-    /// When `message_uuid` names a folded row (a `tool_result`/system row
-    /// inlined into the assistant Message that called it), the target is that
-    /// parent assistant Message, loaded together with all of its `tool_result`
-    /// siblings so the transform inlines them. A standalone Message targets
-    /// itself. Returns `None` for subagent rows (`parent_uuid` set — those ride
-    /// the progress path), when the parent is not resolvable yet, or when the
-    /// uuid is unknown.
+    /// The named uuid *is* the target — no "affected parent" is resolved here. A
+    /// result settles the call's own activity, and the writer resolves the anchor
+    /// before it commits, so a change naming a carrier row is redirected once, on
+    /// the way in.
+    ///
+    /// Returns `None` for a subagent row (`parent_uuid` set — those ride the
+    /// progress path), and for a uuid this Task has neither prose nor activity
+    /// under.
     async fn get_message_for_assembly(
         &self,
         task_id: &str,
         message_uuid: &str,
     ) -> Result<Option<(MessagePage, String)>, sqlx::Error>;
 
-    /// Aggregate subagent activity for a set of `Agent` tool-use ids: the
-    /// per-id message count and summed assistant token usage, computed in one
-    /// `GROUP BY parent_uuid`. Used to inject `subagentSummary` onto `Agent`
-    /// content blocks for both the read path and the live top-level emit.
     async fn get_subagent_aggregates(
         &self,
         task_id: &str,
@@ -375,14 +438,6 @@ pub trait MessageDao: Send + Sync {
         task_id: &str,
     ) -> Result<Option<InterruptedTurn>, sqlx::Error>;
 
-    /// Insert a synthetic `Result` row containing `text` at the supplied turn
-    /// number to mark an interrupted run as abandoned. Returns the new row id.
-    async fn insert_aborted_result(
-        &self,
-        task_id: &str,
-        turn_number: i32,
-        text: &str,
-    ) -> Result<i32, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MessageDao`].
@@ -391,7 +446,7 @@ pub struct PgMessageDao(pub DbPool);
 #[async_trait]
 impl MessageDao for PgMessageDao {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error> {
-        let (messages, contexts, blocks) = tokio::try_join!(
+        let (messages, contexts, activities) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessage>(
                 r#"SELECT * FROM task_messages
                 WHERE task_id = $1
@@ -407,27 +462,17 @@ impl MessageDao for PgMessageDao {
             )
             .bind(task_id)
             .fetch_all(&self.0),
-            sqlx::query_as::<_, TaskMessageContentBlock>(
-                r#"SELECT id, task_message_id, sort_order, block_type,
-                    show_in_ui, text_content, tool_use_id,
-                    tool_result_content, tool_result_is_error,
-                    image_media_type, image_data, created_at
-                FROM task_message_content_blocks
-                WHERE task_id = $1
-                ORDER BY task_message_id, sort_order"#,
-            )
-            .bind(task_id)
-            .fetch_all(&self.0),
+            task_activities::dao::for_task(&self.0, task_id),
         )?;
 
-        Ok((messages, contexts, blocks))
+        Ok((messages, contexts, activities))
     }
 
     async fn append(
         &self,
         msg: &TaskMessage,
         contexts: &[TaskMessageContext],
-        content_blocks: &[TaskMessageContentBlock],
+        conversation: &ConversationWrite,
     ) -> Result<i32, sqlx::Error> {
         let mut tx = self.0.begin().await?;
 
@@ -435,7 +480,7 @@ impl MessageDao for PgMessageDao {
             r#"INSERT INTO task_messages (
                 task_id, uuid, message_type, user_type, parent_uuid,
                 is_sidechain, cwd, session_id, turn_number, version,
-                git_branch, request_id, timestamp, message_role, message_content,
+                git_branch, request_id, timestamp, message_role, message_text,
                 assistant_message_id, assistant_message_type, assistant_message_model,
                 assistant_stop_reason, assistant_stop_sequence,
                 assistant_usage_input_tokens, assistant_usage_output_tokens,
@@ -455,7 +500,11 @@ impl MessageDao for PgMessageDao {
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
-                message_content = EXCLUDED.message_content,
+                -- Prose is spliced below, at each block's own index. A whole
+                -- string arriving here belongs to a caller that wrote its
+                -- Message in one piece, and must not blank out a Message the
+                -- per-block path is still assembling.
+                message_text = COALESCE(EXCLUDED.message_text, task_messages.message_text),
                 agent_session_id = COALESCE(EXCLUDED.agent_session_id, task_messages.agent_session_id),
                 will_not_resume = COALESCE(EXCLUDED.will_not_resume, task_messages.will_not_resume),
                 run_metrics = COALESCE(EXCLUDED.run_metrics, task_messages.run_metrics),
@@ -485,7 +534,7 @@ impl MessageDao for PgMessageDao {
         .bind(&msg.request_id)
         .bind(&msg.timestamp)
         .bind(msg.message_role)
-        .bind(&msg.message_content)
+        .bind(&msg.message_text)
         .bind(&msg.assistant_message_id)
         .bind(&msg.assistant_message_type)
         .bind(&msg.assistant_message_model)
@@ -529,12 +578,6 @@ impl MessageDao for PgMessageDao {
                 .execute(&mut *tx)
                 .await?;
         }
-        if !content_blocks.is_empty() {
-            sqlx::query("DELETE FROM task_message_content_blocks WHERE task_message_id = $1")
-                .bind(message_id)
-                .execute(&mut *tx)
-                .await?;
-        }
 
         for ctx in contexts {
             sqlx::query(
@@ -550,33 +593,73 @@ impl MessageDao for PgMessageDao {
             .await?;
         }
 
-        for block in content_blocks {
+        // Prose, spliced at each block's own index.
+        //
+        // `message_text_parts[i]` is subscripted assignment, which enlarges the
+        // array — and creates it when the column is NULL — so an out-of-order or
+        // redelivered text block lands in the same slot either way. That is the
+        // idempotency the jsonb splice this replaces used to provide, and it is
+        // why an append would not do. PostgreSQL subscripts from 1.
+        for part in &conversation.text {
+            sqlx::query("UPDATE task_messages SET message_text_parts[$2] = $3 WHERE id = $1")
+                .bind(message_id)
+                .bind(i32::try_from(part.block_index).unwrap_or(i32::MAX) + 1)
+                .bind(&part.text)
+                .execute(&mut *tx)
+                .await?;
+        }
+        if !conversation.text.is_empty() {
+            // `array_to_string` skips NULL holes, which is what the slots for
+            // blocks that are not prose are. The separator is the blank line
+            // markdown needs between paragraphs — what `push_paragraph` and the
+            // per-block render this replaces both produced.
             sqlx::query(
-                r#"INSERT INTO task_message_content_blocks (
-                    task_message_id, task_id, sort_order, block_type, show_in_ui,
-                    text_content, tool_use_id, tool_result_content, tool_result_is_error,
-                    image_media_type, image_data
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+                r#"UPDATE task_messages
+                      SET message_text = array_to_string(message_text_parts, E'\n\n')
+                    WHERE id = $1"#,
             )
             .bind(message_id)
-            .bind(&msg.task_id)
-            .bind(block.sort_order)
-            .bind(block.block_type)
-            .bind(block.show_in_ui)
-            .bind(&block.text_content)
-            .bind(&block.tool_use_id)
-            .bind(&block.tool_result_content)
-            .bind(block.tool_result_is_error)
-            .bind(&block.image_media_type)
-            .bind(&block.image_data)
             .execute(&mut *tx)
             .await?;
         }
 
-        // Every write to a Message a conversation shows is a change to that
-        // conversation — including the in-place merges that assemble one Message
-        // from its blocks, which move no row count and no id and are otherwise
-        // undetectable from outside this transaction.
+        // The conversation's position, allocated once for the Message and every
+        // activity that happened on it, so they interleave in one stream.
+        let position = match msg.parent_uuid.as_deref() {
+            None => {
+                task_activities::record_message_change(&mut tx, &msg.task_id, &msg.uuid).await?
+            }
+            // A subagent's rows are never in the Task's own stream, so they
+            // allocate nothing from its counter — see the note below on why they
+            // record no change. They still need a position to sort by within
+            // their own transcript.
+            Some(parent_uuid) => {
+                next_subagent_position(&mut tx, &msg.task_id, parent_uuid).await?
+            }
+        };
+
+        for activity in &conversation.activities {
+            task_activities::dao::upsert(&mut tx, position, activity).await?;
+        }
+        for outcome in &conversation.outcomes {
+            task_activities::dao::settle(&mut tx, outcome).await?;
+        }
+        if let Some(usage) = conversation.usage {
+            task_activities::dao::admit_usage(
+                &mut tx,
+                &msg.task_id,
+                &msg.uuid,
+                msg.parent_uuid.as_deref(),
+                usage,
+            )
+            .await?;
+        }
+
+        // The position above *is* that record. Every write to a Message a
+        // conversation shows is a change to that conversation — including the
+        // in-place merges that assemble one Message from its blocks, which move
+        // no row count and no id and are otherwise undetectable from outside
+        // this transaction.
         //
         // Subagent rows are excluded because no transcript reads them: they are
         // assembled on demand behind the tool call that spawned them, and they
@@ -586,19 +669,110 @@ impl MessageDao for PgMessageDao {
         // Before the shell's allocator and after every `task_messages` write,
         // per `record_message_change`'s ordering rule and `record_change`'s
         // "call this last".
-        if msg.parent_uuid.is_none() {
-            task_conversation::record_message_change(&mut tx, &msg.task_id, &msg.uuid).await?;
-        }
 
         // A person writing, or the agent asking, is a listing change. Last,
         // after every `task_messages` write above — `record_change`'s "call this
         // last", and this is the busiest transaction that allocates.
-        if moves_a_listing_row(msg) {
+        if moves_a_listing_row(msg, conversation) {
             task_listing::record_change(&mut tx, &msg.task_id).await?;
         }
 
         tx.commit().await?;
         Ok(message_id)
+    }
+
+    async fn append_activities(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+        conversation: &ConversationWrite,
+    ) -> Result<(), sqlx::Error> {
+        if conversation.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.0.begin().await?;
+
+        // A subagent's activities are never in the Task's own stream, so they
+        // allocate nothing from its counter — the same exclusion `append` makes,
+        // and for the same reason: they are assembled on demand behind the call
+        // that spawned them. They still need a position to sort by within their
+        // own transcript, and arrival order is the order they happened in.
+        let parent_uuid = conversation
+            .activities
+            .iter()
+            .find_map(|activity| activity.parent_uuid.as_deref());
+        let position = match parent_uuid {
+            Some(parent_uuid) => next_subagent_position(&mut tx, task_id, parent_uuid).await?,
+            None => task_activities::record_message_change(&mut tx, task_id, message_uuid).await?,
+        };
+
+        for activity in &conversation.activities {
+            task_activities::dao::upsert(&mut tx, position, activity).await?;
+        }
+        for outcome in &conversation.outcomes {
+            task_activities::dao::settle(&mut tx, outcome).await?;
+        }
+        if let Some(usage) = conversation.usage {
+            task_activities::dao::admit_usage(
+                &mut tx,
+                task_id,
+                message_uuid,
+                parent_uuid,
+                usage,
+            )
+            .await?;
+        }
+
+        if conversation.activities.iter().any(|activity| {
+            activity.kind == ActivityKind::ToolCall
+                && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
+        }) {
+            task_listing::record_change(&mut tx, task_id).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn record_sandbox_activity(
+        &self,
+        activity: &crate::task_activities::mapping::ActivityRow,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        // `record_session_change`, not `record_message_change`: a Sandbox
+        // activity happened on no Message, and naming one would send a reader to
+        // fetch a row that has nothing to do with it.
+        let position = task_activities::record_session_change(&mut tx, &activity.task_id).await?;
+        let written = task_activities::dao::record_sandbox(&mut tx, position, activity)
+            .await?;
+        tx.commit().await?;
+        Ok(written)
+    }
+
+    async fn get_contexts_for_messages(
+        &self,
+        task_id: &str,
+        message_ids: &[i32],
+    ) -> Result<HashMap<i32, Vec<TaskMessageContext>>, sqlx::Error> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let rows = sqlx::query_as::<_, TaskMessageContext>(
+            r#"SELECT id, task_message_id, type, reference_id, data, created_at
+               FROM task_message_contexts
+               WHERE task_id = $1 AND task_message_id = ANY($2)
+               ORDER BY id"#,
+        )
+        .bind(task_id)
+        .bind(message_ids)
+        .fetch_all(&self.0)
+        .await?;
+
+        let mut by_message: HashMap<i32, Vec<TaskMessageContext>> = HashMap::new();
+        for row in rows {
+            by_message.entry(row.task_message_id).or_default().push(row);
+        }
+        Ok(by_message)
     }
 
     async fn find_by_uuid(&self, uuid: &str) -> Result<Option<TaskMessage>, sqlx::Error> {
@@ -874,18 +1048,14 @@ impl MessageDao for PgMessageDao {
                        WHERE task_id = $1
                          AND turn_number = $2
                          AND message_type <> 'user'
+                         -- An empty assistant placeholder: a row that stopped
+                         -- for no stated reason and said nothing. Prose is the
+                         -- row itself, so an empty one is a row with no prose
+                         -- on it.
                          AND NOT (
                            message_type = 'assistant'
                            AND assistant_stop_reason IS NULL
-                           AND COALESCE(
-                             jsonb_array_length(
-                               CASE
-                                 WHEN jsonb_typeof(message_content) = 'array' THEN message_content
-                                 ELSE '[]'::jsonb
-                               END
-                             ),
-                             0
-                           ) = 0
+                           AND COALESCE(message_text, '') = ''
                          )
                      ) AS has_substantive_non_user,
                      COALESCE((
@@ -974,23 +1144,32 @@ impl MessageDao for PgMessageDao {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn claim_activity_external_source<'a>(
+        &self,
+        task_id: &'a str,
+        tool_use_id: &'a str,
+        external_id: &'a str,
+        provider: &'a str,
+        source_name: Option<&'a str>,
+    ) -> Result<bool, sqlx::Error> {
+        activities::claim_external(
+            &self.0,
+            task_id,
+            tool_use_id,
+            external_id,
+            provider,
+            source_name,
+        )
+        .await
+    }
+
     async fn has_external_event_id(
         &self,
         task_id: &str,
         external_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let row: (bool,) = sqlx::query_as(
-            r#"SELECT EXISTS(
-                SELECT 1 FROM task_messages
-                WHERE task_id = $1 AND external_event_id = $2
-            )"#,
-        )
-        .bind(task_id)
-        .bind(external_id)
-        .fetch_one(&self.0)
-        .await?;
-
-        Ok(row.0)
+        self.has_any_external_event_id(task_id, std::slice::from_ref(&external_id.to_string()))
+            .await
     }
 
     async fn has_any_external_event_id(
@@ -1012,11 +1191,16 @@ impl MessageDao for PgMessageDao {
         .fetch_one(&self.0)
         .await?;
 
-        Ok(row.0)
+        // An id claimed by a call rather than by a Message: an outbound comment
+        // whose turn said nothing and therefore wrote no Message row.
+        if row.0 {
+            return Ok(true);
+        }
+        activities::claims_any_external(&self.0, task_id, external_ids).await
     }
 
     async fn get_external_event_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(String,)> = sqlx::query_as(
+        let mut ids: Vec<String> = sqlx::query_scalar(
             r#"SELECT external_event_id FROM task_messages
                WHERE task_id = $1 AND external_event_id IS NOT NULL"#,
         )
@@ -1024,7 +1208,8 @@ impl MessageDao for PgMessageDao {
         .fetch_all(&self.0)
         .await?;
 
-        Ok(rows.into_iter().map(|r| r.0).collect())
+        ids.extend(activities::external_claims(&self.0, task_id).await?);
+        Ok(ids)
     }
 
     async fn find_task_id_by_any_external_event_id(
@@ -1035,7 +1220,7 @@ impl MessageDao for PgMessageDao {
             return Ok(None);
         }
 
-        sqlx::query_scalar::<_, String>(
+        let by_message = sqlx::query_scalar::<_, String>(
             r#"SELECT task_id
                FROM task_messages
                WHERE external_event_id = ANY($1)
@@ -1044,7 +1229,12 @@ impl MessageDao for PgMessageDao {
         )
         .bind(external_ids)
         .fetch_optional(&self.0)
-        .await
+        .await?;
+
+        match by_message {
+            Some(task_id) => Ok(Some(task_id)),
+            None => activities::task_claiming_external(&self.0, external_ids).await,
+        }
     }
 
     async fn get_paginated(
@@ -1076,7 +1266,14 @@ impl MessageDao for PgMessageDao {
 
         let message_ids: Vec<i32> = messages.iter().map(|m| m.id).collect();
 
-        let (contexts, blocks) = tokio::try_join!(
+        // Activities are fetched by when they happened, not by the Messages
+        // named in this page. A turn that only called tools said nothing and has
+        // no Message row to be named by, and its calls are exactly what this
+        // page has to show — so the window is "everything from the oldest
+        // Message on this page onwards".
+        let since = messages.first().and_then(|m| m.created_at);
+
+        let (contexts, activities) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessageContext>(
                 r#"SELECT id, task_message_id, type, reference_id, data, created_at
                    FROM task_message_contexts
@@ -1086,21 +1283,10 @@ impl MessageDao for PgMessageDao {
             .bind(task_id)
             .bind(&message_ids)
             .fetch_all(&self.0),
-            sqlx::query_as::<_, TaskMessageContentBlock>(
-                r#"SELECT id, task_message_id, sort_order, block_type,
-                       show_in_ui, text_content, tool_use_id,
-                       tool_result_content, tool_result_is_error,
-                       image_media_type, image_data, created_at
-                   FROM task_message_content_blocks
-                   WHERE task_id = $1 AND task_message_id = ANY($2)
-                   ORDER BY task_message_id, sort_order"#,
-            )
-            .bind(task_id)
-            .bind(&message_ids)
-            .fetch_all(&self.0),
+            task_activities::dao::for_task_since(&self.0, task_id, since),
         )?;
 
-        Ok((messages, contexts, blocks))
+        Ok((messages, contexts, activities))
     }
 
     async fn get_message_for_assembly(
@@ -1108,80 +1294,19 @@ impl MessageDao for PgMessageDao {
         task_id: &str,
         message_uuid: &str,
     ) -> Result<Option<(MessagePage, String)>, sqlx::Error> {
-        // 1. Load the changed row. Subagent rows (parent_uuid set) never upsert
-        //    a top-level Message — their activity rides `subagentProgress`.
-        let Some(changed) = self.find_by_uuid(message_uuid).await? else {
-            return Ok(None);
-        };
-        if changed.task_id != task_id || changed.parent_uuid.is_some() {
-            return Ok(None);
-        }
+        let changed = self.find_by_uuid(message_uuid).await?;
 
-        // 2. Resolve the anchor Message uuid via the shared pure rule: the
-        //    parent assistant when the changed row folds (carries tool_result
-        //    blocks), else the row itself. Load the candidate parent(s) that
-        //    declare a folded tool_use id, then let the seam pick.
-        let folded = super::transform::tool_result_ids(&changed.message_content);
-        let anchor_uuid = if let Some(tool_use_id) = folded.first() {
-            let mut candidates = vec![changed.clone()];
-            let parents = sqlx::query_as::<_, TaskMessage>(
-                r#"SELECT * FROM task_messages
-                   WHERE task_id = $1
-                     AND parent_uuid IS NULL
-                     AND message_content @> jsonb_build_array(
-                           jsonb_build_object('id', $2::text, 'type', 'tool_use')
-                         )
-                   ORDER BY id DESC
-                   LIMIT 1"#,
-            )
-            .bind(task_id)
-            .bind(tool_use_id)
-            .fetch_all(&self.0)
-            .await?;
-            candidates.extend(parents);
-            match super::transform::resolve_affected_parent_uuid(&candidates, &changed.uuid) {
-                Some(uuid) => uuid,
-                // Parent not present yet (or the folded row belongs to a
-                // subagent Agent call): the read path hydrates on next open.
-                None => return Ok(None),
+        // A subagent's rows never upsert a top-level Message: its progress rides
+        // `subagentProgress` instead.
+        if let Some(row) = &changed {
+            if row.task_id != task_id || row.parent_uuid.is_some() {
+                return Ok(None);
             }
-        } else {
-            changed.uuid.clone()
-        };
-
-        // 3. Load the anchor row and its declared tool_use ids.
-        let Some(anchor) = self.find_by_uuid(&anchor_uuid).await? else {
-            return Ok(None);
-        };
-        let anchor_tool_ids = super::transform::tool_use_ids(&anchor.message_content);
-
-        // 4. Fetch the anchor's folded tool_result siblings (top-level only)
-        //    alongside it, so the transform inlines every result present so far.
-        let mut messages = vec![anchor];
-        if !anchor_tool_ids.is_empty() {
-            let siblings = sqlx::query_as::<_, TaskMessage>(
-                r#"SELECT m.* FROM task_messages m
-                   WHERE m.task_id = $1
-                     AND m.parent_uuid IS NULL
-                     AND m.uuid <> $2
-                     AND EXISTS (
-                       SELECT 1 FROM task_message_content_blocks b
-                       WHERE b.task_message_id = m.id
-                         AND b.tool_use_id = ANY($3)
-                     )
-                   ORDER BY m.timestamp, m.id"#,
-            )
-            .bind(task_id)
-            .bind(&anchor_uuid)
-            .bind(&anchor_tool_ids)
-            .fetch_all(&self.0)
-            .await?;
-            messages.extend(siblings);
         }
-        messages.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then(a.id.cmp(&b.id)));
 
-        let message_ids: Vec<i32> = messages.iter().map(|m| m.id).collect();
-        let (contexts, blocks) = tokio::try_join!(
+        let message_ids: Vec<i32> = changed.iter().map(|m| m.id).collect();
+        let named = [message_uuid.to_string()];
+        let (contexts, activities) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessageContext>(
                 r#"SELECT id, task_message_id, type, reference_id, data, created_at
                    FROM task_message_contexts
@@ -1191,21 +1316,20 @@ impl MessageDao for PgMessageDao {
             .bind(task_id)
             .bind(&message_ids)
             .fetch_all(&self.0),
-            sqlx::query_as::<_, TaskMessageContentBlock>(
-                r#"SELECT id, task_message_id, sort_order, block_type,
-                       show_in_ui, text_content, tool_use_id,
-                       tool_result_content, tool_result_is_error,
-                       image_media_type, image_data, created_at
-                   FROM task_message_content_blocks
-                   WHERE task_id = $1 AND task_message_id = ANY($2)
-                   ORDER BY task_message_id, sort_order"#,
-            )
-            .bind(task_id)
-            .bind(&message_ids)
-            .fetch_all(&self.0),
+            task_activities::dao::for_messages(&self.0, task_id, &named),
         )?;
 
-        Ok(Some(((messages, contexts, blocks), anchor_uuid)))
+        // Neither prose nor activity under this uuid: a change naming a Message
+        // this Task does not have.
+        if changed.is_none() && activities.is_empty() {
+            return Ok(None);
+        }
+
+        let messages: Vec<TaskMessage> = changed.into_iter().collect();
+        Ok(Some((
+            (messages, contexts, activities),
+            message_uuid.to_string(),
+        )))
     }
 
     async fn get_subagent_aggregates(
@@ -1216,14 +1340,16 @@ impl MessageDao for PgMessageDao {
         if tool_use_ids.is_empty() {
             return Ok(vec![]);
         }
+        // Over `task_message_usage`, not `task_messages`. The tokens a subagent
+        // spent are reported almost entirely on turns that only called tools —
+        // turns that said nothing and so have no Message row to sum. Usage is
+        // admitted against the Message's uuid instead, which is what makes the
+        // count survive the row it was reported on.
         sqlx::query_as::<_, SubagentAggregate>(
             r#"SELECT parent_uuid,
                       COUNT(*) AS message_count,
-                      COALESCE(SUM(
-                        COALESCE(assistant_usage_input_tokens, 0)
-                        + COALESCE(assistant_usage_output_tokens, 0)
-                      ), 0) AS tokens
-               FROM task_messages
+                      COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
+               FROM task_message_usage
                WHERE task_id = $1 AND parent_uuid = ANY($2)
                GROUP BY parent_uuid"#,
         )
@@ -1253,7 +1379,7 @@ impl MessageDao for PgMessageDao {
         }
 
         let message_ids: Vec<i32> = messages.iter().map(|m| m.id).collect();
-        let (contexts, blocks) = tokio::try_join!(
+        let (contexts, activities) = tokio::try_join!(
             sqlx::query_as::<_, TaskMessageContext>(
                 r#"SELECT id, task_message_id, type, reference_id, data, created_at
                    FROM task_message_contexts
@@ -1263,21 +1389,10 @@ impl MessageDao for PgMessageDao {
             .bind(task_id)
             .bind(&message_ids)
             .fetch_all(&self.0),
-            sqlx::query_as::<_, TaskMessageContentBlock>(
-                r#"SELECT id, task_message_id, sort_order, block_type,
-                       show_in_ui, text_content, tool_use_id,
-                       tool_result_content, tool_result_is_error,
-                       image_media_type, image_data, created_at
-                   FROM task_message_content_blocks
-                   WHERE task_id = $1 AND task_message_id = ANY($2)
-                   ORDER BY task_message_id, sort_order"#,
-            )
-            .bind(task_id)
-            .bind(&message_ids)
-            .fetch_all(&self.0),
+            task_activities::dao::for_subagent(&self.0, task_id, tool_use_id),
         )?;
 
-        Ok((messages, contexts, blocks))
+        Ok((messages, contexts, activities))
     }
 
     async fn find_tool_call(
@@ -1285,65 +1400,29 @@ impl MessageDao for PgMessageDao {
         task_id: &str,
         tool_use_id: &str,
     ) -> Result<Option<ToolCallRow>, sqlx::Error> {
-        // 1. Find the assistant message_content array containing the tool_use block.
-        let assistant_row: Option<(serde_json::Value, String)> = sqlx::query_as(
-            r#"SELECT message_content, uuid AS parent_message_uuid
-               FROM task_messages
-               WHERE task_id = $1
-                 AND message_content @> jsonb_build_array(
-                       jsonb_build_object('id', $2::text, 'type', 'tool_use')
-                     )
-               ORDER BY id DESC
-               LIMIT 1"#,
-        )
-        .bind(task_id)
-        .bind(tool_use_id)
-        .fetch_optional(&self.0)
-        .await?;
-
-        let Some((assistant_content, parent_message_uuid)) = assistant_row else {
+        // One row, found by an index: the call and its outcome are the same row,
+        // so there is no second lookup for whichever later Message carried the
+        // result.
+        let Some(activity) =
+            task_activities::dao::find_tool_call(&self.0, task_id, tool_use_id).await?
+        else {
             return Ok(None);
-        };
-
-        let (tool_name, tool_input) = extract_tool_use_block(&assistant_content, tool_use_id)
-            .unwrap_or_else(|| {
-                // Defensive fallback: the @> match guarantees the block exists,
-                // but the JSON shape may have unexpected keys.
-                (String::new(), serde_json::Value::Null)
-            });
-
-        // 2. Find any tool_result row referencing the same tool_use_id.
-        let result_row: Option<(serde_json::Value, Option<serde_json::Value>)> = sqlx::query_as(
-            r#"SELECT message_content, tool_use_result
-               FROM task_messages
-               WHERE task_id = $1
-                 AND message_content @> jsonb_build_array(
-                       jsonb_build_object('tool_use_id', $2::text, 'type', 'tool_result')
-                     )
-               ORDER BY id ASC
-               LIMIT 1"#,
-        )
-        .bind(task_id)
-        .bind(tool_use_id)
-        .fetch_optional(&self.0)
-        .await?;
-
-        let (result_content, is_error, tool_use_result) = match result_row {
-            Some((content, raw_typed)) => {
-                let (text, err) = extract_tool_result(&content, tool_use_id);
-                (text, err, raw_typed)
-            }
-            None => (None, None, None),
         };
 
         Ok(Some(ToolCallRow {
             tool_use_id: tool_use_id.to_string(),
-            tool_name,
-            tool_input,
-            result_content,
-            is_error,
-            tool_use_result,
-            parent_message_uuid,
+            tool_name: activity.summary.clone(),
+            tool_input: activity.tool_input().clone(),
+            result_content: activity
+                .result()
+                .and_then(crate::task_activities::mapping::result_text)
+                .map(std::string::ToString::to_string),
+            // `None` while the call is still out: the caller distinguishes "came
+            // back clean" from "has not come back", and a bare `false` would
+            // report the second as the first.
+            is_error: activity.is_settled().then_some(activity.is_error),
+            tool_use_result: activity.typed_result().cloned(),
+            parent_message_uuid: activity.message_uuid.clone().unwrap_or_default(),
         }))
     }
 
@@ -1378,11 +1457,11 @@ impl MessageDao for PgMessageDao {
             i32,
             Option<String>,
             i32,
-            serde_json::Value,
+            Option<String>,
             Option<crate::shared_models::AgentMode>,
         )> = sqlx::query_as(
             r#"SELECT m.id, m.agent_session_id, m.turn_number,
-                      m.message_content, m.agent_mode
+                      m.message_text, m.agent_mode
                FROM task_messages m
                WHERE m.task_id = $1
                  AND m.message_type = 'user'
@@ -1437,7 +1516,7 @@ impl MessageDao for PgMessageDao {
         // `get_pending_user`'s ordering), so a replay re-sends the same prompt.
         let prompt_text = rows
             .iter()
-            .map(|(_, _, _, content, _)| extract_prompt_text(content))
+            .map(|(_, _, _, text, _)| text.clone().unwrap_or_default())
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -1461,136 +1540,27 @@ impl MessageDao for PgMessageDao {
         }))
     }
 
-    async fn insert_aborted_result(
-        &self,
-        task_id: &str,
-        turn_number: i32,
-        text: &str,
-    ) -> Result<i32, sqlx::Error> {
-        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let uuid = uuid::Uuid::new_v4().to_string();
-        let content = serde_json::json!([{ "type": "text", "text": text }]);
-
-        let row: (i32,) = sqlx::query_as(
-            r#"INSERT INTO task_messages (
-                task_id, uuid, message_type, user_type, timestamp,
-                message_role, message_content, turn_number, will_not_resume
-            ) VALUES (
-                $1, $2, 'result', 'system', $3,
-                'assistant', $4, $5, true
-            )
-            RETURNING id"#,
-        )
-        .bind(task_id)
-        .bind(&uuid)
-        .bind(&now)
-        .bind(&content)
-        .bind(turn_number)
-        .fetch_one(&self.0)
-        .await?;
-        Ok(row.0)
-    }
-}
-
-/// Extract the first text block's text from a `message_content` JSON array of
-/// the form `[{"type":"text","text":"..."}, ...]`. Falls back to a stringified
-/// representation when the shape is unexpected.
-fn extract_prompt_text(content: &serde_json::Value) -> String {
-    if let Some(arr) = content.as_array() {
-        for block in arr {
-            if block.get("type").and_then(|v| v.as_str()) == Some("text") {
-                if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
-                    return text.to_string();
-                }
-            }
-        }
-    }
-    if let Some(s) = content.as_str() {
-        return s.to_string();
-    }
-    String::new()
-}
-
-/// Pull `(name, input)` out of the `tool_use` block matching `tool_use_id`.
-fn extract_tool_use_block(
-    message_content: &serde_json::Value,
-    tool_use_id: &str,
-) -> Option<(String, serde_json::Value)> {
-    let arr = message_content.as_array()?;
-    for block in arr {
-        if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
-            continue;
-        }
-        if block.get("id").and_then(|v| v.as_str()) != Some(tool_use_id) {
-            continue;
-        }
-        let name = block
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let input = block
-            .get("input")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
-        return Some((name, input));
-    }
-    None
-}
-
-/// Pull `(content, is_error)` out of the `tool_result` block matching `tool_use_id`.
-fn extract_tool_result(
-    message_content: &serde_json::Value,
-    tool_use_id: &str,
-) -> (Option<String>, Option<bool>) {
-    let Some(arr) = message_content.as_array() else {
-        return (None, None);
-    };
-    for block in arr {
-        if block.get("type").and_then(|v| v.as_str()) != Some("tool_result") {
-            continue;
-        }
-        if block.get("tool_use_id").and_then(|v| v.as_str()) != Some(tool_use_id) {
-            continue;
-        }
-        let content = block
-            .get("content")
-            .and_then(|v| v.as_str())
-            .map(std::string::ToString::to_string);
-        let is_error = block.get("is_error").and_then(serde_json::Value::as_bool);
-        return (content, is_error);
-    }
-    (None, None)
 }
 
 // =========================================================================
 // Free-function wrappers for integration tests
 // =========================================================================
 
-/// Append a message with contexts and content blocks (convenience wrapper).
+/// Append a Message with its contexts and everything its content changed
+/// (convenience wrapper).
 pub async fn append(
     pool: &DbPool,
     msg: &TaskMessage,
     contexts: &[TaskMessageContext],
-    content_blocks: &[TaskMessageContentBlock],
+    conversation: &ConversationWrite,
 ) -> Result<i32, sqlx::Error> {
     PgMessageDao(pool.clone())
-        .append(msg, contexts, content_blocks)
+        .append(msg, contexts, conversation)
         .await
 }
 
-/// Get all messages, contexts, and content blocks for a task (convenience wrapper).
-pub async fn get_all(
-    pool: &DbPool,
-    task_id: &str,
-) -> Result<
-    (
-        Vec<TaskMessage>,
-        Vec<TaskMessageContext>,
-        Vec<TaskMessageContentBlock>,
-    ),
-    sqlx::Error,
-> {
+/// Every Message, context row and activity of a Task (convenience wrapper).
+pub async fn get_all(pool: &DbPool, task_id: &str) -> Result<MessagePage, sqlx::Error> {
     PgMessageDao(pool.clone()).get_all(task_id).await
 }
 
@@ -1696,8 +1666,8 @@ mod db_tests {
         sqlx::query(
             r#"INSERT INTO task_messages
                    (task_id, uuid, message_type, user_type, timestamp, message_role,
-                    message_content, agent_session_id, created_at)
-               VALUES ($1, $2, $3, 'human', $4, 'user', '{}'::jsonb, $5, $6)"#,
+                    agent_session_id, created_at)
+               VALUES ($1, $2, $3, 'human', $4, 'user', $5, $6)"#,
         )
         .bind(task_id)
         .bind(uuid)

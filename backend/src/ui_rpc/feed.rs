@@ -26,7 +26,7 @@ use tracing::{debug, warn};
 
 use super::dao::ConversationDao;
 use super::{projection, AgentModelDefaults};
-use crate::task_conversation::{self, ConversationChange, ConversationHead};
+use crate::task_activities::{self, ConversationChange, ConversationHead};
 use crate::task_listing::{ChangeSubject, EnvironmentIdentity};
 use crate::workspace::dao::WorkspaceDao;
 use moatless_backend_core::scope::ScopeContext;
@@ -369,7 +369,7 @@ impl ShellFeed {
 ///
 /// The same mechanism as the shell's and against a different log: every write
 /// to a Message a conversation shows records a position against that
-/// conversation (`task_conversation`), and this reads forward from the position
+/// conversation (`task_activities`), and this reads forward from the position
 /// the client holds. What it sends is the contract's own events, so a change is
 /// the few hundred bytes of the row that moved rather than the whole transcript.
 ///
@@ -421,11 +421,11 @@ impl ThreadFeed {
     /// holds a sequence in the middle of that change, and the events it missed
     /// are the rest of that same change. Re-reading the whole change and
     /// dropping the events at or below `after` is what makes the boundary
-    /// exact — see [`task_conversation::position_of`].
+    /// exact — see [`task_activities::position_of`].
     pub fn resuming_from(task_id: String, after: i64) -> Self {
         Self {
             task_id,
-            cursor: task_conversation::position_of(after),
+            cursor: task_activities::position_of(after),
             delivered: after,
         }
     }
@@ -552,7 +552,7 @@ mod tests {
     use super::*;
     use crate::message::models::{MessageRole, MessageType};
     use crate::shared_models::AgentType;
-    use crate::task_conversation::EVENTS_PER_CHANGE;
+    use crate::task_activities::EVENTS_PER_CHANGE;
     use crate::ui_rpc::dao::{Conversation, MockConversationDao, Transcript, TranscriptMessage};
     use moatless_api_schemas::enums::SandboxDesiredState;
 
@@ -642,7 +642,8 @@ mod tests {
             uuid: uuid.into(),
             message_type: MessageType::User,
             message_role: MessageRole::User,
-            message_content: json!([{ "type": "text", "text": "Fix the build" }]),
+            message_text: Some("Fix the build".into()),
+            user_type: "human".into(),
             turn_number: Some(3),
             timestamp: "2026-07-01T10:00:00.000Z".into(),
             created_at: None,
@@ -660,7 +661,7 @@ mod tests {
         dao.expect_changed_messages().returning(|_, _| {
             Ok(Transcript {
                 messages: vec![a_message(11, "msg-a")],
-                blocks: Vec::new(),
+                activities: Vec::new(),
                 omitted: 0,
             })
         });

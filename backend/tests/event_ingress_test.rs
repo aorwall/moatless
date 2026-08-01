@@ -209,8 +209,10 @@ async fn outbox_event_ids(pool: &PgPool) -> Vec<String> {
         .unwrap()
 }
 
-async fn message_contents(pool: &PgPool, task_id: &str) -> Vec<Value> {
-    sqlx::query_scalar("SELECT message_content FROM task_messages WHERE task_id = $1 ORDER BY id")
+/// What the Task's Messages say, in order. Prose is the Message now — the blocks
+/// that are not prose are activities and have rows of their own.
+async fn message_texts(pool: &PgPool, task_id: &str) -> Vec<Option<String>> {
+    sqlx::query_scalar("SELECT message_text FROM task_messages WHERE task_id = $1 ORDER BY id")
         .bind(task_id)
         .fetch_all(pool)
         .await
@@ -252,19 +254,20 @@ async fn full_message_content_reaches_task_messages_exactly_once(pool: PgPool) {
         spooled["message"]["content"][0]["text"],
         "the whole message body"
     );
-    // The ADR-0003 skeleton commits at ingress alongside the record — the
-    // consumer's own insert is best-effort and the record is deleted once the
-    // message commits, so this is the only attempt gRPC success can speak for.
-    // It carries metadata only; the content lives in the outbox.
-    let skeleton: Value = sqlx::query_scalar("SELECT payload FROM task_events WHERE event_id = $1")
-        .bind("evt-1")
-        .fetch_one(&pool)
-        .await
-        .expect("ingress commits the agent.message skeleton");
-    assert_eq!(skeleton["message"]["role"], "assistant");
+    // And `task_events` holds nothing at all for it — not even a skeleton.
+    // ADR-0003's persistence clause is withdrawn: a Message's one durable home
+    // on the way in is the outbox, and its one home afterwards is the
+    // conversation. A row here would be a second copy of what the conversation
+    // already is.
+    let history: Option<Value> =
+        sqlx::query_scalar("SELECT payload FROM task_events WHERE event_id = $1")
+            .bind("evt-1")
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
     assert!(
-        skeleton["message"].get("content").is_none(),
-        "task_events must never hold agent.message content: {skeleton}"
+        history.is_none(),
+        "an agent.message writes no task_events row: {history:?}"
     );
 
     // The consumer receives the published payload whole and commits it.
@@ -274,16 +277,16 @@ async fn full_message_content_reaches_task_messages_exactly_once(pool: PgPool) {
     let event = consumed(task_id, &published[0].0, &published[0].2);
     handle_agent_message(&state, &event).await;
 
-    let contents = message_contents(&pool, task_id).await;
-    assert_eq!(contents.len(), 1);
-    assert_eq!(contents[0][0]["text"], "the whole message body");
+    let texts = message_texts(&pool, task_id).await;
+    assert_eq!(texts.len(), 1);
+    assert_eq!(texts[0].as_deref(), Some("the whole message body"));
 
     // Committing the message is what deletes the record — and only that.
     assert!(outbox_event_ids(&pool).await.is_empty());
 
     // At-least-once redelivery converges on the same single row.
     handle_agent_message(&state, &event).await;
-    assert_eq!(message_contents(&pool, task_id).await.len(), 1);
+    assert_eq!(message_texts(&pool, task_id).await.len(), 1);
 }
 
 #[sqlx::test]
@@ -346,9 +349,9 @@ async fn a_retry_that_outlives_the_dedup_cache_converges(pool: PgPool) {
     assert_eq!(published.len(), 2, "the forgotten retry is published again");
     handle_agent_message(&state, &consumed(task_id, &published[1].0, &published[1].2)).await;
 
-    let contents = message_contents(&pool, task_id).await;
-    assert_eq!(contents.len(), 1, "one message, not two");
-    assert_eq!(contents[0][0]["text"], "the whole message body");
+    let texts = message_texts(&pool, task_id).await;
+    assert_eq!(texts.len(), 1, "one message, not two");
+    assert_eq!(texts[0].as_deref(), Some("the whole message body"));
 
     // And the re-admitted record is released again rather than stranded.
     assert!(outbox_event_ids(&pool).await.is_empty());
@@ -491,9 +494,9 @@ async fn a_failed_transport_recovers_through_the_relay(pool: PgPool) {
     let state = test_app_state(pool.clone());
     handle_agent_message(&state, &consumed(task_id, &published[0].0, &published[0].2)).await;
 
-    let contents = message_contents(&pool, task_id).await;
-    assert_eq!(contents.len(), 1);
-    assert_eq!(contents[0][0]["text"], "survives the outage");
+    let texts = message_texts(&pool, task_id).await;
+    assert_eq!(texts.len(), 1);
+    assert_eq!(texts[0].as_deref(), Some("survives the outage"));
     assert!(outbox_event_ids(&pool).await.is_empty());
 }
 

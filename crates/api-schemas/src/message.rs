@@ -226,9 +226,11 @@ pub struct PendingMessageItem {
     pub uuid: String,
     pub message_type: MessageType,
     pub timestamp: String,
+    /// What the person wrote, as prose.
+    // Not a block list: the enrichment the agent sees is rebuilt at delivery
+    // time and was never part of this.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub message_content: Option<serde_json::Value>,
+    pub message_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_mode: Option<AgentMode>,
     #[serde(skip_serializing_if = "Option::is_none")]

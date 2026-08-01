@@ -1,6 +1,6 @@
 //! Conversation statistics assembled from persisted task messages.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use moatless_api_schemas::task::{
     TaskMessageTokenUsage, TaskSkillUsage, TaskStatisticsResponse, TaskTokenTotals,
@@ -8,14 +8,9 @@ use moatless_api_schemas::task::{
 };
 
 use super::models::Task;
-use crate::message::models::{ContentBlockType, MessageType, TaskMessage, TaskMessageContentBlock};
-
-#[derive(Debug, Clone)]
-struct ToolCall {
-    tool_use_id: String,
-    tool_name: String,
-    skill_name: Option<String>,
-}
+use crate::message::models::{MessageType, TaskMessage};
+use crate::task_activities::dao::Activity;
+use crate::task_activities::mapping::ActivityKind;
 
 #[derive(Debug, Default)]
 struct ToolAccumulator {
@@ -78,29 +73,9 @@ fn totals_from_turn_metrics(turn_metrics: &[serde_json::Value]) -> Option<TaskTo
 pub fn build_task_statistics(
     task: &Task,
     messages: &[TaskMessage],
-    blocks: &[TaskMessageContentBlock],
+    activities: &[Activity],
     turn_metrics: &[serde_json::Value],
 ) -> TaskStatisticsResponse {
-    let failed_tool_ids: BTreeSet<String> = blocks
-        .iter()
-        .filter(|block| {
-            block.block_type == ContentBlockType::ToolResult
-                && block.tool_result_is_error.unwrap_or(false)
-        })
-        .filter_map(|block| block.tool_use_id.clone())
-        .collect();
-
-    let blocks_by_message_id = blocks.iter().fold(
-        HashMap::<i32, Vec<&TaskMessageContentBlock>>::new(),
-        |mut by_message, block| {
-            by_message
-                .entry(block.task_message_id)
-                .or_default()
-                .push(block);
-            by_message
-        },
-    );
-
     let mut token_totals = TaskTokenTotals::default();
     // Deduplicated per-message usage, keyed by the Anthropic message id and kept
     // in first-seen order. Two data-quality issues make a naive per-row sum wrong:
@@ -114,9 +89,11 @@ pub fn build_task_statistics(
     // snapshot, i.e. the final/complete one).
     let mut usage_by_id: HashMap<String, MessageUsage> = HashMap::new();
     let mut usage_order: Vec<String> = Vec::new();
+    let mut latest_model: Option<String> = None;
+    // Ordered so the two lists come out stable for a client that renders them
+    // as-is; the counts themselves do not depend on the order.
     let mut tool_stats: BTreeMap<String, ToolAccumulator> = BTreeMap::new();
     let mut skill_stats: BTreeMap<String, i64> = BTreeMap::new();
-    let mut latest_model: Option<String> = None;
 
     for message in messages {
         let model = message
@@ -174,20 +151,27 @@ pub fn build_task_statistics(
             }
         }
 
-        for call in extract_tool_calls(
-            message,
-            blocks_by_message_id
-                .get(&message.id)
-                .map(std::vec::Vec::as_slice),
-        ) {
-            let entry = tool_stats.entry(call.tool_name.clone()).or_default();
-            entry.total_calls += 1;
-            if failed_tool_ids.contains(&call.tool_use_id) {
-                entry.failed_calls += 1;
-            }
+    }
 
-            if let Some(skill_name) = call.skill_name {
-                *skill_stats.entry(skill_name).or_insert(0) += 1;
+    // One row per call, so the count is the row count and the failure count is a
+    // column — no scan of anything, and no second table to cross against.
+    for activity in activities {
+        if activity.kind != ActivityKind::ToolCall {
+            continue;
+        }
+        let entry = tool_stats.entry(activity.summary.clone()).or_default();
+        entry.total_calls += 1;
+        if activity.is_error {
+            entry.failed_calls += 1;
+        }
+
+        if activity.summary == "Skill" {
+            if let Some(skill_name) = activity
+                .tool_input()
+                .get("skill")
+                .and_then(serde_json::Value::as_str)
+            {
+                *skill_stats.entry(skill_name.to_string()).or_insert(0) += 1;
             }
         }
     }
@@ -229,96 +213,25 @@ pub fn build_task_statistics(
                 total_calls,
             })
             .collect(),
-    }
-}
-
-fn extract_tool_calls(
-    message: &TaskMessage,
-    blocks: Option<&[&TaskMessageContentBlock]>,
-) -> Vec<ToolCall> {
-    let mut calls = tool_calls_from_json(&message.message_content);
-    if !calls.is_empty() {
-        return calls;
-    }
-
-    if let Some(blocks) = blocks {
-        for block in blocks {
-            if block.block_type == ContentBlockType::ToolUse {
-                if let Some(tool_use_id) = block.tool_use_id.clone() {
-                    calls.push(ToolCall {
-                        tool_use_id,
-                        tool_name: "unknown".to_string(),
-                        skill_name: None,
-                    });
-                }
-            }
-        }
-    }
-
-    calls
-}
-
-fn tool_calls_from_json(value: &serde_json::Value) -> Vec<ToolCall> {
-    let Some(blocks) = content_blocks(value) else {
-        return Vec::new();
-    };
-
-    blocks
-        .iter()
-        .filter_map(|block| {
-            if block.get("type").and_then(serde_json::Value::as_str) != Some("tool_use") {
-                return None;
-            }
-
-            let tool_use_id = block
-                .get("id")
-                .or_else(|| block.get("tool_use_id"))
-                .or_else(|| block.get("toolUseId"))
-                .and_then(serde_json::Value::as_str)?
-                .to_string();
-            let tool_name = block
-                .get("name")
-                .or_else(|| block.get("tool_name"))
-                .or_else(|| block.get("toolName"))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown")
-                .to_string();
-            let skill_name = if tool_name == "Skill" {
-                block
-                    .get("input")
-                    .and_then(|input| input.get("skill"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-            } else {
-                None
-            };
-
-            Some(ToolCall {
-                tool_use_id,
-                tool_name,
-                skill_name,
-            })
-        })
-        .collect()
-}
-
-fn content_blocks(value: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
-    match value {
-        serde_json::Value::Array(blocks) => Some(blocks),
-        serde_json::Value::Object(_) => value
-            .get("content")
-            .or_else(|| value.get("message_content"))
-            .and_then(serde_json::Value::as_array),
-        _ => None,
+        // No activities at all means this Task ran before they were stored, and
+        // an empty `tool_calls` from it is "not recorded" rather than "made
+        // none". Decision 9 backfills nothing, so this is the only way a client
+        // can tell those two apart — and reporting zero would be a wrong answer,
+        // not a missing one.
+        tool_calls_available: !activities.is_empty(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::DateTime;
+    use serde_json::Value;
+
     use crate::message::models::{MessageRole, MessageType};
     use crate::shared_models::AgentType;
     use crate::task::models::{TaskStatus, Visibility};
+    use crate::task_activities::mapping::ActivityStatus;
 
     fn task() -> Task {
         Task {
@@ -372,10 +285,7 @@ mod tests {
             request_id: None,
             timestamp: "2026-01-01T00:00:00.000Z".to_string(),
             message_role: MessageRole::Assistant,
-            message_content: serde_json::json!([
-                { "type": "tool_use", "id": "tu-1", "name": "Bash", "input": {} },
-                { "type": "tool_use", "id": "tu-2", "name": "Skill", "input": { "skill": "backend-dev-guidelines" } }
-            ]),
+            message_text: Some("Working on it.".to_string()),
             assistant_message_id: None,
             assistant_message_type: None,
             assistant_message_model: Some("gpt-5".to_string()),
@@ -407,24 +317,40 @@ mod tests {
         }
     }
 
+    fn tool_call(activity_id: &str, position: i64, name: &str, input: Value) -> Activity {
+        Activity {
+            activity_id: activity_id.to_string(),
+            task_id: "task-1".to_string(),
+            position,
+            message_uuid: Some("msg-1".to_string()),
+            parent_uuid: None,
+            kind: ActivityKind::ToolCall,
+            status: ActivityStatus::Completed,
+            tool_use_id: Some(format!("tu-{position}")),
+            summary: name.to_string(),
+            payload: serde_json::json!({ "input": input }),
+            detail: None,
+            is_error: false,
+            external_event_id: None,
+            external_adapter: None,
+            external_source_name: None,
+            created_at: DateTime::from_timestamp(1_000, 0).expect("valid ts"),
+        }
+    }
+
     #[test]
     fn builds_token_tool_and_skill_stats() {
-        let blocks = vec![TaskMessageContentBlock {
-            id: 1,
-            task_message_id: 12,
-            sort_order: 0,
-            block_type: ContentBlockType::ToolResult,
-            show_in_ui: false,
-            text_content: None,
-            tool_use_id: Some("tu-1".to_string()),
-            tool_result_content: Some("failed".to_string()),
-            tool_result_is_error: Some(true),
-            image_media_type: None,
-            image_data: None,
-            created_at: None,
-        }];
+        let mut bash = tool_call("msg-1:0", 1, "Bash", serde_json::json!({}));
+        bash.status = ActivityStatus::Failed;
+        bash.is_error = true;
+        let skill = tool_call(
+            "msg-1:1",
+            2,
+            "Skill",
+            serde_json::json!({ "skill": "backend-dev-guidelines" }),
+        );
 
-        let stats = build_task_statistics(&task(), &[assistant_message()], &blocks, &[]);
+        let stats = build_task_statistics(&task(), &[assistant_message()], &[bash, skill], &[]);
 
         assert_eq!(stats.model.as_deref(), Some("gpt-5"));
         assert_eq!(stats.token_totals.input_tokens, 10);
@@ -437,6 +363,17 @@ mod tests {
         assert_eq!(stats.tool_calls[0].failed_calls, 1);
         assert_eq!(stats.skills[0].skill_name, "backend-dev-guidelines");
         assert_eq!(stats.skills[0].total_calls, 1);
+        assert!(stats.tool_calls_available);
+    }
+
+    /// Decision 9 backfills nothing, so a Task that ran before activities were
+    /// stored has none — and must say so rather than report no tool calls.
+    #[test]
+    fn a_task_with_no_activities_reports_tool_calls_unavailable() {
+        let stats = build_task_statistics(&task(), &[assistant_message()], &[], &[]);
+
+        assert!(stats.tool_calls.is_empty());
+        assert!(!stats.tool_calls_available);
     }
 
     #[test]
@@ -445,7 +382,6 @@ mod tests {
         let mut a1 = assistant_message();
         a1.uuid = "a1".to_string();
         a1.assistant_message_id = Some("msg_1".to_string());
-        a1.message_content = serde_json::json!([]);
         a1.assistant_usage_input_tokens = Some(10);
         a1.assistant_usage_output_tokens = Some(5);
         a1.assistant_usage_cache_creation_input_tokens = Some(0);
@@ -536,4 +472,5 @@ mod tests {
 
         assert_eq!(stats.token_totals.output_tokens, 239);
     }
+
 }

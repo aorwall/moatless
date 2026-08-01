@@ -291,7 +291,7 @@ impl LifecycleDao for PgLifecycleDao {
             // The conversation shows the same axis as its session status, so it
             // is told too — ahead of the listing's allocator, per
             // `record_message_change`'s ordering rule.
-            crate::task_conversation::record_session_change(&mut tx, task_id)
+            crate::task_activities::record_session_change(&mut tx, task_id)
                 .await
                 .map_err(|e| StoreError::with_source("record conversation change for intent", e))?;
             crate::task_listing::record_change(&mut tx, task_id)

@@ -4,17 +4,25 @@
 //! the UI message format with merged tool calls, content blocks, and
 //! pending user input detection.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
 use super::contexts::task_message_context_to_input;
-use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
+use super::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
 use crate::file_storage::models::FileMetadata;
 use crate::message::models::MessageType;
 use crate::task::schemas::{FileContextData, MessageContextInput};
+use crate::task_activities::dao::Activity;
+use crate::task_activities::mapping::{ActivityKind, ActivityStatus, result_text};
 
 use super::schemas::*;
+
+/// The tool calls that hand a conversation back to a person.
+///
+/// Keep in sync with `handlers::INTERACTIVE_TOOL_NAMES` and the same pair in
+/// `message::dao` and `ui_rpc::dao`.
+const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
 
 /// Which slice of rows a transform pass renders.
 ///
@@ -29,21 +37,35 @@ enum RenderScope<'a> {
 }
 
 impl RenderScope<'_> {
-    fn includes(&self, msg: &TaskMessage) -> bool {
+    fn includes(&self, parent_uuid: Option<&str>) -> bool {
         match self {
-            RenderScope::TopLevel => msg.parent_uuid.is_none(),
-            RenderScope::Subagent(tool_use_id) => msg.parent_uuid.as_deref() == Some(*tool_use_id),
+            RenderScope::TopLevel => parent_uuid.is_none(),
+            RenderScope::Subagent(tool_use_id) => parent_uuid == Some(*tool_use_id),
         }
     }
+}
+
+/// One turn: what was said, and what happened on the way to saying it.
+///
+/// Both halves are optional and that is the point. A turn that only called tools
+/// said nothing and has no Message row at all; a person's turn does nothing and
+/// has no activities. `key` is what puts the two kinds in one order — the
+/// Message's own timestamp where there is one, and otherwise when the first
+/// activity was recorded.
+struct Turn<'a> {
+    key: String,
+    uuid: String,
+    message: Option<&'a TaskMessage>,
+    activities: Vec<&'a Activity>,
 }
 
 /// Transform raw DB rows into UI-facing (top-level) messages.
 pub fn transform_to_ui(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
-    content_blocks: &[TaskMessageContentBlock],
+    activities: &[Activity],
 ) -> Vec<UiMessage> {
-    transform_to_ui_with_files(messages, contexts, content_blocks, &HashMap::new())
+    transform_to_ui_with_files(messages, contexts, activities, &HashMap::new())
 }
 
 /// Like [`transform_to_ui`] but with a pre-fetched `file_metadata` map used to
@@ -56,56 +78,110 @@ pub fn transform_to_ui(
 pub fn transform_to_ui_with_files(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
-    content_blocks: &[TaskMessageContentBlock],
+    activities: &[Activity],
     file_metadata: &HashMap<String, FileMetadata>,
 ) -> Vec<UiMessage> {
     transform_scoped(
         messages,
         contexts,
-        content_blocks,
+        activities,
         file_metadata,
         RenderScope::TopLevel,
     )
 }
 
-/// Assemble a single subagent's transcript: run the same fold-resolving
-/// row-transform over the rows whose `parent_uuid` equals `tool_use_id`.
-/// Returns the subagent's UI-facing Messages (with its tool results inlined).
+/// Assemble a single subagent's transcript: run the same row-transform over the
+/// rows whose `parent_uuid` equals `tool_use_id`.
 pub fn transform_subagent_transcript(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
-    content_blocks: &[TaskMessageContentBlock],
+    activities: &[Activity],
     tool_use_id: &str,
 ) -> Vec<UiMessage> {
     transform_scoped(
         messages,
         contexts,
-        content_blocks,
+        activities,
         &HashMap::new(),
         RenderScope::Subagent(tool_use_id),
     )
 }
 
+/// Gather the Messages and activities of one scope into turns, in order.
+fn turns<'a>(
+    messages: &'a [TaskMessage],
+    activities: &'a [Activity],
+    scope: RenderScope<'_>,
+) -> Vec<Turn<'a>> {
+    let mut by_uuid: HashMap<&str, Vec<&Activity>> = HashMap::new();
+    for activity in activities {
+        if !scope.includes(activity.parent_uuid.as_deref()) {
+            continue;
+        }
+        // A Sandbox activity happened on no Message and belongs to no turn. The
+        // Moatless frontend has never rendered one; the T3 surface does, from
+        // its own projection.
+        let Some(message_uuid) = activity.message_uuid.as_deref() else {
+            continue;
+        };
+        by_uuid.entry(message_uuid).or_default().push(activity);
+    }
+    for group in by_uuid.values_mut() {
+        group.sort_by_key(|activity| (activity.position, activity.activity_id.clone()));
+    }
+
+    let mut turns: Vec<Turn<'a>> = Vec::new();
+    let mut claimed: HashSet<&str> = HashSet::new();
+    for message in messages {
+        if !scope.includes(message.parent_uuid.as_deref()) {
+            continue;
+        }
+        claimed.insert(message.uuid.as_str());
+        turns.push(Turn {
+            key: message.timestamp.clone(),
+            uuid: message.uuid.clone(),
+            message: Some(message),
+            activities: by_uuid.get(message.uuid.as_str()).cloned().unwrap_or_default(),
+        });
+    }
+
+    // Turns that said nothing. They have no Message row to be found by, so they
+    // are ordered by when their first activity was recorded.
+    for (message_uuid, group) in &by_uuid {
+        if claimed.contains(message_uuid) {
+            continue;
+        }
+        let Some(first) = group.first() else { continue };
+        turns.push(Turn {
+            key: first
+                .created_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            uuid: (*message_uuid).to_string(),
+            message: None,
+            activities: group.clone(),
+        });
+    }
+
+    turns.sort_by(|a, b| {
+        a.key.cmp(&b.key).then_with(|| {
+            let position = |turn: &Turn<'_>| {
+                turn.activities
+                    .first()
+                    .map_or(i64::MAX, |activity| activity.position)
+            };
+            position(a).cmp(&position(b))
+        })
+    });
+    turns
+}
+
 fn transform_scoped(
     messages: &[TaskMessage],
     contexts: &[TaskMessageContext],
-    content_blocks: &[TaskMessageContentBlock],
+    activities: &[Activity],
     file_metadata: &HashMap<String, FileMetadata>,
     scope: RenderScope<'_>,
 ) -> Vec<UiMessage> {
-    // Restrict to the rows this scope renders before building any maps, so
-    // is_last / pending detection is computed over the scoped slice only.
-    let scoped: Vec<&TaskMessage> = messages.iter().filter(|m| scope.includes(m)).collect();
-
-    // Group content blocks by message ID
-    let blocks_by_msg: HashMap<i32, Vec<&TaskMessageContentBlock>> = {
-        let mut map: HashMap<i32, Vec<&TaskMessageContentBlock>> = HashMap::new();
-        for block in content_blocks {
-            map.entry(block.task_message_id).or_default().push(block);
-        }
-        map
-    };
-
     // Group contexts by message ID
     let contexts_by_msg: HashMap<i32, Vec<&TaskMessageContext>> = {
         let mut map: HashMap<i32, Vec<&TaskMessageContext>> = HashMap::new();
@@ -115,92 +191,43 @@ fn transform_scoped(
         map
     };
 
-    // Build tool_use_result_map: tool_use_id from parent → tool_use_result JSON
-    let tool_use_result_map: HashMap<String, &serde_json::Value> = scoped
-        .iter()
-        .filter(|m| m.message_type == MessageType::System && m.tool_use_result.is_some())
-        .filter_map(|m| {
-            // Find the tool_use_id this result corresponds to (from tool_result content blocks)
-            if let Some(content) = m.message_content.as_array() {
-                for block in content {
-                    if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-                        if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str())
-                        {
-                            if let Some(ref tur) = m.tool_use_result {
-                                return Some((tool_use_id.to_string(), tur));
-                            }
-                        }
-                    }
-                }
-            }
-            None
-        })
-        .collect();
-
-    // Build tool_results_map: tool_use_id → tool_result message
-    let tool_results_map: HashMap<String, &TaskMessage> = scoped
-        .iter()
-        .filter(|m| {
-            m.message_type == MessageType::Result
-                || m.message_role == crate::message::models::MessageRole::User
-        })
-        .filter_map(|m| {
-            // Check if message_content has tool_use_id (tool_result messages)
-            if let Some(content) = m.message_content.as_array() {
-                for block in content {
-                    if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-                        if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str())
-                        {
-                            return Some((tool_use_id.to_string(), *m));
-                        }
-                    }
-                }
-            }
-            None
-        })
-        .collect();
-
+    let turns = turns(messages, activities, scope);
+    let total = turns.len();
     let mut ui_messages = Vec::new();
-    let total = scoped.len();
 
-    for (idx, &msg) in scoped.iter().enumerate() {
-        let is_last = idx == total - 1;
-        let msg_blocks = blocks_by_msg.get(&msg.id).cloned().unwrap_or_default();
+    for (idx, turn) in turns.iter().enumerate() {
+        let is_last = idx + 1 == total;
+        let Some(msg) = turn.message else {
+            // A turn that only called tools. It said nothing, so there is no row
+            // to carry its role, timestamp or model — but the calls it made are
+            // exactly what the conversation has to show.
+            ui_messages.push(transform_tool_only_turn(&turn.uuid, &turn.activities, is_last));
+            continue;
+        };
         let msg_context_rows = contexts_by_msg.get(&msg.id).cloned().unwrap_or_default();
 
         match msg.message_type {
             MessageType::Assistant => {
-                let ui_msg = transform_assistant(
-                    msg,
-                    &msg_blocks,
-                    &tool_results_map,
-                    &tool_use_result_map,
-                    is_last,
-                    &scoped,
-                );
-                ui_messages.push(ui_msg);
+                ui_messages.push(transform_assistant(msg, &turn.activities, is_last));
             }
             MessageType::User => {
-                // Skip tool_result user messages (inlined into assistant)
-                if msg.message_content.as_array().is_some_and(|arr| {
-                    arr.iter()
-                        .any(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"))
-                }) {
+                // The carrier for a person's answer to `AskUserQuestion` or
+                // `ExitPlanMode`. The answer is already on screen as the outcome
+                // of the call that asked; rendering the carrier shows it twice.
+                if msg.user_type == TOOL_RESPONSE_USER_TYPE {
                     continue;
                 }
-
-                let ui_msg = transform_user(msg, &msg_blocks, &msg_context_rows, file_metadata);
-                ui_messages.push(ui_msg);
+                ui_messages.push(transform_user(msg, &msg_context_rows, file_metadata));
             }
-            MessageType::System => {
-                // System rows wrap tool_result content; they feed
-                // `tool_results_map` for the assistant transform above and are
-                // never rendered as independent bubbles.
-                continue;
-            }
+            // Carrier rows for tool results. Their content is attached to the
+            // call it answers, and rendering them as their own bubbles would put
+            // every tool's raw output in the conversation. No longer written;
+            // still present on Tasks that predate the change.
+            MessageType::System => continue,
+            // Also no longer written — a run outcome is not something somebody
+            // said. Rendered where history still holds one.
             MessageType::Result | MessageType::Error => {
-                let ui_msg = transform_result(msg, &msg_blocks);
-                ui_messages.push(ui_msg);
+                ui_messages.push(transform_result(msg));
             }
         }
     }
@@ -208,39 +235,114 @@ fn transform_scoped(
     ui_messages
 }
 
-/// tool_use ids declared by an assistant message's content array.
-pub(crate) fn tool_use_ids(content: &serde_json::Value) -> Vec<String> {
-    content
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
-                .filter_map(|b| {
-                    b.get("id")
-                        .and_then(|v| v.as_str())
-                        .map(std::string::ToString::to_string)
-                })
-                .collect()
+/// The tool calls one turn made, as the content blocks the frontend renders.
+fn call_blocks(activities: &[&Activity]) -> Vec<UiContentBlock> {
+    activities
+        .iter()
+        .filter(|activity| activity.kind == ActivityKind::ToolCall)
+        .map(|activity| UiContentBlock {
+            block_type: "tool_use".to_string(),
+            text: None,
+            tool_use_id: activity.tool_use_id.clone(),
+            tool_name: Some(activity.summary.clone()),
+            tool_input: Some(activity.tool_input().clone()).filter(|v| !v.is_null()),
+            show_in_ui: None,
+            subagent_summary: None,
         })
-        .unwrap_or_default()
+        .collect()
 }
 
-/// tool_use ids referenced by a row's `tool_result` blocks (i.e. the ids of the
-/// calls this row is the result for).
-pub(crate) fn tool_result_ids(content: &serde_json::Value) -> Vec<String> {
-    content
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"))
-                .filter_map(|b| {
-                    b.get("tool_use_id")
-                        .and_then(|v| v.as_str())
-                        .map(std::string::ToString::to_string)
-                })
-                .collect()
+/// The outcomes of the calls that have come back.
+fn call_results(activities: &[&Activity]) -> Vec<UiToolResult> {
+    activities
+        .iter()
+        .filter(|activity| activity.kind == ActivityKind::ToolCall && activity.is_settled())
+        .filter_map(|activity| {
+            let tool_use_id = activity.tool_use_id.clone()?;
+            Some(UiToolResult {
+                tool_use_id,
+                content: activity
+                    .result()
+                    .and_then(result_text)
+                    .map(std::string::ToString::to_string),
+                is_error: Some(activity.is_error),
+                typed_result: enrich_codex_typed_result(
+                    &activity.summary,
+                    Some(activity.tool_input()),
+                    activity.typed_result().cloned(),
+                ),
+            })
         })
-        .unwrap_or_default()
+        .collect()
+}
+
+/// Whether this turn is still waiting on a person.
+///
+/// An interactive call that has not come back is the whole condition: the
+/// person's answer settles the call's activity, so `in_progress` on one of these
+/// two tools *is* "waiting".
+fn has_unanswered_question(activities: &[&Activity]) -> bool {
+    activities.iter().any(|activity| {
+        activity.kind == ActivityKind::ToolCall
+            && activity.status == ActivityStatus::InProgress
+            && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
+    })
+}
+
+/// The source chip for a turn whose claim was recorded on the call that made it.
+///
+/// A shell command that posts a comment claims what it created on its own
+/// activity rather than on a Message, because the turn it ran on may have said
+/// nothing and written no Message row. Rendering reads it back from there.
+fn claimed_external_source(activities: &[&Activity]) -> Option<UiMessageExternalSource> {
+    activities.iter().find_map(|activity| {
+        let adapter_kind = activity.external_adapter.clone()?;
+        let external_id = activity.external_event_id.clone();
+        let external_label = external_id.as_deref().map(format_external_label);
+        Some(UiMessageExternalSource {
+            adapter_kind,
+            source_name: activity.external_source_name.clone(),
+            external_id,
+            external_label,
+        })
+    })
+}
+
+fn transform_tool_only_turn(uuid: &str, activities: &[&Activity], is_last: bool) -> UiMessage {
+    let timestamp = activities.first().map_or_else(String::new, |activity| {
+        activity
+            .created_at
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    });
+    let has_pending = is_last && has_unanswered_question(activities);
+
+    UiMessage {
+        uuid: uuid.to_string(),
+        message_type: MessageType::Assistant,
+        role: crate::message::models::MessageRole::Assistant,
+        timestamp,
+        session_id: None,
+        turn_number: None,
+        agent_mode: None,
+        model: None,
+        is_queued: None,
+        content: call_blocks(activities),
+        contexts: vec![],
+        tool_results: call_results(activities),
+        has_pending_user_input: if has_pending { Some(true) } else { None },
+        message_id: None,
+        stop_reason: None,
+        stop_sequence: None,
+        usage: None,
+        result: None,
+        sdk_metadata: None,
+        external_source: claimed_external_source(activities),
+        parent_uuid: activities
+            .first()
+            .and_then(|activity| activity.parent_uuid.clone()),
+        source_task_id: None,
+        sent_by: None,
+    }
 }
 
 /// Collect the `Agent` tool-use ids referenced by these top-level Messages —
@@ -298,43 +400,6 @@ pub(crate) fn inject_subagent_summaries(
     }
 }
 
-/// Resolve the uuid of the top-level Message a change to `changed_uuid`
-/// affects — the seam's **affected-parent resolution**.
-///
-/// - A folded row (a `tool_result`/system row inlined into the assistant
-///   Message that called it) resolves to that **parent** assistant Message's
-///   uuid, so a top-level tool result renders live under its call.
-/// - A standalone Message resolves to its own uuid.
-/// - A subagent row (carrying `parent_uuid`) resolves to `None` — those never
-///   upsert a top-level Message (their activity rides `subagentProgress`).
-/// - `None` when the row is unknown or its parent is not present in `rows`.
-pub(crate) fn resolve_affected_parent_uuid(
-    rows: &[TaskMessage],
-    changed_uuid: &str,
-) -> Option<String> {
-    let changed = rows.iter().find(|m| m.uuid == changed_uuid)?;
-    if changed.parent_uuid.is_some() {
-        return None;
-    }
-
-    let folded = tool_result_ids(&changed.message_content);
-    if folded.is_empty() {
-        return Some(changed.uuid.clone());
-    }
-
-    for tool_use_id in &folded {
-        if let Some(parent) = rows.iter().find(|m| {
-            m.parent_uuid.is_none()
-                && tool_use_ids(&m.message_content)
-                    .iter()
-                    .any(|id| id == tool_use_id)
-        }) {
-            return Some(parent.uuid.clone());
-        }
-    }
-    None
-}
-
 /// Build the `UiMessage.contexts` list for a user message.
 ///
 /// If the message has persisted `task_message_contexts` rows, return them.
@@ -378,75 +443,42 @@ fn build_user_contexts(
         .collect()
 }
 
-fn transform_assistant(
-    msg: &TaskMessage,
-    blocks: &[&TaskMessageContentBlock],
-    tool_results_map: &HashMap<String, &TaskMessage>,
-    tool_use_result_map: &HashMap<String, &serde_json::Value>,
-    is_last: bool,
-    all_messages: &[&TaskMessage],
-) -> UiMessage {
-    let content = build_content_from_message(msg, blocks);
-
-    // Collect inline tool results
-    let mut tool_results = Vec::new();
-    if let Some(arr) = msg.message_content.as_array() {
-        for block in arr {
-            if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                if let Some(tool_use_id) = block.get("id").and_then(|v| v.as_str()) {
-                    if let Some(result_msg) = tool_results_map.get(tool_use_id) {
-                        if let Some(result_content) = result_msg.message_content.as_array() {
-                            for rb in result_content {
-                                if rb.get("tool_use_id").and_then(|v| v.as_str())
-                                    == Some(tool_use_id)
-                                {
-                                    let raw_typed =
-                                        tool_use_result_map.get(tool_use_id).copied().cloned();
-                                    let tool_name =
-                                        block.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                                    let typed_result = enrich_codex_typed_result(
-                                        tool_name,
-                                        block.get("input"),
-                                        raw_typed,
-                                    );
-
-                                    tool_results.push(UiToolResult {
-                                        tool_use_id: tool_use_id.to_string(),
-                                        content: rb
-                                            .get("content")
-                                            .and_then(|v| v.as_str())
-                                            .map(std::string::ToString::to_string),
-                                        is_error: rb
-                                            .get("is_error")
-                                            .and_then(serde_json::Value::as_bool),
-                                        typed_result,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+fn transform_assistant(msg: &TaskMessage, activities: &[&Activity], is_last: bool) -> UiMessage {
+    // Prose first, then the calls in the order they were made. The prose is one
+    // folded string rather than a run of blocks, so there is no native order to
+    // interleave them by — and nothing renders them interleaved.
+    let mut content = Vec::new();
+    if let Some(text) = msg.message_text.as_deref().filter(|t| !t.is_empty()) {
+        content.push(UiContentBlock {
+            block_type: "text".to_string(),
+            text: Some(text.to_string()),
+            tool_use_id: None,
+            tool_name: None,
+            tool_input: None,
+            show_in_ui: None,
+            subagent_summary: None,
+        });
     }
+    content.extend(call_blocks(activities));
 
-    // Check for pending user input (AskUserQuestion / ExitPlanMode without response)
-    let has_pending = if is_last {
-        check_pending_user_input(msg, all_messages)
-    } else {
-        false
-    };
+    let has_pending = is_last && has_unanswered_question(activities);
 
-    let external_source = msg.external_adapter.as_ref().map(|adapter_kind| {
-        let external_id = msg.external_event_id.clone();
-        let external_label = external_id.as_deref().map(format_external_label);
-        UiMessageExternalSource {
-            adapter_kind: adapter_kind.clone(),
-            source_name: msg.external_source_name.clone(),
-            external_id,
-            external_label,
-        }
-    });
+    let external_source = msg
+        .external_adapter
+        .as_ref()
+        .map(|adapter_kind| {
+            let external_id = msg.external_event_id.clone();
+            let external_label = external_id.as_deref().map(format_external_label);
+            UiMessageExternalSource {
+                adapter_kind: adapter_kind.clone(),
+                source_name: msg.external_source_name.clone(),
+                external_id,
+                external_label,
+            }
+        })
+        // An inbound Message carries its source on the row; an outbound one the
+        // agent posted by running a command carries it on that call.
+        .or_else(|| claimed_external_source(activities));
 
     UiMessage {
         uuid: msg.uuid.clone(),
@@ -463,7 +495,7 @@ fn transform_assistant(
         is_queued: None,
         content,
         contexts: vec![],
-        tool_results,
+        tool_results: call_results(activities),
         has_pending_user_input: if has_pending { Some(true) } else { None },
         message_id: msg.assistant_message_id.clone(),
         stop_reason: msg.assistant_stop_reason.clone(),
@@ -485,7 +517,6 @@ fn transform_assistant(
 
 fn transform_user(
     msg: &TaskMessage,
-    blocks: &[&TaskMessageContentBlock],
     context_rows: &[&TaskMessageContext],
     file_metadata: &HashMap<String, FileMetadata>,
 ) -> UiMessage {
@@ -493,25 +524,10 @@ fn transform_user(
     // sent_at is set together with session_id when the agent session starts.
     let is_queued = msg.sent_at.is_none();
 
-    // Use content blocks if available, filtering to showInUI=true
-    let content = if blocks.is_empty() {
-        // Fall back to message_content
-        extract_text_from_content(&msg.message_content)
-    } else {
-        blocks
-            .iter()
-            .filter(|b| b.show_in_ui)
-            .map(|b| UiContentBlock {
-                block_type: b.block_type.to_string(),
-                text: b.text_content.clone(),
-                tool_use_id: None,
-                tool_name: None,
-                tool_input: None,
-                show_in_ui: Some(true),
-                subagent_summary: None,
-            })
-            .collect()
-    };
+    // What the person wrote, and only that. The enrichment the agent sees — the
+    // preview URL, the selected element, the attribution, the attachments — is
+    // rebuilt at delivery time and was never what this rendered.
+    let content = prose_blocks(msg.message_text.as_deref());
 
     let external_source = msg.external_adapter.as_ref().map(|adapter_kind| {
         let external_id = msg.external_event_id.clone();
@@ -553,24 +569,8 @@ fn transform_user(
     }
 }
 
-fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> UiMessage {
-    let content = if blocks.is_empty() {
-        extract_text_from_content(&msg.message_content)
-    } else {
-        blocks
-            .iter()
-            .filter(|b| b.show_in_ui)
-            .map(|b| UiContentBlock {
-                block_type: b.block_type.to_string(),
-                text: b.text_content.clone(),
-                tool_use_id: None,
-                tool_name: None,
-                tool_input: None,
-                show_in_ui: Some(true),
-                subagent_summary: None,
-            })
-            .collect()
-    };
+fn transform_result(msg: &TaskMessage) -> UiMessage {
+    let content = prose_blocks(msg.message_text.as_deref());
 
     UiMessage {
         uuid: msg.uuid.clone(),
@@ -602,67 +602,25 @@ fn transform_result(msg: &TaskMessage, blocks: &[&TaskMessageContentBlock]) -> U
     }
 }
 
-/// Build content blocks from message_content JSON + DB content blocks.
-fn build_content_from_message(
-    msg: &TaskMessage,
-    _blocks: &[&TaskMessageContentBlock],
-) -> Vec<UiContentBlock> {
-    // Use the message_content JSON array directly
-    if let Some(arr) = msg.message_content.as_array() {
-        arr.iter()
-            .map(|block| {
-                let block_type = block
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("text")
-                    .to_string();
-
-                UiContentBlock {
-                    block_type: block_type.clone(),
-                    text: block
-                        .get("text")
-                        .and_then(|v| v.as_str())
-                        .map(std::string::ToString::to_string),
-                    tool_use_id: block
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .map(std::string::ToString::to_string),
-                    tool_name: block
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .map(std::string::ToString::to_string),
-                    tool_input: block.get("input").filter(|v| !v.is_null()).cloned(),
-                    show_in_ui: None,
-                    subagent_summary: None,
-                }
-            })
-            .collect()
-    } else {
-        vec![]
-    }
-}
-
-/// Extract text content blocks from message_content JSON.
-fn extract_text_from_content(content: &serde_json::Value) -> Vec<UiContentBlock> {
-    if let Some(arr) = content.as_array() {
-        arr.iter()
-            .filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"))
-            .map(|b| UiContentBlock {
+/// A Message's prose, as the one content block the frontend renders it from.
+///
+/// Empty where there is none, which is what a caller that has already decided
+/// this row is worth rendering needs — a Message with no prose is not written at
+/// all, so this only ever fires for rows that predate the change.
+fn prose_blocks(text: Option<&str>) -> Vec<UiContentBlock> {
+    text.filter(|text| !text.is_empty())
+        .map(|text| {
+            vec![UiContentBlock {
                 block_type: "text".to_string(),
-                text: b
-                    .get("text")
-                    .and_then(|v| v.as_str())
-                    .map(std::string::ToString::to_string),
+                text: Some(text.to_string()),
                 tool_use_id: None,
                 tool_name: None,
                 tool_input: None,
                 show_in_ui: Some(true),
                 subagent_summary: None,
-            })
-            .collect()
-    } else {
-        vec![]
-    }
+            }]
+        })
+        .unwrap_or_default()
 }
 
 /// For codex tool calls, re-validate the stored `tool_use_result` against
@@ -746,38 +704,6 @@ fn format_github_label(kind: &str, rest: &[&str], raw: &str) -> String {
         },
         _ => raw.to_string(),
     }
-}
-
-/// Check if the last assistant message has a pending interactive tool call
-/// (AskUserQuestion or ExitPlanMode) without a corresponding tool result.
-fn check_pending_user_input(msg: &TaskMessage, all_messages: &[&TaskMessage]) -> bool {
-    if let Some(arr) = msg.message_content.as_array() {
-        for block in arr {
-            if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                let tool_name = block.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                if tool_name == "AskUserQuestion" || tool_name == "ExitPlanMode" {
-                    let tool_use_id = block.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    // Check if there's a tool_result for this tool_use_id
-                    let has_result = all_messages.iter().any(|m| {
-                        if let Some(content) = m.message_content.as_array() {
-                            content.iter().any(|b| {
-                                b.get("type").and_then(|v| v.as_str()) == Some("tool_result")
-                                    && b.get("tool_use_id").and_then(|v| v.as_str())
-                                        == Some(tool_use_id)
-                            })
-                        } else {
-                            false
-                        }
-                    });
-
-                    if !has_result {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -871,6 +797,7 @@ mod tests {
     // ── transform: chronological render of all rows ─────────────────
 
     use crate::message::models::MessageRole;
+    use crate::task_activities::mapping::ActivityStatus;
 
     fn make_msg(
         id: i32,
@@ -896,7 +823,7 @@ mod tests {
             request_id: None,
             timestamp: format!("2025-01-01T00:00:0{id}.000Z"),
             message_role: role,
-            message_content: json!([{"type": "text", "text": text}]),
+            message_text: Some(text.to_string()),
             assistant_message_id: None,
             assistant_message_type: None,
             assistant_message_model: None,
@@ -1277,74 +1204,35 @@ mod tests {
         );
     }
 
-    // ── Seam 2: affected-parent resolution + lazy subagents ─────────────
+    // ── Seam 2: turns assembled from activities + lazy subagents ────────
 
-    fn assistant_with_content(id: i32, uuid: &str, content: serde_json::Value) -> TaskMessage {
-        let mut m = make_msg(
-            id,
-            uuid,
-            MessageType::Assistant,
-            MessageRole::Assistant,
-            Some(1),
-            "",
-        );
-        m.message_content = content;
-        m
-    }
-
-    fn tool_result_row(id: i32, uuid: &str, content: serde_json::Value) -> TaskMessage {
-        let mut m = make_msg(
-            id,
-            uuid,
-            MessageType::System,
-            MessageRole::User,
-            Some(1),
-            "",
-        );
-        m.message_content = content;
-        m
-    }
-
-    #[test]
-    fn resolve_affected_parent_folds_tool_result_into_parent() {
-        let assistant = assistant_with_content(
-            1,
-            "a1",
-            json!([{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {}}]),
-        );
-        let result = tool_result_row(
-            2,
-            "sys1",
-            json!([{"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}]),
-        );
-        let rows = vec![assistant, result];
-
-        // A folded tool_result resolves to its parent assistant Message.
-        assert_eq!(
-            resolve_affected_parent_uuid(&rows, "sys1"),
-            Some("a1".to_string())
-        );
-        // A standalone Message resolves to itself.
-        assert_eq!(
-            resolve_affected_parent_uuid(&rows, "a1"),
-            Some("a1".to_string())
-        );
-        // An unknown uuid resolves to None.
-        assert_eq!(resolve_affected_parent_uuid(&rows, "nope"), None);
-    }
-
-    #[test]
-    fn resolve_affected_parent_skips_subagent_rows() {
-        let mut sub = make_msg(
-            1,
-            "sub1",
-            MessageType::Assistant,
-            MessageRole::Assistant,
-            Some(1),
-            "hi",
-        );
-        sub.parent_uuid = Some("toolu_agent".to_string());
-        assert_eq!(resolve_affected_parent_uuid(&[sub], "sub1"), None);
+    /// One settled tool call on `uuid`, at `position`.
+    fn call(uuid: &str, position: i64, tool_use_id: &str, name: &str) -> Activity {
+        Activity {
+            activity_id: format!("{uuid}:{position}"),
+            task_id: "task-1".into(),
+            position,
+            message_uuid: Some(uuid.into()),
+            parent_uuid: None,
+            kind: ActivityKind::ToolCall,
+            status: ActivityStatus::Completed,
+            tool_use_id: Some(tool_use_id.into()),
+            summary: name.into(),
+            payload: json!({
+                "title": name,
+                "input": {},
+                "result": "ok",
+            }),
+            detail: Some("ok".into()),
+            is_error: false,
+            external_event_id: None,
+            external_adapter: None,
+            external_source_name: None,
+            // 2025-01-01T00:00:00Z + `position`, so an activity's own key sorts
+            // against the `make_msg` timestamps rather than ahead of all of them.
+            created_at: chrono::DateTime::from_timestamp(1_735_689_600 + position, 0)
+                .expect("valid ts"),
+        }
     }
 
     #[test]
@@ -1373,22 +1261,115 @@ mod tests {
     }
 
     #[test]
+    fn a_tool_result_reaches_the_calling_turn_without_a_row_of_its_own() {
+        // The call and its outcome are one activity. Nothing carries the result
+        // as a Message any more, so this is the whole of what a reader needs.
+        let assistant = make_msg(
+            1,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "running it",
+        );
+        let ui = transform_to_ui(&[assistant], &[], &[call("a1", 1, "toolu_1", "Bash")]);
+
+        assert_eq!(ui.len(), 1);
+        assert_eq!(ui[0].uuid, "a1");
+        assert_eq!(ui[0].tool_results.len(), 1);
+        assert_eq!(ui[0].tool_results[0].tool_use_id, "toolu_1");
+    }
+
+    /// The spec's own behaviour clause: a turn whose agent only called tools
+    /// writes no Message, and its calls must still be rendered.
+    #[test]
+    fn a_turn_that_said_nothing_is_rendered_from_its_activities() {
+        let spoken = make_msg(
+            1,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "first",
+        );
+        // No Message row for `a2` at all.
+        let ui = transform_to_ui(
+            &[spoken],
+            &[],
+            &[
+                call("a1", 1, "toolu_1", "Bash"),
+                call("a2", 2, "toolu_2", "Read"),
+            ],
+        );
+
+        assert_eq!(ui.len(), 2);
+        assert_eq!(ui[1].uuid, "a2");
+        assert_eq!(ui[1].tool_results[0].tool_use_id, "toolu_2");
+    }
+
+    #[test]
+    fn a_call_still_waiting_contributes_no_result() {
+        let assistant = make_msg(
+            1,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "running it",
+        );
+        let mut waiting = call("a1", 1, "toolu_1", "Bash");
+        waiting.status = ActivityStatus::InProgress;
+        waiting.payload = json!({ "title": "Bash", "input": {} });
+
+        let ui = transform_to_ui(&[assistant], &[], &[waiting]);
+
+        assert_eq!(ui.len(), 1);
+        assert!(
+            ui[0].tool_results.is_empty(),
+            "a call nothing has answered yet has no outcome to show: {:?}",
+            ui[0].tool_results
+        );
+    }
+
+    #[test]
+    fn an_unanswered_question_on_the_last_turn_is_pending_user_input() {
+        let assistant = make_msg(
+            1,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "which one?",
+        );
+        let mut asking = call("a1", 1, "toolu_1", "AskUserQuestion");
+        asking.status = ActivityStatus::InProgress;
+
+        let ui = transform_to_ui(
+            std::slice::from_ref(&assistant),
+            &[],
+            std::slice::from_ref(&asking),
+        );
+        assert_eq!(ui[0].has_pending_user_input, Some(true));
+
+        // The person answered: the call settled, and the turn is no longer waiting.
+        let answered = call("a1", 1, "toolu_1", "AskUserQuestion");
+        let ui = transform_to_ui(&[assistant], &[], &[answered]);
+        assert_eq!(ui[0].has_pending_user_input, None);
+    }
+
+    #[test]
     fn subagent_transcript_assembles_folded_messages() {
-        let mut sub_asst = assistant_with_content(
+        let mut sub_asst = make_msg(
             1,
             "s1",
-            json!([
-                {"type": "text", "text": "working"},
-                {"type": "tool_use", "id": "toolu_inner", "name": "Read", "input": {}}
-            ]),
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "working",
         );
         sub_asst.parent_uuid = Some("toolu_1".to_string());
-        let mut sub_res = tool_result_row(
-            2,
-            "s2",
-            json!([{"type": "tool_result", "tool_use_id": "toolu_inner", "content": "file"}]),
-        );
-        sub_res.parent_uuid = Some("toolu_1".to_string());
+        let mut inner = call("s1", 1, "toolu_inner", "Read");
+        inner.parent_uuid = Some("toolu_1".to_string());
         // A top-level row that the transcript must ignore.
         let top = make_msg(
             3,
@@ -1399,7 +1380,7 @@ mod tests {
             "top",
         );
 
-        let ui = transform_subagent_transcript(&[sub_asst, sub_res, top], &[], &[], "toolu_1");
+        let ui = transform_subagent_transcript(&[sub_asst, top], &[], &[inner], "toolu_1");
         assert_eq!(ui.len(), 1);
         assert_eq!(ui[0].uuid, "s1");
         assert_eq!(ui[0].tool_results.len(), 1);
@@ -1408,14 +1389,21 @@ mod tests {
 
     #[test]
     fn inject_subagent_summary_derives_count_tokens_and_status() {
-        let agent_block = json!([{"type": "tool_use", "id": "toolu_agent", "name": "Agent", "input": {"description": "do work"}}]);
-
-        // Running: no outer Agent tool_result present.
-        let mut ui = transform_to_ui(
-            &[assistant_with_content(1, "a1", agent_block.clone())],
-            &[],
-            &[],
+        let assistant = make_msg(
+            1,
+            "a1",
+            MessageType::Assistant,
+            MessageRole::Assistant,
+            Some(1),
+            "delegating",
         );
+
+        // Running: the Agent call has not come back.
+        let mut running = call("a1", 1, "toolu_agent", "Agent");
+        running.status = ActivityStatus::InProgress;
+        running.payload = json!({ "title": "Agent", "input": { "description": "do work" } });
+
+        let mut ui = transform_to_ui(std::slice::from_ref(&assistant), &[], &[running]);
         let mut agg = HashMap::new();
         agg.insert("toolu_agent".to_string(), (5u32, 1234u32));
         inject_subagent_summaries(&mut ui, &agg);
@@ -1429,17 +1417,9 @@ mod tests {
         assert_eq!(summary.tokens, 1234);
         assert_eq!(summary.status, SubagentStatus::Running);
 
-        // Completed: outer Agent tool_result present, not an error.
-        let result = tool_result_row(
-            2,
-            "sys1",
-            json!([{"type": "tool_result", "tool_use_id": "toolu_agent", "content": "done"}]),
-        );
-        let mut ui2 = transform_to_ui(
-            &[assistant_with_content(1, "a1", agent_block.clone()), result],
-            &[],
-            &[],
-        );
+        // Completed: the call settled without an error.
+        let completed = call("a1", 1, "toolu_agent", "Agent");
+        let mut ui2 = transform_to_ui(std::slice::from_ref(&assistant), &[], &[completed]);
         inject_subagent_summaries(&mut ui2, &agg);
         let status2 = ui2[0]
             .content
@@ -1450,17 +1430,11 @@ mod tests {
             .unwrap();
         assert_eq!(status2, SubagentStatus::Completed);
 
-        // Error: outer Agent tool_result carries is_error.
-        let err = tool_result_row(
-            2,
-            "sys1",
-            json!([{"type": "tool_result", "tool_use_id": "toolu_agent", "content": "boom", "is_error": true}]),
-        );
-        let mut ui3 = transform_to_ui(
-            &[assistant_with_content(1, "a1", agent_block), err],
-            &[],
-            &[],
-        );
+        // Error: the call settled as failed.
+        let mut failed = call("a1", 1, "toolu_agent", "Agent");
+        failed.status = ActivityStatus::Failed;
+        failed.is_error = true;
+        let mut ui3 = transform_to_ui(&[assistant], &[], &[failed]);
         // Missing aggregate entry → zeroed count.
         inject_subagent_summaries(&mut ui3, &HashMap::new());
         let s3 = ui3[0]

@@ -116,20 +116,15 @@ async fn seed_task(pool: &PgPool, task_id: &str, owner: &str) {
     PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
 }
 
-/// The text a message carries, as the transcript renders it.
+/// What the person wrote, which is the Message itself now — prose lives on the
+/// row, so there is no block list to reassemble it from.
 async fn message_text(pool: &PgPool, uuid: &str) -> Option<String> {
-    sqlx::query_scalar(
-        "SELECT b.text_content FROM task_message_content_blocks b
-         JOIN task_messages m ON m.id = b.task_message_id
-         WHERE m.uuid = $1 AND b.show_in_ui
-         ORDER BY b.sort_order
-         LIMIT 1",
-    )
-    .bind(uuid)
-    .fetch_optional(pool)
-    .await
-    .unwrap()
-    .flatten()
+    sqlx::query_scalar("SELECT message_text FROM task_messages WHERE uuid = $1")
+        .bind(uuid)
+        .fetch_optional(pool)
+        .await
+        .unwrap()
+        .flatten()
 }
 
 fn turn(task_id: &str, uuid: &str, text: &str) -> ThreadTurn {

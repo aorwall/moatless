@@ -15,9 +15,8 @@ mod common;
 use chrono::{Duration, Utc};
 use moatless_vibe_backend::task::dao::{self as task_dao};
 use moatless_vibe_backend::task::models::TaskStatus;
-use moatless_vibe_backend::task_turn::dao::{
-    PgTaskTurnDao, TaskTurnDao, TurnStateEvent,
-};
+use moatless_vibe_backend::task_activities::mapping::ConversationWrite;
+use moatless_vibe_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
 use moatless_vibe_backend::task_turn::models::{TurnStatus, TurnTransition};
 use sqlx::PgPool;
 
@@ -545,7 +544,7 @@ async fn resolve_turn_for_run_respects_legacy_message_turns(pool: PgPool) {
     seed_task(&pool, "task-a").await;
     let mut msg = common::make_message_row("task-a", "legacy-user");
     msg.turn_number = Some(47);
-    moatless_vibe_backend::message::dao::append(&pool, &msg, &[], &[])
+    moatless_vibe_backend::message::dao::append(&pool, &msg, &[], &ConversationWrite::default())
         .await
         .unwrap();
 

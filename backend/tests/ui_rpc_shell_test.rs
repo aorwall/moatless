@@ -23,6 +23,7 @@ use axum::http::StatusCode;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use chrono::{DateTime, SubsecRound, Utc};
+use moatless_vibe_backend::task_activities::mapping::{map_content, BlockContext, ConversationWrite};
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
@@ -45,7 +46,7 @@ use moatless_vibe_backend::task_turn::dao::{
     PgTaskTurnDao, TaskTurnDao, TurnStateEvent,
 };
 use moatless_vibe_backend::task_turn::models::classify_turn_transition;
-use moatless_vibe_backend::task_conversation::{ConversationChange, ConversationHead};
+use moatless_vibe_backend::task_activities::{ConversationChange, ConversationHead};
 use moatless_vibe_backend::ui_rpc::backend as ui_rpc_backend;
 use moatless_vibe_backend::ui_rpc::preview_tabs::InMemoryPreviewTabDao;
 use moatless_vibe_backend::ui_rpc::dao::{
@@ -69,6 +70,27 @@ use common::{
     authed_request, body_json, make_message_row, make_repository_row, make_task_row,
     make_workspace_row, seed_team, test_app_state, USER_1,
 };
+
+/// Map one Message's content the way the write path does: prose onto the row,
+/// each call and each outcome onto the conversation. Tests that used to hand
+/// `append` a block list go through the same seam the live writer does.
+fn conversation_write(
+    task_id: &str,
+    uuid: &str,
+    message_type: MessageType,
+    content: &Value,
+) -> ConversationWrite {
+    map_content(
+        BlockContext {
+            task_id,
+            message_uuid: uuid,
+            parent_uuid: None,
+            message_type,
+            block_index: 0,
+        },
+        content,
+    )
+}
 
 fn viewer(user_id: &str) -> ScopeContext {
     ScopeContext {
@@ -303,7 +325,7 @@ async fn seed_sandbox(pool: &PgPool, task_id: &str, desired_state: &str, started
 async fn seed_user_message(pool: &PgPool, task_id: &str, uuid: &str) {
     let msg = make_message_row(task_id, uuid);
     PgMessageDao(pool.clone())
-        .append(&msg, &[], &[])
+        .append(&msg, &[], &ConversationWrite::default())
         .await
         .unwrap();
 }
@@ -326,7 +348,7 @@ async fn seed_agent_message(
         ..make_message_row(task_id, uuid)
     };
     PgMessageDao(pool.clone())
-        .append(&msg, &[], &[])
+        .append(&msg, &[], &ConversationWrite::default())
         .await
         .unwrap();
 }
@@ -1340,12 +1362,19 @@ async fn an_unanswered_question_is_pending_user_input(pool: PgPool) {
     asking.message_type = MessageType::Assistant;
     asking.user_type = "system".into();
     asking.turn_number = Some(1);
-    asking.message_content = json!([
-        {"type": "text", "text": "Which one?"},
-        {"type": "tool_use", "id": "tu-1", "name": "AskUserQuestion", "input": {}}
-    ]);
+    asking.message_text = Some("Which one?".into());
+    let question = map_content(
+        BlockContext {
+            task_id: "t-asking",
+            message_uuid: "m-ask",
+            parent_uuid: None,
+            message_type: MessageType::Assistant,
+            block_index: 1,
+        },
+        &json!([{"type": "tool_use", "id": "tu-1", "name": "AskUserQuestion", "input": {}}]),
+    );
     PgMessageDao(pool.clone())
-        .append(&asking, &[], &[])
+        .append(&asking, &[], &question)
         .await
         .unwrap();
 
@@ -1354,12 +1383,21 @@ async fn an_unanswered_question_is_pending_user_input(pool: PgPool) {
     assert_eq!(waiting["hasPendingUserInput"], true);
     assert_eq!(waiting["hasActionableProposedPlan"], false);
 
-    let mut answer = make_message_row("t-asking", "m-answer");
-    answer.message_content = json!([
-        {"type": "tool_result", "tool_use_id": "tu-1", "content": "the first one"}
-    ]);
+    // The answer settles the call the question wrote. There is no second
+    // Message carrying a `tool_result` any more, so the flag has to come off
+    // the activity's own status.
+    let answer = map_content(
+        BlockContext {
+            task_id: "t-asking",
+            message_uuid: "m-answer",
+            parent_uuid: None,
+            message_type: MessageType::User,
+            block_index: 0,
+        },
+        &json!([{"type": "tool_result", "tool_use_id": "tu-1", "content": "the first one"}]),
+    );
     PgMessageDao(pool.clone())
-        .append(&answer, &[], &[])
+        .append_activities("t-asking", "m-ask", &answer)
         .await
         .unwrap();
 
@@ -1370,71 +1408,65 @@ async fn an_unanswered_question_is_pending_user_input(pool: PgPool) {
     );
 }
 
-/// `message_content` is `jsonb NOT NULL`, not `jsonb[]`, and nothing in the
-/// schema says it holds an array. The pending-flag scan calls
-/// `jsonb_array_elements` on it twice, and that function raises on anything
-/// else — `cannot extract elements from an object` for an object, `from a
-/// scalar` for a string, number or boolean — so every shape a message can
-/// legally carry has to be in the table when the query runs.
-///
-/// What saves it is the `jsonb_typeof(...) = 'array'` guard sitting in the
-/// same `WHERE` as the lateral call: it restricts only the message row, so
-/// Postgres applies it in that row's scan, below the lateral. That is a
-/// property of the query's shape rather than of the guard's presence —
-/// rewriting the scan could keep the guard and still lose the ordering — and
-/// `postgres_accepts_the_conversation_query` cannot see any of it, because an
-/// empty table never calls the function at all.
+/// An unanswered question the agent then called past stops counting: the scan
+/// reads only the newest turn that did anything, which is the narrow reading of
+/// "waiting" — the agent has moved on.
 #[sqlx::test]
-async fn the_pending_scan_survives_message_content_that_is_not_an_array(pool: PgPool) {
+async fn a_question_the_agent_called_past_is_no_longer_pending(pool: PgPool) {
     PgWorkspaceDao(pool.clone())
         .insert_workspace(&make_workspace_row("ws-a", "user-1"))
         .await
         .unwrap();
-    seed_task(&pool, "t-shapes", "user-1", Some("ws-a")).await;
-    seed_turn(&pool, "t-shapes", 1, "active").await;
+    seed_task(&pool, "t-moved-on", "user-1", Some("ws-a")).await;
+    seed_turn(&pool, "t-moved-on", 1, "active").await;
 
-    // The agent asks, so the flag has something to be true about.
-    let mut asking = make_message_row("t-shapes", "m-ask");
+    let mut asking = make_message_row("t-moved-on", "m-ask");
     asking.message_type = MessageType::Assistant;
     asking.user_type = "system".into();
     asking.turn_number = Some(1);
-    asking.message_content = json!([
-        {"type": "tool_use", "id": "tu-1", "name": "AskUserQuestion", "input": {}}
-    ]);
+    asking.message_text = Some("Which one?".into());
+    let question = map_content(
+        BlockContext {
+            task_id: "t-moved-on",
+            message_uuid: "m-ask",
+            parent_uuid: None,
+            message_type: MessageType::Assistant,
+            block_index: 1,
+        },
+        &json!([{"type": "tool_use", "id": "tu-1", "name": "AskUserQuestion", "input": {}}]),
+    );
     PgMessageDao(pool.clone())
-        .append(&asking, &[], &[])
+        .append(&asking, &[], &question)
         .await
         .unwrap();
 
     let viewer = viewer("user-1");
     assert_eq!(
-        thread(&pool, &viewer, "t-shapes").await["hasPendingUserInput"],
-        true,
-        "the question is unanswered before the other shapes arrive"
+        thread(&pool, &viewer, "t-moved-on").await["hasPendingUserInput"],
+        true
     );
 
-    // Every non-array shape jsonb admits. The `NOT EXISTS` half scans all of
-    // them, so one unguarded row here would take the whole listing down.
-    for (uuid, content) in [
-        ("m-object", json!({"an": "object"})),
-        ("m-string", json!("just some text")),
-        ("m-number", json!(1)),
-        ("m-bool", json!(true)),
-        ("m-null", Value::Null),
-    ] {
-        let mut odd = make_message_row("t-shapes", uuid);
-        odd.message_content = content;
-        PgMessageDao(pool.clone())
-            .append(&odd, &[], &[])
-            .await
-            .unwrap();
-    }
+    // A later turn that called a tool and said nothing at all — no Message row.
+    let moved_on = map_content(
+        BlockContext {
+            task_id: "t-moved-on",
+            message_uuid: "m-next",
+            parent_uuid: None,
+            message_type: MessageType::Assistant,
+            block_index: 0,
+        },
+        &json!([{"type": "tool_use", "id": "tu-2", "name": "Bash", "input": {}}]),
+    );
+    PgMessageDao(pool.clone())
+        .append_activities("t-moved-on", "m-next", &moved_on)
+        .await
+        .unwrap();
 
-    let thread = thread(&pool, &viewer, "t-shapes").await;
+    let thread = thread(&pool, &viewer, "t-moved-on").await;
     assert_decodable_thread(&thread);
     assert_eq!(
-        thread["hasPendingUserInput"], true,
-        "a non-array message neither answers the question nor breaks the scan"
+        thread["hasPendingUserInput"], false,
+        "the question is not on the newest turn that did anything"
     );
 }
 
@@ -3513,7 +3545,7 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
             |pool, _ctx, id| {
                 Box::pin(async move {
                     let msg = make_message_row(&id, &format!("{id}-said"));
-                    PgMessageDao(pool).append(&msg, &[], &[]).await.unwrap();
+                    PgMessageDao(pool).append(&msg, &[], &ConversationWrite::default()).await.unwrap();
                 })
             },
             // The activity timestamp T3 orders the sidebar by. It was null on
@@ -3524,17 +3556,28 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
             "asked a question",
             |pool, _ctx, id| {
                 Box::pin(async move {
+                    let uuid = format!("{id}-asked");
                     let msg = TaskMessage {
                         message_type: MessageType::Assistant,
-                        message_content: json!([{
+                        message_text: Some("Which one?".into()),
+                        ..make_message_row(&id, &uuid)
+                    };
+                    let question = map_content(
+                        BlockContext {
+                            task_id: &id,
+                            message_uuid: &uuid,
+                            parent_uuid: None,
+                            message_type: MessageType::Assistant,
+                            block_index: 1,
+                        },
+                        &json!([{
                             "type": "tool_use",
                             "id": "tu-1",
                             "name": "AskUserQuestion",
                             "input": {}
                         }]),
-                        ..make_message_row(&id, &format!("{id}-asked"))
-                    };
-                    PgMessageDao(pool).append(&msg, &[], &[]).await.unwrap();
+                    );
+                    PgMessageDao(pool).append(&msg, &[], &question).await.unwrap();
                 })
             },
             Some(("hasPendingUserInput", json!(true))),
@@ -3694,17 +3737,26 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
     // turn. Deliberately not the turn's start or end — ticket 04 records those,
     // and they are the whole of what a turn contributes.
     for step in 0..20 {
-        seed_agent_message(&pool, "t-live", &format!("a-{step}"), 1, Some("claude-opus-4-5")).await;
-        let result = TaskMessage {
-            message_type: MessageType::System,
-            message_content: json!([{
-                "type": "tool_result",
-                "tool_use_id": "tu-1",
-                "content": "ok"
-            }]),
-            ..make_message_row("t-live", &format!("r-{step}"))
-        };
-        PgMessageDao(pool.clone()).append(&result, &[], &[]).await.unwrap();
+        let uuid = format!("a-{step}");
+        seed_agent_message(&pool, "t-live", &uuid, 1, Some("claude-opus-4-5")).await;
+        // The call and the result it comes back with, on the turn that made it.
+        let work = map_content(
+            BlockContext {
+                task_id: "t-live",
+                message_uuid: &uuid,
+                parent_uuid: None,
+                message_type: MessageType::Assistant,
+                block_index: 1,
+            },
+            &json!([
+                {"type": "tool_use", "id": format!("tu-{step}"), "name": "Bash", "input": {}},
+                {"type": "tool_result", "tool_use_id": format!("tu-{step}"), "content": "ok"}
+            ]),
+        );
+        PgMessageDao(pool.clone())
+            .append_activities("t-live", &uuid, &work)
+            .await
+            .unwrap();
     }
 
     assert_eq!(

@@ -29,11 +29,10 @@ use crate::state::AppState;
 /// to the GitHub reconciler. Errors are logged and swallowed — the event
 /// handler loop is fire-and-forget.
 ///
-/// `_message_uuid` is the System tool_result row's uuid. We intentionally do
-/// not tag that row anymore — the gh side effects look up the parent Assistant
-/// row's uuid via `find_tool_call` and tag it instead so the source chip
-/// renders on the visible assistant bubble. The argument is kept for
-/// symmetry with sibling persistence hooks.
+/// `_message_uuid` is the uuid of the Message the result arrived on, which is
+/// not rendered and writes no row of its own. The gh side effects record what
+/// they created on the *call* instead — see `reconcile_shell_command`. The
+/// argument is kept for symmetry with sibling persistence hooks.
 pub async fn on_agent_message_persisted(
     state: &AppState,
     task_id: &str,
@@ -96,9 +95,10 @@ pub async fn on_agent_message_persisted(
 
         let result_text = block.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
-        let parent_uuid = tool_call.parent_message_uuid.as_str();
-
-        reconcile_shell_command(state, task_id, parent_uuid, cmd, result_text).await;
+        // The claim is recorded on the call, not on the Message it was made
+        // from: a turn that only ran the command said nothing and wrote no
+        // Message row for the claim to land on.
+        reconcile_shell_command(state, task_id, tool_use_id, cmd, result_text).await;
     }
 }
 

@@ -27,6 +27,7 @@ use moatless_vibe_backend::task::dao::{
     self as task_dao, PgTaskDao, TaskDao, TaskPatch,
 };
 use moatless_vibe_backend::task::models::TaskStatus;
+use moatless_vibe_backend::task_activities::mapping::ConversationWrite;
 use moatless_vibe_backend::task::relations::{
     PgTaskRelationDao, TaskRelation, TaskRelationDao, TaskRelationType,
 };
@@ -86,17 +87,11 @@ async fn status_of(pool: &PgPool, task_id: &str) -> TaskStatus {
 }
 
 async fn visible_parent_texts(pool: &PgPool, parent_task_id: &str) -> Vec<String> {
-    let (messages, _, blocks) = message_dao::get_all(pool, parent_task_id).await.unwrap();
-    let user_ids: std::collections::HashSet<i32> = messages
-        .iter()
-        .filter(|m| m.message_type == MessageType::User)
-        .map(|m| m.id)
-        .collect();
-
-    blocks
+    let (messages, _, _) = message_dao::get_all(pool, parent_task_id).await.unwrap();
+    messages
         .into_iter()
-        .filter(|b| user_ids.contains(&b.task_message_id) && b.show_in_ui)
-        .filter_map(|b| b.text_content)
+        .filter(|m| m.message_type == MessageType::User)
+        .filter_map(|m| m.message_text)
         .collect()
 }
 
@@ -239,10 +234,8 @@ async fn completed_child_notifies_parent_without_result_body(pool: PgPool) {
     let mut assistant = make_message_row("task-child", "child-assistant-1");
     assistant.message_type = MessageType::Assistant;
     assistant.message_role = MessageRole::Assistant;
-    assistant.message_content = serde_json::json!([
-        { "type": "text", "text": "full child result that should stay out of parent" }
-    ]);
-    message_dao::append(&pool, &assistant, &[], &[])
+    assistant.message_text = Some("full child result that should stay out of parent".to_string());
+    message_dao::append(&pool, &assistant, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -297,10 +290,10 @@ async fn errored_child_notifies_parent_with_error_message(pool: PgPool) {
 // =========================================================================
 
 #[sqlx::test]
-async fn reconcile_error_keeps_closed_but_appends_message(pool: PgPool) {
+async fn reconcile_error_keeps_closed_and_says_nothing(pool: PgPool) {
     // Mirrors `reaper::close_orphaned_turn`: a synthetic agent.error on a closed
-    // task must keep it closed, yet still append the error message row so the UI
-    // turn unblocks.
+    // task must keep it closed. It writes no conversation row — a run outcome is
+    // not a Message (Decision 14); the turn's own status is what unblocks the UI.
     seed_with_status(&pool, "task-r", TaskStatus::Closed).await;
     let state = test_app_state(pool.clone());
 
@@ -321,10 +314,7 @@ async fn reconcile_error_keeps_closed_but_appends_message(pool: PgPool) {
         .await
         .unwrap();
     assert!(
-        rows.iter().any(|m| m
-            .message_content
-            .to_string()
-            .contains("stopped without reporting a result")),
-        "the synthetic error message row should still be appended"
+        rows.is_empty(),
+        "a reconciled orphaned turn is not something anybody said: {rows:?}"
     );
 }

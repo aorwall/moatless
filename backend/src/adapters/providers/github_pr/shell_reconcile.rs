@@ -77,26 +77,27 @@ impl ParsedPr {
 ///
 /// `cmd` is the command line with the harness's shell wrapper already removed
 /// and line continuations already joined; `result_text` is the command's
-/// captured output. `parent_uuid` is the assistant tool_use row to tag, so the
-/// source chip renders on the visible assistant bubble.
+/// captured output. `tool_use_id` names the call that ran the command, and is
+/// what the claim is recorded on: the turn the call was made from may have said
+/// nothing and written no Message row, but the call itself always has one.
 ///
 /// Errors are logged and swallowed — the event handler loop is
 /// fire-and-forget.
 pub(crate) async fn reconcile_shell_command(
     state: &AppState,
     task_id: &str,
-    parent_uuid: &str,
+    tool_use_id: &str,
     cmd: &str,
     result_text: &str,
 ) {
     if is_gh_pr_create(cmd) {
-        handle_gh_pr_create(state, task_id, parent_uuid, result_text).await;
+        handle_gh_pr_create(state, task_id, tool_use_id, result_text).await;
     } else if is_gh_pr_comment(cmd) || is_gh_issue_comment(cmd) {
-        handle_gh_comment(state, task_id, parent_uuid, result_text).await;
+        handle_gh_comment(state, task_id, tool_use_id, result_text).await;
     } else if let Some(created) = parse_gh_api_creation(cmd) {
-        handle_gh_api_creation(state, task_id, parent_uuid, &created, result_text).await;
+        handle_gh_api_creation(state, task_id, tool_use_id, &created, result_text).await;
     } else if is_git_push(cmd) && !is_dry_run_push(cmd) {
-        handle_git_push(state, task_id, parent_uuid, result_text).await;
+        handle_git_push(state, task_id, tool_use_id, result_text).await;
     }
 }
 
@@ -105,15 +106,15 @@ pub(crate) async fn reconcile_shell_command(
 // =============================================================================
 
 /// Record this task's claim on the event its shell command just created: note
-/// the id in the recently-sent cache and tag the assistant `tool_use` row with
-/// it, so the inbound webhook carrying the same id resolves back to this task.
+/// the id in the recently-sent cache and record it on the call that made it, so
+/// the inbound webhook carrying the same id resolves back to this task.
 ///
 /// `shape` is the fixed-vocabulary posting shape the command was recognised
 /// as; it labels the claim metric and the log lines.
 async fn record_claim(
     state: &AppState,
     task_id: &str,
-    parent_uuid: &str,
+    tool_use_id: &str,
     shape: &'static str,
     external_id: &str,
     source_name: &str,
@@ -123,13 +124,19 @@ async fn record_claim(
     state.recently_sent.note(task_id, external_id);
     match state
         .messages
-        .set_external_source_metadata(parent_uuid, external_id, ADAPTER_LABEL, Some(source_name))
+        .claim_activity_external_source(
+            task_id,
+            tool_use_id,
+            external_id,
+            ADAPTER_LABEL,
+            Some(source_name),
+        )
         .await
     {
         Ok(true) => {
             info!(
                 task_id,
-                parent_uuid,
+                tool_use_id,
                 shape,
                 external_id,
                 "Claimed the event a shell GitHub mutation created"
@@ -139,17 +146,17 @@ async fn record_claim(
         Ok(false) => {
             debug!(
                 task_id,
-                parent_uuid,
+                tool_use_id,
                 shape,
                 external_id,
-                "Assistant row already had external_event_id — leaving untouched"
+                "The call already carried an external_event_id — leaving untouched"
             );
             record_shell_claim(ADAPTER_LABEL, shape, "claimed", "row_already_tagged");
         }
         Err(e) => {
             // The cache entry landed, but it is in-memory and short-lived; the
             // durable half of the claim is gone.
-            warn!(task_id, parent_uuid, shape, external_id, error = %e, "Failed to tag assistant row with external_event_id");
+            warn!(task_id, tool_use_id, shape, external_id, error = %e, "Failed to record the claim on the call");
             record_shell_claim(ADAPTER_LABEL, shape, "unclaimed", "tag_failed");
         }
     }
@@ -178,7 +185,7 @@ fn claim_abandoned(task_id: &str, shape: &'static str, reason: &'static str, det
 async fn handle_gh_pr_create(
     state: &AppState,
     task_id: &str,
-    parent_uuid: &str,
+    tool_use_id: &str,
     result_text: &str,
 ) {
     let Some(pr) = parse_pr_url(result_text) else {
@@ -220,7 +227,7 @@ async fn handle_gh_pr_create(
     record_claim(
         state,
         task_id,
-        parent_uuid,
+        tool_use_id,
         SHAPE_PR_CREATE,
         &external_id,
         &source_id,
@@ -316,7 +323,7 @@ pub(crate) fn compose_footer(existing: &str, task_url: &str) -> String {
 // gh pr comment / gh issue comment
 // =============================================================================
 
-async fn handle_gh_comment(state: &AppState, task_id: &str, parent_uuid: &str, result_text: &str) {
+async fn handle_gh_comment(state: &AppState, task_id: &str, tool_use_id: &str, result_text: &str) {
     let Some(parsed) = parse_comment_id(result_text) else {
         claim_abandoned(task_id, SHAPE_COMMENT, "no_comment_url_in_output", "");
         return;
@@ -329,7 +336,7 @@ async fn handle_gh_comment(state: &AppState, task_id: &str, parent_uuid: &str, r
     record_claim(
         state,
         task_id,
-        parent_uuid,
+        tool_use_id,
         SHAPE_COMMENT,
         &external_id,
         &source_name,
@@ -397,7 +404,7 @@ impl GhApiCreated {
 async fn handle_gh_api_creation(
     state: &AppState,
     task_id: &str,
-    parent_uuid: &str,
+    tool_use_id: &str,
     created: &GhApiCreation,
     result_text: &str,
 ) {
@@ -413,7 +420,7 @@ async fn handle_gh_api_creation(
     record_claim(
         state,
         task_id,
-        parent_uuid,
+        tool_use_id,
         shape,
         &external_id,
         &source_name,
@@ -455,7 +462,7 @@ struct GitPushTarget {
 ///
 /// A push to a branch with no pull request produces no notification, so the
 /// claim simply expires unused — that is not a failure.
-async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, result_text: &str) {
+async fn handle_git_push(state: &AppState, task_id: &str, tool_use_id: &str, result_text: &str) {
     let Some(target) = parse_git_push(result_text) else {
         // Also the ordinary shape of a rejected push, "Everything up-to-date"
         // and a non-GitHub remote: nothing reached a GitHub branch, so no
@@ -506,7 +513,7 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
     );
     record_shell_claim(ADAPTER_LABEL, SHAPE_PUSH, "claimed", "");
 
-    // Tag the assistant row so the chat renders the source chip. The commit is
+    // Record it on the call so the chat renders the source chip. The commit is
     // the only identifier this path has; the webhook's own
     // `github:pr:synchronize:<n>:<sha>` id cannot be formed without asking
     // GitHub for the pull request number, which is exactly the round-trip this
@@ -514,21 +521,27 @@ async fn handle_git_push(state: &AppState, task_id: &str, parent_uuid: &str, res
     let external_id = super::external_id::pushed_commit(commit);
     match state
         .messages
-        .set_external_source_metadata(parent_uuid, &external_id, ADAPTER_LABEL, Some(&repo_full))
+        .claim_activity_external_source(
+            task_id,
+            tool_use_id,
+            &external_id,
+            ADAPTER_LABEL,
+            Some(&repo_full),
+        )
         .await
     {
         Ok(true) => {}
         Ok(false) => {
             debug!(
                 task_id,
-                parent_uuid,
+                tool_use_id,
                 commit,
-                "Assistant row already had external_event_id — leaving untouched"
+                "The call already carried an external_event_id — leaving untouched"
             );
         }
         // The claim itself already landed; only the source chip is lost.
         Err(e) => {
-            warn!(task_id, parent_uuid, commit, error = %e, "Failed to tag assistant row with external_event_id for git push");
+            warn!(task_id, tool_use_id, commit, error = %e, "Failed to tag assistant row with external_event_id for git push");
         }
     }
 }

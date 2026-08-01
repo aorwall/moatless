@@ -9,7 +9,7 @@
 //! | event kind | durable admission | why that is enough |
 //! |---|---|---|
 //! | state-bearing (`taskTurn.*`, `agent.completed`/`error`/`stopped`) | `apply_ingress_event` commits the event row, turn projection and task-status flip in one transaction | the state the event carries is committed before any fan-out |
-//! | `agent.message` | the ADR-0003 skeleton commits to `task_events` and the full payload is written to the [transactional ingress outbox](outbox) | `task_events` never holds this payload, so the outbox is its only durable home until `task_messages` commits; the skeleton is the event history, and ingress is the only attempt at it that gRPC success can speak for |
+//! | `agent.message` | the full payload is written to the [transactional ingress outbox](outbox) | `task_events` holds nothing of a Message — not even a skeleton, since ADR-0003's persistence clause was withdrawn — so the outbox is its only durable home until the conversation commits |
 //! | everything else | the full payload is committed to `task_events` | `task_events` is the event history; Redis is a disposable live tail |
 //!
 //! Publication to Redis happens **after** durable admission and never gates it:
@@ -38,7 +38,7 @@ use serde_json::Value;
 use tonic::Status;
 use tracing::warn;
 
-use crate::event_handler::skeleton::{agent_message_skeleton, is_agent_message};
+use crate::event_handler::skeleton::is_agent_message;
 use crate::events::EventPublisher;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use crate::task_turn::dao::{TaskTurnDao, TurnStateEvent};
@@ -222,18 +222,10 @@ impl EventAdmission<'_> {
         needs_consumer: bool,
     ) -> Result<bool, AdmissionError> {
         if needs_consumer {
-            // The history row first, so nothing becomes deliverable before it
-            // exists. ADR-0003 keeps a skeleton of every `agent.message` in
-            // `task_events`, and the consumer's own insert cannot be relied on
-            // for it: `persist_event` warns and continues on failure, and the
-            // outbox record is deleted once the message commits regardless — so
-            // a transient blip there would drop the history row for good. This
-            // attempt is the one gRPC success speaks for. `insert_event` is
-            // `ON CONFLICT (event_id) DO NOTHING`, so the consumer's later
-            // insert is a harmless no-op.
-            self.commit_event_row(request, agent_message_skeleton(&request.payload))
-                .await?;
-
+            // No `task_events` row: ADR-0003's persistence clause is withdrawn,
+            // so an `agent.message` has exactly one durable home on the way in —
+            // the outbox — and exactly one afterwards, the conversation. The
+            // outbox record alone is what gRPC success speaks for.
             let outbox = self.ingress_outbox.ok_or(AdmissionError::NotConfigured {
                 component: "ingress outbox",
             })?;
@@ -272,22 +264,13 @@ impl EventAdmission<'_> {
             return Ok(true);
         }
 
-        self.commit_event_row(request, request.payload.clone())
-            .await?;
+        self.commit_event_row(request).await?;
         metrics::counter!("event_ingress_admitted_total", "kind" => "event_row").increment(1);
         Ok(true)
     }
 
-    /// Commit this event's `task_events` row carrying `payload`.
-    ///
-    /// The caller chooses what lands: the full payload for an ordinary event,
-    /// the ADR-0003 skeleton for an `agent.message` whose content lives in the
-    /// outbox instead.
-    async fn commit_event_row(
-        &self,
-        request: &AdmissionRequest,
-        payload: Value,
-    ) -> Result<(), AdmissionError> {
+    /// Commit this event's `task_events` row, carrying its payload whole.
+    async fn commit_event_row(&self, request: &AdmissionRequest) -> Result<(), AdmissionError> {
         let events = self.task_events.ok_or(AdmissionError::NotConfigured {
             component: "task event repository",
         })?;
@@ -299,7 +282,7 @@ impl EventAdmission<'_> {
             is_error: is_error_sub_type(&request.sub_type),
             agent_type: None,
             turn_number: request.turn_number,
-            payload,
+            payload: request.payload.clone(),
             timestamp: timestamp_now(),
         };
         events

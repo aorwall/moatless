@@ -346,7 +346,7 @@ pub async fn get_task_statistics(
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let (messages, _, blocks) = state.messages.get_all(&task_id).await?;
+    let (messages, _, activities) = state.messages.get_all(&task_id).await?;
     let turn_metrics = state
         .task_turns
         .list_turn_metrics(&task_id)
@@ -355,7 +355,7 @@ pub async fn get_task_statistics(
     Ok(Json(super::statistics::build_task_statistics(
         &row,
         &messages,
-        &blocks,
+        &activities,
         &turn_metrics,
     )))
 }

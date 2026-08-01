@@ -81,6 +81,12 @@ export interface TaskStatisticsResponse {
   messageTokenUsage: TaskMessageTokenUsage[]
   toolCalls: TaskToolCallStats[]
   skills: TaskSkillUsage[]
+  /**
+   * Whether this task has a tool-call record at all. When false, an empty
+   * `toolCalls` means the calls were never recorded — not that none were made.
+   * Absent on responses from a deployment predating the field.
+   */
+  toolCallsAvailable?: boolean
 }
 
 export const tasksApi = {

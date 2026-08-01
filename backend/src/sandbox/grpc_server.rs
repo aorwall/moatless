@@ -936,12 +936,57 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             }
         }
 
+        // The agent's view of a queued Message is rebuilt here, not read back.
+        //
+        // The row stores what the person wrote; the preview URL, the selected
+        // element, the attribution to a sending Task and the attached files are
+        // each persisted as their own row or column, and pre-rendering them into
+        // the Message would only create a second copy that can disagree with
+        // them.
+        let contexts_by_message = match (self.files.as_ref(), self.backend_config.as_ref()) {
+            (Some(_), Some(_)) => {
+                let ids: Vec<i32> = pending.iter().map(|row| row.id).collect();
+                messages
+                    .get_contexts_for_messages(&req.task_id, &ids)
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!(task_id = %req.task_id, error = %e, "Failed to load message contexts; delivering without them");
+                        std::collections::HashMap::new()
+                    })
+            }
+            _ => std::collections::HashMap::new(),
+        };
+
+        let mut enriched: std::collections::HashMap<String, Value> =
+            std::collections::HashMap::new();
+        if let (Some(files), Some(config)) = (self.files.as_ref(), self.backend_config.as_ref()) {
+            for row in &pending {
+                let blocks = crate::message::enricher::build_pending_content_blocks(
+                    files.as_ref(),
+                    config,
+                    row,
+                    contexts_by_message.get(&row.id).map_or(&[][..], Vec::as_slice),
+                )
+                .await;
+                if let Ok(value) = serde_json::to_value(&blocks) {
+                    enriched.insert(row.uuid.clone(), value);
+                }
+            }
+        }
+
         // Convert DB rows to proto messages.
-        // message_content is a JSON array: [{"type":"text","text":"..."}, ...]
         let messages: Vec<sandbox_proto::PendingMessage> = pending
             .iter()
             .filter_map(|row| {
-                let mut content = parse_content_blocks(&row.message_content);
+                let rendered = enriched.get(&row.uuid).cloned().unwrap_or_else(|| {
+                    // No file store or no config — the two the enrichment needs.
+                    // What the person wrote still has to reach the agent.
+                    serde_json::json!([{
+                        "type": "text",
+                        "text": row.message_text.clone().unwrap_or_default(),
+                    }])
+                });
+                let mut content = parse_content_blocks(&rendered);
                 if content.is_empty() {
                     warn!(task_id = %req.task_id, "Pending message has no parseable content blocks");
                     return None;
@@ -1703,17 +1748,11 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 attempts = interrupted.recovery_attempts,
                 "RecoverInterruptedRun: cap reached, marking aborted"
             );
-            let abort_text = format!(
-                "Recovery abandoned after {} attempts. The agent run was \
-                 interrupted by repeated sandbox restarts.",
-                interrupted.recovery_attempts
-            );
-            if let Err(e) = messages
-                .insert_aborted_result(&req.task_id, interrupted.turn_number, &abort_text)
-                .await
-            {
-                warn!(error = %e, task_id = %req.task_id, "Failed to insert aborted result row");
-            }
+            // No transcript row: a run outcome is not something somebody said.
+            // The turn's own status says the run ended, and the
+            // `agent.recoveryExhausted` event below says why — with the attempt
+            // count and the session it gave up on, which the sentence it
+            // replaced did not carry.
             if let Some(ref publisher) = self.events {
                 publisher
                     .publish_agent_event(
@@ -1918,9 +1957,10 @@ enum DbContentBlock {
     Other,
 }
 
-/// Parse a `message_content` JSON value into proto `ContentBlock`s.
+/// Parse the agent-facing content of a Message into proto `ContentBlock`s.
 ///
-/// The DB stores content as a JSON array:
+/// Rebuilt at delivery time by `enricher::build_pending_content_blocks` rather
+/// than read from a column, and shaped as a JSON array:
 /// ```json
 /// [{"type": "text", "text": "Hello"}, {"type": "image", "url": "...", "media_type": "image/png"}]
 /// ```

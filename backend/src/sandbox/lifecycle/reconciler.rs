@@ -804,8 +804,8 @@ mod db_tests {
         sqlx::query(
             r#"INSERT INTO task_messages
                    (task_id, uuid, message_type, user_type, timestamp, message_role,
-                    message_content, created_at)
-               VALUES ($1, $2, 'user', 'human', $3, 'user', '{}'::jsonb, $4)"#,
+                    message_text, created_at)
+               VALUES ($1, $2, 'user', 'human', $3, 'user', '', $4)"#,
         )
         .bind(task_id)
         .bind(format!("{task_id}-msg"))

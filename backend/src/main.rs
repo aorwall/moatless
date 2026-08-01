@@ -556,12 +556,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         // The same job for the conversation feed, and Optional for the same
-        // reason — `task_conversation::resume` refuses the cursors this
+        // reason — `task_activities::resume` refuses the cursors this
         // reclaims, whether or not it has run.
         supervisor.supervise(
             "conversation-change-pruner",
             Criticality::Optional,
-            moatless_vibe_backend::task_conversation::spawn_change_pruner(
+            moatless_vibe_backend::task_activities::spawn_change_pruner(
                 app_state.db.clone(),
                 cancel.clone(),
             ),

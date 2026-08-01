@@ -261,37 +261,29 @@ async fn gh_pr_comment_tags_tool_result_with_external_id(pool: PgPool) {
     );
     handle_agent_message(&state, &result_event).await;
 
-    // The parent assistant tool_use row should now carry the prefixed comment id.
+    // The dedup gate must recognise the comment as this Task's own, so the
+    // webhook echo of it is not delivered back as a new Message.
     let has = state
         .messages
         .has_external_event_id(task_id, "github:ic:555")
         .await
         .unwrap();
-    assert!(
-        has,
-        "assistant row should be tagged with namespaced comment id",
-    );
+    assert!(has, "the task should claim the comment it just posted");
 
-    let (rows, _, _) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
+    // The claim is on the call that posted it. The turn said nothing beyond
+    // running the command, so it wrote no Message row for the claim to land on.
+    let (rows, _, activities) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
         .await
         .unwrap();
-    let assistant_row = rows
-        .iter()
-        .find(|m| m.uuid == "asst-uuid-c1")
-        .expect("assistant row present");
-    assert_eq!(
-        assistant_row.external_event_id.as_deref(),
-        Some("github:ic:555"),
+    assert!(
+        rows.iter().all(|m| m.uuid != result_uuid),
+        "a tool result is not a Message: {rows:?}"
     );
-    assert_eq!(assistant_row.external_adapter.as_deref(), Some("github_pr"));
-    assert_eq!(
-        assistant_row.external_source_name.as_deref(),
-        Some("foo/bar")
-    );
-    // The hidden System tool_result row must remain untagged.
-    let result_row = rows
+    let call = activities
         .iter()
-        .find(|m| m.uuid == result_uuid)
-        .expect("tool_result row present");
-    assert!(result_row.external_event_id.is_none());
+        .find(|a| a.tool_use_id.as_deref() == Some("tu-c1"))
+        .expect("the Bash call that posted the comment");
+    assert_eq!(call.external_event_id.as_deref(), Some("github:ic:555"));
+    assert_eq!(call.external_adapter.as_deref(), Some("github_pr"));
+    assert_eq!(call.external_source_name.as_deref(), Some("foo/bar"));
 }

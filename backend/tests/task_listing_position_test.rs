@@ -29,13 +29,12 @@ use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::tag::dao::{PgTagDao, TagDao};
 use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
 use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
+use moatless_vibe_backend::task_activities::mapping::ConversationWrite;
 use moatless_vibe_backend::task_listing::{
     changes_after, current_head, current_position, prune_changes, record_change, resume,
     ChangeSubject, ListingHead, Resume, RESUME_WINDOW, RETAINED_CHANGES,
 };
-use moatless_vibe_backend::task_turn::dao::{
-    PgTaskTurnDao, TaskTurnDao, TurnStateEvent,
-};
+use moatless_vibe_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
 use moatless_vibe_backend::task_turn::models::{TurnStatus, TurnTransition};
 use moatless_vibe_backend::workspace::dao::{
     PgWorkspaceDao, WorkspaceDao, WorkspacePatch,
@@ -705,12 +704,15 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             // `task_messages` has no foreign key to `tasks`, so the row an
             // append contends for is its own: the unique index on `uuid`.
             hold: "INSERT INTO task_messages (task_id, uuid, message_type, user_type, timestamp, \
-                   message_role, message_content) \
-                   VALUES ($1, $1 || '-msg', 'user', 'human', NOW()::text, 'user', '[]'::jsonb)",
+                   message_role) \
+                   VALUES ($1, $1 || '-msg', 'user', 'human', NOW()::text, 'user')",
             run: |pool, subject| {
                 Box::pin(async move {
                     let msg = make_message_row(&subject, &format!("{subject}-msg"));
-                    PgMessageDao(pool).append(&msg, &[], &[]).await.unwrap();
+                    PgMessageDao(pool)
+                        .append(&msg, &[], &ConversationWrite::default())
+                        .await
+                        .unwrap();
                 })
             },
         },
@@ -972,8 +974,8 @@ async fn drive(pool: &Arc<PgPool>, shape: Shape, counter: Counter) -> Duration {
                     Shape::Message => {
                         sqlx::query(
                             r#"INSERT INTO task_messages (task_id, uuid, message_type, user_type,
-                                                          timestamp, message_role, message_content)
-                               VALUES ($1, $2, 'user', 'human', NOW()::text, 'user', '[]'::jsonb)"#,
+                                                          timestamp, message_role)
+                               VALUES ($1, $2, 'user', 'human', NOW()::text, 'user')"#,
                         )
                         .bind(&task_id)
                         .bind(format!("{task_id}-{step}"))

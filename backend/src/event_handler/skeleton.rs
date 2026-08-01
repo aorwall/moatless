@@ -1,12 +1,13 @@
 //! One shared projection reducing an `agent.message` source event to its
-//! persisted-and-relayed **metadata skeleton** (ADR-0003).
+//! **relayed metadata skeleton** — what is left of ADR-0003 once its
+//! persistence clause is withdrawn.
 //!
-//! A Message's content is written once, to `task_messages`. The full
+//! A Message's content is written once, to the conversation. The full
 //! `agent.message` content is a **transient ingestion payload**: the Sandbox
 //! emits it to the Redis stream, the event-handler consumer reads it once to
-//! build `task_messages`, and it is never persisted to `task_events` nor relayed
-//! to clients in full. This projection produces the small metadata form that
-//! *is* persisted and relayed:
+//! build the conversation, and it is never persisted at all — `task_events` is
+//! lifecycle-only and holds no message row, skeleton or otherwise. This
+//! projection produces the small metadata form that *is* relayed to clients:
 //!
 //! ```json
 //! { "message": { "role": "assistant" }, "uuid": "…", "blockCount": 3, "toolNames": ["Bash", "Edit"] }
@@ -16,9 +17,8 @@
 //! works for both old and new rows; `toolNames` is the source-event signal the
 //! files-invalidation reaction reads (a field, not content).
 //!
-//! It is applied at every place the event is written to `task_events` or
-//! broadcast to clients, and **nowhere** on the Redis ingestion path the
-//! consumer reads to build the Message store.
+//! It is applied wherever the event is broadcast to clients, and **nowhere** on
+//! the Redis ingestion path the consumer reads to build the conversation.
 
 use serde_json::{json, Value};
 

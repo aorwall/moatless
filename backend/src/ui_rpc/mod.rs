@@ -19,7 +19,7 @@
 //! collections T3 renders — what was *said* as messages, what was *done* as a
 //! work log — over the same route in both directions: an HTTP snapshot the
 //! client hydrates from, and a subscription that keeps it current. That
-//! subscription reads a change feed of its own (`task_conversation`) and sends
+//! subscription reads a change feed of its own (`task_activities`) and sends
 //! the contract's own events, so a conversation that moves costs the row that
 //! moved rather than the whole transcript. It resumes on the same terms as the
 //! shell's, in its own numbering: a conversation's positions are not the
@@ -66,7 +66,7 @@ use crate::auth::models::UserRole;
 use crate::auth::pairing::DevicePairing;
 use crate::sandbox::access::{SandboxConnector, SandboxIntentReader, SandboxObserver};
 use crate::task::dao::TaskDao;
-use crate::task_conversation::{self, ConversationHead};
+use crate::task_activities::{self, ConversationHead};
 use crate::task_listing::{self, EnvironmentIdentity, Resume};
 use crate::ui_rpc::dao::ConversationDao;
 use crate::ui_rpc::files::FileAccessError;
@@ -647,7 +647,7 @@ pub struct ThreadSnapshot {
 /// `after` is the sequence the client says it already holds — the
 /// `snapshotSequence` of the bootstrap it fetched over HTTP moments earlier
 /// (`state/threads.ts`), which is why the two have to be numbers in the same
-/// namespace. [`task_conversation::resume`] is what decides between them, on the
+/// namespace. [`task_activities::resume`] is what decides between them, on the
 /// same two grounds the shell's does: a sequence this conversation never
 /// reached, and one further behind than the records kept.
 ///
@@ -679,10 +679,10 @@ pub async fn thread_subscription(
     // Qualified: the shell has a decision of the same shape over a different
     // log, and the two cursors are not interchangeable.
     let resume = match after {
-        Some(after) => task_conversation::resume(head, after),
-        None => task_conversation::Resume::Rebuild,
+        Some(after) => task_activities::resume(head, after),
+        None => task_activities::Resume::Rebuild,
     };
-    if let task_conversation::Resume::From(cursor) = resume {
+    if let task_activities::Resume::From(cursor) = resume {
         // A replay reads nothing when nothing changed, and a poll that reads
         // nothing checks nothing. So the visibility rule is applied here as
         // well, or subscribing to a conversation this viewer may not see would

@@ -11,10 +11,11 @@
 //! A native assistant Message may arrive as several canonical source events —
 //! one per content block, each tagged with its native `blockIndex` and (for a
 //! CLI that repeats it) the same usage. The backend must fold these into one
-//! persisted+assembled Message with blocks in native order, usage admitted
-//! exactly once, idempotent under duplicate delivery, and still fold interleaved
-//! tool results into their affected parent. Coalesced full-content events (no
-//! `blockIndex`) must remain compatible during the migration.
+//! Message carrying the folded prose and one activity per call, with usage
+//! admitted exactly once, idempotent under duplicate delivery, and an
+//! interleaved tool result settling the call it answers rather than landing as
+//! a Message of its own. Coalesced full-content events (no `blockIndex`) must
+//! remain compatible during the migration.
 
 mod common;
 
@@ -24,9 +25,21 @@ use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::transform::{transform_subagent_transcript, transform_to_ui};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::task::dao as task_dao;
+use moatless_vibe_backend::task_activities::dao::Activity;
+use moatless_vibe_backend::task_activities::mapping::{ActivityKind, ActivityStatus};
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row, seed_team, test_app_state};
+
+/// The activities written on one Message, in the order they were recorded.
+fn on_message<'a>(activities: &'a [Activity], uuid: &str) -> Vec<&'a Activity> {
+    let mut found: Vec<_> = activities
+        .iter()
+        .filter(|activity| activity.message_uuid.as_deref() == Some(uuid))
+        .collect();
+    found.sort_by_key(|activity| activity.position);
+    found
+}
 
 /// A per-block assistant source event: one native block at `block_index`, with
 /// usage repeated on every block (as a coalescing-free CLI would emit it).
@@ -124,7 +137,7 @@ async fn per_block_events_assemble_into_one_ordered_message(pool: PgPool) {
     )
     .await;
 
-    let (rows, contexts, blocks) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
+    let (rows, contexts, activities) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
         .await
         .unwrap();
 
@@ -132,26 +145,30 @@ async fn per_block_events_assemble_into_one_ordered_message(pool: PgPool) {
     let assistant: Vec<_> = rows.iter().filter(|m| m.uuid == uuid).collect();
     assert_eq!(assistant.len(), 1, "one row per native Message identity");
 
-    // Persisted content preserves native block order.
-    let content = assistant[0].message_content.as_array().unwrap();
-    assert_eq!(content.len(), 3, "all three blocks assembled");
-    assert_eq!(content[0]["text"], "first");
-    assert_eq!(content[1]["type"], "tool_use");
-    assert_eq!(content[2]["text"], "second");
+    // The two prose blocks fold into one string, in native block order. The
+    // tool_use between them left a hole in the parts array rather than text.
+    assert_eq!(
+        assistant[0].message_text.as_deref(),
+        Some("first\n\nsecond"),
+        "prose folded in native order, the call skipped"
+    );
 
-    // Content-block rows are re-derived on every upsert (child-replace), so
-    // there is no duplication and they render in order.
-    let block_rows: Vec<_> = blocks
-        .iter()
-        .filter(|b| b.task_message_id == assistant[0].id)
-        .collect();
-    assert_eq!(block_rows.len(), 3, "three content-block rows, no dupes");
+    // The call is an activity keyed by its own block, written once.
+    let calls = on_message(&activities, uuid);
+    assert_eq!(calls.len(), 1, "one activity, no dupes");
+    assert_eq!(calls[0].activity_id, format!("{uuid}:1"));
+    assert_eq!(calls[0].kind, ActivityKind::ToolCall);
+    assert_eq!(calls[0].summary, "Bash");
+    assert_eq!(calls[0].status, ActivityStatus::InProgress);
 
-    // The read seam assembles exactly one top-level UI Message.
-    let ui = transform_to_ui(&rows, &contexts, &blocks);
+    // The read seam assembles exactly one top-level UI Message: the folded
+    // prose, then the call.
+    let ui = transform_to_ui(&rows, &contexts, &activities);
     let ui_assistant: Vec<_> = ui.iter().filter(|m| m.uuid == uuid).collect();
     assert_eq!(ui_assistant.len(), 1, "one assembled UI Message");
-    assert_eq!(ui_assistant[0].content.len(), 3);
+    assert_eq!(ui_assistant[0].content.len(), 2);
+    assert_eq!(ui_assistant[0].content[0].text.as_deref(), Some("first\n\nsecond"));
+    assert_eq!(ui_assistant[0].content[1].block_type, "tool_use");
 }
 
 #[sqlx::test]
@@ -190,26 +207,28 @@ async fn duplicate_per_block_delivery_is_idempotent(pool: PgPool) {
     // Redeliver block 0 — a duplicate must not duplicate blocks or usage.
     handle_agent_message(&state, &per_block_event("e0b", task_id, uuid, 0, text("a"))).await;
 
-    let (rows, _, blocks) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
+    let (rows, _, activities) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
         .await
         .unwrap();
     let row = rows.iter().find(|m| m.uuid == uuid).unwrap();
 
-    let content = row.message_content.as_array().unwrap();
-    assert_eq!(content.len(), 2, "duplicate did not add a block");
-    assert_eq!(content[0]["text"], "a");
-    assert_eq!(content[1]["text"], "b");
+    // Block 0 was written twice and landed in its own slot both times, so the
+    // redelivery neither appended nor reordered.
+    assert_eq!(
+        row.message_text.as_deref(),
+        Some("a\n\nb"),
+        "duplicate did not add a paragraph"
+    );
 
-    let block_rows: Vec<_> = blocks
-        .iter()
-        .filter(|b| b.task_message_id == row.id)
-        .collect();
-    assert_eq!(block_rows.len(), 2, "content-block rows not duplicated");
+    assert!(
+        on_message(&activities, uuid).is_empty(),
+        "prose-only blocks record no activity"
+    );
     assert_eq!(row.assistant_usage_output_tokens, Some(50));
 }
 
 #[sqlx::test]
-async fn interleaved_tool_result_folds_into_affected_parent(pool: PgPool) {
+async fn interleaved_tool_result_settles_the_call_on_its_parent(pool: PgPool) {
     let task_id = "task-per-block-parent";
     let state = seed(&pool, task_id).await;
 
@@ -243,13 +262,24 @@ async fn interleaved_tool_result_folds_into_affected_parent(pool: PgPool) {
     )
     .await;
 
-    let (rows, contexts, blocks) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
+    let (rows, contexts, activities) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
         .await
         .unwrap();
-    let ui = transform_to_ui(&rows, &contexts, &blocks);
 
-    // The tool_result folds into its affected parent: only the assistant
-    // Message is top-level, and it carries the inlined result.
+    // The result carried no prose, so it wrote no Message of its own — it
+    // settled the activity the call already wrote, in place.
+    assert!(
+        rows.iter().all(|m| m.uuid != "tr-p"),
+        "a tool result is not something anybody said"
+    );
+    let calls = on_message(&activities, "asst-p");
+    assert_eq!(calls.len(), 1, "still one activity for the one call");
+    assert_eq!(calls[0].tool_use_id.as_deref(), Some("tu-9"));
+    assert_eq!(calls[0].status, ActivityStatus::Completed);
+    assert!(!calls[0].is_error);
+
+    // The read seam renders one top-level Message carrying the inlined result.
+    let ui = transform_to_ui(&rows, &contexts, &activities);
     assert_eq!(ui.len(), 1, "tool_result folded into its parent Message");
     assert_eq!(ui[0].uuid, "asst-p");
     assert_eq!(
@@ -257,6 +287,7 @@ async fn interleaved_tool_result_folds_into_affected_parent(pool: PgPool) {
         1,
         "the parent renders the interleaved tool result"
     );
+    assert_eq!(ui[0].tool_results[0].content.as_deref(), Some("done"));
 }
 
 #[sqlx::test]
@@ -278,13 +309,17 @@ async fn coalesced_events_remain_compatible(pool: PgPool) {
     )
     .await;
 
-    let (rows, contexts, blocks) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
+    let (rows, contexts, activities) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
         .await
         .unwrap();
     let row = rows.iter().find(|m| m.uuid == "asst-coalesced").unwrap();
-    assert_eq!(row.message_content.as_array().unwrap().len(), 2);
+    assert_eq!(row.message_text.as_deref(), Some("hello"));
 
-    let ui = transform_to_ui(&rows, &contexts, &blocks);
+    let calls = on_message(&activities, "asst-coalesced");
+    assert_eq!(calls.len(), 1, "the call in the array is one activity");
+    assert_eq!(calls[0].tool_use_id.as_deref(), Some("tu-c"));
+
+    let ui = transform_to_ui(&rows, &contexts, &activities);
     let assembled = ui.iter().find(|m| m.uuid == "asst-coalesced").unwrap();
     assert_eq!(assembled.content.len(), 2);
 }
@@ -339,26 +374,43 @@ async fn subagent_per_block_rows_are_excluded_from_top_level(pool: PgPool) {
     )
     .await;
 
-    let (rows, contexts, blocks) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
+    let (rows, contexts, activities) = moatless_vibe_backend::message::dao::get_all(&pool, task_id)
         .await
         .unwrap();
 
     // The subagent row is persisted and assembled per-block, carrying its parent.
     let row = rows.iter().find(|m| m.uuid == "sub-asst").unwrap();
     assert_eq!(row.parent_uuid.as_deref(), Some(parent));
-    assert_eq!(row.message_content.as_array().unwrap().len(), 2);
+    assert_eq!(row.message_text.as_deref(), Some("sub-first"));
+
+    // Its activity is not in the Task's own stream at all: the parent scopes it
+    // out at the read, so nothing above the DAO has to filter it.
+    assert!(
+        on_message(&activities, "sub-asst").is_empty(),
+        "a subagent's activities are not the Task's own"
+    );
 
     // Top-level read excludes it — a subagent never appears in the task's own
     // conversation.
-    let top = transform_to_ui(&rows, &contexts, &blocks);
+    let top = transform_to_ui(&rows, &contexts, &activities);
     assert!(
         top.iter().all(|m| m.uuid != "sub-asst"),
         "subagent row must not appear at the top level"
     );
 
+    // The subagent's own page is where it lives, loaded on demand behind the
+    // call that spawned it.
+    let (sub_rows, sub_contexts, sub_activities) = PgMessageDao(pool.clone())
+        .get_subagent_messages(task_id, parent)
+        .await
+        .unwrap();
+    let calls = on_message(&sub_activities, "sub-asst");
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].parent_uuid.as_deref(), Some(parent));
+
     // The subagent's own transcript, scoped by its tool-use id, includes it with
-    // its blocks in native order.
-    let transcript = transform_subagent_transcript(&rows, &contexts, &blocks, parent);
+    // its prose and its call.
+    let transcript = transform_subagent_transcript(&sub_rows, &sub_contexts, &sub_activities, parent);
     let assembled = transcript
         .iter()
         .find(|m| m.uuid == "sub-asst")
@@ -384,26 +436,25 @@ async fn paginated_read_folds_per_block_rows_into_one_message(pool: PgPool) {
         .await;
     }
 
-    // The keyset-paginated read returns the same assembled Message and its full
-    // derived block set — per-block rows fold within the page, not across it.
-    let (rows, _contexts, blocks) = PgMessageDao(pool.clone())
+    // The keyset-paginated read returns the same assembled Message and the
+    // activities written on it — per-block rows fold within the page, not
+    // across it.
+    let (rows, _contexts, activities) = PgMessageDao(pool.clone())
         .get_paginated(task_id, None, 50)
         .await
         .unwrap();
 
     let row = rows.iter().find(|m| m.uuid == uuid).unwrap();
     assert_eq!(
-        row.message_content.as_array().unwrap().len(),
-        3,
-        "paginated read returns the fully assembled per-block content"
+        row.message_text.as_deref(),
+        Some("one\n\nthree"),
+        "paginated read returns the fully folded per-block prose"
     );
-    let block_rows: Vec<_> = blocks
-        .iter()
-        .filter(|b| b.task_message_id == row.id)
-        .collect();
+    let calls = on_message(&activities, uuid);
     assert_eq!(
-        block_rows.len(),
-        3,
-        "all derived content-block rows come back on the page, none duplicated"
+        calls.len(),
+        1,
+        "the page carries the Message's activities, none duplicated"
     );
+    assert_eq!(calls[0].tool_use_id.as_deref(), Some("tu-p"));
 }

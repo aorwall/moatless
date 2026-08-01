@@ -31,6 +31,10 @@ export function TaskStatisticsSection({ taskId }: TaskStatisticsSectionProps) {
   const hasMessageUsage = stats.messageTokenUsage.length > 0
   const hasToolCalls = stats.toolCalls.length > 0
   const hasSkills = stats.skills.length > 0
+  // A task that ran before tool calls were stored as their own rows has no
+  // record of them. Saying "no tool calls" there would be a wrong answer
+  // rather than a missing one, so say which it is.
+  const toolCallsRecorded = stats.toolCallsAvailable !== false
 
   return (
     <div className="space-y-4 px-3 py-3">
@@ -88,7 +92,9 @@ export function TaskStatisticsSection({ taskId }: TaskStatisticsSectionProps) {
             })}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No tool calls recorded</p>
+          <p className="text-sm text-muted-foreground">
+            {toolCallsRecorded ? 'No tool calls' : 'This task ran before tool calls were recorded'}
+          </p>
         )}
       </div>
 

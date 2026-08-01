@@ -6,10 +6,9 @@
 //! waiting on an answer — is derived here so the projection above never issues
 //! a query per conversation.
 //!
-//! Opening a conversation reads its transcript through the same module: the
-//! Messages themselves, the enriched blocks a user Message is displayed from,
-//! and — once it is open — the changes recorded against it and the Messages
-//! those changes name.
+//! Opening a conversation reads its transcript through the same module: what
+//! was said, what happened on the way, and — once it is open — the changes
+//! recorded against it and the rows those changes name.
 //!
 //! No T3 vocabulary appears in this file. The names are Moatless's; the
 //! translation belongs one module up.
@@ -26,7 +25,8 @@ use tracing::warn;
 use crate::db::DbPool;
 use crate::message::models::{MessageRole, MessageType};
 use crate::shared_models::AgentType;
-use crate::task_conversation::{self, ConversationChange, ConversationHead};
+use crate::task_activities::dao::{self as activities, Activity};
+use crate::task_activities::{self, ConversationChange, ConversationHead};
 use crate::task_listing::{self, ListingChange, ListingHead};
 use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
@@ -92,13 +92,18 @@ pub struct Conversation {
 /// run's metrics out of the database to project six fields.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TranscriptMessage {
-    /// The insertion order this transcript is assembled in, and what a work-log
-    /// row is numbered from — see `activity_sequence` in the projection.
+    /// The insertion order this transcript is assembled in.
     pub id: i32,
     pub uuid: String,
     pub message_type: MessageType,
     pub message_role: MessageRole,
-    pub message_content: serde_json::Value,
+    /// What was said, and only that. A user Message holds the person's own
+    /// prose: the files, contexts and attribution the agent is sent are rebuilt
+    /// at delivery time and were never part of this column.
+    pub message_text: Option<String>,
+    /// Which kind of `user` row this is. The agent's tool responses are
+    /// persisted as `user` too, and are not something a person said.
+    pub user_type: String,
     /// The Turn this Message was acknowledged into. `None` while it is queued.
     pub turn_number: Option<i32>,
     /// When the writer said it happened (RFC 3339 text, `NOT NULL`).
@@ -108,50 +113,18 @@ pub struct TranscriptMessage {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-/// One displayable block of a user Message.
-///
-/// A user Message's `message_content` holds what was *sent to the agent* —
-/// the person's text plus every file and context block the request was
-/// enriched with. Only the blocks flagged `show_in_ui` are the message a person
-/// wrote, so a transcript that read `message_content` would show each user turn
-/// with its injected context pasted underneath it.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct TranscriptBlock {
-    pub task_message_id: i32,
-    pub text_content: Option<String>,
-}
-
 /// A Task's transcript, and whether it is all of it.
 pub struct Transcript {
     /// Oldest first — the order a transcript is read in.
     pub messages: Vec<TranscriptMessage>,
-    pub blocks: Vec<TranscriptBlock>,
+    /// What happened on the way, oldest first. Not a subset of `messages`: a
+    /// turn whose agent only called tools said nothing and has no Message row
+    /// at all, and its calls reach a reader only through here.
+    pub activities: Vec<Activity>,
     /// The rows past [`TRANSCRIPT_LIMIT`] that were left out, oldest first.
     /// Zero for every transcript that fits, which is nearly all of them.
     pub omitted: i64,
 }
-
-/// How many Messages before a result-carrying one are read alongside it.
-///
-/// A tool call and the row carrying its result are two Messages, and only the
-/// second of them is a change to the first: the call's card flips from running
-/// to finished when the result lands, and nothing rewrites the row the call is
-/// on. So a change that carries results has to be read with a short run of the
-/// Messages before it, or it resolves against nothing and projects to no events
-/// at all — a card left running until the conversation is read again.
-///
-/// A run rather than a lookup by tool-use id because it is one bounded index
-/// scan on `(task_id, id)` instead of a search through every Message's content.
-/// Thirty-two rows is several turns' worth of calls and results.
-///
-/// The run is taken from each result-carrying row, not once from the batch's
-/// oldest. A batch is contiguous in *position*, which is the order changes were
-/// recorded — not in Message id. Rewriting a Message the conversation has
-/// already moved past records a change naming an old row, and one of those
-/// landing in the same poll as a newer result puts the call that result answers
-/// between the two, inside the batch's span but outside a single run taken from
-/// its oldest row.
-const CHANGE_LOOKBACK: i64 = 32;
 
 /// Read the conversations one viewer's sidebar is built from, and the position
 /// a client watching it resumes from.
@@ -216,7 +189,7 @@ pub trait ConversationDao: Send + Sync {
 
     /// This conversation's changes at or after `from`, oldest first, capped at
     /// `limit`. At `from` rather than after it — see
-    /// [`task_conversation::changes_from`].
+    /// [`task_activities::changes_from`].
     async fn conversation_changes(
         &self,
         task_id: &str,
@@ -224,8 +197,8 @@ pub trait ConversationDao: Send + Sync {
         limit: i64,
     ) -> Result<Vec<ConversationChange>, sqlx::Error>;
 
-    /// The Messages a batch of changes names, plus the [`CHANGE_LOOKBACK`] rows
-    /// before the oldest of them, oldest first.
+    /// The rows a batch of changes names — the Messages, and the activities
+    /// under those uuids — oldest first.
     ///
     /// A [`Transcript`] rather than a type of its own, because it is one: the
     /// projection that turns a transcript into messages and activities is the
@@ -431,56 +404,42 @@ impl PgConversationDao {
                              LIMIT 1)
                        ) AS requested_model
                ) model ON TRUE
-               -- Only the newest assistant message is scanned. An unanswered
-               -- question the agent then wrote past stops counting as pending,
-               -- which is the narrow reading: the agent has moved on.
+               -- Unanswered is read off the call's own row: an activity leaves
+               -- `in_progress` when its result lands, so this needs no search
+               -- for the answer.
                --
-               -- "Newest" is the highest `id`, and `id` is a `bigserial`
-               -- assigned at INSERT but made visible at COMMIT, so a concurrent
-               -- writer can make this flag stale: the read computes it from
-               -- message 100 while 101 is still committing. That is acceptable
-               -- because it is a point-in-time read that advances nothing —
-               -- the next snapshot sees 101 and is correct, so it is
-               -- self-healing.
+               -- Only the newest turn that did anything is scanned. An
+               -- unanswered question the agent then called past stops counting
+               -- as pending, which is the narrow reading: the agent has moved
+               -- on. "Newest" is the highest `position` — the conversation's
+               -- own ordering, allocated at write time, so unlike the `id` this
+               -- used to read it is not a serial made visible at COMMIT.
                --
-               -- It is **not** the hazard a polling cursor (`WHERE id > N`)
-               -- has, which is the same mechanism with a different
-               -- consequence: a watermark moved past an uncommitted id skips
-               -- that row permanently. Do not apply a cursor mitigation here.
-               -- It buys nothing and costs a join.
-               --
-               -- Ordering by `"timestamp"` instead would only trade this for
-               -- the text-sort caveat above.
+               -- What this no longer clears on is prose: a question followed by
+               -- a reply that called nothing keeps reading as pending until the
+               -- agent's next call. A Message carries no position, so the two
+               -- cannot be ordered against each other in one index scan, and
+               -- the case is the agent answering its own question in words —
+               -- which leaves a person with something to click either way.
                LEFT JOIN LATERAL (
                    SELECT
-                       bool_or(raised.tool_name = ${question_tool}) AS question,
-                       bool_or(raised.tool_name = ${plan_tool})     AS plan
-                   FROM (
-                       SELECT block->>'name' AS tool_name,
-                              block->>'id'   AS tool_use_id
-                       FROM task_messages a,
-                            LATERAL jsonb_array_elements(a.message_content) block
-                       WHERE a.id = (
-                               SELECT newest.id
-                               FROM task_messages newest
-                               WHERE newest.task_id = t.task_id
-                                 AND newest.message_type = 'assistant'
-                               ORDER BY newest.id DESC
-                               LIMIT 1
-                             )
-                         AND jsonb_typeof(a.message_content) = 'array'
-                         AND block->>'type' = 'tool_use'
-                         AND block->>'name' IN (${question_tool}, ${plan_tool})
-                   ) raised
-                   WHERE NOT EXISTS (
-                       SELECT 1
-                       FROM task_messages answer,
-                            LATERAL jsonb_array_elements(answer.message_content) reply
-                       WHERE answer.task_id = t.task_id
-                         AND jsonb_typeof(answer.message_content) = 'array'
-                         AND reply->>'type' = 'tool_result'
-                         AND reply->>'tool_use_id' = raised.tool_use_id
-                   )
+                       bool_or(raised.summary = ${question_tool}) AS question,
+                       bool_or(raised.summary = ${plan_tool})     AS plan
+                   FROM task_activities raised
+                   WHERE raised.task_id = t.task_id
+                     AND raised.parent_uuid IS NULL
+                     AND raised.kind = 'tool_call'
+                     AND raised.status = 'in_progress'
+                     AND raised.summary IN (${question_tool}, ${plan_tool})
+                     AND raised.message_uuid = (
+                           SELECT newest.message_uuid
+                           FROM task_activities newest
+                           WHERE newest.task_id = t.task_id
+                             AND newest.parent_uuid IS NULL
+                             AND newest.kind = 'tool_call'
+                           ORDER BY newest.position DESC
+                           LIMIT 1
+                         )
                ) pending ON TRUE
                -- Determinism for this query's own output, and nothing more.
                -- This is *not* the sidebar's order: T3 sorts client-side, in
@@ -569,8 +528,8 @@ impl ConversationDao for PgConversationDao {
         // spawning tool call), and counting them against the cap would evict
         // the conversation a person is reading.
         let mut messages = sqlx::query_as::<_, TranscriptMessage>(
-            r#"SELECT id, uuid, message_type, message_role, message_content,
-                      turn_number, "timestamp", created_at
+            r#"SELECT id, uuid, message_type, message_role, message_text,
+                      user_type, turn_number, "timestamp", created_at
                FROM task_messages
                WHERE task_id = $1
                  AND parent_uuid IS NULL
@@ -601,30 +560,27 @@ impl ConversationDao for PgConversationDao {
             0
         };
 
-        let message_ids: Vec<i32> = messages.iter().map(|message| message.id).collect();
-        let blocks = sqlx::query_as::<_, TranscriptBlock>(
-            r#"SELECT task_message_id, text_content
-               FROM task_message_content_blocks
-               WHERE task_id = $1
-                 AND task_message_id = ANY($2)
-                 AND show_in_ui
-                 AND text_content IS NOT NULL
-               ORDER BY task_message_id, sort_order"#,
+        // From the oldest Message kept, not by that Message's uuid: a turn that
+        // only called tools has no Message row to be named by, and its calls
+        // are exactly what the cap must not drop. `None` — an empty
+        // conversation, or one whose newest rows predate `created_at` — reads
+        // the activities whole, which for an empty conversation is none.
+        let activities = activities::for_task_since(
+            &self.pool,
+            task_id,
+            messages.first().and_then(|message| message.created_at),
         )
-        .bind(task_id)
-        .bind(&message_ids)
-        .fetch_all(&self.pool)
         .await?;
 
         Ok(Transcript {
             messages,
-            blocks,
+            activities,
             omitted,
         })
     }
 
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
-        task_conversation::current_head(&self.pool, task_id).await
+        task_activities::current_head(&self.pool, task_id).await
     }
 
     async fn conversation_changes(
@@ -633,7 +589,7 @@ impl ConversationDao for PgConversationDao {
         from: i64,
         limit: i64,
     ) -> Result<Vec<ConversationChange>, sqlx::Error> {
-        task_conversation::changes_from(&self.pool, task_id, from, limit).await
+        task_activities::changes_from(&self.pool, task_id, from, limit).await
     }
 
     async fn changed_messages(
@@ -644,72 +600,42 @@ impl ConversationDao for PgConversationDao {
         if uuids.is_empty() {
             return Ok(Transcript {
                 messages: Vec::new(),
-                blocks: Vec::new(),
+                activities: Vec::new(),
                 omitted: 0,
             });
         }
-        // The named rows, and a run before each one that carries a result. Both
-        // halves are filtered to `parent_uuid IS NULL` for the reason the
-        // transcript is: subagent rows are never rendered inline, and a lookback
-        // spent on them would find no tool call to resolve.
+        // Just the named rows. A result no longer lands on a Message of its
+        // own: it settles the activity the call already wrote, and the change
+        // that records it names the Message that *made* the call
+        // (`agent_handlers::anchor_message_uuid`). So the row a change names is
+        // always the row the change is about, and the run of Messages this used
+        // to read before each result-carrying one is gone with the reason for
+        // it.
         //
-        // Only result-carrying rows get a run, because they are the only rows
-        // that resolve anything: everything else in a change projects from the
-        // named row alone. That is what keeps the cost of a run per row down to
-        // a run per *answered call*, and it is a filter over the named rows —
-        // Messages already read — not a search through the table.
+        // `parent_uuid IS NULL` for the reason the transcript has it: subagent
+        // rows are never rendered inline.
         let messages = sqlx::query_as::<_, TranscriptMessage>(
-            r#"WITH named AS (
-                   SELECT id, message_content FROM task_messages
-                   WHERE task_id = $1 AND uuid = ANY($2) AND parent_uuid IS NULL
-               ),
-               answering AS (
-                   SELECT id FROM named
-                   WHERE message_content @> '[{"type": "tool_result"}]'::jsonb
-               ),
-               lookback AS (
-                   SELECT before.id
-                   FROM answering
-                   CROSS JOIN LATERAL (
-                       SELECT id FROM task_messages
-                       WHERE task_id = $1
-                         AND parent_uuid IS NULL
-                         AND id < answering.id
-                       ORDER BY id DESC
-                       LIMIT $3
-                   ) AS before
-               )
-               SELECT id, uuid, message_type, message_role, message_content,
-                      turn_number, "timestamp", created_at
+            r#"SELECT id, uuid, message_type, message_role, message_text,
+                      user_type, turn_number, "timestamp", created_at
                FROM task_messages
                WHERE task_id = $1
-                 AND id IN (SELECT id FROM named UNION SELECT id FROM lookback)
+                 AND uuid = ANY($2)
+                 AND parent_uuid IS NULL
                ORDER BY id"#,
         )
         .bind(task_id)
         .bind(uuids)
-        .bind(CHANGE_LOOKBACK)
         .fetch_all(&self.pool)
         .await?;
 
-        let message_ids: Vec<i32> = messages.iter().map(|message| message.id).collect();
-        let blocks = sqlx::query_as::<_, TranscriptBlock>(
-            r#"SELECT task_message_id, text_content
-               FROM task_message_content_blocks
-               WHERE task_id = $1
-                 AND task_message_id = ANY($2)
-                 AND show_in_ui
-                 AND text_content IS NOT NULL
-               ORDER BY task_message_id, sort_order"#,
-        )
-        .bind(task_id)
-        .bind(&message_ids)
-        .fetch_all(&self.pool)
-        .await?;
+        // By the named uuids, not by the Messages just read: a change can name
+        // a uuid that has no Message row at all — a turn that only called
+        // tools — and those activities are the whole of what it changed.
+        let activities = activities::for_messages(&self.pool, task_id, uuids).await?;
 
         Ok(Transcript {
             messages,
-            blocks,
+            activities,
             omitted: 0,
         })
     }

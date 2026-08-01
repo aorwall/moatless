@@ -3,23 +3,13 @@
 use moatless_backend_core::scope::ScopeContext;
 use moatless_events::{TaskSubType, TaskTurnSubType};
 
-use crate::message::models::{ContentBlockType, MessageRole, MessageType};
-use crate::message::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
-use crate::shared_models::AgentMode;
+use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageContext};
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
-use crate::task::models::{SandboxStopReason, TaskStatus};
+use crate::task::models::TaskStatus;
+use crate::task_activities::mapping::{BlockContext, ConversationWrite, map_content};
 
 use super::models::{AgentEvent, SdkResultMessage};
-
-/// Derive a deterministic uuid for a persisted message from the event id.
-///
-/// Dedup happens at the DB layer via `task_messages.uuid UNIQUE` +
-/// `ON CONFLICT (uuid) DO UPDATE`. Re-delivery of the same event upserts into
-/// the same row instead of creating a duplicate.
-fn message_uuid_for_event(event_id: &str) -> String {
-    format!("evt-{event_id}")
-}
 
 /// Handle `agent.completed` event.
 ///
@@ -250,7 +240,7 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
         }
     };
 
-    let mut body = collect_assistant_text(&msg.message_content);
+    let mut body = msg.message_text.clone().unwrap_or_default();
     if body.trim().is_empty() {
         tracing::warn!(
             task_id,
@@ -280,29 +270,6 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
     ));
 }
 
-/// Concatenate every `text` block from a `message_content` JSON array into a
-/// single string separated by blank lines. Returns an empty string when the
-/// shape is unexpected or no text blocks are present.
-fn collect_assistant_text(content: &serde_json::Value) -> String {
-    let Some(arr) = content.as_array() else {
-        return String::new();
-    };
-    let mut out = String::new();
-    for block in arr {
-        if block.get("type").and_then(|v| v.as_str()) != Some("text") {
-            continue;
-        }
-        let Some(text) = block.get("text").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        if !out.is_empty() {
-            out.push_str("\n\n");
-        }
-        out.push_str(text);
-    }
-    out
-}
-
 /// Handle `agent.session_init` event — Claude Code session started.
 ///
 /// Per-message acknowledgment is now handled by the sandbox via
@@ -324,28 +291,16 @@ pub async fn handle_agent_session_init(_state: &AppState, event: &AgentEvent) {
 
 /// Handle `agent.stopped` event — the agent was stopped before completing.
 ///
-/// The payload's typed `source` field (echoed by the sandbox from the
-/// `StopAgent` request, mirroring `SandboxStopReason`) says who initiated the
-/// stop, and picks the marker text via `stop_marker_text`. A missing or
-/// unknown source is treated as a user stop — the pre-`source` behavior, kept
-/// for sandboxes that predate the field.
-///
-/// Only an error stop is written to the transcript (see
-/// [`crate::message::models::stop_is_reported`]); the routine reasons update
-/// task and turn state and stay out of the conversation. The turn is closed
-/// either way, so the next run still starts a fresh agent session — that is
-/// derived from the turn's terminal status, not from this row.
+/// Nothing about a stop enters the conversation. A stop is not something
+/// somebody said, and the reader already knows it happened: the task's live
+/// status and its turn state say so, and for an externally-bound task a
+/// "Stopped by user request" line is pure noise on Slack or Linear. The turn's
+/// terminal status is also what the next run reads to decide it must start a
+/// fresh agent session, so nothing downstream depended on the row either.
 pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    let source = event
-        .payload
-        .get("source")
-        .and_then(|v| v.as_str())
-        .and_then(|s| SandboxStopReason::try_from(s).ok())
-        .unwrap_or(SandboxStopReason::User);
-
     // Idempotency: drop duplicate stop fan-out. Both the sandbox and the
     // /stop HTTP handler can publish `agent.stopped` for a single user
     // action, and a hammered /stop endpoint must never re-run the stop. The
@@ -375,62 +330,6 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     super::metrics::record_run("stopped", event.agent_type.as_deref());
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-
-    if crate::message::models::stop_is_reported(source) {
-        let msg_uuid = message_uuid_for_event(&event.event_id);
-        let marker_text = crate::message::models::stop_marker_text(source);
-
-        let content = serde_json::json!([{
-            "type": "text",
-            "text": marker_text
-        }]);
-
-        // Inherit agent_mode from the last user message
-        let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
-            Ok(Some(user_msg)) => user_msg.agent_mode,
-            _ => None,
-        };
-
-        let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
-
-        let msg_row = build_result_message_row(
-            &event.task_id,
-            &msg_uuid,
-            &now,
-            content,
-            MessageType::Result,
-            true,
-            None,
-            agent_mode,
-            None,
-            turn_number,
-        );
-        let contexts: Vec<TaskMessageContext> = vec![];
-        let blocks = vec![TaskMessageContentBlock {
-            id: 0,
-            task_message_id: 0,
-            sort_order: 0,
-            block_type: ContentBlockType::Text,
-            show_in_ui: true,
-            text_content: Some(marker_text.to_string()),
-            tool_use_id: None,
-            tool_result_content: None,
-            tool_result_is_error: None,
-            image_media_type: None,
-            image_data: None,
-            created_at: None,
-        }];
-
-        if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
-            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append stopped message");
-        }
-    } else {
-        tracing::debug!(
-            task_id = %event.task_id,
-            source = %source.as_str(),
-            "Routine stop — not appending a transcript row"
-        );
-    }
 
     if let Err(e) = state
         .tasks
@@ -493,54 +392,13 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
         .unwrap_or("Unknown agent error");
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let msg_uuid = message_uuid_for_event(&event.event_id);
 
-    let content = serde_json::json!([{
-        "type": "text",
-        "text": error_msg
-    }]);
-
-    // Inherit agent_mode from the last user message
-    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
-        Ok(Some(user_msg)) => user_msg.agent_mode,
-        _ => None,
-    };
-
-    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
-
-    // will_not_resume=false: harness-level errors (sandbox crash, pod eviction)
-    // should not prevent session resumption. The Claude session is still valid.
-    let msg_row = build_result_message_row(
-        &event.task_id,
-        &msg_uuid,
-        &now,
-        content,
-        MessageType::Error,
-        false,
-        None,
-        agent_mode,
-        None,
-        turn_number,
-    );
-    let contexts: Vec<TaskMessageContext> = vec![];
-    let blocks = vec![TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 0,
-        block_type: ContentBlockType::Text,
-        show_in_ui: true,
-        text_content: Some(error_msg.to_string()),
-        tool_use_id: None,
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    }];
-
-    if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
-        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to append error message");
-    }
+    // No transcript row. A run outcome is not something somebody said, and the
+    // one failure worth reading — the Sandbox dying under the agent — already
+    // reaches the conversation as a `sandbox_error` activity carrying the exit
+    // code, terminated reason, disruption cause and container logs
+    // (`sandbox/k8s/pod_watcher.rs:803`). What is left here is the turn's own
+    // status and the Events tab, which keeps every one of these.
 
     if let Err(e) = state
         .tasks
@@ -560,8 +418,8 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     // Reopen only if the task isn't already Closed. This is the path the
     // orphaned-turn reaper routes through (`close_orphaned_turn`), so this
     // single guard also keeps the reaper from re-opening a closed task: the
-    // synthetic error still appends its message row + `taskTurn.error` (the UI
-    // unblocks), but the status stays Closed.
+    // synthetic error still publishes `taskTurn.error` (the UI unblocks), but
+    // the status stays Closed.
     let child_not_closed = match state
         .tasks
         .update_status_if_not_closed(&event.task_id, TaskStatus::Open, &sys_ctx)
@@ -575,19 +433,13 @@ pub async fn handle_agent_error(state: &AppState, event: &AgentEvent) {
     };
 
     if let Some(ref events) = state.events {
-        // Include message_id in payload for outbound integration tracking
-        let mut turn_payload = event.payload.clone();
-        if let Some(obj) = turn_payload.as_object_mut() {
-            obj.insert("message_id".to_string(), serde_json::json!(msg_uuid));
-        }
-
         events
             .publish_task_turn_event(
                 &event.task_id,
                 TaskTurnSubType::Error,
                 event.agent_type.as_deref(),
                 event.turn_number,
-                turn_payload,
+                event.payload.clone(),
             )
             .await;
     }
@@ -696,74 +548,24 @@ pub async fn handle_sandbox_fatal(state: &AppState, event: &AgentEvent) {
 /// the transcript was unavailable (e.g. stale session id after a pod restart)
 /// and the agent fell back to a fresh session.
 ///
-/// Persists an inline `MessageType::Error` row so the context loss is clearly
-/// visible in the conversation history. Unlike [`handle_agent_error`], the run
-/// CONTINUES (the fresh session is starting), so this must not flip the task
-/// status, publish `task_turn.error`, or close the Linear turn gate.
-pub async fn handle_agent_session_context_lost(state: &AppState, event: &AgentEvent) {
+/// The run CONTINUES — the fresh session is already starting — so this must not
+/// flip the task status, publish `task_turn.error`, or close the Linear turn
+/// gate. It writes nothing to the conversation either: an `agent` error subtype
+/// is not one of the four activity kinds, and the notice it used to write was an
+/// `error` Message, which is not something somebody said. The event itself is
+/// recorded and stays readable in the Events tab.
+pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentEvent) {
     let resume_error = event
         .payload
         .get("error")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown resume error");
 
-    let notice = format!(
-        "Previous session could not be resumed — conversation context was lost. \
-         Continuing with a fresh session.\n\nResume error: {resume_error}"
+    tracing::warn!(
+        task_id = %event.task_id,
+        error = %resume_error,
+        "Previous session could not be resumed; continuing with a fresh session"
     );
-
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let msg_uuid = message_uuid_for_event(&event.event_id);
-
-    let content = serde_json::json!([{
-        "type": "text",
-        "text": notice
-    }]);
-
-    // Inherit agent_mode from the last user message (mirrors handle_agent_error)
-    let agent_mode = match state.messages.get_last_user_message(&event.task_id).await {
-        Ok(Some(user_msg)) => user_msg.agent_mode,
-        _ => None,
-    };
-
-    let turn_number = resolve_turn_number(state, &event.task_id, event.turn_number).await;
-
-    // will_not_resume=false: the fresh session is valid and running.
-    let msg_row = build_result_message_row(
-        &event.task_id,
-        &msg_uuid,
-        &now,
-        content,
-        MessageType::Error,
-        false,
-        None,
-        agent_mode,
-        None,
-        turn_number,
-    );
-    let contexts: Vec<TaskMessageContext> = vec![];
-    let blocks = vec![TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 0,
-        block_type: ContentBlockType::Text,
-        show_in_ui: true,
-        text_content: Some(notice.clone()),
-        tool_use_id: None,
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    }];
-
-    if let Err(e) = state.messages.append(&msg_row, &contexts, &blocks).await {
-        tracing::warn!(
-            task_id = %event.task_id,
-            error = %e,
-            "Failed to append session-context-lost notice"
-        );
-    }
 }
 
 /// Confirm delivery of the ingress-outbox record whose payload built this
@@ -853,32 +655,18 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
     record_tool_call_metrics(state, event, &content, msg_role == "user").await;
 
     // Per-block source events (ADR-0002): a native block carries `blockIndex`
-    // plus the single-block content array. Assemble by merging the incoming
-    // block into the current row's content at its native index — in-order
-    // arrival appends, redelivery replaces in place (idempotent). Coalesced
-    // events (no `blockIndex`) carry the full content array and persist as-is,
-    // keeping the migration backward compatible.
-    let persisted_content = match event.payload.get("blockIndex").and_then(as_block_index) {
-        Some(block_index) => {
-            // A failed read must not be treated as "no existing blocks": that
-            // would overwrite the assembled Message with only the incoming
-            // block. Abort this event instead and let redelivery reassemble.
-            let existing = match state.messages.find_by_uuid(uuid).await {
-                Ok(existing) => existing.map(|m| m.message_content),
-                Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        uuid = %uuid,
-                        task_id = %event.task_id,
-                        "failed to read existing message for per-block assembly; skipping to avoid overwriting assembled content"
-                    );
-                    return;
-                }
-            };
-            merge_block_at_index(existing.as_ref(), block_index, &content)
-        }
-        None => content.clone(),
-    };
+    // plus the single-block content array. Its index within the Message is what
+    // the mapping needs and the only thing it needs — a block's identity, and
+    // therefore its activity's id and its slot in the prose, is derived from it.
+    // Nothing is read back first: the splice this replaces was a
+    // read-modify-write over a shared JSON document, where two blocks that raced
+    // wrote over each other. Coalesced events (no `blockIndex`) carry the whole
+    // content array, whose first block is at 0.
+    let block_index = event
+        .payload
+        .get("blockIndex")
+        .and_then(as_block_index)
+        .unwrap_or(0);
 
     let usage = event.payload.get("message").and_then(|m| m.get("usage"));
 
@@ -973,7 +761,10 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         request_id: None,
         timestamp: event.timestamp.clone(),
         message_role,
-        message_content: persisted_content.clone(),
+        // Left unset: the prose is spliced in block by block by the append
+        // itself, from `conversation.text`, and the insert must not overwrite
+        // what earlier blocks already put there.
+        message_text: None,
         assistant_message_id,
         assistant_message_type: None,
         assistant_message_model,
@@ -1019,23 +810,77 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         sent_by: None,
     };
 
-    // 7. Build content blocks from the assembled content array
-    let blocks = build_content_blocks_from_payload(&persisted_content);
-    let contexts: Vec<TaskMessageContext> = vec![];
+    // 7. Decide what each arriving block becomes.
+    let mut conversation = map_content(
+        BlockContext {
+            task_id: &event.task_id,
+            message_uuid: uuid,
+            parent_uuid: msg_row.parent_uuid.as_deref(),
+            message_type,
+            block_index,
+        },
+        &content,
+    );
 
-    // 8. Persist message
-    match state.messages.append(&msg_row, &contexts, &blocks).await {
-        Ok(_) => {
+    // The transport's structured view of an outcome is a field of the *Message*
+    // the result arrived on, not of the block, so the mapping cannot see it and
+    // the caller attaches it here. Only where the Message carries exactly one
+    // result: `toolUseResult` is one object, and a coalesced event carrying two
+    // results gives no way to say which it describes.
+    if let ([outcome], Some(typed)) = (
+        conversation.outcomes.as_mut_slice(),
+        &msg_row.tool_use_result,
+    ) {
+        outcome.typed_result = Some(typed.clone());
+    }
+
+    // Usage is admitted against the Message's uuid rather than its row, so it
+    // survives a turn that said nothing and therefore has no row.
+    conversation.usage = usage.map(|usage| {
+        let field = |name: &str| {
+            usage
+                .get(name)
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0) as i32
+        };
+        (field("input_tokens"), field("output_tokens"))
+    });
+
+    // A result changes the Message that *called* for it, not the carrier row it
+    // arrived on — which is why the carrier is not rendered at all. Resolved
+    // before the write so the conversation change records the Message a reader
+    // will actually re-read.
+    let anchor_uuid = anchor_message_uuid(state, &event.task_id, uuid, &conversation).await;
+
+    // 8. Persist. A Message row exists when somebody said something: a turn that
+    //    only called tools, and a carrier row that only relays a result, write
+    //    their activities and no Message.
+    let persisted = if conversation.text.is_empty() {
+        state
+            .messages
+            .append_activities(&event.task_id, &anchor_uuid, &conversation)
+            .await
+    } else {
+        let contexts: Vec<TaskMessageContext> = vec![];
+        state
+            .messages
+            .append(&msg_row, &contexts, &conversation)
+            .await
+            .map(|_| ())
+    };
+
+    match persisted {
+        Ok(()) => {
             tracing::debug!(
                 task_id = %event.task_id,
                 uuid = %uuid,
                 message_type = %message_type,
                 "Agent message persisted"
             );
-            // The content is now in its canonical table, so the durable ingress
+            // The content is now in its canonical tables, so the durable ingress
             // record that carried it here has done its job (ADR-0006). This is
             // the system's only confirmation of delivery and therefore its only
-            // delete: a record that survives is content `task_messages` never
+            // delete: a record that survives is content the conversation never
             // got, and the relay keeps re-publishing it until this line runs.
             release_ingress_record(state, &event.task_id, &event.event_id).await;
             crate::message::hooks::on_agent_message_persisted(
@@ -1043,7 +888,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 &event.task_id,
                 uuid,
                 message_type,
-                &persisted_content,
+                &content,
             )
             .await;
             // Server-owned assembly (ADR-0002/0003). A subagent row (carrying a
@@ -1059,7 +904,8 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 )
                 .await;
             } else {
-                crate::message::hooks::emit_message_upsert(state, &event.task_id, uuid).await;
+                crate::message::hooks::emit_message_upsert(state, &event.task_id, &anchor_uuid)
+                    .await;
             }
         }
         Err(e) => {
@@ -1133,126 +979,53 @@ pub async fn handle_task_metadata_updated(state: &AppState, event: &AgentEvent) 
 // Helpers
 // =============================================================================
 
-/// Block types with no `task_message_content_blocks` representation.
-///
-/// One assistant message carries every block of its API response, so reasoning
-/// and server-tool blocks arrive alongside the text and tool_use ones. They have
-/// no column shape here and would otherwise fall through to `Text` and persist
-/// as blocks with no text — rendering as empty bubbles. The raw blocks are still
-/// kept whole in `task_messages.message_content`.
-const UNRENDERED_BLOCK_TYPES: &[&str] = &[
-    "thinking",
-    "redacted_thinking",
-    "server_tool_use",
-    "web_search_tool_result",
-];
-
 /// Parse a `blockIndex` payload field into a native block position. Accepts an
 /// integer; anything else (absent, negative, non-numeric) yields `None`, which
-/// routes the event down the coalesced full-content path.
+/// means the event carries a whole content array starting at 0.
 fn as_block_index(value: &serde_json::Value) -> Option<usize> {
     value.as_u64().and_then(|v| usize::try_from(v).ok())
 }
 
-/// Merge a per-block source event into the current assembled content array.
+/// Which Message a reader will see change.
 ///
-/// `existing` is the row's stored content (if the Message already has blocks);
-/// `incoming` is this event's single-block content array. The incoming block(s)
-/// are placed starting at `block_index`: an index within the current array
-/// replaces in place (idempotent redelivery), and an index at or past the end
-/// appends (in-order arrival), preserving native block order.
-fn merge_block_at_index(
-    existing: Option<&serde_json::Value>,
-    block_index: usize,
-    incoming: &serde_json::Value,
-) -> serde_json::Value {
-    let mut arr = existing
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let incoming_blocks = incoming.as_array().cloned().unwrap_or_default();
-    for (offset, block) in incoming_blocks.into_iter().enumerate() {
-        let idx = block_index + offset;
-        if idx < arr.len() {
-            arr[idx] = block;
-        } else {
-            arr.push(block);
+/// Normally the one the blocks arrived on. But a tool result arrives on a
+/// *later* Message than the call it answers, and that carrier is rendered
+/// nowhere — its content is shown as the outcome of the
+/// call, on the Message that made it. So an event carrying nothing but outcomes
+/// names the calling Message instead, and both the conversation change and the
+/// derived `message.upsert` point a reader at something it can actually see.
+///
+/// Falls back to the arriving uuid when the call cannot be found: it predates
+/// the change, or it was never received.
+async fn anchor_message_uuid(
+    state: &AppState,
+    task_id: &str,
+    message_uuid: &str,
+    conversation: &ConversationWrite,
+) -> String {
+    if !conversation.text.is_empty() || !conversation.activities.is_empty() {
+        return message_uuid.to_string();
+    }
+    let Some(outcome) = conversation.outcomes.first() else {
+        return message_uuid.to_string();
+    };
+    match state
+        .messages
+        .find_tool_call(task_id, &outcome.tool_use_id)
+        .await
+    {
+        Ok(Some(call)) if !call.parent_message_uuid.is_empty() => call.parent_message_uuid,
+        Ok(_) => message_uuid.to_string(),
+        Err(e) => {
+            tracing::debug!(
+                task_id,
+                tool_use_id = %outcome.tool_use_id,
+                error = %e,
+                "could not resolve the Message a tool result answers; naming the carrier"
+            );
+            message_uuid.to_string()
         }
     }
-    serde_json::Value::Array(arr)
-}
-
-/// Build content block rows from a JSON content array.
-///
-/// Handles `text`, `tool_use`, and `tool_result` block types; see
-/// [`UNRENDERED_BLOCK_TYPES`] for what is deliberately skipped.
-fn build_content_blocks_from_payload(content: &serde_json::Value) -> Vec<TaskMessageContentBlock> {
-    let arr = match content.as_array() {
-        Some(a) => a,
-        None => return vec![],
-    };
-
-    arr.iter()
-        .filter(|block| {
-            let type_str = block.get("type").and_then(|v| v.as_str()).unwrap_or("text");
-            !UNRENDERED_BLOCK_TYPES.contains(&type_str)
-        })
-        .enumerate()
-        .map(|(idx, block)| {
-            let type_str = block.get("type").and_then(|v| v.as_str()).unwrap_or("text");
-
-            let block_type = ContentBlockType::try_from(type_str).unwrap_or(ContentBlockType::Text);
-
-            let (text_content, tool_use_id, tool_result_content, tool_result_is_error, show_in_ui) =
-                match block_type {
-                    ContentBlockType::Text => {
-                        let text = block
-                            .get("text")
-                            .and_then(|v| v.as_str())
-                            .map(std::string::ToString::to_string);
-                        (text, None, None, None, true)
-                    }
-                    ContentBlockType::ToolUse => {
-                        let id = block
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .map(std::string::ToString::to_string);
-                        (None, id, None, None, true)
-                    }
-                    ContentBlockType::ToolResult => {
-                        let id = block
-                            .get("tool_use_id")
-                            .and_then(|v| v.as_str())
-                            .map(std::string::ToString::to_string);
-                        let result_content = block.get("content").map(|v| {
-                            if let Some(s) = v.as_str() {
-                                s.to_string()
-                            } else {
-                                v.to_string()
-                            }
-                        });
-                        let is_error = block.get("is_error").and_then(serde_json::Value::as_bool);
-                        (None, id, result_content, is_error, false)
-                    }
-                    ContentBlockType::Image => (None, None, None, None, true),
-                };
-
-            TaskMessageContentBlock {
-                id: 0,
-                task_message_id: 0,
-                sort_order: idx as i32,
-                block_type,
-                show_in_ui,
-                text_content,
-                tool_use_id,
-                tool_result_content,
-                tool_result_is_error,
-                image_media_type: None,
-                image_data: None,
-                created_at: None,
-            }
-        })
-        .collect()
 }
 
 /// Emit per-tool-call Prometheus metrics from an `agent.message` content array.
@@ -1361,68 +1134,6 @@ async fn resolve_turn_number(
             tracing::warn!(task_id, error = %e, "Failed to read current turn number");
             None
         }
-    }
-}
-
-/// Build a result message row for agent outcomes.
-#[allow(clippy::too_many_arguments)]
-fn build_result_message_row(
-    task_id: &str,
-    uuid: &str,
-    timestamp: &str,
-    content: serde_json::Value,
-    message_type: MessageType,
-    will_not_resume: bool,
-    session_id: Option<String>,
-    agent_mode: Option<AgentMode>,
-    model: Option<String>,
-    turn_number: Option<i32>,
-) -> TaskMessage {
-    TaskMessage {
-        id: 0,
-        task_id: task_id.to_string(),
-        uuid: uuid.to_string(),
-        message_type,
-        user_type: "system".to_string(),
-        parent_uuid: None,
-        is_sidechain: None,
-        cwd: None,
-        session_id: session_id.clone(),
-        turn_number,
-        version: None,
-        git_branch: None,
-        request_id: None,
-        timestamp: timestamp.to_string(),
-        message_role: MessageRole::Assistant,
-        message_content: content,
-        assistant_message_id: None,
-        assistant_message_type: None,
-        assistant_message_model: None,
-        assistant_stop_reason: None,
-        assistant_stop_sequence: None,
-        assistant_usage_input_tokens: None,
-        assistant_usage_output_tokens: None,
-        assistant_usage_cache_creation_input_tokens: None,
-        assistant_usage_cache_read_input_tokens: None,
-        assistant_usage: None,
-        tool_use_result: None,
-        sdk_metadata: None,
-        attachments: None,
-        agent_session_id: session_id,
-        will_not_resume: Some(will_not_resume),
-        run_metrics: None,
-        agent_mode,
-        model,
-        resume: true,
-        sent_at: None,
-        created_at: None,
-        external_event_id: None,
-        external_adapter: None,
-        external_subject_key: None,
-        external_source_name: None,
-        source_task_id: None,
-        start_fresh: false,
-        sent_by: None,
     }
 }
 
@@ -1567,137 +1278,16 @@ mod tests {
         assert!(extract_skill_names(&payload).is_empty());
     }
 
-    // ── message_uuid_for_event ───────────────────────────────────────
-
-    #[test]
-    fn message_uuid_deterministic_for_same_event_id() {
-        // Same event_id → same uuid → ON CONFLICT (uuid) DO UPDATE upserts
-        // instead of inserting a duplicate row on redelivery.
-        let a = message_uuid_for_event("1700000000-0");
-        let b = message_uuid_for_event("1700000000-0");
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn message_uuid_distinct_for_distinct_event_ids() {
-        // Different event_ids → different uuids → each event persists its own row.
-        let a = message_uuid_for_event("1700000000-0");
-        let b = message_uuid_for_event("1700000000-1");
-        assert_ne!(a, b);
-    }
-
-    // ── collect_assistant_text ───────────────────────────────────────
-
-    #[test]
-    fn collect_assistant_text_concatenates_text_blocks() {
-        let content = json!([
-            { "type": "text", "text": "first" },
-            { "type": "tool_use", "name": "Read", "input": {} },
-            { "type": "text", "text": "second" }
-        ]);
-        assert_eq!(collect_assistant_text(&content), "first\n\nsecond");
-    }
-
-    #[test]
-    fn collect_assistant_text_empty_when_no_text_blocks() {
-        let content = json!([
-            { "type": "tool_use", "name": "Read", "input": {} }
-        ]);
-        assert!(collect_assistant_text(&content).is_empty());
-    }
-
-    #[test]
-    fn collect_assistant_text_empty_on_unexpected_shape() {
-        let content = json!({ "not": "an array" });
-        assert!(collect_assistant_text(&content).is_empty());
-    }
-
-    #[test]
-    fn content_blocks_skip_reasoning_and_keep_sort_order_contiguous() {
-        // One reassembled assistant message: the CLI's thinking block arrives
-        // alongside the text and tool_use blocks of the same API response.
-        let content = json!([
-            { "type": "thinking", "thinking": "considering", "signature": "sig" },
-            { "type": "text", "text": "Creating the file." },
-            { "type": "tool_use", "id": "toolu_1", "name": "Write", "input": {} },
-        ]);
-
-        let blocks = build_content_blocks_from_payload(&content);
-
-        assert_eq!(blocks.len(), 2, "thinking block must not persist");
-        assert_eq!(blocks[0].block_type, ContentBlockType::Text);
-        assert_eq!(
-            blocks[0].text_content.as_deref(),
-            Some("Creating the file.")
-        );
-        assert_eq!(blocks[1].block_type, ContentBlockType::ToolUse);
-        assert_eq!(blocks[1].tool_use_id.as_deref(), Some("toolu_1"));
-        // sort_order is assigned after filtering, so it stays gap-free.
-        assert_eq!(blocks[0].sort_order, 0);
-        assert_eq!(blocks[1].sort_order, 1);
-    }
-
-    #[test]
-    fn content_blocks_drop_a_reasoning_only_message() {
-        let content = json!([
-            { "type": "thinking", "thinking": "quiet", "signature": "sig" },
-            { "type": "redacted_thinking", "data": "opaque" },
-        ]);
-        assert!(build_content_blocks_from_payload(&content).is_empty());
-    }
-
-    // ── per-block assembly (ticket 02) ───────────────────────────────
+    // ── per-block assembly ───────────────────────────────────────────
 
     #[test]
     fn as_block_index_parses_only_non_negative_integers() {
         assert_eq!(as_block_index(&json!(0)), Some(0));
         assert_eq!(as_block_index(&json!(3)), Some(3));
-        // A coalesced event has no blockIndex; non-integers route to the
-        // full-content path.
+        // A coalesced event carries no blockIndex, and neither does a
+        // malformed one. Both fall back to index 0 at the call site.
         assert_eq!(as_block_index(&json!(-1)), None);
         assert_eq!(as_block_index(&json!("2")), None);
         assert_eq!(as_block_index(&json!(null)), None);
-    }
-
-    #[test]
-    fn merge_blocks_append_in_native_order() {
-        // Three per-block events arriving in native order assemble left to right.
-        let mut acc = merge_block_at_index(None, 0, &json!([{ "type": "text", "text": "a" }]));
-        acc = merge_block_at_index(Some(&acc), 1, &json!([{ "type": "text", "text": "b" }]));
-        acc = merge_block_at_index(Some(&acc), 2, &json!([{ "type": "text", "text": "c" }]));
-
-        let arr = acc.as_array().unwrap();
-        assert_eq!(arr.len(), 3);
-        assert_eq!(arr[0]["text"], "a");
-        assert_eq!(arr[1]["text"], "b");
-        assert_eq!(arr[2]["text"], "c");
-    }
-
-    #[test]
-    fn merge_block_redelivery_replaces_in_place() {
-        // Duplicate delivery of an index already present is idempotent: it
-        // replaces the block rather than appending a second one.
-        let existing = json!([
-            { "type": "text", "text": "a" },
-            { "type": "text", "text": "b" },
-        ]);
-        let merged = merge_block_at_index(
-            Some(&existing),
-            0,
-            &json!([{ "type": "text", "text": "a" }]),
-        );
-
-        let arr = merged.as_array().unwrap();
-        assert_eq!(arr.len(), 2, "redelivery must not grow the message");
-        assert_eq!(arr[0]["text"], "a");
-        assert_eq!(arr[1]["text"], "b");
-    }
-
-    #[test]
-    fn merge_block_into_empty_existing_seeds_the_message() {
-        let merged = merge_block_at_index(None, 0, &json!([{ "type": "tool_use", "id": "tu-1" }]));
-        let arr = merged.as_array().unwrap();
-        assert_eq!(arr.len(), 1);
-        assert_eq!(arr[0]["id"], "tu-1");
     }
 }

@@ -12757,11 +12757,12 @@
               }
             ]
           },
-          "messageContent": {
+          "messageText": {
             "type": [
-              "object",
+              "string",
               "null"
-            ]
+            ],
+            "description": "What the person wrote, as prose."
           },
           "messageType": {
             "$ref": "#/components/schemas/MessageType"
@@ -15821,6 +15822,10 @@
             "items": {
               "$ref": "#/components/schemas/TaskToolCallStats"
             }
+          },
+          "toolCallsAvailable": {
+            "type": "boolean",
+            "description": "Whether this Task has a tool-call record at all.\n\nA Task that ran before tool calls were stored as their own rows has none,\nand an empty `tool_calls` from that Task means \"not recorded\", not \"made\nno calls\". The client has to be able to tell those apart — reporting zero\nis a wrong answer, not a missing one.\n\nDefaults to `true` so a client reading an older response, or a response\nfrom a deployment that predates the field, is not told every Task is\nunrecorded."
           }
         }
       },

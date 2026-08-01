@@ -2,10 +2,9 @@
 
 use tracing::warn;
 
-use crate::message::models::{
-    ContentBlockType, MessageRole, MessageType, TaskMessage, TaskMessageContentBlock,
-};
+use crate::message::models::{MessageRole, MessageType, TaskMessage};
 use crate::state::AppState;
+use crate::task_activities::mapping::ConversationWrite;
 
 use crate::adapters::Adapters;
 use crate::adapters::dao::PgAdapterConnectionDao;
@@ -392,10 +391,12 @@ pub(crate) async fn persist_outbound_stub_for_binding(
         }
     };
 
-    let content = serde_json::json!([{ "type": "text", "text": text }]);
-
-    let mut msg =
-        TaskMessage::new_user_message(task_id.to_string(), uuid.clone(), content, now.clone());
+    let mut msg = TaskMessage::new_user_message(
+        task_id.to_string(),
+        uuid.clone(),
+        text.to_string(),
+        now.clone(),
+    );
     msg.message_type = MessageType::System;
     msg.message_role = MessageRole::Assistant;
     msg.user_type = "assistant".to_string();
@@ -403,22 +404,11 @@ pub(crate) async fn persist_outbound_stub_for_binding(
     msg.external_adapter = Some(provider_label.to_string());
     msg.external_source_name = Some(binding.subject_key.clone());
 
-    let block = TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 0,
-        block_type: ContentBlockType::Text,
-        show_in_ui: true,
-        text_content: Some(text.to_string()),
-        tool_use_id: None,
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    };
-
-    match state.messages.append(&msg, &[], &[block]).await {
+    match state
+        .messages
+        .append(&msg, &[], &ConversationWrite::default())
+        .await
+    {
         Ok(_) => Some(uuid),
         Err(e) => {
             warn!(task_id, error = %e, "Failed to persist outbound stub message");

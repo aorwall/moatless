@@ -314,6 +314,22 @@ pub struct TaskStatisticsResponse {
     pub message_token_usage: Vec<TaskMessageTokenUsage>,
     pub tool_calls: Vec<TaskToolCallStats>,
     pub skills: Vec<TaskSkillUsage>,
+    /// Whether this Task has a tool-call record at all.
+    ///
+    /// A Task that ran before tool calls were stored as their own rows has none,
+    /// and an empty `tool_calls` from that Task means "not recorded", not "made
+    /// no calls". The client has to be able to tell those apart — reporting zero
+    /// is a wrong answer, not a missing one.
+    ///
+    /// Defaults to `true` so a client reading an older response, or a response
+    /// from a deployment that predates the field, is not told every Task is
+    /// unrecorded.
+    #[serde(default = "default_true")]
+    pub tool_calls_available: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Response for follow/unfollow endpoints, reporting the resulting state.

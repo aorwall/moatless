@@ -114,9 +114,8 @@ async fn drain_admitted_work(pool: &PgPool) {
 /// as `(external_event_id, text)`.
 async fn delivered_messages(pool: &PgPool) -> Vec<(String, String)> {
     sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT m.external_event_id, b.text_content \
+        "SELECT m.external_event_id, m.message_text \
          FROM task_messages m \
-         LEFT JOIN task_message_content_blocks b ON b.task_message_id = m.id \
          WHERE m.task_id = $1 AND m.external_adapter = 'linear' \
          ORDER BY m.id ASC",
     )

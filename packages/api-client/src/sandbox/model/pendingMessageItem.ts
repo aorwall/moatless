@@ -7,15 +7,17 @@
  */
 import type { AgentMode } from './agentMode';
 import type { MessageType } from './messageType';
-import type { PendingMessageItemMessageContent } from './pendingMessageItemMessageContent';
 
 /**
  * A pending message item (user message or result message).
  */
 export interface PendingMessageItem {
   agentMode?: null | AgentMode;
-  /** @nullable */
-  messageContent?: PendingMessageItemMessageContent;
+  /**
+   * What the person wrote, as prose.
+   * @nullable
+   */
+  messageText?: string | null;
   messageType: MessageType;
   /** @nullable */
   model?: string | null;

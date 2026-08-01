@@ -2,6 +2,8 @@
 
 use serde_json::Value;
 
+use super::contexts::task_message_context_to_input;
+use super::models::{TaskMessage, TaskMessageContext};
 use crate::config::Config;
 use crate::file_storage::dao::FileDao;
 use crate::task::schemas::MessageContextInput;
@@ -73,6 +75,56 @@ pub async fn build_content_blocks(
     }
 
     blocks
+}
+
+/// Attribution for a message one Task sent to another.
+///
+/// The agent has to be told where the message came from and how to answer it;
+/// the person reading the transcript is looking at the Task that sent it and
+/// does not. So this is applied on the way out and never stored — which also
+/// means the reply instruction is regenerated from the current `source_task_id`
+/// rather than frozen into a row at send time.
+fn attributed_text(text: &str, source_task_id: Option<&str>) -> String {
+    match source_task_id {
+        Some(id) => format!(
+            "Message from task `{id}`:\n\n{text}\n\n\
+             To reply, run: `moat send --task {id} --text \"<your reply>\"`"
+        ),
+        None => text.to_string(),
+    }
+}
+
+/// Rebuild the agent-facing content of a queued Message, at delivery time.
+///
+/// A user Message stores what the person wrote and nothing else. Everything
+/// wrapped around it for the agent — the preview URL, the selected element, the
+/// attribution to a sending Task, the attached files — is already persisted as
+/// its own context row or column, so keeping a second, pre-rendered copy on the
+/// Message only creates something that can disagree with them. This rebuilds it
+/// from those rows on the way to the sandbox.
+///
+/// It is the read-side twin of [`build_content_blocks`], which the send path
+/// used to call before writing the result down.
+pub async fn build_pending_content_blocks(
+    files: &dyn FileDao,
+    config: &Config,
+    message: &TaskMessage,
+    contexts: &[TaskMessageContext],
+) -> Vec<ContentBlock> {
+    let text = attributed_text(
+        message.message_text.as_deref().unwrap_or_default(),
+        message.source_task_id.as_deref(),
+    );
+
+    // A row whose context type this build does not know is dropped, exactly as
+    // the transform layer drops it — a forward-incompatible context must not
+    // stop the message it decorates from reaching the agent.
+    let inputs: Vec<MessageContextInput> = contexts
+        .iter()
+        .filter_map(task_message_context_to_input)
+        .collect();
+
+    build_content_blocks(files, config, &text, &inputs, &message.file_ids()).await
 }
 
 /// Build a content block from a file attachment reference.

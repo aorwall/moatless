@@ -187,7 +187,6 @@ export * from './parseClipboardResponseClipboardJson';
 export * from './passwordLoginRequest';
 export * from './patchSecretRequest';
 export * from './pendingMessageItem';
-export * from './pendingMessageItemMessageContent';
 export * from './permissionDenial';
 export * from './permissionDenialToolInput';
 export * from './pluginResponse';

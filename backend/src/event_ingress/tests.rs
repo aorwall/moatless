@@ -396,18 +396,14 @@ async fn agent_message_is_spooled_before_fan_out_and_published_whole() {
     .await
     .expect("a spooled payload is a durable admission");
 
-    // The ADR-0003 skeleton is committed at ingress too: the consumer's own
-    // insert is best-effort and the record is deleted once the message commits,
-    // so this is the only attempt gRPC success can speak for.
-    assert_eq!(
-        *rec.lock().expect("recorder poisoned"),
-        ["event-row", "spool", "publish"]
-    );
+    // No `task_events` row: ADR-0003's persistence clause is withdrawn, so the
+    // outbox record is the whole of what gRPC success speaks for.
+    assert_eq!(*rec.lock().expect("recorder poisoned"), ["spool", "publish"]);
     assert_eq!(outbox.event_ids(), ["evt-5"]);
 
-    // The consumer rebuilds `task_messages` from the published payload, so it
+    // The consumer rebuilds the conversation from the published payload, so it
     // must never be eligible for truncation — and it must carry full content,
-    // not the ADR-0003 skeleton.
+    // not the relay skeleton.
     let published = recorder.raw_publishes();
     assert_eq!(published.len(), 1);
     assert!(!published[0].payload_recoverable);
@@ -522,13 +518,11 @@ async fn agent_message_without_an_outbox_is_not_admitted() {
     assert!(error.is_retryable());
 }
 
-/// The skeleton is not best-effort at ingress, because nothing downstream will
-/// retry it: the consumer's `persist_event` warns and continues on failure, and
-/// the outbox record is deleted as soon as the message commits. A blip there
-/// would drop the event-history row permanently, so admission must fail instead
-/// — and must not spool a payload whose history row is missing.
+/// An `agent.message` never touches `task_events` — ADR-0003's persistence
+/// clause is withdrawn and the table is lifecycle-only — so a failing event
+/// repository has no say in whether one is admitted.
 #[tokio::test]
-async fn a_failed_agent_message_skeleton_is_retryable_and_never_spools() {
+async fn an_agent_message_is_admitted_with_no_event_row_at_all() {
     let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
     let events = recording_events(&rec, true);
     let outbox = Arc::new(FakeOutbox::with_log(&rec));
@@ -536,7 +530,7 @@ async fn a_failed_agent_message_skeleton_is_retryable_and_never_spools() {
     let recorder = Arc::new(RecordingPublisher::new());
     let publisher: Arc<dyn EventPublisher> = recorder.clone();
 
-    let error = EventAdmission {
+    EventAdmission {
         task_turns: None,
         task_events: Some(&events),
         ingress_outbox: Some(&outbox_dyn),
@@ -544,12 +538,10 @@ async fn a_failed_agent_message_skeleton_is_retryable_and_never_spools() {
     }
     .admit(message_request("evt-10"))
     .await
-    .expect_err("a lost history row is not a complete admission");
+    .expect("the outbox record is the whole of the admission");
 
-    assert!(error.is_retryable());
-    assert_eq!(*rec.lock().expect("recorder poisoned"), ["event-row"]);
-    assert!(outbox.event_ids().is_empty());
-    assert!(recorder.raw_publishes().is_empty());
+    assert_eq!(*rec.lock().expect("recorder poisoned"), ["spool"]);
+    assert_eq!(outbox.event_ids(), ["evt-10"]);
 }
 
 #[tokio::test]

@@ -8,10 +8,9 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, OutboundReply, TaskBinding};
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::outbound;
-use crate::message::models::{
-    ContentBlockType, MessageRole, MessageType, TaskMessage, TaskMessageContentBlock,
-};
+use crate::message::models::{MessageRole, MessageType, TaskMessage};
 use crate::state::AppState;
+use crate::task_activities::mapping::ConversationWrite;
 use moatless_backend_core::scope::ScopeContext;
 
 pub struct ExternalReplyService<'a> {
@@ -263,29 +262,16 @@ async fn append_internal_assistant_reply(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let uuid = uuid::Uuid::new_v4().to_string();
     let turn_number = state.task_turns.latest_turn_number(task_id).await?;
-    let content = serde_json::json!([{ "type": "text", "text": text }]);
-    let mut msg = TaskMessage::new_user_message(task_id.to_string(), uuid, content, now);
+    let mut msg = TaskMessage::new_user_message(task_id.to_string(), uuid, text.to_string(), now);
     msg.message_type = MessageType::Assistant;
     msg.message_role = MessageRole::Assistant;
     msg.user_type = "assistant".to_string();
     msg.turn_number = turn_number;
 
-    let block = TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 0,
-        block_type: ContentBlockType::Text,
-        show_in_ui: true,
-        text_content: Some(text.to_string()),
-        tool_use_id: None,
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    };
-
-    state.messages.append(&msg, &[], &[block]).await?;
+    state
+        .messages
+        .append(&msg, &[], &ConversationWrite::default())
+        .await?;
     Ok(())
 }
 

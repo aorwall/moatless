@@ -1,5 +1,25 @@
 # The agent.message event is a skeleton; top-level assembly resolves the affected parent; subagent transcripts are lazy
 
+> **Partly withdrawn** by `.plans/event-sourced-conversation.md`.
+>
+> **The relay clause stands, unchanged.** `agent.message` is still a skeleton on
+> `task_events` and on the wire; content still reaches a client only through the
+> derived upsert or the on-demand subagent transcript; `toolNames` is still where
+> files-invalidation reads from. Nothing below about what is *relayed* has moved.
+>
+> **The persistence clause is superseded.** "Written once, to `task_messages`" is
+> still true of prose and no longer true of anything else: a Message row now holds
+> what somebody *said*, in `message_text`, and everything that *happened* — each
+> tool call with its outcome, each stretch of thinking, each Sandbox status change
+> — is a row of its own in `task_activities`. `message_content` is gone.
+>
+> **Affected-parent resolution is gone with it.** A tool result no longer has a
+> row to fold: it settles the activity of the call it answers and writes no
+> Message. What a change names is the *calling* Message, resolved on the way in
+> (`agent_handlers::anchor_message_uuid`) rather than searched for on the way out,
+> so the newest-100 window this ADR replaced with a loader is not replaced by
+> another window — there is nothing left to search.
+
 Message content is written **once**, to `task_messages`. The full `agent.message`
 content is a **transient ingestion payload**: the Sandbox emits it to the Redis
 stream, the event-handler consumer reads it once to build `task_messages`, and it

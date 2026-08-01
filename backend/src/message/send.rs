@@ -1,15 +1,15 @@
 //! Message sending orchestration — send_message_flow and send_tool_response_flow.
 
-use super::models::{TaskMessage, TaskMessageContentBlock, TaskMessageContext};
-use crate::message::models::{ContentBlockType, MessageRole, MessageType};
+use super::models::{TaskMessage, TaskMessageContext};
+use crate::message::models::{MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE};
 use crate::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::schemas::{FileContextData, MessageContextInput};
+use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};
 use moatless_backend_core::scope::ScopeContext;
 
 use super::contexts::message_context_input_to_row;
-use super::enricher;
 use super::error::MessageError;
 
 /// Whether the task exists and is in `Closed` status. Fail-open on DB
@@ -159,29 +159,8 @@ pub async fn send_message_flow(
 
     let effective_message = message.to_string();
 
-    // Bake attribution into message text so the agent sees it via the normal content chain.
-    let attributed_message = match source_task_id {
-        Some(id) => format!(
-            "Message from task `{id}`:\n\n{effective_message}\n\n\
-             To reply, run: `moat send --task {id} --text \"<your reply>\"`"
-        ),
-        None => effective_message.clone(),
-    };
-
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = message_uuid.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-    // Build enriched content blocks (includes preview, element contexts + file attachments)
-    let enriched_blocks = enricher::build_content_blocks(
-        state.files.as_ref(),
-        &state.config,
-        &attributed_message,
-        contexts,
-        file_ids,
-    )
-    .await;
-    let content = serde_json::to_value(&enriched_blocks)
-        .unwrap_or_else(|_| serde_json::json!([{ "type": "text", "text": attributed_message }]));
 
     // Persist the attached file IDs so the sandbox can fetch them via gRPC
     // before invoking the agent.
@@ -209,7 +188,11 @@ pub async fn send_message_flow(
         request_id: None,
         timestamp: now.clone(),
         message_role: MessageRole::User,
-        message_content: content,
+        // What the person wrote, and only that. The preview URL, the selected
+        // element, the attribution and the attachments are rebuilt from their
+        // own rows on the way to the agent
+        // (`enricher::build_pending_content_blocks`).
+        message_text: Some(effective_message),
         assistant_message_id: None,
         assistant_message_type: None,
         assistant_message_model: None,
@@ -238,22 +221,6 @@ pub async fn send_message_flow(
         source_task_id: source_task_id.map(std::string::ToString::to_string),
         start_fresh,
         sent_by: sent_by.map(std::string::ToString::to_string),
-    };
-
-    // Build content blocks for the showInUI=true user text
-    let ui_block = TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0, // will be set by DAO
-        sort_order: 0,
-        block_type: ContentBlockType::Text,
-        show_in_ui: true,
-        text_content: Some(effective_message),
-        tool_use_id: None,
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
     };
 
     // Persist contexts: sender-supplied (preview/element) + synthesised
@@ -293,7 +260,7 @@ pub async fn send_message_flow(
 
     state
         .messages
-        .append(&msg_row, &context_rows, &[ui_block])
+        .append(&msg_row, &context_rows, &ConversationWrite::default())
         .await
         .map_err(MessageError::PersistMessage)?;
 
@@ -334,8 +301,6 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let msg_uuid = uuid::Uuid::new_v4().to_string();
 
-    let content = serde_json::json!([{ "type": "text", "text": error_text }]);
-
     let turn_number = match state.task_turns.latest_turn_number(task_id).await {
         Ok(t) => t,
         Err(e) => {
@@ -360,7 +325,7 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         request_id: None,
         timestamp: now,
         message_role: MessageRole::Assistant,
-        message_content: content.clone(),
+        message_text: Some(error_text.to_string()),
         assistant_message_id: None,
         assistant_message_type: None,
         assistant_message_model: None,
@@ -391,22 +356,11 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         sent_by: None,
     };
 
-    let blocks = vec![TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 0,
-        block_type: ContentBlockType::Text,
-        show_in_ui: true,
-        text_content: Some(error_text.to_string()),
-        tool_use_id: None,
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    }];
-
-    if let Err(e) = state.messages.append(&msg_row, &[], &blocks).await {
+    if let Err(e) = state
+        .messages
+        .append(&msg_row, &[], &ConversationWrite::default())
+        .await
+    {
         tracing::error!(task_id = %task_id, error = %e, "Failed to persist error result message");
     }
 }
@@ -433,18 +387,16 @@ pub async fn send_tool_response_flow(
         .map(|v| serde_json::to_string(v).unwrap_or_default())
         .unwrap_or_default();
 
-    let content = serde_json::json!([{
-        "type": "tool_result",
-        "tool_use_id": tool_use_id,
-        "content": response_text
-    }]);
-
     let msg_row = TaskMessage {
         id: 0,
         task_id: task_id.to_string(),
         uuid: msg_uuid,
         message_type: MessageType::User,
-        user_type: "human".to_string(),
+        // Not `human`, even though a person typed it. This row exists to hand a
+        // tool response back to the agent; the answer itself is already on
+        // screen as the outcome of the call that asked, and rendering the
+        // carrier too would show it twice.
+        user_type: TOOL_RESPONSE_USER_TYPE.to_string(),
         parent_uuid: None,
         is_sidechain: None,
         cwd: None,
@@ -457,7 +409,7 @@ pub async fn send_tool_response_flow(
         request_id: None,
         timestamp: now,
         message_role: MessageRole::User,
-        message_content: content,
+        message_text: Some(response_text.clone()),
         assistant_message_id: None,
         assistant_message_type: None,
         assistant_message_model: None,
@@ -488,11 +440,28 @@ pub async fn send_tool_response_flow(
         sent_by: sent_by.map(std::string::ToString::to_string),
     };
 
+    // The person's answer settles the call that asked for it. Without this the
+    // `AskUserQuestion` activity stays `in_progress` forever and the question
+    // keeps rendering as unanswered — the agent's own tool result never arrives
+    // for these, because this row *is* the result.
+    let conversation = ConversationWrite {
+        outcomes: vec![ToolOutcome {
+            task_id: task_id.to_string(),
+            tool_use_id: tool_use_id.to_string(),
+            status: ActivityStatus::Completed,
+            result: tool_response
+                .cloned()
+                .unwrap_or(serde_json::Value::String(response_text)),
+            typed_result: None,
+            is_error: false,
+        }],
+        ..Default::default()
+    };
+
     let contexts: Vec<TaskMessageContext> = vec![];
-    let blocks: Vec<TaskMessageContentBlock> = vec![];
     state
         .messages
-        .append(&msg_row, &contexts, &blocks)
+        .append(&msg_row, &contexts, &conversation)
         .await
         .map_err(MessageError::PersistToolResponse)?;
 

@@ -12,12 +12,33 @@ mod common;
 use moatless_vibe_backend::message::dao::{
     self as message_dao, MessageDao, PgMessageDao,
 };
-use moatless_vibe_backend::message::models::{
-    ContentBlockType, MessageRole, MessageType, TaskMessageContentBlock, TaskMessageContext,
+use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessageContext};
+use moatless_vibe_backend::task_activities::mapping::{
+    ActivityKind, ActivityStatus, BlockContext, ConversationWrite, map_content,
 };
 use sqlx::PgPool;
 
 use common::{make_message_row, make_repository_row, make_task_row};
+
+/// Map one Message's content the way the write path does: prose onto the row,
+/// each call and each outcome onto the conversation. Every test that used to
+/// hand `append` a block list goes through the same seam the live writer does.
+fn conversation_write(
+    uuid: &str,
+    message_type: MessageType,
+    content: &serde_json::Value,
+) -> ConversationWrite {
+    map_content(
+        BlockContext {
+            task_id: "task-1",
+            message_uuid: uuid,
+            parent_uuid: None,
+            message_type,
+            block_index: 0,
+        },
+        content,
+    )
+}
 
 /// Seed a repo + task so message FKs work.
 async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
@@ -37,7 +58,7 @@ async fn append_and_get_all(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
     let msg = make_message_row("task-1", "msg-uuid-1");
-    let msg_id = message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+    let msg_id = message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
     assert!(msg_id > 0);
 
     let (messages, contexts, blocks) = message_dao::get_all(&pool, "task-1").await.unwrap();
@@ -72,7 +93,7 @@ async fn append_persists_assistant_usage(pool: PgPool) {
     msg.assistant_message_model = Some("claude-haiku-4-5-20251001".to_string());
     msg.assistant_usage = Some(usage.clone());
 
-    message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
 
     let (messages, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
     assert_eq!(messages.len(), 1);
@@ -111,7 +132,7 @@ async fn backfill_fills_last_assistant_usage_once(pool: PgPool) {
     assistant.message_type = MessageType::Assistant;
     assistant.message_role = MessageRole::Assistant;
     assistant.assistant_message_model = Some("gpt-5.5".to_string());
-    message_dao::append(&pool, &assistant, &[], &[])
+    message_dao::append(&pool, &assistant, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -193,14 +214,14 @@ async fn backfill_skips_tasks_that_already_report_usage(pool: PgPool) {
     first.assistant_usage_input_tokens = Some(10);
     first.assistant_usage_output_tokens = Some(6);
     first.assistant_usage = Some(serde_json::json!({"input_tokens": 10, "output_tokens": 6}));
-    message_dao::append(&pool, &first, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &first, &[], &ConversationWrite::default()).await.unwrap();
 
     // Repeat of the same API message after interleaved traffic — no usage.
     let mut repeat = make_message_row("task-1", "claude-assistant-2");
     repeat.message_type = MessageType::Assistant;
     repeat.message_role = MessageRole::Assistant;
     repeat.assistant_message_id = Some("msg_split".to_string());
-    message_dao::append(&pool, &repeat, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &repeat, &[], &ConversationWrite::default()).await.unwrap();
 
     let updated = message_dao::backfill_last_assistant_usage(
         &pool,
@@ -228,10 +249,12 @@ async fn backfill_skips_tasks_that_already_report_usage(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn append_with_contexts_and_blocks(pool: PgPool) {
+async fn append_with_contexts_and_activities(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
-    let msg = make_message_row("task-1", "msg-uuid-2");
+    let mut msg = make_message_row("task-1", "msg-uuid-2");
+    msg.message_type = MessageType::Assistant;
+    msg.message_role = MessageRole::Assistant;
     let contexts = vec![
         TaskMessageContext {
             id: 0,
@@ -250,62 +273,34 @@ async fn append_with_contexts_and_blocks(pool: PgPool) {
             created_at: None,
         },
     ];
-    let blocks = vec![
-        TaskMessageContentBlock {
-            id: 0,
-            task_message_id: 0,
-            sort_order: 0,
-            block_type: ContentBlockType::Text,
-            show_in_ui: true,
-            text_content: Some("Hello world".to_string()),
-            tool_use_id: None,
-            tool_result_content: None,
-            tool_result_is_error: None,
-            image_media_type: None,
-            image_data: None,
-            created_at: None,
+    // What the agent said, and the one thing it did — the split the write path
+    // makes: the prose goes on the row, the call becomes an activity.
+    let conversation = map_content(
+        BlockContext {
+            task_id: "task-1",
+            message_uuid: "msg-uuid-2",
+            parent_uuid: None,
+            message_type: msg.message_type,
+            block_index: 0,
         },
-        TaskMessageContentBlock {
-            id: 0,
-            task_message_id: 0,
-            sort_order: 1,
-            block_type: ContentBlockType::ToolUse,
-            show_in_ui: true,
-            text_content: None,
-            tool_use_id: Some("tu-1".to_string()),
-            tool_result_content: None,
-            tool_result_is_error: None,
-            image_media_type: None,
-            image_data: None,
-            created_at: None,
-        },
-        TaskMessageContentBlock {
-            id: 0,
-            task_message_id: 0,
-            sort_order: 2,
-            block_type: ContentBlockType::ToolResult,
-            show_in_ui: false,
-            text_content: None,
-            tool_use_id: None,
-            tool_result_content: Some("OK".to_string()),
-            tool_result_is_error: Some(false),
-            image_media_type: None,
-            image_data: None,
-            created_at: None,
-        },
-    ];
+        &serde_json::json!([
+            { "type": "text", "text": "Hello world" },
+            { "type": "tool_use", "id": "tu-1", "name": "Bash", "input": {} },
+        ]),
+    );
 
-    message_dao::append(&pool, &msg, &contexts, &blocks)
+    message_dao::append(&pool, &msg, &contexts, &conversation)
         .await
         .unwrap();
 
-    let (messages, ctx_rows, blk_rows) = message_dao::get_all(&pool, "task-1").await.unwrap();
+    let (messages, ctx_rows, activities) = message_dao::get_all(&pool, "task-1").await.unwrap();
     assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].message_text.as_deref(), Some("Hello world"));
     assert_eq!(ctx_rows.len(), 2);
-    assert_eq!(blk_rows.len(), 3);
-    assert_eq!(blk_rows[0].block_type, ContentBlockType::Text);
-    assert_eq!(blk_rows[1].block_type, ContentBlockType::ToolUse);
-    assert_eq!(blk_rows[2].block_type, ContentBlockType::ToolResult);
+    assert_eq!(activities.len(), 1);
+    assert_eq!(activities[0].kind, ActivityKind::ToolCall);
+    assert_eq!(activities[0].tool_use_id.as_deref(), Some("tu-1"));
+    assert_eq!(activities[0].status, ActivityStatus::InProgress);
 }
 
 #[sqlx::test]
@@ -313,18 +308,16 @@ async fn append_upsert_on_conflict(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
     let msg = make_message_row("task-1", "msg-uuid-dup");
-    message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
 
     // Re-append with same uuid — should update, not duplicate
     let mut msg2 = make_message_row("task-1", "msg-uuid-dup");
-    msg2.message_content = serde_json::json!([{"type": "text", "text": "updated"}]);
-    message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
+    msg2.message_text = Some("updated".to_string());
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
 
     let (messages, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
     assert_eq!(messages.len(), 1);
-    // Content should be updated
-    let content = &messages[0].message_content;
-    assert!(content.to_string().contains("updated"));
+    assert_eq!(messages[0].message_text.as_deref(), Some("updated"));
 }
 
 #[sqlx::test]
@@ -333,15 +326,15 @@ async fn get_pending_user(pool: PgPool) {
 
     // Two pending user messages (no agent_session_id)
     let msg1 = make_message_row("task-1", "pending-1");
-    message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
 
     let msg2 = make_message_row("task-1", "pending-2");
-    message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
 
     // One acknowledged message
     let mut msg3 = make_message_row("task-1", "acked-1");
     msg3.agent_session_id = Some("sess-1".to_string());
-    message_dao::append(&pool, &msg3, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg3, &[], &ConversationWrite::default()).await.unwrap();
 
     let pending = message_dao::get_pending_user(&pool, "task-1")
         .await
@@ -355,10 +348,10 @@ async fn set_session_id_also_sets_sent_at(pool: PgPool) {
 
     // Two pending user messages (no agent_session_id, no sent_at)
     let msg1 = make_message_row("task-1", "sess-msg-1");
-    message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
 
     let msg2 = make_message_row("task-1", "sess-msg-2");
-    message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
 
     // Simulate session_init: sets session_id, agent_session_id, and sent_at
     let count = message_dao::set_session_id_for_task(&pool, "task-1", "session-abc")
@@ -392,12 +385,12 @@ async fn get_last_result(pool: PgPool) {
     let mut msg1 = make_message_row("task-1", "result-1");
     msg1.message_type = MessageType::Result;
     msg1.timestamp = "2024-01-01T00:00:00.000Z".to_string();
-    message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
 
     let mut msg2 = make_message_row("task-1", "result-2");
     msg2.message_type = MessageType::Result;
     msg2.timestamp = "2024-01-02T00:00:00.000Z".to_string();
-    message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
 
     let last = message_dao::get_last_result(&pool, "task-1").await.unwrap();
     assert!(last.is_some());
@@ -413,22 +406,22 @@ async fn get_last_assistant_message_picks_latest_assistant(pool: PgPool) {
     asst1.message_type = MessageType::Assistant;
     asst1.message_role = MessageRole::Assistant;
     asst1.timestamp = "2024-01-01T00:00:00.000Z".to_string();
-    asst1.message_content = serde_json::json!([{"type": "text", "text": "first"}]);
-    message_dao::append(&pool, &asst1, &[], &[]).await.unwrap();
+    asst1.message_text = Some("first".to_string());
+    message_dao::append(&pool, &asst1, &[], &ConversationWrite::default()).await.unwrap();
 
     // Result row in between — must NOT be selected.
     let mut result = make_message_row("task-1", "result-1");
     result.message_type = MessageType::Result;
     result.timestamp = "2024-01-02T00:00:00.000Z".to_string();
-    message_dao::append(&pool, &result, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &result, &[], &ConversationWrite::default()).await.unwrap();
 
     // Most recent assistant row.
     let mut asst2 = make_message_row("task-1", "asst-2");
     asst2.message_type = MessageType::Assistant;
     asst2.message_role = MessageRole::Assistant;
     asst2.timestamp = "2024-01-03T00:00:00.000Z".to_string();
-    asst2.message_content = serde_json::json!([{"type": "text", "text": "latest"}]);
-    message_dao::append(&pool, &asst2, &[], &[]).await.unwrap();
+    asst2.message_text = Some("latest".to_string());
+    message_dao::append(&pool, &asst2, &[], &ConversationWrite::default()).await.unwrap();
 
     let last = message_dao::get_last_assistant_message(&pool, "task-1")
         .await
@@ -445,7 +438,7 @@ async fn get_last_assistant_message_returns_none_when_absent(pool: PgPool) {
     // Only a non-assistant row exists.
     let mut result = make_message_row("task-1", "result-1");
     result.message_type = MessageType::Result;
-    message_dao::append(&pool, &result, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &result, &[], &ConversationWrite::default()).await.unwrap();
 
     let last = message_dao::get_last_assistant_message(&pool, "task-1")
         .await
@@ -458,7 +451,7 @@ async fn set_external_source_metadata_writes_all_columns_and_is_idempotent(pool:
     seed_task(&pool, "task-1", "user-1").await;
 
     let msg = make_message_row("task-1", "tag-msg-1");
-    message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
 
     let repo = PgMessageDao(pool.clone());
     let updated = repo
@@ -511,9 +504,9 @@ async fn find_task_id_by_any_external_event_id_matches_globally(pool: PgPool) {
         .unwrap();
 
     let msg1 = make_message_row("task-1", "tag-origin-1");
-    message_dao::append(&pool, &msg1, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
     let msg2 = make_message_row("task-2", "tag-origin-2");
-    message_dao::append(&pool, &msg2, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
 
     let repo = PgMessageDao(pool.clone());
     repo.set_external_source_metadata(
@@ -549,35 +542,45 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     assistant.message_type = MessageType::Assistant;
     assistant.message_role = MessageRole::Assistant;
     assistant.user_type = "assistant".to_string();
-    assistant.message_content = serde_json::json!([
-        { "type": "text", "text": "running" },
-        {
-            "type": "tool_use",
-            "id": "tu-123",
-            "name": "Bash",
-            "input": { "command": "echo hi" }
-        }
-    ]);
-    message_dao::append(&pool, &assistant, &[], &[])
+    let conversation = conversation_write(
+        "assistant-uuid",
+        assistant.message_type,
+        &serde_json::json!([
+            { "type": "text", "text": "running" },
+            {
+                "type": "tool_use",
+                "id": "tu-123",
+                "name": "Bash",
+                "input": { "command": "echo hi" }
+            }
+        ]),
+    );
+    message_dao::append(&pool, &assistant, &[], &conversation)
         .await
         .unwrap();
 
-    // System tool_result row (the "hidden" row in the UI).
-    let mut system = make_message_row("task-1", "system-uuid");
-    system.message_type = MessageType::System;
-    system.message_role = MessageRole::User;
-    system.user_type = "tool".to_string();
-    system.message_content = serde_json::json!([
-        {
-            "type": "tool_result",
-            "tool_use_id": "tu-123",
-            "content": "hi",
-            "is_error": false
-        }
-    ]);
-    message_dao::append(&pool, &system, &[], &[]).await.unwrap();
-
     let repo = PgMessageDao(pool.clone());
+
+    // The result arrives on a later source event and settles the call in place.
+    repo.append_activities(
+        "task-1",
+        "assistant-uuid",
+        &conversation_write(
+            "system-uuid",
+            MessageType::User,
+            &serde_json::json!([
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "tu-123",
+                    "content": "hi",
+                    "is_error": false
+                }
+            ]),
+        ),
+    )
+    .await
+    .unwrap();
+
     let found = repo
         .find_tool_call("task-1", "tu-123")
         .await
@@ -589,88 +592,74 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     assert_eq!(found.result_content.as_deref(), Some("hi"));
 }
 
-/// A tool_use content block carrying `tool_use_id`, mirroring what
-/// `build_content_blocks_from_payload` persists at ingest.
-fn tool_use_block(tool_use_id: &str) -> TaskMessageContentBlock {
-    TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 1,
-        block_type: ContentBlockType::ToolUse,
-        show_in_ui: true,
-        text_content: None,
-        tool_use_id: Some(tool_use_id.to_string()),
-        tool_result_content: None,
-        tool_result_is_error: None,
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    }
-}
-
-fn tool_result_block(tool_use_id: &str, content: &str) -> TaskMessageContentBlock {
-    TaskMessageContentBlock {
-        id: 0,
-        task_message_id: 0,
-        sort_order: 0,
-        block_type: ContentBlockType::ToolResult,
-        show_in_ui: false,
-        text_content: None,
-        tool_use_id: Some(tool_use_id.to_string()),
-        tool_result_content: Some(content.to_string()),
-        tool_result_is_error: Some(false),
-        image_media_type: None,
-        image_data: None,
-        created_at: None,
-    }
-}
-
-/// Seam 2 (loader): a change to a folded `tool_result` row resolves to its
-/// parent assistant Message and loads the anchor plus its folded siblings.
+/// Seam 2 (loader): a change names the row it is about, so the loader reads
+/// that row and the activities written on it — including the ones a later
+/// source event settled.
+///
+/// This used to resolve a folded `tool_result` row to the assistant Message it
+/// answered, because the result had a row of its own and the call it changed
+/// did not know about it. Neither is true now.
 #[sqlx::test]
-async fn get_message_for_assembly_resolves_affected_parent(pool: PgPool) {
+async fn get_message_for_assembly_loads_the_named_message_with_its_activities(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
+    // A turn that said nothing and called one tool: no prose, so no Message row
+    // beyond the skeleton the call hangs on.
     let mut assistant = make_message_row("task-1", "a1");
     assistant.message_type = MessageType::Assistant;
     assistant.message_role = MessageRole::Assistant;
-    assistant.message_content = serde_json::json!([
-        { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } }
-    ]);
-    message_dao::append(&pool, &assistant, &[], &[tool_use_block("t1")])
-        .await
-        .unwrap();
-
-    let mut system = make_message_row("task-1", "sys1");
-    system.message_type = MessageType::System;
-    system.message_role = MessageRole::User;
-    system.message_content = serde_json::json!([
-        { "type": "tool_result", "tool_use_id": "t1", "content": "ok", "is_error": false }
-    ]);
-    message_dao::append(&pool, &system, &[], &[tool_result_block("t1", "ok")])
-        .await
-        .unwrap();
+    message_dao::append(
+        &pool,
+        &assistant,
+        &[],
+        &conversation_write(
+            "a1",
+            MessageType::Assistant,
+            &serde_json::json!([
+                { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } }
+            ]),
+        ),
+    )
+    .await
+    .unwrap();
 
     let repo = PgMessageDao(pool.clone());
+    repo.append_activities(
+        "task-1",
+        "a1",
+        &conversation_write(
+            "sys1",
+            MessageType::User,
+            &serde_json::json!([
+                { "type": "tool_result", "tool_use_id": "t1", "content": "ok", "is_error": false }
+            ]),
+        ),
+    )
+    .await
+    .unwrap();
 
-    // The folded tool_result row resolves to the parent assistant Message.
-    let ((messages, _ctx, _blocks), target) = repo
-        .get_message_for_assembly("task-1", "sys1")
-        .await
-        .unwrap()
-        .expect("affected parent resolved");
-    assert_eq!(target, "a1");
-    let uuids: Vec<&str> = messages.iter().map(|m| m.uuid.as_str()).collect();
-    assert!(uuids.contains(&"a1"), "anchor loaded");
-    assert!(uuids.contains(&"sys1"), "folded sibling loaded");
-
-    // A standalone assistant Message resolves to itself.
-    let (_page, self_target) = repo
+    let ((messages, _ctx, activities), target) = repo
         .get_message_for_assembly("task-1", "a1")
         .await
         .unwrap()
-        .expect("standalone resolves");
-    assert_eq!(self_target, "a1");
+        .expect("the named Message loads");
+    assert_eq!(target, "a1");
+    let uuids: Vec<&str> = messages.iter().map(|m| m.uuid.as_str()).collect();
+    assert_eq!(uuids, vec!["a1"], "the named row, and nothing dragged along");
+    assert_eq!(activities.len(), 1);
+    assert_eq!(activities[0].status, ActivityStatus::Completed);
+    assert_eq!(
+        activities[0].result().and_then(serde_json::Value::as_str),
+        Some("ok"),
+        "the outcome the later event carried is on the call's own activity"
+    );
+
+    // A uuid this Task never saw resolves to nothing.
+    assert!(repo
+        .get_message_for_assembly("task-1", "sys1")
+        .await
+        .unwrap()
+        .is_none());
 }
 
 /// Seam 3 (backfill): a fat `agent.message` task_events row is reduced to the
@@ -684,19 +673,26 @@ async fn backfill_slims_fat_agent_message_events(pool: PgPool) {
     let mut assistant = make_message_row("task-1", "assistant-uuid");
     assistant.message_type = MessageType::Assistant;
     assistant.message_role = MessageRole::Assistant;
-    assistant.message_content = serde_json::json!([
-        { "type": "text", "text": "working" },
-        { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } }
-    ]);
-    message_dao::append(&pool, &assistant, &[], &[])
-        .await
-        .unwrap();
-    let stored_before: serde_json::Value = sqlx::query_scalar(
-        "SELECT message_content FROM task_messages WHERE uuid = 'assistant-uuid'",
+    message_dao::append(
+        &pool,
+        &assistant,
+        &[],
+        &conversation_write(
+            "assistant-uuid",
+            MessageType::Assistant,
+            &serde_json::json!([
+                { "type": "text", "text": "working" },
+                { "type": "tool_use", "id": "t1", "name": "Bash", "input": { "command": "ls" } }
+            ]),
+        ),
     )
-    .fetch_one(&pool)
     .await
     .unwrap();
+    let stored_before: Option<String> =
+        sqlx::query_scalar("SELECT message_text FROM task_messages WHERE uuid = 'assistant-uuid'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     // A fat agent.message source event on the append-only log.
     let fat = serde_json::json!({
@@ -761,13 +757,13 @@ async fn backfill_slims_fat_agent_message_events(pool: PgPool) {
     let again = sqlx::query(backfill).execute(&pool).await.unwrap();
     assert_eq!(again.rows_affected(), 0);
 
-    // The assembled Message store row is untouched.
-    let stored_after: serde_json::Value = sqlx::query_scalar(
-        "SELECT message_content FROM task_messages WHERE uuid = 'assistant-uuid'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    // The conversation is untouched.
+    let stored_after: Option<String> =
+        sqlx::query_scalar("SELECT message_text FROM task_messages WHERE uuid = 'assistant-uuid'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_before.as_deref(), Some("working"));
     assert_eq!(stored_before, stored_after);
 }
 
@@ -777,7 +773,7 @@ async fn seed_acknowledged_turn(pool: &PgPool, task_id: &str, uuid: &str, turn_n
     msg.agent_session_id = Some(format!("session-{turn_number}"));
     msg.turn_number = Some(turn_number);
     msg.sent_at = Some(chrono::Utc::now());
-    message_dao::append(pool, &msg, &[], &[]).await.unwrap();
+    message_dao::append(pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
 }
 
 async fn seed_turn_event(
@@ -915,7 +911,7 @@ async fn last_message_is_completed_reply_detects_final_assistant(pool: PgPool) {
     // A user message alone is a genuine orphan (agent never replied).
     let mut user = make_message_row("task-1", "u-1");
     user.turn_number = Some(1);
-    message_dao::append(&pool, &user, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &user, &[], &ConversationWrite::default()).await.unwrap();
     assert!(!repo
         .last_message_is_completed_reply("task-1", Some(1))
         .await
@@ -929,7 +925,7 @@ async fn last_message_is_completed_reply_detects_final_assistant(pool: PgPool) {
         Some(1),
         "2026-07-14T11:47:30.000Z",
     );
-    message_dao::append(&pool, &done, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &done, &[], &ConversationWrite::default()).await.unwrap();
     assert!(repo
         .last_message_is_completed_reply("task-1", Some(1))
         .await
@@ -955,7 +951,7 @@ async fn last_message_is_completed_reply_ignores_mid_tool_interruption(pool: PgP
         Some(1),
         "2026-07-14T11:47:30.000Z",
     );
-    message_dao::append(&pool, &tool, &[], &[]).await.unwrap();
+    message_dao::append(&pool, &tool, &[], &ConversationWrite::default()).await.unwrap();
     assert!(!repo
         .last_message_is_completed_reply("task-1", Some(1))
         .await
@@ -963,7 +959,7 @@ async fn last_message_is_completed_reply_ignores_mid_tool_interruption(pool: PgP
 
     // An assistant message with no stop_reason is likewise not treated as final.
     let unknown = make_assistant_row("task-1", "a-2", None, Some(1), "2026-07-14T11:47:31.000Z");
-    message_dao::append(&pool, &unknown, &[], &[])
+    message_dao::append(&pool, &unknown, &[], &ConversationWrite::default())
         .await
         .unwrap();
     assert!(!repo
@@ -985,7 +981,7 @@ async fn last_message_is_completed_reply_is_scoped_to_turn(pool: PgPool) {
         Some(1),
         "2026-07-14T11:00:00.000Z",
     );
-    message_dao::append(&pool, &turn1_tool, &[], &[])
+    message_dao::append(&pool, &turn1_tool, &[], &ConversationWrite::default())
         .await
         .unwrap();
     let turn2_done = make_assistant_row(
@@ -995,7 +991,7 @@ async fn last_message_is_completed_reply_is_scoped_to_turn(pool: PgPool) {
         Some(2),
         "2026-07-14T12:00:00.000Z",
     );
-    message_dao::append(&pool, &turn2_done, &[], &[])
+    message_dao::append(&pool, &turn2_done, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -1026,7 +1022,7 @@ async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgP
     turn1_user.message_role = MessageRole::User;
     turn1_user.turn_number = Some(1);
     turn1_user.timestamp = "2026-07-14T11:00:00.000Z".to_string();
-    message_dao::append(&pool, &turn1_user, &[], &[])
+    message_dao::append(&pool, &turn1_user, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -1037,8 +1033,10 @@ async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgP
         Some(1),
         "2026-07-14T11:00:01.000Z",
     );
-    empty_placeholder.message_content = serde_json::json!([]);
-    message_dao::append(&pool, &empty_placeholder, &[], &[])
+    // Said nothing: the placeholder a coalescing CLI leaves behind carries no
+    // prose at all, which is what makes it insubstantial here.
+    empty_placeholder.message_text = None;
+    message_dao::append(&pool, &empty_placeholder, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -1047,7 +1045,7 @@ async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgP
     turn2_user.message_role = MessageRole::User;
     turn2_user.turn_number = Some(2);
     turn2_user.timestamp = "2026-07-14T11:00:02.000Z".to_string();
-    message_dao::append(&pool, &turn2_user, &[], &[])
+    message_dao::append(&pool, &turn2_user, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -1058,7 +1056,7 @@ async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgP
         Some(2),
         "2026-07-14T11:01:00.000Z",
     );
-    message_dao::append(&pool, &turn2_done, &[], &[])
+    message_dao::append(&pool, &turn2_done, &[], &ConversationWrite::default())
         .await
         .unwrap();
 
@@ -1084,8 +1082,8 @@ async fn find_interrupted_turn_aggregates_sibling_user_messages(pool: PgPool) {
         msg.agent_session_id = Some("session-1".to_string());
         msg.turn_number = Some(1);
         msg.sent_at = Some(chrono::Utc::now());
-        msg.message_content = serde_json::json!([{ "type": "text", "text": text }]);
-        message_dao::append(&pool, &msg, &[], &[]).await.unwrap();
+        msg.message_text = Some(text.to_string());
+        message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
     }
 
     let repo = PgMessageDao(pool.clone());

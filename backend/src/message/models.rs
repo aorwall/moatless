@@ -1,107 +1,30 @@
 //! Message domain types — typed enums and DB row structs.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
 use crate::shared_models::AgentMode;
 
 pub use moatless_api_schemas::enums::{MessageRole, MessageType};
 
-use moatless_api_schemas::enums::SandboxStopReason;
+// A stop used to append a `Result` row saying so, and `stop_is_reported`
+// already narrowed that to error stops with the reason stated in full: the
+// other stop reasons are routine lifecycle, and "the reader already knows: the
+// task's live status and turn state say so, and for externally-bound tasks a
+// 'Stopped by user request' line is pure noise on Slack or Linear."
+//
+// A run outcome is now nowhere in the conversation, because it is not a Message
+// (Decision 14). A stopped turn is known by `task_turns.status`; a Sandbox
+// failure by its own activity, which `k8s/pod_watcher.rs:803` already publishes
+// with the exit code, terminated reason, node, disruption cause and container
+// logs. The Message row was a duplicate of an event the design stores anyway.
 
-// =============================================================================
-// Stop marker
-// =============================================================================
-
-/// The user-facing text of the `Result` row appended when an agent stop lands,
-/// keyed by the typed stop source the sandbox echoes on `agent.stopped`.
-pub fn stop_marker_text(source: SandboxStopReason) -> &'static str {
-    match source {
-        SandboxStopReason::User => "Stopped by user request",
-        SandboxStopReason::IdleReaper => "Stopped after sandbox idle timeout",
-        SandboxStopReason::Cleanup => "Stopped by sandbox cleanup",
-        SandboxStopReason::System => "Stopped by the system",
-        SandboxStopReason::Error => "Stopped after an error",
-    }
-}
-
-/// Whether a stop with this reason earns a `Result` row in the transcript.
+/// `user_type` on a `user` row that exists only to hand a tool response to the
+/// agent — the person's answer to `AskUserQuestion` or `ExitPlanMode`.
 ///
-/// Only an error stop does. The other reasons are routine lifecycle — the user
-/// hit stop, the idle reaper or cleanup reclaimed the sandbox, the system stood
-/// it down — and the reader already knows: the task's live status and turn
-/// state say so, and for externally-bound tasks a "Stopped by user request"
-/// line is pure noise on Slack or Linear. An error stop is the one the
-/// transcript can't otherwise explain.
-pub fn stop_is_reported(source: SandboxStopReason) -> bool {
-    matches!(source, SandboxStopReason::Error)
-}
-
-// =============================================================================
-// ContentBlockType
-// =============================================================================
-
-/// Type of content block within a message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ContentBlockType {
-    Text,
-    ToolUse,
-    ToolResult,
-    Image,
-}
-
-impl ContentBlockType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Text => "text",
-            Self::ToolUse => "tool_use",
-            Self::ToolResult => "tool_result",
-            Self::Image => "image",
-        }
-    }
-}
-
-impl std::fmt::Display for ContentBlockType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TryFrom<&str> for ContentBlockType {
-    type Error = String;
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match s {
-            "text" => Ok(Self::Text),
-            "tool_use" => Ok(Self::ToolUse),
-            "tool_result" => Ok(Self::ToolResult),
-            "image" => Ok(Self::Image),
-            other => Err(format!("unknown ContentBlockType: {other:?}")),
-        }
-    }
-}
-
-impl sqlx::Type<sqlx::Postgres> for ContentBlockType {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for ContentBlockType {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        ContentBlockType::try_from(s.as_str()).map_err(Into::into)
-    }
-}
-
-impl sqlx::Encode<'_, sqlx::Postgres> for ContentBlockType {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
-    }
-}
+/// The answer renders under the call that asked for it, from the activity that
+/// call settled, so the row itself is not a bubble. This names that case rather
+/// than leaving both readers to infer it and drop the row silently.
+pub const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
 // =============================================================================
 // TaskMessage (DB)
@@ -125,7 +48,10 @@ pub struct TaskMessage {
     pub request_id: Option<String>,
     pub timestamp: String,
     pub message_role: MessageRole,
-    pub message_content: serde_json::Value,
+    /// What was said, as prose. `None` for a Message with no prose — which
+    /// after the conversation split is a row that should not exist, and does
+    /// only where something wrote one before its text arrived.
+    pub message_text: Option<String>,
     pub assistant_message_id: Option<String>,
     pub assistant_message_type: Option<String>,
     pub assistant_message_model: Option<String>,
@@ -173,7 +99,7 @@ impl TaskMessage {
     pub fn new_user_message(
         task_id: String,
         uuid: String,
-        content: serde_json::Value,
+        text: String,
         timestamp: String,
     ) -> Self {
         Self {
@@ -192,7 +118,7 @@ impl TaskMessage {
             request_id: None,
             timestamp,
             message_role: MessageRole::User,
-            message_content: content,
+            message_text: Some(text),
             assistant_message_id: None,
             assistant_message_type: None,
             assistant_message_model: None,
@@ -258,46 +184,9 @@ pub struct TaskMessageContext {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-// =============================================================================
-// TaskMessageContentBlock (DB)
-// =============================================================================
-
-/// Row from the `task_message_content_blocks` table.
-#[derive(sqlx::FromRow, Debug, Clone)]
-pub struct TaskMessageContentBlock {
-    pub id: i32,
-    pub task_message_id: i32,
-    pub sort_order: i32,
-    pub block_type: ContentBlockType,
-    pub show_in_ui: bool,
-    pub text_content: Option<String>,
-    pub tool_use_id: Option<String>,
-    pub tool_result_content: Option<String>,
-    pub tool_result_is_error: Option<bool>,
-    pub image_media_type: Option<String>,
-    pub image_data: Option<String>,
-    pub created_at: Option<DateTime<Utc>>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_error_stops_reach_the_transcript() {
-        assert!(stop_is_reported(SandboxStopReason::Error));
-        for routine in [
-            SandboxStopReason::User,
-            SandboxStopReason::IdleReaper,
-            SandboxStopReason::Cleanup,
-            SandboxStopReason::System,
-        ] {
-            assert!(
-                !stop_is_reported(routine),
-                "{routine:?} should not append a message"
-            );
-        }
-    }
 
     #[test]
     fn message_type_serde_roundtrip() {
@@ -343,30 +232,9 @@ mod tests {
     }
 
     #[test]
-    fn content_block_type_serde_roundtrip() {
-        assert_eq!(
-            serde_json::to_string(&ContentBlockType::Text).unwrap(),
-            "\"text\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ContentBlockType::ToolUse).unwrap(),
-            "\"tool_use\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ContentBlockType::ToolResult).unwrap(),
-            "\"tool_result\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ContentBlockType::Image).unwrap(),
-            "\"image\""
-        );
-    }
-
-    #[test]
     fn try_from_unknown_returns_error() {
         assert!(MessageType::try_from("unknown").is_err());
         assert!(MessageRole::try_from("admin").is_err());
-        assert!(ContentBlockType::try_from("video").is_err());
     }
 
     #[test]
@@ -379,19 +247,14 @@ mod tests {
         assert_eq!(MessageRole::User.to_string(), "user");
         assert_eq!(MessageRole::Assistant.to_string(), "assistant");
         assert_eq!(MessageRole::System.to_string(), "system");
-        assert_eq!(ContentBlockType::Text.to_string(), "text");
-        assert_eq!(ContentBlockType::ToolUse.to_string(), "tool_use");
-        assert_eq!(ContentBlockType::ToolResult.to_string(), "tool_result");
-        assert_eq!(ContentBlockType::Image.to_string(), "image");
     }
 
     #[test]
     fn new_user_message_sets_defaults() {
-        let content = serde_json::json!([{"type": "text", "text": "hello"}]);
         let msg = TaskMessage::new_user_message(
             "task-1".into(),
             "uuid-1".into(),
-            content.clone(),
+            "hello".into(),
             "2025-01-01T00:00:00.000Z".into(),
         );
 
@@ -400,7 +263,7 @@ mod tests {
         assert_eq!(msg.message_type, MessageType::User);
         assert_eq!(msg.message_role, MessageRole::User);
         assert_eq!(msg.user_type, "human");
-        assert_eq!(msg.message_content, content);
+        assert_eq!(msg.message_text.as_deref(), Some("hello"));
         assert!(msg.session_id.is_none());
         assert!(msg.agent_session_id.is_none());
     }
@@ -410,7 +273,7 @@ mod tests {
         let msg = TaskMessage::new_user_message(
             "task-1".into(),
             "uuid-1".into(),
-            serde_json::Value::Null,
+            String::new(),
             "ts".into(),
         );
         assert!(msg.file_ids().is_empty());
@@ -421,7 +284,7 @@ mod tests {
         let mut msg = TaskMessage::new_user_message(
             "task-1".into(),
             "uuid-1".into(),
-            serde_json::Value::Null,
+            String::new(),
             "ts".into(),
         );
         msg.attachments = Some(serde_json::json!({ "file_ids": ["a", "b", "c"] }));
@@ -436,7 +299,7 @@ mod tests {
         let mut msg = TaskMessage::new_user_message(
             "task-1".into(),
             "uuid-1".into(),
-            serde_json::Value::Null,
+            String::new(),
             "ts".into(),
         );
         msg.attachments = Some(serde_json::json!({ "file_ids": ["a", 42, null, "b"] }));

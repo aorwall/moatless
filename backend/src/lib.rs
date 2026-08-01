@@ -47,7 +47,7 @@ pub mod state;
 pub mod supervisor;
 pub mod tag;
 pub mod task;
-pub mod task_conversation;
+pub mod task_activities;
 pub mod task_event;
 pub mod task_listing;
 pub mod task_turn;
