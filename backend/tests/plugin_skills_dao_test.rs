@@ -229,7 +229,10 @@ async fn resolution_sees_global_records_plus_only_its_own(pool: PgPool) {
         dao.set_activation(&row).await.expect("set");
     }
 
-    let alice = dao.list_activations_for(Some(alice_id)).await.expect("list");
+    let alice = dao
+        .list_activations_for(Some(alice_id))
+        .await
+        .expect("list");
     assert_eq!(alice.len(), 2, "the global default plus alice's own");
     assert!(
         !alice.iter().any(|r| r.user_id == Some(bob_id)),

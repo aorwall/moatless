@@ -46,17 +46,17 @@ use std::time::{Duration, Instant};
 
 use moatless_api_schemas::content::CanonicalContentBlock;
 use moatless_events::{AgentSubType, SandboxStatus, TaskTurnSubType};
-use serde_json::{Value, json};
-use tokio::sync::{RwLock, mpsc, oneshot};
+use serde_json::{json, Value};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::agent::heartbeat::{HEARTBEAT_TICK_INTERVAL, Heartbeat};
+use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
 use crate::agent::types::{ResumeSession, StopSource};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
-use crate::credentials::Dispatcher;
 use crate::credentials::recovery::CredentialFailureDetector;
+use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
 use crate::init::credentials::filter_agent_credentials;
 use crate::init::workspace_sync;
@@ -64,10 +64,10 @@ use crate::init::workspace_sync;
 use super::agent_state::AgentState;
 use super::background_watch_job::BackgroundWatchJob;
 use super::handle::{
-    AGENT_TYPE_CLAUDE_CODE, AgentCommand, RunAck,
-    credential_recovery::{MAX_CREDENTIAL_RECOVERY_RETRIES, try_recover_credentials},
+    credential_recovery::{try_recover_credentials, MAX_CREDENTIAL_RECOVERY_RETRIES},
     resolve_agent_harness,
-    retry::{MAX_RETRIES, compute_backoff, is_retryable_harness_error},
+    retry::{compute_backoff, is_retryable_harness_error, MAX_RETRIES},
+    AgentCommand, RunAck, AGENT_TYPE_CLAUDE_CODE,
 };
 use super::harness::{
     Activity, Cause, ContextWindow, ErrorClass, Harness, HarnessClosed, HarnessError, Input,

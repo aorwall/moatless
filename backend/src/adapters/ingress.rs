@@ -143,7 +143,7 @@ pub(crate) fn log_admission(
 
 #[cfg(test)]
 mod tests {
-    use super::{IngressError, admit_delivery};
+    use super::{admit_delivery, IngressError};
     use crate::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore, AdmitError};
     use crate::db::DbPool;
 

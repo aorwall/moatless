@@ -70,8 +70,8 @@
 use tracing::{debug, info, warn};
 
 use crate::adapters::delivery::{
-    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
-    ConnectionDeliveryPayload, register_connection_delivery,
+    register_connection_delivery, AdapterDeliveryFailure, AdapterDeliveryHandlers,
+    AdapterDeliveryRequest, ConnectionDeliveryPayload,
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::AdapterConnection;

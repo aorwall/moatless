@@ -343,10 +343,6 @@ pub async fn update(
 }
 
 /// Soft-delete a repository (convenience wrapper).
-pub async fn soft_delete(
-    pool: &DbPool,
-    id: &str,
-    ctx: &ScopeContext,
-) -> Result<bool, sqlx::Error> {
+pub async fn soft_delete(pool: &DbPool, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
     PgRepositoryDao(pool.clone()).soft_delete(id, ctx).await
 }

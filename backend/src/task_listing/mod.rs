@@ -10,7 +10,7 @@
 //! position order the same order; what that costs callers is
 //! [`dao::record_change`]'s "call this last".
 //!
-//! No T3 vocabulary appears here — [`crate::ui_rpc`] turns the record into a
+//! No T3 vocabulary appears here — [`moatless_t3code`] turns the record into a
 //! shell event.
 
 pub mod dao;

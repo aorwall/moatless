@@ -7,11 +7,11 @@
 //! trading that token for a ticket that survives the one hop the token cannot:
 //! a browser-grade `WebSocket` constructor, which sends no headers at all.
 //!
-//! Both are translation and nothing more. The code is redeemed by
-//! [`crate::auth::pairing`], the token it returns is an ordinary Moatless API
-//! key, and the ticket is verified by [`crate::auth::middleware`]. What lives
-//! here is T3's vocabulary for all three: its grant-type URNs, its scope
-//! strings, and its error bodies.
+//! Both are translation and nothing more. The code is redeemed through the
+//! [`crate::DevicePairing`] port, the token it returns is an ordinary Moatless
+//! API key, and the ticket is verified by the root backend's auth middleware.
+//! What lives here is T3's vocabulary for all three: its grant-type URNs, its
+//! scope strings, and its error bodies.
 
 use axum::Json;
 use axum::extract::rejection::FormRejection;
@@ -24,9 +24,8 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::UiRpcState;
-use crate::auth::identity::AuthIdentity;
-use crate::auth::jwt::{self, WS_TICKET_TTL_SECS};
-use crate::auth::pairing::{PairingClient, PairingError};
+use crate::auth::{UiRpcAuthIdentity, WS_TICKET_TTL_SECS, generate_ws_ticket_jwt};
+use moatless_backend_core::pairing::{PairingClient, PairingError};
 
 /// The scopes this deployment is able to grant, in the order it reports them.
 ///
@@ -171,7 +170,7 @@ pub(super) struct TokenExchangeRequest {
 ///
 /// The one route in this module that is not authenticated, because the
 /// credential it is authenticated by is in the body. It is exempt in
-/// [`crate::auth::middleware`] for that reason and no other.
+/// [`crate::oauth::middleware`] for that reason and no other.
 pub(super) async fn token_exchange(
     State(state): State<UiRpcState>,
     request: Result<Form<TokenExchangeRequest>, FormRejection>,
@@ -241,14 +240,14 @@ pub(super) async fn token_exchange(
 /// took its `Authorization` header — so this reads who that was and signs it.
 pub(super) async fn websocket_ticket(
     State(state): State<UiRpcState>,
-    Extension(identity): Extension<AuthIdentity>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
 ) -> Response {
     let Some(secret) = state.session_jwt_secret.as_deref() else {
         error!("Cannot issue a T3 WebSocket ticket: no JWT secret is configured");
         return internal_error("websocket_ticket_issuance_failed");
     };
 
-    match jwt::generate_ws_ticket_jwt(&identity, secret) {
+    match generate_ws_ticket_jwt(&identity, secret) {
         Ok(ticket) => {
             let expires_at = Utc::now() + chrono::Duration::seconds(WS_TICKET_TTL_SECS as i64);
             Json(json!({

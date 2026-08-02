@@ -664,7 +664,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
+    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
 
     #[tokio::test]
     async fn unreachable_github_keeps_transport_source() {
@@ -722,8 +722,8 @@ mod error_source_tests {
 
 #[cfg(test)]
 mod request_budget_tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use axum::extract::State;
     use axum::routing::get;

@@ -18,7 +18,7 @@ use super::naming::{
 };
 use crate::config::Config;
 use crate::sandbox::k8s::pod_reader::{parse_cpu_to_millicores, parse_memory_to_bytes};
-use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
+use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
 use crate::sandbox::models::{ProvisionPlan, ServerConfig, WORKSPACE_REPOS_ENV};
 use crate::sandbox::server_runner::build_server_start_script;
 
@@ -756,12 +756,11 @@ mod tests {
 
         plan.repos.clear();
         let cc = build_container_config(&config, "task-1", &plan, None);
-        assert!(
-            cc.env
-                .unwrap()
-                .iter()
-                .all(|e| !e.starts_with(&format!("{WORKSPACE_REPOS_ENV}=")))
-        );
+        assert!(cc
+            .env
+            .unwrap()
+            .iter()
+            .all(|e| !e.starts_with(&format!("{WORKSPACE_REPOS_ENV}="))));
     }
 
     #[test]
@@ -940,10 +939,9 @@ mod tests {
         let server = test_server_config();
         let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let env = cc.env.unwrap();
-        assert!(
-            !env.iter()
-                .any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE="))
-        );
+        assert!(!env
+            .iter()
+            .any(|e| e.starts_with("MOATLESS_SERVER_ENV_FILE=")));
         assert!(!env.iter().any(|e| e.starts_with("BASH_ENV=")));
 
         let entrypoint = cc.entrypoint.unwrap();
@@ -979,14 +977,12 @@ mod tests {
         let cc = build_server_container_config(&config, "task-1", &server, TEST_SANDBOX_IMAGE);
         let env = cc.env.unwrap();
         assert!(env.iter().any(|e| e == "PORT=3000"));
-        assert!(
-            env.iter()
-                .any(|e| e == "WORKSPACE_DIR=/opt/moatless/workspace")
-        );
-        assert!(
-            env.iter()
-                .any(|e| e == "WORKSPACE_PATH=/opt/moatless/workspace")
-        );
+        assert!(env
+            .iter()
+            .any(|e| e == "WORKSPACE_DIR=/opt/moatless/workspace"));
+        assert!(env
+            .iter()
+            .any(|e| e == "WORKSPACE_PATH=/opt/moatless/workspace"));
         assert!(env.iter().any(|e| e == "DATA_DIR=/opt/moatless/data"));
     }
 
@@ -999,11 +995,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(
-            !mounts
-                .iter()
-                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
-        );
+        assert!(!mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]
@@ -1032,11 +1026,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 4);
-        assert!(
-            mounts
-                .iter()
-                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
-        );
+        assert!(mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]
@@ -1048,11 +1040,9 @@ mod tests {
         let cc = build_container_config(&config, "task-1", &plan, None);
         let mounts = cc.host_config.unwrap().mounts.unwrap();
         assert_eq!(mounts.len(), 3);
-        assert!(
-            !mounts
-                .iter()
-                .any(|m| m.target.as_deref() == Some("/var/run/docker.sock"))
-        );
+        assert!(!mounts
+            .iter()
+            .any(|m| m.target.as_deref() == Some("/var/run/docker.sock")));
     }
 
     #[test]

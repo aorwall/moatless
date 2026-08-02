@@ -342,11 +342,12 @@ impl MoatClient {
         } else {
             format!("{}{path}", self.base_url)
         };
-        let verb = reqwest::Method::from_bytes(method.to_uppercase().as_bytes())
-            .map_err(|_| ClientError::Api {
+        let verb = reqwest::Method::from_bytes(method.to_uppercase().as_bytes()).map_err(|_| {
+            ClientError::Api {
                 status: 400,
                 body: format!("Unsupported HTTP method '{method}'"),
-            })?;
+            }
+        })?;
         if self.verbose {
             eprintln!("{verb} {url}");
         }

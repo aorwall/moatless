@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience};
-use crate::bindings::recipients::{EventProvenance, resolve_recipients};
+use crate::bindings::recipients::{resolve_recipients, EventProvenance};
 use crate::state::AppState;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
@@ -191,7 +191,7 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
+    use crate::adapters::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
     use crate::adapters::providers::linear::subject::{
         ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND,
     };

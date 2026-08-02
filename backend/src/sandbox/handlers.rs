@@ -3,11 +3,11 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::IntoResponse;
+use axum::Json;
 use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use tracing::{error, info, warn};
@@ -478,7 +478,7 @@ pub async fn list_server_config_handler(
             .map(
                 |(server_name, (config_override, generation))| ServerOverrideEntry {
                     server_name,
-                    config_override,
+                    config_override: server_override_from_client(config_override),
                     generation,
                 },
             )
@@ -643,7 +643,7 @@ async fn read_override(
         .map_err(|e| crate::sandbox::client::classify_grpc_error(e, "GetServerConfig"))?;
     Ok(overrides
         .remove(server_name)
-        .map(|(config, _generation)| config)
+        .map(|(config, _generation)| server_override_from_client(config))
         .unwrap_or_default())
 }
 
@@ -655,8 +655,9 @@ async fn apply_override(
     effective: ServerOverride,
     restart: bool,
 ) -> Result<Json<ServerConfigResponse>, SandboxError> {
+    let client_override = client_server_override(&effective);
     let generation = client
-        .apply_server_config(task_id, server_name, &effective, restart)
+        .apply_server_config(task_id, server_name, &client_override, restart)
         .await
         .map_err(|e| crate::sandbox::client::classify_grpc_error(e, "ApplyServerConfig"))?;
 
@@ -673,6 +674,22 @@ async fn apply_override(
         generation,
         restarted: restart,
     }))
+}
+
+fn server_override_from_client(value: crate::sandbox::client::ServerOverride) -> ServerOverride {
+    ServerOverride {
+        start_command: value.start_command,
+        env: value.env,
+        unset_env: value.unset_env,
+    }
+}
+
+fn client_server_override(value: &ServerOverride) -> crate::sandbox::client::ServerOverride {
+    crate::sandbox::client::ServerOverride {
+        start_command: value.start_command.clone(),
+        env: value.env.clone(),
+        unset_env: value.unset_env.clone(),
+    }
 }
 
 /// 404 unless the task actually has a server by this name.
@@ -926,11 +943,9 @@ mod authz_tests {
     async fn read_allows_when_scoped_lookup_returns_task() {
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
         let scope = Some(ctx("owner", false));
-        assert!(
-            authorize_task_read_inner(Some(&tasks), &scope, "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(authorize_task_read_inner(Some(&tasks), &scope, "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -957,11 +972,9 @@ mod authz_tests {
     async fn control_owner_of_user_task_allowed() {
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
         let scope = Some(ctx("owner", false));
-        assert!(
-            authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(authorize_task_control_inner(Some(&tasks), &scope, "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -992,11 +1005,9 @@ mod authz_tests {
         // A platform admin controls any task regardless of scope/owner.
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("other-user"))));
         let scope = Some(ctx("root", true));
-        assert!(
-            authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(authorize_task_control_inner(Some(&tasks), &scope, "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]

@@ -8,7 +8,7 @@ use moatless_api_schemas::loops::{
 };
 use serde::Deserialize;
 
-use crate::access_control::{ResolvedScope, ensure_can_use_repository, resolve_scope_for_create};
+use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
 use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};

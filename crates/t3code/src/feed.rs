@@ -26,9 +26,9 @@ use tracing::{debug, warn};
 
 use super::dao::ConversationDao;
 use super::{AgentModelDefaults, projection};
-use crate::task_activities::{self, ConversationChange, ConversationHead};
-use crate::task_listing::{ChangeSubject, EnvironmentIdentity};
-use crate::workspace::dao::WorkspaceDao;
+use crate::data::T3WorkspaceDao;
+use crate::listing::{UiRpcChangeSubject, UiRpcEnvironmentIdentity};
+use moatless_backend_core::activity::{self, ConversationChange, ConversationHead};
 use moatless_backend_core::scope::ScopeContext;
 
 /// How many recorded changes one poll reads. A cap rather than a limit — the
@@ -55,7 +55,7 @@ const CHANGES_PER_POLL: i64 = 500;
 /// second soundly and not the first, so `grouped` is seeded separately in
 /// [`shell_subscription`](super::shell_subscription). `projects ⊆ grouped`.
 pub struct ShellFeed {
-    identity: EnvironmentIdentity,
+    identity: UiRpcEnvironmentIdentity,
     cursor: i64,
     threads: HashSet<String>,
     projects: HashSet<String>,
@@ -72,7 +72,7 @@ impl ShellFeed {
     /// exactly the ones that left while the client was away (Decision 11).
     /// [`ShellFeed::grouping_by`] keeps that from also costing a snapshot per
     /// reconnection; callers holding the snapshot use [`ShellFeed::holding`].
-    pub fn resuming_from(identity: EnvironmentIdentity, position: i64) -> Self {
+    pub fn resuming_from(identity: UiRpcEnvironmentIdentity, position: i64) -> Self {
         Self {
             identity,
             cursor: position,
@@ -113,7 +113,7 @@ impl ShellFeed {
     /// Decision 7's third place the check has to run.
     pub async fn poll(
         &mut self,
-        workspaces: &dyn WorkspaceDao,
+        workspaces: &dyn T3WorkspaceDao,
         conversations: &dyn ConversationDao,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
@@ -148,8 +148,8 @@ impl ShellFeed {
         let mut latest: HashMap<(bool, &str), i64> = HashMap::new();
         for change in &changes {
             let key = match change.subject() {
-                Some(ChangeSubject::Task(task_id)) => (false, task_id),
-                Some(ChangeSubject::Workspace(workspace_id)) => (true, workspace_id),
+                Some(UiRpcChangeSubject::Task(task_id)) => (false, task_id),
+                Some(UiRpcChangeSubject::Workspace(workspace_id)) => (true, workspace_id),
                 None => {
                     warn!(
                         position = change.position,
@@ -303,7 +303,7 @@ impl ShellFeed {
     /// silence until it got there.
     async fn rebuild(
         &mut self,
-        workspaces: &dyn WorkspaceDao,
+        workspaces: &dyn T3WorkspaceDao,
         conversations: &dyn ConversationDao,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
@@ -325,7 +325,7 @@ impl ShellFeed {
     /// without comparing positions.
     async fn resynchronize(
         &mut self,
-        workspaces: &dyn WorkspaceDao,
+        workspaces: &dyn T3WorkspaceDao,
         conversations: &dyn ConversationDao,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
@@ -384,7 +384,7 @@ impl ShellFeed {
 /// Message was named at. The events are the same either way — they are upserts
 /// — but the last position is the one that carries the whole row.
 ///
-/// [`THREAD_POLL_INTERVAL`]: super::THREAD_POLL_INTERVAL
+/// The poll interval is `THREAD_POLL_INTERVAL` in the crate root.
 pub struct ThreadFeed {
     task_id: String,
     /// The position this feed reads from next, in the change log's own
@@ -423,11 +423,11 @@ impl ThreadFeed {
     /// holds a sequence in the middle of that change, and the events it missed
     /// are the rest of that same change. Re-reading the whole change and
     /// dropping the events at or below `after` is what makes the boundary
-    /// exact — see [`task_activities::position_of`].
+    /// exact — see [`activity::position_of`].
     pub fn resuming_from(task_id: String, after: i64) -> Self {
         Self {
             task_id,
-            cursor: task_activities::position_of(after),
+            cursor: activity::position_of(after),
             delivered: after,
         }
     }
@@ -565,11 +565,11 @@ fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::models::{MessageRole, MessageType};
-    use crate::shared_models::AgentType;
-    use crate::task_activities::EVENTS_PER_CHANGE;
-    use crate::ui_rpc::dao::{Conversation, MockConversationDao, Transcript, TranscriptMessage};
+    use crate::dao::{Conversation, MockConversationDao, Transcript, TranscriptMessage};
     use moatless_api_schemas::enums::SandboxDesiredState;
+    use moatless_api_schemas::enums::{MessageRole, MessageType};
+    use moatless_api_schemas::shared::AgentType;
+    use moatless_backend_core::activity::EVENTS_PER_CHANGE;
 
     fn change(position: i64, uuid: Option<&str>) -> ConversationChange {
         ConversationChange {

@@ -260,8 +260,8 @@ impl AdapterDestinationBuilder for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterDestinationBuilder;
     use crate::adapters::models::{BindingContext, NewThreadInfo, RoutingMode, SubscriptionMatch};
+    use crate::adapters::AdapterDestinationBuilder;
     use moatless_backend_core::scope::Scope;
 
     use super::super::adapter::SlackAdapter;

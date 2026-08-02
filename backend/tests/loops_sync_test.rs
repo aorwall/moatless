@@ -231,13 +231,11 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
         user_id: "admin-1".to_string(),
         is_admin: true,
     };
-    assert!(
-        state
-            .loops
-            .activate(&schedule_id, "approved-user", &admin)
-            .await
-            .unwrap()
-    );
+    assert!(state
+        .loops
+        .activate(&schedule_id, "approved-user", &admin)
+        .await
+        .unwrap());
 
     // Re-sync dropping the github_pr loop: it should be removed, schedule kept,
     // manual trigger still untouched.

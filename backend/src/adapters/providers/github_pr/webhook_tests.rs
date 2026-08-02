@@ -1,7 +1,7 @@
 use crate::adapters::models::{Audience, RoutingMode, SubscriptionMatch};
 use crate::db::DbPool;
 
-use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
+use super::{normalize, title_is_ignored, IgnoredWebhook, NormalizeContext, PrimaryWebhook};
 use crate::adapters::providers::github_pr::status::WebhookStatusObservation;
 
 fn fake_db_pool() -> DbPool {

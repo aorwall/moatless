@@ -9,12 +9,10 @@
 
 mod common;
 
-use moatless_vibe_backend::message::dao::{
-    self as message_dao, MessageDao, PgMessageDao,
-};
+use moatless_vibe_backend::message::dao::{self as message_dao, MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessageContext};
 use moatless_vibe_backend::task_activities::mapping::{
-    ActivityKind, ActivityStatus, BlockContext, ConversationWrite, map_content,
+    map_content, ActivityKind, ActivityStatus, BlockContext, ConversationWrite,
 };
 use sqlx::PgPool;
 
@@ -58,7 +56,9 @@ async fn append_and_get_all(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
     let msg = make_message_row("task-1", "msg-uuid-1");
-    let msg_id = message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
+    let msg_id = message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
     assert!(msg_id > 0);
 
     let (messages, contexts, blocks) = message_dao::get_all(&pool, "task-1").await.unwrap();
@@ -93,7 +93,9 @@ async fn append_persists_assistant_usage(pool: PgPool) {
     msg.assistant_message_model = Some("claude-haiku-4-5-20251001".to_string());
     msg.assistant_usage = Some(usage.clone());
 
-    message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let (messages, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
     assert_eq!(messages.len(), 1);
@@ -214,14 +216,18 @@ async fn backfill_skips_tasks_that_already_report_usage(pool: PgPool) {
     first.assistant_usage_input_tokens = Some(10);
     first.assistant_usage_output_tokens = Some(6);
     first.assistant_usage = Some(serde_json::json!({"input_tokens": 10, "output_tokens": 6}));
-    message_dao::append(&pool, &first, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &first, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     // Repeat of the same API message after interleaved traffic — no usage.
     let mut repeat = make_message_row("task-1", "claude-assistant-2");
     repeat.message_type = MessageType::Assistant;
     repeat.message_role = MessageRole::Assistant;
     repeat.assistant_message_id = Some("msg_split".to_string());
-    message_dao::append(&pool, &repeat, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &repeat, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let updated = message_dao::backfill_last_assistant_usage(
         &pool,
@@ -308,12 +314,16 @@ async fn append_upsert_on_conflict(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
     let msg = make_message_row("task-1", "msg-uuid-dup");
-    message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     // Re-append with same uuid — should update, not duplicate
     let mut msg2 = make_message_row("task-1", "msg-uuid-dup");
     msg2.message_text = Some("updated".to_string());
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let (messages, _, _) = message_dao::get_all(&pool, "task-1").await.unwrap();
     assert_eq!(messages.len(), 1);
@@ -326,15 +336,21 @@ async fn get_pending_user(pool: PgPool) {
 
     // Two pending user messages (no agent_session_id)
     let msg1 = make_message_row("task-1", "pending-1");
-    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let msg2 = make_message_row("task-1", "pending-2");
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     // One acknowledged message
     let mut msg3 = make_message_row("task-1", "acked-1");
     msg3.agent_session_id = Some("sess-1".to_string());
-    message_dao::append(&pool, &msg3, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg3, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let pending = message_dao::get_pending_user(&pool, "task-1")
         .await
@@ -348,10 +364,14 @@ async fn set_session_id_also_sets_sent_at(pool: PgPool) {
 
     // Two pending user messages (no agent_session_id, no sent_at)
     let msg1 = make_message_row("task-1", "sess-msg-1");
-    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let msg2 = make_message_row("task-1", "sess-msg-2");
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     // Simulate session_init: sets session_id, agent_session_id, and sent_at
     let count = message_dao::set_session_id_for_task(&pool, "task-1", "session-abc")
@@ -385,12 +405,16 @@ async fn get_last_result(pool: PgPool) {
     let mut msg1 = make_message_row("task-1", "result-1");
     msg1.message_type = MessageType::Result;
     msg1.timestamp = "2024-01-01T00:00:00.000Z".to_string();
-    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let mut msg2 = make_message_row("task-1", "result-2");
     msg2.message_type = MessageType::Result;
     msg2.timestamp = "2024-01-02T00:00:00.000Z".to_string();
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let last = message_dao::get_last_result(&pool, "task-1").await.unwrap();
     assert!(last.is_some());
@@ -407,13 +431,17 @@ async fn get_last_assistant_message_picks_latest_assistant(pool: PgPool) {
     asst1.message_role = MessageRole::Assistant;
     asst1.timestamp = "2024-01-01T00:00:00.000Z".to_string();
     asst1.message_text = Some("first".to_string());
-    message_dao::append(&pool, &asst1, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &asst1, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     // Result row in between — must NOT be selected.
     let mut result = make_message_row("task-1", "result-1");
     result.message_type = MessageType::Result;
     result.timestamp = "2024-01-02T00:00:00.000Z".to_string();
-    message_dao::append(&pool, &result, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &result, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     // Most recent assistant row.
     let mut asst2 = make_message_row("task-1", "asst-2");
@@ -421,7 +449,9 @@ async fn get_last_assistant_message_picks_latest_assistant(pool: PgPool) {
     asst2.message_role = MessageRole::Assistant;
     asst2.timestamp = "2024-01-03T00:00:00.000Z".to_string();
     asst2.message_text = Some("latest".to_string());
-    message_dao::append(&pool, &asst2, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &asst2, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let last = message_dao::get_last_assistant_message(&pool, "task-1")
         .await
@@ -438,7 +468,9 @@ async fn get_last_assistant_message_returns_none_when_absent(pool: PgPool) {
     // Only a non-assistant row exists.
     let mut result = make_message_row("task-1", "result-1");
     result.message_type = MessageType::Result;
-    message_dao::append(&pool, &result, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &result, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let last = message_dao::get_last_assistant_message(&pool, "task-1")
         .await
@@ -451,7 +483,9 @@ async fn set_external_source_metadata_writes_all_columns_and_is_idempotent(pool:
     seed_task(&pool, "task-1", "user-1").await;
 
     let msg = make_message_row("task-1", "tag-msg-1");
-    message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let repo = PgMessageDao(pool.clone());
     let updated = repo
@@ -504,9 +538,13 @@ async fn find_task_id_by_any_external_event_id_matches_globally(pool: PgPool) {
         .unwrap();
 
     let msg1 = make_message_row("task-1", "tag-origin-1");
-    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
     let msg2 = make_message_row("task-2", "tag-origin-2");
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let repo = PgMessageDao(pool.clone());
     repo.set_external_source_metadata(
@@ -645,7 +683,11 @@ async fn get_message_for_assembly_loads_the_named_message_with_its_activities(po
         .expect("the named Message loads");
     assert_eq!(target, "a1");
     let uuids: Vec<&str> = messages.iter().map(|m| m.uuid.as_str()).collect();
-    assert_eq!(uuids, vec!["a1"], "the named row, and nothing dragged along");
+    assert_eq!(
+        uuids,
+        vec!["a1"],
+        "the named row, and nothing dragged along"
+    );
     assert_eq!(activities.len(), 1);
     assert_eq!(activities[0].status, ActivityStatus::Completed);
     assert_eq!(
@@ -668,7 +710,9 @@ async fn seed_acknowledged_turn(pool: &PgPool, task_id: &str, uuid: &str, turn_n
     msg.agent_session_id = Some(format!("session-{turn_number}"));
     msg.turn_number = Some(turn_number);
     msg.sent_at = Some(chrono::Utc::now());
-    message_dao::append(pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(pool, &msg, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 }
 
 async fn seed_turn_event(
@@ -810,7 +854,9 @@ async fn last_message_is_completed_reply_detects_final_assistant(pool: PgPool) {
     // fixture's default is `now`, which would sort this message *after* the
     // reply below and make the assertion depend on the date the suite is run.
     user.timestamp = "2026-07-14T11:47:00.000Z".to_string();
-    message_dao::append(&pool, &user, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &user, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
     assert!(!repo
         .last_message_is_completed_reply("task-1", Some(1))
         .await
@@ -824,7 +870,9 @@ async fn last_message_is_completed_reply_detects_final_assistant(pool: PgPool) {
         Some(1),
         "2026-07-14T11:47:30.000Z",
     );
-    message_dao::append(&pool, &done, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &done, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
     assert!(repo
         .last_message_is_completed_reply("task-1", Some(1))
         .await
@@ -850,7 +898,9 @@ async fn last_message_is_completed_reply_ignores_mid_tool_interruption(pool: PgP
         Some(1),
         "2026-07-14T11:47:30.000Z",
     );
-    message_dao::append(&pool, &tool, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &tool, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
     assert!(!repo
         .last_message_is_completed_reply("task-1", Some(1))
         .await
@@ -935,9 +985,14 @@ async fn last_message_is_completed_reply_detects_coalesced_later_reply(pool: PgP
     // Said nothing: the placeholder a coalescing CLI leaves behind carries no
     // text at all, which is what makes it insubstantial here.
     empty_placeholder.message_text = None;
-    message_dao::append(&pool, &empty_placeholder, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
+    message_dao::append(
+        &pool,
+        &empty_placeholder,
+        &[],
+        &ConversationWrite::default(),
+    )
+    .await
+    .unwrap();
 
     let mut turn2_user = make_message_row("task-1", "u-2");
     turn2_user.message_type = MessageType::User;
@@ -982,7 +1037,9 @@ async fn find_interrupted_turn_aggregates_sibling_user_messages(pool: PgPool) {
         msg.turn_number = Some(1);
         msg.sent_at = Some(chrono::Utc::now());
         msg.message_text = Some(text.to_string());
-        message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
+        message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+            .await
+            .unwrap();
     }
 
     let repo = PgMessageDao(pool.clone());

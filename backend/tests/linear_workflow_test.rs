@@ -50,19 +50,19 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use sqlx::Row;
 
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
 use moatless_vibe_backend::adapters::test_support::ProviderStub;
+use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{
-    USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
-    seed_team, test_app_state_with_config, test_config,
+    drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row, seed_team,
+    test_app_state_with_config, test_config, USER_1,
 };
 
 const SECRET: &str = "linear-webhook-secret";

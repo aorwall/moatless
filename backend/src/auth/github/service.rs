@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use jsonwebtoken::{EncodingKey, Header, encode};
+use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};

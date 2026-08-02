@@ -8,23 +8,255 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use moatless_api_schemas::agent::AgentDescriptor;
-use moatless_backend_core::scope::ScopeContext;
+use moatless_backend_core::{sandbox as core_sandbox, scope::ScopeContext};
 
-use super::ports::{
-    AgentCatalogSource, BranchListError, CommandRefusal, NewThread, QuestionAnswer,
-    RepositoryBranchSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
-};
 use crate::message::error::MessageError;
 use crate::message::service as message_service;
 use crate::repository::error::RepositoryError;
 use crate::repository::handlers::list_branches;
+use crate::sandbox::access as backend_sandbox;
+use crate::sandbox::docker::provider::DockerSandboxAdapter;
+use crate::sandbox::k8s::provider::K8sSandboxAdapter;
+use crate::sandbox::lifecycle::Lifecycle;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::error::TaskError;
 use crate::task::handlers as task_handlers;
 use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
+use moatless_t3code::ports::{
+    AgentCatalogSource, BranchListError, CommandRefusal, NewThread, QuestionAnswer,
+    RepositoryBranchSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
+};
+use moatless_t3code::{
+    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
+};
+
+#[async_trait]
+impl SandboxConnector for DockerSandboxAdapter {
+    async fn sandbox_client(
+        &self,
+        task_id: &str,
+    ) -> Result<core_sandbox::SandboxClient, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxConnector::sandbox_client(self, task_id)
+            .await
+            .map_err(sandbox_error)
+    }
+}
+
+#[async_trait]
+impl SandboxConnector for K8sSandboxAdapter {
+    async fn sandbox_client(
+        &self,
+        task_id: &str,
+    ) -> Result<core_sandbox::SandboxClient, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxConnector::sandbox_client(self, task_id)
+            .await
+            .map_err(sandbox_error)
+    }
+}
+
+#[async_trait]
+impl SandboxObserver for DockerSandboxAdapter {
+    async fn sandbox_status(
+        &self,
+        task_id: &str,
+        task_status: moatless_api_schemas::enums::TaskStatus,
+        desired_state: moatless_api_schemas::enums::SandboxDesiredState,
+    ) -> Result<core_sandbox::SandboxStatusFullResponse, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxObserver::sandbox_status(self, task_id, task_status, desired_state)
+            .await
+            .map(sandbox_status)
+            .map_err(sandbox_error)
+    }
+
+    async fn live_status(
+        &self,
+        task_id: &str,
+        task_status: moatless_api_schemas::enums::TaskStatus,
+        desired_state: moatless_api_schemas::enums::SandboxDesiredState,
+    ) -> Result<core_sandbox::LiveStatus, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxObserver::live_status(self, task_id, task_status, desired_state)
+            .await
+            .map(live_status)
+            .map_err(sandbox_error)
+    }
+
+    async fn server_logs(
+        &self,
+        task_id: &str,
+        server_name: &str,
+        options: core_sandbox::LogOptions,
+    ) -> Result<core_sandbox::ServerLogStream, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxObserver::server_logs(
+            self,
+            task_id,
+            server_name,
+            log_options(options),
+        )
+        .await
+        .map(|stream| stream.map(|item| item.map_err(sandbox_error)).boxed())
+        .map_err(sandbox_error)
+    }
+}
+
+#[async_trait]
+impl SandboxObserver for K8sSandboxAdapter {
+    async fn sandbox_status(
+        &self,
+        task_id: &str,
+        task_status: moatless_api_schemas::enums::TaskStatus,
+        desired_state: moatless_api_schemas::enums::SandboxDesiredState,
+    ) -> Result<core_sandbox::SandboxStatusFullResponse, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxObserver::sandbox_status(self, task_id, task_status, desired_state)
+            .await
+            .map(sandbox_status)
+            .map_err(sandbox_error)
+    }
+
+    async fn live_status(
+        &self,
+        task_id: &str,
+        task_status: moatless_api_schemas::enums::TaskStatus,
+        desired_state: moatless_api_schemas::enums::SandboxDesiredState,
+    ) -> Result<core_sandbox::LiveStatus, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxObserver::live_status(self, task_id, task_status, desired_state)
+            .await
+            .map(live_status)
+            .map_err(sandbox_error)
+    }
+
+    async fn server_logs(
+        &self,
+        task_id: &str,
+        server_name: &str,
+        options: core_sandbox::LogOptions,
+    ) -> Result<core_sandbox::ServerLogStream, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxObserver::server_logs(
+            self,
+            task_id,
+            server_name,
+            log_options(options),
+        )
+        .await
+        .map(|stream| stream.map(|item| item.map_err(sandbox_error)).boxed())
+        .map_err(sandbox_error)
+    }
+}
+
+#[async_trait]
+impl SandboxIntentReader for Lifecycle {
+    async fn desired_state(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::enums::SandboxDesiredState, core_sandbox::SandboxError> {
+        backend_sandbox::SandboxIntentReader::desired_state(self, task_id)
+            .await
+            .map_err(sandbox_error)
+    }
+}
+
+#[async_trait]
+impl SandboxStarter for Lifecycle {
+    async fn start(&self, task_id: &str) -> Result<(), core_sandbox::SandboxError> {
+        backend_sandbox::SandboxStarter::start(self, task_id)
+            .await
+            .map_err(sandbox_error)
+    }
+}
+
+#[async_trait]
+impl SandboxStopper for Lifecycle {
+    async fn stop(
+        &self,
+        task_id: &str,
+        reason: moatless_api_schemas::enums::SandboxStopReason,
+    ) -> Result<(), core_sandbox::SandboxError> {
+        backend_sandbox::SandboxStopper::stop(self, task_id, reason)
+            .await
+            .map_err(sandbox_error)
+    }
+}
+
+fn sandbox_status(
+    response: crate::sandbox::schemas::SandboxStatusFullResponse,
+) -> core_sandbox::SandboxStatusFullResponse {
+    core_sandbox::SandboxStatusFullResponse {
+        sandbox_status: response.sandbox_status,
+        servers: response.servers.into_iter().map(server_entry).collect(),
+    }
+}
+
+fn live_status(status: crate::sandbox::live_status::LiveStatus) -> core_sandbox::LiveStatus {
+    core_sandbox::LiveStatus {
+        sandbox_status: status.sandbox_status,
+        agent_status: status.agent_status.map(|status| match status {
+            crate::sandbox::live_status::AgentStatus::Running => core_sandbox::AgentStatus::Running,
+            crate::sandbox::live_status::AgentStatus::Waiting => core_sandbox::AgentStatus::Waiting,
+            crate::sandbox::live_status::AgentStatus::Idle => core_sandbox::AgentStatus::Idle,
+            crate::sandbox::live_status::AgentStatus::Unknown => core_sandbox::AgentStatus::Unknown,
+        }),
+        sandbox_error: status.sandbox_error,
+    }
+}
+
+fn server_entry(entry: crate::sandbox::schemas::ServerEntry) -> core_sandbox::ServerEntry {
+    core_sandbox::ServerEntry {
+        name: entry.name,
+        label: entry.label,
+        port: entry.port,
+        status: match entry.status {
+            crate::sandbox::models::ServerStatus::Stopped => core_sandbox::ServerStatus::Stopped,
+            crate::sandbox::models::ServerStatus::Installing => {
+                core_sandbox::ServerStatus::Installing
+            }
+            crate::sandbox::models::ServerStatus::Starting => core_sandbox::ServerStatus::Starting,
+            crate::sandbox::models::ServerStatus::Started => core_sandbox::ServerStatus::Started,
+            crate::sandbox::models::ServerStatus::Failed => core_sandbox::ServerStatus::Failed,
+        },
+        url: entry.url,
+        error: entry.error,
+        detail: entry.detail,
+        default: entry.default,
+        capabilities: core_sandbox::ServerCapabilities {
+            address_bar: entry.capabilities.address_bar,
+            inspector: entry.capabilities.inspector,
+            reload: entry.capabilities.reload,
+            open_external: entry.capabilities.open_external,
+            viewport: entry.capabilities.viewport,
+            console: entry.capabilities.console,
+        },
+    }
+}
+
+fn log_options(options: core_sandbox::LogOptions) -> backend_sandbox::LogOptions {
+    backend_sandbox::LogOptions {
+        previous: options.previous,
+        follow: options.follow,
+        tail_lines: options.tail_lines,
+    }
+}
+
+fn sandbox_error(error: crate::sandbox::error::SandboxError) -> core_sandbox::SandboxError {
+    use crate::sandbox::error::SandboxError;
+    match error {
+        SandboxError::NotReady(message) => core_sandbox::SandboxError::NotReady(message),
+        SandboxError::NotFound(message) => core_sandbox::SandboxError::NotFound(message),
+        SandboxError::BadRequest(message) => core_sandbox::SandboxError::BadRequest(message),
+        SandboxError::Unsupported { operation, source } => {
+            core_sandbox::SandboxError::Unsupported { operation, source }
+        }
+        SandboxError::Grpc { operation, source } => {
+            core_sandbox::SandboxError::Grpc { operation, source }
+        }
+        SandboxError::GrpcClient(source) => {
+            core_sandbox::SandboxError::GrpcClient(source.to_string())
+        }
+        other => core_sandbox::SandboxError::Other(other.to_string()),
+    }
+}
 
 pub struct AppStateAgents(pub AppState);
 
@@ -344,11 +576,18 @@ impl ThreadCommandSink for AppStateCommands {
 fn default_agent_for(instance: &str) -> crate::shared_models::AgentType {
     let id = crate::agent::catalog::catalog()
         .iter()
-        .find(|entry| super::providers::instance_for(entry.kind) == instance)
+        .find(|entry| agent_instance_for(entry.kind) == instance)
         .map_or(crate::shared_models::AgentType::CLAUDE_CODE, |entry| {
             entry.id
         });
     crate::shared_models::AgentType(id.to_string())
+}
+
+fn agent_instance_for(kind: crate::agent::catalog::AgentKind) -> &'static str {
+    match kind {
+        crate::agent::catalog::AgentKind::ClaudeCode => "claudeAgent",
+        crate::agent::catalog::AgentKind::Codex => "codex",
+    }
 }
 
 fn send_refusal(task_id: &str, error: MessageError) -> CommandRefusal {
@@ -398,11 +637,11 @@ mod tests {
     #[test]
     fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
         assert_eq!(
-            default_agent_for(super::super::providers::CLAUDE_INSTANCE),
+            default_agent_for("claudeAgent"),
             crate::shared_models::AgentType(catalog::CLAUDE_CODE.id.to_string())
         );
         assert_eq!(
-            default_agent_for(super::super::providers::CODEX_INSTANCE),
+            default_agent_for("codex"),
             crate::shared_models::AgentType(catalog::CODEX.id.to_string())
         );
     }

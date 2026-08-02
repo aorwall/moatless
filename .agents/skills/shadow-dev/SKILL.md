@@ -90,7 +90,7 @@ bash scripts/shadow/rebuild.sh        # compile + signal up.sh to restart the bi
 
 - **Build profile**: `up.sh`/`rebuild.sh` build with
   `--profile "${SHADOW_CARGO_PROFILE:-release}"`. Measured after one edit under
-  `backend/src/ui_rpc/`: `release` **4 m 34 s**, `dev` **21 s** (`ci` — release
+  `crates/t3code/`: `release` **4 m 34 s**, `dev` **21 s** (`ci` — release
   opts without LTO — sits in between). `release` also shares no artifacts with
   the dev profile `cargo test`/`cargo clippy` use, so iterating while running
   checks costs two full builds of the same crate; `dev` costs one. Set it on

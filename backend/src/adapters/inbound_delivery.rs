@@ -220,8 +220,8 @@ pub(crate) fn inbound_delivery_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::AdapterKind;
     use crate::adapters::models::Audience;
+    use crate::adapters::AdapterKind;
 
     fn payload() -> InboundDeliveryPayload {
         InboundDeliveryPayload {
@@ -341,16 +341,16 @@ mod tests {
     reason = "test assertions; the lints only fire when the db-tests feature is enabled"
 )]
 mod db_tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use sqlx::PgPool;
     use tokio_util::sync::CancellationToken;
 
     use crate::adapters::delivery::{
-        AdapterDeliveryHandlers, AdapterDeliveryPolicy, AdapterDeliveryRequest,
-        AdapterDeliveryStore, spawn_adapter_delivery_worker,
+        spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryPolicy,
+        AdapterDeliveryRequest, AdapterDeliveryStore,
     };
 
     use super::*;

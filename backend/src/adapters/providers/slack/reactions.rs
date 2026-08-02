@@ -1,8 +1,8 @@
 //! Emoji reactions on a Slack message.
 
-use crate::adapters::AdapterReactions;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::BindingContext;
+use crate::adapters::AdapterReactions;
 
 use super::adapter::SlackAdapter;
 use super::subject;
@@ -51,9 +51,9 @@ impl AdapterReactions for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterReactions;
     use crate::adapters::models::BindingContext;
     use crate::adapters::test_support::ProviderStub;
+    use crate::adapters::AdapterReactions;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;

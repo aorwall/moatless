@@ -702,7 +702,11 @@ fn turn_completed_emits_usage_result_then_terminated() {
 fn the_meter_reads_the_last_request_not_the_sessions_spend() {
     let mut p = open_process();
     p.absorb(turn_started("turn-1"));
-    p.absorb(token_usage_in_window((30_000, 500), (400_000, 9_000), 200_000));
+    p.absorb(token_usage_in_window(
+        (30_000, 500),
+        (400_000, 9_000),
+        200_000,
+    ));
 
     let window = drain(&mut p)
         .into_iter()
@@ -721,7 +725,11 @@ fn the_meter_reads_the_last_request_not_the_sessions_spend() {
 fn a_reading_past_the_window_reads_as_full() {
     let mut p = open_process();
     p.absorb(turn_started("turn-1"));
-    p.absorb(token_usage_in_window((250_000, 1_000), (250_000, 1_000), 200_000));
+    p.absorb(token_usage_in_window(
+        (250_000, 1_000),
+        (250_000, 1_000),
+        200_000,
+    ));
 
     let window = drain(&mut p)
         .into_iter()

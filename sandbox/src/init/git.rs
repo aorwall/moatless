@@ -166,11 +166,7 @@ pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, String>
 ///
 /// For GitHub repos, tries `gh repo clone` first, then falls back to `git clone`.
 /// For other providers, uses `git clone` with token-authenticated HTTPS URL.
-async fn clone_checkout(
-    repo: &RepoCheckout,
-    dest: &str,
-    pod_provider: &str,
-) -> Result<(), String> {
+async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> Result<(), String> {
     let clone_url = &repo.clone_url;
     let is_ssh = is_ssh_url(clone_url);
     let is_github = repo.provider == "github";

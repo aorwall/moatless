@@ -3,8 +3,8 @@
 //! Subscribes to `task-events:*` streams using a separate consumer group
 //! from the SSE consumer. Processes `agent.*` and `task.metadata.updated` events.
 
-use redis::Value;
 use redis::aio::ConnectionManager;
+use redis::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 

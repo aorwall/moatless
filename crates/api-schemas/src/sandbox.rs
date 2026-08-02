@@ -533,7 +533,10 @@ mod tests {
 
     #[test]
     fn derive_mount_name_handles_common_url_shapes() {
-        assert_eq!(derive_mount_name("https://github.com/owner/repo.git"), "repo");
+        assert_eq!(
+            derive_mount_name("https://github.com/owner/repo.git"),
+            "repo"
+        );
         assert_eq!(derive_mount_name("https://github.com/owner/repo"), "repo");
         assert_eq!(derive_mount_name("git@github.com:owner/repo.git"), "repo");
         assert_eq!(derive_mount_name("https://host/owner/repo/"), "repo");

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{SecondsFormat, Utc};
-use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use sandbox_proto::terminal_attach_stream_event::Event as ProtoTerminalEvent;
 use sandbox_proto::{
     TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalCloseRequest,
@@ -20,7 +20,7 @@ use sandbox_proto::{
     TerminalResizeRequest, TerminalRestartRequest, TerminalRestartedEvent, TerminalSessionSnapshot,
     TerminalSessionStatus, TerminalStartedEvent, TerminalWriteRequest,
 };
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{broadcast, Mutex};
 use tokio::task::JoinHandle;
 use tracing::debug;
 

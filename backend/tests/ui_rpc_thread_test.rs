@@ -20,19 +20,19 @@
 
 mod common;
 
+use moatless_backend_core::activity::mapping::{ActivityKind, ActivityStatus};
 use moatless_events::SandboxEventPayload;
+use moatless_t3code::dao::{ConversationDao, PgConversationDao};
 use moatless_vibe_backend::message::dao as message_dao;
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::models::MessageType;
 use moatless_vibe_backend::task_activities::mapping::{
-    ActivityKind, ActivityStatus, BlockContext, ConversationWrite, context_window_updated,
-    map_content, sandbox_activity,
+    context_window_updated, map_content, sandbox_activity, BlockContext, ConversationWrite,
 };
 use moatless_vibe_backend::task_activities::{changes_from, current_head};
-use moatless_vibe_backend::ui_rpc::dao::{ConversationDao, PgConversationDao};
 use sqlx::PgPool;
 
-use common::{USER_1, make_message_row, make_repository_row, make_task_row};
+use common::{make_message_row, make_repository_row, make_task_row, USER_1};
 
 const TASK: &str = "task-thread-window";
 
@@ -120,7 +120,11 @@ async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
         "the change names the call, so exactly that row is read — not a run \
          reaching back over {rewritten}"
     );
-    assert_eq!(window.activities.len(), 1, "the call's activity comes with it");
+    assert_eq!(
+        window.activities.len(),
+        1,
+        "the call's activity comes with it"
+    );
     assert_eq!(
         window.activities[0].status,
         ActivityStatus::Completed,

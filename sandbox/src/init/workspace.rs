@@ -58,8 +58,7 @@ pub async fn clone_plugins(config: &Config) -> Vec<String> {
             info!(name = %name, "Plugin cloned successfully");
         }
 
-        let dropped =
-            super::plugin_skills::keep_only(Path::new(&dest), name, &plugin.skill_names);
+        let dropped = super::plugin_skills::keep_only(Path::new(&dest), name, &plugin.skill_names);
         if dropped > 0 {
             info!(name = %name, dropped, "Removed skills this task's owner did not pick");
         }

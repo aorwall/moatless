@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
-use crate::adapters::Adapters;
 use crate::adapters::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
+use crate::adapters::Adapters;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};

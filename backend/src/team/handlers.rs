@@ -282,9 +282,7 @@ async fn ensure_team_manager(
         .map(|m| m.role.as_str());
     match caller_role {
         Some("owner") | Some("admin") => Ok(()),
-        _ => Err(TeamError::Forbidden(
-            "Must be a team owner or admin".into(),
-        )),
+        _ => Err(TeamError::Forbidden("Must be a team owner or admin".into())),
     }
 }
 

@@ -19,15 +19,15 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::task::dao::TaskDao;
-use crate::ui_rpc::preview_tabs::{PreviewTab, PreviewTabDao, PreviewTabError};
+use crate::data::T3TaskDao;
+use crate::preview_tabs::{PreviewTab, PreviewTabDao, PreviewTabError};
 use moatless_backend_core::scope::ScopeContext;
 
 /// Everything the `preview.*` handlers need.
 #[derive(Clone)]
 pub struct PreviewState {
     pub tabs: Arc<dyn PreviewTabDao>,
-    pub tasks: Arc<dyn TaskDao>,
+    pub tasks: Arc<dyn T3TaskDao>,
 }
 
 /// Why a `preview.*` call could not be answered.
@@ -350,9 +350,8 @@ pub fn typed_error(error: &PreviewError) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task::dao::MockTaskDao;
-    use crate::task::models::Task;
-    use crate::ui_rpc::preview_tabs::InMemoryPreviewTabDao;
+    use crate::data::{MockT3TaskDao, TaskView};
+    use crate::preview_tabs::InMemoryPreviewTabDao;
 
     fn viewer() -> ScopeContext {
         ScopeContext {
@@ -363,45 +362,16 @@ mod tests {
 
     /// Inert but for the id: nothing in this module reads a Task's columns,
     /// only whether a scoped read returned one.
-    fn task_fixture(task_id: &str) -> Task {
-        Task {
-            task_id: task_id.to_string(),
-            short_id: None,
-            created_at: String::new(),
-            last_message_at: String::new(),
-            agent_type: crate::shared_models::AgentType("claude-code".to_string()),
-            repository_id: "repo".to_string(),
-            status: crate::task::models::TaskStatus::Open,
-            total_cost_usd: 0.0,
-            site_url: None,
-            template_id: None,
-            vibe: None,
-            name: None,
-            description: None,
-            site_id: None,
-            site_provider: None,
-            branch: None,
-            model: None,
-            created_by: None,
-            visibility: crate::task::models::Visibility::Private,
-            scope: moatless_backend_core::scope::Scope::User,
-            owner_user_id: None,
-            created_at_db: None,
-            updated_at: None,
-            append_system_prompt: None,
-            headless: false,
-            ttl_minutes: 0,
-            inactive_ttl_days: 0,
-            loop_id: None,
-            workspace_id: None,
-            disabled_servers: None,
+    fn task_fixture(_task_id: &str) -> TaskView {
+        TaskView {
+            status: moatless_api_schemas::enums::TaskStatus::Open,
         }
     }
 
     /// A task DAO that answers for `readable` and for nothing else, which is
     /// how a scoped read behaves for a viewer without access.
-    fn tasks_readable(readable: Option<&'static str>) -> Arc<dyn TaskDao> {
-        let mut tasks = MockTaskDao::new();
+    fn tasks_readable(readable: Option<&'static str>) -> Arc<dyn T3TaskDao> {
+        let mut tasks = MockT3TaskDao::new();
         tasks.expect_find_by_id().returning(move |task_id, _| {
             Ok((readable == Some(task_id)).then(|| task_fixture(task_id)))
         });

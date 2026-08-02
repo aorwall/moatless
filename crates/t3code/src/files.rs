@@ -26,8 +26,7 @@ use tracing::warn;
 
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
-use crate::sandbox::access::SandboxConnector;
-use crate::sandbox::error::SandboxError;
+use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
 use moatless_backend_core::scope::ScopeContext;
 
 /// The most entries one listing carries.
@@ -58,18 +57,14 @@ pub async fn list_entries(
     // Recursive, because the contract has no second call: the client is given
     // the whole tree once and expands it locally. This is the same shape
     // Moatless's own file view fetches.
-    let files = sandboxes
+    let client = sandboxes
         .sandbox_client(&task_id)
         .await
-        .map_err(WorkspaceAccessError::NotRunning)?
+        .map_err(workspace::sandbox_access)?;
+    let files = client
         .list_files(".", true, true)
         .await
-        .map_err(|status| {
-            WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
-                status,
-                "list_files",
-            ))
-        })?;
+        .map_err(|status| workspace::sandbox_access(classify_grpc_error(status, "list_files")))?;
 
     let truncated = files.len() > MAX_ENTRIES;
     if truncated {
@@ -137,10 +132,7 @@ pub async fn search_entries(
 
     let (mut entries, truncated) = if query.is_empty() {
         let files = client.list_files(".", true, true).await.map_err(|status| {
-            WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
-                status,
-                "list_files",
-            ))
+            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "list_files"))
         })?;
         let truncated = files.len() > limit;
         let entries: Vec<Value> = files
@@ -154,10 +146,7 @@ pub async fn search_entries(
             .search_files_by_name(query, false, i32::try_from(limit).unwrap_or(i32::MAX))
             .await
             .map_err(|status| {
-                WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
-                    status,
-                    "search_files_by_name",
-                ))
+                WorkspaceAccessError::Sandbox(classify_grpc_error(status, "search_files_by_name"))
             })?;
         let truncated = found.files.len() >= limit;
         // Always files: the Sandbox's walker skips anything that is not one
@@ -221,10 +210,7 @@ pub async fn write_file(
         .write_file(relative_path, contents)
         .await
         .map_err(|status| {
-            WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
-                status,
-                "write_file",
-            ))
+            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "write_file"))
         })?;
 
     // The path and nothing else: `ProjectWriteFileResult` carries one field
@@ -254,9 +240,7 @@ pub async fn read_file(
         .map_err(WorkspaceAccessError::NotRunning)?;
 
     fn read_failed(status: tonic::Status) -> WorkspaceAccessError {
-        WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
-            status, "read_file",
-        ))
+        WorkspaceAccessError::Sandbox(classify_grpc_error(status, "read_file"))
     }
 
     // Without the git overlay: the contract's result carries contents and
@@ -316,7 +300,7 @@ pub async fn read_file(
 /// the checkout nearest the root — and equal-length ones break by name, so the
 /// same mention always opens the same file rather than depending on walk order.
 async fn nested_in_a_checkout(
-    client: &crate::sandbox::client::SandboxClient,
+    client: &moatless_backend_core::sandbox::SandboxClient,
     relative_path: &str,
 ) -> Option<String> {
     let needle = relative_path.trim_start_matches("./").trim_end_matches('/');
@@ -385,12 +369,12 @@ mod tests {
         let listing = [
             "moatless/".to_string(),
             "moatless/backend/".to_string(),
-            "moatless/backend/migrations/0125_tasks_closed_at.sql".to_string(),
+            "moatless/backend/migrations/0126_tasks_closed_at.sql".to_string(),
             "t3code/package.json".to_string(),
         ];
         assert_eq!(
-            nested_match(&listing, "backend/migrations/0125_tasks_closed_at.sql"),
-            Some("moatless/backend/migrations/0125_tasks_closed_at.sql"),
+            nested_match(&listing, "backend/migrations/0126_tasks_closed_at.sql"),
+            Some("moatless/backend/migrations/0126_tasks_closed_at.sql"),
         );
     }
 
@@ -420,7 +404,10 @@ mod tests {
             "vendored/deep/tree/src/main.rs".to_string(),
             "api/src/main.rs".to_string(),
         ];
-        assert_eq!(nested_match(&listing, "src/main.rs"), Some("api/src/main.rs"));
+        assert_eq!(
+            nested_match(&listing, "src/main.rs"),
+            Some("api/src/main.rs")
+        );
     }
 
     /// The workspace root's own files are found by the read itself, so this is
@@ -451,29 +438,32 @@ mod tests {
     /// reached from a test. What is under test here is everything after it:
     /// what a real Sandbox actually returns, and whether this module's
     /// projection of it decodes as the contract's own shapes.
+    #[cfg(feature = "live-sandbox-tests")]
     struct SandboxAt(String);
 
+    #[cfg(feature = "live-sandbox-tests")]
     #[async_trait::async_trait]
     impl SandboxConnector for SandboxAt {
         async fn sandbox_client(
             &self,
             _task_id: &str,
-        ) -> Result<crate::sandbox::client::SandboxClient, SandboxError> {
-            crate::sandbox::client::SandboxClient::connect(&self.0)
-                .map_err(SandboxError::GrpcClient)
+        ) -> Result<moatless_backend_core::sandbox::SandboxClient, SandboxError> {
+            moatless_backend_core::sandbox::SandboxClient::connect(&self.0)
+                .map_err(|error| SandboxError::GrpcClient(error.to_string()))
         }
     }
 
     /// A conversation with a running Sandbox, and nothing else filled in: the
     /// only fields this module reads are the id and the Sandbox's intent.
-    fn running(task_id: &str) -> crate::ui_rpc::dao::Conversation {
-        crate::ui_rpc::dao::Conversation {
+    #[cfg(feature = "live-sandbox-tests")]
+    fn running(task_id: &str) -> crate::dao::Conversation {
+        crate::dao::Conversation {
             task_id: task_id.to_string(),
             workspace_id: Some("ws".into()),
             name: None,
             branch: None,
-            agent_type: crate::shared_models::AgentType(
-                crate::shared_models::AgentType::CLAUDE_CODE.to_string(),
+            agent_type: moatless_api_schemas::shared::AgentType(
+                moatless_api_schemas::shared::AgentType::CLAUDE_CODE.to_string(),
             ),
             created_at: "2026-01-01T00:00:00Z".into(),
             created_at_db: None,
@@ -508,19 +498,20 @@ mod tests {
     ///
     /// ```text
     /// T3_UI_RPC_TEST_SANDBOX_GRPC=http://127.0.0.1:50052 \
-    ///   cargo test -p moatless-vibe-backend --lib ui_rpc::files -- --ignored --nocapture
+    ///   cargo test -p moatless-t3code --features live-sandbox-tests files -- --ignored --nocapture
     /// ```
     ///
     /// It asserts the two properties a Sandbox's answer has to have to be a
     /// listing at all — every entry carries a relative path the contract
     /// accepts, and the directories a file hangs under are in the listing
     /// beside it — plus that a file named by that listing reads back.
+    #[cfg(feature = "live-sandbox-tests")]
     #[tokio::test]
     #[ignore = "needs a Sandbox at T3_UI_RPC_TEST_SANDBOX_GRPC"]
     async fn a_real_sandbox_listing_becomes_contract_entries() {
         let url = std::env::var("T3_UI_RPC_TEST_SANDBOX_GRPC")
             .expect("point T3_UI_RPC_TEST_SANDBOX_GRPC at a Sandbox's gRPC endpoint");
-        let mut conversations = crate::ui_rpc::dao::MockConversationDao::new();
+        let mut conversations = crate::dao::MockConversationDao::new();
         conversations
             .expect_list_followed_by_ids()
             .returning(|_, ids| Ok(vec![running(&ids[0])]));
@@ -580,12 +571,13 @@ mod tests {
     /// the checkout and answers with where it was found.
     ///
     /// Ignored for the same reason as the test above, and run the same way.
+    #[cfg(feature = "live-sandbox-tests")]
     #[tokio::test]
     #[ignore = "needs a Sandbox at T3_UI_RPC_TEST_SANDBOX_GRPC"]
     async fn a_real_sandbox_resolves_a_path_relative_to_one_of_its_checkouts() {
         let url = std::env::var("T3_UI_RPC_TEST_SANDBOX_GRPC")
             .expect("point T3_UI_RPC_TEST_SANDBOX_GRPC at a Sandbox's gRPC endpoint");
-        let mut conversations = crate::ui_rpc::dao::MockConversationDao::new();
+        let mut conversations = crate::dao::MockConversationDao::new();
         conversations
             .expect_list_followed_by_ids()
             .returning(|_, ids| Ok(vec![running(&ids[0])]));

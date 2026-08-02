@@ -17,9 +17,7 @@
 mod common;
 
 use moatless_vibe_backend::scope::{Scope, ScopeContext};
-use moatless_vibe_backend::workspace::dao::{
-    PgWorkspaceDao, WorkspaceDao, WorkspacePatch,
-};
+use moatless_vibe_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
 use sqlx::PgPool;
 
 use common::{make_workspace_repo_row, make_workspace_row};

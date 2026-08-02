@@ -4,9 +4,9 @@ use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
+use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
@@ -233,7 +233,7 @@ pub(super) async fn execute(
 
 #[cfg(test)]
 mod tests {
-    use super::{PostMergeRun, candidate, post_merge_ci_text};
+    use super::{candidate, post_merge_ci_text, PostMergeRun};
 
     fn workflow_run_payload(
         action: &str,

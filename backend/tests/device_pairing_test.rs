@@ -8,7 +8,7 @@
 //! What the database decides about a pairing code.
 //!
 //! The HTTP shape of the exchange is asserted against mocks in
-//! `backend/src/ui_rpc/mod.rs`; the parts that are only true of Postgres are
+//! `crates/t3code/src/lib.rs`; the parts that are only true of Postgres are
 //! here. All three are the same property from different sides: a code is worth
 //! exactly one credential, once, for five minutes — and the statement that
 //! claims it is the only thing standing between a leaked code and a second
@@ -23,8 +23,8 @@ use moatless_vibe_backend::auth::api_key::validate_key;
 use moatless_vibe_backend::auth::api_keys::{ApiKeyDao, PgApiKeyDao};
 use moatless_vibe_backend::auth::models::UserRole;
 use moatless_vibe_backend::auth::pairing::{
-    DevicePairing, PairingClient, PairingCode, PairingCodeDao, PairingError, PgPairingCodeDao,
-    PAIRED_DEVICE_KEY_TTL, PAIRING_CODE_TTL,
+    DevicePairing, PairingClient, PairingCode, PairingCodeDao, PairingError, PgPairingApiKeyIssuer,
+    PgPairingCodeDao, PAIRED_DEVICE_KEY_TTL, PAIRING_CODE_TTL,
 };
 use moatless_vibe_backend::auth::users::{PgUserDao, User, UserDao};
 use sqlx::PgPool;
@@ -35,7 +35,7 @@ use common::USER_1;
 fn pairing(pool: &PgPool) -> DevicePairing {
     DevicePairing::new(
         Arc::new(PgPairingCodeDao(pool.clone())),
-        Arc::new(PgApiKeyDao(pool.clone())),
+        Arc::new(PgPairingApiKeyIssuer(Arc::new(PgApiKeyDao(pool.clone())))),
     )
 }
 
@@ -158,7 +158,7 @@ async fn a_code_that_ran_out_of_time_is_refused(pool: PgPool) {
     codes
         .insert_pairing_code(&PairingCode {
             id: "expired".into(),
-            code_hash: moatless_vibe_backend::auth::api_key::hash_key(code),
+            code_hash: moatless_vibe_backend::auth::pairing::hash_key(code),
             user_id: user_id.to_string(),
             group_id: None,
             label: None,
@@ -168,9 +168,7 @@ async fn a_code_that_ran_out_of_time_is_refused(pool: PgPool) {
         .await
         .unwrap();
 
-    let redeemed = pairing(&pool)
-        .redeem_code(code, &phone(), scopes())
-        .await;
+    let redeemed = pairing(&pool).redeem_code(code, &phone(), scopes()).await;
     assert!(matches!(redeemed, Err(PairingError::InvalidCode)));
 }
 
@@ -190,7 +188,10 @@ async fn a_lower_case_code_is_the_same_code(pool: PgPool) {
         issued.code[..6].to_lowercase(),
         issued.code[6..].to_lowercase()
     );
-    assert!(pairing.redeem_code(&typed, &phone(), scopes()).await.is_ok());
+    assert!(pairing
+        .redeem_code(&typed, &phone(), scopes())
+        .await
+        .is_ok());
 }
 
 #[sqlx::test]

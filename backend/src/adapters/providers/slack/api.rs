@@ -617,7 +617,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
+    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
 
     #[tokio::test]
     async fn unreachable_slack_keeps_transport_source() {

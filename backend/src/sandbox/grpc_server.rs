@@ -44,8 +44,8 @@ use crate::repository::dao::RepositoryDao;
 use crate::sandbox::event_dedup::Admission;
 use crate::sandbox::jwt;
 use crate::sandbox::secrets::{
-    TaskCredentialInputs, resolve_server_env, resolve_task_credentials, resolve_task_repository,
-    resolve_task_ssh_keys,
+    resolve_server_env, resolve_task_credentials, resolve_task_repository, resolve_task_ssh_keys,
+    TaskCredentialInputs,
 };
 use crate::secret::service::SecretService;
 use crate::shared_models::AgentType;
@@ -53,7 +53,7 @@ use crate::task::dao::TaskDao;
 use crate::task::relations::TaskRelationDao;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use crate::task_turn::dao::{TaskTurnDao, TurnStateEvent};
-use crate::task_turn::models::{TurnStatus, classify_turn_transition};
+use crate::task_turn::models::{classify_turn_transition, TurnStatus};
 use crate::workspace::dao::WorkspaceDao;
 
 /// Known credential env var names.
@@ -2057,12 +2057,11 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
             users_regular(),
         );
-        assert!(
-            svc.authorizer
-                .resolve_control(&claims_for("owner"), "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(svc
+            .authorizer
+            .resolve_control(&claims_for("owner"), "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -2117,13 +2116,11 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::Global, None))),
             users_admin(),
         );
-        assert!(
-            allowed
-                .authorizer
-                .resolve_control(&claims_for("admin"), "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(allowed
+            .authorizer
+            .resolve_control(&claims_for("admin"), "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -2133,12 +2130,11 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("other-user")))),
             users_admin(),
         );
-        assert!(
-            svc.authorizer
-                .resolve_control(&claims_for("admin"), "task-1")
-                .await
-                .is_ok()
-        );
+        assert!(svc
+            .authorizer
+            .resolve_control(&claims_for("admin"), "task-1")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]

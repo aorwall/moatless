@@ -555,7 +555,11 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 files,
-                vec!["a.txt".to_string(), "sub/".to_string(), "sub/b.txt".to_string()],
+                vec![
+                    "a.txt".to_string(),
+                    "sub/".to_string(),
+                    "sub/b.txt".to_string()
+                ],
                 "respect_gitignore={respect_gitignore}"
             );
         }

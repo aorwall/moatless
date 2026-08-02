@@ -167,7 +167,10 @@ async fn per_block_events_assemble_into_one_ordered_message(pool: PgPool) {
     let ui_assistant: Vec<_> = ui.iter().filter(|m| m.uuid == uuid).collect();
     assert_eq!(ui_assistant.len(), 1, "one assembled UI Message");
     assert_eq!(ui_assistant[0].content.len(), 2);
-    assert_eq!(ui_assistant[0].content[0].text.as_deref(), Some("first\n\nsecond"));
+    assert_eq!(
+        ui_assistant[0].content[0].text.as_deref(),
+        Some("first\n\nsecond")
+    );
     assert_eq!(ui_assistant[0].content[1].block_type, "tool_use");
 }
 
@@ -410,7 +413,8 @@ async fn subagent_per_block_rows_are_excluded_from_top_level(pool: PgPool) {
 
     // The subagent's own transcript, scoped by its tool-use id, includes it with
     // its text and its call.
-    let transcript = transform_subagent_transcript(&sub_rows, &sub_contexts, &sub_activities, parent);
+    let transcript =
+        transform_subagent_transcript(&sub_rows, &sub_contexts, &sub_activities, parent);
     let assembled = transcript
         .iter()
         .find(|m| m.uuid == "sub-asst")

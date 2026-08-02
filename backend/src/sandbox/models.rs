@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use utoipa::ToSchema;
 
 pub use moatless_api_schemas::sandbox::{
-    RepoCheckout, WORKSPACE_REPOS_ENV, derive_mount_name, sanitize_mount_name,
+    derive_mount_name, sanitize_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV,
 };
 
 // Keep pod-status extraction available from the sandbox model surface.

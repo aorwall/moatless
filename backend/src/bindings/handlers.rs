@@ -1,5 +1,5 @@
-use axum::Json;
 use axum::extract::{Path, State};
+use axum::Json;
 use chrono::Utc;
 use moatless_api_schemas::bindings::{
     CreateTaskBindingRequest, SendTaskReplyRequest, SendTaskReplyResponse, TaskBindingResponse,
@@ -14,7 +14,7 @@ use crate::adapters::common::{
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::TaskBinding;
-use crate::bindings::reply::{ExternalReplyService, resolve_message_target};
+use crate::bindings::reply::{resolve_message_target, ExternalReplyService};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 

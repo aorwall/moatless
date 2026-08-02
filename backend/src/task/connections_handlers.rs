@@ -9,8 +9,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use axum::Json;
 use axum::extract::{Path, Query, State};
+use axum::Json;
 use futures::stream::{self, StreamExt};
 
 use moatless_api_schemas::enums::TaskStatus;
@@ -20,8 +20,8 @@ use moatless_api_schemas::task_connections::{
     TaskConnectionsResponse,
 };
 
-use crate::adapters::AdapterBindingStatus;
 use crate::adapters::models::{ExternalStatus, TaskBinding};
+use crate::adapters::AdapterBindingStatus;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
 use crate::message::dao::ConnectionMessageCount;

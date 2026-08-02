@@ -2,14 +2,35 @@
 name = "moatless-backend-core"
 version = "0.1.0"
 edition = "2021"
-description = "Pure policy and shared core types for the Moatless backend"
+description = "Shared backend policy, read vocabularies, and subsystem ports for Moatless"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+hex = "0.4"
 moatless-api-schemas = { path = "../api-schemas" }
+moatless-events = { path = "../events" }
+rand = "0.10"
+sandbox-proto = { path = "../sandbox-proto" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"], optional = true }
+thiserror = "2"
+tonic = "0.14"
+tracing = "0.1"
+utoipa = { version = "5.4", optional = true }
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 serde_json = "1"
+
+[features]
+default = []
+database = ["sqlx"]
+openapi = ["utoipa", "moatless-api-schemas/openapi"]
 
 [lints]
 workspace = true

@@ -6,10 +6,10 @@ use crate::message::models::{MessageRole, MessageType, TaskMessage};
 use crate::state::AppState;
 use crate::task_activities::mapping::ConversationWrite;
 
-use crate::adapters::Adapters;
 use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{OutboundFile, OutboundReply};
+use crate::adapters::Adapters;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use moatless_backend_core::scope::ScopeContext;

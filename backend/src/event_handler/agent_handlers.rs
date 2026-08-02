@@ -7,7 +7,7 @@ use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageC
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::models::TaskStatus;
-use crate::task_activities::mapping::{BlockContext, ConversationWrite, map_content};
+use crate::task_activities::mapping::{map_content, BlockContext, ConversationWrite};
 
 use super::models::{AgentEvent, SdkResultMessage};
 

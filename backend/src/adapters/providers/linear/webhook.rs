@@ -25,7 +25,7 @@
 
 use crate::adapters::delivery::AdapterDeliveryRequest;
 
-use super::ingress::{IngressError, reason};
+use super::ingress::{reason, IngressError};
 use super::webhook_payloads::LinearWebhookEnvelope;
 
 /// What one envelope means.

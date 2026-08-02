@@ -8,11 +8,11 @@
 
 use tracing::{debug, info};
 
-use crate::adapters::AdapterDestinationBuilder;
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
+use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::SubscriptionMatch;
+use crate::adapters::AdapterDestinationBuilder;
 use crate::db::DbPool;
 use crate::state::AppState;
 

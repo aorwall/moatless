@@ -25,13 +25,13 @@ use tracing::{info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding,
+    AdapterConnection, SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN,
 };
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
-use super::config::{LinearRuleConfig, rules_need_issue_fetch, select_spawn_rule};
+use super::config::{rules_need_issue_fetch, select_spawn_rule, LinearRuleConfig};
 use super::issues::{insert_event_task, transition_issue_state};
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
 use super::webhook_payloads::AgentSession;

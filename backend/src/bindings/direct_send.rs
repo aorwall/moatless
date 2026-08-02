@@ -1,5 +1,5 @@
-use crate::adapters::Adapters;
 use crate::adapters::error::AdapterError;
+use crate::adapters::Adapters;
 use crate::state::AppState;
 
 pub struct DirectSendService<'a> {

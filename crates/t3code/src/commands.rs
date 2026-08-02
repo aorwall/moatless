@@ -39,8 +39,8 @@ use super::ports::{
 };
 use super::providers;
 use crate::agent::catalog;
-use crate::shared_models::AgentMode;
-use crate::task_activities::mapping;
+use moatless_api_schemas::shared::AgentMode;
+use moatless_backend_core::activity::mapping;
 
 /// What the surface needs in order to answer a command.
 pub struct CommandContext<'a> {
@@ -552,10 +552,10 @@ fn missing(field: &str) -> CommandRefusal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared_models::AgentType;
-    use crate::task_listing::models::{EnvironmentIdentity, ListingHead};
-    use crate::ui_rpc::dao::{InteractiveCall, MockConversationDao};
+    use crate::dao::{InteractiveCall, MockConversationDao};
+    use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
     use async_trait::async_trait;
+    use moatless_api_schemas::shared::AgentType;
     use std::sync::Mutex;
 
     /// What the sink was asked to do. Every assertion about the command table
@@ -808,8 +808,8 @@ mod tests {
         dao.expect_list_followed_by_ids()
             .returning(move |_, _| Ok(found.clone().into_iter().collect::<Vec<_>>()));
         dao.expect_listing_head().returning(|| {
-            Ok(ListingHead {
-                identity: EnvironmentIdentity::new("test"),
+            Ok(UiRpcListingHead {
+                identity: UiRpcEnvironmentIdentity::new("test"),
                 position: 42,
             })
         });

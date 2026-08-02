@@ -30,7 +30,7 @@ use crate::task_listing;
 /// row even though the agent wrote it.
 ///
 /// Keep in sync with `handlers::INTERACTIVE_TOOL_NAMES`,
-/// `transform::check_pending_user_input` and the same pair in `ui_rpc::dao`,
+/// `transform::check_pending_user_input` and the same pair in `moatless_t3code::dao`,
 /// which is what reads the flag back out.
 const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
 
@@ -56,7 +56,8 @@ fn moves_a_listing_row(msg: &TaskMessage, conversation: &ConversationWrite) -> b
     // Read off the activities this write creates rather than out of a jsonb
     // document. Same question, asked of the rows that now answer it.
     conversation.activities.iter().any(|activity| {
-        activity.kind == ActivityKind::ToolCall && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
+        activity.kind == ActivityKind::ToolCall
+            && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
     })
 }
 
@@ -647,9 +648,7 @@ impl MessageDao for PgMessageDao {
             // allocate nothing from its counter — see the note below on why they
             // record no change. They still need a position to sort by within
             // their own transcript.
-            Some(parent_uuid) => {
-                next_subagent_position(&mut tx, &msg.task_id, parent_uuid).await?
-            }
+            Some(parent_uuid) => next_subagent_position(&mut tx, &msg.task_id, parent_uuid).await?,
         };
 
         for activity in &conversation.activities {
@@ -728,14 +727,8 @@ impl MessageDao for PgMessageDao {
             task_activities::dao::settle(&mut tx, outcome).await?;
         }
         if let Some(usage) = conversation.usage {
-            task_activities::dao::admit_usage(
-                &mut tx,
-                task_id,
-                message_uuid,
-                parent_uuid,
-                usage,
-            )
-            .await?;
+            task_activities::dao::admit_usage(&mut tx, task_id, message_uuid, parent_uuid, usage)
+                .await?;
         }
 
         if conversation.activities.iter().any(|activity| {
@@ -1607,9 +1600,7 @@ pub async fn get_pending_user(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Vec<TaskMessage>, sqlx::Error> {
-    PgMessageDao(pool.clone())
-        .get_pending_user(task_id)
-        .await
+    PgMessageDao(pool.clone()).get_pending_user(task_id).await
 }
 
 /// Tasks with unacknowledged user messages (convenience wrapper).
@@ -1637,9 +1628,7 @@ pub async fn get_last_result(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Option<TaskMessage>, sqlx::Error> {
-    PgMessageDao(pool.clone())
-        .get_last_result(task_id)
-        .await
+    PgMessageDao(pool.clone()).get_last_result(task_id).await
 }
 
 /// Get the last assistant message (convenience wrapper).

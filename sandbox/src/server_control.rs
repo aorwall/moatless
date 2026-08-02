@@ -317,18 +317,28 @@ mod tests {
     #[tokio::test]
     async fn apply_rejects_invalid_server_name() {
         let tmp = TempDir::new().unwrap();
-        let err = apply(&workspace_dir(&tmp), "../escape", &ServerOverride::default(), false)
-            .await
-            .unwrap_err();
+        let err = apply(
+            &workspace_dir(&tmp),
+            "../escape",
+            &ServerOverride::default(),
+            false,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
 
     #[tokio::test]
     async fn empty_override_writes_no_control_files() {
         let tmp = TempDir::new().unwrap();
-        apply(&workspace_dir(&tmp), "dev", &ServerOverride::default(), false)
-            .await
-            .unwrap();
+        apply(
+            &workspace_dir(&tmp),
+            "dev",
+            &ServerOverride::default(),
+            false,
+        )
+        .await
+        .unwrap();
 
         let dir = tmp.path().join(CONTROL_SUBDIR).join("dev");
         assert!(!dir.join("command").exists());
@@ -346,7 +356,9 @@ mod tests {
             ]),
             unset_env: vec!["LOG_LEVEL".to_string()],
         };
-        apply(&workspace_dir(&tmp), "dev", &ov, false).await.unwrap();
+        apply(&workspace_dir(&tmp), "dev", &ov, false)
+            .await
+            .unwrap();
 
         let dir = tmp.path().join(CONTROL_SUBDIR).join("dev");
         assert_eq!(
@@ -357,7 +369,11 @@ mod tests {
         let body: Vec<&str> = env.lines().filter(|l| !l.starts_with('#')).collect();
         assert_eq!(
             body,
-            vec!["export QUOTE='a'\\''b'", "export ZULU='last'", "unset LOG_LEVEL"]
+            vec![
+                "export QUOTE='a'\\''b'",
+                "export ZULU='last'",
+                "unset LOG_LEVEL"
+            ]
         );
     }
 
@@ -369,10 +385,17 @@ mod tests {
             env: BTreeMap::from([("A".to_string(), "1".to_string())]),
             unset_env: vec![],
         };
-        apply(&workspace_dir(&tmp), "dev", &ov, false).await.unwrap();
-        apply(&workspace_dir(&tmp), "dev", &ServerOverride::default(), false)
+        apply(&workspace_dir(&tmp), "dev", &ov, false)
             .await
             .unwrap();
+        apply(
+            &workspace_dir(&tmp),
+            "dev",
+            &ServerOverride::default(),
+            false,
+        )
+        .await
+        .unwrap();
 
         let dir = tmp.path().join(CONTROL_SUBDIR).join("dev");
         assert!(!dir.join("command").exists());
@@ -472,7 +495,9 @@ mod tests {
         };
         apply(&workspace_dir(&tmp), "dev", &ov, true).await.unwrap();
 
-        let meta = fs::metadata(tmp.path().join(CONTROL_SUBDIR).join("dev/env")).await.unwrap();
+        let meta = fs::metadata(tmp.path().join(CONTROL_SUBDIR).join("dev/env"))
+            .await
+            .unwrap();
         assert_eq!(meta.permissions().mode() & 0o777, 0o600);
     }
 }

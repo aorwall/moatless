@@ -22,23 +22,38 @@ use std::time::{Duration, Instant};
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration as ChronoDuration, SubsecRound, Utc};
 use futures::future::BoxFuture;
-use futures::stream::BoxStream;
+use moatless_backend_core::activity::{ConversationChange, ConversationHead};
+use moatless_backend_core::sandbox::{
+    LiveStatus, LogOptions, SandboxError, SandboxStatusFullResponse, ServerLogStream,
+};
+use moatless_t3code::dao::{
+    Conversation, ConversationDao, ConversationMatch, InteractiveCall, PgConversationDao,
+    Transcript,
+};
+use moatless_t3code::listing::{
+    RESUME_WINDOW, UiRpcEnvironmentIdentity, UiRpcListingChange, UiRpcListingHead, UiRpcResume,
+    current_head, resume,
+};
+use moatless_t3code::preview_tabs::InMemoryPreviewTabDao;
+use moatless_t3code::{
+    AgentModelDefaults, ShellFeed, UiRpcDependencies, archived_shell_snapshot, files,
+    router_from_env, shell_snapshot, shell_subscription,
+};
+use moatless_t3code::{
+    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
+};
 use moatless_vibe_backend::auth::api_keys::PgApiKeyDao;
-use moatless_vibe_backend::auth::pairing::{DevicePairing, PgPairingCodeDao};
+use moatless_vibe_backend::auth::pairing::{
+    DevicePairing, PgPairingApiKeyIssuer, PgPairingCodeDao,
+};
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::models::{MessageType, TaskMessage};
 use moatless_vibe_backend::message::service as message_service;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
-use moatless_vibe_backend::sandbox::access::{
-    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
-};
-use moatless_vibe_backend::sandbox::client::SandboxClient;
-use moatless_vibe_backend::sandbox::error::SandboxError;
-use moatless_vibe_backend::sandbox::live_status::LiveStatus;
-use moatless_vibe_backend::sandbox::schemas::SandboxStatusFullResponse;
 use moatless_vibe_backend::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::shared_models::AgentType;
+use moatless_vibe_backend::t3code::backend as t3code_backend;
 use moatless_vibe_backend::tag::dao::{PgTagDao, TagDao};
 use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
 use moatless_vibe_backend::task::models::{
@@ -47,23 +62,9 @@ use moatless_vibe_backend::task::models::{
 use moatless_vibe_backend::task_activities::mapping::{
     BlockContext, ConversationWrite, map_content,
 };
-use moatless_vibe_backend::task_activities::{ConversationChange, ConversationHead};
-use moatless_vibe_backend::task_listing::{
-    EnvironmentIdentity, ListingChange, ListingHead, RESUME_WINDOW, Resume, current_head,
-    record_change, resume,
-};
+use moatless_vibe_backend::task_listing::record_change;
 use moatless_vibe_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
 use moatless_vibe_backend::task_turn::models::classify_turn_transition;
-use moatless_vibe_backend::ui_rpc::backend as ui_rpc_backend;
-use moatless_vibe_backend::ui_rpc::dao::{
-    Conversation, ConversationDao, ConversationMatch, InteractiveCall, PgConversationDao,
-    Transcript,
-};
-use moatless_vibe_backend::ui_rpc::preview_tabs::InMemoryPreviewTabDao;
-use moatless_vibe_backend::ui_rpc::{
-    AgentModelDefaults, ShellFeed, UiRpcDependencies, archived_shell_snapshot, files,
-    router_from_env, shell_snapshot, shell_subscription,
-};
 use moatless_vibe_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
 use serde_json::{Value, json};
 use sqlx::postgres::PgPoolOptions;
@@ -126,7 +127,10 @@ struct NoSandboxes;
 
 #[async_trait::async_trait]
 impl SandboxConnector for NoSandboxes {
-    async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError> {
+    async fn sandbox_client(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_backend_core::sandbox::SandboxClient, SandboxError> {
         Err(SandboxError::NotReady(task_id.to_string()))
     }
 }
@@ -155,8 +159,8 @@ impl SandboxObserver for NoSandboxes {
         &self,
         task_id: &str,
         _server_name: &str,
-        _options: moatless_vibe_backend::sandbox::access::LogOptions,
-    ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
+        _options: LogOptions,
+    ) -> Result<ServerLogStream, SandboxError> {
         Err(SandboxError::NotReady(task_id.to_string()))
     }
 }
@@ -191,13 +195,13 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         session_jwt_secret: Some("test-secret".into()),
         pairing: Arc::new(DevicePairing::new(
             Arc::new(PgPairingCodeDao(pool.clone())),
-            Arc::new(PgApiKeyDao(pool.clone())),
+            Arc::new(PgPairingApiKeyIssuer(Arc::new(PgApiKeyDao(pool.clone())))),
         )),
-        workspaces: Arc::new(PgWorkspaceDao(pool.clone())),
+        workspaces: Arc::new(PgConversationDao::new(pool.clone())),
         conversations: Arc::new(PgConversationDao::new(pool.clone())),
         sandboxes: Arc::new(NoSandboxes),
         observer: Arc::new(NoSandboxes),
-        tasks: Arc::new(PgTaskDao(pool.clone())),
+        tasks: Arc::new(PgConversationDao::new(pool.clone())),
         intent: Arc::new(NoSandboxes),
         // Nothing this suite drives starts or stops a Sandbox.
         starter: Arc::new(NoSandboxes),
@@ -209,11 +213,11 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         // The write ports, wired exactly as `main` wires them. This suite drives
         // reads only; what they do is asserted in
         // `backend/tests/ui_rpc_command_test.rs`.
-        agents: Arc::new(ui_rpc_backend::AppStateAgents(test_app_state(pool.clone()))),
-        branches: Arc::new(ui_rpc_backend::AppStateBranches(test_app_state(
+        agents: Arc::new(t3code_backend::AppStateAgents(test_app_state(pool.clone()))),
+        branches: Arc::new(t3code_backend::AppStateBranches(test_app_state(
             pool.clone(),
         ))),
-        commands: Arc::new(ui_rpc_backend::AppStateCommands(test_app_state(
+        commands: Arc::new(t3code_backend::AppStateCommands(test_app_state(
             pool.clone(),
         ))),
         model_defaults: defaults(),
@@ -223,12 +227,12 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
 
 /// Every assertion below goes through here, so a query that Postgres refuses
 /// fails with the database's own error text rather than as an empty listing.
-/// The SQL in `ui_rpc/dao.rs` is not compile-checked — `sqlx::query_as` without
+/// The SQL in `crates/t3code/src/dao.rs` is not compile-checked — `sqlx::query_as` without
 /// the macro is a string until a connection sees it — so this is the only place
 /// a broken join, decode or parameter can announce itself.
 async fn snapshot(pool: &PgPool, viewer: &ScopeContext) -> Value {
     match shell_snapshot(
-        &PgWorkspaceDao(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
         &PgConversationDao::new(pool.clone()),
         &defaults(),
         viewer,
@@ -2014,7 +2018,7 @@ async fn seed_live_project(pool: &PgPool) {
 /// snapshot was read at.
 async fn watching(pool: &PgPool, viewer: &ScopeContext) -> ShellFeed {
     let snapshot = shell_snapshot(
-        &PgWorkspaceDao(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
         &PgConversationDao::new(pool.clone()),
         &defaults(),
         viewer,
@@ -2031,7 +2035,7 @@ async fn watching(pool: &PgPool, viewer: &ScopeContext) -> ShellFeed {
 /// One poll, as the subscription makes it.
 async fn delivered(pool: &PgPool, feed: &mut ShellFeed, viewer: &ScopeContext) -> Vec<Value> {
     feed.poll(
-        &PgWorkspaceDao(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
         &PgConversationDao::new(pool.clone()),
         &defaults(),
         viewer,
@@ -2334,7 +2338,7 @@ impl ConversationDao for RefusesTheRowRead {
         self.0.interactive_call(task_id, tool_use_id).await
     }
 
-    async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
+    async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error> {
         self.0.listing_head().await
     }
 
@@ -2342,7 +2346,7 @@ impl ConversationDao for RefusesTheRowRead {
         &self,
         after: i64,
         limit: i64,
-    ) -> Result<Vec<ListingChange>, sqlx::Error> {
+    ) -> Result<Vec<UiRpcListingChange>, sqlx::Error> {
         self.0.listing_changes_after(after, limit).await
     }
 }
@@ -2395,7 +2399,7 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     );
     let refused = feed
         .poll(
-            &PgWorkspaceDao(pool.clone()),
+            &PgConversationDao::new(pool.clone()),
             &RefusesTheRowRead(PgConversationDao::new(pool.clone())),
             &defaults(),
             &viewer,
@@ -2432,7 +2436,7 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     let gone = a_pool_that_has_gone_away(&pool).await;
     let refused = feed
         .poll(
-            &PgWorkspaceDao(gone),
+            &PgConversationDao::new(gone),
             &PgConversationDao::new(pool.clone()),
             &defaults(),
             &viewer,
@@ -2456,7 +2460,7 @@ async fn each_delivery_carries_a_position_past_the_one_before_it(pool: PgPool) {
 
     let viewer = viewer("user-1");
     let snapshot = shell_snapshot(
-        &PgWorkspaceDao(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
         &PgConversationDao::new(pool.clone()),
         &defaults(),
         &viewer,
@@ -2548,12 +2552,12 @@ async fn reconnect(
 /// unchanged, and the database underneath it is not the one it started with.
 async fn reconnect_to(
     pool: &PgPool,
-    environment: &EnvironmentIdentity,
+    environment: &UiRpcEnvironmentIdentity,
     viewer: &ScopeContext,
     after: Option<i64>,
 ) -> (Vec<Value>, ShellFeed) {
     let subscription = shell_subscription(
-        &PgWorkspaceDao(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
         &PgConversationDao::new(pool.clone()),
         &defaults(),
         viewer,
@@ -2902,7 +2906,7 @@ async fn a_replay_does_not_carry_changes_the_viewer_may_not_see(pool: PgPool) {
 /// design were tempted to keep the environment's identity in — a UUID seeded by
 /// a migration, a row written at first boot — is copied along with the rest and
 /// reports the copy as the original. A restore is not distinguishable from
-/// inside the data, which is why [`EnvironmentIdentity`] is not in it.
+/// inside the data, which is why [`UiRpcEnvironmentIdentity`] is not in it.
 ///
 /// The copy is made **in the same cluster**, so the cluster's system identifier
 /// is equal on both sides too. Everything these tests catch is therefore caught
@@ -2981,7 +2985,7 @@ async fn back_up_and_restore(pool: PgPool) -> RestoredDatabase {
 }
 
 /// The cluster and the database a pool is connected to, read straight from
-/// Postgres rather than through [`EnvironmentIdentity`], so a test can say which
+/// Postgres rather than through [`UiRpcEnvironmentIdentity`], so a test can say which
 /// half of the identity it is exercising.
 async fn cluster_and_oid(pool: &PgPool) -> (String, i64) {
     sqlx::query_as(
@@ -2993,7 +2997,7 @@ async fn cluster_and_oid(pool: &PgPool) -> (String, i64) {
     .unwrap()
 }
 
-async fn head(pool: &PgPool) -> ListingHead {
+async fn head(pool: &PgPool) -> UiRpcListingHead {
     current_head(pool).await.unwrap()
 }
 
@@ -3070,7 +3074,7 @@ async fn the_environment_identity_is_stable_and_names_one_database(pool: PgPool)
     // the database it replaced.
     assert_eq!(
         head(origin).await.identity,
-        EnvironmentIdentity::new(format!("{origin_cluster}:{origin_oid}")),
+        UiRpcEnvironmentIdentity::new(format!("{origin_cluster}:{origin_oid}")),
         "the identity is no longer the cluster's system identifier and the \
          database's OID"
     );
@@ -3312,7 +3316,7 @@ async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(p
     //    the identity.
     assert_eq!(
         resume(&now.identity, &now.identity, now.position, held),
-        Resume::From(held),
+        UiRpcResume::From(held),
         "the premise failed: a guard other than the identity already refuses \
          this cursor, so this test is not about the identity guard"
     );
@@ -3610,7 +3614,7 @@ impl Held {
     /// What the snapshot a subscription opens with leaves the client holding.
     async fn opening(pool: &PgPool, viewer: &ScopeContext) -> Self {
         let snapshot = shell_snapshot(
-            &PgWorkspaceDao(pool.clone()),
+            &PgConversationDao::new(pool.clone()),
             &PgConversationDao::new(pool.clone()),
             &defaults(),
             viewer,

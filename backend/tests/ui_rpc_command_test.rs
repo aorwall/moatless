@@ -7,7 +7,7 @@
 )]
 //! What a T3 command actually writes.
 //!
-//! `ui_rpc::commands` is unit-tested against a recording sink, so the dispatch
+//! `t3code::commands` is unit-tested against a recording sink, so the dispatch
 //! table — which commands are accepted, which are refused, how a model slug is
 //! translated — is covered without a database. What that cannot see is the far
 //! side of the port: whether the client's message id survives into
@@ -22,24 +22,24 @@ mod common;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
+use moatless_t3code::dao::PgConversationDao;
+use moatless_t3code::ports::{
+    CommandRefusal, NewThread, ThreadCommandSink, ThreadMeta, ThreadTurn,
+};
+use moatless_t3code::{thread_snapshot, AgentModelDefaults};
 use moatless_vibe_backend::agent::catalog;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::shared_models::{AgentMode, AgentType};
+use moatless_vibe_backend::t3code::backend::AppStateCommands;
 use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao};
 use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
-use moatless_vibe_backend::ui_rpc::backend::AppStateCommands;
-use moatless_vibe_backend::ui_rpc::dao::PgConversationDao;
-use moatless_vibe_backend::ui_rpc::ports::{
-    CommandRefusal, NewThread, ThreadCommandSink, ThreadMeta, ThreadTurn,
-};
-use moatless_vibe_backend::ui_rpc::{AgentModelDefaults, thread_snapshot};
 use moatless_vibe_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
 use sqlx::PgPool;
 
 use common::{
-    USER_1, USER_2, make_repository_row, make_task_row, make_workspace_repo_row,
-    make_workspace_row, test_app_state,
+    make_repository_row, make_task_row, make_workspace_repo_row, make_workspace_row,
+    test_app_state, USER_1, USER_2,
 };
 
 const WS: &str = "ws-t3";
@@ -326,7 +326,7 @@ async fn the_thread_snapshot_carries_the_message_id_that_was_sent(pool: PgPool) 
         .expect("the turn is accepted");
 
     let snapshot = thread_snapshot(
-        &PgWorkspaceDao(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
         &PgConversationDao::new(pool.clone()),
         &defaults(),
         &viewer(USER_1),
@@ -443,6 +443,7 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
                 title: Some("From T3".into()),
                 branch: None,
                 model: None,
+                branch: None,
                 first_message: Some(turn(task_id, message_id, "get started")),
             },
         )
@@ -486,6 +487,7 @@ async fn a_thread_created_with_no_message_gets_no_sandbox(pool: PgPool) {
                 title: None,
                 branch: None,
                 model: None,
+                branch: None,
                 first_message: None,
             },
         )
@@ -523,6 +525,7 @@ async fn sending_into_an_unprovisioned_thread_provisions_it(pool: PgPool) {
             title: None,
             branch: None,
             model: None,
+            branch: None,
             first_message: None,
         },
     )

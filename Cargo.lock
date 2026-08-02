@@ -3142,8 +3142,23 @@ dependencies = [
 name = "moatless-backend-core"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "hex",
  "moatless-api-schemas",
+ "moatless-events",
+ "rand 0.10.1",
+ "sandbox-proto",
+ "serde",
  "serde_json",
+ "sha2 0.11.0",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tonic",
+ "tracing",
+ "utoipa",
+ "uuid",
 ]
 
 [[package]]
@@ -3215,6 +3230,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-t3code"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "futures",
+ "http-body-util",
+ "jsonwebtoken",
+ "metrics",
+ "moatless-api-schemas",
+ "moatless-backend-core",
+ "mockall",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "redis",
+ "sandbox-proto",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tower",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "moatless-vibe-backend"
 version = "0.1.0"
 dependencies = [
@@ -3249,6 +3296,7 @@ dependencies = [
  "moatless-api-schemas",
  "moatless-backend-core",
  "moatless-events",
+ "moatless-t3code",
  "mockall",
  "moka",
  "nanoid",
@@ -4558,9 +4606,14 @@ dependencies = [
  "moatless-events",
  "prost",
  "protoc-bin-vendored",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "tracing",
+ "utoipa",
 ]
 
 [[package]]

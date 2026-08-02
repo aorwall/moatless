@@ -2,9 +2,9 @@
 //!
 //! Everything else here is a database read, which is why the module's other
 //! dependencies are DAOs. Sending a message is not: it persists a row, follows
-//! a Task on someone's behalf, and wakes a Sandbox. `SandboxConnector`
-//! (`crate::sandbox::access`) is the precedent — a narrow port for the one thing
-//! behind this boundary that is not a query — and these follow it, so the
+//! a Task on someone's behalf, and wakes a Sandbox. `SandboxConnector` is the
+//! same kind of narrow port for the one thing behind this boundary that is not a
+//! query, so the
 //! compatibility layer keeps translating rather than learning how Moatless
 //! works.
 
@@ -14,7 +14,7 @@ use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_api_schemas::repository::BranchListResponse;
 use moatless_backend_core::scope::ScopeContext;
 
-use crate::shared_models::AgentMode;
+use moatless_api_schemas::shared::AgentMode;
 
 /// Why a command was not carried out.
 ///

@@ -26,7 +26,7 @@
 //! so a reader polling past a position that had not committed yet never sees it,
 //! silently, while reporting itself up to date.
 //!
-//! No T3 vocabulary appears here — [`crate::ui_rpc`] turns a row into the event
+//! No T3 vocabulary appears here — [`moatless_t3code`] turns a row into the event
 //! that surface carries, which is also why a change record names a Message rather
 //! than describing what about it changed.
 
@@ -41,7 +41,7 @@ pub use dao::{
     record_session_change,
 };
 pub use models::{
-    ConversationChange, ConversationHead, EVENTS_PER_CHANGE, RESUME_WINDOW, RETAINED_CHANGES,
-    Resume, position_of, resume,
+    position_of, resume, ConversationChange, ConversationHead, Resume, EVENTS_PER_CHANGE,
+    RESUME_WINDOW, RETAINED_CHANGES,
 };
 pub use pruner::spawn_change_pruner;

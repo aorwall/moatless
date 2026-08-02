@@ -138,7 +138,7 @@ impl SecretDao for PgSecretDao {
         key: &str,
     ) -> Result<Option<SecretRecord>, sqlx::Error> {
         sqlx::query_as::<_, SecretRecord>(AssertSqlSafe(format!(
-                "SELECT {SECRET_COLUMNS} FROM secrets \
+            "SELECT {SECRET_COLUMNS} FROM secrets \
                  WHERE scope = $1 \
                    AND COALESCE(owner_user_id, '') = COALESCE($2, '') \
                    AND key = $3"
@@ -152,7 +152,7 @@ impl SecretDao for PgSecretDao {
 
     async fn insert(&self, input: SecretInsert<'_>) -> Result<SecretRecord, sqlx::Error> {
         sqlx::query_as::<_, SecretRecord>(AssertSqlSafe(format!(
-                r#"INSERT INTO secrets (
+            r#"INSERT INTO secrets (
                        id, scope, owner_user_id, key, kind, provider,
                        value_ciphertext, encryption_nonce, encrypted_data_key,
                        external_ref, kms_key_id, encryption_version,

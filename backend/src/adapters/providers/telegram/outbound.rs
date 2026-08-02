@@ -14,7 +14,7 @@ use crate::adapters::{
 
 use super::adapter::TelegramAdapter;
 use super::subject::{
-    SUBJECT_KIND, TelegramDestination, parse_direct_destination, parse_message_target,
+    parse_direct_destination, parse_message_target, TelegramDestination, SUBJECT_KIND,
 };
 
 /// The message text as Telegram receives it, task link included.
@@ -200,7 +200,7 @@ mod tests {
     use crate::adapters::test_support::stub_provider;
 
     use super::super::api::TelegramApi;
-    use super::super::test_support::{BotApiStub, bot_api_stub, test_loop_context};
+    use super::super::test_support::{bot_api_stub, test_loop_context, BotApiStub};
     use super::*;
 
     /// A provider whose Bot API calls are recorded rather than sent.

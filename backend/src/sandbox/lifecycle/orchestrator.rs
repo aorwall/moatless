@@ -1406,12 +1406,11 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Removed)));
-        assert!(
-            h.lifecycle
-                .remove("t", ArchiveRetention::DeleteArchives)
-                .await
-                .is_ok()
-        );
+        assert!(h
+            .lifecycle
+            .remove("t", ArchiveRetention::DeleteArchives)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -1614,14 +1613,13 @@ mod tests {
         let out = h.lifecycle.start("t").await.expect("ok");
         assert_eq!(out.observed, ObservedStatus::Ready);
         assert!(h.events.facts().contains(&EventFact::Initializing));
-        assert!(
-            h.events
-                .published
-                .lock()
-                .expect("lock")
-                .iter()
-                .all(|e| e.status != moatless_events::SandboxStatus::Ready)
-        );
+        assert!(h
+            .events
+            .published
+            .lock()
+            .expect("lock")
+            .iter()
+            .all(|e| e.status != moatless_events::SandboxStatus::Ready));
     }
 
     #[tokio::test]
@@ -1681,12 +1679,10 @@ mod tests {
             payload.message,
             "Sandbox start failed: runtime infrastructure error: previous pod still terminating"
         );
-        assert!(
-            payload
-                .error
-                .as_deref()
-                .is_some_and(|e| e.contains("previous pod still terminating"))
-        );
+        assert!(payload
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("previous pod still terminating")));
         assert_eq!(
             payload.lifecycle_event.as_deref(),
             Some("runtime_infrastructure")

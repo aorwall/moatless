@@ -73,10 +73,13 @@ impl CodexScope {
     /// positional parameter counts consistent.
     pub fn where_clause(&self, placeholder: &str) -> String {
         match self {
-            Self::User(_) => format!(
-                "user_id = {placeholder} AND provider = 'codex' AND scope = 'user'"
-            ),
-            Self::Global => "user_id IS NULL AND team_id IS NULL AND provider = 'codex' AND scope = 'global'".to_string(),
+            Self::User(_) => {
+                format!("user_id = {placeholder} AND provider = 'codex' AND scope = 'user'")
+            }
+            Self::Global => {
+                "user_id IS NULL AND team_id IS NULL AND provider = 'codex' AND scope = 'global'"
+                    .to_string()
+            }
         }
     }
 

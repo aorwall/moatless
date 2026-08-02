@@ -3,29 +3,29 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::{Path, State};
+use axum::Json;
 
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
 use crate::adapter_apps::dao::{AdapterAppDao, GitHubAppAuditEntry, GitHubAppRecord, NewGitHubApp};
 use crate::adapter_apps::{
-    AdapterAppInput, AdapterAppSecretInput, DEFAULT_APP_KEY, delete_adapter_app, list_adapter_apps,
-    upsert_adapter_app,
+    delete_adapter_app, list_adapter_apps, upsert_adapter_app, AdapterAppInput,
+    AdapterAppSecretInput, DEFAULT_APP_KEY,
 };
 use crate::adapters::models::AdapterConnection;
 use crate::auth::credentials::{
-    GITHUB_OAUTH_STASH_KEY, read_github_oauth_stash, stash_github_oauth_token,
+    read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
 };
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_tokens::{
     APP_INSTALLATION_TOKEN_PLACEHOLDER, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
     SECRET_REF_TOKEN_PLACEHOLDER,
 };
-use crate::credentials::WriteSource;
 use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
-use crate::credentials::codex::{CodexScope, save_codex_auth_for_scope};
+use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
 use crate::credentials::github::scope::GitHubScope;
+use crate::credentials::WriteSource;
 use crate::extractors::AuthUser;
 use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;

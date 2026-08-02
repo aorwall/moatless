@@ -18,8 +18,8 @@ use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding}
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
-use super::SUBJECT_KIND_ISSUE;
 use super::webhook_payloads::{AgentSession, IssuePayload};
+use super::SUBJECT_KIND_ISSUE;
 
 pub(super) const ADAPTER: &str = "linear";
 /// `task_bindings.subject_kind` for a Binding that names a Linear agent

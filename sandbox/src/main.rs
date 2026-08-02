@@ -7,11 +7,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
+use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -23,16 +23,16 @@ use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
 use moatless_sandbox::backend_client::BackendGrpcClient;
 use moatless_sandbox::config::Config;
-use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::broker::{self, BrokerState};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink, GitTokenSink};
+use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::events::GrpcEventPublisher;
 use moatless_sandbox::grpc_server::SandboxServiceImpl;
 use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::shutdown;
 use moatless_sandbox::state::SandboxState;
-use moatless_sandbox::supervisor::{Criticality, SHUTDOWN_JOIN_DEADLINE, Supervisor};
+use moatless_sandbox::supervisor::{Criticality, Supervisor, SHUTDOWN_JOIN_DEADLINE};
 
 /// Unix socket path for the in-pod credential broker.
 ///

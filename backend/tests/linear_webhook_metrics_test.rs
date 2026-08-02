@@ -38,13 +38,13 @@ use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use sha2::Sha256;
 use sqlx::PgPool;
 
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::adapters::error::AdapterError;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
+use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::state::AppState;
 
-use common::{USER_1, linear_config, test_app_state_with_config, test_config};
+use common::{linear_config, test_app_state_with_config, test_config, USER_1};
 
 const SECRET: &str = "linear-webhook-secret";
 const ORG: &str = "org-1";

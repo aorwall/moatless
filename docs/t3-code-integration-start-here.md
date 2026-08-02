@@ -52,7 +52,7 @@ alongside it rather than taking it standalone.
 
 ## Then read the code
 
-- **`moatless/backend/src/ui_rpc/mod.rs`** — the compatibility surface. Discovery,
+- **`moatless/crates/t3code/src/lib.rs`** — the compatibility surface. Discovery,
   cookie auth, `/api/orchestration/shell`, WebSocket upgrade, Effect-RPC
   envelopes, shell projection, and shell subscription replay are wired end to end.
 - **`moatless/docs/runbooks/t3-code-local-development.md`** — how to actually run the

@@ -22,13 +22,16 @@ use sqlx::AssertSqlSafe;
 use tokio::sync::Semaphore;
 use tracing::warn;
 
-use crate::db::DbPool;
-use crate::message::models::{MessageRole, MessageType};
-use crate::shared_models::AgentType;
-use crate::task_activities::dao::{self as activities, Activity};
-use crate::task_activities::{self, ConversationChange, ConversationHead};
-use crate::task_listing::{self, ListingChange, ListingHead};
+use crate::UiRpcDbPool;
+use crate::activity_dao as activities;
+use crate::data::{T3TaskDao, T3WorkspaceDao, TaskView};
+use crate::listing::{UiRpcListingChange, UiRpcListingHead};
+use crate::workspace::UiRpcListedWorkspace;
+use moatless_api_schemas::enums::{MessageRole, MessageType};
 use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use moatless_api_schemas::shared::AgentType;
+use moatless_backend_core::activity::dao::Activity;
+use moatless_backend_core::activity::{ConversationChange, ConversationHead};
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
 
 /// One Task, with the derived values a sidebar row is assembled from.
@@ -94,7 +97,7 @@ pub struct Conversation {
 /// One Message of a Task's transcript, with the columns a transcript is
 /// rendered from and nothing else.
 ///
-/// Deliberately not [`crate::message::models::TaskMessage`]: that row carries
+/// Deliberately not the backend's `TaskMessage`: that row carries
 /// forty columns because it is the write model, and a transcript read that
 /// selected all of them would pull every tool result's raw payload and every
 /// run's metrics out of the database to project six fields.
@@ -129,7 +132,7 @@ pub struct Transcript {
     /// turn whose agent only called tools said nothing and has no Message row
     /// at all, and its calls reach a reader only through here.
     pub activities: Vec<Activity>,
-    /// The rows past [`TRANSCRIPT_LIMIT`] that were left out, oldest first.
+    /// The rows past `TRANSCRIPT_LIMIT` that were left out, oldest first.
     /// Zero for every transcript that fits, which is nearly all of them.
     pub omitted: i64,
 }
@@ -241,7 +244,7 @@ pub trait ConversationDao: Send + Sync {
         limit: i64,
     ) -> Result<Vec<ConversationMatch>, sqlx::Error>;
 
-    /// One Task's transcript, oldest first, capped at [`TRANSCRIPT_LIMIT`].
+    /// One Task's transcript, oldest first, capped at `TRANSCRIPT_LIMIT`.
     ///
     /// Unscoped, and deliberately: every caller reaches this having already
     /// resolved the same Task through [`ConversationDao::list_followed_by_ids`],
@@ -270,7 +273,7 @@ pub trait ConversationDao: Send + Sync {
 
     /// This conversation's changes at or after `from`, oldest first, capped at
     /// `limit`. At `from` rather than after it — see
-    /// [`task_activities::changes_from`].
+    /// [`moatless_backend_core::activity::changes_from`].
     async fn conversation_changes(
         &self,
         task_id: &str,
@@ -305,14 +308,14 @@ pub trait ConversationDao: Send + Sync {
 
     /// The highest listing position this deployment has reached, and the
     /// identity of the database it reached it in.
-    async fn listing_head(&self) -> Result<ListingHead, sqlx::Error>;
+    async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error>;
 
     /// Every listing change recorded after `after`, oldest first.
     async fn listing_changes_after(
         &self,
         after: i64,
         limit: i64,
-    ) -> Result<Vec<ListingChange>, sqlx::Error>;
+    ) -> Result<Vec<UiRpcListingChange>, sqlx::Error>;
 }
 
 /// A full shell snapshot is a deployment-sized read with no pagination in T3's
@@ -322,7 +325,7 @@ pub trait ConversationDao: Send + Sync {
 /// for task control, ingress, and reconciliation under shell overload.
 #[derive(Clone)]
 pub struct PgConversationDao {
-    pool: DbPool,
+    pool: UiRpcDbPool,
     full_listing: Arc<Semaphore>,
 }
 
@@ -370,7 +373,7 @@ const QUESTION_TOOL: &str = "AskUserQuestion";
 const PLAN_TOOL: &str = "ExitPlanMode";
 
 impl PgConversationDao {
-    pub fn new(pool: DbPool) -> Self {
+    pub fn new(pool: UiRpcDbPool) -> Self {
         metrics::describe_histogram!(
             LISTING_DURATION,
             "Full T3 shell listing duration by outcome"
@@ -610,6 +613,74 @@ impl PgConversationDao {
 }
 
 #[async_trait]
+impl T3WorkspaceDao for PgConversationDao {
+    async fn list_readable_including(
+        &self,
+        viewer: &ScopeContext,
+        also_include: &[String],
+    ) -> Result<Vec<UiRpcListedWorkspace>, sqlx::Error> {
+        let access = viewer.access_filter(ScopedEntity::Resource, "", 1);
+        let ids_param = access.next_param();
+        let sql = format!(
+            "SELECT *, {} AS readable FROM workspaces \
+             WHERE (deleted IS NULL OR deleted = false) \
+             AND ({} OR id = ANY(${ids_param})) \
+             ORDER BY name ASC",
+            access.sql(),
+            access.sql()
+        );
+        sqlx::query_as::<_, UiRpcListedWorkspace>(AssertSqlSafe(sql))
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .bind(also_include)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    async fn primary_repository(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        // Joined rather than read in two steps so the scoped read and the pick
+        // are one statement: a Workspace the viewer cannot be shown returns no
+        // row, which is the same answer as one that declares no repository.
+        let access = viewer.access_filter(ScopedEntity::Resource, "w.", 2);
+        let sql = format!(
+            "SELECT r.repository_id FROM workspace_repos r              JOIN workspaces w ON w.id = r.workspace_id              WHERE r.workspace_id = $1              AND (w.deleted IS NULL OR w.deleted = false)              AND {}              ORDER BY r.is_primary DESC, r.position ASC, r.id ASC              LIMIT 1",
+            access.sql()
+        );
+        sqlx::query_scalar::<_, String>(AssertSqlSafe(sql))
+            .bind(workspace_id)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .fetch_optional(&self.pool)
+            .await
+    }
+}
+
+#[async_trait]
+impl T3TaskDao for PgConversationDao {
+    async fn find_by_id(
+        &self,
+        task_id: &str,
+        viewer: &ScopeContext,
+    ) -> Result<Option<TaskView>, sqlx::Error> {
+        let access = viewer.access_filter(ScopedEntity::Task, "", 2);
+        let sql = format!(
+            "SELECT status FROM tasks WHERE task_id = $1 AND {}",
+            access.sql()
+        );
+        sqlx::query_as::<_, TaskView>(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .fetch_optional(&self.pool)
+            .await
+    }
+}
+
+#[async_trait]
 impl ConversationDao for PgConversationDao {
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
         self.list(viewer, TaskStatus::Open, None).await
@@ -725,7 +796,7 @@ impl ConversationDao for PgConversationDao {
         tool_use_id: &str,
     ) -> Result<Option<InteractiveCall>, sqlx::Error> {
         Ok(
-            crate::task_activities::dao::find_tool_call(&self.pool, task_id, tool_use_id)
+            crate::activity_dao::find_tool_call(&self.pool, task_id, tool_use_id)
                 .await?
                 .map(|activity| InteractiveCall {
                     settled: activity.is_settled(),
@@ -802,7 +873,7 @@ impl ConversationDao for PgConversationDao {
     }
 
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
-        task_activities::current_head(&self.pool, task_id).await
+        activities::current_head(&self.pool, task_id).await
     }
 
     async fn conversation_changes(
@@ -811,7 +882,7 @@ impl ConversationDao for PgConversationDao {
         from: i64,
         limit: i64,
     ) -> Result<Vec<ConversationChange>, sqlx::Error> {
-        task_activities::changes_from(&self.pool, task_id, from, limit).await
+        activities::changes_from(&self.pool, task_id, from, limit).await
     }
 
     async fn changed_messages(
@@ -866,15 +937,15 @@ impl ConversationDao for PgConversationDao {
         })
     }
 
-    async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
-        task_listing::current_head(&self.pool).await
+    async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error> {
+        crate::listing::current_head(&self.pool).await
     }
 
     async fn listing_changes_after(
         &self,
         after: i64,
         limit: i64,
-    ) -> Result<Vec<ListingChange>, sqlx::Error> {
-        task_listing::changes_after(&self.pool, after, limit).await
+    ) -> Result<Vec<UiRpcListingChange>, sqlx::Error> {
+        crate::listing::changes_after(&self.pool, after, limit).await
     }
 }

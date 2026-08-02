@@ -1,7 +1,7 @@
 # T3 Code integration current state
 
 > **Updated:** 2026-07-29
-> **Scope:** Moatless-side T3 compatibility surface in `backend/src/ui_rpc`
+> **Scope:** Moatless-side T3 compatibility surface in `crates/t3code`
 
 This document replaces the Moatless-side T3 planning specs that used to live in
 `specs/`. It records what is still relevant now: the shipped backend contract
@@ -11,19 +11,19 @@ surface, the sidebar projection, the durable listing feed, and the auth boundary
 
 Moatless exposes an opt-in T3 compatibility surface that translates Moatless
 Workspaces and Tasks into T3 Projects and Threads at the wire boundary only.
-`backend/src/ui_rpc/mod.rs:1` states the boundary: T3 vocabulary belongs in the
+`crates/t3code/src/lib.rs:1` states the boundary: T3 vocabulary belongs in the
 compatibility module and on the wire, not behind it.
 
 The backend no longer returns an empty shell. The HTTP shell snapshot reads the
 viewer-specific Workspace and Task rows, projects them to T3's shell shapes, and
 returns the listing position the snapshot was read at
-(`backend/src/ui_rpc/mod.rs:282`, `backend/src/ui_rpc/mod.rs:322`).
+(`crates/t3code/src/lib.rs:282`, `crates/t3code/src/lib.rs:322`).
 
 ## Runtime Surface
 
 The compatibility router is mounted only when `T3_UI_RPC_ENABLED` is true
-(`backend/src/ui_rpc/mod.rs:134`). When enabled, it exposes these routes
-(`backend/src/ui_rpc/mod.rs:220`):
+(`crates/t3code/src/lib.rs:134`). When enabled, it exposes these routes
+(`crates/t3code/src/lib.rs:220`):
 
 | Route | Auth | Current behavior |
 |---|---|---|
@@ -48,7 +48,7 @@ The chart carries that rule as the `-t3-surface` `IngressRoute`
 new T3 route outside `/api` has to be added there as well as to the router.
 
 The published `environmentId` is the configured deployment name plus a digest of
-the database identity (`backend/src/ui_rpc/mod.rs:173`). That makes a restored or
+the database identity (`crates/t3code/src/lib.rs:173`). That makes a restored or
 replaced database become a different T3 environment instead of reusing a cached
 listing built against another database.
 
@@ -65,33 +65,33 @@ The shell snapshot is viewer-specific.
 The asymmetric filtering is intentional. A sidebar is the work a person follows,
 not every row they can read. Workspaces use the broader readable-plus-referenced
 rule because T3 silently drops a Thread whose Project is missing
-(`backend/src/ui_rpc/mod.rs:307`).
+(`crates/t3code/src/lib.rs:307`).
 
 The conversation query builds one row per Task with the derived fields needed by
 the projection: newest Turn, Sandbox lifecycle, latest human-authored message,
 model candidates, and pending user-input or plan tool calls
-(`backend/src/ui_rpc/dao.rs:22`, `backend/src/ui_rpc/dao.rs:151`).
+(`crates/t3code/src/dao.rs:22`, `crates/t3code/src/dao.rs:151`).
 
 ## Projection Rules
 
-Projection to T3 happens in `backend/src/ui_rpc/projection.rs`.
+Projection to T3 happens in `crates/t3code/src/projection.rs`.
 
 | Field group | Current behavior |
 |---|---|
-| Project root | Synthesizes `/moatless/workspaces/<workspace-id>` because T3 treats root path as identity and Moatless has no real per-Workspace checkout path (`backend/src/ui_rpc/projection.rs:22`). |
-| Thread title | Uses `tasks.name`, falling back to `task_id` when blank or absent (`backend/src/ui_rpc/projection.rs:200`). |
-| Runtime mode | Always reports `full-access`; Moatless has no narrower T3 runtime-mode equivalent (`backend/src/ui_rpc/projection.rs:53`). |
-| Worktree path | Reports `/opt/moatless/workspace` only when a Sandbox exists and has not been removed (`backend/src/ui_rpc/projection.rs:370`). |
-| Latest turn | Uses newest Moatless Turn; `turnId` is `<task_id>:<turn_number>` (`backend/src/ui_rpc/projection.rs:237`). |
-| Turn state | Maps active and Moatless-interrupted to T3 `running`, completed to `completed`, error to `error`, and stopped to T3 `interrupted` (`backend/src/ui_rpc/projection.rs:272`). |
-| Session | Folds Sandbox desired state and newest Turn openness into T3 session status (`backend/src/ui_rpc/projection.rs:313`). |
-| Model | Uses newest assistant-reported model, then requested model, then deployment default for the agent kind, then `unknown` with a warning (`backend/src/ui_rpc/projection.rs:382`). |
-| Unsupported T3 fields | Leaves settlement, snoozing, archived timestamp, interaction mode, checkpoints, messages, and full activity projection out of the shell row (`backend/src/ui_rpc/projection.rs:189`). |
+| Project root | Synthesizes `/moatless/workspaces/<workspace-id>` because T3 treats root path as identity and Moatless has no real per-Workspace checkout path (`crates/t3code/src/projection.rs:22`). |
+| Thread title | Uses `tasks.name`, falling back to `task_id` when blank or absent (`crates/t3code/src/projection.rs:200`). |
+| Runtime mode | Always reports `full-access`; Moatless has no narrower T3 runtime-mode equivalent (`crates/t3code/src/projection.rs:53`). |
+| Worktree path | Reports `/opt/moatless/workspace` only when a Sandbox exists and has not been removed (`crates/t3code/src/projection.rs:370`). |
+| Latest turn | Uses newest Moatless Turn; `turnId` is `<task_id>:<turn_number>` (`crates/t3code/src/projection.rs:237`). |
+| Turn state | Maps active and Moatless-interrupted to T3 `running`, completed to `completed`, error to `error`, and stopped to T3 `interrupted` (`crates/t3code/src/projection.rs:272`). |
+| Session | Folds Sandbox desired state and newest Turn openness into T3 session status (`crates/t3code/src/projection.rs:313`). |
+| Model | Uses newest assistant-reported model, then requested model, then deployment default for the agent kind, then `unknown` with a warning (`crates/t3code/src/projection.rs:382`). |
+| Unsupported T3 fields | Leaves settlement, snoozing, archived timestamp, interaction mode, checkpoints, messages, and full activity projection out of the shell row (`crates/t3code/src/projection.rs:189`). |
 
 `latestUserMessageAt` deliberately counts only messages authored by a person.
 Agent output does not reorder the sidebar continuously, and the query does not
 use `tasks.last_message_at` because that field also moves for agent/system
-activity (`backend/src/ui_rpc/dao.rs:53`, `backend/src/ui_rpc/dao.rs:183`).
+activity (`crates/t3code/src/dao.rs:53`, `crates/t3code/src/dao.rs:183`).
 
 ## Listing Feed
 
@@ -115,16 +115,16 @@ Live delivery is not a diff stream. `ShellFeed` reads recorded changes, coalesce
 multiple changes for the same subject, re-reads the whole current row through the
 same filters as the snapshot, and sends `thread-upserted`, `thread-removed`,
 `project-upserted`, `project-removed`, or a full `snapshot`
-(`backend/src/ui_rpc/feed.rs:1`, `backend/src/ui_rpc/feed.rs:100`).
+(`crates/t3code/src/feed.rs:1`, `crates/t3code/src/feed.rs:100`).
 
 If a changed Thread enters a Project the client does not hold, the feed sends a
 fresh snapshot because T3 cannot apply the two necessary rows at the same
-position without dropping one (`backend/src/ui_rpc/feed.rs:218`).
+position without dropping one (`crates/t3code/src/feed.rs:218`).
 
 ## WebSocket Protocol
 
 The WebSocket route requires a valid Moatless identity and an Origin that one
-entry of `T3_UI_RPC_ALLOWED_ORIGINS` admits (`backend/src/ui_rpc/mod.rs:603`).
+entry of `T3_UI_RPC_ALLOWED_ORIGINS` admits (`crates/t3code/src/lib.rs:603`).
 An entry matches exactly, unless its host is `*.<domain>` — then it admits any
 host under that domain on the same scheme and default port, which is how a
 deployment covers per-workspace sandbox preview hostnames that do not exist
@@ -132,7 +132,7 @@ until the workspace does.
 
 The frame handler accepts T3 JSON RPC envelopes, validates request ids, supports
 ping/ack/interrupt/eof, and starts long-lived subscription producers
-(`backend/src/ui_rpc/mod.rs:784`). The implemented request tags are mostly
+(`crates/t3code/src/lib.rs:784`). The implemented request tags are mostly
 bootstrap and subscription surfaces:
 
 | Tag | Current behavior |
@@ -145,7 +145,7 @@ bootstrap and subscription surfaces:
 | Terminal, preview, VCS, discovered-server subscriptions | Start empty streams. |
 
 The shell subscription survives transient poll errors without advancing the
-cursor, so the next poll covers the same batch (`backend/src/ui_rpc/mod.rs:1034`).
+cursor, so the next poll covers the same batch (`crates/t3code/src/lib.rs:1034`).
 
 ## Auth State
 

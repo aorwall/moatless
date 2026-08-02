@@ -38,9 +38,7 @@ impl ProvisionDeps {
             provider_tokens: Arc::new(crate::auth::provider_token_dao::PgProviderTokenDao(
                 pool.clone(),
             )),
-            plugins: Arc::new(crate::plugin::dao::PgPluginDao(
-                pool.clone(),
-            )),
+            plugins: Arc::new(crate::plugin::dao::PgPluginDao(pool.clone())),
             workspaces: Arc::new(crate::workspace::dao::PgWorkspaceDao(pool.clone())),
         }
     }

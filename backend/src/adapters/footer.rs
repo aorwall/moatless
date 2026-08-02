@@ -58,7 +58,8 @@ pub(crate) fn parse_task_id_from_body(frontend_url: &str, body: &str) -> Option<
 /// no frontend URL is configured. Loads the task name (best effort) to use as
 /// the link text.
 pub(crate) async fn task_comment_footer(state: &AppState, task_id: &str) -> Option<String> {
-    #[allow(clippy::disallowed_methods)] // reason: footer lookup is a background formatting step with no caller identity
+    #[allow(clippy::disallowed_methods)]
+    // reason: footer lookup is a background formatting step with no caller identity
     let sys = ScopeContext::system();
     let name = match state.tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) => task.name,

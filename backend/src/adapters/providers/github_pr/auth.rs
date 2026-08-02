@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use tracing::debug;
 
-use crate::adapters::AdapterUserIdentity;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{BindingContext, SubscriptionMatch, TaskBinding};
+use crate::adapters::AdapterUserIdentity;
 use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
@@ -278,7 +278,7 @@ impl AdapterUserIdentity for GithubPrAdapter {
 mod tests {
     use super::*;
     use crate::auth::provider_token_dao::ProviderTokenDao;
-    use crate::auth::test_support::{StubProviderTokens, github_row};
+    use crate::auth::test_support::{github_row, StubProviderTokens};
 
     fn fake_github_apps() -> Arc<GitHubAppRegistry> {
         Arc::new(GitHubAppRegistry::default())
@@ -416,12 +416,10 @@ mod tests {
         );
 
         let empty_global = auth_with_tokens(Some(""), Arc::new(StubProviderTokens::default()));
-        assert!(
-            empty_global
-                .reaction_token(&no_filter, "soaplabs")
-                .await
-                .is_err()
-        );
+        assert!(empty_global
+            .reaction_token(&no_filter, "soaplabs")
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -438,12 +436,10 @@ mod tests {
         );
 
         let empty_global = auth_with_tokens(Some(""), Arc::new(StubProviderTokens::default()));
-        assert!(
-            empty_global
-                .resolve_token_for_user("unmapped-user", Some("soaplabs"))
-                .await
-                .is_err()
-        );
+        assert!(empty_global
+            .resolve_token_for_user("unmapped-user", Some("soaplabs"))
+            .await
+            .is_err());
     }
 
     #[tokio::test]

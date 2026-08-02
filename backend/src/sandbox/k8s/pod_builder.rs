@@ -19,7 +19,7 @@ use super::naming::generate_pod_name;
 use crate::config::Config;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt::{self, MintedSandboxTokens};
-use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
+use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
 use crate::sandbox::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
 use crate::sandbox::server_runner::build_server_start_script;
 
@@ -3043,18 +3043,14 @@ mod tests {
             .resources
             .as_ref()
             .expect("nvme-setup must declare resources");
-        assert!(
-            resources
-                .requests
-                .as_ref()
-                .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory"))
-        );
-        assert!(
-            resources
-                .limits
-                .as_ref()
-                .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory"))
-        );
+        assert!(resources
+            .requests
+            .as_ref()
+            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory")));
+        assert!(resources
+            .limits
+            .as_ref()
+            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory")));
     }
 
     /// The toolchain-persistence and cargo-target flags are off by default —
@@ -3192,13 +3188,12 @@ mod tests {
                 .map(|host_path| host_path.path.as_str()),
             Some("/mnt/cache/build-cache/shared")
         );
-        assert!(
-            spec.init_containers
-                .as_ref()
-                .unwrap()
-                .iter()
-                .any(|container| container.name == "build-cache-setup")
-        );
+        assert!(spec
+            .init_containers
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|container| container.name == "build-cache-setup"));
     }
 
     /// With the flags on: cargo registry/git ride `workspace-data` subPaths
@@ -3277,11 +3272,9 @@ mod tests {
             only_match_field(&selector.node_selector_terms[0]),
             ("metadata.name", "node-a")
         );
-        assert!(
-            node_affinity
-                .preferred_during_scheduling_ignored_during_execution
-                .is_none()
-        );
+        assert!(node_affinity
+            .preferred_during_scheduling_ignored_during_execution
+            .is_none());
     }
 
     #[test]
@@ -3296,11 +3289,9 @@ mod tests {
             only_match_field(&preferred[0].preference),
             ("metadata.name", "node-a")
         );
-        assert!(
-            node_affinity
-                .required_during_scheduling_ignored_during_execution
-                .is_none()
-        );
+        assert!(node_affinity
+            .required_during_scheduling_ignored_during_execution
+            .is_none());
     }
 
     #[test]

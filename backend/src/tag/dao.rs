@@ -148,9 +148,7 @@ pub async fn list_all(pool: &DbPool) -> Result<Vec<Tag>, sqlx::Error> {
 
 /// Find or create tags by name (convenience wrapper).
 pub async fn find_or_create_tags(pool: &DbPool, names: &[String]) -> Result<Vec<Tag>, sqlx::Error> {
-    PgTagDao(pool.clone())
-        .find_or_create_tags(names)
-        .await
+    PgTagDao(pool.clone()).find_or_create_tags(names).await
 }
 
 /// Set tags for a task (replaces existing) (convenience wrapper).
@@ -159,16 +157,12 @@ pub async fn set_task_tags(
     task_id: &str,
     tag_ids: &[String],
 ) -> Result<(), sqlx::Error> {
-    PgTagDao(pool.clone())
-        .set_task_tags(task_id, tag_ids)
-        .await
+    PgTagDao(pool.clone()).set_task_tags(task_id, tag_ids).await
 }
 
 /// Get tags for a single task (convenience wrapper).
 pub async fn get_tags_for_task(pool: &DbPool, task_id: &str) -> Result<Vec<TaskTag>, sqlx::Error> {
-    PgTagDao(pool.clone())
-        .get_tags_for_task(task_id)
-        .await
+    PgTagDao(pool.clone()).get_tags_for_task(task_id).await
 }
 
 /// Get tags for multiple tasks (convenience wrapper).
@@ -176,7 +170,5 @@ pub async fn get_tags_for_tasks(
     pool: &DbPool,
     task_ids: &[String],
 ) -> Result<Vec<TaskTag>, sqlx::Error> {
-    PgTagDao(pool.clone())
-        .get_tags_for_tasks(task_ids)
-        .await
+    PgTagDao(pool.clone()).get_tags_for_tasks(task_ids).await
 }

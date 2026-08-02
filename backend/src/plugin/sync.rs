@@ -381,10 +381,7 @@ mod tests {
         }
     }
 
-    fn service(
-        plugins: Arc<dyn PluginDao>,
-        fetcher: Arc<dyn SkillFetcher>,
-    ) -> PluginSyncService {
+    fn service(plugins: Arc<dyn PluginDao>, fetcher: Arc<dyn SkillFetcher>) -> PluginSyncService {
         PluginSyncService::new(
             plugins,
             fetcher,
@@ -436,7 +433,12 @@ mod tests {
         assert_eq!(stored[0].name, "sample-skill");
         assert_eq!(stored[0].description, "Runs the sample workflow");
         assert_eq!(
-            plugins.find_by_id("p1").await.unwrap().unwrap().synced_version,
+            plugins
+                .find_by_id("p1")
+                .await
+                .unwrap()
+                .unwrap()
+                .synced_version,
             Some("sha-new".to_string()),
             "the version is recorded with the skills it produced"
         );

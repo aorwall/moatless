@@ -45,6 +45,7 @@ pub mod sse;
 pub mod startup;
 pub mod state;
 pub mod supervisor;
+pub mod t3code;
 pub mod tag;
 pub mod task;
 pub mod task_activities;
@@ -52,7 +53,6 @@ pub mod task_event;
 pub mod task_listing;
 pub mod task_turn;
 pub mod team;
-pub mod ui_rpc;
 pub mod workspace;
 
 #[cfg(test)]

@@ -20,10 +20,10 @@ use crate::adapters::{
 use crate::db::DbPool;
 use crate::state::AppState;
 
-use super::SUBJECT_KIND_ISSUE;
 use super::agent_api::LinearAgentApi;
 use super::auth::LinearCredentials;
 use super::status;
+use super::SUBJECT_KIND_ISSUE;
 
 /// Linear adapter.
 pub struct LinearAdapter {

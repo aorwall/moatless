@@ -8,8 +8,8 @@
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::adapters::AdapterUserIdentity;
 use crate::adapters::error::AdapterError;
+use crate::adapters::AdapterUserIdentity;
 use crate::db::DbPool;
 
 use super::adapter::SlackAdapter;
@@ -239,13 +239,13 @@ impl AdapterUserIdentity for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterUserIdentity;
     use crate::adapters::test_support::ProviderStub;
+    use crate::adapters::AdapterUserIdentity;
     use crate::db::DbPool;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;
-    use super::{SenderIdentity, bot_user_id, resolve_inbound_sender};
+    use super::{bot_user_id, resolve_inbound_sender, SenderIdentity};
 
     fn unreachable_pool() -> DbPool {
         sqlx::postgres::PgPoolOptions::new()

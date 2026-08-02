@@ -5,7 +5,7 @@ use crate::adapters::common::{
     binding_descriptor, ensure_task_access, load_adapter_connection_for_auth,
 };
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, OutboundReply, TaskBinding};
+use crate::adapters::models::{OutboundReply, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::outbound;
 use crate::message::models::{MessageRole, MessageType, TaskMessage};

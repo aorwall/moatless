@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
 use super::contexts::task_message_context_to_input;
-use super::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
+use super::models::{TaskMessage, TaskMessageContext, TOOL_RESPONSE_USER_TYPE};
 use crate::file_storage::models::FileMetadata;
 use crate::message::models::MessageType;
 use crate::task::schemas::{FileContextData, MessageContextInput};
@@ -22,7 +22,7 @@ use super::schemas::*;
 /// The tool calls that hand a conversation back to a person.
 ///
 /// Keep in sync with `handlers::INTERACTIVE_TOOL_NAMES` and the same pair in
-/// `message::dao` and `ui_rpc::dao`.
+/// `message::dao` and `moatless_t3code::dao`.
 const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
 
 /// Which slice of rows a transform pass renders.

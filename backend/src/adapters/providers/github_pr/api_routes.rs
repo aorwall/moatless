@@ -16,13 +16,13 @@
 //! is consulted, which is also what lets these routes reach a repository the
 //! task isn't bound to: the user's own access is the only thing that decides.
 
-use axum::Json;
 use axum::extract::{Path, State};
+use axum::Json;
 use moatless_api_schemas::github::{
     GithubBindPrRequest, GithubBindPrResponse, GithubCommentRequest, GithubCommentResponse,
     GithubCreatePrRequest, GithubCreatePrResponse, GithubReplyRequest,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use crate::adapters::common::ensure_task_access;

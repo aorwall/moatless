@@ -1,6 +1,6 @@
 ---
 name: t3-development
-description: "Develop and test the T3 Code client against this backend's UI-RPC surface from inside a sandbox — the two-repo workspace where T3's Vite server on :5733 proxies /api and /ws to a shadow moatless-vibe-backend on :8080. Covers the shadow rebuild loop, headless UI-RPC probing with an API key and a WebSocket ticket, and browser verification against the preview URL. Use when working on backend/src/ui_rpc/**, on the T3 side of the Moatless adapter, or when the T3 sidebar renders empty, the socket 403s, or messages never load."
+description: "Develop and test the T3 Code client against this backend's t3code surface from inside a sandbox — the two-repo workspace where T3's Vite server on :5733 proxies /api and /ws to a shadow moatless-vibe-backend on :8080. Covers the shadow rebuild loop, headless UI-RPC probing with an API key and a WebSocket ticket, and browser verification against the preview URL. Use when working on crates/t3code/** or backend/src/t3code/**, on the T3 side of the Moatless adapter, or when the T3 sidebar renders empty, the socket 403s, or messages never load."
 ---
 
 # T3 Code against this backend
@@ -14,8 +14,9 @@ under `/opt/moatless/workspace/` and runs each side as a sidecar container:
 | `backend` | 8080 | `scripts/shadow/up.sh` → `moatless-vibe-backend` | manual, see below |
 
 T3's own Node server (`t3code/apps/server`) is **not** running and never will be.
-Every backend path the client calls is proxied to this backend's UI-RPC
-compatibility surface, `backend/src/ui_rpc/`. This is the same harness as the
+Every backend path the client calls is proxied to this backend's t3code
+compatibility surface, `crates/t3code/`, with root adapters in
+`backend/src/t3code/`. This is the same harness as the
 [`shadow-dev`](../shadow-dev/SKILL.md) skill — the shadow backend, the same
 `scripts/shadow/` scripts, the same shared dev Postgres/Redis/S3 — with T3's
 client in front of it instead of `apps/frontend`. Read that skill for how the
@@ -65,9 +66,9 @@ curl -s -H "Authorization: Bearer $MOATLESS_API_KEY" \
 **The socket is stricter than the routes.** A bearer key alone is not enough
 there: `origin_checked` skips the Origin allow-list only for
 `AuthMethod::WebSocketTicket`, so an upgrade carrying `Authorization: Bearer …`
-and no Origin gets a **403** (`backend/src/ui_rpc/mod.rs:860,896`). Trade the key
+and no Origin gets a **403** (`crates/t3code/src/lib.rs`). Trade the key
 for a 60-second ticket at `POST /api/auth/websocket-ticket` and pass it as
-`wsTicket` (`backend/src/ui_rpc/auth.rs`) — *that* is what lets a script connect
+`wsTicket` (`crates/t3code/src/oauth.rs`) — *that* is what lets a script connect
 from localhost when a browser cannot.
 
 `references/rpc.mjs` does the exchange, sends one Effect-RPC envelope,
@@ -159,7 +160,7 @@ bash scripts/shadow/rebuild.sh        # compile + signal; the restart lands ~5s 
 curl -s http://localhost:8080/health  # confirm it came back
 ```
 
-Budget for it. Measured in this pod, for one edit under `backend/src/ui_rpc/`:
+Budget for it. Measured in this pod, for one edit under `crates/t3code/`:
 
 | | time |
 | --- | --- |
@@ -189,7 +190,7 @@ cargo test  -p moatless-vibe-backend
 Both build the dev profile. The first `cargo test` in a fresh sandbox is a cold
 codegen of the whole dependency graph — several minutes, not a hang.
 
-Wire-shape changes belong in `backend/src/ui_rpc/projection.rs`'s test module,
+Wire-shape changes belong in `crates/t3code/src/projection.rs`'s test module,
 asserted field-for-field against `t3code/packages/contracts/src/orchestration.ts`.
 A projection that compiles and renders can still be wrong in a field no current
 client reads.
@@ -198,7 +199,7 @@ client reads.
 
 | Symptom | Usually |
 | --- | --- |
-| Route 404s, an RPC answers a `Die` defect, a field is missing from a payload | `backend/src/ui_rpc/` |
+| Route 404s, an RPC answers a `Die` defect, a field is missing from a payload | `crates/t3code/` or `backend/src/t3code/` |
 | The payload is right but the UI misreads it | `t3code/apps/web`, `t3code/packages/client-runtime` |
 | Client and server disagree about a shape | `t3code/packages/contracts` is the contract; the Rust side transcribes it by hand |
 

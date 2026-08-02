@@ -21,7 +21,7 @@
 
 use std::time::Duration;
 
-use moatless_vibe_backend::ui_rpc::preview_tabs::{
+use moatless_t3code::preview_tabs::{
     conformance, PreviewTabDao, PreviewTabTtl, RedisPreviewTabDao,
 };
 use redis::AsyncCommands;
@@ -43,7 +43,9 @@ const DELIVERY_TIMEOUT: Duration = Duration::from_secs(10);
 const CONFORMANCE_TASKS: [&str; 2] = ["task", "other"];
 
 fn redis_url() -> Option<String> {
-    std::env::var("REDIS_URL").ok().filter(|url| !url.is_empty())
+    std::env::var("REDIS_URL")
+        .ok()
+        .filter(|url| !url.is_empty())
 }
 
 async fn clear(url: &str, task_ids: &[&str]) {
@@ -51,7 +53,10 @@ async fn clear(url: &str, task_ids: &[&str]) {
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     for task_id in task_ids {
         let _: () = conn
-            .del(&[format!("preview:{task_id}"), format!("preview:{task_id}:rev")])
+            .del(&[
+                format!("preview:{task_id}"),
+                format!("preview:{task_id}:rev"),
+            ])
             .await
             .unwrap();
     }

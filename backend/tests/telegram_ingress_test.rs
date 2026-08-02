@@ -32,9 +32,9 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::adapters::routes::adapter_router;
+use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::Scope;
@@ -42,7 +42,7 @@ use moatless_vibe_backend::state::AppState;
 use sqlx::{PgPool, Row};
 use tower::ServiceExt;
 
-use common::{USER_1, make_repository_row, seed_team, test_app_state_with_adapters, test_config};
+use common::{make_repository_row, seed_team, test_app_state_with_adapters, test_config, USER_1};
 
 const CONNECTION: &str = "conn-telegram-1";
 const TRIGGER: &str = "tt-telegram-1";

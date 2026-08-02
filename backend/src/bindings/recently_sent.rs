@@ -118,9 +118,7 @@ impl RecentlySent {
 /// A sha we are willing to treat as an identity: hex, and long enough that its
 /// prefix names one commit rather than a family of them.
 fn is_claimable_sha(sha: &str) -> bool {
-    sha.len() >= MIN_ABBREV_SHA
-        && sha.len() <= 40
-        && sha.chars().all(|c| c.is_ascii_hexdigit())
+    sha.len() >= MIN_ABBREV_SHA && sha.len() <= 40 && sha.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn key(task_id: &str, ext_id: &str) -> String {

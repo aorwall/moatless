@@ -16,7 +16,7 @@
 //! Identity plays no part: the resolver is never given a user identity. A task
 //! is passed over only where it can be *named* as the author of what arrived.
 
-use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, Audience, TaskBinding};
+use crate::adapters::models::{Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 
 /// What the event says about who wrote it, resolved before the resolver runs.
 ///
@@ -112,10 +112,10 @@ fn is_producer(binding: &TaskBinding) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{EventProvenance, resolve_recipients};
+    use super::{resolve_recipients, EventProvenance};
     use crate::adapters::models::{
-        ADAPTER_EVENT_BINDING_ORIGIN, Audience, CONNECTED_THREAD_BINDING_ORIGIN,
-        TASK_OWNED_BINDING_ORIGIN, TaskBinding,
+        Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
+        TASK_OWNED_BINDING_ORIGIN,
     };
     use chrono::Utc;
 

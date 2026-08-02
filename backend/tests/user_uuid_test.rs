@@ -6,9 +6,7 @@
 
 use chrono::Utc;
 use moatless_vibe_backend::auth::models::UserRole;
-use moatless_vibe_backend::auth::password::dao::{
-    PgUserCredentialDao, UserCredentialDao,
-};
+use moatless_vibe_backend::auth::password::dao::{PgUserCredentialDao, UserCredentialDao};
 use moatless_vibe_backend::auth::users::{PgUserDao, User, UserDao};
 use moatless_vibe_backend::team::dao::{PgTeamDao, TeamDao};
 use sqlx::PgPool;

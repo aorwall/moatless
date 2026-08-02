@@ -19,12 +19,13 @@ use crate::repository::dao::RepositoryDao;
 use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::models::{
-    derive_mount_name, sanitize_mount_name, ProvisionRequest, RepoCheckout, RepoConfig, ServerConfig,
+    derive_mount_name, sanitize_mount_name, ProvisionRequest, RepoCheckout, RepoConfig,
+    ServerConfig,
 };
-use moatless_api_schemas::plugin::PluginDelivery;
 use crate::task::dao::TaskDao;
 use crate::task::models::Task;
 use crate::workspace::dao::WorkspaceDao;
+use moatless_api_schemas::plugin::PluginDelivery;
 
 // Re-export the workspace-sourced config builders from k8s/auto_provision. They
 // are shared by lifecycle plan construction and pod-watcher parsing.
@@ -357,14 +358,11 @@ fn build_repo_checkouts(
     // The primary placement is the one flagged in the DB; when nothing is
     // flagged, `resolve_primary_repository_id` picked the task's repository, so
     // match on that instead.
-    let primary_idx = placements
-        .iter()
-        .position(|p| p.is_primary)
-        .or_else(|| {
-            placements
-                .iter()
-                .position(|p| p.repository_id == primary_repository_id)
-        });
+    let primary_idx = placements.iter().position(|p| p.is_primary).or_else(|| {
+        placements
+            .iter()
+            .position(|p| p.repository_id == primary_repository_id)
+    });
 
     let mut checkouts = Vec::new();
     let mut used: HashSet<String> = HashSet::new();
@@ -434,10 +432,7 @@ fn unique_mount_name(requested: String, used: &HashSet<String>) -> String {
 ///
 /// Falls back to `repository_id` when the workspace is empty or the lookup
 /// fails, so provisioning is never blocked by workspace-resolution issues.
-async fn resolve_primary_repository_id(
-    workspaces: &dyn WorkspaceDao,
-    task: &Task,
-) -> String {
+async fn resolve_primary_repository_id(workspaces: &dyn WorkspaceDao, task: &Task) -> String {
     let Some(workspace_id) = task.workspace_id.as_deref() else {
         return task.repository_id.clone();
     };

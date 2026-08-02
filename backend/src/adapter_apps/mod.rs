@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use tracing::{info, warn};
@@ -805,7 +805,7 @@ async fn carry_over_one(
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_APP_KEY, app_key_from_transport_config};
+    use super::{app_key_from_transport_config, DEFAULT_APP_KEY};
 
     #[test]
     fn transport_config_app_key_defaults_when_absent_or_blank() {

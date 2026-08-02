@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use axum::Json;
 use axum::extract::{Path, Query, State};
+use axum::Json;
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
@@ -19,7 +19,7 @@ use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 use crate::repository::models::RepositoryProvider;
 
-use crate::bindings::dao::{TaskBindingDao, get_bindings_for_tasks};
+use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingDao};
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::error::TaskError;

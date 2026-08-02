@@ -294,11 +294,10 @@ mod error_source_tests {
             .expect_err("unreachable database must fail");
 
         assert!(matches!(err, AdapterError::Db(_)), "got {err:?}");
-        assert!(
-            err.source()
-                .and_then(|s| s.downcast_ref::<sqlx::Error>())
-                .is_some()
-        );
+        assert!(err
+            .source()
+            .and_then(|s| s.downcast_ref::<sqlx::Error>())
+            .is_some());
     }
 
     #[tokio::test]
@@ -306,11 +305,10 @@ mod error_source_tests {
         let serde_err = serde_json::from_str::<serde_json::Value>("nope").unwrap_err();
         let err = AdapterError::ConfigSerialization(serde_err);
 
-        assert!(
-            err.source()
-                .and_then(|s| s.downcast_ref::<serde_json::Error>())
-                .is_some()
-        );
+        assert!(err
+            .source()
+            .and_then(|s| s.downcast_ref::<serde_json::Error>())
+            .is_some());
 
         let (status, body) = response_snapshot(err.into_response()).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);

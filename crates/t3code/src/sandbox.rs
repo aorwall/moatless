@@ -8,19 +8,18 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use crate::sandbox::access::{
-    SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
+use crate::data::{T3TaskDao, TaskView};
+use moatless_api_schemas::enums::SandboxStopReason;
+use moatless_backend_core::sandbox::{
+    SandboxError, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
 };
-use crate::sandbox::error::SandboxError;
-use crate::task::dao::TaskDao;
-use crate::task::models::SandboxStopReason;
 use moatless_backend_core::scope::ScopeContext;
 
 /// Everything the sandbox lifecycle handlers need.
 #[derive(Clone)]
 pub struct SandboxState {
     pub observer: Arc<dyn SandboxObserver>,
-    pub tasks: Arc<dyn TaskDao>,
+    pub tasks: Arc<dyn T3TaskDao>,
     pub intent: Arc<dyn SandboxIntentReader>,
     pub starter: Arc<dyn SandboxStarter>,
     pub stopper: Arc<dyn SandboxStopper>,
@@ -42,7 +41,7 @@ async fn authorized_task(
     state: &SandboxState,
     viewer: &ScopeContext,
     task_id: &str,
-) -> Result<crate::task::models::Task, SandboxRpcError> {
+) -> Result<TaskView, SandboxRpcError> {
     state
         .tasks
         .find_by_id(task_id, viewer)

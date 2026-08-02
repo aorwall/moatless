@@ -124,7 +124,7 @@ pub use models::{
 };
 pub use store::AdapterDeliveryStore;
 pub(crate) use typed::{
-    ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery,
+    register_connection_delivery, register_typed_delivery, ConnectionDeliveryPayload,
 };
 pub use worker::spawn_adapter_delivery_worker;
 

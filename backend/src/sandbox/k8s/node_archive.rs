@@ -24,8 +24,8 @@ use tracing::info;
 use super::client::K8sClient;
 use super::naming::sanitize_k8s_name;
 use crate::config::Config;
+use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 use crate::sandbox::lifecycle::RuntimeError;
-use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
 
 const CLEANUP_MOUNT_PATH: &str = "/host-cache";
 const CLEANUP_TIMEOUT: Duration = Duration::from_mins(5);
@@ -687,32 +687,25 @@ mod tests {
         assert_eq!(security.run_as_user, Some(0));
         assert_eq!(security.privileged, Some(false));
         assert_eq!(security.allow_privilege_escalation, Some(false));
-        assert!(
-            security
-                .capabilities
-                .as_ref()
-                .and_then(|capabilities| capabilities.drop.as_ref())
-                .is_some_and(|drop| drop == &["ALL".to_string()])
-        );
-        assert!(
-            security
-                .capabilities
-                .as_ref()
-                .and_then(|capabilities| capabilities.add.as_ref())
-                .is_some_and(|add| add == &["DAC_OVERRIDE".to_string()])
-        );
-        assert!(
-            !pod.metadata
-                .labels
-                .as_ref()
-                .is_some_and(|labels| labels.contains_key("moatless.io/task-id"))
-        );
-        assert!(
-            container
-                .args
-                .as_ref()
-                .is_some_and(|args| args[0].contains("/host-cache/build-cache/tasks/$TASK_ID"))
-        );
+        assert!(security
+            .capabilities
+            .as_ref()
+            .and_then(|capabilities| capabilities.drop.as_ref())
+            .is_some_and(|drop| drop == &["ALL".to_string()]));
+        assert!(security
+            .capabilities
+            .as_ref()
+            .and_then(|capabilities| capabilities.add.as_ref())
+            .is_some_and(|add| add == &["DAC_OVERRIDE".to_string()]));
+        assert!(!pod
+            .metadata
+            .labels
+            .as_ref()
+            .is_some_and(|labels| labels.contains_key("moatless.io/task-id")));
+        assert!(container
+            .args
+            .as_ref()
+            .is_some_and(|args| args[0].contains("/host-cache/build-cache/tasks/$TASK_ID")));
     }
 
     #[test]
@@ -847,8 +840,7 @@ mod tests {
 
     #[test]
     fn destroyed_nodes_are_dropped_from_the_removal_plan() {
-        let records =
-            BTreeMap::from([("gone-node".to_string(), 2), ("live-node".to_string(), 1)]);
+        let records = BTreeMap::from([("gone-node".to_string(), 2), ("live-node".to_string(), 1)]);
         let surviving = BTreeSet::from(["live-node".to_string()]);
 
         assert_eq!(

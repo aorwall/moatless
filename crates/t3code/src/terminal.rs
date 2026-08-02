@@ -24,10 +24,8 @@ use tracing::{debug, warn};
 
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
-use crate::sandbox::access::SandboxConnector;
-use crate::sandbox::client::classify_grpc_error;
-use crate::sandbox::error::SandboxError;
 use moatless_api_schemas::enums::SandboxDesiredState;
+use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
 use moatless_backend_core::scope::ScopeContext;
 
 const TERMINAL_EVENT_BUFFER: usize = 512;

@@ -33,7 +33,7 @@ use crate::events::EventPublisher;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::models::Repository;
 use crate::sandbox::preflight::{
-    GithubValidator, PreflightCredentials, PreflightError, preflight_validate_github_token,
+    preflight_validate_github_token, GithubValidator, PreflightCredentials, PreflightError,
 };
 use crate::shared_models::{AgentMode, AgentType};
 use crate::tag::dao::TagDao;
@@ -41,7 +41,7 @@ use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
 use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::task::relations::{
-    CreatedByParent, RelatedTask, TaskRelationDao, record_created_by, record_related_to,
+    record_created_by, record_related_to, CreatedByParent, RelatedTask, TaskRelationDao,
 };
 use crate::task::schemas::MessageContextInput;
 

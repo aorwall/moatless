@@ -7,9 +7,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use crate::adapters::AdapterKind;
 use crate::adapters::common::next_fire_at;
 use crate::adapters::models::{Audience, InboundMessage, LoopContext, LoopSpawnConfig, Schedule};
+use crate::adapters::AdapterKind;
 use crate::leader::LeaderGuard;
 use crate::loops::firing::metrics::record_schedule_firing;
 use crate::shared_models::AgentMode;

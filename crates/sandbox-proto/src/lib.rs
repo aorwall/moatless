@@ -1,5 +1,7 @@
 //! Generated gRPC types and services for sandbox <-> backend communication.
 
+pub mod client;
+
 pub mod sandbox {
     pub mod v1 {
         tonic::include_proto!("sandbox.v1");

@@ -1,11 +1,11 @@
-use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
+use axum::Json;
 use tracing::{debug, info};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
+use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
 use crate::adapters::ingress::admit_delivery;
 use crate::state::AppState;
 

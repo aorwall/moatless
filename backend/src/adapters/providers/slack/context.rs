@@ -1,9 +1,9 @@
 //! How a Slack thread is presented to the agent: the instructions and labels
 //! that frame an inbound message, and the thread history fetched alongside it.
 
-use crate::adapters::AdapterInboundPresentation;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{BindingContext, InboundMessage, LoopContext};
+use crate::adapters::AdapterInboundPresentation;
 
 use super::adapter::SlackAdapter;
 use super::config::SlackAdapterConfig;
@@ -264,12 +264,10 @@ mod tests {
 
     #[test]
     fn the_reply_instructions_name_the_bot() {
-        assert!(
-            SlackAdapter::new("token", "secret", Some("U0BOT".into()))
-                .reply_instructions()
-                .expect("Slack always has instructions")
-                .contains("Slack user ID `U0BOT`")
-        );
+        assert!(SlackAdapter::new("token", "secret", Some("U0BOT".into()))
+            .reply_instructions()
+            .expect("Slack always has instructions")
+            .contains("Slack user ID `U0BOT`"));
     }
 
     /// The budget: one `conversations.replies`. The cursor is sent bare, the

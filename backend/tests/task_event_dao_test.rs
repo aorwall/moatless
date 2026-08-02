@@ -12,9 +12,7 @@
 mod common;
 
 use moatless_vibe_backend::task::dao::{self as task_dao};
-use moatless_vibe_backend::task_event::dao::{
-    InsertTaskEvent, PgTaskEventDao, TaskEventDao,
-};
+use moatless_vibe_backend::task_event::dao::{InsertTaskEvent, PgTaskEventDao, TaskEventDao};
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row};

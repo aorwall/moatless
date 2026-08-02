@@ -331,10 +331,7 @@ async fn fill_codex(
     }
 
     if let Some(svc) = credentials_svc {
-        match svc
-            .ensure_fresh_codex_for(user_id, current_task_id)
-            .await
-        {
+        match svc.ensure_fresh_codex_for(user_id, current_task_id).await {
             Ok(blob) => {
                 credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
             }
@@ -657,11 +654,10 @@ mod tests {
         // The sandbox's run-as user holds nothing, so the slot stays empty even
         // with a global row sitting there. Preflight turns this into a
         // NoGithubToken naming the user rather than starting the sandbox.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(
-            StubProviderTokens::with_user_row(None).with_global_row(
+        let tokens: Arc<dyn ProviderTokenDao> =
+            Arc::new(StubProviderTokens::with_user_row(None).with_global_row(
                 crate::auth::test_support::github_row("oauth", "gho_global_binding"),
-            ),
-        );
+            ));
 
         let repository = github_repository(moatless_backend_core::scope::Scope::Global);
         let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;
@@ -672,12 +668,12 @@ mod tests {
     async fn secret_ref_row_resolves_via_the_secret_not_the_sentinel() {
         // No App registry wired: the fallback dispatch still has to honour
         // `secret_ref`, or the sandbox would receive the sentinel string.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(
-            Some(crate::auth::test_support::github_row(
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
+            crate::auth::test_support::github_row(
                 AUTH_METHOD_SECRET_REF,
                 crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
-            )),
-        ));
+            ),
+        )));
         let secrets = Arc::new(service_with(vec![secret(
             "user",
             Some("u1"),
@@ -698,12 +694,12 @@ mod tests {
         // account not connected": with no secret service the sentinel cannot be
         // dereferenced, and the error is swallowed into an absent credential.
         // Callers must wire `secrets` — see `preflight_validate_github_token`.
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(
-            Some(crate::auth::test_support::github_row(
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
+            crate::auth::test_support::github_row(
                 AUTH_METHOD_SECRET_REF,
                 crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER,
-            )),
-        ));
+            ),
+        )));
 
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
         let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;

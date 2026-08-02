@@ -18,7 +18,7 @@ use std::fmt::Write as _;
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
+use crate::adapters::models::{SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;

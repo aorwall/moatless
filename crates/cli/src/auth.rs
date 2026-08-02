@@ -95,7 +95,10 @@ async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
         return ProbedAuthMode::OAuth;
     };
 
-    match moatless_api_client::ApiClient::new(url, http).auth_mode().await {
+    match moatless_api_client::ApiClient::new(url, http)
+        .auth_mode()
+        .await
+    {
         Ok(resp) if resp.mode == moatless_api_schemas::auth::AuthMode::Password => {
             ProbedAuthMode::Password
         }

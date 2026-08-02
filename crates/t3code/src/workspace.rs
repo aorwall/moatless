@@ -21,9 +21,46 @@
 
 use super::dao::ConversationDao;
 use super::projection;
-use crate::sandbox::error::SandboxError;
+use chrono::{DateTime, Utc};
 use moatless_api_schemas::enums::SandboxDesiredState;
+use moatless_backend_core::sandbox::SandboxError;
+use moatless_backend_core::scope::Scope;
 use moatless_backend_core::scope::ScopeContext;
+use serde_json::Value;
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct WorkspaceView {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub kind: String,
+    pub docker_image: Option<String>,
+    pub docker_access: Option<bool>,
+    pub sandbox_service_account: Option<String>,
+    pub system_prompt: Option<String>,
+    pub setup_commands: Option<Value>,
+    pub env_vars: Option<Value>,
+    pub servers: Option<Value>,
+    pub resources: Option<Value>,
+    pub network_profile: Option<String>,
+    pub source: String,
+    pub source_repository_id: Option<String>,
+    pub source_key: Option<String>,
+    pub source_config_path: Option<String>,
+    pub scope: Scope,
+    pub owner_user_id: Option<String>,
+    pub created_by: Option<String>,
+    pub deleted: Option<bool>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UiRpcListedWorkspace {
+    #[sqlx(flatten)]
+    pub workspace: WorkspaceView,
+    pub readable: bool,
+}
 
 /// Why a conversation's workspace could not be read.
 ///
@@ -90,6 +127,13 @@ impl WorkspaceAccessError {
             Self::Sandbox(_) => "The sandbox could not be reached.".into(),
             Self::Database(_) => "This conversation's workspace could not be read.".into(),
         }
+    }
+}
+
+pub fn sandbox_access(error: SandboxError) -> WorkspaceAccessError {
+    match error {
+        SandboxError::NotReady(_) => WorkspaceAccessError::NotRunning(error),
+        other => WorkspaceAccessError::Sandbox(other),
     }
 }
 

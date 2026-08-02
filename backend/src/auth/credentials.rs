@@ -213,9 +213,7 @@ pub(crate) async fn resolve_repository_github_scope_token(
                     .to_string(),
             ));
         }
-        GitHubScope::Global
-            if row.auth_method.as_deref() != Some(AUTH_METHOD_APP_INSTALLATION) =>
-        {
+        GitHubScope::Global if row.auth_method.as_deref() != Some(AUTH_METHOD_APP_INSTALLATION) => {
             return Err(AuthError::Config(format!(
                 "GitHub credential at scope '{scope}' is not a GitHub App installation binding"
             )));
@@ -514,7 +512,6 @@ mod tests {
         .await
     }
 
-
     #[tokio::test]
     async fn secret_ref_row_resolves_the_encrypted_pat() {
         let secrets = service_with(vec![secret(
@@ -668,18 +665,11 @@ mod tests {
             AUTH_METHOD_SECRET_REF,
             SECRET_REF_TOKEN_PLACEHOLDER,
         ));
-        let resolved = resolve_github_token_for_scopes(
-            &tokens,
-            None,
-            None,
-            &apps,
-            Some(&secrets),
-            "u1",
-            None,
-        )
-        .await
-        .expect("global secret_ref must resolve")
-        .expect("global row present");
+        let resolved =
+            resolve_github_token_for_scopes(&tokens, None, None, &apps, Some(&secrets), "u1", None)
+                .await
+                .expect("global secret_ref must resolve")
+                .expect("global row present");
         assert_eq!(resolved.token, "ghp_org_secret");
     }
 

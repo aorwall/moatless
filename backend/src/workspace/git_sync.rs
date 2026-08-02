@@ -601,10 +601,11 @@ async fn upsert_git_workspace(
     // and a failure between them would leave the workspace visible again with
     // nothing recorded.
     let mut tx = state.db.begin().await?;
-    let reclaimed = sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
-        .bind(&workspace_id)
-        .execute(&mut *tx)
-        .await?;
+    let reclaimed =
+        sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
+            .bind(&workspace_id)
+            .execute(&mut *tx)
+            .await?;
     if reclaimed.rows_affected() > 0 {
         crate::task_listing::record_workspace_change(&mut tx, &workspace_id).await?;
     }

@@ -8,18 +8,18 @@ use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{Audience, InboundMessage, SubscriptionMatch};
+use crate::adapters::AdapterKind;
 use crate::db::DbPool;
 
 use super::config::GithubPrRuleConfig;
 use super::signals::ReviewDecision;
-use super::status::{WebhookStatusObservation, github_external_status};
+use super::status::{github_external_status, WebhookStatusObservation};
 use super::subject::GithubPrSubject;
 use super::text::{
-    PrOpenedText, ReviewCommentText, issue_comment_text, pr_opened_text, pr_synchronized_text,
-    review_comment_text, review_text,
+    issue_comment_text, pr_opened_text, pr_synchronized_text, review_comment_text, review_text,
+    PrOpenedText, ReviewCommentText,
 };
 
 /// Everything downstream workflows can derive from one raw webhook.

@@ -47,7 +47,10 @@ pub fn plugin_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi
         .routes(routes!(handlers::delete_plugin))
         .routes(routes!(handlers::list_plugin_skills))
         .routes(routes!(handlers::list_plugin_activations))
-        .routes(routes!(handlers::set_plugin_activation, handlers::clear_plugin_activation))
+        .routes(routes!(
+            handlers::set_plugin_activation,
+            handlers::clear_plugin_activation
+        ))
         .routes(routes!(handlers::list_effective_plugins))
         .with_state(state)
         .split_for_parts();

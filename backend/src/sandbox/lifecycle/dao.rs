@@ -801,8 +801,14 @@ mod db_tests {
             IntentEffect::Changed
         );
 
-        let changes = crate::task_listing::changes_after(&pool, 0, 10).await.unwrap();
-        assert_eq!(changes.len(), 1, "the session moved and nothing recorded it");
+        let changes = crate::task_listing::changes_after(&pool, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            changes.len(),
+            1,
+            "the session moved and nothing recorded it"
+        );
         assert_eq!(
             changes[0].subject(),
             Some(crate::task_listing::ChangeSubject::Task("t1"))

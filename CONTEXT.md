@@ -404,7 +404,7 @@ those as "shell command" / "CLI command".
 ### T3 Code — always qualified
 
 T3 Code is a separate client (`soaplabs/t3code`) being adapted to run against this
-backend through the UI RPC surface. Its vocabulary overlaps ours imperfectly, so
+backend through the `t3code` surface. Its vocabulary overlaps ours imperfectly, so
 these terms are **only** used with the "T3" qualifier. Full mapping:
 [docs/t3-code-domain-mapping.md](./docs/t3-code-domain-mapping.md).
 
@@ -432,12 +432,12 @@ federate over *access scope* — the two are different axes, not two spellings o
 multi-tenancy. The adapter presents this backend as exactly one T3 Environment.
 _Avoid_: reading it as our deployment environment, or as a Sandbox.
 
-**UI RPC** (also **T3 compatibility surface**):
-The opt-in `backend/src/ui_rpc` module that serves T3 Code's contract (discovery,
+**t3code** (also **T3 compatibility surface**):
+The opt-in `crates/t3code` crate that serves T3 Code's contract (discovery,
 session bootstrap, `/api/orchestration/shell`, and the `/ws` Effect-RPC envelopes)
 from Moatless rows. An anti-corruption layer: T3 names appear on the wire, Moatless
-names everywhere behind it.
-_Avoid_: leaking T3 vocabulary past this module.
+names everywhere behind it; root-crate adapters live under `backend/src/t3code`.
+_Avoid_: leaking T3 vocabulary past this surface.
 
 ### Words that are never standalone terms
 

@@ -23,7 +23,7 @@ use moatless_vibe_backend::adapters::routes::adapter_router;
 use moatless_vibe_backend::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 
-use common::{USER_1, USER_2, authed_request, test_app_state, user_scope};
+use common::{authed_request, test_app_state, user_scope, USER_1, USER_2};
 
 /// Write an `adapter_connections` row owned by `user_id`.
 async fn seed_connection(state: &AppState, id: &str, user_id: &str) -> String {

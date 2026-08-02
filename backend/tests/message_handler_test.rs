@@ -64,7 +64,9 @@ async fn get_messages_pagination(pool: PgPool) {
     // Seed 75 user messages so they cleanly survive the empty-content filter.
     for i in 0..75 {
         let msg = make_message_row("task-1", &format!("msg-{i:03}"));
-        message_dao::append(&pool, &msg, &[], &ConversationWrite::default()).await.unwrap();
+        message_dao::append(&pool, &msg, &[], &ConversationWrite::default())
+            .await
+            .unwrap();
     }
 
     // Page 1: latest 50.
@@ -102,10 +104,14 @@ async fn get_messages_with_data(pool: PgPool) {
 
     // Insert messages via DAO
     let msg1 = make_message_row("task-1", "msg-1");
-    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let msg2 = make_message_row("task-1", "msg-2");
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let app = build_router(pool);
     let req = authed_request("GET", "/api/v1/tasks/task-1/messages", USER_1);
@@ -155,10 +161,14 @@ async fn get_pending_messages_with_data(pool: PgPool) {
 
     // Insert pending user messages (no agent_session_id)
     let msg1 = make_message_row("task-1", "pending-1");
-    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg1, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let msg2 = make_message_row("task-1", "pending-2");
-    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default()).await.unwrap();
+    message_dao::append(&pool, &msg2, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
 
     let app = build_router(pool);
     let req = authed_request("GET", "/api/v1/tasks/task-1/messages/pending", USER_1);

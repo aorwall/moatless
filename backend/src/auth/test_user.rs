@@ -21,11 +21,7 @@ const TEST_KEY_NAME: &str = "test-api-key";
 ///
 /// Idempotent: the user is upserted and the key is skipped if the hash
 /// already exists.
-pub async fn ensure_test_user(
-    users: &dyn UserDao,
-    api_keys: &dyn ApiKeyDao,
-    raw_key: &str,
-) {
+pub async fn ensure_test_user(users: &dyn UserDao, api_keys: &dyn ApiKeyDao, raw_key: &str) {
     // Validate key format (already validated by Config, but belt-and-suspenders)
     if !raw_key.starts_with("mvk_") || raw_key.len() < 36 {
         warn!("TEST_API_KEY must start with 'mvk_' and be at least 36 characters — skipping");

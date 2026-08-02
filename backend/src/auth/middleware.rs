@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
-use axum::Json;
 use axum::body::Body;
-use axum::http::{Request, StatusCode, header};
+use axum::http::{header, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -81,7 +81,7 @@ fn is_exempt(path: &str) -> bool {
             // Bootstrap, not public: the pairing code in the body is the
             // credential, and a caller that had another one would not be here.
             // Mounted only when the T3 compatibility routes are (see
-            // `ui_rpc::router_from_env`); a 404 otherwise.
+            // `moatless_t3code::router_from_env`); a 404 otherwise.
             | "/oauth/token"
             | "/api/v1/feature-flags"
             | "/api/v1/adapters"
@@ -101,6 +101,28 @@ fn strip_user_headers(req: &mut Request<Body>) {
     headers.remove("x-user-provider");
     headers.remove("x-group-id");
     headers.remove("x-team-ids");
+}
+
+fn insert_auth_extensions(req: &mut Request<Body>, identity: AuthIdentity, method: AuthMethod) {
+    let ui_rpc_role = match identity.role.as_str() {
+        "admin" => moatless_t3code::UserRole::Admin,
+        _ => moatless_t3code::UserRole::User,
+    };
+    req.extensions_mut()
+        .insert(moatless_t3code::UiRpcAuthIdentity {
+            user_id: identity.user_id,
+            login: identity.login.clone(),
+            role: ui_rpc_role,
+            provider: identity.provider.clone(),
+            group_id: identity.group_id.clone(),
+        });
+    req.extensions_mut().insert(match method {
+        AuthMethod::SessionCookie => moatless_t3code::UiRpcAuthMethod::SessionCookie,
+        AuthMethod::ApiKey => moatless_t3code::UiRpcAuthMethod::ApiKey,
+        AuthMethod::WebSocketTicket => moatless_t3code::UiRpcAuthMethod::WebSocketTicket,
+    });
+    req.extensions_mut().insert(identity);
+    req.extensions_mut().insert(method);
 }
 
 /// Axum middleware function that validates auth and injects user headers.
@@ -139,14 +161,17 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                     debug!(user_id = %claims.sub, path = %path, "Auth middleware: websocket ticket valid");
                     tracing::Span::current().record("user_id", claims.sub.to_string().as_str());
                     let role = claims.user_role();
-                    req.extensions_mut().insert(AuthIdentity {
-                        user_id: claims.sub,
-                        login: claims.login,
-                        role,
-                        provider: claims.provider,
-                        group_id: claims.group_id,
-                    });
-                    req.extensions_mut().insert(AuthMethod::WebSocketTicket);
+                    insert_auth_extensions(
+                        &mut req,
+                        AuthIdentity {
+                            user_id: claims.sub,
+                            login: claims.login,
+                            role,
+                            provider: claims.provider,
+                            group_id: claims.group_id,
+                        },
+                        AuthMethod::WebSocketTicket,
+                    );
                     next.run(req).await
                 }
                 Err(error) => {
@@ -182,14 +207,17 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                     // Stamp user_id onto the surrounding request-trace span so
                     // every downstream log line carries it.
                     tracing::Span::current().record("user_id", user_id.to_string().as_str());
-                    req.extensions_mut().insert(AuthIdentity {
-                        user_id,
-                        login: payload.user_login,
-                        role: payload.role,
-                        provider: payload.provider,
-                        group_id: payload.group_id,
-                    });
-                    req.extensions_mut().insert(AuthMethod::ApiKey);
+                    insert_auth_extensions(
+                        &mut req,
+                        AuthIdentity {
+                            user_id,
+                            login: payload.user_login,
+                            role: payload.role,
+                            provider: payload.provider,
+                            group_id: payload.group_id,
+                        },
+                        AuthMethod::ApiKey,
+                    );
                     return next.run(req).await;
                 }
                 Ok(None) => {
@@ -220,14 +248,17 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                 // every downstream log line carries it.
                 tracing::Span::current().record("user_id", claims.sub.to_string().as_str());
                 let role = claims.user_role();
-                req.extensions_mut().insert(AuthIdentity {
-                    user_id: claims.sub,
-                    login: claims.login,
-                    role,
-                    provider: claims.provider,
-                    group_id: claims.group_id,
-                });
-                req.extensions_mut().insert(AuthMethod::SessionCookie);
+                insert_auth_extensions(
+                    &mut req,
+                    AuthIdentity {
+                        user_id: claims.sub,
+                        login: claims.login,
+                        role,
+                        provider: claims.provider,
+                        group_id: claims.group_id,
+                    },
+                    AuthMethod::SessionCookie,
+                );
                 return next.run(req).await;
             }
             Err(_) => continue,

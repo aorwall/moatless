@@ -59,10 +59,8 @@ pub trait BackendClient: Send + Sync {
     ) -> Result<(), tonic::Status>;
 
     /// Fetch credentials for sandbox initialization.
-    async fn get_credentials(
-        &self,
-        task_id: &str,
-    ) -> Result<GetCredentialsResponse, tonic::Status>;
+    async fn get_credentials(&self, task_id: &str)
+        -> Result<GetCredentialsResponse, tonic::Status>;
 
     /// Push a credential rotated locally inside the sandbox back to the backend
     /// so subsequent `get_credentials` calls return the rotated value.

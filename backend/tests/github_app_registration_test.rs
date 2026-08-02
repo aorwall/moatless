@@ -23,11 +23,11 @@ mod common;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::Json;
 use axum::routing::get;
+use axum::Json;
 use moatless_vibe_backend::adapter_apps::dao::{
-    AdapterAppDao, ENV_CARRY_OVER, GitHubAppAuditEntry, GitHubAppRecord, NewGitHubApp,
-    PgAdapterAppDao,
+    AdapterAppDao, GitHubAppAuditEntry, GitHubAppRecord, NewGitHubApp, PgAdapterAppDao,
+    ENV_CARRY_OVER,
 };
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::auth::github::service::GitHubAppService;
@@ -155,13 +155,11 @@ async fn a_key_that_names_a_different_app_is_refused_and_nothing_is_stored(pool:
         .expect_err("a mismatched App id must be refused");
 
     assert!(error.to_string().contains("different App"), "{error}");
-    assert!(
-        PgAdapterAppDao(pool)
-            .find_github_app_by_key("review-bot")
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(PgAdapterAppDao(pool)
+        .find_github_app_by_key("review-bot")
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[sqlx::test]
@@ -199,12 +197,10 @@ async fn re_registering_a_removed_key_does_not_keep_the_deleted_signing_key_aliv
     let removed = register(&pool, "review-bot", 4242).await;
     let before = backend.get("review-bot").await.unwrap().expect("app");
 
-    assert!(
-        PgAdapterAppDao(pool.clone())
-            .delete_github_app("review-bot")
-            .await
-            .unwrap()
-    );
+    assert!(PgAdapterAppDao(pool.clone())
+        .delete_github_app("review-bot")
+        .await
+        .unwrap());
     let replacement = register(&pool, "review-bot", 4242).await;
     assert_ne!(replacement.id, removed.id);
     assert_eq!(replacement.revision, removed.revision);
@@ -236,12 +232,10 @@ async fn a_rotation_on_one_backend_reaches_another_without_coordination(pool: Pg
         Some(record.id.clone()),
     )
     .expect("seal");
-    assert!(
-        PgAdapterAppDao(pool.clone())
-            .replace_github_app(&rotated, "admin-1")
-            .await
-            .unwrap()
-    );
+    assert!(PgAdapterAppDao(pool.clone())
+        .replace_github_app(&rotated, "admin-1")
+        .await
+        .unwrap());
 
     // Neither backend was notified: both notice because the revision moved.
     let after_a = backend_a.get("review-bot").await.unwrap().expect("app");
@@ -266,12 +260,10 @@ async fn removing_an_app_stops_it_answering_everywhere(pool: PgPool) {
     assert!(backend_a.get("review-bot").await.unwrap().is_some());
     assert!(backend_b.get("review-bot").await.unwrap().is_some());
 
-    assert!(
-        PgAdapterAppDao(pool.clone())
-            .delete_github_app("review-bot")
-            .await
-            .unwrap()
-    );
+    assert!(PgAdapterAppDao(pool.clone())
+        .delete_github_app("review-bot")
+        .await
+        .unwrap());
 
     assert!(backend_a.get("review-bot").await.unwrap().is_none());
     assert!(backend_b.get("review-bot").await.unwrap().is_none());
@@ -306,24 +298,20 @@ async fn a_deleted_carried_over_app_is_not_resurrected_by_a_restart(pool: PgPool
     let entries = vec![app_config("env-bot", 4242)];
 
     registry(&pool).carry_over_env_apps(&entries).await;
-    assert!(
-        PgAdapterAppDao(pool.clone())
-            .delete_github_app("env-bot")
-            .await
-            .unwrap()
-    );
+    assert!(PgAdapterAppDao(pool.clone())
+        .delete_github_app("env-bot")
+        .await
+        .unwrap());
 
     // Whether the carry-over has run is recorded in its own right, so a
     // restart with the variable still set does not undo the deletion.
     registry(&pool).carry_over_env_apps(&entries).await;
 
-    assert!(
-        PgAdapterAppDao(pool.clone())
-            .find_github_app_by_key("env-bot")
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(PgAdapterAppDao(pool.clone())
+        .find_github_app_by_key("env-bot")
+        .await
+        .unwrap()
+        .is_none());
     let claimed: i64 =
         sqlx::query_scalar("SELECT count(*) FROM github_app_migrations WHERE name = $1")
             .bind(ENV_CARRY_OVER)

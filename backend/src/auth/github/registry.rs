@@ -21,7 +21,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::adapter_apps::dao::{AdapterAppDao, ENV_CARRY_OVER, GitHubAppRecord, NewGitHubApp};
+use crate::adapter_apps::dao::{AdapterAppDao, GitHubAppRecord, NewGitHubApp, ENV_CARRY_OVER};
 use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
 use crate::config::GitHubAppConfig;

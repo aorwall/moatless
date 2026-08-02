@@ -24,11 +24,9 @@ use super::dao::ConversationDao;
 use super::ports::{BranchListError, RepositoryBranchSource};
 use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
-use crate::sandbox::access::SandboxConnector;
-use crate::sandbox::client::classify_grpc_error;
-use crate::sandbox::error::SandboxError;
-use crate::workspace::dao::WorkspaceDao;
+use crate::data::T3WorkspaceDao;
 use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};
+use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, classify_grpc_error};
 use moatless_backend_core::scope::ScopeContext;
 use sandbox_proto::{GetGitDiffPreviewResponse, GetGitStatusResponse, ListGitRefsResponse};
 
@@ -47,14 +45,15 @@ pub async fn diff_preview(
     ignore_whitespace: bool,
 ) -> Result<Value, WorkspaceAccessError> {
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
-    let preview = sandboxes
+    let client = sandboxes
         .sandbox_client(&task_id)
         .await
-        .map_err(WorkspaceAccessError::NotRunning)?
+        .map_err(workspace::sandbox_access)?;
+    let preview = client
         .get_git_diff_preview(base_ref.map(str::to_string), ignore_whitespace)
         .await
         .map_err(|status| {
-            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "get_git_diff_preview"))
+            workspace::sandbox_access(classify_grpc_error(status, "get_git_diff_preview"))
         })?;
 
     Ok(json!({
@@ -151,15 +150,13 @@ pub async fn list_refs(
     request: &RefRequest<'_>,
 ) -> Result<Value, WorkspaceAccessError> {
     let task_id = workspace::addressed_conversation(conversations, viewer, request.cwd).await?;
-    let listing = sandboxes
+    let client = sandboxes
         .sandbox_client(&task_id)
         .await
-        .map_err(WorkspaceAccessError::NotRunning)?
-        .list_git_refs()
-        .await
-        .map_err(|status| {
-            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "list_git_refs"))
-        })?;
+        .map_err(workspace::sandbox_access)?;
+    let listing = client.list_git_refs().await.map_err(|status| {
+        workspace::sandbox_access(classify_grpc_error(status, "list_git_refs"))
+    })?;
 
     Ok(ref_page(&listing, request))
 }
@@ -358,7 +355,7 @@ fn shadows_a_local_branch(
 /// gated through the scoped workspace read first, so a project root the viewer
 /// cannot be shown answers as an empty list.
 pub async fn workspace_branches(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn T3WorkspaceDao,
     branches: &dyn RepositoryBranchSource,
     viewer: &ScopeContext,
     cwd: &str,
@@ -366,24 +363,14 @@ pub async fn workspace_branches(
 ) -> Result<Value, BranchListError> {
     let workspace_id =
         projection::workspace_id_from_project_root(cwd).ok_or(BranchListError::None)?;
-    if workspaces
-        .find_by_id(workspace_id, viewer)
-        .await
-        .map_err(BranchListError::Failed)?
-        .is_none()
-    {
-        return Err(BranchListError::None);
-    }
-    let Some(primary) = workspaces
-        .find_primary_repo(workspace_id)
+    let Some(repository_id) = workspaces
+        .primary_repository(viewer, workspace_id)
         .await
         .map_err(BranchListError::Failed)?
     else {
         return Err(BranchListError::None);
     };
-    let response = branches
-        .list_branches(viewer, &primary.repository_id)
-        .await?;
+    let response = branches.list_branches(viewer, &repository_id).await?;
     Ok(branch_ref_page(&response, request))
 }
 
@@ -499,15 +486,14 @@ async fn read_status(
     cwd: &str,
 ) -> Result<GetGitStatusResponse, WorkspaceAccessError> {
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
-    sandboxes
+    let client = sandboxes
         .sandbox_client(&task_id)
         .await
-        .map_err(WorkspaceAccessError::NotRunning)?
+        .map_err(workspace::sandbox_access)?;
+    client
         .get_git_status()
         .await
-        .map_err(|status| {
-            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "get_git_status"))
-        })
+        .map_err(|status| workspace::sandbox_access(classify_grpc_error(status, "get_git_status")))
 }
 
 /// The half of the status one `git status --porcelain=2 --branch` reads about
@@ -823,10 +809,8 @@ mod tests {
 
     // -- workspace_branches: the draft-thread branch listing ------------------
 
-    use crate::workspace::dao::MockWorkspaceDao;
-    use crate::workspace::models::{Workspace, WorkspaceRepo};
+    use crate::data::MockT3WorkspaceDao;
     use async_trait::async_trait;
-    use moatless_backend_core::scope::Scope;
 
     /// A branch source that answers with a fixed list, or a fixed failure.
     struct StubBranches(Result<BranchListResponse, ()>);
@@ -852,55 +836,15 @@ mod tests {
         }
     }
 
-    fn workspace() -> Workspace {
-        Workspace {
-            id: "ws-1".to_string(),
-            name: "Project".to_string(),
-            description: None,
-            kind: "single".to_string(),
-            docker_image: None,
-            docker_access: None,
-            sandbox_service_account: None,
-            system_prompt: None,
-            setup_commands: None,
-            env_vars: None,
-            servers: None,
-            resources: None,
-            network_profile: None,
-            source: "manual".to_string(),
-            source_repository_id: None,
-            source_key: None,
-            source_config_path: None,
-            scope: Scope::User,
-            owner_user_id: Some("user-1".to_string()),
-            created_by: Some("user-1".to_string()),
-            deleted: Some(false),
-            created_at: None,
-            updated_at: None,
-        }
-    }
-
-    fn placement(repository_id: &str) -> WorkspaceRepo {
-        WorkspaceRepo {
-            id: "wr-1".to_string(),
-            workspace_id: "ws-1".to_string(),
-            repository_id: repository_id.to_string(),
-            branch: None,
-            mount_name: None,
-            is_primary: true,
-            position: 0,
-            created_at: None,
-        }
-    }
-
-    /// A workspace with a mock DAO wired to return `workspace` and, when asked,
-    /// `primary`.
-    fn workspaces(found: Option<Workspace>, primary: Option<WorkspaceRepo>) -> MockWorkspaceDao {
-        let mut dao = MockWorkspaceDao::new();
-        dao.expect_find_by_id()
-            .returning(move |_, _| Ok(found.clone()));
-        dao.expect_find_primary_repo()
-            .returning(move |_| Ok(primary.clone()));
+    /// A workspace DAO wired to answer with `primary`, the repository the
+    /// picker would list. `None` is every reason there is nothing to list: the
+    /// viewer cannot be shown the workspace, it is gone, or it declares no
+    /// repository — the port answers them alike so none of them discloses which.
+    fn workspaces(primary: Option<&str>) -> MockT3WorkspaceDao {
+        let primary = primary.map(str::to_string);
+        let mut dao = MockT3WorkspaceDao::new();
+        dao.expect_primary_repository()
+            .returning(move |_, _| Ok(primary.clone()));
         dao
     }
 
@@ -912,7 +856,7 @@ mod tests {
     /// not a checkout that does not exist yet.
     #[tokio::test]
     async fn a_project_root_lists_the_primary_repositorys_branches() {
-        let dao = workspaces(Some(workspace()), Some(placement("repo-1")));
+        let dao = workspaces(Some("repo-1"));
         let source = StubBranches(Ok(branches(&[("main", true), ("feature", false)])));
         let page = workspace_branches(
             &dao,
@@ -934,25 +878,24 @@ mod tests {
     /// workspace exists.
     #[tokio::test]
     async fn a_workspace_the_viewer_cannot_reach_lists_no_branches() {
-        for dao in [workspaces(None, None), workspaces(Some(workspace()), None)] {
-            let source = StubBranches(Ok(branches(&[("main", true)])));
-            let result = workspace_branches(
-                &dao,
-                &source,
-                &viewer(),
-                "/moatless/workspaces/ws-1",
-                &project_root(),
-            )
-            .await;
-            assert!(matches!(result, Err(BranchListError::None)));
-        }
+        let dao = workspaces(None);
+        let source = StubBranches(Ok(branches(&[("main", true)])));
+        let result = workspace_branches(
+            &dao,
+            &source,
+            &viewer(),
+            "/moatless/workspaces/ws-1",
+            &project_root(),
+        )
+        .await;
+        assert!(matches!(result, Err(BranchListError::None)));
     }
 
     /// A repository whose git host would not answer surfaces its reason rather
     /// than an empty list, so the "connect your account" prompt can land.
     #[tokio::test]
     async fn an_unavailable_git_host_is_surfaced_not_swallowed() {
-        let dao = workspaces(Some(workspace()), Some(placement("repo-1")));
+        let dao = workspaces(Some("repo-1"));
         let source = StubBranches(Err(()));
         let result = workspace_branches(
             &dao,

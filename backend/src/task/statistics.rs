@@ -150,7 +150,6 @@ pub fn build_task_statistics(
                 }
             }
         }
-
     }
 
     // One row per call, so the count is the row count and the failure count is a
@@ -475,5 +474,4 @@ mod tests {
 
         assert_eq!(stats.token_totals.output_tokens, 239);
     }
-
 }

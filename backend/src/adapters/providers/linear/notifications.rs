@@ -20,9 +20,9 @@ use crate::adapters::models::AdapterConnection;
 use crate::state::AppState;
 
 use super::agent_api::LinearAgentApi;
-use super::ingress::resolve_rules_for_team;
 use super::close::close_active_bindings_for_issue;
 use super::config::LinearRuleConfig;
+use super::ingress::resolve_rules_for_team;
 use super::webhook_payloads::AppUserNotificationData;
 
 /// Close active bindings when an `AppUserNotification.issueStatusChanged`

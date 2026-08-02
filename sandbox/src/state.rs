@@ -13,11 +13,11 @@ use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::ScheduledJobRegistry;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
-use crate::credentials::Dispatcher;
 use crate::credentials::recovery::CredentialFailureDetector;
+use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
-use crate::init::InitPhase;
 use crate::init::codex_watcher::WatcherHandle;
+use crate::init::InitPhase;
 use crate::supervisor::SupervisorHealth;
 use crate::terminal::TerminalManager;
 
@@ -113,7 +113,7 @@ impl SandboxState {
     /// a dependency being briefly unavailable, so a transient outage still
     /// cannot trigger a restart that kills an in-flight turn.
     pub async fn is_live(&self) -> bool {
-        use crate::agent::heartbeat::{HEARTBEAT_STALE_THRESHOLD_MS, actor_is_alive, now_millis};
+        use crate::agent::heartbeat::{actor_is_alive, now_millis, HEARTBEAT_STALE_THRESHOLD_MS};
         use crate::agent::types::AgentStatus;
 
         let failed = self.supervisor_health.failed_tasks();

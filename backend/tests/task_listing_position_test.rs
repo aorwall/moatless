@@ -36,9 +36,7 @@ use moatless_vibe_backend::task_listing::{
 };
 use moatless_vibe_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
 use moatless_vibe_backend::task_turn::models::{TurnStatus, TurnTransition};
-use moatless_vibe_backend::workspace::dao::{
-    PgWorkspaceDao, WorkspaceDao, WorkspacePatch,
-};
+use moatless_vibe_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
@@ -378,7 +376,10 @@ async fn pruning_keeps_the_retention_window_and_leaves_the_counter_alone(pool: P
     assert_eq!(current_position(&pool).await.unwrap(), head);
 
     let deleted = prune_changes(&pool).await.unwrap();
-    assert_eq!(deleted, 12, "everything at or below head - RETAINED_CHANGES");
+    assert_eq!(
+        deleted, 12,
+        "everything at or below head - RETAINED_CHANGES"
+    );
 
     let kept = retained(&pool).await;
     assert_eq!(kept.len(), RETAINED_CHANGES as usize);
@@ -781,10 +782,7 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             run: |pool, subject| {
                 Box::pin(async move {
                     let row = make_workspace_row(&format!("{subject}-new"), USER_1);
-                    PgWorkspaceDao(pool)
-                        .insert_workspace(&row)
-                        .await
-                        .unwrap();
+                    PgWorkspaceDao(pool).insert_workspace(&row).await.unwrap();
                 })
             },
         },
@@ -827,7 +825,11 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
         let subject = format!("subject-{index}");
         seed_subject(&pool, &subject).await;
         if let Some(seed) = case.seed {
-            sqlx::query(seed).bind(&subject).execute(&pool).await.unwrap();
+            sqlx::query(seed)
+                .bind(&subject)
+                .execute(&pool)
+                .await
+                .unwrap();
         }
 
         let mut holder = wide.begin().await.unwrap();
@@ -1044,7 +1046,9 @@ async fn the_counter_is_measured_under_concurrent_mutation(pool: PgPool) {
     reset(&pool).await;
 
     let rate = |elapsed: Duration| total / elapsed.as_secs_f64();
-    println!("counter contention: {WRITERS} concurrent writers x {PER_WRITER} mutations = {total:.0}");
+    println!(
+        "counter contention: {WRITERS} concurrent writers x {PER_WRITER} mutations = {total:.0}"
+    );
     let mut counted = 0i64;
 
     for shape in [Shape::Turn, Shape::Rename, Shape::Message] {

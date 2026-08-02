@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
+use axum::Json;
 use rand::RngExt;
 use tracing::{info, warn};
 use urlencoding;
@@ -18,7 +18,7 @@ use crate::config::{AuthProvider, Config};
 use crate::db::DbPool;
 use crate::error::ErrorBody;
 use crate::secret::service::SecretService;
-use crate::setup::{SetupContext, evaluate_setup};
+use crate::setup::{evaluate_setup, SetupContext};
 use moatless_backend_core::scope::ScopeContext;
 
 use super::api_key;
@@ -36,17 +36,17 @@ use super::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
 use super::provider_tokens::ProviderTokenAuthDao;
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 
-use super::pairing::DevicePairing;
+use super::pairing::{DevicePairing, PgPairingApiKeyIssuer};
 use super::password::dao::UserCredentialDao;
 use super::password::hash;
 use super::password::throttle::LoginThrottle;
 use super::schemas::{
-    AdminResetPasswordRequest, AdminUpdateUserRequest, ApiKeyCreateResponse, ApiKeyListItem,
-    AuthMode, AuthModeResponse, ChangePasswordRequest, CliLoginQuery, CreateApiKeyRequest,
-    CreatePairingCodeRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
-    OAuthCallbackQuery, PairingCodeResponse, PasswordLoginRequest, ProviderConnection,
-    SessionResponse, TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem,
-    UserListResponse, format_datetime, format_datetime_opt,
+    format_datetime, format_datetime_opt, AdminResetPasswordRequest, AdminUpdateUserRequest,
+    ApiKeyCreateResponse, ApiKeyListItem, AuthMode, AuthModeResponse, ChangePasswordRequest,
+    CliLoginQuery, CreateApiKeyRequest, CreatePairingCodeRequest, CreateUserRequest,
+    CreateUserResponse, MessageResponse, OAuthCallbackQuery, PairingCodeResponse,
+    PasswordLoginRequest, ProviderConnection, SessionResponse, TokenSessionResponse,
+    UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
 };
 use super::session;
 use super::sessions::SessionDao;
@@ -177,7 +177,7 @@ impl AuthState {
         let api_keys: Arc<dyn ApiKeyDao> = Arc::new(PgApiKeyDao(pool.clone()));
         let pairing = Arc::new(DevicePairing::new(
             Arc::new(super::pairing::PgPairingCodeDao(pool.clone())),
-            api_keys.clone(),
+            Arc::new(PgPairingApiKeyIssuer(api_keys.clone())),
         ));
         Self {
             sessions: Arc::new(PgSessionDao(pool.clone())),
@@ -1729,7 +1729,8 @@ async fn create_pairing_code_handler(
             claims.group_id.as_deref(),
             body.label.as_deref(),
         )
-        .await?;
+        .await
+        .map_err(|error| AuthError::Internal(error.to_string()))?;
 
     Ok((
         StatusCode::CREATED,

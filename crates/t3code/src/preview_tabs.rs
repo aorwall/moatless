@@ -118,7 +118,7 @@ pub trait PreviewTabDao: Send + Sync {
     async fn list(&self, task_id: &str) -> Result<PreviewTabListing, PreviewTabError>;
 
     async fn get(&self, task_id: &str, tab_id: &str)
-        -> Result<Option<PreviewTab>, PreviewTabError>;
+    -> Result<Option<PreviewTab>, PreviewTabError>;
 
     /// Write one whole tab and return the revision the write landed at.
     async fn put(&self, tab: &PreviewTab) -> Result<u64, PreviewTabError>;
@@ -190,11 +190,9 @@ impl RedisPreviewTabDao {
         ttl: PreviewTabTtl,
     ) -> Result<(Self, JoinHandle<()>), redis::RedisError> {
         let client = redis::Client::open(redis_url)?;
-        let mut conn = redis::aio::ConnectionManager::new_with_config(
-            client.clone(),
-            crate::events::redis_manager_config(),
-        )
-        .await?;
+        let mut conn =
+            redis::aio::ConnectionManager::new_with_config(client.clone(), redis_manager_config())
+                .await?;
 
         // `SET NX` then `GET`: the first process to reach a fresh Redis names
         // the epoch and every later one adopts it, so a restart does not
@@ -216,6 +214,12 @@ impl RedisPreviewTabDao {
             forwarder,
         ))
     }
+}
+
+fn redis_manager_config() -> redis::aio::ConnectionManagerConfig {
+    redis::aio::ConnectionManagerConfig::new()
+        .set_connection_timeout(Some(std::time::Duration::from_secs(5)))
+        .set_response_timeout(Some(std::time::Duration::from_secs(5)))
 }
 
 /// Re-publish everything on the Redis channel onto the local broadcast.
@@ -338,7 +342,10 @@ impl PreviewTabDao for RedisPreviewTabDao {
                 .await
                 .map_err(PreviewTabError::Unavailable)?;
             if !keys.is_empty() {
-                let _: u64 = conn.del(&tabs).await.map_err(PreviewTabError::Unavailable)?;
+                let _: u64 = conn
+                    .del(&tabs)
+                    .await
+                    .map_err(PreviewTabError::Unavailable)?;
             }
             // Hash fields come back in whatever order Redis holds them. Sorting
             // is the same rule `decode_tabs` follows and for the same reason:
@@ -539,10 +546,9 @@ pub async fn build(
 /// the Redis one" is a question about two production paths and not about a
 /// mock. These cases are the answer, and they are `pub` so the integration
 /// tier — the only one with a Redis to point them at — runs the same list.
-#[cfg(any(test, feature = "db-tests"))]
 // reason: assertions. A case that cannot reach the store has nothing to report
-// and should fail loudly; `db-tests` compiles this into the lib, where the
-// `#[cfg(test)]` relaxation these lints normally get does not apply.
+// and should fail loudly; integration tests import this from outside the crate,
+// where the `#[cfg(test)]` relaxation these lints normally get does not apply.
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 pub mod conformance {
     use super::*;

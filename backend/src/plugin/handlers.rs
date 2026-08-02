@@ -111,9 +111,7 @@ pub async fn delete_plugin(
     ensure_admin(&auth)?;
     let deleted = state.plugins.delete(&id).await?;
     if !deleted {
-        return Err(PluginError::NotFound(format!(
-            "Plugin '{id}' not found"
-        )));
+        return Err(PluginError::NotFound(format!("Plugin '{id}' not found")));
     }
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -962,14 +962,14 @@ fn build_resume_falls_back_to_continue_for_claude_only() {
 
 use std::collections::HashMap;
 
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentCommand;
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};
-use crate::config::{Config, test_support::minimal_config};
-use crate::credentials::recovery::{CODEX_AUTH_JSON, CredentialFailureDetector};
+use crate::config::{test_support::minimal_config, Config};
+use crate::credentials::recovery::{CredentialFailureDetector, CODEX_AUTH_JSON};
 use crate::credentials::{CredentialSink, Dispatcher};
 
 use super::CoordinatorService;

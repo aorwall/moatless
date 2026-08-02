@@ -17,12 +17,12 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
+use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
@@ -577,7 +577,7 @@ pub fn install_shutdown_handler(cancel: CancellationToken) -> JoinHandle<()> {
 
 #[cfg(unix)]
 async fn shutdown_signal() {
-    use tokio::signal::unix::{SignalKind, signal};
+    use tokio::signal::unix::{signal, SignalKind};
 
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;

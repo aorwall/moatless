@@ -2,108 +2,12 @@
 //! change log that order and announce them.
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
-use sqlx::{PgConnection, Row, postgres::PgRow};
+use sqlx::PgConnection;
 
-use super::mapping::{self, ActivityKind, ActivityRow, ActivityStatus, ToolOutcome};
+use super::mapping::{self, ActivityRow, ToolOutcome};
 use super::models::{ConversationChange, ConversationHead, RETAINED_CHANGES};
 use crate::db::DbPool;
-
-/// One stored activity.
-#[derive(Debug, Clone)]
-pub struct Activity {
-    pub activity_id: String,
-    pub task_id: String,
-    pub position: i64,
-    /// Where this row sits inside its change. See
-    /// [`ActivityRow::ordinal`](mapping::ActivityRow::ordinal).
-    pub ordinal: i32,
-    pub message_uuid: Option<String>,
-    pub parent_uuid: Option<String>,
-    pub kind: ActivityKind,
-    pub status: ActivityStatus,
-    pub tool_use_id: Option<String>,
-    pub summary: String,
-    pub payload: Value,
-    /// What a settled call shows before it is expanded, cut to
-    /// [`mapping::DETAIL_LIMIT`]. `None` until the call comes back, and on every
-    /// activity that is not a tool call.
-    pub detail: Option<String>,
-    pub is_error: bool,
-    /// What this call created on the other side, claimed so the webhook echo of
-    /// it is recognised as the agent's own. `None` on every call that created
-    /// nothing, which is nearly all of them.
-    pub external_event_id: Option<String>,
-    pub external_adapter: Option<String>,
-    pub external_source_name: Option<String>,
-    /// When the database recorded it. A Sandbox activity belongs to no Message
-    /// and has no other timestamp to be stamped with.
-    pub created_at: DateTime<Utc>,
-}
-
-impl Activity {
-    /// The tool's input as the call carried it, or `Null` for an activity that
-    /// is not a tool call.
-    pub fn tool_input(&self) -> &Value {
-        self.payload.get("input").unwrap_or(&Value::Null)
-    }
-
-    /// The result whole, or `None` while the call is still in progress.
-    pub fn result(&self) -> Option<&Value> {
-        self.payload.get("result")
-    }
-
-    /// The transport's structured view of the outcome, where it reported one.
-    /// This is what `enrich_codex_typed_result` validates; the block content
-    /// `result()` returns is the text the tool printed.
-    pub fn typed_result(&self) -> Option<&Value> {
-        self.payload.get("typedResult")
-    }
-
-    /// Whether the call this activity records has come back.
-    pub fn is_settled(&self) -> bool {
-        self.status != ActivityStatus::InProgress
-    }
-}
-
-impl sqlx::FromRow<'_, PgRow> for Activity {
-    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
-        let kind: String = row.try_get("kind")?;
-        let status: String = row.try_get("status")?;
-        Ok(Self {
-            activity_id: row.try_get("activity_id")?,
-            task_id: row.try_get("task_id")?,
-            position: row.try_get("position")?,
-            ordinal: row.try_get("ordinal")?,
-            message_uuid: row.try_get("message_uuid")?,
-            parent_uuid: row.try_get("parent_uuid")?,
-            kind: kind.parse().map_err(|e: String| sqlx::Error::ColumnDecode {
-                index: "kind".to_string(),
-                source: e.into(),
-            })?,
-            status: match status.as_str() {
-                "in_progress" => ActivityStatus::InProgress,
-                "completed" => ActivityStatus::Completed,
-                "failed" => ActivityStatus::Failed,
-                other => {
-                    return Err(sqlx::Error::ColumnDecode {
-                        index: "status".to_string(),
-                        source: format!("unknown activity status: {other:?}").into(),
-                    });
-                }
-            },
-            tool_use_id: row.try_get("tool_use_id")?,
-            summary: row.try_get("summary")?,
-            payload: row.try_get("payload")?,
-            detail: row.try_get("detail")?,
-            is_error: row.try_get("is_error")?,
-            external_event_id: row.try_get("external_event_id")?,
-            external_adapter: row.try_get("external_adapter")?,
-            external_source_name: row.try_get("external_source_name")?,
-            created_at: row.try_get("created_at")?,
-        })
-    }
-}
+pub use moatless_backend_core::activity::Activity;
 
 /// The kinds this build can decode, as SQL.
 ///
@@ -428,10 +332,10 @@ pub async fn find_tool_call(
     tool_use_id: &str,
 ) -> Result<Option<Activity>, sqlx::Error> {
     sqlx::query_as::<_, Activity>(read_activities!("task_id = $1 AND tool_use_id = $2"))
-    .bind(task_id)
-    .bind(tool_use_id)
-    .fetch_optional(pool)
-    .await
+        .bind(task_id)
+        .bind(tool_use_id)
+        .fetch_optional(pool)
+        .await
 }
 
 /// Claim what a call created on the other side, once.
@@ -596,10 +500,7 @@ pub async fn record_activity_change(
 /// Same transaction rule as [`record_message_change`], and no ordering hazard
 /// against it: the first allocation in a transaction takes the counter row and
 /// holds it until commit, so every later one on the same connection is free.
-pub async fn allocate_position(
-    tx: &mut PgConnection,
-    task_id: &str,
-) -> Result<i64, sqlx::Error> {
+pub async fn allocate_position(tx: &mut PgConnection, task_id: &str) -> Result<i64, sqlx::Error> {
     let (position,): (i64,) = sqlx::query_as(
         r#"INSERT INTO task_conversation_position (task_id, position) VALUES ($1, 1)
            ON CONFLICT (task_id) DO UPDATE
@@ -710,7 +611,7 @@ pub async fn prune_changes(pool: &DbPool) -> Result<u64, sqlx::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::mapping::ActivityKind;
 
     /// The SQL narrowing and the enum are two spellings of one list. A kind the
     /// enum knows but the SQL leaves out is a row this build writes and then

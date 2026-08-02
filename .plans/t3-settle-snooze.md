@@ -12,15 +12,15 @@ T3's half of this feature is complete and needs no change. All four commands, al
 
 | Anchor | What it does today |
 |---|---|
-| `backend/src/ui_rpc/commands.rs:91` | Refuses `thread.settle`, `thread.unsettle`, `thread.snooze`, `thread.unsnooze` as `CommandRefusal::Unsupported` with the reason `"Settling and snoozing are not part of this server."` |
-| `backend/src/ui_rpc/mod.rs:2072` | `descriptor()` reports `"threadSettlement": false, "threadSnooze": false` |
-| `backend/src/ui_rpc/projection.rs:449` | Doc comment listing the six fields deliberately omitted from the row |
-| `backend/src/ui_rpc/projection.rs:456` | `conversation_row()` — the `json!` literal both shell and detail rows are built from |
-| `backend/src/ui_rpc/dao.rs:36` | `struct Conversation` — the listing row struct |
-| `backend/src/ui_rpc/dao.rs:325` | The listing CTE: `FROM task_follows tf JOIN tasks t … WHERE tf.user_id = $follower AND t.status = 'open'` |
-| `backend/src/ui_rpc/dao.rs:352` | The tail of the outer `SELECT` list, where new columns are added |
-| `backend/src/ui_rpc/ports.rs:100` | `trait ThreadCommandSink` — the write port |
-| `backend/src/ui_rpc/backend.rs:56` | `impl ThreadCommandSink for AppStateCommands` |
+| `crates/t3code/src/commands.rs:91` | Refuses `thread.settle`, `thread.unsettle`, `thread.snooze`, `thread.unsnooze` as `CommandRefusal::Unsupported` with the reason `"Settling and snoozing are not part of this server."` |
+| `crates/t3code/src/lib.rs:2072` | `descriptor()` reports `"threadSettlement": false, "threadSnooze": false` |
+| `crates/t3code/src/projection.rs:449` | Doc comment listing the six fields deliberately omitted from the row |
+| `crates/t3code/src/projection.rs:456` | `conversation_row()` — the `json!` literal both shell and detail rows are built from |
+| `crates/t3code/src/dao.rs:36` | `struct Conversation` — the listing row struct |
+| `crates/t3code/src/dao.rs:325` | The listing CTE: `FROM task_follows tf JOIN tasks t … WHERE tf.user_id = $follower AND t.status = 'open'` |
+| `crates/t3code/src/dao.rs:352` | The tail of the outer `SELECT` list, where new columns are added |
+| `crates/t3code/src/ports.rs:100` | `trait ThreadCommandSink` — the write port |
+| `backend/src/t3code/backend.rs:56` | `impl ThreadCommandSink for AppStateCommands` |
 | `backend/src/task/dao.rs:765` | `follow_task` — the `ON CONFLICT DO NOTHING` insert, the precedent for these writes |
 | `backend/src/message/service.rs:82` | Auto-follow on send; holds `sender.user_id` |
 | `backend/src/message/dao.rs:51` | `moves_a_listing_row(msg, conversation)` |
@@ -38,17 +38,17 @@ T3's half of this feature is complete and needs no change. All four commands, al
 **Only one of T3's two auto-settle rules can fire against this backend.**
 
 - *Inactive for N days* **fires**, at 3 days by default. `DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 3` in `t3code/packages/contracts/src/settings.ts:50`, applied as a decoding default at `:105`. The Beta settings toggle only turns it off. It needs nothing but shell timestamps already projected.
-- *Pull request merged or closed* **cannot fire**. It is fed by `vcsEnvironment.status({cwd})` (`t3code/apps/web/src/components/SidebarV2.tsx:524`), and this surface implements no `vcs.status` method; `server.discoverSourceControl` answers with two empty arrays (`ui_rpc/mod.rs:1455`).
+- *Pull request merged or closed* **cannot fire**. It is fed by `vcsEnvironment.status({cwd})` (`t3code/apps/web/src/components/SidebarV2.tsx:524`), and this surface implements no `vcs.status` method; `server.discoverSourceControl` answers with two empty arrays (`crates/t3code/src/lib.rs:1455`).
 
 The consequence: once `threadSettlement` is true, **every Task quietly leaves a T3 user's inbox after three days of inactivity**. That is the intended T3 behaviour and it is why `settled_override` needs a third state rather than being a boolean.
 
-**The change feed re-reads each changed row through the viewer's own listing query** (`ui_rpc/feed.rs:119`), so per-follower columns are delivered correctly with no feed change at all.
+**The change feed re-reads each changed row through the viewer's own listing query** (`crates/t3code/src/feed.rs:119`), so per-follower columns are delivered correctly with no feed change at all.
 
 **`record_change` is per Task, not per viewer** (`task_listing/dao.rs:53`). A settle by one person wakes every follower's subscription; each re-read returns that follower's own unchanged row. This costs a redelivery and is otherwise harmless. Do not try to scope the change record by user — the feed's cursor is a single global sequence and narrowing it would break resume.
 
 **`TaskMessage` carries no sender identity** (`message/models.rs:35`). The insert transaction in `message/dao.rs` cannot scope a write by `user_id`. Anything per-sender must happen in `message/service.rs`, which holds `Sender { user_id, scope, is_agent_context }` (`message/service.rs:51`).
 
-**A closed Task leaves the listing entirely.** The CTE filters `t.status = '{open}'` (`ui_rpc/dao.rs:328`), and the inactive reaper closes Tasks on `inactive_ttl_days` with no per-user input (`task/reaper.rs:400`), default 7 days (`task/models.rs:23`). A snooze does not protect a Task from that.
+**A closed Task leaves the listing entirely.** The CTE filters `t.status = '{open}'` (`crates/t3code/src/dao.rs:328`), and the inactive reaper closes Tasks on `inactive_ttl_days` with no per-user input (`task/reaper.rs:400`), default 7 days (`task/models.rs:23`). A snooze does not protect a Task from that.
 
 **Moatless already stores per-user view state at this exact grain.** `task_read_receipts` is `PRIMARY KEY ("user_id", "task_id")` (`migrations/0067_task_read_receipts.sql:5`) with a monotonic upsert (`task/dao.rs:729`). It is the precedent for a per-person column set, and it is deliberately not where these four columns go — see the Data model.
 
@@ -59,17 +59,17 @@ The consequence: once `threadSettlement` is true, **every Task quietly leaves a 
 **New**
 
 - Four nullable columns on `task_follows` (`backend/migrations/0120_task_follows_settled_snoozed.sql`).
-- Four methods on `ThreadCommandSink` (`backend/src/ui_rpc/ports.rs:100`) and their implementations (`backend/src/ui_rpc/backend.rs:56`).
+- Four methods on `ThreadCommandSink` (`crates/t3code/src/ports.rs:100`) and their implementations (`backend/src/t3code/backend.rs:56`).
 - Four DAO methods on `TaskDao` (`backend/src/task/dao.rs`).
 - Three clearing writes: `backend/src/message/service.rs:82`, `backend/src/message/dao.rs:677`, `backend/src/task_turn/dao.rs:417`.
 
 **Changes materially**
 
-- `backend/src/ui_rpc/commands.rs:91` — four refusals become four dispatched writes.
-- `backend/src/ui_rpc/mod.rs:2072` — both capability flags become `true`.
-- `backend/src/ui_rpc/projection.rs:456` — `conversation_row` emits four fields it currently omits.
-- `backend/src/ui_rpc/projection.rs:449` — the doc comment shrinks from six omitted fields to two.
-- `backend/src/ui_rpc/dao.rs:36` and `:352` — `Conversation` and the listing `SELECT` carry the follower's own state.
+- `crates/t3code/src/commands.rs:91` — four refusals become four dispatched writes.
+- `crates/t3code/src/lib.rs:2072` — both capability flags become `true`.
+- `crates/t3code/src/projection.rs:456` — `conversation_row` emits four fields it currently omits.
+- `crates/t3code/src/projection.rs:449` — the doc comment shrinks from six omitted fields to two.
+- `crates/t3code/src/dao.rs:36` and `:352` — `Conversation` and the listing `SELECT` carry the follower's own state.
 
 **Untouched**
 
@@ -77,15 +77,15 @@ The consequence: once `threadSettlement` is true, **every Task quietly leaves a 
 - `backend/src/task/dao.rs:765` and `:788` — `follow_task` and `unfollow_task` themselves.
 - `backend/src/task_read_receipts` usage and `t3code/apps/web/src/uiStateStore.ts` — read and unread on both sides.
 - `apps/frontend/src/features/navigation/components/sidebar-tasks.tsx` — the Moatless web sidebar.
-- `backend/src/ui_rpc/feed.rs` — the listing feed and its cursor numbering.
-- `backend/src/ui_rpc/commands.rs:73` — `thread.archive`, `thread.unarchive`, `thread.delete` stay refused.
+- `crates/t3code/src/feed.rs` — the listing feed and its cursor numbering.
+- `crates/t3code/src/commands.rs:73` — `thread.archive`, `thread.unarchive`, `thread.delete` stay refused.
 - Every T3 classification rule: `effectiveSettled`, `effectiveSnoozed`, `threadWokeAt`, `canSettle`, `canSnooze` stay client-side and unmodified.
 
 ### Problem
 
 A person using T3 Code against this backend has no way to clear a Task out of their sidebar short of switching to the Moatless UI and closing it, which stops it for everyone. There is no way at all to defer one until later. Both controls exist in T3 and are hidden, because this server reports `threadSettlement: false` and `threadSnooze: false`.
 
-`thread.archive` and `thread.delete` are refused (`ui_rpc/commands.rs:73`), and unfollow is not reachable from T3, so the sidebar only ever grows.
+`thread.archive` and `thread.delete` are refused (`crates/t3code/src/commands.rs:73`), and unfollow is not reachable from T3, so the sidebar only ever grows.
 
 ### Behaviour
 
@@ -171,7 +171,7 @@ UPDATE task_follows
 
 All four guard `record_change` on `rows_affected > 0`, matching `follow_task:780`. A repeat settle therefore records no change and does not advance the listing position.
 
-#### `backend/src/ui_rpc/ports.rs`
+#### `crates/t3code/src/ports.rs`
 
 - **Observed:** `ThreadCommandSink` (`:100`) carries five methods, each taking a `&ScopeContext` and a narrow struct.
 - **Proposed responsibility:** unchanged — carrying T3's verbs across the boundary without teaching the compatibility layer how Moatless writes.
@@ -186,12 +186,12 @@ async fn unsnooze(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), Com
 
 `ScopeContext` carries `user_id`, so no separate user parameter is needed; `stop` (`:120`) is the precedent for a `task_id`-only method.
 
-#### `backend/src/ui_rpc/backend.rs`
+#### `backend/src/t3code/backend.rs`
 
 - **Observed:** `impl ThreadCommandSink for AppStateCommands` (`:56`); `stop` (`:164`) is the shortest existing implementation and the closest model.
 - **Proposed change:** four implementations. Each resolves the Task through the same readability check the other methods use and maps a missing or unreadable Task to `CommandRefusal::NotWritable`, then calls the DAO method. A `sqlx` error maps to `CommandRefusal::Failed`.
 
-#### `backend/src/ui_rpc/commands.rs`
+#### `crates/t3code/src/commands.rs`
 
 - **Observed:** the four verbs share one match arm returning `Unsupported` (`:91`).
 - **Proposed responsibility:** validating what can be checked without a database read, then dispatching.
@@ -215,9 +215,9 @@ async fn unsnooze(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), Com
 
 The comparison is written as `until <= Utc::now()` rather than a negated `>`, because `DateTime` parsing has already rejected anything unparseable — unlike T3's server, where `IsoDateTime` is structurally a string and the negation is load-bearing (`t3code/apps/server/src/orchestration/decider.ts:549`).
 
-No blocked-on-you check is performed here. `hasPendingApprovals` is always `false` on this surface, and `hasPendingUserInput` is derived in the listing query rather than stored (`ui_rpc/dao.rs:352`), so a server-side check would cost a second read to reproduce a guard T3's `canSnooze` already applies before the round trip (`t3code/packages/client-runtime/src/state/threadSettled.ts:149`).
+No blocked-on-you check is performed here. `hasPendingApprovals` is always `false` on this surface, and `hasPendingUserInput` is derived in the listing query rather than stored (`crates/t3code/src/dao.rs:352`), so a server-side check would cost a second read to reproduce a guard T3's `canSnooze` already applies before the round trip (`t3code/packages/client-runtime/src/state/threadSettled.ts:149`).
 
-#### `backend/src/ui_rpc/dao.rs`
+#### `crates/t3code/src/dao.rs`
 
 - **Observed:** `struct Conversation` (`:36`); the listing `SELECT` tail (`:352`); the CTE already joins `task_follows tf` on `tf.user_id = ${follower}` (`:326`).
 - **Proposed responsibility:** carrying the follower's own state on the row it already reads for them.
@@ -232,7 +232,7 @@ tf.snoozed_at
 
 The CTE at `:325` selects `SELECT t.*` — widen it to `SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at` and reference them from `listed` in the outer query, rather than re-joining `task_follows`.
 
-#### `backend/src/ui_rpc/projection.rs`
+#### `crates/t3code/src/projection.rs`
 
 - **Observed:** `conversation_row` (`:456`) builds the `json!` literal shared by shell and detail rows; its doc comment (`:449`) lists six deliberately-absent fields.
 - **Proposed responsibility:** reporting the four fields honestly instead of letting the contract default them.
@@ -240,7 +240,7 @@ The CTE at `:325` selects `SELECT t.*` — widen it to `SELECT t.*, tf.settled_o
 
 These go in `conversation_row`, not in `thread`, because T3's `ChatView` resolves settled and snoozed state from the same fields on the thread-detail row (`t3code/apps/web/src/components/ChatView.tsx:3911` and `:3926`). Putting them only on the shell would leave the open thread's banner disagreeing with its sidebar row.
 
-#### `backend/src/ui_rpc/mod.rs`
+#### `crates/t3code/src/lib.rs`
 
 - **Observed:** `descriptor()` (`:2063`) hardcodes both flags to `false`.
 - **Proposed change:** both to `true`. This is the switch that makes the controls appear in T3; nothing else in the client is gated on it.
@@ -350,13 +350,13 @@ One person's durable interest in one Task, identified by `(user_id, task_id)`. I
 
 No new index. Every read of these fields is reached through the primary key by the listing's existing join, and no query filters on them.
 
-No `CHECK` constraint on `settled_override`. The repository's existing enum-valued text columns carry none — `tasks.status` is plain `text` (`ui_rpc/dao.rs:311` notes this explicitly) — and adding one here would be the only such constraint in the schema.
+No `CHECK` constraint on `settled_override`. The repository's existing enum-valued text columns carry none — `tasks.status` is plain `text` (`crates/t3code/src/dao.rs:311` notes this explicitly) — and adding one here would be the only such constraint in the schema.
 
 **Why `settled_override` is tri-state and not a boolean.** Settling also happens on its own, so there has to be a way to say no. A boolean cannot distinguish "not settled yet" from "explicitly keep this visible": un-settling an auto-settled row would be futile, because the rule that settled it would settle it again on the next render. Against this backend the inactivity rule fires at three days by default and the pull-request rule cannot fire at all — see Current solution — so `'active'` is the only way to hold a Task in a T3 inbox past three quiet days.
 
 **Why these are not on `tasks`.** The state is one person's. On `tasks`, one follower settling would hide the Task from every other follower with nothing on screen saying who did it.
 
-**Why these are not in their own table**, despite `task_read_receipts` being exactly that shape. A read receipt is meaningful without a Follow, because a person can read a Task they do not follow. A settle or a snooze only affects the sidebar, and the sidebar is follow-gated (`ui_rpc/dao.rs:325`, `task/dao.rs:412`), so neither means anything without one. Keeping them on the Follow means membership and view state cannot disagree, and costs no second join on the busiest query in the surface.
+**Why these are not in their own table**, despite `task_read_receipts` being exactly that shape. A read receipt is meaningful without a Follow, because a person can read a Task they do not follow. A settle or a snooze only affects the sidebar, and the sidebar is follow-gated (`crates/t3code/src/dao.rs:325`, `task/dao.rs:412`), so neither means anything without one. Keeping them on the Follow means membership and view state cannot disagree, and costs no second join on the busiest query in the surface.
 
 **Lifecycle.** The columns are created null by `follow_task`'s insert, which names only `(user_id, task_id)` and needs no change. `unfollow_task` deletes the row, taking both states with it; re-following through a later message starts clean. This is intended — unfollow is a stronger statement than settle.
 
@@ -372,8 +372,8 @@ Read and written exactly as they are today. They appear in the diagram to place 
 |---|---|---|---|
 | T3's sidebar partition — `t3code/apps/web/src/components/SidebarV2.tsx:1474` | `settledOverride`, `settledAt`, `snoozedUntil`, `snoozedAt` on `OrchestrationThreadShell` — `t3code/packages/contracts/src/orchestration.ts:359` | The values are this viewer's own. An absent field still means never settled and never snoozed. | changed |
 | T3's thread banner — `t3code/apps/web/src/components/ChatView.tsx:3911` | The same four fields on the thread-detail row — `t3code/packages/contracts/src/orchestration.ts:415` | Identical values to the shell row for the same Task and viewer. | changed |
-| T3's action hooks — `t3code/apps/web/src/hooks/useThreadActions.ts:475` | `capabilities.threadSettlement` and `capabilities.threadSnooze` — `ui_rpc/mod.rs:2072` | `true` means all four commands are accepted. The controls render only then. | changed |
-| T3's command dispatch — `t3code/packages/client-runtime/src/operations/commands.ts:180` | `thread.settle`, `thread.unsettle`, `thread.snooze`, `thread.unsnooze` over `orchestration.dispatchCommand` | A refusal arrives as `OrchestrationDispatchCommandError` with a renderable message — `ui_rpc/mod.rs:1445` — never as a transport failure. | changed |
+| T3's action hooks — `t3code/apps/web/src/hooks/useThreadActions.ts:475` | `capabilities.threadSettlement` and `capabilities.threadSnooze` — `crates/t3code/src/lib.rs:2072` | `true` means all four commands are accepted. The controls render only then. | changed |
+| T3's command dispatch — `t3code/packages/client-runtime/src/operations/commands.ts:180` | `thread.settle`, `thread.unsettle`, `thread.snooze`, `thread.unsnooze` over `orchestration.dispatchCommand` | A refusal arrives as `OrchestrationDispatchCommandError` with a renderable message — `crates/t3code/src/lib.rs:1445` — never as a transport failure. | changed |
 | Any T3 client holding a listing cursor | The feed position — `task_listing/dao.rs:53` | Unchanged numbering. A settle or snooze is an ordinary row change delivered as `thread-upserted`. | unchanged |
 | `apps/frontend`'s sidebar — `sidebar-tasks.tsx:97` | The `task_follows` row it joins on, and `lastReadAt` — `task/handlers.rs:278` | Unchanged. The four columns are additive and it selects none of them. | unchanged |
 | `apps/frontend` and the `moat` CLI | `GET /api/v1/tasks` and its `TaskResponse` | Unchanged. No settle or snooze field is added to the REST surface. | unchanged |
@@ -390,16 +390,16 @@ Promises:
 
 These are implementation boundaries, not promises, and may change without a spec update:
 
-- The four `ThreadCommandSink` methods (`ui_rpc/ports.rs:100`).
+- The four `ThreadCommandSink` methods (`crates/t3code/src/ports.rs:100`).
 - The four `TaskDao` methods and the two clearing helpers (`task/dao.rs`).
-- The four fields on `Conversation` (`ui_rpc/dao.rs:36`).
+- The four fields on `Conversation` (`crates/t3code/src/dao.rs:36`).
 
 ### Failure, safety and recovery
 
 | Condition | State before | State after | What the caller sees | Retry safe | Mechanism |
 |---|---|---|---|---|---|
 | `snoozedUntil` is absent, unparseable, or not in the future | any | unchanged | `OrchestrationDispatchCommandError` with a message naming the problem | yes | Validation precedes dispatch; nothing is written |
-| Task is closed, deleted, or not readable by the viewer | any | unchanged | `CommandRefusal::NotWritable`, deliberately undifferentiated | yes | The three are not distinguished — naming a Task the viewer cannot read is itself a disclosure (`ui_rpc/ports.rs:29`) |
+| Task is closed, deleted, or not readable by the viewer | any | unchanged | `CommandRefusal::NotWritable`, deliberately undifferentiated | yes | The three are not distinguished — naming a Task the viewer cannot read is itself a disclosure (`crates/t3code/src/ports.rs:29`) |
 | The `UPDATE` fails | any | unchanged | `CommandRefusal::Failed`; the cause is logged, not sent | yes | Single-statement transaction; nothing partial |
 | A repeat settle or identical re-snooze | already set | unchanged | success | yes | `IS DISTINCT FROM` guard; `rows_affected = 0` skips `record_change` |
 | `clear_snoozed_for_follower` fails at `message/service.rs:82` | sender snoozed | sender still snoozed; message sent; settle cleared | nothing — the send succeeds | n/a | Best-effort with `warn!`, matching the auto-follow beside it. T3 raises the hand when the turn completes |
@@ -417,7 +417,7 @@ These are implementation boundaries, not promises, and may change without a spec
 
 #### Unit — `cargo test -p moatless-vibe-backend`
 
-In `backend/src/ui_rpc/commands.rs` tests (the existing module at `:595` onward is the model):
+In `crates/t3code/src/commands.rs` tests (the existing module at `:595` onward is the model):
 
 - `thread.snooze` with a past `snoozedUntil` is `Rejected`, and the sink is not called.
 - `thread.snooze` with an unparseable `snoozedUntil` is `Rejected`.
@@ -425,7 +425,7 @@ In `backend/src/ui_rpc/commands.rs` tests (the existing module at `:595` onward 
 - Each of the four verbs reaches the corresponding sink method with the viewer and task id it was given.
 - `thread.archive`, `thread.unarchive` and `thread.delete` are still `Unsupported` — the existing test at `:859` must keep passing with the settle and snooze tags removed from its list.
 
-In `backend/src/ui_rpc/projection.rs` tests:
+In `crates/t3code/src/projection.rs` tests:
 
 - The shell row and the detail row both carry all four fields for the same conversation.
 - A conversation with no state set carries four JSON nulls.

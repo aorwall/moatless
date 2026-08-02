@@ -17,12 +17,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use moatless_events::AgentSubType;
-use tokio::sync::{RwLock, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::backend_client::BackendClient;
 use crate::config::Config;
-use crate::credentials::Dispatcher;
 use crate::credentials::recovery::CredentialFailureDetector;
+use crate::credentials::Dispatcher;
 use crate::events::GrpcEventPublisher;
 
 use super::agent_state::AgentState;
@@ -333,16 +333,16 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX, build_harness, resolve_agent_harness, spawn_agent,
+        build_harness, resolve_agent_harness, spawn_agent, AGENT_TYPE_CLAUDE_CODE, AGENT_TYPE_CODEX,
     };
     use crate::agent::agent_state::AgentState;
     use crate::agent::harness::ErrorClass;
     use crate::agent::heartbeat::Heartbeat;
     use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
     use crate::backend_client::BackendClient;
-    use crate::config::{Config, test_support::minimal_config};
-    use crate::credentials::Dispatcher;
+    use crate::config::{test_support::minimal_config, Config};
     use crate::credentials::recovery::CredentialFailureDetector;
+    use crate::credentials::Dispatcher;
     use crate::events::GrpcEventPublisher;
     use crate::outbox::EventOutbox;
     use async_trait::async_trait;

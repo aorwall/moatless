@@ -86,8 +86,8 @@ async fn refresh_once(state: &SandboxState, interval: Duration) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use sandbox_proto::{GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest};
@@ -99,8 +99,8 @@ mod tests {
     use crate::agent::handle::spawn_agent;
     use crate::backend_client::BackendClient;
     use crate::config::{AgentConfig, Config, ProxyConfig};
-    use crate::credentials::Dispatcher;
     use crate::credentials::recovery::CredentialFailureDetector;
+    use crate::credentials::Dispatcher;
     use crate::events::GrpcEventPublisher;
     use crate::init::InitPhase;
     use crate::state::SandboxState;

@@ -12,7 +12,7 @@ use crate::adapters::models::{
 };
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
-use crate::bindings::recipients::{EventProvenance, resolve_recipients};
+use crate::bindings::recipients::{resolve_recipients, EventProvenance};
 use crate::loops::firing::inbound;
 use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
@@ -869,11 +869,10 @@ mod error_source_tests {
             sqlx::Error::PoolClosed,
         ));
 
-        assert!(
-            err.source()
-                .and_then(|s| s.downcast_ref::<crate::task::creation::TaskCreationError>())
-                .is_some()
-        );
+        assert!(err
+            .source()
+            .and_then(|s| s.downcast_ref::<crate::task::creation::TaskCreationError>())
+            .is_some());
         let chain = source_chain(&err);
         assert!(
             chain.iter().any(|link| link.contains("closed pool")),
@@ -891,11 +890,10 @@ mod error_source_tests {
             sqlx::Error::PoolClosed,
         ));
 
-        assert!(
-            err.source()
-                .and_then(|s| s.downcast_ref::<crate::message::error::MessageError>())
-                .is_some()
-        );
+        assert!(err
+            .source()
+            .and_then(|s| s.downcast_ref::<crate::message::error::MessageError>())
+            .is_some());
         let chain = source_chain(&err);
         assert!(
             chain.iter().any(|link| link.contains("closed pool")),

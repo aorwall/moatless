@@ -116,12 +116,12 @@ mod tests {
 
     use axum::http::{Method, StatusCode};
 
-    use super::super::test_support::{StubResponse, start_github_api_stub};
+    use super::super::test_support::{start_github_api_stub, StubResponse};
     use super::*;
     use crate::adapters::models::{AdapterConnection, OutboundReply, TaskBinding};
     use crate::adapters::{AdapterBindingReply, AdapterMessageReply};
     use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{StubProviderTokens, github_row};
+    use crate::auth::test_support::{github_row, StubProviderTokens};
 
     #[tokio::test]
     async fn outbound_capabilities_keep_exact_github_request_budgets() {

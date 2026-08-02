@@ -19,10 +19,10 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::sandbox::access::{LogOptions, SandboxIntentReader, SandboxObserver};
-use crate::sandbox::error::SandboxError;
-use crate::sandbox::schemas::ServerEntry;
-use crate::task::dao::TaskDao;
+use crate::data::{T3TaskDao, TaskView};
+use moatless_backend_core::sandbox::{
+    LogOptions, SandboxError, SandboxIntentReader, SandboxObserver, ServerEntry,
+};
 use moatless_backend_core::scope::ScopeContext;
 
 /// How often a subscribed status stream asks the runtime what changed.
@@ -35,13 +35,13 @@ const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Everything the `servers.*` handlers read through.
 ///
-/// `ui_rpc` cannot reuse the sandbox module's own `authorize_task_read` and
-/// `resolve_desired_state` — both are `pub(super)` on `SandboxApiState` — so the
+/// `t3code` cannot reuse the sandbox module's own `authorize_task_read` and
+/// `resolve_desired_state` — both belong to the root backend — so the
 /// same two reads are performed here against the same two handles.
 #[derive(Clone)]
 pub struct ServersState {
     pub observer: Arc<dyn SandboxObserver>,
-    pub tasks: Arc<dyn TaskDao>,
+    pub tasks: Arc<dyn T3TaskDao>,
     pub intent: Arc<dyn SandboxIntentReader>,
 }
 
@@ -88,7 +88,7 @@ async fn authorized_task(
     state: &ServersState,
     viewer: &ScopeContext,
     task_id: &str,
-) -> Result<crate::task::models::Task, ServersError> {
+) -> Result<TaskView, ServersError> {
     state
         .tasks
         .find_by_id(task_id, viewer)
@@ -154,7 +154,7 @@ async fn status_snapshot(
 /// survives: ending it would present a transient K8s error as a dead panel, and
 /// the next poll covers the same ground.
 pub async fn watch_status(
-    request_id: crate::ui_rpc::RequestId,
+    request_id: crate::RequestId,
     state: ServersState,
     viewer: ScopeContext,
     task_id: String,
@@ -170,10 +170,7 @@ pub async fn watch_status(
                 // from that, and a silent stream would leave the panel showing
                 // its last list as current.
                 let _ = frames
-                    .send(crate::ui_rpc::failure_exit(
-                        &request_id,
-                        "Conversation not found",
-                    ))
+                    .send(crate::failure_exit(&request_id, "Conversation not found"))
                     .await;
                 return;
             }
@@ -205,7 +202,7 @@ pub async fn watch_status(
 /// that reconnects receives only new lines and the gap is not backfilled —
 /// which is a fact the panel states rather than hides.
 pub async fn watch_logs(
-    request_id: crate::ui_rpc::RequestId,
+    request_id: crate::RequestId,
     state: ServersState,
     viewer: ScopeContext,
     task_id: String,
@@ -215,7 +212,7 @@ pub async fn watch_logs(
 ) {
     if let Err(error) = authorized_task(&state, &viewer, &task_id).await {
         let _ = frames
-            .send(crate::ui_rpc::failure_exit(
+            .send(crate::failure_exit(
                 &request_id,
                 match error {
                     ServersError::NotFound => "Conversation not found".to_string(),
@@ -246,7 +243,7 @@ pub async fn watch_logs(
             // reviewer needs to see, so the reason reaches the client rather
             // than only the log.
             let _ = frames
-                .send(crate::ui_rpc::failure_exit(
+                .send(crate::failure_exit(
                     &request_id,
                     format!("Server logs unavailable: {error}"),
                 ))
@@ -281,7 +278,7 @@ pub async fn watch_logs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sandbox::models::{ServerCapabilities, ServerStatus};
+    use moatless_backend_core::sandbox::{ServerCapabilities, ServerStatus};
 
     fn entry(status: ServerStatus) -> ServerEntry {
         ServerEntry {
@@ -365,220 +362,5 @@ mod tests {
                 "{projected} is not in the contract's ServerRuntimeStatus"
             );
         }
-    }
-}
-
-/// The half of a `servers.list` answer the database decides.
-///
-/// Config-first is a claim about where the list comes from, and where it comes
-/// from is SQL: a Task resolves to a Workspace, the Workspace's `servers` JSONB
-/// declares them, and the Task's `disabled_servers` removes the ones the
-/// crash-loop guard dropped. None of that is visible without a real database,
-/// and neither is the scoped read that decides whether this viewer may see the
-/// Task at all — which is the same `find_by_id` every other read goes through
-/// and the reason an unauthorized caller gets `NotFound` rather than an empty
-/// list.
-///
-/// What the cluster reports for each row is the one thing this tier cannot
-/// supply, so the observer here answers the way the resolver does for a Task
-/// with no pod, and the assertions are about the list rather than its statuses.
-#[cfg(all(test, feature = "db-tests"))]
-mod db_tests {
-    use super::*;
-    use crate::sandbox::access::SandboxConnector;
-    use crate::sandbox::auto_provision::get_server_configs_for_task;
-    use crate::sandbox::client::SandboxClient;
-    use crate::sandbox::live_status::LiveStatus;
-    use crate::sandbox::models::{SandboxStatus, ServerStatus, server_capabilities_from_config};
-    use crate::sandbox::schemas::SandboxStatusFullResponse;
-    use crate::task::dao::PgTaskDao;
-    use crate::task::models::{SandboxDesiredState, TaskStatus};
-    use crate::workspace::dao::PgWorkspaceDao;
-    use async_trait::async_trait;
-    use futures::stream::BoxStream;
-    use sqlx::PgPool;
-    use std::sync::Arc;
-
-    /// A Task that never had a sandbox: the servers it declares, read from the
-    /// database exactly as the production adapter reads them, and nothing
-    /// observed to overlay on them.
-    struct NeverProvisioned(PgPool);
-
-    #[async_trait]
-    impl SandboxObserver for NeverProvisioned {
-        async fn sandbox_status(
-            &self,
-            task_id: &str,
-            _task_status: TaskStatus,
-            _desired_state: SandboxDesiredState,
-        ) -> Result<SandboxStatusFullResponse, SandboxError> {
-            let configs = get_server_configs_for_task(
-                &PgTaskDao(self.0.clone()),
-                &PgWorkspaceDao(self.0.clone()),
-                task_id,
-            )
-            .await;
-            Ok(SandboxStatusFullResponse {
-                sandbox_status: SandboxStatus::NotCreated,
-                sandbox_error: None,
-                agent_status: None,
-                servers: configs
-                    .iter()
-                    .map(|config| ServerEntry {
-                        name: config.name.clone(),
-                        label: config.label.clone().unwrap_or_else(|| config.name.clone()),
-                        port: config.port,
-                        status: ServerStatus::Starting,
-                        url: None,
-                        error: None,
-                        detail: None,
-                        default: config.default,
-                        capabilities: server_capabilities_from_config(config),
-                    })
-                    .collect(),
-                resources: None,
-                container_diagnostics: None,
-                runtime_events: None,
-                scheduled_jobs: Vec::new(),
-                background_processes: Vec::new(),
-                sandbox_desired_state: None,
-                current_sandbox_image: None,
-                latest_sandbox_image: None,
-                image_up_to_date: None,
-            })
-        }
-
-        async fn live_status(
-            &self,
-            _task_id: &str,
-            _task_status: TaskStatus,
-            _desired_state: SandboxDesiredState,
-        ) -> Result<LiveStatus, SandboxError> {
-            unreachable!("servers.list does not read live status")
-        }
-
-        async fn server_logs(
-            &self,
-            _task_id: &str,
-            _server_name: &str,
-            _options: crate::sandbox::access::LogOptions,
-        ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
-            unreachable!("servers.list does not read logs")
-        }
-    }
-
-    /// No sandbox was ever asked for, which is the lazy-absence shape a Task
-    /// has before any lifecycle operation touches it.
-    struct NeverAsked;
-
-    #[async_trait]
-    impl SandboxIntentReader for NeverAsked {
-        async fn desired_state(&self, _task_id: &str) -> Result<SandboxDesiredState, SandboxError> {
-            Ok(SandboxDesiredState::Stopped)
-        }
-    }
-
-    #[async_trait]
-    impl SandboxConnector for NeverAsked {
-        async fn sandbox_client(&self, _task_id: &str) -> Result<SandboxClient, SandboxError> {
-            unreachable!("servers.list does not connect to a sandbox")
-        }
-    }
-
-    fn state(pool: &PgPool) -> ServersState {
-        ServersState {
-            observer: Arc::new(NeverProvisioned(pool.clone())),
-            tasks: Arc::new(PgTaskDao(pool.clone())),
-            intent: Arc::new(NeverAsked),
-        }
-    }
-
-    fn viewer(user_id: &str) -> ScopeContext {
-        ScopeContext {
-            user_id: user_id.to_string(),
-            is_admin: false,
-        }
-    }
-
-    /// One Workspace declaring three servers, one Task pointing at it with one
-    /// of the three auto-disabled.
-    async fn seed(pool: &PgPool, task_id: &str, owner: &str) {
-        sqlx::query(
-            "INSERT INTO teams (id, name, slug) VALUES ('team-x', 'Team X', 'team-x')
-             ON CONFLICT (id) DO NOTHING",
-        )
-        .execute(pool)
-        .await
-        .expect("seed team");
-
-        sqlx::query(
-            r#"INSERT INTO workspaces (id, name, kind, servers, scope, owner_user_id, created_by)
-               VALUES ('ws-1', 'ws-1', 'blank', $1, 'user', $2, $2)"#,
-        )
-        .bind(serde_json::json!([
-            { "name": "web", "label": "Web", "port": 5733, "default": true },
-            { "name": "docs", "port": 4000 },
-            { "name": "flaky", "port": 4100 },
-        ]))
-        .bind(owner)
-        .execute(pool)
-        .await
-        .expect("seed workspace");
-
-        sqlx::query(
-            r#"INSERT INTO tasks (task_id, created_at, last_message_at, agent_type, repository_id,
-                   status, total_cost_usd, visibility, scope, team_id, created_by, owner_user_id,
-                   workspace_id, disabled_servers)
-               VALUES ($1, NOW()::text, NOW()::text, 'claude-code', 'repo-x', 'open', 0,
-                   'private', 'user', 'team-x', $2, $2, 'ws-1', $3)"#,
-        )
-        .bind(task_id)
-        .bind(owner)
-        .bind(serde_json::json!(["flaky"]))
-        .execute(pool)
-        .await
-        .expect("seed task");
-    }
-
-    #[sqlx::test]
-    async fn a_task_whose_sandbox_was_never_provisioned_still_lists_what_it_declares(pool: PgPool) {
-        seed(&pool, "task-1", "user-1").await;
-
-        let listed = list(&state(&pool), &viewer("user-1"), "task-1")
-            .await
-            .expect("the owner may read their own Task");
-
-        let servers = listed["servers"].as_array().expect("an array of servers");
-        assert_eq!(
-            servers
-                .iter()
-                .map(|server| server["name"].as_str().unwrap_or_default())
-                .collect::<Vec<_>>(),
-            vec!["web", "docs"],
-            "the disabled server is not listed, and the rest are"
-        );
-        // `label` falls back to the name, and the port comes from the JSONB.
-        assert_eq!(servers[0]["label"], "Web");
-        assert_eq!(servers[0]["port"], 5733);
-        assert_eq!(servers[0]["default"], true);
-        assert_eq!(servers[1]["label"], "docs");
-        assert_eq!(servers[1]["port"], 4000);
-        // Required and nullable on the contract, so written rather than skipped.
-        assert!(servers[1].get("error").is_some_and(Value::is_null));
-        assert!(servers[1].get("detail").is_some_and(Value::is_null));
-    }
-
-    /// A Task another tenant cannot read is not an empty list — it is missing.
-    /// An empty list would tell the caller the Task exists and declares nothing.
-    #[sqlx::test]
-    async fn a_viewer_who_cannot_read_the_task_is_told_it_does_not_exist(pool: PgPool) {
-        seed(&pool, "task-1", "user-1").await;
-
-        let denied = list(&state(&pool), &viewer("user-2"), "task-1").await;
-
-        assert!(
-            matches!(denied, Err(ServersError::NotFound)),
-            "expected NotFound, got {denied:?}"
-        );
     }
 }

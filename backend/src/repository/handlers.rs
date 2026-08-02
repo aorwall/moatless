@@ -1,8 +1,8 @@
 //! Repository HTTP handlers.
 
-use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use axum::Json;
 
 use tracing::{debug, info, warn};
 
@@ -18,13 +18,13 @@ use moatless_backend_core::scope::{Scope, ScopeContext};
 
 use super::access::{access_error_for, parse_github_owner_repo, resolve_repository_github_token};
 use super::config_reader::{
-    AccessStatus, validate_repository_access_target, verify_repository_access,
+    validate_repository_access_target, verify_repository_access, AccessStatus,
 };
 use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use super::schemas::*;
-use crate::workspace::git_sync::{SyncForce, sync_repo_workspaces};
+use crate::workspace::git_sync::{sync_repo_workspaces, SyncForce};
 
 pub(crate) fn validate_non_secret_env_vars(
     env_vars: Option<&std::collections::HashMap<String, String>>,

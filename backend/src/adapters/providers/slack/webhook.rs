@@ -9,11 +9,11 @@
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AccessDecision, Audience, InboundMessage, LoopContext, MessageTrigger,
 };
+use crate::adapters::AdapterKind;
 use crate::db::DbPool;
 
 use super::access::enforce_slack_access;

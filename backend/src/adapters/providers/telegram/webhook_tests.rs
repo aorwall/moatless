@@ -21,7 +21,7 @@ use crate::db::DbPool;
 use super::adapter::TelegramAdapter;
 use super::api::TelegramApi;
 use super::config::TelegramAdapterConfig;
-use super::test_support::{BotApiStub, bot_api_stub, test_loop_context};
+use super::test_support::{bot_api_stub, test_loop_context, BotApiStub};
 use super::webhook::{Normalization, NormalizeContext};
 
 /// The outcome of normalizing one update, in the vocabulary the assertions use.
@@ -454,8 +454,8 @@ async fn a_group_never_gets_a_pairing_code() {
 mod db_tests {
     use sqlx::PgPool;
 
-    use crate::adapters::AdapterKind;
     use crate::adapters::models::Audience;
+    use crate::adapters::AdapterKind;
 
     use super::super::test_support::OWNER;
     use super::*;

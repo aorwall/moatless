@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]
 //! Opt-in T3 Code UI compatibility routes.
 //!
 //! This module is the anti-corruption layer between T3's contract and Moatless
@@ -26,12 +27,17 @@
 //! listing's, and a cursor from one is refused by the other. See
 //! [`ThreadFeed`].
 
-mod auth;
-pub mod backend;
+pub mod activity;
+pub mod activity_dao;
+pub mod agent;
+pub mod auth;
 mod commands;
 pub mod dao;
+pub mod data;
 mod feed;
 pub mod files;
+pub mod listing;
+mod oauth;
 pub mod ports;
 mod preview;
 pub mod preview_tabs;
@@ -43,7 +49,14 @@ mod servers;
 mod terminal;
 pub mod workspace;
 
+pub use auth::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use feed::{ShellFeed, ThreadFeed};
+pub use moatless_backend_core::pairing::DevicePairing;
+pub use moatless_backend_core::sandbox::{
+    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
+};
+
+pub type UiRpcDbPool = sqlx::PgPool;
 
 use std::collections::HashMap;
 use std::env;
@@ -65,23 +78,16 @@ use tokio::task::JoinHandle;
 use tracing::{Instrument, debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::agent::catalog::AgentKind;
-use crate::auth::identity::{AuthIdentity, AuthMethod};
-use crate::auth::models::UserRole;
-use crate::auth::pairing::DevicePairing;
-use crate::sandbox::access::{
-    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
-};
-use crate::task::dao::TaskDao;
-use crate::task_activities::{self, ConversationHead};
-use crate::task_listing::{self, EnvironmentIdentity, Resume};
-use crate::ui_rpc::dao::ConversationDao;
-use crate::ui_rpc::preview::{PreviewError, PreviewState};
-use crate::ui_rpc::preview_tabs::PreviewTabDao;
-use crate::ui_rpc::sandbox::{SandboxRpcError, SandboxState};
-use crate::ui_rpc::servers::{ServersError, ServersState};
-use crate::ui_rpc::workspace::WorkspaceAccessError;
-use crate::workspace::dao::WorkspaceDao;
+use crate::agent::catalog::UiRpcAgentKind;
+use crate::dao::ConversationDao;
+use crate::data::{T3TaskDao, T3WorkspaceDao};
+use crate::listing::{UiRpcEnvironmentIdentity, UiRpcResume};
+use crate::preview::{PreviewError, PreviewState};
+use crate::preview_tabs::PreviewTabDao;
+use crate::sandbox::{SandboxRpcError, SandboxState};
+use crate::servers::{ServersError, ServersState};
+use crate::workspace::WorkspaceAccessError;
+use moatless_backend_core::activity::{ConversationHead, Resume, resume};
 use moatless_backend_core::scope::ScopeContext;
 
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -216,10 +222,10 @@ pub struct AgentModelDefaults {
 
 impl AgentModelDefaults {
     /// The deployment default for one kind of agent, if it configures one.
-    pub(super) fn for_kind(&self, kind: AgentKind) -> Option<&str> {
+    pub(crate) fn for_kind(&self, kind: UiRpcAgentKind) -> Option<&str> {
         match kind {
-            AgentKind::ClaudeCode => self.claude_code.as_deref(),
-            AgentKind::Codex => self.codex.as_deref(),
+            UiRpcAgentKind::ClaudeCode => self.claude_code.as_deref(),
+            UiRpcAgentKind::Codex => self.codex.as_deref(),
         }
     }
 }
@@ -230,7 +236,7 @@ struct UiRpcState {
     /// The database this process started against, and therefore the database
     /// every position it has handed out was allocated in. Compared against what
     /// the database says it is on each resume; see [`task_listing::resume`].
-    environment: Arc<EnvironmentIdentity>,
+    environment: Arc<UiRpcEnvironmentIdentity>,
     session_cookie_name: Arc<str>,
     /// Signs WebSocket tickets. Absent when the deployment configures no JWT
     /// secret, which is the same condition under which session cookies do not
@@ -239,7 +245,7 @@ struct UiRpcState {
     /// Turns a pairing code into the token a client on another device keeps.
     /// The issuing half lives with the rest of the account routes.
     pairing: Arc<DevicePairing>,
-    workspaces: Arc<dyn WorkspaceDao>,
+    workspaces: Arc<dyn T3WorkspaceDao>,
     conversations: Arc<dyn ConversationDao>,
     /// How a conversation's files are reached. The only piece of Moatless
     /// behind this module that is not a database read: a checkout exists inside
@@ -274,7 +280,7 @@ struct UiRpcState {
 /// every route except the public discovery descriptor.
 ///
 /// The one thing here that is *not* configuration is the environment's
-/// identity, which is read from the database. See [`environment_id`].
+/// identity, which is read from the database. See `environment_id`.
 pub async fn router_from_env(
     dependencies: UiRpcDependencies,
 ) -> Result<Option<Router>, UiRpcConfigError> {
@@ -359,11 +365,11 @@ pub struct UiRpcDependencies {
     /// Reported in the auth descriptor so a browser knows which cookie to send.
     pub session_cookie_name: String,
     /// The secret WebSocket tickets are signed with — the same one session
-    /// cookies use, read through [`crate::auth::jwt::get_jwt_secret`] so the
-    /// sandbox-secret fallback applies here too.
+    /// cookies use. The root backend reads it from its auth configuration
+    /// before mounting this router.
     pub session_jwt_secret: Option<String>,
     pub pairing: Arc<DevicePairing>,
-    pub workspaces: Arc<dyn WorkspaceDao>,
+    pub workspaces: Arc<dyn T3WorkspaceDao>,
     pub conversations: Arc<dyn ConversationDao>,
     /// Reaches a conversation's Sandbox, which is where its checkout lives.
     pub sandboxes: Arc<dyn SandboxConnector>,
@@ -372,7 +378,7 @@ pub struct UiRpcDependencies {
     /// Authorizes every `servers.*`, `sandbox.*`, and `preview.*` call: a
     /// scoped read that finds nothing is the same answer as a Task that does
     /// not exist.
-    pub tasks: Arc<dyn TaskDao>,
+    pub tasks: Arc<dyn T3TaskDao>,
     /// The desired state a status read is resolved against.
     pub intent: Arc<dyn SandboxIntentReader>,
     /// Starts a Task's Sandbox through the same lifecycle path as the REST API.
@@ -435,15 +441,15 @@ pub struct UiRpcDependencies {
 /// The name ([`T3_ENVIRONMENT_NAME`]) is the readable half; the digest is what
 /// tells one environment from another. Two deployments sharing a database are
 /// one environment — the same conversations at the same positions.
-fn environment_id(identity: &EnvironmentIdentity) -> String {
+fn environment_id(identity: &UiRpcEnvironmentIdentity) -> String {
     format!("{T3_ENVIRONMENT_NAME}-{}", identity.digest())
 }
 
 fn router(state: UiRpcState) -> Router {
     Router::new()
         .route("/.well-known/t3/environment", get(environment_descriptor))
-        .route("/oauth/token", post(auth::token_exchange))
-        .route("/api/auth/websocket-ticket", post(auth::websocket_ticket))
+        .route("/oauth/token", post(oauth::token_exchange))
+        .route("/api/auth/websocket-ticket", post(oauth::websocket_ticket))
         .route("/api/auth/session", get(auth_session))
         .route("/api/orchestration/shell", get(shell_snapshot_http))
         .route(
@@ -502,8 +508,8 @@ async fn environment_descriptor(State(state): State<UiRpcState>) -> Json<Value> 
 
 async fn auth_session(
     State(state): State<UiRpcState>,
-    Extension(identity): Extension<AuthIdentity>,
-    method: Option<Extension<AuthMethod>>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    method: Option<Extension<UiRpcAuthMethod>>,
 ) -> Json<Value> {
     debug!(user_id = %identity.user_id, "T3 UI session bootstrap");
     Json(session_state(&state, method.map(|Extension(m)| m)))
@@ -511,7 +517,7 @@ async fn auth_session(
 
 async fn shell_snapshot_http(
     State(state): State<UiRpcState>,
-    Extension(identity): Extension<AuthIdentity>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
 ) -> Response {
     debug!(user_id = %identity.user_id, "T3 UI shell snapshot bootstrap");
     match shell_snapshot(
@@ -542,7 +548,7 @@ async fn shell_snapshot_http(
 /// alternative, a 403, would confirm the id exists.
 async fn thread_snapshot_http(
     State(state): State<UiRpcState>,
-    Extension(identity): Extension<AuthIdentity>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
     Path(thread_id): Path<String>,
 ) -> Response {
     debug!(user_id = %identity.user_id, task_id = %thread_id, "T3 UI thread snapshot bootstrap");
@@ -595,7 +601,7 @@ async fn thread_snapshot_http(
 /// client silently drops any conversation whose project is missing from the
 /// listing, with no error and nothing logged.
 pub async fn shell_snapshot(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
@@ -646,7 +652,7 @@ pub async fn shell_snapshot(
 /// worst case is a change delivered twice, and every event this feed sends is
 /// an upsert, so twice is the same as once.
 pub async fn thread_snapshot(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
@@ -716,7 +722,7 @@ pub struct ThreadSnapshot {
 /// `after` is the sequence the client says it already holds — the
 /// `snapshotSequence` of the bootstrap it fetched over HTTP moments earlier
 /// (`state/threads.ts`), which is why the two have to be numbers in the same
-/// namespace. [`task_activities::resume`] is what decides between them, on the
+/// namespace. [`resume`] is what decides between them, on the
 /// same two grounds the shell's does: a sequence this conversation never
 /// reached, and one further behind than the records kept.
 ///
@@ -737,7 +743,7 @@ pub struct ThreadSnapshot {
 /// `Ok(None)` when the conversation is not visible to this viewer; the caller
 /// answers the request rather than opening a stream that can only end.
 pub async fn thread_subscription(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
@@ -749,10 +755,10 @@ pub async fn thread_subscription(
     // Qualified: the shell has a decision of the same shape over a different
     // log, and the two cursors are not interchangeable.
     let resume = match after {
-        Some(after) => task_activities::resume(head, after),
-        None => task_activities::Resume::Rebuild,
+        Some(after) => resume(head, after),
+        None => Resume::Rebuild,
     };
-    if let task_activities::Resume::From(cursor) = resume {
+    if let Resume::From(cursor) = resume {
         // A replay reads nothing when nothing changed, and a poll that reads
         // nothing checks nothing. So the visibility rule is applied here as
         // well, or subscribing to a conversation this viewer may not see would
@@ -824,7 +830,7 @@ fn thread_initial_values(mut values: Vec<Value>, request_completion_marker: bool
 pub struct ShellSnapshot {
     pub value: Value,
     pub sequence: i64,
-    pub identity: EnvironmentIdentity,
+    pub identity: UiRpcEnvironmentIdentity,
 }
 
 /// What a subscribing client is sent before live delivery starts, and the feed
@@ -843,7 +849,7 @@ pub struct ShellSubscription {
 /// `after` is the position the client says it already holds — T3's
 /// `afterSequence`, absent for a client that holds nothing. `environment` is
 /// the database this process started against; a database that no longer matches
-/// it is [`task_listing::resume`]'s third reason to rebuild, and the only one
+/// it is [`listing::resume`]'s third reason to rebuild, and the only one
 /// that catches a position handed out a second time to a different change.
 ///
 /// # How the client tells a rebuild from silence
@@ -878,20 +884,20 @@ pub struct ShellSubscription {
 /// over records it read, and the same feed continues live. Anything left over
 /// arrives on the next poll.
 pub async fn shell_subscription(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
-    environment: &EnvironmentIdentity,
+    environment: &UiRpcEnvironmentIdentity,
     after: Option<i64>,
 ) -> Result<ShellSubscription, sqlx::Error> {
     let head = conversations.listing_head().await?;
     let resume = match after {
-        Some(after) => task_listing::resume(environment, &head.identity, head.position, after),
-        None => Resume::Rebuild,
+        Some(after) => listing::resume(environment, &head.identity, head.position, after),
+        None => UiRpcResume::Rebuild,
     };
     match resume {
-        Resume::From(cursor) => {
+        UiRpcResume::From(cursor) => {
             // Positioned, holding nothing it may take back, and grouping by the
             // projects this viewer can read. See `resume_grouping`.
             let grouping = resume_grouping(workspaces, viewer).await?;
@@ -907,7 +913,7 @@ pub async fn shell_subscription(
             );
             Ok(ShellSubscription { values, feed })
         }
-        Resume::Rebuild => {
+        UiRpcResume::Rebuild => {
             let snapshot =
                 shell_snapshot(workspaces, conversations, model_defaults, viewer).await?;
             if let Some(after) = after {
@@ -915,7 +921,7 @@ pub async fn shell_subscription(
                     user_id = %viewer.user_id,
                     after,
                     head = snapshot.sequence,
-                    retained = task_listing::RETAINED_CHANGES,
+                    retained = listing::RETAINED_CHANGES,
                     replaced_database = snapshot.identity != *environment,
                     "T3 UI shell subscription could not replay from the client's \
                      position; sending a freshly built listing"
@@ -976,7 +982,7 @@ pub async fn shell_subscription(
 /// exists. The window is one round trip, and the cost is one row not rendered
 /// until the next rebuild rather than anything disclosed.
 async fn resume_grouping(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn T3WorkspaceDao,
     viewer: &ScopeContext,
 ) -> Result<Vec<String>, sqlx::Error> {
     Ok(workspaces
@@ -1053,7 +1059,7 @@ impl ShellSnapshot {
 /// than narrowed to the ones these conversations sit in, because the client
 /// groups an archived row under a project it must already hold.
 pub async fn archived_shell_snapshot(
-    workspaces: &dyn WorkspaceDao,
+    workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
@@ -1070,7 +1076,7 @@ pub async fn archived_shell_snapshot(
 }
 
 /// The access scope the session's viewer reads Moatless rows with.
-fn viewer_scope(identity: &AuthIdentity) -> ScopeContext {
+fn viewer_scope(identity: &UiRpcAuthIdentity) -> ScopeContext {
     ScopeContext {
         user_id: identity.user_id.to_string(),
         is_admin: matches!(identity.role, UserRole::Admin),
@@ -1079,8 +1085,8 @@ fn viewer_scope(identity: &AuthIdentity) -> ScopeContext {
 
 async fn websocket_upgrade(
     State(state): State<UiRpcState>,
-    Extension(identity): Extension<AuthIdentity>,
-    method: Option<Extension<AuthMethod>>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    method: Option<Extension<UiRpcAuthMethod>>,
     headers: HeaderMap,
     websocket: WebSocketUpgrade,
 ) -> Response {
@@ -1120,8 +1126,8 @@ async fn websocket_upgrade(
 /// An unknown method is treated as the cookie case. The only way to get here
 /// without one is with the auth middleware unmounted, and that is not a
 /// configuration whose sockets should be easier to open.
-fn origin_checked(method: Option<Extension<AuthMethod>>) -> bool {
-    !matches!(method, Some(Extension(AuthMethod::WebSocketTicket)))
+fn origin_checked(method: Option<Extension<UiRpcAuthMethod>>) -> bool {
+    !matches!(method, Some(Extension(UiRpcAuthMethod::WebSocketTicket)))
 }
 
 fn origin_allowed(headers: &HeaderMap, allowed_origins: &[AllowedOrigin]) -> bool {
@@ -1169,7 +1175,7 @@ impl AllowedOrigin {
 /// The socket is split because those two are independent — a subscription's
 /// chunk must not wait for the client to say something first, which is what the
 /// request-response loop this replaces required.
-async fn serve_websocket(socket: WebSocket, state: UiRpcState, identity: AuthIdentity) {
+async fn serve_websocket(socket: WebSocket, state: UiRpcState, identity: UiRpcAuthIdentity) {
     debug!(user_id = %identity.user_id, "T3 UI WebSocket connected");
     let (mut sink, mut incoming) = socket.split();
     let (frames, mut pushed) = mpsc::channel::<Value>(OUTBOUND_FRAMES);
@@ -1456,7 +1462,7 @@ impl ProtocolSession {
         &mut self,
         bytes: &[u8],
         state: &UiRpcState,
-        identity: &AuthIdentity,
+        identity: &UiRpcAuthIdentity,
     ) -> ProtocolOutput {
         let value: Value = match serde_json::from_slice(bytes) {
             Ok(value) => value,
@@ -1550,7 +1556,7 @@ impl ProtocolSession {
         tag: String,
         payload: Value,
         state: &UiRpcState,
-        identity: &AuthIdentity,
+        identity: &UiRpcAuthIdentity,
     ) -> Vec<Value> {
         if !valid_request_id(id.as_str()) {
             return vec![connection_defect(
@@ -1571,8 +1577,8 @@ impl ProtocolSession {
         // This is the deployment's grant, not the client's — see the plan's Out
         // of scope note. A pairing that asked for less than this still gets a
         // credential carrying all of it.
-        let required = auth::required_scope(&tag);
-        if !auth::GRANTED_SCOPES.contains(&required) {
+        let required = oauth::required_scope(&tag);
+        if !oauth::GRANTED_SCOPES.contains(&required) {
             debug!(%tag, %required, user_id = %identity.user_id, "T3 UI request refused; scope not granted");
             return vec![typed_failure_exit(
                 &id,
@@ -2718,14 +2724,14 @@ fn auth_descriptor(state: &UiRpcState) -> Value {
 /// `sessionMethod` reports the credential this request actually arrived with,
 /// rather than the one the browser would have used, because a paired device
 /// asking what it is holding should not be told it is holding a cookie.
-fn session_state(state: &UiRpcState, method: Option<AuthMethod>) -> Value {
+fn session_state(state: &UiRpcState, method: Option<UiRpcAuthMethod>) -> Value {
     json!({
         "authenticated": true,
         "auth": auth_descriptor(state),
-        "scopes": auth::GRANTED_SCOPES,
+        "scopes": oauth::GRANTED_SCOPES,
         "sessionMethod": match method {
-            Some(AuthMethod::SessionCookie) | None => "browser-session-cookie",
-            Some(AuthMethod::ApiKey) | Some(AuthMethod::WebSocketTicket) => "bearer-access-token",
+            Some(UiRpcAuthMethod::SessionCookie) | None => "browser-session-cookie",
+            Some(UiRpcAuthMethod::ApiKey) | Some(UiRpcAuthMethod::WebSocketTicket) => "bearer-access-token",
         }
     })
 }
@@ -2735,7 +2741,7 @@ fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-async fn server_config(state: &UiRpcState, identity: &AuthIdentity) -> Value {
+async fn server_config(state: &UiRpcState, identity: &UiRpcAuthIdentity) -> Value {
     let agents = state.agents.list(&viewer_scope(identity)).await;
     json!({
         "environment": descriptor(&state.rpc),
@@ -2846,7 +2852,7 @@ fn file_failure_exit(
     request_id: &RequestId,
     tag: &str,
     error: &WorkspaceAccessError,
-    identity: &AuthIdentity,
+    identity: &UiRpcAuthIdentity,
 ) -> Value {
     let error_tag = match tag {
         "projects.readFile" => "ProjectReadFileError",
@@ -2890,7 +2896,7 @@ fn review_failure_exit(
     tag: &str,
     cwd: &str,
     error: &WorkspaceAccessError,
-    identity: &AuthIdentity,
+    identity: &UiRpcAuthIdentity,
 ) -> Value {
     match error {
         WorkspaceAccessError::Database(cause) => {
@@ -2942,7 +2948,7 @@ fn branch_list_exit(
     request_id: &RequestId,
     cwd: &str,
     error: ports::BranchListError,
-    identity: &AuthIdentity,
+    identity: &UiRpcAuthIdentity,
 ) -> Value {
     let detail = match error {
         ports::BranchListError::None => return success_exit(request_id, review::no_refs()),
@@ -2989,7 +2995,7 @@ fn branch_switch_result(payload: &Value) -> Option<Value> {
 fn shell_failure_exit(
     request_id: &RequestId,
     error: &sqlx::Error,
-    identity: &AuthIdentity,
+    identity: &UiRpcAuthIdentity,
 ) -> Value {
     error!(%error, user_id = %identity.user_id, "Failed to assemble T3 UI shell snapshot");
     failure_exit(request_id, "Failed to assemble the shell listing")
@@ -3033,7 +3039,7 @@ fn terminal_failure_exit(
     request_id: &RequestId,
     payload: &Value,
     error: &terminal::TerminalError,
-    identity: &AuthIdentity,
+    identity: &UiRpcAuthIdentity,
 ) -> Value {
     match error {
         terminal::TerminalError::Workspace(WorkspaceAccessError::Database(cause)) => {
@@ -3062,7 +3068,7 @@ fn terminal_failure_exit(
 fn servers_failure_exit(
     request_id: &RequestId,
     error: &ServersError,
-    identity: &AuthIdentity,
+    identity: &UiRpcAuthIdentity,
 ) -> Value {
     error!(%error, user_id = %identity.user_id, "Failed to read a Task's servers");
     failure_exit(request_id, "Failed to read the conversation's servers")
@@ -3073,7 +3079,7 @@ fn servers_failure_exit(
 fn sandbox_failure_exit(
     request_id: &RequestId,
     error: &SandboxRpcError,
-    identity: &AuthIdentity,
+    identity: &UiRpcAuthIdentity,
 ) -> Value {
     error!(%error, user_id = %identity.user_id, "Failed to answer a Task's sandbox lifecycle request");
     failure_exit(request_id, "Failed to read the conversation's sandbox")
@@ -3131,17 +3137,24 @@ fn connection_defect(defect: impl Into<String>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task_listing::ListingHead;
-    use crate::ui_rpc::dao::MockConversationDao;
-    use crate::workspace::dao::MockWorkspaceDao;
+    use crate::dao::MockConversationDao;
+    use crate::data::{MockT3TaskDao, MockT3WorkspaceDao};
+    use crate::listing::UiRpcListingHead;
     use async_trait::async_trait;
+    use chrono::{DateTime, Utc};
+    use moatless_backend_core::pairing::{
+        PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key,
+    };
+    use moatless_backend_core::sandbox::{
+        LiveStatus, LogOptions, SandboxError, SandboxStatusFullResponse, ServerLogStream,
+    };
     use uuid::Uuid;
 
     /// The stub's database. Every read in these tests reports it, so nothing
     /// here exercises the identity guard — that needs two real databases, and
     /// is in `backend/tests/ui_rpc_shell_test.rs`.
-    fn stub_identity() -> EnvironmentIdentity {
-        EnvironmentIdentity::new("7667539899605483559:16384")
+    fn stub_identity() -> UiRpcEnvironmentIdentity {
+        UiRpcEnvironmentIdentity::new("7667539899605483559:16384")
     }
 
     /// A deployment whose Sandboxes are all unreachable.
@@ -3153,8 +3166,8 @@ mod tests {
     /// a gRPC or K8s round trip and belongs in an integration test.
     struct UnreachableSandboxes;
 
-    fn unreachable(task_id: &str) -> crate::sandbox::error::SandboxError {
-        crate::sandbox::error::SandboxError::NotReady(task_id.to_string())
+    fn unreachable(task_id: &str) -> SandboxError {
+        SandboxError::NotReady(task_id.to_string())
     }
 
     #[async_trait]
@@ -3162,37 +3175,38 @@ mod tests {
         async fn sandbox_client(
             &self,
             task_id: &str,
-        ) -> Result<crate::sandbox::client::SandboxClient, crate::sandbox::error::SandboxError>
-        {
+        ) -> Result<moatless_backend_core::sandbox::SandboxClient, SandboxError> {
             Err(unreachable(task_id))
         }
     }
 
     #[async_trait]
-    impl crate::sandbox::access::SandboxIntentReader for UnreachableSandboxes {
+    impl SandboxIntentReader for UnreachableSandboxes {
         async fn desired_state(
             &self,
             task_id: &str,
-        ) -> Result<crate::task::models::SandboxDesiredState, crate::sandbox::error::SandboxError>
-        {
+        ) -> Result<moatless_api_schemas::enums::SandboxDesiredState, SandboxError> {
             Err(unreachable(task_id))
         }
     }
 
     #[async_trait]
-    impl crate::sandbox::access::SandboxStarter for UnreachableSandboxes {
-        async fn start(&self, task_id: &str) -> Result<(), crate::sandbox::error::SandboxError> {
+    impl SandboxStarter for UnreachableSandboxes {
+        async fn start(
+            &self,
+            task_id: &str,
+        ) -> Result<(), moatless_backend_core::sandbox::SandboxError> {
             Err(unreachable(task_id))
         }
     }
 
     #[async_trait]
-    impl crate::sandbox::access::SandboxStopper for UnreachableSandboxes {
+    impl SandboxStopper for UnreachableSandboxes {
         async fn stop(
             &self,
             task_id: &str,
-            _reason: crate::task::models::SandboxStopReason,
-        ) -> Result<(), crate::sandbox::error::SandboxError> {
+            _reason: moatless_api_schemas::enums::SandboxStopReason,
+        ) -> Result<(), moatless_backend_core::sandbox::SandboxError> {
             Err(unreachable(task_id))
         }
     }
@@ -3202,22 +3216,18 @@ mod tests {
         async fn sandbox_status(
             &self,
             task_id: &str,
-            _task_status: crate::task::models::TaskStatus,
-            _desired_state: crate::task::models::SandboxDesiredState,
-        ) -> Result<
-            crate::sandbox::schemas::SandboxStatusFullResponse,
-            crate::sandbox::error::SandboxError,
-        > {
+            _task_status: moatless_api_schemas::enums::TaskStatus,
+            _desired_state: moatless_api_schemas::enums::SandboxDesiredState,
+        ) -> Result<SandboxStatusFullResponse, SandboxError> {
             Err(unreachable(task_id))
         }
 
         async fn live_status(
             &self,
             task_id: &str,
-            _task_status: crate::task::models::TaskStatus,
-            _desired_state: crate::task::models::SandboxDesiredState,
-        ) -> Result<crate::sandbox::live_status::LiveStatus, crate::sandbox::error::SandboxError>
-        {
+            _task_status: moatless_api_schemas::enums::TaskStatus,
+            _desired_state: moatless_api_schemas::enums::SandboxDesiredState,
+        ) -> Result<LiveStatus, SandboxError> {
             Err(unreachable(task_id))
         }
 
@@ -3225,15 +3235,75 @@ mod tests {
             &self,
             task_id: &str,
             _server_name: &str,
-            _options: crate::sandbox::access::LogOptions,
-        ) -> Result<
-            futures::stream::BoxStream<
-                'static,
-                Result<String, crate::sandbox::error::SandboxError>,
-            >,
-            crate::sandbox::error::SandboxError,
-        > {
+            _options: LogOptions,
+        ) -> Result<ServerLogStream, SandboxError> {
             Err(unreachable(task_id))
+        }
+    }
+
+    struct TestPairingCodes(Option<PairingCode>);
+
+    #[async_trait]
+    impl PairingCodeDao for TestPairingCodes {
+        async fn insert_pairing_code(&self, _code: &PairingCode) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+
+        async fn consume_pairing_code(
+            &self,
+            code_hash: &str,
+            _now: DateTime<Utc>,
+        ) -> Result<Option<PairingCode>, sqlx::Error> {
+            Ok(self
+                .0
+                .as_ref()
+                .filter(|code| code.code_hash == code_hash)
+                .cloned())
+        }
+
+        async fn delete_finished_pairing_codes(
+            &self,
+            _cutoff: DateTime<Utc>,
+        ) -> Result<u64, sqlx::Error> {
+            Ok(0)
+        }
+    }
+
+    struct TestApiKeyIssuer;
+
+    #[async_trait]
+    impl PairingApiKeyIssuer for TestApiKeyIssuer {
+        async fn issue_api_key(
+            &self,
+            _user_id: &str,
+            name: &str,
+            scopes: Vec<String>,
+            expires_at: DateTime<Utc>,
+            _group_id: Option<&str>,
+        ) -> Result<PairedDevice, PairingError> {
+            assert_eq!(name, "T3 Code Mobile (iOS)");
+            Ok(PairedDevice {
+                key_id: "key-1".into(),
+                token: "mvk_test-token".into(),
+                expires_at,
+                scopes,
+            })
+        }
+    }
+
+    fn test_pairing(code: Option<PairingCode>) -> DevicePairing {
+        DevicePairing::new(Arc::new(TestPairingCodes(code)), Arc::new(TestApiKeyIssuer))
+    }
+
+    fn pairing_code(code: &str) -> PairingCode {
+        PairingCode {
+            id: "pairing-1".into(),
+            code_hash: hash_key(code),
+            user_id: Uuid::nil().to_string(),
+            group_id: None,
+            label: None,
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
         }
     }
 
@@ -3377,7 +3447,7 @@ mod tests {
     /// is a stub. What a viewer actually sees is asserted against a real
     /// database in `backend/tests/ui_rpc_shell_test.rs`.
     fn state() -> UiRpcState {
-        let mut workspaces = MockWorkspaceDao::new();
+        let mut workspaces = MockT3WorkspaceDao::new();
         workspaces
             .expect_list_readable_including()
             .returning(|_, _| Ok(Vec::new()));
@@ -3389,7 +3459,7 @@ mod tests {
             .expect_list_followed_by_ids()
             .returning(|_, _| Ok(Vec::new()));
         conversations.expect_listing_head().returning(|| {
-            Ok(ListingHead {
+            Ok(UiRpcListingHead {
                 identity: stub_identity(),
                 position: 0,
             })
@@ -3415,28 +3485,25 @@ mod tests {
             environment: Arc::new(stub_identity()),
             session_cookie_name: Arc::from("moatless_session"),
             session_jwt_secret: Some(Arc::from("test-secret")),
-            pairing: Arc::new(DevicePairing::new(
-                Arc::new(crate::auth::pairing::MockPairingCodeDao::new()),
-                Arc::new(crate::auth::api_keys::MockApiKeyDao::new()),
-            )),
+            pairing: Arc::new(test_pairing(None)),
             workspaces: Arc::new(workspaces),
             conversations: Arc::new(conversations),
             sandboxes: Arc::new(UnreachableSandboxes),
             servers: ServersState {
                 observer: Arc::new(UnreachableSandboxes),
-                tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
+                tasks: Arc::new(MockT3TaskDao::new()),
                 intent: Arc::new(UnreachableSandboxes),
             },
             sandbox: SandboxState {
                 observer: Arc::new(UnreachableSandboxes),
-                tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
+                tasks: Arc::new(MockT3TaskDao::new()),
                 intent: Arc::new(UnreachableSandboxes),
                 starter: Arc::new(UnreachableSandboxes),
                 stopper: Arc::new(UnreachableSandboxes),
             },
             preview: PreviewState {
                 tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),
-                tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
+                tasks: Arc::new(MockT3TaskDao::new()),
             },
             agents: Arc::new(StubAgents),
             branches: Arc::new(UnreachableBranches),
@@ -3453,8 +3520,8 @@ mod tests {
         ProtocolSession::new(mpsc::channel(OUTBOUND_FRAMES).0)
     }
 
-    fn viewer() -> AuthIdentity {
-        AuthIdentity {
+    fn viewer() -> UiRpcAuthIdentity {
+        UiRpcAuthIdentity {
             user_id: Uuid::nil(),
             login: "viewer".into(),
             role: UserRole::User,
@@ -4306,10 +4373,12 @@ mod tests {
     #[test]
     fn a_ticket_holder_needs_no_origin_and_everyone_else_does() {
         assert!(!origin_checked(Some(Extension(
-            AuthMethod::WebSocketTicket
+            UiRpcAuthMethod::WebSocketTicket
         ))));
-        assert!(origin_checked(Some(Extension(AuthMethod::SessionCookie))));
-        assert!(origin_checked(Some(Extension(AuthMethod::ApiKey))));
+        assert!(origin_checked(Some(Extension(
+            UiRpcAuthMethod::SessionCookie
+        ))));
+        assert!(origin_checked(Some(Extension(UiRpcAuthMethod::ApiKey))));
         // An upgrade the middleware never saw is treated as the cookie case.
         assert!(origin_checked(None));
     }
@@ -4318,9 +4387,7 @@ mod tests {
     /// another device drives them.
     mod pairing {
         use super::*;
-        use crate::auth::api_keys::MockApiKeyDao;
-        use crate::auth::jwt::verify_ws_ticket_jwt;
-        use crate::auth::pairing::{MockPairingCodeDao, PairingCode};
+        use crate::auth::verify_ws_ticket_jwt;
         use axum::body::Body;
         use axum::http::Request;
         use chrono::Utc;
@@ -4328,23 +4395,10 @@ mod tests {
 
         const TEST_SECRET: &str = "test-secret";
 
-        fn state_pairing(codes: MockPairingCodeDao, api_keys: MockApiKeyDao) -> UiRpcState {
+        fn state_pairing(pairing: DevicePairing) -> UiRpcState {
             UiRpcState {
-                pairing: Arc::new(DevicePairing::new(Arc::new(codes), Arc::new(api_keys))),
+                pairing: Arc::new(pairing),
                 ..state()
-            }
-        }
-
-        /// A code that is still live, as `consume_pairing_code` returns one.
-        fn live_code() -> PairingCode {
-            PairingCode {
-                id: "code-1".into(),
-                code_hash: "hash".into(),
-                user_id: Uuid::nil().to_string(),
-                group_id: None,
-                label: Some("Bedside phone".into()),
-                created_at: Utc::now(),
-                expires_at: Utc::now() + chrono::Duration::minutes(5),
             }
         }
 
@@ -4383,18 +4437,9 @@ mod tests {
 
         #[tokio::test]
         async fn a_typed_code_becomes_the_token_the_device_keeps() {
-            let mut codes = MockPairingCodeDao::new();
-            codes
-                .expect_consume_pairing_code()
-                .returning(|_, _| Ok(Some(live_code())));
-            let mut api_keys = MockApiKeyDao::new();
-            // The name a person gave the code, and the OS the client claims.
-            api_keys
-                .expect_insert_api_key()
-                .withf(|key| key.name == "Bedside phone (iOS)")
-                .returning(|_| Ok(()));
+            let pairing = test_pairing(Some(pairing_code("ABCDEFGHJKLM")));
 
-            let response = router(state_pairing(codes, api_keys))
+            let response = router(state_pairing(pairing))
                 .oneshot(mobile_exchange("ABCDEFGHJKLM"))
                 .await
                 .unwrap();
@@ -4417,13 +4462,10 @@ mod tests {
 
         #[tokio::test]
         async fn a_code_that_cannot_be_redeemed_is_refused_the_way_t3_reads() {
-            let mut codes = MockPairingCodeDao::new();
             // Never minted, already spent, expired — one answer for all three.
-            codes
-                .expect_consume_pairing_code()
-                .returning(|_, _| Ok(None));
+            let pairing = test_pairing(None);
 
-            let response = router(state_pairing(codes, MockApiKeyDao::new()))
+            let response = router(state_pairing(pairing))
                 .oneshot(mobile_exchange("ABCDEFGHJKLM"))
                 .await
                 .unwrap();
@@ -4438,10 +4480,9 @@ mod tests {
 
         #[tokio::test]
         async fn a_grant_this_environment_does_not_offer_never_reaches_the_code() {
-            let mut codes = MockPairingCodeDao::new();
-            codes.expect_consume_pairing_code().never();
-
-            let response = router(state_pairing(codes, MockApiKeyDao::new()))
+            let response = router(state_pairing(test_pairing(Some(pairing_code(
+                "ABCDEFGHJKLM",
+            )))))
                 .oneshot(exchange(
                     "grant_type=authorization_code&subject_token=ABCDEFGHJKLM\
                      &subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap\

@@ -41,11 +41,8 @@ pub trait SecretCipher: Send + Sync {
     /// records. A GitHub App's signing key uses this: it lives on the App
     /// record rather than in `secrets`, but must not invent a second
     /// encryption scheme to do so.
-    fn decrypt_value(
-        &self,
-        aad: &str,
-        value: &EncryptedSecretValue,
-    ) -> Result<String, SecretError>;
+    fn decrypt_value(&self, aad: &str, value: &EncryptedSecretValue)
+        -> Result<String, SecretError>;
 
     fn decrypt(&self, record: &SecretRecord) -> Result<String, SecretError>;
 }
@@ -589,16 +586,11 @@ impl SecretService {
         // reason: resolution paths are system/internal — already authorized by caller
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
-        let records = self
-            .secrets
-            .list(&sys_ctx, Some(scope.as_str()))
-            .await?;
+        let records = self.secrets.list(&sys_ctx, Some(scope.as_str())).await?;
         let mut resolved = Vec::new();
         for record in records {
             // Filter to the requested owner for user-scoped secrets.
-            if scope == Scope::User
-                && record.owner_user_id.as_deref() != owner_user_id
-            {
+            if scope == Scope::User && record.owner_user_id.as_deref() != owner_user_id {
                 continue;
             }
             if is_reserved_key(&record.key) {

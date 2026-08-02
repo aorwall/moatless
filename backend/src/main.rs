@@ -25,7 +25,7 @@ use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::supervisor::{Criticality, Supervisor};
 use moatless_vibe_backend::{
     adapters, feedback, file_storage, loops, message, plugin, provider_settings, repository,
-    secret, skill, tag, task, task_event, team, ui_rpc, workspace,
+    secret, skill, t3code, tag, task, task_event, team, workspace,
 };
 
 /// How long shutdown waits for supervised tasks to finish before giving up and
@@ -147,6 +147,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox_runtime: Arc<dyn sandbox::lifecycle::SandboxRuntime>;
     let sandbox_observer: Arc<dyn sandbox::access::SandboxObserver>;
     let sandbox_connector: Arc<dyn sandbox::access::SandboxConnector>;
+    let ui_rpc_sandbox_observer: Arc<dyn moatless_backend_core::sandbox::SandboxObserver>;
+    let ui_rpc_sandbox_connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>;
     let default_sandbox_image: String;
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
     let docker_watcher_client: Option<sandbox::docker::client::DockerClient>;
@@ -171,7 +173,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
-            sandbox_connector = adapter;
+            sandbox_connector = adapter.clone();
+            ui_rpc_sandbox_observer = adapter.clone();
+            ui_rpc_sandbox_connector = adapter;
             default_sandbox_image = config.sandbox.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::lifecycle::K8sFleetObserver::new(
                 k8s.clone(),
@@ -201,7 +205,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
-            sandbox_connector = adapter;
+            sandbox_connector = adapter.clone();
+            ui_rpc_sandbox_observer = adapter.clone();
+            ui_rpc_sandbox_connector = adapter;
             default_sandbox_image = config.docker.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::lifecycle::DockerFleetObserver::new(
                 docker_client.clone(),
@@ -420,9 +426,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // The browser tabs open on each Task. Built at the composition root
         // because the choice between Redis and this process is a deployment
         // fact, and its subscriber task is the root supervisor's to own.
-        let (preview_tabs, preview_event_forwarder) = ui_rpc::preview_tabs::build(
+        let (preview_tabs, preview_event_forwarder) = moatless_t3code::preview_tabs::build(
             config.redis.url.as_deref(),
-            ui_rpc::preview_tabs::PreviewTabTtl(std::time::Duration::from_secs(
+            moatless_t3code::preview_tabs::PreviewTabTtl(std::time::Duration::from_secs(
                 config.sandbox.idle_timeout_minutes * 60,
             )),
         )
@@ -466,34 +472,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         router = router.merge(moatless_vibe_backend::sse::routes::task_events_router(
             app_state.clone(),
         ));
-        if let Some(ui_rpc_router) = ui_rpc::router_from_env(ui_rpc::UiRpcDependencies {
-            session_cookie_name: config.auth.session_cookie_name.clone(),
-            session_jwt_secret: auth::jwt::get_jwt_secret(&config).map(String::from),
-            pairing: Arc::new(auth::pairing::DevicePairing::new(
-                Arc::new(auth::pairing::PgPairingCodeDao(app_state.db.clone())),
-                Arc::new(auth::api_keys::PgApiKeyDao(app_state.db.clone())),
-            )),
-            workspaces: app_state.workspaces.clone(),
-            conversations: Arc::new(ui_rpc::dao::PgConversationDao::new(app_state.db.clone())),
-            sandboxes: sandbox_connector.clone(),
-            observer: sandbox_observer.clone(),
-            tasks: app_state.tasks.clone(),
-            intent: app_state.sandbox.clone(),
-            starter: app_state.sandbox.clone(),
-            stopper: app_state.sandbox.clone(),
-            preview_tabs: preview_tabs.clone(),
-            agents: Arc::new(ui_rpc::backend::AppStateAgents(app_state.clone())),
-            branches: Arc::new(ui_rpc::backend::AppStateBranches(app_state.clone())),
-            commands: Arc::new(ui_rpc::backend::AppStateCommands(app_state.clone())),
-            model_defaults: ui_rpc::AgentModelDefaults {
-                claude_code: config.sandbox.default_model.clone(),
-                codex: config.sandbox.default_codex_model.clone(),
-            },
-            otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
-        })
-        .await?
-        {
-            router = router.merge(ui_rpc_router);
+        if let Some(t3code_router) = {
+            let ui_rpc_conversations = Arc::new(moatless_t3code::dao::PgConversationDao::new(
+                app_state.db.clone(),
+            ));
+            moatless_t3code::router_from_env(moatless_t3code::UiRpcDependencies {
+                session_cookie_name: config.auth.session_cookie_name.clone(),
+                session_jwt_secret: auth::jwt::get_jwt_secret(&config).map(String::from),
+                pairing: Arc::new(auth::pairing::DevicePairing::new(
+                    Arc::new(auth::pairing::PgPairingCodeDao(app_state.db.clone())),
+                    Arc::new(auth::pairing::PgPairingApiKeyIssuer(Arc::new(
+                        auth::api_keys::PgApiKeyDao(app_state.db.clone()),
+                    ))),
+                )),
+                workspaces: ui_rpc_conversations.clone(),
+                conversations: ui_rpc_conversations.clone(),
+                sandboxes: ui_rpc_sandbox_connector.clone(),
+                observer: ui_rpc_sandbox_observer.clone(),
+                tasks: ui_rpc_conversations,
+                intent: app_state.sandbox.clone(),
+                starter: app_state.sandbox.clone(),
+                stopper: app_state.sandbox.clone(),
+                preview_tabs: preview_tabs.clone(),
+                agents: Arc::new(t3code::backend::AppStateAgents(app_state.clone())),
+                branches: Arc::new(t3code::backend::AppStateBranches(app_state.clone())),
+                commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
+                model_defaults: moatless_t3code::AgentModelDefaults {
+                    claude_code: config.sandbox.default_model.clone(),
+                    codex: config.sandbox.default_codex_model.clone(),
+                },
+                otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
+            })
+            .await?
+        } {
+            router = router.merge(t3code_router);
         }
         info!("Domain routes registered");
 

@@ -5,12 +5,12 @@ use std::fmt::Write as _;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, Audience, CONNECTED_THREAD_BINDING_ORIGIN,
-    InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
+    AdapterConnection, Audience, InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
+    ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
 };
+use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recently_sent::RecentlySent;
@@ -726,7 +726,7 @@ mod tests {
     mod push_claim {
         use super::super::task_that_pushed;
         use crate::adapters::github_pr::external_id;
-        use crate::adapters::models::{CONNECTED_THREAD_BINDING_ORIGIN, TaskBinding};
+        use crate::adapters::models::{TaskBinding, CONNECTED_THREAD_BINDING_ORIGIN};
         use crate::bindings::recently_sent::RecentlySent;
         use chrono::Utc;
 

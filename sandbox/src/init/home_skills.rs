@@ -51,7 +51,10 @@ pub(crate) fn install_repo_skills_to_home(
     }
 
     let mut copied = 0usize;
-    for dst in [claude_config_dir.join("skills"), codex_home_dir.join("skills")] {
+    for dst in [
+        claude_config_dir.join("skills"),
+        codex_home_dir.join("skills"),
+    ] {
         // Roots are walked in precedence order per destination, and
         // `copy_repo_skills` skips names already present — so a skill exposed
         // under both roots (typically a `.claude/skills/foo` symlink into
@@ -254,7 +257,10 @@ mod tests {
         fs::create_dir_all(&repo).unwrap();
         let claude_cfg = tmp.path().join("home/.claude");
         let codex_home = tmp.path().join("home/.codex");
-        assert_eq!(install_repo_skills_to_home(&repo, &claude_cfg, &codex_home), 0);
+        assert_eq!(
+            install_repo_skills_to_home(&repo, &claude_cfg, &codex_home),
+            0
+        );
     }
 
     #[test]

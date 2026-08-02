@@ -547,7 +547,9 @@ mod tests {
 
         let count = stage_plugin_skills_with_roots(&plugins, &codex);
         assert_eq!(count, 1);
-        assert!(codex.join("moatless-skills--sample-skill/SKILL.md").is_file());
+        assert!(codex
+            .join("moatless-skills--sample-skill/SKILL.md")
+            .is_file());
         assert!(!codex.join("remote-only--sample-skill/SKILL.md").exists());
     }
 
@@ -675,7 +677,10 @@ mod tests {
     fn keep_only_leaves_everything_that_is_not_a_skill() {
         let root = tempdir().unwrap();
         let plugin = root.path().join("plugin-a");
-        write(&plugin.join(".claude-plugin/plugin.json"), r#"{"name":"a"}"#);
+        write(
+            &plugin.join(".claude-plugin/plugin.json"),
+            r#"{"name":"a"}"#,
+        );
         write(&plugin.join("commands/deploy.md"), "deploy");
         write(&plugin.join("hooks/pre-commit.sh"), "hook");
         write(&plugin.join("agents/reviewer.md"), "reviewer");
@@ -738,7 +743,10 @@ mod tests {
 
         let dropped = keep_only(&plugin, "marketplace-repo", &["alpha".to_string()]);
 
-        assert_eq!(dropped, 2, "an unpicked skill goes wherever in the repo it lives");
+        assert_eq!(
+            dropped, 2,
+            "an unpicked skill goes wherever in the repo it lives"
+        );
         assert!(plugin.join("plugins/one/skills/alpha/SKILL.md").exists());
         assert!(!plugin.join("plugins/one/skills/beta").exists());
         assert!(!plugin.join("plugins/two/skills/gamma").exists());

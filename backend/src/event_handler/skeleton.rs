@@ -19,7 +19,7 @@
 //! It is applied wherever the event is broadcast to clients, and **nowhere** on
 //! the Redis ingestion path the consumer reads to build the conversation.
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 /// Project an `agent.message` **inner payload** (the `AgentEventPayload` body:
 /// `{ message: { role, content }, uuid, … }`) to its metadata skeleton.

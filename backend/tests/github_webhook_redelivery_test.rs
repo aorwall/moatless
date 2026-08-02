@@ -31,11 +31,11 @@ use axum::http::{HeaderMap, Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Json, Router};
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::adapters::delivery::{
-    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, spawn_adapter_delivery_worker,
+    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
 };
 use moatless_vibe_backend::adapters::routes::adapter_router;
+use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::auth::github::service::GitHubAppService;
 use moatless_vibe_backend::repository::dao as repository_dao;
@@ -84,8 +84,8 @@ impl Drop for GithubApiBaseRestore {
     }
 }
 
-async fn request_counting_github_stub()
--> (String, Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>) {
+async fn request_counting_github_stub(
+) -> (String, Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>) {
     async fn handle(
         State(requests): State<Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>>,
         request: axum::extract::Request,

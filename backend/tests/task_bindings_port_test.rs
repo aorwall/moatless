@@ -27,8 +27,8 @@ use moatless_vibe_backend::task::dao as task_dao;
 use moatless_vibe_backend::task::routes::task_router;
 
 use common::{
-    USER_1, authed_request, body_json, make_repository_row, make_task_row, seed_team,
-    test_app_state, user_scope,
+    authed_request, body_json, make_repository_row, make_task_row, seed_team, test_app_state,
+    user_scope, USER_1,
 };
 
 /// Seed the team + repository a task's FKs require, then the task itself.

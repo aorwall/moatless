@@ -2,8 +2,8 @@
 
 use tracing::warn;
 
-use crate::adapters::AdapterBindingStatus;
 use crate::adapters::models::{ExternalStatus, TaskBinding};
+use crate::adapters::AdapterBindingStatus;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::db::DbPool;
 
@@ -224,10 +224,10 @@ mod tests {
 
     use axum::http::{Method, StatusCode};
 
-    use super::super::test_support::{StubResponse, start_github_api_stub};
+    use super::super::test_support::{start_github_api_stub, StubResponse};
     use super::*;
     use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{StubProviderTokens, github_row};
+    use crate::auth::test_support::{github_row, StubProviderTokens};
 
     fn binding_with_config(config: serde_json::Value) -> TaskBinding {
         let now = chrono::Utc::now();

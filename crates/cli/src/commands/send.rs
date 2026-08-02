@@ -84,6 +84,7 @@ pub async fn run(
             contexts: Vec::new(),
             file_ids: Vec::new(),
             model: None,
+            effort: None,
             resume: None,
             tool_name: None,
             tool_response: None,

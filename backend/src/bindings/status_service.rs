@@ -13,8 +13,8 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
-use crate::adapters::AdapterBindingStatus;
 use crate::adapters::models::{ExternalStatus, TaskBinding};
+use crate::adapters::AdapterBindingStatus;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 

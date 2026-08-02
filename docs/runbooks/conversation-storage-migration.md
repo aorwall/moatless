@@ -49,7 +49,7 @@ FROM task_messages;
 ## 1 · Fold text into `message_text`
 
 The text blocks of `message_content` in `sort_order`, joined with a blank line —
-which is what `ui_rpc/projection.rs` computed on every read and what
+which is what `crates/t3code/src/projection.rs` computed on every read and what
 `message/transform.rs` produced by rendering one markdown block each.
 
 Only `user` and `assistant`: both readers already dropped the other three

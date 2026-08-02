@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use moatless_vibe_backend::adapters::delivery::{
-    AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission, spawn_adapter_delivery_worker,
+    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
 };
 use moatless_vibe_backend::adapters::linear;
 use moatless_vibe_backend::state::AppState;

@@ -7,7 +7,7 @@
 use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
+use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{InboundMessage, LoopContext};
 use crate::adapters::{Adapter, BindingDestination};
@@ -372,16 +372,16 @@ mod characterization {
     use moatless_backend_core::scope::Scope;
     use sha2::Sha256;
 
-    use crate::adapters::AdapterKind;
     use crate::adapters::error::AdapterError;
     use crate::adapters::models::{Audience, InboundMessage, LoopContext, RoutingMode};
     use crate::adapters::test_support::ProviderStub;
+    use crate::adapters::AdapterKind;
     use crate::db::DbPool;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;
     use super::super::webhook::Normalization;
-    use super::{IngressError, WebhookRequest, challenge, normalize_and_apply, parse_body, verify};
+    use super::{challenge, normalize_and_apply, parse_body, verify, IngressError, WebhookRequest};
 
     pub(super) const SIGNING_SECRET: &str = "8f742231b10e8888abcd99yez67676hg";
     pub(super) const BOT_USER_ID: &str = "U0BOT";
@@ -936,8 +936,8 @@ mod characterization {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterKind;
     use crate::adapters::models::{Audience, InboundMessage};
+    use crate::adapters::AdapterKind;
 
     use super::admission_event_id;
 
@@ -1011,14 +1011,14 @@ mod tests {
 mod characterization_db {
     use sqlx::PgPool;
 
-    use crate::adapters::AdapterKind;
     use crate::adapters::models::Audience;
+    use crate::adapters::AdapterKind;
 
-    use super::IngressError;
     use super::characterization::{
-        BOT_USER_ID, OWNER, Parsed, adapter, envelope, human, ignored, message_event, parse,
-        slack_stub, trigger,
+        adapter, envelope, human, ignored, message_event, parse, slack_stub, trigger, Parsed,
+        BOT_USER_ID, OWNER,
     };
+    use super::IngressError;
 
     fn message(result: Result<Parsed, IngressError>) -> crate::adapters::models::InboundMessage {
         match result {

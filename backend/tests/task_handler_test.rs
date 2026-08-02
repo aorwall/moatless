@@ -14,9 +14,7 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::task::dao::{
-    self as task_dao, PgTaskDao, TaskDao, TaskPatch,
-};
+use moatless_vibe_backend::task::dao::{self as task_dao, PgTaskDao, TaskDao, TaskPatch};
 use moatless_vibe_backend::task::models::TaskStatus;
 use moatless_vibe_backend::task::relations::{
     PgTaskRelationDao, TaskRelation, TaskRelationDao, TaskRelationType,

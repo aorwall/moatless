@@ -23,14 +23,12 @@ use moatless_vibe_backend::event_handler::models::AgentEvent;
 use moatless_vibe_backend::message::dao as message_dao;
 use moatless_vibe_backend::message::models::{MessageRole, MessageType};
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::task::dao::{
-    self as task_dao, PgTaskDao, TaskDao, TaskPatch,
-};
+use moatless_vibe_backend::task::dao::{self as task_dao, PgTaskDao, TaskDao, TaskPatch};
 use moatless_vibe_backend::task::models::TaskStatus;
-use moatless_vibe_backend::task_activities::mapping::ConversationWrite;
 use moatless_vibe_backend::task::relations::{
     PgTaskRelationDao, TaskRelation, TaskRelationDao, TaskRelationType,
 };
+use moatless_vibe_backend::task_activities::mapping::ConversationWrite;
 use sqlx::PgPool;
 
 use common::{make_message_row, make_repository_row, make_task_row, test_app_state, user_scope};

@@ -1816,13 +1816,11 @@ mod tests {
         );
         // The anchor must match the shape — a review submission's response
         // does not name a review comment.
-        assert!(
-            parse_created_id(
-                "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
-                GhApiCreated::ReviewComment
-            )
-            .is_none()
-        );
+        assert!(parse_created_id(
+            "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
+            GhApiCreated::ReviewComment
+        )
+        .is_none());
     }
 
     #[test]

@@ -41,8 +41,8 @@ use moatless_vibe_backend::events::{EventPublisher, PublishError};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::sandbox::grpc_server::BackendSandboxServiceImpl;
 use moatless_vibe_backend::task::dao as task_dao;
-use sandbox_proto::PublishEventRequest;
 use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
+use sandbox_proto::PublishEventRequest;
 
 use common::{make_repository_row, make_task_row, test_app_state};
 

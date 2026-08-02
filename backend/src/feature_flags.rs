@@ -51,7 +51,7 @@ pub async fn get_feature_flags() -> Json<FeatureFlagsResponse> {
         show_codex_settings: env_flag("FF_SHOW_CODEX_SETTINGS", true),
         show_model_selector: env_flag("FF_SHOW_MODEL_SELECTOR", true),
         gitlab_enabled: env_flag("FF_GITLAB_ENABLED", false),
-        device_pairing: crate::ui_rpc::is_enabled(),
+        device_pairing: moatless_t3code::is_enabled(),
         slack,
     })
 }
@@ -110,12 +110,15 @@ mod tests {
     #[test]
     fn pairing_follows_the_gate_that_mounts_the_routes() {
         std::env::set_var("T3_UI_RPC_ENABLED", "on");
-        assert!(crate::ui_rpc::is_enabled());
-        assert!(!env_flag("T3_UI_RPC_ENABLED", false), "the reason we do not");
+        assert!(moatless_t3code::is_enabled());
+        assert!(
+            !env_flag("T3_UI_RPC_ENABLED", false),
+            "the reason we do not"
+        );
 
         std::env::set_var("T3_UI_RPC_ENABLED", "false");
-        assert!(!crate::ui_rpc::is_enabled());
+        assert!(!moatless_t3code::is_enabled());
         std::env::remove_var("T3_UI_RPC_ENABLED");
-        assert!(!crate::ui_rpc::is_enabled());
+        assert!(!moatless_t3code::is_enabled());
     }
 }

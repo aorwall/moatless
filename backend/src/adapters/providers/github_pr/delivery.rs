@@ -68,8 +68,8 @@ use tracing::info;
 
 use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::{
-    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
-    register_typed_delivery,
+    register_typed_delivery, AdapterDeliveryFailure, AdapterDeliveryHandlers,
+    AdapterDeliveryRequest,
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
@@ -330,8 +330,8 @@ pub(super) fn log_admission(
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterKind;
     use crate::adapters::models::Audience;
+    use crate::adapters::AdapterKind;
 
     use super::*;
 

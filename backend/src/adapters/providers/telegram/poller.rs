@@ -8,8 +8,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::adapters::Adapters;
 use crate::adapters::ingress::IngressError;
+use crate::adapters::Adapters;
 use crate::state::AppState;
 
 use super::ingress::{self, Transport};

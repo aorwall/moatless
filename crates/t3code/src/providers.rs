@@ -68,22 +68,22 @@
 //! and the thread agree: a conversation nobody chose a model for reports
 //! `claude-opus-5`, and `claude-opus-5` is the row marked default.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::agent::catalog::AgentKind;
+use crate::AgentModelDefaults;
+use crate::agent::catalog::UiRpcAgentKind;
 use crate::agent::schemas::AgentDescriptor;
-use crate::ui_rpc::projection::UNRESOLVED_MODEL_CHOICE;
-use crate::ui_rpc::AgentModelDefaults;
+use crate::projection::UNRESOLVED_MODEL_CHOICE;
 
 /// The two provider instances this surface publishes, in display order.
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";
 pub const CODEX_INSTANCE: &str = "codex";
 
 /// Which instance a catalog agent belongs to.
-pub fn instance_for(kind: AgentKind) -> &'static str {
+pub fn instance_for(kind: UiRpcAgentKind) -> &'static str {
     match kind {
-        AgentKind::ClaudeCode => CLAUDE_INSTANCE,
-        AgentKind::Codex => CODEX_INSTANCE,
+        UiRpcAgentKind::ClaudeCode => CLAUDE_INSTANCE,
+        UiRpcAgentKind::Codex => CODEX_INSTANCE,
     }
 }
 
@@ -226,11 +226,7 @@ fn published_name(instance: &str, catalog_model: &str, catalog_label: &str) -> S
 /// `None` is a refusal, not a cue to fall back to the default: substituting a
 /// model the person did not choose is the failure this whole translation exists
 /// to avoid.
-pub fn catalog_model_for(
-    agents: &[AgentDescriptor],
-    instance: &str,
-    slug: &str,
-) -> Option<String> {
+pub fn catalog_model_for(agents: &[AgentDescriptor], instance: &str, slug: &str) -> Option<String> {
     models_for(agents, instance)
         .into_iter()
         .find(|(id, _)| published_slug(instance, id) == slug)
@@ -259,8 +255,7 @@ fn models_for(agents: &[AgentDescriptor], instance: &str) -> Vec<(String, String
 
 /// The instance a descriptor belongs to, looked up through the catalog.
 fn kind_of(agent: &AgentDescriptor) -> &'static str {
-    crate::agent::catalog::find(&agent.id)
-        .map_or(CLAUDE_INSTANCE, |entry| instance_for(entry.kind))
+    crate::agent::catalog::find(&agent.id).map_or(CLAUDE_INSTANCE, |entry| instance_for(entry.kind))
 }
 
 /// The catalog id of the model to mark `isDefault` for an instance.
@@ -281,12 +276,14 @@ fn default_model_for(
     configured: Option<&str>,
 ) -> Option<String> {
     let models = models_for(agents, instance);
-    let matched = configured.filter(|c| *c != UNRESOLVED_MODEL_CHOICE).and_then(|c| {
-        models
-            .iter()
-            .find(|(id, _)| id == c || published_slug(instance, id) == c)
-            .map(|(id, _)| id.clone())
-    });
+    let matched = configured
+        .filter(|c| *c != UNRESOLVED_MODEL_CHOICE)
+        .and_then(|c| {
+            models
+                .iter()
+                .find(|(id, _)| id == c || published_slug(instance, id) == c)
+                .map(|(id, _)| id.clone())
+        });
     matched.or_else(|| models.first().map(|(id, _)| id.clone()))
 }
 
@@ -320,8 +317,8 @@ pub fn providers(
     checked_at: &str,
 ) -> Vec<Value> {
     [
-        (CLAUDE_INSTANCE, "Claude Code", AgentKind::ClaudeCode),
-        (CODEX_INSTANCE, "Codex", AgentKind::Codex),
+        (CLAUDE_INSTANCE, "Claude Code", UiRpcAgentKind::ClaudeCode),
+        (CODEX_INSTANCE, "Codex", UiRpcAgentKind::Codex),
     ]
     .into_iter()
     .map(|(instance, display_name, kind)| {

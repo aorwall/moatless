@@ -1,8 +1,8 @@
 # T3 Code ↔ Moatless: domain mapping and terminology
 
 This document defines how T3 Code's domain model maps onto Moatless's, which
-vocabulary wins where, and what the phase-one UI RPC surface
-(`backend/src/ui_rpc/mod.rs`) has to fill in next.
+vocabulary wins where, and what the phase-one t3code surface
+(`crates/t3code/src/lib.rs`) has to fill in next.
 
 It complements [the local development runbook](./runbooks/t3-code-local-development.md),
 which covers how to *run* T3 Code against this backend. This document covers what
@@ -105,7 +105,7 @@ on every task creation anyway. Multi-repo Workspaces stay visible instead of bei
 flattened, and no Repository becomes unreachable, because **Default workspace**
 already guarantees every Repository has one.
 
-Field by field (as built in `ui_rpc/projection.rs`). The shell listing carries
+Field by field (as built in `crates/t3code/src/projection.rs`). The shell listing carries
 `OrchestrationProjectShell`; `OrchestrationProject` is its near-twin with one
 extra field, and projecting the wrong one is an easy mistake:
 
@@ -194,7 +194,7 @@ also why a closed Task cannot be opened in T3 — `thread_snapshot` resolves the
 conversation through this same query, deliberately, so the sidebar and the
 address bar can never disagree.
 
-Field by field (as built in `ui_rpc/projection.rs`), against
+Field by field (as built in `crates/t3code/src/projection.rs`), against
 `OrchestrationThreadShell` (`orchestration.ts:401-427`) — the near-twin of
 `OrchestrationThread` without its messages, activities, checkpoints, proposed
 plans and `deletedAt`:

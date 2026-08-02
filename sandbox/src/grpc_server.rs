@@ -15,19 +15,19 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess, BackgroundWatchJobInfo,
-    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
-    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
-    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse,
-    GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest, ListFilesResponse,
-    ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest, NotifyMessagesResponse,
-    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse,
-    ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride,
-    StopAgentRequest, StopAgentResponse, TerminalAttachRequest, TerminalAttachStreamEvent,
-    TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse,
-    TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest,
-    TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo,
-    WriteFileRequest, WriteFileResponse, scheduled_job_info,
+    scheduled_job_info, ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess,
+    BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
+    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest,
+    GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest,
+    GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest,
+    ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest,
+    NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
+    RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest,
+    SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest, StopAgentResponse,
+    TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse,
+    TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest,
+    TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest,
+    TerminalWriteResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;

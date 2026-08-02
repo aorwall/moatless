@@ -333,16 +333,12 @@ async fn exists_by_short_id(pool: PgPool) {
     row.short_id = Some("abcd1234".to_string());
     task_dao::insert_task(&pool, &row).await.unwrap();
 
-    assert!(
-        task_dao::exists_by_short_id(&pool, "abcd1234")
-            .await
-            .unwrap()
-    );
-    assert!(
-        !task_dao::exists_by_short_id(&pool, "xxxxxxxx")
-            .await
-            .unwrap()
-    );
+    assert!(task_dao::exists_by_short_id(&pool, "abcd1234")
+        .await
+        .unwrap());
+    assert!(!task_dao::exists_by_short_id(&pool, "xxxxxxxx")
+        .await
+        .unwrap());
 }
 
 #[sqlx::test]
@@ -459,11 +455,9 @@ async fn unfollow_removes_settlement_and_snooze_with_the_follow_row(pool: PgPool
         .await
         .unwrap();
 
-    assert!(
-        follow_state(&pool, follower, "task-state-delete")
-            .await
-            .is_none()
-    );
+    assert!(follow_state(&pool, follower, "task-state-delete")
+        .await
+        .is_none());
 }
 
 #[sqlx::test]

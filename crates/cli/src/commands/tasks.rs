@@ -320,6 +320,7 @@ pub async fn run(
                 description: None,
                 file_ids: Vec::new(),
                 model,
+                effort: None,
                 headless: Some(headless),
             };
             let created = client.api().create_task(&req).await?;

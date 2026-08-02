@@ -511,11 +511,9 @@ mod tests {
         assert_eq!(stub.paths(), vec!["/chat.postMessage".to_string()]);
         let posted = body(&stub.requests()[0]);
         assert_eq!(posted["channel"], "C1");
-        assert!(
-            posted
-                .get("thread_ts")
-                .is_none_or(serde_json::Value::is_null)
-        );
+        assert!(posted
+            .get("thread_ts")
+            .is_none_or(serde_json::Value::is_null));
         assert_eq!(
             posted["text"],
             "kicking off\n<https://example.test/t/1|View task>"

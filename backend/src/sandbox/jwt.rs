@@ -118,7 +118,10 @@ pub fn generate_bootstrap_token(
     };
 
     let token = encode_claims(&claims, secret)?;
-    debug!(user_id, task_id, ttl_secs, "Generated sandbox bootstrap token");
+    debug!(
+        user_id,
+        task_id, ttl_secs, "Generated sandbox bootstrap token"
+    );
     Ok(token)
 }
 
@@ -235,14 +238,16 @@ mod tests {
 
     #[test]
     fn test_generate_user_auth_token() {
-        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+        let token =
+            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         assert!(!token.is_empty());
         assert_eq!(token.split('.').count(), 3);
     }
 
     #[test]
     fn test_verify_user_auth_token() {
-        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+        let token =
+            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         let claims = verify_user_auth_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");
         assert_eq!(claims.login, "john");
@@ -253,14 +258,16 @@ mod tests {
 
     #[test]
     fn test_verify_user_auth_token_wrong_secret() {
-        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+        let token =
+            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         let result = verify_user_auth_token(&token, "wrong-secret");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_is_token_near_expiry_fresh_token() {
-        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+        let token =
+            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         // Fresh 7-day token should NOT be near expiry with a 1-day threshold.
         assert!(!is_token_near_expiry(&token, "test-secret", 24 * 3600));
     }
@@ -272,7 +279,8 @@ mod tests {
 
     #[test]
     fn bootstrap_token_carries_audience() {
-        let token = generate_bootstrap_token("user-456", "john", "task-1", "test-secret", 600).unwrap();
+        let token =
+            generate_bootstrap_token("user-456", "john", "task-1", "test-secret", 600).unwrap();
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.aud.as_deref(), Some(AUDIENCE_BOOTSTRAP));
         assert_eq!(claims.user_id, "user-456");
@@ -282,14 +290,16 @@ mod tests {
     #[test]
     fn bootstrap_token_rejected_by_user_verifier() {
         // A bootstrap token must not authenticate the long-lived RPCs.
-        let token = generate_bootstrap_token("user-456", "john", "task-1", "test-secret", 600).unwrap();
+        let token =
+            generate_bootstrap_token("user-456", "john", "task-1", "test-secret", 600).unwrap();
         assert!(verify_user_auth_token(&token, "test-secret").is_err());
     }
 
     #[test]
     fn user_token_accepted_by_bootstrap_verifier() {
         // GetCredentials accepts the long-lived user token.
-        let token = generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+        let token =
+            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");
         assert_eq!(claims.aud, None);

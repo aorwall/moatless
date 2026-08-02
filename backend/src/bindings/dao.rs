@@ -5,7 +5,7 @@ use sqlx::AssertSqlSafe;
 
 use crate::db::DbPool;
 
-use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
+use crate::adapters::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 
 #[async_trait::async_trait]
 pub trait TaskBindingDao: Send + Sync {
@@ -68,7 +68,7 @@ pub trait TaskBindingDao: Send + Sync {
     async fn touch_last_event(&self, id: &str) -> Result<(), sqlx::Error>;
 
     async fn touch_cursor(&self, id: &str, last_external_event_id: &str)
-    -> Result<(), sqlx::Error>;
+        -> Result<(), sqlx::Error>;
 
     /// Persist the external status of a binding's connected subject (GitHub PR
     /// / Linear issue). Writes the dedicated `external_status*` columns and

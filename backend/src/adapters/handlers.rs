@@ -1,5 +1,5 @@
-use axum::Json;
 use axum::extract::{Path, Query, State};
+use axum::Json;
 use chrono::Utc;
 use moatless_api_schemas::adapters::{
     AdapterConnectionResponse, AdapterSendRequest, AdapterSendResponse,
@@ -8,14 +8,14 @@ use moatless_api_schemas::adapters::{
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
 use super::common::{
-    AdapterFilter, adapter_connection_response, ensure_task_access, resolve_connection,
-    resolve_scope_for_adapter_create,
+    adapter_connection_response, ensure_task_access, resolve_connection,
+    resolve_scope_for_adapter_create, AdapterFilter,
 };
-use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, OutboundReply};
+use crate::adapters::AdapterKind;
 use crate::bindings::outbound::{resolve_files, truncate_text};
-use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding};
+use crate::bindings::runtime::{upsert_binding, ORIGIN_CONNECTED_THREAD};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 

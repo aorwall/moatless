@@ -1,6 +1,6 @@
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::Json;
 use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
@@ -12,8 +12,8 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::adapters::common::{
-    LoopFilter, ensure_repository_exists, load_adapter_connection_for_auth, load_loop_for_auth,
-    loop_response, next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create,
+    ensure_repository_exists, load_adapter_connection_for_auth, load_loop_for_auth, loop_response,
+    next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create, LoopFilter,
 };
 use crate::adapters::error::AdapterError;
 use crate::bindings::dao::LoopRecentTaskRow;

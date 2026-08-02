@@ -12,17 +12,56 @@ use tracing::warn;
 
 use super::AgentModelDefaults;
 use super::dao::{Conversation, ConversationMatch, Transcript, TranscriptMessage};
-use crate::agent::catalog::{self, AgentKind};
-use crate::message::models::{MessageType, TOOL_RESPONSE_USER_TYPE};
-use crate::sandbox::models::ServerConfig;
-use crate::task_activities::dao::Activity;
-use crate::task_activities::mapping::ActivityKind;
-use crate::task_activities::view::ActivityView;
-use crate::task_activities::{ConversationChange, EVENTS_PER_CHANGE};
-use crate::task_turn::models::TurnStatus;
-use crate::workspace::dao::ListedWorkspace;
-use crate::workspace::models::Workspace;
+use crate::activity::T3ActivityViewExt;
+use crate::agent::catalog::{self, UiRpcAgentKind};
+use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
+use moatless_api_schemas::enums::MessageType;
 use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason};
+use moatless_backend_core::activity::dao::Activity;
+use moatless_backend_core::activity::mapping::ActivityKind;
+use moatless_backend_core::activity::view::ActivityView;
+use moatless_backend_core::activity::{ConversationChange, EVENTS_PER_CHANGE};
+
+const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
+
+#[derive(Clone, Copy)]
+enum UiRpcTurnStatus {
+    Active,
+    Completed,
+    Stopped,
+    Interrupted,
+    Error,
+}
+
+impl UiRpcTurnStatus {
+    fn parse(status: &str) -> Option<Self> {
+        match status {
+            "active" => Some(Self::Active),
+            "completed" => Some(Self::Completed),
+            "stopped" => Some(Self::Stopped),
+            "interrupted" => Some(Self::Interrupted),
+            "error" => Some(Self::Error),
+            _ => None,
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UiRpcServerConfig {
+    name: String,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    start_commands: Option<Vec<String>>,
+    #[expect(
+        dead_code,
+        reason = "workspace server configs carry ports; T3 scripts do not"
+    )]
+    port: u16,
+    #[serde(default)]
+    default: bool,
+}
 
 /// Prefix of the nominal root path reported for each workspace.
 ///
@@ -104,7 +143,7 @@ const UNKNOWN_MODEL: &str = "unknown";
 /// dropped. Taken beforehand the worst case is a change delivered twice, and a
 /// re-read of the whole row twice is the same row.
 pub(super) fn shell_snapshot(
-    workspaces: &[ListedWorkspace],
+    workspaces: &[UiRpcListedWorkspace],
     conversations: &[Conversation],
     defaults: &AgentModelDefaults,
     sequence: i64,
@@ -183,7 +222,7 @@ pub(super) fn thread_removed(task_id: &str, sequence: i64) -> Value {
 /// but it changes visibly: a renamed project's group heading, a new project's
 /// empty group, a deleted project taking its conversations off the screen with
 /// it.
-pub(super) fn project_upserted(workspace: &ListedWorkspace, sequence: i64) -> Value {
+pub(super) fn project_upserted(workspace: &UiRpcListedWorkspace, sequence: i64) -> Value {
     json!({
         "kind": "project-upserted",
         "sequence": sequence,
@@ -282,7 +321,7 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
         .iter()
         .filter(|activity| {
             activity.kind == ActivityKind::ToolCall
-                && activity.summary == crate::task_activities::mapping::PLAN_TOOL
+                && activity.summary == moatless_backend_core::activity::mapping::PLAN_TOOL
                 && !activity.is_settled()
         })
         .filter_map(|activity| {
@@ -920,11 +959,11 @@ fn latest_turn(conversation: &Conversation) -> Value {
 /// `None` for a status this build does not know — a row written by a newer
 /// backend, which has no honest counterpart.
 fn turn_state(status: &str) -> Option<&'static str> {
-    Some(match TurnStatus::parse(status)? {
-        TurnStatus::Active | TurnStatus::Interrupted => "running",
-        TurnStatus::Completed => "completed",
-        TurnStatus::Error => "error",
-        TurnStatus::Stopped => "interrupted",
+    Some(match UiRpcTurnStatus::parse(status)? {
+        UiRpcTurnStatus::Active | UiRpcTurnStatus::Interrupted => "running",
+        UiRpcTurnStatus::Completed => "completed",
+        UiRpcTurnStatus::Error => "error",
+        UiRpcTurnStatus::Stopped => "interrupted",
     })
 }
 
@@ -935,8 +974,13 @@ fn turn_is_open(conversation: &Conversation) -> bool {
     conversation
         .turn_status
         .as_deref()
-        .and_then(TurnStatus::parse)
-        .is_some_and(|status| matches!(status, TurnStatus::Active | TurnStatus::Interrupted))
+        .and_then(UiRpcTurnStatus::parse)
+        .is_some_and(|status| {
+            matches!(
+                status,
+                UiRpcTurnStatus::Active | UiRpcTurnStatus::Interrupted
+            )
+        })
 }
 
 /// A turn's identity on the wire.
@@ -1112,9 +1156,9 @@ fn model_name(conversation: &Conversation, defaults: &AgentModelDefaults) -> Str
 }
 
 /// Which driver family backs this conversation's agent.
-fn agent_kind(conversation: &Conversation) -> AgentKind {
+fn agent_kind(conversation: &Conversation) -> UiRpcAgentKind {
     catalog::find(conversation.agent_type.as_str())
-        .map_or(AgentKind::ClaudeCode, |entry| entry.kind)
+        .map_or(UiRpcAgentKind::ClaudeCode, |entry| entry.kind)
 }
 
 /// The provider instance a model is resolved against.
@@ -1126,8 +1170,8 @@ fn agent_kind(conversation: &Conversation) -> AgentKind {
 /// runtime rather than refusing to decode, so this is the safe half of the pair.
 fn provider_instance(conversation: &Conversation) -> &'static str {
     match agent_kind(conversation) {
-        AgentKind::ClaudeCode => "claudeAgent",
-        AgentKind::Codex => "codex",
+        UiRpcAgentKind::ClaudeCode => "claudeAgent",
+        UiRpcAgentKind::Codex => "codex",
     }
 }
 
@@ -1151,7 +1195,7 @@ fn provider_instance(conversation: &Conversation) -> &'static str {
 /// of it to anyone who followed a single conversation running in a private
 /// Workspace. So the widened half is projected down to what the contract needs
 /// in order to render a group and no more, and
-/// [`ListedWorkspace`](crate::workspace::dao::ListedWorkspace) is what makes
+/// [`UiRpcListedWorkspace`](crate::workspace::UiRpcListedWorkspace) is what makes
 /// the difference available here rather than re-derived.
 ///
 /// What that minimum still discloses, stated rather than implied: the id, the
@@ -1159,7 +1203,7 @@ fn provider_instance(conversation: &Conversation) -> &'static str {
 /// timestamps stay because the contract requires them and supplies no empty
 /// value for either, and an invented one would be the sort of plausible
 /// stand-in this module refuses everywhere else.
-fn project(listed: &ListedWorkspace) -> Value {
+fn project(listed: &UiRpcListedWorkspace) -> Value {
     let workspace = &listed.workspace;
     json!({
         "id": workspace.id,
@@ -1194,7 +1238,7 @@ fn scripts(workspace: &Workspace) -> Vec<Value> {
     let Some(servers) = workspace.servers.as_ref() else {
         return Vec::new();
     };
-    let servers: Vec<ServerConfig> = match serde_json::from_value(servers.clone()) {
+    let servers: Vec<UiRpcServerConfig> = match serde_json::from_value(servers.clone()) {
         Ok(servers) => servers,
         Err(error) => {
             warn!(
@@ -1361,9 +1405,9 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::message::models::MessageRole;
-    use crate::shared_models::AgentType;
-    use crate::task_activities::mapping::{ActivityKind, ActivityStatus};
+    use moatless_api_schemas::enums::MessageRole;
+    use moatless_api_schemas::shared::AgentType;
+    use moatless_backend_core::activity::mapping::{ActivityKind, ActivityStatus};
     use moatless_backend_core::scope::Scope;
 
     fn matched(workspace_id: Option<&str>, from_user: bool, text: &str) -> ConversationMatch {
@@ -1403,7 +1447,10 @@ mod tests {
     /// A snippet is one line; the text it comes from is not.
     #[test]
     fn a_short_match_keeps_its_text_with_the_line_breaks_collapsed() {
-        assert_eq!(snippet("the outbox\n  is  full\n", "outbox"), "the outbox is full");
+        assert_eq!(
+            snippet("the outbox\n  is  full\n", "outbox"),
+            "the outbox is full"
+        );
     }
 
     /// Cutting from the start would drop the match, and the match is the whole
@@ -1628,7 +1675,7 @@ mod tests {
         }
     }
 
-    fn threads(workspaces: &[ListedWorkspace], conversations: &[Conversation]) -> Vec<Value> {
+    fn threads(workspaces: &[UiRpcListedWorkspace], conversations: &[Conversation]) -> Vec<Value> {
         shell_snapshot(workspaces, conversations, &AgentModelDefaults::default(), 0)["threads"]
             .as_array()
             .cloned()
@@ -1974,8 +2021,8 @@ mod tests {
     /// A workspace this viewer may read. The widened half of the union — a
     /// workspace listed only because a conversation references it — is
     /// [`a_referenced_workspace`].
-    fn workspace(id: &str, name: &str) -> ListedWorkspace {
-        ListedWorkspace {
+    fn workspace(id: &str, name: &str) -> UiRpcListedWorkspace {
+        UiRpcListedWorkspace {
             readable: true,
             workspace: Workspace {
                 id: id.to_string(),
@@ -2007,8 +2054,8 @@ mod tests {
 
     /// The same row, listed only because something the viewer follows runs in
     /// it. The read rule refused it.
-    fn a_referenced_workspace(id: &str, name: &str) -> ListedWorkspace {
-        ListedWorkspace {
+    fn a_referenced_workspace(id: &str, name: &str) -> UiRpcListedWorkspace {
+        UiRpcListedWorkspace {
             readable: false,
             ..workspace(id, name)
         }
@@ -2235,7 +2282,7 @@ mod tests {
         activity.tool_use_id = Some(id.to_string());
         let mut payload = json!({
             "title": name,
-            "itemType": crate::task_activities::mapping::item_type(name),
+            "itemType": moatless_backend_core::activity::mapping::item_type(name),
             "status": "completed",
             "data": { "toolCallId": id },
             "input": input,
@@ -2498,10 +2545,7 @@ mod tests {
         assert_eq!(running["payload"]["itemType"], "collab_agent_tool_call");
         // Headed by the word for what it is, with the brief beside it.
         assert_eq!(running["payload"]["summary"], "Subagent task");
-        assert_eq!(
-            running["payload"]["detail"],
-            "code-reviewer: Audit the SQL"
-        );
+        assert_eq!(running["payload"]["detail"], "code-reviewer: Audit the SQL");
 
         // The call comes back. The row is the same row.
         let running_id = running["id"].clone();
@@ -2640,7 +2684,7 @@ mod tests {
             2,
             0,
             "call-1",
-            crate::task_activities::mapping::PLAN_TOOL,
+            moatless_backend_core::activity::mapping::PLAN_TOOL,
             json!({ "plan": "1. Do the thing" }),
         );
         proposed.status = ActivityStatus::InProgress;
@@ -2675,7 +2719,7 @@ mod tests {
                 2,
                 0,
                 "call-1",
-                crate::task_activities::mapping::PLAN_TOOL,
+                moatless_backend_core::activity::mapping::PLAN_TOOL,
                 input,
             );
             proposed.status = ActivityStatus::InProgress;
@@ -2758,11 +2802,11 @@ mod tests {
         meter.message_uuid = None;
         meter.payload = json!({ "usedTokens": 1_000, "maxTokens": 200_000 });
 
-        let work = detail(&transcript(Vec::new(), vec![asked, plan, meter, resolved]))
-            ["activities"]
-            .as_array()
-            .unwrap()
-            .clone();
+        let work =
+            detail(&transcript(Vec::new(), vec![asked, plan, meter, resolved]))["activities"]
+                .as_array()
+                .unwrap()
+                .clone();
         let by_kind = |kind: &str| {
             work.iter()
                 .find(|row| row["kind"] == kind)

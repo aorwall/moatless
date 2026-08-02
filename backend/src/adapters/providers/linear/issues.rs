@@ -21,7 +21,7 @@ use std::fmt::Write as _;
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
+use crate::adapters::models::{AdapterConnection, SubscriptionMatch, ADAPTER_EVENT_BINDING_ORIGIN};
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 use crate::task::models::Visibility;

@@ -138,6 +138,15 @@ jobs:
           # --all-targets so `#[cfg(test)]` code is linted too. Without it the
           # step compiles no test target at all, and lints the workspace denies
           # never reach a single test module.
+          # --all-features because `database` gates the DAO and the pairing
+          # module: at default features clippy would lint neither, and a `-p`
+          # build of a dependent lints only that dependent.
+          cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
+          # And again with it off, because a feature that cannot be dropped is
+          # decorative — every backend crate depends on this one, so sqlx and
+          # rustls would compile for builds that never open a connection.
+          cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
+          cargo clippy -p moatless-t3code --all-targets -- -D warnings
           cargo clippy -p moatless-vibe-backend --all-targets -- -D warnings
           cargo clippy -p moatless-sandbox -- -D warnings
           cargo clippy -p claude-agent-sdk -- -D warnings
@@ -147,6 +156,8 @@ jobs:
       # CI; everything else runs hermetically.
       - name: Test
         run: |
+          cargo test -p moatless-backend-core
+          cargo test -p moatless-t3code
           cargo test -p moatless-vibe-backend
           cargo test -p moatless-sandbox
           cargo test -p claude-agent-sdk

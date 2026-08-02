@@ -2,9 +2,9 @@
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
+use crate::adapters::AdapterKind;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 

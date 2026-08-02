@@ -1,11 +1,11 @@
 //! Reaction capability for Telegram messages.
 
-use crate::adapters::AdapterReactions;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::BindingContext;
+use crate::adapters::AdapterReactions;
 
 use super::adapter::TelegramAdapter;
-use super::subject::{TelegramDestination, parse_message_target};
+use super::subject::{parse_message_target, TelegramDestination};
 
 /// Resolve the `(chat_id, message_id)` pair for a Telegram reaction call.
 ///
