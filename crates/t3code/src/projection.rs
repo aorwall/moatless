@@ -983,6 +983,38 @@ fn turn_is_open(conversation: &Conversation) -> bool {
         })
 }
 
+/// Whether a person is waiting for a turn that has not opened yet.
+///
+/// A turn opens on `taskTurn.active`, which the agent process publishes from
+/// inside the Sandbox — so between a person sending and the agent starting there
+/// is a window with no open turn and work plainly in flight. It is the Sandbox
+/// coming up, and it lasts as long as that takes: seconds on a warm pod, minutes
+/// when scheduling is slow. Reporting the session idle across it is what left a
+/// person watching a thread that looked like nothing was happening.
+///
+/// A message newer than the newest turn's end is the signal, because that is
+/// exactly what "asked for, not yet answered" is. A turn that finished without
+/// recording when says nothing either way and is read as settled, rather than
+/// leaving the session running on a row that will never be corrected.
+fn turn_is_owed(conversation: &Conversation) -> bool {
+    let Some(asked) = conversation.latest_user_message_at else {
+        return false;
+    };
+    match conversation
+        .turn_status
+        .as_deref()
+        .and_then(UiRpcTurnStatus::parse)
+    {
+        // Open already, which the caller asks about separately.
+        Some(UiRpcTurnStatus::Active | UiRpcTurnStatus::Interrupted) => false,
+        Some(_) => conversation
+            .turn_ended_at
+            .is_some_and(|ended| asked > ended),
+        // Nothing has ever run here, so the first turn is still owed.
+        None => true,
+    }
+}
+
 /// A turn's identity on the wire.
 ///
 /// Moatless identifies a turn by (task, turn number) and has no single-column
@@ -1036,11 +1068,12 @@ fn session(conversation: &Conversation) -> Value {
 /// Sandbox lifecycle intent in T3's session vocabulary.
 fn session_status(conversation: &Conversation, desired_state: SandboxDesiredState) -> &'static str {
     match desired_state {
-        // A running Sandbox with an open turn is the agent working. Without
-        // one it is a session waiting for input — unless it has not come up
-        // yet, which the client renders as connecting rather than idle.
+        // A running Sandbox with a turn open — or one owed — is the agent
+        // working. Without either it is a session waiting for input, unless it
+        // has not come up yet, which the client renders as connecting rather
+        // than idle.
         SandboxDesiredState::Running => {
-            if turn_is_open(conversation) {
+            if turn_is_open(conversation) || turn_is_owed(conversation) {
                 "running"
             } else if conversation.sandbox_started_at.is_none() {
                 "starting"
@@ -1875,6 +1908,47 @@ mod tests {
         assert!(thread["latestTurn"]["completedAt"].is_string());
         assert_eq!(thread["session"]["activeTurnId"], Value::Null);
         assert_eq!(thread["session"]["status"], "ready");
+    }
+
+    /// A turn opens from inside the Sandbox, so between a person sending and the
+    /// agent starting there is a window — seconds warm, minutes when scheduling
+    /// is slow — with work in flight and no turn to show for it. The session
+    /// reads as running across it, not as a thread with nothing happening.
+    #[test]
+    fn a_sandbox_coming_up_for_a_message_is_a_session_working() {
+        let mut row = running_conversation("task-a", "ws-a");
+        // Sent, and nothing has run yet: the Sandbox is still being provisioned.
+        row.turn_number = None;
+        row.turn_status = None;
+        row.turn_started_at = None;
+        row.sandbox_started_at = None;
+        assert_eq!(one_thread(&row)["session"]["status"], "running");
+        assert_eq!(
+            one_thread(&row)["session"]["activeTurnId"],
+            Value::Null,
+            "no turn has opened yet, and the session says so"
+        );
+
+        // Answered: the newest turn ended after the message, so nothing is owed.
+        row.turn_number = Some(3);
+        row.turn_status = Some("completed".to_string());
+        row.turn_ended_at = Some(Utc::now());
+        row.sandbox_started_at = Some(Utc::now());
+        assert_eq!(one_thread(&row)["session"]["status"], "ready");
+
+        // Asked again, on a Sandbox that has to come up first.
+        row.latest_user_message_at = Some(Utc::now());
+        assert_eq!(one_thread(&row)["session"]["status"], "running");
+    }
+
+    /// A turn that finished without recording when says nothing either way, and
+    /// is read as settled rather than leaving the session running for good.
+    #[test]
+    fn a_turn_that_ended_at_no_recorded_time_owes_nothing() {
+        let mut row = running_conversation("task-a", "ws-a");
+        row.turn_status = Some("completed".to_string());
+        row.turn_ended_at = None;
+        assert_eq!(one_thread(&row)["session"]["status"], "ready");
     }
 
     #[test]

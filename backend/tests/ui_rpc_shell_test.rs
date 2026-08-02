@@ -263,7 +263,7 @@ async fn project_ids(pool: &PgPool, viewer: &ScopeContext) -> Vec<String> {
 /// follow.
 async fn archived_snapshot(pool: &PgPool, viewer: &ScopeContext) -> Value {
     archived_shell_snapshot(
-        &PgWorkspaceDao(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
         &PgConversationDao::new(pool.clone()),
         &defaults(),
         viewer,

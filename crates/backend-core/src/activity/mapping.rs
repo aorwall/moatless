@@ -6,7 +6,7 @@
 //! answers for the same block.
 
 use moatless_events::SandboxEventPayload;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use moatless_api_schemas::enums::MessageType;
 
@@ -670,10 +670,17 @@ pub fn lifecycle_descriptor(lifecycle_event: &str) -> Option<(&'static str, Seve
 
 /// The label and severity for one Sandbox event.
 ///
-/// The rich vocabulary is keyed on `lifecycleEvent`. The two fallbacks mirror
-/// `describeEvent`'s: an event with no `lifecycleEvent` is labelled from its
-/// coarse status and an unknown slug from the slug itself, both taking severity
-/// `Error` when the event's sub-type is an error and `Status` otherwise.
+/// The rich vocabulary is keyed on `lifecycleEvent`; an unknown slug renders as
+/// itself. An event carrying no `lifecycleEvent` is labelled by its own message,
+/// because that is what such an event is: the Sandbox's init publishes its
+/// thirteen steps — credentials fetched, repository cloned, setup run — under
+/// one sub-type, and the message is the only thing telling them apart. Labelling
+/// them by the sub-type instead gives thirteen rows reading `Initializing`, of
+/// which the collapse then keeps one. The coarse status is the label only when
+/// there is no message either.
+///
+/// Severity comes from the vocabulary where it names one, and otherwise from the
+/// event's sub-type: `Error` when it is the error sub-type, `Status` otherwise.
 fn describe(
     coarse_status: &str,
     coarse_is_error: bool,
@@ -693,7 +700,10 @@ fn describe(
             Some((label, severity)) => (label.to_string(), severity),
             None => (event.replace('_', " "), fallback),
         },
-        None => (capitalize(coarse_status), fallback),
+        None => match payload.message.trim() {
+            "" => (capitalize(coarse_status), fallback),
+            message => (message.to_string(), fallback),
+        },
     }
 }
 
@@ -742,7 +752,8 @@ fn format_duration_seconds(total_seconds: i64) -> String {
 ///
 /// The detail is the event's message, then one line per present field in the
 /// order `buildChips` lists them — `node`, `cause`, `by`, `exit`, `reason`,
-/// `pending` — so `pending` renders in the same compact duration format.
+/// `pending` — so `pending` renders in the same compact duration format. A
+/// message the row is already labelled with is not repeated under it.
 pub fn sandbox_activity(
     event_id: &str,
     task_id: &str,
@@ -754,7 +765,7 @@ pub fn sandbox_activity(
     let is_error = severity == Severity::Error;
 
     let mut lines: Vec<String> = Vec::new();
-    if !payload.message.is_empty() {
+    if !payload.message.is_empty() && payload.message != summary {
         lines.push(payload.message.clone());
     }
     if let Some(node) = &payload.node_name {
@@ -1539,8 +1550,8 @@ mod tests {
         );
         assert_eq!(lifecycle_descriptor("brand_new_slug"), None);
 
-        // No `lifecycleEvent`: labelled from the coarse status, severity from the
-        // sub-type's error-ness.
+        // No `lifecycleEvent` and no message: labelled from the coarse status,
+        // severity from the sub-type's error-ness.
         let coarse = sandbox_activity("e", "task-1", "initializing", false, &sandbox_payload(None));
         assert_eq!(coarse.summary, "Initializing");
         assert_eq!(coarse.kind, ActivityKind::SandboxStatus);
@@ -1558,6 +1569,48 @@ mod tests {
         );
         assert_eq!(unknown.summary, "brand new slug");
         assert_eq!(unknown.kind, ActivityKind::SandboxStatus);
+    }
+
+    /// The Sandbox's own init publishes its steps under one sub-type and tells
+    /// them apart by message alone. Each is its own row, labelled by what it
+    /// says — labelling them by the sub-type gave one `Initializing` after
+    /// another, and the collapse kept the first and dropped the rest.
+    #[test]
+    fn each_init_step_is_its_own_row_labelled_by_what_it_says() {
+        let step = |message: &str| {
+            let mut payload = sandbox_payload(None);
+            payload.message = message.to_string();
+            sandbox_activity("evt", "task-1", "initializing", false, &payload)
+        };
+
+        let cloned = step("Cloned repository moatless (main)");
+        assert_eq!(cloned.summary, "Cloned repository moatless (main)");
+        assert_eq!(cloned.kind, ActivityKind::SandboxStatus);
+        // The label is the message, so the detail does not say it twice.
+        assert!(cloned.payload.get("detail").is_none());
+
+        let steps = [
+            "Fetched credentials from backend",
+            "Configured git authentication",
+            "Cloned repository moatless (main)",
+            "Workspace setup complete",
+        ];
+        let summaries: Vec<String> = steps.iter().map(|m| step(m).summary).collect();
+        assert_eq!(
+            summaries, steps,
+            "no two steps share a label to collapse on"
+        );
+    }
+
+    /// A message that only repeats what the vocabulary already named is still a
+    /// detail line — the two differ, and the fields ride under it as before.
+    #[test]
+    fn a_named_event_keeps_its_message_as_detail() {
+        let mut payload = sandbox_payload(Some("pod_scheduled"));
+        payload.message = "Scheduled onto a node".to_string();
+        let activity = sandbox_activity("evt", "task-1", "initializing", false, &payload);
+        assert_eq!(activity.summary, "Scheduled");
+        assert_eq!(activity.payload["detail"], "Scheduled onto a node");
     }
 
     #[test]

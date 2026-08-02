@@ -443,7 +443,6 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
                 title: Some("From T3".into()),
                 branch: None,
                 model: None,
-                branch: None,
                 first_message: Some(turn(task_id, message_id, "get started")),
             },
         )
@@ -487,7 +486,6 @@ async fn a_thread_created_with_no_message_gets_no_sandbox(pool: PgPool) {
                 title: None,
                 branch: None,
                 model: None,
-                branch: None,
                 first_message: None,
             },
         )
@@ -525,7 +523,6 @@ async fn sending_into_an_unprovisioned_thread_provisions_it(pool: PgPool) {
             title: None,
             branch: None,
             model: None,
-            branch: None,
             first_message: None,
         },
     )
