@@ -751,12 +751,11 @@ impl MessageDao for PgMessageDao {
         activity: &crate::task_activities::mapping::ActivityRow,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.0.begin().await?;
-        // `record_session_change`, not `record_message_change`: a Sandbox
-        // activity happened on no Message, and naming one would send a reader to
-        // fetch a row that has nothing to do with it.
-        let position = task_activities::record_session_change(&mut tx, &activity.task_id).await?;
-        let written = task_activities::dao::record_sandbox(&mut tx, position, activity)
-            .await?;
+        // The collapse check and the allocation both live in `record_sandbox`:
+        // a restated status must spend no position and record no change, so the
+        // change that names this activity is allocated only once the row is
+        // known to be worth writing.
+        let written = task_activities::dao::record_sandbox(&mut tx, activity).await?;
         tx.commit().await?;
         Ok(written)
     }
@@ -766,7 +765,15 @@ impl MessageDao for PgMessageDao {
         activity: &crate::task_activities::mapping::ActivityRow,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.0.begin().await?;
-        let position = task_activities::record_session_change(&mut tx, &activity.task_id).await?;
+        // `record_activity_change`, not `record_session_change`: the change names
+        // this activity, so a live reader re-reads the one row rather than the
+        // conversation's own session, which nothing about the reading moved.
+        let position = task_activities::record_activity_change(
+            &mut tx,
+            &activity.task_id,
+            &activity.activity_id,
+        )
+        .await?;
         let written = task_activities::dao::record_standalone(&mut tx, position, activity).await?;
         tx.commit().await?;
         Ok(written)

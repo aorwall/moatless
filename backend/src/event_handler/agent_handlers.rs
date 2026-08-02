@@ -528,6 +528,38 @@ pub async fn handle_sandbox_fatal(state: &AppState, event: &AgentEvent) {
     handle_agent_error(state, event).await;
 }
 
+/// Persist a Sandbox lifecycle change as its own activity — a status, a warning,
+/// or an error — unless it restates the one before it.
+///
+/// `coarse_status` and `coarse_is_error` are the event's sub-type word and
+/// whether it is the error sub-type; they label the row only where the payload
+/// carries no `lifecycleEvent` to key the rich vocabulary on. A payload that
+/// does not parse leaves an empty one, so the coarse fallback still names a row.
+pub async fn handle_sandbox_activity(
+    state: &AppState,
+    event: &AgentEvent,
+    coarse_status: &str,
+    coarse_is_error: bool,
+) {
+    let payload: moatless_events::SandboxEventPayload =
+        serde_json::from_value(event.payload.clone()).unwrap_or_default();
+    let activity = crate::task_activities::mapping::sandbox_activity(
+        &event.event_id,
+        &event.task_id,
+        coarse_status,
+        coarse_is_error,
+        &payload,
+    );
+    if let Err(e) = state.messages.record_sandbox_activity(&activity).await {
+        tracing::warn!(
+            task_id = %event.task_id,
+            event_id = %event.event_id,
+            error = %e,
+            "sandbox lifecycle activity could not be recorded"
+        );
+    }
+}
+
 /// Handle `agent.session_context_lost` event — a session resume failed because
 /// the transcript was unavailable (e.g. stale session id after a pod restart)
 /// and the agent fell back to a fresh session.

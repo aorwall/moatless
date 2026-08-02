@@ -98,6 +98,10 @@ pub struct ConversationChange {
     /// The Message that changed, or `None` for a change to the conversation
     /// itself — its Turn or its Sandbox, which together are its session.
     pub message_uuid: Option<String>,
+    /// The activity that changed, when it happened on no Message — a Sandbox
+    /// lifecycle change, a context-window reading. At most one of this and
+    /// `message_uuid` is set; neither means the conversation's own session moved.
+    pub activity_id: Option<String>,
 }
 
 impl ConversationChange {
@@ -151,8 +155,8 @@ mod tests {
     /// events may never share one — including across a position boundary.
     #[test]
     fn consecutive_positions_never_reuse_a_sequence() {
-        let first = ConversationChange { position: 4, message_uuid: None };
-        let second = ConversationChange { position: 5, message_uuid: None };
+        let first = ConversationChange { position: 4, message_uuid: None, activity_id: None };
+        let second = ConversationChange { position: 5, message_uuid: None, activity_id: None };
         assert_eq!(first.sequence(0), Some(4 * EVENTS_PER_CHANGE));
         assert!(first.sequence(0) < first.sequence(1));
         let last = first.sequence(usize::try_from(EVENTS_PER_CHANGE - 1).unwrap());
@@ -165,7 +169,7 @@ mod tests {
     /// the events it had not received.
     #[test]
     fn a_cursor_inside_a_change_reads_that_change_again() {
-        let change = ConversationChange { position: 7, message_uuid: None };
+        let change = ConversationChange { position: 7, message_uuid: None, activity_id: None };
         let halfway = change.sequence(3).unwrap();
         assert_eq!(position_of(halfway), 7);
         // And a cursor exactly on a boundary sits in the change it completed.

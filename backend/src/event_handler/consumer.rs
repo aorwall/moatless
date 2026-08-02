@@ -508,6 +508,7 @@ impl EventHandlerConsumer {
                         false,
                     ));
                 }
+                agent_handlers::handle_sandbox_activity(&self.state, event, "error", true).await;
                 agent_handlers::handle_sandbox_fatal(&self.state, event).await;
             }
             // Sandbox lifecycle transitions — surface as ephemeral `action`
@@ -519,6 +520,13 @@ impl EventHandlerConsumer {
                 | SandboxStatus::Ready
                 | SandboxStatus::Stopped),
             ) => {
+                agent_handlers::handle_sandbox_activity(
+                    &self.state,
+                    event,
+                    status.as_str(),
+                    false,
+                )
+                .await;
                 if self.state.linear_active_turns.is_open(&event.task_id) {
                     tokio::spawn(crate::adapters::linear::activity::notify_linear_action(
                         self.state.clone(),

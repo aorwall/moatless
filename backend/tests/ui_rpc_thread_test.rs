@@ -20,16 +20,19 @@
 
 mod common;
 
+use moatless_events::SandboxEventPayload;
 use moatless_vibe_backend::message::dao as message_dao;
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::models::MessageType;
 use moatless_vibe_backend::task_activities::mapping::{
-    map_content, ActivityKind, ActivityStatus, BlockContext, ConversationWrite,
+    ActivityKind, ActivityStatus, BlockContext, ConversationWrite, context_window_updated,
+    map_content, sandbox_activity,
 };
+use moatless_vibe_backend::task_activities::{changes_from, current_head};
 use moatless_vibe_backend::ui_rpc::dao::{ConversationDao, PgConversationDao};
 use sqlx::PgPool;
 
-use common::{make_message_row, make_repository_row, make_task_row, USER_1};
+use common::{USER_1, make_message_row, make_repository_row, make_task_row};
 
 const TASK: &str = "task-thread-window";
 
@@ -106,7 +109,7 @@ async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
     let dao = PgConversationDao::new(pool.clone());
 
     let window = dao
-        .changed_messages(TASK, &["the-call".to_string()])
+        .changed_messages(TASK, &["the-call".to_string()], &[])
         .await
         .unwrap();
 
@@ -157,7 +160,7 @@ async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
     .await;
 
     let window = PgConversationDao::new(pool.clone())
-        .changed_messages(TASK, &["third".to_string()])
+        .changed_messages(TASK, &["third".to_string()], &[])
         .await
         .unwrap();
 
@@ -258,4 +261,89 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
         .expect("the call is stored");
     assert_eq!(call.tool_name, "AskUserQuestion");
     assert!(!call.settled, "nobody has answered it yet");
+}
+
+/// An activity that happened on no Message is named by the change, and read back
+/// by that name.
+///
+/// A context-window reading is the live case that already ships: it is written
+/// through the standalone path, and until the change named it a subscriber only
+/// saw the meter move on a full re-read. The change now carries the activity id,
+/// and `changed_messages` reads the row by it.
+#[sqlx::test]
+async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: PgPool) {
+    seed_task(&pool).await;
+
+    let reading = context_window_updated("evt-window", TASK, 1_000, Some(200_000));
+    let written = PgMessageDao(pool.clone())
+        .record_standalone_activity(&reading)
+        .await
+        .unwrap();
+    assert!(written, "the first reading is a new row");
+
+    let changes = changes_from(&pool, TASK, 0, 10).await.unwrap();
+    assert_eq!(changes.len(), 1, "one change, for the one reading");
+    assert_eq!(
+        changes[0].activity_id.as_deref(),
+        Some("evt-window"),
+        "the change names the activity, not a Message"
+    );
+    assert!(changes[0].message_uuid.is_none());
+
+    let window = PgConversationDao::new(pool.clone())
+        .changed_messages(TASK, &[], &["evt-window".to_string()])
+        .await
+        .unwrap();
+    assert!(window.messages.is_empty(), "it happened on no Message");
+    assert_eq!(window.activities.len(), 1);
+    assert_eq!(window.activities[0].activity_id, "evt-window");
+    assert_eq!(
+        window.activities[0].kind,
+        ActivityKind::ContextWindowUpdated
+    );
+    assert_eq!(window.activities[0].payload["usedTokens"], 1_000);
+}
+
+/// A Sandbox status that restates the one before it writes nothing and spends no
+/// position: the collapse check runs before the allocation, so a restated status
+/// records no change for a subscriber to be woken by.
+#[sqlx::test]
+async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool: PgPool) {
+    seed_task(&pool).await;
+    let dao = PgMessageDao(pool.clone());
+
+    let ready = sandbox_activity(
+        "evt-1",
+        TASK,
+        "ready",
+        false,
+        &SandboxEventPayload::default(),
+    );
+    assert!(
+        dao.record_sandbox_activity(&ready).await.unwrap(),
+        "the first status is a new row"
+    );
+    let after_first = current_head(&pool, TASK).await.unwrap().position;
+
+    // The same status restated, under a new event id.
+    let restated = sandbox_activity(
+        "evt-2",
+        TASK,
+        "ready",
+        false,
+        &SandboxEventPayload::default(),
+    );
+    assert!(
+        !dao.record_sandbox_activity(&restated).await.unwrap(),
+        "a restated status writes no row"
+    );
+    let after_restate = current_head(&pool, TASK).await.unwrap().position;
+    assert_eq!(
+        after_first, after_restate,
+        "the collapse spends no position, so it records no change"
+    );
+
+    let changes = changes_from(&pool, TASK, 0, 10).await.unwrap();
+    assert_eq!(changes.len(), 1, "only the first status recorded a change");
+    assert_eq!(changes[0].activity_id.as_deref(), Some("evt-1"));
 }

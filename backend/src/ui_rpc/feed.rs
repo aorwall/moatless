@@ -498,8 +498,12 @@ impl ThreadFeed {
             .iter()
             .filter_map(|change| change.message_uuid.clone())
             .collect();
+        let named_activities: Vec<String> = changes
+            .iter()
+            .filter_map(|change| change.activity_id.clone())
+            .collect();
         let window = conversations
-            .changed_messages(&self.task_id, &named)
+            .changed_messages(&self.task_id, &named, &named_activities)
             .await?;
 
         let mut items = Vec::new();
@@ -528,14 +532,20 @@ impl ThreadFeed {
     }
 }
 
-/// One change per Message named, keeping the last position each was named at,
-/// in position order. Changes naming no Message are the conversation's own and
-/// are all kept: each is a distinct transition of its session.
+/// One change per named row, keeping the last position each was named at, in
+/// position order. A row is named by a Message uuid or, for the activities that
+/// happened on no Message, by its own activity id; both fold the same way.
+/// Changes naming neither are the conversation's own and are all kept: each is a
+/// distinct transition of its session.
 fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
     let mut latest: HashMap<&str, i64> = HashMap::new();
     for change in &changes {
-        if let Some(uuid) = change.message_uuid.as_deref() {
-            latest.insert(uuid, change.position);
+        if let Some(name) = change
+            .message_uuid
+            .as_deref()
+            .or(change.activity_id.as_deref())
+        {
+            latest.insert(name, change.position);
         }
     }
     let keep: HashSet<i64> = latest.into_values().collect();
@@ -545,6 +555,7 @@ fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
             change
                 .message_uuid
                 .as_deref()
+                .or(change.activity_id.as_deref())
                 .is_none_or(|_| keep.contains(&change.position))
         })
         .cloned()
@@ -564,6 +575,15 @@ mod tests {
         ConversationChange {
             position,
             message_uuid: uuid.map(str::to_string),
+            activity_id: None,
+        }
+    }
+
+    fn activity_change(position: i64, activity_id: &str) -> ConversationChange {
+        ConversationChange {
+            position,
+            message_uuid: None,
+            activity_id: Some(activity_id.to_string()),
         }
     }
 
@@ -595,6 +615,31 @@ mod tests {
             change(3, Some("msg-a")),
         ]);
         assert_eq!(positions(&coalesced), vec![1, 2, 3]);
+    }
+
+    /// A Sandbox row restated in place folds like a Message: the last position
+    /// is the one read, so the row is re-sent once rather than once per change.
+    #[test]
+    fn a_burst_naming_one_activity_is_read_once_at_its_last_position() {
+        let coalesced = coalesced(vec![
+            activity_change(1, "evt-a"),
+            activity_change(2, "evt-a"),
+            activity_change(3, "evt-b"),
+            activity_change(4, "evt-a"),
+        ]);
+        assert_eq!(positions(&coalesced), vec![3, 4]);
+    }
+
+    /// A change naming neither a Message nor an activity is the conversation's
+    /// own, and stands beside the folded activity changes untouched.
+    #[test]
+    fn a_change_naming_neither_survives_beside_folded_activities() {
+        let coalesced = coalesced(vec![
+            activity_change(1, "evt-a"),
+            change(2, None),
+            activity_change(3, "evt-a"),
+        ]);
+        assert_eq!(positions(&coalesced), vec![2, 3]);
     }
 
     /// A client holding a snapshot holds everything its position covers, so the
@@ -670,7 +715,7 @@ mod tests {
             .returning(move |_, _, _| Ok(changes.clone()));
         dao.expect_list_followed_by_ids()
             .returning(|_, _| Ok(vec![a_conversation()]));
-        dao.expect_changed_messages().returning(|_, _| {
+        dao.expect_changed_messages().returning(|_, _, _| {
             Ok(Transcript {
                 messages: vec![a_message(11, "msg-a")],
                 activities: Vec::new(),
@@ -783,7 +828,7 @@ mod tests {
             .returning(|_, _| Ok(vec![a_conversation()]));
         // The read that comes after the cursor would have moved.
         dao.expect_changed_messages()
-            .returning(|_, _| Err(sqlx::Error::PoolTimedOut));
+            .returning(|_, _, _| Err(sqlx::Error::PoolTimedOut));
 
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
         assert!(feed.poll(&dao, &viewer()).await.is_err());

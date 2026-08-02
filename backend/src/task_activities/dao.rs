@@ -116,9 +116,9 @@ impl sqlx::FromRow<'_, PgRow> for Activity {
 /// derive because sqlx 0.9 takes only `&'static str` and the list has to be one.
 macro_rules! known_kinds {
     () => {
-        "kind IN ('tool_call', 'thinking', 'sandbox_status', 'sandbox_error', \
-          'user_input_requested', 'user_input_resolved', 'plan_updated', \
-          'context_window_updated')"
+        "kind IN ('tool_call', 'thinking', 'sandbox_status', 'sandbox_warning', \
+          'sandbox_error', 'user_input_requested', 'user_input_resolved', \
+          'plan_updated', 'context_window_updated')"
     };
 }
 
@@ -236,16 +236,18 @@ pub async fn settle(tx: &mut PgConnection, outcome: &ToolOutcome) -> Result<bool
 /// [`record_session_change`]. The event path simply never had it, and 92,165 of
 /// 139,595 Sandbox rows today restate the status before them.
 ///
-/// Returns whether a row was written. The event itself is recorded either way by
-/// its own handler, so the Events tab is unaffected.
+/// The collapse check runs *before* the position is allocated, so a restated
+/// status spends no position and records no change: allocating first would burn
+/// one of each to project to nothing. Returns whether a row was written. The
+/// event itself is recorded either way by its own handler, so the Events tab is
+/// unaffected.
 pub async fn record_sandbox(
     tx: &mut PgConnection,
-    position: i64,
     activity: &ActivityRow,
 ) -> Result<bool, sqlx::Error> {
     let previous: Option<(String, bool)> = sqlx::query_as(
         r#"SELECT summary, is_error FROM task_activities
-           WHERE task_id = $1 AND kind IN ('sandbox_status', 'sandbox_error')
+           WHERE task_id = $1 AND kind IN ('sandbox_status', 'sandbox_warning', 'sandbox_error')
            ORDER BY position DESC
            LIMIT 1"#,
     )
@@ -259,6 +261,7 @@ pub async fn record_sandbox(
         return Ok(false);
     }
 
+    let position = record_activity_change(tx, &activity.task_id, &activity.activity_id).await?;
     record_standalone(tx, position, activity).await
 }
 
@@ -396,6 +399,25 @@ pub async fn for_messages(
     .await
 }
 
+/// The activities named directly by their own id — the ones that happened on no
+/// Message and so are named by the change rather than by a Message uuid.
+pub async fn for_activity_ids(
+    pool: &DbPool,
+    task_id: &str,
+    activity_ids: &[String],
+) -> Result<Vec<Activity>, sqlx::Error> {
+    if activity_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    sqlx::query_as::<_, Activity>(read_activities!(
+        "task_id = $1 AND activity_id = ANY($2) ORDER BY position, ordinal, activity_id"
+    ))
+    .bind(task_id)
+    .bind(activity_ids)
+    .fetch_all(pool)
+    .await
+}
+
 /// One tool call by the id it was made under.
 ///
 /// One row, found by an index: the call and its outcome are one row, so there is
@@ -528,7 +550,7 @@ pub async fn record_message_change(
     task_id: &str,
     message_uuid: &str,
 ) -> Result<i64, sqlx::Error> {
-    allocate(tx, task_id, Some(message_uuid)).await
+    allocate(tx, task_id, Some(message_uuid), None).await
 }
 
 /// Record that the conversation itself moved — its Turn, or the Sandbox its
@@ -541,7 +563,22 @@ pub async fn record_session_change(
     tx: &mut PgConnection,
     task_id: &str,
 ) -> Result<i64, sqlx::Error> {
-    allocate(tx, task_id, None).await
+    allocate(tx, task_id, None, None).await
+}
+
+/// Record that an activity happened on no Message — a Sandbox lifecycle change,
+/// a context-window reading. Names the activity so a live reader re-reads that
+/// one row rather than the conversation's own session, which nothing about the
+/// activity moved.
+///
+/// Same transaction rule and same ordering against the shell's allocator as
+/// [`record_message_change`].
+pub async fn record_activity_change(
+    tx: &mut PgConnection,
+    task_id: &str,
+    activity_id: &str,
+) -> Result<i64, sqlx::Error> {
+    allocate(tx, task_id, None, Some(activity_id)).await
 }
 
 /// Take the next position without recording a change.
@@ -582,6 +619,7 @@ async fn allocate(
     tx: &mut PgConnection,
     task_id: &str,
     message_uuid: Option<&str>,
+    activity_id: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
     let (position,): (i64,) = sqlx::query_as(
         r#"WITH allocated AS (
@@ -590,12 +628,13 @@ async fn allocate(
                  SET position = task_conversation_position.position + 1
                RETURNING position
            )
-           INSERT INTO task_conversation_changes (task_id, position, message_uuid)
-           SELECT $1, position, $2 FROM allocated
+           INSERT INTO task_conversation_changes (task_id, position, message_uuid, activity_id)
+           SELECT $1, position, $2, $3 FROM allocated
            RETURNING position"#,
     )
     .bind(task_id)
     .bind(message_uuid)
+    .bind(activity_id)
     .fetch_one(tx)
     .await?;
     Ok(position)
@@ -637,7 +676,7 @@ pub async fn changes_from(
     limit: i64,
 ) -> Result<Vec<ConversationChange>, sqlx::Error> {
     sqlx::query_as(
-        r#"SELECT position, message_uuid
+        r#"SELECT position, message_uuid, activity_id
            FROM task_conversation_changes
            WHERE task_id = $1 AND position >= $2
            ORDER BY position

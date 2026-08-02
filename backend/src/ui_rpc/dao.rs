@@ -263,8 +263,15 @@ pub trait ConversationDao: Send + Sync {
         limit: i64,
     ) -> Result<Vec<ConversationChange>, sqlx::Error>;
 
-    /// The rows a batch of changes names — the Messages, and the activities
-    /// under those uuids — oldest first.
+    /// The rows a batch of changes names — the Messages, the activities under
+    /// those uuids, and the activities named directly by their own id — oldest
+    /// first.
+    ///
+    /// A change names either a Message uuid or an activity id, never both: an
+    /// activity that happened on a Message rides that Message's uuid, and one
+    /// that happened on none — a Sandbox lifecycle change, a context-window
+    /// reading — is named by its own id. Both sets of activities land in the same
+    /// [`Transcript::activities`].
     ///
     /// A [`Transcript`] rather than a type of its own, because it is one: the
     /// projection that turns a transcript into messages and activities is the
@@ -278,6 +285,7 @@ pub trait ConversationDao: Send + Sync {
         &self,
         task_id: &str,
         uuids: &[String],
+        activity_ids: &[String],
     ) -> Result<Transcript, sqlx::Error>;
 
     /// The highest listing position this deployment has reached, and the
@@ -782,8 +790,9 @@ impl ConversationDao for PgConversationDao {
         &self,
         task_id: &str,
         uuids: &[String],
+        activity_ids: &[String],
     ) -> Result<Transcript, sqlx::Error> {
-        if uuids.is_empty() {
+        if uuids.is_empty() && activity_ids.is_empty() {
             return Ok(Transcript {
                 messages: Vec::new(),
                 activities: Vec::new(),
@@ -816,8 +825,11 @@ impl ConversationDao for PgConversationDao {
 
         // By the named uuids, not by the Messages just read: a change can name
         // a uuid that has no Message row at all — a turn that only called
-        // tools — and those activities are the whole of what it changed.
-        let activities = activities::for_messages(&self.pool, task_id, uuids).await?;
+        // tools — and those activities are the whole of what it changed. The
+        // activities named directly by their own id — the ones on no Message —
+        // join the same set by a primary-key lookup.
+        let mut activities = activities::for_messages(&self.pool, task_id, uuids).await?;
+        activities.extend(activities::for_activity_ids(&self.pool, task_id, activity_ids).await?);
 
         Ok(Transcript {
             messages,

@@ -54,7 +54,8 @@ use moatless_vibe_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStat
 use moatless_vibe_backend::task_turn::models::classify_turn_transition;
 use moatless_vibe_backend::ui_rpc::backend as ui_rpc_backend;
 use moatless_vibe_backend::ui_rpc::dao::{
-    Conversation, ConversationDao, InteractiveCall, PgConversationDao, Transcript,
+    Conversation, ConversationDao, ConversationMatch, InteractiveCall, PgConversationDao,
+    Transcript,
 };
 use moatless_vibe_backend::ui_rpc::preview_tabs::InMemoryPreviewTabDao;
 use moatless_vibe_backend::ui_rpc::{
@@ -2126,6 +2127,15 @@ impl ConversationDao for RefusesTheRowRead {
         Err(sqlx::Error::PoolTimedOut)
     }
 
+    async fn search_conversations(
+        &self,
+        viewer: &ScopeContext,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<ConversationMatch>, sqlx::Error> {
+        self.0.search_conversations(viewer, query, limit).await
+    }
+
     // The thread half of the interface: this stub exists for the shell feed's
     // cursor and is never asked to open a conversation, so both delegate.
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {
@@ -2149,8 +2159,9 @@ impl ConversationDao for RefusesTheRowRead {
         &self,
         task_id: &str,
         uuids: &[String],
+        activity_ids: &[String],
     ) -> Result<Transcript, sqlx::Error> {
-        self.0.changed_messages(task_id, uuids).await
+        self.0.changed_messages(task_id, uuids, activity_ids).await
     }
 
     async fn interactive_call(

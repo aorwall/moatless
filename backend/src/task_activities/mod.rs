@@ -37,7 +37,8 @@ pub mod pruner;
 pub mod view;
 
 pub use dao::{
-    changes_from, current_head, prune_changes, record_message_change, record_session_change,
+    changes_from, current_head, prune_changes, record_activity_change, record_message_change,
+    record_session_change,
 };
 pub use models::{
     ConversationChange, ConversationHead, EVENTS_PER_CHANGE, RESUME_WINDOW, RETAINED_CHANGES,

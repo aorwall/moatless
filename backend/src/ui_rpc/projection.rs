@@ -336,11 +336,18 @@ fn proposed_plans(conversation: &Conversation, transcript: &Transcript) -> Vec<V
 ///
 /// A change can name a uuid with no Message row at all: a turn that only called
 /// tools said nothing. Then only the second half fires.
+///
+/// A change that names an activity rather than a Message — a Sandbox lifecycle
+/// change, a context-window reading — is the third case: that one row alone, and
+/// no `session_set`, because nothing about the conversation's own session moved.
 pub(super) fn change_events(
     conversation: &Conversation,
     change: &ConversationChange,
     window: &Transcript,
 ) -> Vec<Value> {
+    if let Some(activity_id) = change.activity_id.as_deref() {
+        return activity_change_events(conversation, change, window, activity_id);
+    }
     let Some(uuid) = change.message_uuid.as_deref() else {
         return session_set(conversation, change).into_iter().collect();
     };
@@ -399,6 +406,38 @@ pub(super) fn change_events(
             Some(event(conversation, sequence, &at, kind, payload))
         })
         .collect()
+}
+
+/// The one work-log row a change names by activity id, as its event.
+///
+/// A Sandbox lifecycle change and a context-window reading happen on no Message,
+/// so the change names the activity itself and this is its whole projection: no
+/// bubble, and no `session_set` — nothing about the conversation's own session
+/// moved. The row is numbered `ordinal + 1` for the reason a Message's
+/// activities are, so a client sees the same sequence whether the row arrived in
+/// a snapshot (via [`activity_sequence`]) or here. A change naming a row the
+/// window does not hold says nothing, which is a complete answer.
+fn activity_change_events(
+    conversation: &Conversation,
+    change: &ConversationChange,
+    window: &Transcript,
+    activity_id: &str,
+) -> Vec<Value> {
+    let Some(activity) = window
+        .activities
+        .iter()
+        .find(|activity| activity.activity_id == activity_id)
+    else {
+        return Vec::new();
+    };
+    let (turn, at) = activity_anchor(conversation, window, activity);
+    let (kind, payload) =
+        activity_appended_payload(&conversation.task_id, activity_row(activity, &turn, &at));
+    let slot = usize::try_from(activity.ordinal).unwrap_or(usize::MAX);
+    change
+        .sequence(slot.saturating_add(1))
+        .map(|sequence| vec![event(conversation, sequence, &at, kind, payload)])
+        .unwrap_or_default()
 }
 
 /// The conversation's session as an event, or nothing when it has none.
@@ -2683,7 +2722,7 @@ mod tests {
             .clone();
         assert_eq!(work[0]["kind"], "task.progress");
         assert_eq!(work[0]["tone"], "info");
-        assert_eq!(work[1]["kind"], "task.progress");
+        assert_eq!(work[1]["kind"], "runtime.error");
         assert_eq!(work[1]["tone"], "error");
     }
 
@@ -2765,6 +2804,16 @@ mod tests {
         ConversationChange {
             position,
             message_uuid: uuid.map(str::to_string),
+            activity_id: None,
+        }
+    }
+
+    /// The change that names activity `activity_id`, at `position`.
+    fn activity_change(position: i64, activity_id: &str) -> ConversationChange {
+        ConversationChange {
+            position,
+            message_uuid: None,
+            activity_id: Some(activity_id.to_string()),
         }
     }
 
@@ -2824,6 +2873,33 @@ mod tests {
             .collect();
         assert_eq!(summaries, vec!["Thinking", "Command run", "File change"]);
         assert_eq!(sent[0]["payload"]["threadId"], "task-a");
+    }
+
+    /// A change that names an activity rather than a Message — a Sandbox
+    /// lifecycle row, a context-window reading — carries that one work-log row
+    /// and nothing else: no bubble, and no `thread.session-set`, because nothing
+    /// about the conversation's own session moved. The row is numbered
+    /// `ordinal + 1`, the same value its snapshot row carries.
+    #[test]
+    fn a_change_naming_an_activity_carries_that_row_and_no_session() {
+        let mut ready = activity("", 6, 0, ActivityKind::SandboxStatus, "Ready");
+        ready.activity_id = "evt-ready".to_string();
+        ready.message_uuid = None;
+        let window = transcript(Vec::new(), vec![ready]);
+
+        let sent = events(&activity_change(6, "evt-ready"), &window);
+        assert_eq!(sent.len(), 1, "one work-log row and no session: {sent:#?}");
+        assert_eq!(sent[0]["type"], "thread.activity-appended");
+        assert_eq!(sent[0]["payload"]["activity"]["id"], "evt-ready");
+        assert_eq!(sent[0]["payload"]["activity"]["summary"], "Ready");
+        assert_eq!(sent[0]["sequence"], 6 * EVENTS_PER_CHANGE + 1);
+    }
+
+    /// A change naming an activity the window does not hold says nothing — a
+    /// complete answer, the same one a change naming an absent Message gives.
+    #[test]
+    fn a_change_naming_an_activity_not_in_the_window_says_nothing() {
+        assert!(events(&activity_change(6, "evt-gone"), &a_conversation()).is_empty());
     }
 
     /// A tool result settles the row its call already wrote, and the change it

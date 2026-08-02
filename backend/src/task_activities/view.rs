@@ -77,8 +77,12 @@ impl<'a> ActivityView<'a> {
         match self.activity.kind {
             _ if self.activity.is_error => "error",
             ActivityKind::ToolCall => "tool",
+            // `SandboxWarning` falls through to `info`, which is what upstream
+            // assigns `runtime.warning`; its amber comes from the kind, not the
+            // tone.
             ActivityKind::Thinking
             | ActivityKind::SandboxStatus
+            | ActivityKind::SandboxWarning
             | ActivityKind::SandboxError
             | ActivityKind::UserInputRequested
             | ActivityKind::UserInputResolved
@@ -91,9 +95,12 @@ impl<'a> ActivityView<'a> {
         match self.activity.kind {
             ActivityKind::ToolCall if self.activity.is_settled() => "tool.completed",
             ActivityKind::ToolCall => "tool.updated",
-            ActivityKind::Thinking | ActivityKind::SandboxStatus | ActivityKind::SandboxError => {
-                "task.progress"
-            }
+            // Severity in T3's work log is carried by the kind: `runtime.error`
+            // colours a heading red, `runtime.warning` amber, and everything
+            // else on `task.progress` is a plain running-agent row.
+            ActivityKind::SandboxError => "runtime.error",
+            ActivityKind::SandboxWarning => "runtime.warning",
+            ActivityKind::Thinking | ActivityKind::SandboxStatus => "task.progress",
             // The four the client derives a panel from rather than a work-log
             // row. Each spelling is the one that client's own deriver matches
             // on, which is why they are dotted where the column is not.
@@ -507,7 +514,8 @@ mod tests {
         for (kind, expected) in [
             (ActivityKind::Thinking, "task.progress"),
             (ActivityKind::SandboxStatus, "task.progress"),
-            (ActivityKind::SandboxError, "task.progress"),
+            (ActivityKind::SandboxWarning, "runtime.warning"),
+            (ActivityKind::SandboxError, "runtime.error"),
             (ActivityKind::UserInputRequested, "user-input.requested"),
             (ActivityKind::UserInputResolved, "user-input.resolved"),
             (ActivityKind::PlanUpdated, "turn.plan.updated"),
@@ -710,6 +718,25 @@ mod tests {
         assert_eq!(payload["data"]["item"]["type"], "mcpToolCall");
         assert_eq!(payload["data"]["item"]["arguments"]["number"], 234);
         assert_eq!(payload["data"]["item"]["result"]["status"], "completed");
+    }
+
+    /// The three Sandbox severities reach T3 as the kinds its work log colours:
+    /// a plain progress row, an amber warning, a red error. Severity rides the
+    /// kind, so a warning keeps tone `info` and takes its amber from the kind.
+    #[test]
+    fn the_three_sandbox_severities_map_to_the_kinds_t3_colours() {
+        let status = stored(ActivityKind::SandboxStatus, json!({}));
+        assert_eq!(ActivityView::new(&status).t3_kind(), "task.progress");
+        assert_eq!(ActivityView::new(&status).t3_tone(), "info");
+
+        let warning = stored(ActivityKind::SandboxWarning, json!({}));
+        assert_eq!(ActivityView::new(&warning).t3_kind(), "runtime.warning");
+        assert_eq!(ActivityView::new(&warning).t3_tone(), "info");
+
+        let mut error = stored(ActivityKind::SandboxError, json!({}));
+        error.is_error = true;
+        assert_eq!(ActivityView::new(&error).t3_kind(), "runtime.error");
+        assert_eq!(ActivityView::new(&error).t3_tone(), "error");
     }
 
     /// The four are things that happened, not things that failed.

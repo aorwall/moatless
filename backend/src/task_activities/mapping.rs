@@ -5,6 +5,7 @@
 //! the migration both go through it, so the two cannot drift into two different
 //! answers for the same block.
 
+use moatless_events::SandboxEventPayload;
 use serde_json::{Map, Value, json};
 
 use crate::message::models::MessageType;
@@ -103,6 +104,10 @@ pub enum ActivityKind {
     ToolCall,
     Thinking,
     SandboxStatus,
+    /// A Sandbox stall the run recovers from — a slow startup, blocked
+    /// scheduling, an eviction. The severity between an ordinary status and a
+    /// fatal error, and the one the T3 work log colours amber.
+    SandboxWarning,
     SandboxError,
     /// The agent handed the conversation back to a person: an `AskUserQuestion`,
     /// or the synthetic approve/reject question in front of a proposed plan.
@@ -122,6 +127,7 @@ impl ActivityKind {
             Self::ToolCall => "tool_call",
             Self::Thinking => "thinking",
             Self::SandboxStatus => "sandbox_status",
+            Self::SandboxWarning => "sandbox_warning",
             Self::SandboxError => "sandbox_error",
             Self::UserInputRequested => "user_input_requested",
             Self::UserInputResolved => "user_input_resolved",
@@ -135,6 +141,7 @@ impl ActivityKind {
         Self::ToolCall,
         Self::Thinking,
         Self::SandboxStatus,
+        Self::SandboxWarning,
         Self::SandboxError,
         Self::UserInputRequested,
         Self::UserInputResolved,
@@ -151,6 +158,7 @@ impl std::str::FromStr for ActivityKind {
             "tool_call" => Ok(Self::ToolCall),
             "thinking" => Ok(Self::Thinking),
             "sandbox_status" => Ok(Self::SandboxStatus),
+            "sandbox_warning" => Ok(Self::SandboxWarning),
             "sandbox_error" => Ok(Self::SandboxError),
             "user_input_requested" => Ok(Self::UserInputRequested),
             "user_input_resolved" => Ok(Self::UserInputResolved),
@@ -608,22 +616,172 @@ fn thinking(context: BlockContext<'_>) -> BlockRow {
     }])
 }
 
+/// The three severities a Sandbox lifecycle event carries into the work log.
+///
+/// The row's kind, status and `is_error` all derive from this, and on the T3
+/// side it is the kind — not the tone — that colours a heading: `Warning` amber,
+/// `Error` red, `Status` a plain running-agent row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Status,
+    Warning,
+    Error,
+}
+
+/// The label and severity a Sandbox `lifecycleEvent` renders as, or `None` for a
+/// slug this build does not know.
+///
+/// Ported from `DESCRIPTORS` in
+/// `apps/frontend/src/features/preview/utils/event-messages.ts`, keeping the
+/// label and severity halves; the frontend keeps the icon and chip halves,
+/// which do not belong in a backend that composes its detail as text. A slug the
+/// table does not name falls back to the humanized slug at the call site, so a
+/// new watcher event renders as something readable rather than being dropped.
+pub fn lifecycle_descriptor(lifecycle_event: &str) -> Option<(&'static str, Severity)> {
+    use Severity::{Error, Status, Warning};
+    Some(match lifecycle_event {
+        "pod_ready" => ("Ready", Status),
+        "pod_scheduled" => ("Scheduled", Status),
+        "pod_deleted" => ("Deleted", Status),
+        "pod_succeeded" | "sandbox_completed" => ("Completed", Status),
+        "auto_stopped" => ("Auto-stopped", Status),
+        "idle_reaped" => ("Stopped (idle)", Status),
+        "startup_slow" => ("Slow startup", Warning),
+        "scheduling_blocked" => ("Scheduling blocked", Warning),
+        "pod_evicted" => ("Evicted", Warning),
+        "pod_recovering" => ("Recovering", Warning),
+        "node_reclaimed" => ("Node reclaimed", Warning),
+        "container_restarted" => ("Restarted", Warning),
+        "container_oom_killed" => ("Out of memory", Error),
+        "container_crash_loop" => ("Crash looping", Error),
+        "container_terminated" => ("Terminated", Error),
+        "pod_failed" => ("Pod failed", Error),
+        "fatal" => ("Fatal", Error),
+        "server_auto_disabled" => ("Server disabled", Error),
+        "runtime_infrastructure" => ("Infrastructure error", Error),
+        "runtime_rejected" => ("Rejected", Error),
+        "runtime_not_absent" => ("Cleanup stalled", Error),
+        "intent_write" => ("Intent write failed", Error),
+        "completion_commit" => ("Completion commit failed", Error),
+        "edge_abandoned" => ("Operation abandoned", Error),
+        _ => return None,
+    })
+}
+
+/// The label and severity for one Sandbox event.
+///
+/// The rich vocabulary is keyed on `lifecycleEvent`. The two fallbacks mirror
+/// `describeEvent`'s: an event with no `lifecycleEvent` is labelled from its
+/// coarse status and an unknown slug from the slug itself, both taking severity
+/// `Error` when the event's sub-type is an error and `Status` otherwise.
+fn describe(
+    coarse_status: &str,
+    coarse_is_error: bool,
+    payload: &SandboxEventPayload,
+) -> (String, Severity) {
+    let fallback = if coarse_is_error {
+        Severity::Error
+    } else {
+        Severity::Status
+    };
+    match payload
+        .lifecycle_event
+        .as_deref()
+        .filter(|event| !event.is_empty())
+    {
+        Some(event) => match lifecycle_descriptor(event) {
+            Some((label, severity)) => (label.to_string(), severity),
+            None => (event.replace('_', " "), fallback),
+        },
+        None => (capitalize(coarse_status), fallback),
+    }
+}
+
+/// The coarse status word as a label: `ready` → `Ready`, `not_created` → `Not
+/// created`.
+fn capitalize(status: &str) -> String {
+    let spaced = status.replace('_', " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => spaced,
+    }
+}
+
+/// A whole number of seconds as a compact duration (`37s`, `6m 4s`, `1h 20m`),
+/// matching `formatDurationSeconds` in the frontend event log.
+fn format_duration_seconds(total_seconds: i64) -> String {
+    let seconds = total_seconds.max(0);
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+    let minutes = seconds / 60;
+    let rem_seconds = seconds % 60;
+    if minutes < 60 {
+        return if rem_seconds > 0 {
+            format!("{minutes}m {rem_seconds}s")
+        } else {
+            format!("{minutes}m")
+        };
+    }
+    let hours = minutes / 60;
+    let rem_minutes = minutes % 60;
+    if rem_minutes > 0 {
+        format!("{hours}h {rem_minutes}m")
+    } else {
+        format!("{hours}h")
+    }
+}
+
 /// A Sandbox lifecycle change, which happened on no Message.
 ///
 /// Its identity is the event's own id rather than a block position, so the same
-/// event redelivered writes nothing.
+/// event redelivered writes nothing. `coarse_status` and `coarse_is_error` are
+/// the event's sub-type word and whether it is the error sub-type, used only
+/// when the payload carries no `lifecycleEvent` to key the rich vocabulary on.
+///
+/// The detail is the event's message, then one line per present field in the
+/// order `buildChips` lists them — `node`, `cause`, `by`, `exit`, `reason`,
+/// `pending` — so `pending` renders in the same compact duration format.
 pub fn sandbox_activity(
     event_id: &str,
     task_id: &str,
-    status: &str,
-    detail: Option<&str>,
-    is_error: bool,
+    coarse_status: &str,
+    coarse_is_error: bool,
+    payload: &SandboxEventPayload,
 ) -> ActivityRow {
-    let mut payload = Map::new();
-    payload.insert("summary".into(), Value::String(status.to_string()));
-    if let Some(detail) = detail.filter(|detail| !detail.is_empty()) {
-        payload.insert("detail".into(), Value::String(detail.to_string()));
+    let (summary, severity) = describe(coarse_status, coarse_is_error, payload);
+    let is_error = severity == Severity::Error;
+
+    let mut lines: Vec<String> = Vec::new();
+    if !payload.message.is_empty() {
+        lines.push(payload.message.clone());
     }
+    if let Some(node) = &payload.node_name {
+        lines.push(format!("node {node}"));
+    }
+    if let Some(cause) = &payload.disruption_reason {
+        lines.push(format!("cause {cause}"));
+    }
+    if let Some(by) = &payload.initiator {
+        lines.push(format!("by {by}"));
+    }
+    if let Some(exit) = payload.exit_code {
+        lines.push(format!("exit {exit}"));
+    }
+    if let Some(reason) = &payload.terminated_reason {
+        lines.push(format!("reason {reason}"));
+    }
+    if let Some(pending) = payload.pending_seconds {
+        lines.push(format!("pending {}", format_duration_seconds(pending)));
+    }
+
+    let mut row_payload = Map::new();
+    row_payload.insert("summary".into(), Value::String(summary.clone()));
+    if !lines.is_empty() {
+        row_payload.insert("detail".into(), Value::String(lines.join("\n")));
+    }
+
     ActivityRow {
         activity_id: event_id.to_string(),
         task_id: task_id.to_string(),
@@ -631,10 +789,10 @@ pub fn sandbox_activity(
         ordinal: 0,
         message_uuid: None,
         parent_uuid: None,
-        kind: if is_error {
-            ActivityKind::SandboxError
-        } else {
-            ActivityKind::SandboxStatus
+        kind: match severity {
+            Severity::Status => ActivityKind::SandboxStatus,
+            Severity::Warning => ActivityKind::SandboxWarning,
+            Severity::Error => ActivityKind::SandboxError,
         },
         status: if is_error {
             ActivityStatus::Failed
@@ -642,8 +800,8 @@ pub fn sandbox_activity(
             ActivityStatus::Completed
         },
         tool_use_id: None,
-        summary: status.to_string(),
-        payload: Value::Object(payload),
+        summary,
+        payload: Value::Object(row_payload),
         is_error,
     }
 }
@@ -1287,9 +1445,22 @@ mod tests {
         }
     }
 
+    fn sandbox_payload(lifecycle_event: Option<&str>) -> SandboxEventPayload {
+        SandboxEventPayload {
+            lifecycle_event: lifecycle_event.map(str::to_string),
+            ..SandboxEventPayload::default()
+        }
+    }
+
     #[test]
     fn a_sandbox_status_is_identified_by_its_event() {
-        let activity = sandbox_activity("evt-1", "task-1", "Ready", None, false);
+        let activity = sandbox_activity(
+            "evt-1",
+            "task-1",
+            "ready",
+            false,
+            &sandbox_payload(Some("pod_ready")),
+        );
         assert_eq!(activity.activity_id, "evt-1");
         assert_eq!(activity.kind, ActivityKind::SandboxStatus);
         assert_eq!(activity.summary, "Ready");
@@ -1297,14 +1468,106 @@ mod tests {
         assert!(!activity.is_error);
     }
 
+    /// A stall the run recovers from is the third severity: an amber warning,
+    /// not a status and not a fatal error.
     #[test]
-    fn a_sandbox_error_keeps_the_detail_the_pod_watcher_published() {
-        let detail = "Sandbox terminated: exit 137, OOMKilled, node ip-10-0-0-1";
-        let activity = sandbox_activity("evt-2", "task-1", "Error", Some(detail), true);
+    fn a_sandbox_stall_is_a_warning() {
+        let activity = sandbox_activity(
+            "evt-slow",
+            "task-1",
+            "initializing",
+            false,
+            &sandbox_payload(Some("startup_slow")),
+        );
+        assert_eq!(activity.kind, ActivityKind::SandboxWarning);
+        assert_eq!(activity.summary, "Slow startup");
+        assert_eq!(activity.status, ActivityStatus::Completed);
+        assert!(!activity.is_error, "a warning is not an error on the row");
+    }
+
+    #[test]
+    fn a_sandbox_error_is_labelled_and_flagged_from_its_lifecycle_event() {
+        let mut payload = sandbox_payload(Some("container_oom_killed"));
+        payload.message = "Out of memory (OOMKilled)".to_string();
+        payload.exit_code = Some(137);
+        payload.terminated_reason = Some("OOMKilled".to_string());
+        payload.node_name = Some("ip-10-0-0-1".to_string());
+        let activity = sandbox_activity("evt-2", "task-1", "error", true, &payload);
         assert_eq!(activity.kind, ActivityKind::SandboxError);
+        assert_eq!(activity.summary, "Out of memory");
         assert_eq!(activity.status, ActivityStatus::Failed);
         assert!(activity.is_error);
-        assert_eq!(activity.payload["detail"], detail);
+        // Message first, then one line per present field in `buildChips` order.
+        assert_eq!(
+            activity.payload["detail"],
+            "Out of memory (OOMKilled)\nnode ip-10-0-0-1\nexit 137\nreason OOMKilled"
+        );
+    }
+
+    /// A `pod_scheduled` reading composes its node and its pending duration into
+    /// the detail, the compact duration format and all.
+    #[test]
+    fn a_scheduled_reading_composes_node_and_pending_into_its_detail() {
+        let mut payload = sandbox_payload(Some("pod_scheduled"));
+        payload.message = "Scheduled onto a node".to_string();
+        payload.node_name = Some("i-0040f860ad3bd3487".to_string());
+        payload.pending_seconds = Some(37);
+        let activity = sandbox_activity("evt-s", "task-1", "initializing", false, &payload);
+        assert_eq!(activity.summary, "Scheduled");
+        assert_eq!(activity.kind, ActivityKind::SandboxStatus);
+        assert_eq!(
+            activity.payload["detail"],
+            "Scheduled onto a node\nnode i-0040f860ad3bd3487\npending 37s"
+        );
+    }
+
+    /// `lifecycle_descriptor` names one event of each severity; the coarse
+    /// fallback and the unknown-slug fallback both take the event's error-ness.
+    #[test]
+    fn the_lifecycle_vocabulary_and_its_fallbacks() {
+        assert_eq!(
+            lifecycle_descriptor("pod_ready"),
+            Some(("Ready", Severity::Status))
+        );
+        assert_eq!(
+            lifecycle_descriptor("startup_slow"),
+            Some(("Slow startup", Severity::Warning))
+        );
+        assert_eq!(
+            lifecycle_descriptor("container_oom_killed"),
+            Some(("Out of memory", Severity::Error))
+        );
+        assert_eq!(lifecycle_descriptor("brand_new_slug"), None);
+
+        // No `lifecycleEvent`: labelled from the coarse status, severity from the
+        // sub-type's error-ness.
+        let coarse = sandbox_activity("e", "task-1", "initializing", false, &sandbox_payload(None));
+        assert_eq!(coarse.summary, "Initializing");
+        assert_eq!(coarse.kind, ActivityKind::SandboxStatus);
+        let coarse_error = sandbox_activity("e", "task-1", "error", true, &sandbox_payload(None));
+        assert_eq!(coarse_error.summary, "Error");
+        assert_eq!(coarse_error.kind, ActivityKind::SandboxError);
+
+        // An unknown slug renders as itself, spaced, at the sub-type's severity.
+        let unknown = sandbox_activity(
+            "e",
+            "task-1",
+            "initializing",
+            false,
+            &sandbox_payload(Some("brand_new_slug")),
+        );
+        assert_eq!(unknown.summary, "brand new slug");
+        assert_eq!(unknown.kind, ActivityKind::SandboxStatus);
+    }
+
+    #[test]
+    fn compact_durations_read_the_way_the_frontend_writes_them() {
+        assert_eq!(format_duration_seconds(37), "37s");
+        assert_eq!(format_duration_seconds(364), "6m 4s");
+        assert_eq!(format_duration_seconds(120), "2m");
+        assert_eq!(format_duration_seconds(4_800), "1h 20m");
+        assert_eq!(format_duration_seconds(3_600), "1h");
+        assert_eq!(format_duration_seconds(-5), "0s");
     }
 
     #[test]
