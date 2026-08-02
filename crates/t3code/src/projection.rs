@@ -1074,7 +1074,7 @@ fn worktree_path(conversation: &Conversation) -> Value {
 }
 
 /// A distinct, stable, nominal worktree path for one conversation.
-fn nominal_worktree(task_id: &str) -> String {
+pub(crate) fn nominal_worktree(task_id: &str) -> String {
     format!("{NOMINAL_WORKTREE_PREFIX}/{task_id}")
 }
 

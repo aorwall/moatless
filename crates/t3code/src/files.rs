@@ -299,7 +299,7 @@ pub async fn read_file(
 /// their tree, and it costs a walk only on the miss. The shallowest match wins —
 /// the checkout nearest the root — and equal-length ones break by name, so the
 /// same mention always opens the same file rather than depending on walk order.
-async fn nested_in_a_checkout(
+pub(crate) async fn nested_in_a_checkout(
     client: &moatless_backend_core::sandbox::SandboxClient,
     relative_path: &str,
 ) -> Option<String> {

@@ -30,6 +30,7 @@
 pub mod activity;
 pub mod activity_dao;
 pub mod agent;
+mod assets;
 pub mod auth;
 mod commands;
 pub mod dao;
@@ -451,6 +452,13 @@ fn router(state: UiRpcState) -> Router {
         .route("/oauth/token", post(oauth::token_exchange))
         .route("/api/auth/websocket-ticket", post(oauth::websocket_ticket))
         .route("/api/auth/session", get(auth_session))
+        .route(
+            &format!(
+                "{}/{{thread_id}}/{{*relative_path}}",
+                assets::ASSET_ROUTE_PREFIX
+            ),
+            get(assets::serve),
+        )
         .route("/api/orchestration/shell", get(shell_snapshot_http))
         .route(
             "/api/orchestration/threads/{thread_id}",
@@ -2277,13 +2285,12 @@ impl ProtocolSession {
                 ));
                 self.start_produced_stream(&id, Some(values), producer)
             }
-            // Every asset T3 asks this environment for is a file on a machine
-            // it can reach, and Moatless projects are not directories on this
-            // one — a project's root path is synthesized, and the checkout only
-            // exists inside a per-task Sandbox. Answering "not found" is the
-            // honest projection and the one the client renders (a project
-            // without a favicon), where a defect leaves the same blank icon
-            // behind a stack trace.
+            // A conversation's checkout exists inside its Sandbox and nowhere
+            // else, so an asset is minted as a route this backend serves the
+            // file on rather than as a path on this machine — see
+            // [`assets`]. The resources that name no file here, an attachment
+            // and a project's favicon, keep answering that there is none, which
+            // is what the client renders as a project without an icon.
             "assets.createUrl" => {
                 // The error carries the resource back, and the client decodes it
                 // against the same schema it sent — so a request without one has
@@ -2291,13 +2298,16 @@ impl ProtocolSession {
                 let Some(resource) = payload.get("resource") else {
                     return vec![failure_exit(&id, "assets.createUrl requires a resource")];
                 };
-                vec![typed_failure_exit(
-                    &id,
-                    json!({
-                        "_tag": "AssetWorkspaceAssetNotFoundError",
-                        "resource": resource
-                    }),
-                )]
+                match assets::create_url(resource) {
+                    Ok(minted) => vec![success_exit(&id, minted)],
+                    Err(error) => vec![typed_failure_exit(
+                        &id,
+                        json!({
+                            "_tag": error.tag(),
+                            "resource": resource
+                        }),
+                    )],
+                }
             }
             // Which client is focused decides whether *T3* keeps background
             // work running on its own host. Moatless runs its agents in
@@ -4381,6 +4391,43 @@ mod tests {
         assert!(origin_checked(Some(Extension(UiRpcAuthMethod::ApiKey))));
         // An upgrade the middleware never saw is treated as the cookie case.
         assert!(origin_checked(None));
+    }
+
+    /// The route a browser frame fetches a workspace file from.
+    mod workspace_assets {
+        use super::*;
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        async fn text(response: Response) -> String {
+            let body = axum::body::to_bytes(response.into_body(), MAX_FRAME_BYTES)
+                .await
+                .unwrap();
+            String::from_utf8(body.to_vec()).unwrap()
+        }
+
+        /// A minted URL is an address and not a capability, so the Task behind
+        /// it is re-read through the same follow-and-access filter on every
+        /// fetch. The stub listing holds no conversations, so this viewer
+        /// follows none — and is told what someone asking for a Task that does
+        /// not exist is told.
+        #[tokio::test]
+        async fn a_conversation_this_viewer_does_not_follow_serves_no_file() {
+            let mut request = Request::builder()
+                .uri("/api/assets/t-1/docs/report.html")
+                .body(Body::empty())
+                .unwrap();
+            request.extensions_mut().insert(viewer());
+
+            let response = router(state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            // The route is mounted and refused it, rather than never matching.
+            assert_eq!(
+                text(response).await,
+                crate::workspace::WorkspaceAccessError::Unaddressable.message()
+            );
+        }
     }
 
     /// The pairing exchange and the ticket route, over HTTP, as a client on
