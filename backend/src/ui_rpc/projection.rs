@@ -1757,12 +1757,12 @@ mod tests {
     }
 
     #[test]
-    fn a_blank_conversation_name_falls_back_to_the_id() {
+    fn a_blank_conversation_name_falls_back_to_new_thread() {
         let mut row = conversation("task-a", "ws-a");
         row.name = Some("   ".to_string());
-        assert_eq!(one_thread(&row)["title"], "task-a");
+        assert_eq!(one_thread(&row)["title"], "New thread");
         row.name = None;
-        assert_eq!(one_thread(&row)["title"], "task-a");
+        assert_eq!(one_thread(&row)["title"], "New thread");
     }
 
     /// Two Moatless states mean *not finished* and both land on `running`; the
