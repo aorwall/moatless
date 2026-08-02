@@ -110,10 +110,20 @@ fn config_map(task_id: &str, records: &NodeRecords) -> ConfigMap {
 }
 
 pub(crate) fn pod_uses_node_archives(pod: &Pod) -> bool {
+    pod_has_volume(pod, volume_holds_task_node_data)
+}
+
+/// Whether this pod must land on the recording node. See
+/// [`deployment_requires_retained_node`].
+pub(crate) fn pod_requires_retained_node(pod: &Pod) -> bool {
+    pod_has_volume(pod, volume_requires_retained_node)
+}
+
+fn pod_has_volume(pod: &Pod, predicate: fn(&Volume) -> bool) -> bool {
     pod.spec
         .as_ref()
         .and_then(|spec| spec.volumes.as_ref())
-        .is_some_and(|volumes| volumes.iter().any(volume_holds_task_node_data))
+        .is_some_and(|volumes| volumes.iter().any(predicate))
 }
 
 pub(crate) fn deployment_uses_node_archives(deployment: &Deployment) -> bool {

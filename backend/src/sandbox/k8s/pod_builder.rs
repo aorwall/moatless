@@ -4,8 +4,9 @@
 //! Server containers are created dynamically from the repo config.
 
 use k8s_openapi::api::core::v1::{
-    Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
-    HostPathVolumeSource, PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec,
+    Affinity, Capabilities, Container, ContainerPort, EmptyDirVolumeSource, EnvVar, HTTPGetAction,
+    HostPathVolumeSource, NodeAffinity, NodeSelector, NodeSelectorRequirement, NodeSelectorTerm,
+    PersistentVolumeClaimVolumeSource, Pod, PodSecurityContext, PodSpec, PreferredSchedulingTerm,
     Probe, ResourceRequirements, SeccompProfile, SecurityContext, TCPSocketAction, Toleration,
     Volume, VolumeMount,
 };
@@ -491,6 +492,59 @@ fn build_cache_volume(
 fn node_sandbox_host_path(config: &Config, task_id: &str) -> String {
     let root = config.sandbox.cache_host_root.trim_end_matches('/');
     format!("{root}/workspaces/{task_id}")
+}
+
+/// Express a retained-node placement so the scheduler still runs.
+///
+/// `spec.nodeName` binds the pod directly and skips scheduling, so a node that
+/// cannot fit the pod rejects it at admission (`OutOfmemory`) and the
+/// ReplicaSet respawns it without end. Affinity leaves an unschedulable pod
+/// `Pending` instead. `required` is for data that cannot be rebuilt elsewhere;
+/// a cache prefers its node and settles for any other.
+pub(crate) fn retained_node_affinity(node_name: &str, required: bool) -> Affinity {
+    let term = NodeSelectorTerm {
+        match_fields: Some(vec![NodeSelectorRequirement {
+            key: "metadata.name".to_string(),
+            operator: "In".to_string(),
+            values: Some(vec![node_name.to_string()]),
+        }]),
+        ..Default::default()
+    };
+    let node_affinity = if required {
+        NodeAffinity {
+            required_during_scheduling_ignored_during_execution: Some(NodeSelector {
+                node_selector_terms: vec![term],
+            }),
+            ..Default::default()
+        }
+    } else {
+        NodeAffinity {
+            preferred_during_scheduling_ignored_during_execution: Some(vec![
+                PreferredSchedulingTerm {
+                    weight: 100,
+                    preference: term,
+                },
+            ]),
+            ..Default::default()
+        }
+    };
+    Affinity {
+        node_affinity: Some(node_affinity),
+        ..Default::default()
+    }
+}
+
+/// Place a freshly built pod on its retained node.
+pub(crate) fn pin_pod_to_node(
+    pod: &mut Pod,
+    node_name: &str,
+    required: bool,
+) -> Result<(), SandboxError> {
+    pod.spec
+        .as_mut()
+        .ok_or_else(|| SandboxError::PodBuildError("Pod has no spec".to_string()))?
+        .affinity = Some(retained_node_affinity(node_name, required));
+    Ok(())
 }
 
 fn node_task_build_cache_host_path(config: &Config, task_id: &str) -> String {
@@ -3196,5 +3250,64 @@ mod tests {
             target.value.as_deref(),
             Some("/opt/moatless/build-cache/target")
         );
+    }
+
+    fn only_match_field(term: &NodeSelectorTerm) -> (&str, &str) {
+        let requirement = &term.match_fields.as_ref().expect("match fields")[0];
+        (
+            requirement.key.as_str(),
+            requirement.values.as_ref().expect("values")[0].as_str(),
+        )
+    }
+
+    #[test]
+    fn irreplaceable_data_makes_the_node_required() {
+        let affinity = retained_node_affinity("node-a", true);
+        let node_affinity = affinity.node_affinity.expect("node affinity");
+
+        let selector = node_affinity
+            .required_during_scheduling_ignored_during_execution
+            .expect("required term");
+        assert_eq!(
+            only_match_field(&selector.node_selector_terms[0]),
+            ("metadata.name", "node-a")
+        );
+        assert!(
+            node_affinity
+                .preferred_during_scheduling_ignored_during_execution
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_cache_only_prefers_its_node() {
+        let affinity = retained_node_affinity("node-a", false);
+        let node_affinity = affinity.node_affinity.expect("node affinity");
+
+        let preferred = node_affinity
+            .preferred_during_scheduling_ignored_during_execution
+            .expect("preferred term");
+        assert_eq!(
+            only_match_field(&preferred[0].preference),
+            ("metadata.name", "node-a")
+        );
+        assert!(
+            node_affinity
+                .required_during_scheduling_ignored_during_execution
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_retained_placement_never_sets_node_name() {
+        let mut pod = Pod {
+            spec: Some(PodSpec::default()),
+            ..Default::default()
+        };
+        pin_pod_to_node(&mut pod, "node-a", true).expect("pin");
+
+        let spec = pod.spec.expect("spec");
+        assert!(spec.node_name.is_none());
+        assert!(spec.affinity.is_some());
     }
 }

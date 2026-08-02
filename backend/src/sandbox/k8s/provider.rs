@@ -120,6 +120,8 @@ impl K8sSandboxAdapter {
                             "stopped sandbox Deployment vanished before start".to_string(),
                         )
                     })?;
+                let require_node =
+                    node_archive::deployment_requires_retained_node(&existing_deployment);
                 let retained_node =
                     if self.config.sandbox.node_archive_enabled
                         && node_archive::deployment_uses_node_archives(&existing_deployment)
@@ -127,8 +129,6 @@ impl K8sSandboxAdapter {
                         node_archive::record_current_pod_nodes(&self.k8s, task_id)
                             .await
                             .map_err(SandboxError::Runtime)?;
-                        let require_node =
-                            node_archive::deployment_requires_retained_node(&existing_deployment);
                         node_archive::retained_node(&self.k8s, task_id, require_node)
                             .await
                             .map_err(SandboxError::Runtime)?
@@ -149,7 +149,7 @@ impl K8sSandboxAdapter {
                     // scheduling a new pod straight into the stall.
                     deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
                     if let Some(node_name) = retained_node.as_deref() {
-                        deployment::pin_to_node(&self.k8s, task_id, node_name)
+                        deployment::pin_to_node(&self.k8s, task_id, node_name, require_node)
                             .await
                             .map_err(SandboxError::KubeError)?;
                     }
@@ -174,6 +174,7 @@ impl K8sSandboxAdapter {
                         request,
                         ctx,
                         retained_node.as_deref(),
+                        require_node,
                     )
                     .await?;
                 }
@@ -230,10 +231,8 @@ impl K8sSandboxAdapter {
                 .await
                 .map_err(SandboxError::Runtime)?
             {
-                pod.spec
-                    .as_mut()
-                    .ok_or_else(|| SandboxError::PodBuildError("Pod has no spec".to_string()))?
-                    .node_name = Some(node_name);
+                let require_node = node_archive::pod_requires_retained_node(&pod);
+                pod_builder::pin_pod_to_node(&mut pod, &node_name, require_node)?;
             }
         }
         pod_builder::stamp_operation_generation(&mut pod, ctx);
@@ -388,7 +387,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
             if let Some(node_name) =
                 node_archive::retained_node(&self.k8s, task_id, require_node).await?
             {
-                deployment::pin_to_node(&self.k8s, task_id, &node_name)
+                deployment::pin_to_node(&self.k8s, task_id, &node_name, require_node)
                     .await
                     .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
             }

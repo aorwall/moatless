@@ -229,14 +229,27 @@ pub async fn pin_to_node(
     k8s: &K8sClient,
     task_id: &str,
     node_name: &str,
+    required: bool,
 ) -> Result<(), kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let deployment_name = generate_deployment_name(task_id);
+    // `null` clears the opposite affinity mode and any `nodeName` left by an
+    // earlier revision, so a merge patch cannot stack two placements.
+    let affinity = pod_builder::retained_node_affinity(node_name, required);
+    let node_affinity = affinity.node_affinity.unwrap_or_default();
     let patch = serde_json::json!({
         "spec": {
             "template": {
                 "spec": {
-                    "nodeName": node_name,
+                    "nodeName": null,
+                    "affinity": {
+                        "nodeAffinity": {
+                            "requiredDuringSchedulingIgnoredDuringExecution":
+                                node_affinity.required_during_scheduling_ignored_during_execution,
+                            "preferredDuringSchedulingIgnoredDuringExecution":
+                                node_affinity.preferred_during_scheduling_ignored_during_execution,
+                        }
+                    }
                 }
             }
         }
@@ -315,6 +328,7 @@ pub async fn redeploy_with_plan(
     request: &ProvisionRequest,
     ctx: RuntimeOperationContext,
     retained_node: Option<&str>,
+    retained_node_required: bool,
 ) -> Result<(), SandboxError> {
     let pvc_name = pvc::find_task_pvc(k8s, task_id).await;
 
@@ -331,10 +345,7 @@ pub async fn redeploy_with_plan(
     )
     .map_err(SandboxError::PodBuildError)?;
     if let Some(node_name) = retained_node {
-        pod.spec
-            .as_mut()
-            .ok_or_else(|| SandboxError::PodBuildError("Pod has no spec".to_string()))?
-            .node_name = Some(node_name.to_string());
+        pod_builder::pin_pod_to_node(&mut pod, node_name, retained_node_required)?;
     }
     pod_builder::stamp_operation_generation(&mut pod, ctx);
 
