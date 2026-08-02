@@ -243,8 +243,33 @@ pub async fn run_init(state: SandboxState, registrar: Registrar) {
         );
     }
 
-    // Workspace S3 sync is driven by agent turn completion, with a bounded
-    // shutdown flush below. There is intentionally no periodic uploader.
+    // Spawn the periodic workspace uploader for the `s3` storage backend. Turn
+    // completion and the bounded shutdown flush are the primary durability
+    // points, but a long turn killed involuntarily (node-pressure eviction, OOM,
+    // spot reclaim with no grace) reaches neither and loses everything since the
+    // last completed turn. This loop bounds that gap: every interval it
+    // fingerprints the workspace and uploads only when the tracked file set
+    // changed. `WORKSPACE_SYNC_INTERVAL_SECS=0` disables it; turn-boundary and
+    // shutdown uploads still run.
+    //
+    // Liveness: a dead loop silently drops the between-turn checkpoints, leaving
+    // an ungraceful kill to fall back to the last turn boundary — supervision
+    // makes the loop's death visible rather than fixing it.
+    if state.config.workspace_sync_enabled {
+        if let Some(interval) = workspace_sync::read_interval_from_env() {
+            let workspace_state = state.clone();
+            let workspace_cancel = state.lifecycle_cancel.clone();
+            registrar.supervise(
+                "workspace-sync",
+                Criticality::Liveness,
+                tokio::spawn(workspace_sync::run_workspace_sync(
+                    workspace_state,
+                    workspace_cancel,
+                    interval,
+                )),
+            );
+        }
+    }
 
     // Watch ~/.codex/auth.json for rotations. Codex rewrites this file every
     // time it refreshes its OAuth token; the watcher pushes the rotated blob

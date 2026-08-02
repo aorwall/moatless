@@ -41,17 +41,36 @@
 //! The backend isn't in the data path, so the sandbox reports each transfer's
 //! size/duration/outcome back for comparison metrics.
 //!
+//! The workspace is uploaded at three points: at each agent turn boundary
+//! ([`upload_after_turn`]), on graceful shutdown ([`flush_on_shutdown`]), and on
+//! a periodic loop ([`run_workspace_sync`]) that bounds the loss when a long
+//! turn is killed involuntarily (node-pressure eviction, OOM, spot reclaim with
+//! no grace) and reaches neither of the first two. The periodic loop fingerprints
+//! the tracked file set and uploads only when it changed, so an idle sandbox does
+//! not re-ship an unchanged tar.
+//!
 //! Every operation is best-effort: a fresh clone already gives a working repo,
 //! so a missing archive or a failed transfer is logged, never fatal.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::state::SandboxState;
+
+/// Default periodic-upload interval when `WORKSPACE_SYNC_INTERVAL_SECS` is unset.
+///
+/// Five minutes: turn completion and the shutdown flush are the primary
+/// durability points, so this loop only bounds the loss from an involuntary
+/// mid-turn kill — a coarse cadence is enough and keeps the fingerprint walk +
+/// tar upload off the hot path.
+const DEFAULT_INTERVAL_SECS: u64 = 300;
 
 /// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
 /// period (shared with the transcript flush) — a stuck upload must never block
@@ -301,6 +320,72 @@ async fn upload_from_config(config: &Config, backend_client: &dyn BackendClient)
         .await;
 }
 
+/// Read the periodic upload interval from `WORKSPACE_SYNC_INTERVAL_SECS`
+/// (default [`DEFAULT_INTERVAL_SECS`]). Returns `None` when set to `0`, which
+/// disables the periodic loop (turn-boundary and shutdown uploads still run).
+pub fn read_interval_from_env() -> Option<Duration> {
+    match std::env::var("WORKSPACE_SYNC_INTERVAL_SECS") {
+        Ok(v) => match v.parse::<u64>() {
+            Ok(0) => None,
+            Ok(secs) => Some(Duration::from_secs(secs)),
+            Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
+        },
+        Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
+    }
+}
+
+/// Periodically upload the workspace, but only when the tracked file set
+/// changed since the last upload.
+///
+/// This is the between-turns durability backstop: turn completion and the
+/// shutdown flush are the primary points, but a long turn killed involuntarily
+/// (node-pressure eviction, OOM, spot reclaim with no grace) reaches neither and
+/// would otherwise lose everything since the last completed turn. Each tick
+/// fingerprints the workspace (the same tracked/untracked-non-ignored files plus
+/// each repo's `.git` that the tar carries, `.gitignore`d artifacts excluded) and
+/// uploads only when the fingerprint moved, so an idle sandbox — or one churning
+/// only gitignored build output — does not re-ship an unchanged tar.
+///
+/// The baseline is taken before the first sleep, so a workspace that is unchanged
+/// since restore/clone is not re-uploaded. Mirrors the transcript sync: a
+/// `tokio::select!` on the lifecycle token and a fixed interval.
+pub async fn run_workspace_sync(
+    state: SandboxState,
+    cancel: CancellationToken,
+    interval: Duration,
+) {
+    let task_id = state.config.task_id.clone();
+    let workspace_dir = PathBuf::from(&state.config.workspace_dir);
+    info!(
+        task_id = %task_id,
+        interval_secs = interval.as_secs(),
+        "Workspace sync started"
+    );
+
+    let mut last = workspace_fingerprint(workspace_dir.clone()).await;
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => {
+                info!(task_id = %task_id, "Workspace sync shutting down");
+                return;
+            }
+            () = tokio::time::sleep(interval) => {
+                let current = workspace_fingerprint(workspace_dir.clone()).await;
+                if current == last {
+                    debug!(task_id = %task_id, "Workspace unchanged; skipping upload");
+                    continue;
+                }
+                // Only upload when there is content; an empty fingerprint means
+                // there is nothing to ship (build_tar would return None anyway).
+                if current.is_some() {
+                    upload(&state).await;
+                }
+                last = current;
+            }
+        }
+    }
+}
+
 /// Flush the workspace on shutdown, bounded by [`SHUTDOWN_FLUSH_TIMEOUT`].
 ///
 /// Called from the shutdown driver after the agent has stopped (so the working
@@ -336,7 +421,7 @@ fn primary_prefix(workspace_dir: &str, repo_dir: &str) -> String {
 }
 
 /// Build a fresh reqwest client for a single transfer. Cheap enough at the sync
-/// cadence (default 60s); a per-call client keeps no long-lived connection open
+/// cadence (default 5 min); a per-call client keeps no long-lived connection open
 /// against the presigned host.
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
@@ -522,6 +607,131 @@ async fn build_tar(workspace_dir: PathBuf) -> Option<Vec<u8>> {
     .flatten()
 }
 
+/// Fingerprint the workspace's snapshot content without reading file bodies.
+///
+/// Walks the exact file set [`build_tar`] would archive — each repo's
+/// tracked/untracked-non-ignored working tree plus its whole `.git`, and every
+/// loose file outside a repo — and hashes `(workspace-relative path, len,
+/// mtime)` for each. `.gitignore`d artifacts inside repos are excluded, so build
+/// churn (`node_modules`, `target`, …) does not move the fingerprint. `None`
+/// when there is nothing to archive. Runs on a blocking thread (`git` subprocess
+/// + `std::fs`).
+async fn workspace_fingerprint(workspace_dir: PathBuf) -> Option<u64> {
+    tokio::task::spawn_blocking(move || {
+        if !workspace_dir.is_dir() {
+            return None;
+        }
+        let mut entries: Vec<(String, u64, u128)> = Vec::new();
+        fingerprint_tree(&mut entries, &workspace_dir, &workspace_dir);
+        if entries.is_empty() {
+            return None;
+        }
+        entries.sort();
+        let mut hasher = DefaultHasher::new();
+        entries.hash(&mut hasher);
+        Some(hasher.finish())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Metadata twin of [`append_tree`]: a git repo root is enumerated via
+/// [`fingerprint_repo`] and not descended into; every other file contributes its
+/// metadata and every other directory is walked. Symlinks/special files are
+/// skipped, matching the tar walk.
+fn fingerprint_tree(entries: &mut Vec<(String, u64, u128)>, root: &Path, dir: &Path) {
+    if dir.join(".git").is_dir() {
+        fingerprint_repo(entries, dir, &rel_from(root, dir));
+        return;
+    }
+    let Ok(dir_entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for path in dir_entries.flatten().map(|e| e.path()) {
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.is_dir() {
+            fingerprint_tree(entries, root, &path);
+        } else if meta.is_file() {
+            let name = rel_from(root, &path);
+            if !name.is_empty() {
+                entries.push((name, meta.len(), mtime_nanos(&meta)));
+            }
+        }
+    }
+}
+
+/// Metadata twin of [`append_repo`]: the working-tree file set from
+/// `git ls-files -c -o --exclude-standard` plus the whole `.git` directory,
+/// contributing `(len, mtime)` for each file instead of its bytes.
+fn fingerprint_repo(entries: &mut Vec<(String, u64, u128)>, repo_dir: &Path, prefix: &str) {
+    if let Ok(output) = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_dir)
+        .args(["ls-files", "-c", "-o", "--exclude-standard", "-z"])
+        .output()
+    {
+        if output.status.success() {
+            for rel in output.stdout.split(|b| *b == 0) {
+                if rel.is_empty() {
+                    continue;
+                }
+                let Ok(rel) = std::str::from_utf8(rel) else {
+                    continue;
+                };
+                let full = repo_dir.join(rel);
+                if let Ok(meta) = std::fs::symlink_metadata(&full) {
+                    if meta.is_file() {
+                        entries.push((join_prefix(prefix, rel), meta.len(), mtime_nanos(&meta)));
+                    }
+                }
+            }
+        }
+    }
+    // `.git` is never gitignored and its churn (commits, ref/index updates) is
+    // exactly the state a resuming pod must reproduce, so walk it wholesale.
+    fingerprint_dir(
+        entries,
+        &join_prefix(prefix, ".git"),
+        &repo_dir.join(".git"),
+    );
+}
+
+/// Recursively contribute `(name, len, mtime)` for every regular file under
+/// `dir`, keyed at `<name_prefix>/<path-below-dir>`. Symlinks/special files are
+/// skipped. Used for a repo's `.git`, which has no gitignore to honor.
+fn fingerprint_dir(entries: &mut Vec<(String, u64, u128)>, name_prefix: &str, dir: &Path) {
+    let Ok(dir_entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in dir_entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let name = format!("{name_prefix}/{file_name}");
+        if meta.is_dir() {
+            fingerprint_dir(entries, &name, &path);
+        } else if meta.is_file() {
+            entries.push((name, meta.len(), mtime_nanos(&meta)));
+        }
+    }
+}
+
+/// A file's mtime as nanoseconds since the Unix epoch, or `0` when unavailable —
+/// a stable-enough change signal for the periodic fingerprint.
+fn mtime_nanos(meta: &std::fs::Metadata) -> u128 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos())
+}
+
 /// Extract a repo-set archive, choosing the extraction root by archive shape so
 /// supported snapshots restore correctly. Returns `Ok(true)` when the
 /// primary repo (with its `.git`) was restored (caller skips the clone), or
@@ -672,6 +882,109 @@ mod tests {
             .args(&args)
             .output()
             .unwrap();
+    }
+
+    fn git_commit(dir: &std::path::Path, message: &str) {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["commit", "-q", "-m", message])
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn read_interval_defaults_and_disables() {
+        std::env::remove_var("WORKSPACE_SYNC_INTERVAL_SECS");
+        assert_eq!(
+            read_interval_from_env(),
+            Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
+        );
+
+        std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "0");
+        assert_eq!(read_interval_from_env(), None);
+
+        std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "30");
+        assert_eq!(read_interval_from_env(), Some(Duration::from_secs(30)));
+
+        std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "garbage");
+        assert_eq!(
+            read_interval_from_env(),
+            Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
+        );
+
+        std::env::remove_var("WORKSPACE_SYNC_INTERVAL_SECS");
+    }
+
+    #[tokio::test]
+    async fn fingerprint_tracks_snapshot_content_and_ignores_build_churn() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ws = tmp.path().join("workspace");
+        tokio::fs::create_dir_all(&ws).await.unwrap();
+
+        let repo = ws.join("repo");
+        init_repo(&repo);
+        tokio::fs::write(repo.join(".gitignore"), b"ignored/\n")
+            .await
+            .unwrap();
+        tokio::fs::write(repo.join("main.rs"), b"fn main() {}\n")
+            .await
+            .unwrap();
+        git_add(&repo, &["main.rs", ".gitignore"]);
+        git_commit(&repo, "init");
+        tokio::fs::create_dir_all(repo.join("ignored"))
+            .await
+            .unwrap();
+        tokio::fs::write(repo.join("ignored").join("build.log"), b"x\n")
+            .await
+            .unwrap();
+
+        let base = workspace_fingerprint(ws.clone())
+            .await
+            .expect("workspace has content");
+        // Recomputing without changes is stable.
+        assert_eq!(base, workspace_fingerprint(ws.clone()).await.unwrap());
+
+        // Churning a gitignored artifact does not move the fingerprint.
+        tokio::fs::write(repo.join("ignored").join("build.log"), b"xxxxxxxx\n")
+            .await
+            .unwrap();
+        assert_eq!(base, workspace_fingerprint(ws.clone()).await.unwrap());
+
+        // Editing a tracked file moves it.
+        tokio::fs::write(repo.join("main.rs"), b"fn main() { work(); }\n")
+            .await
+            .unwrap();
+        let after_edit = workspace_fingerprint(ws.clone()).await.unwrap();
+        assert_ne!(base, after_edit);
+
+        // A new commit (which rewrites `.git`) moves it again.
+        git_add(&repo, &["main.rs"]);
+        git_commit(&repo, "work");
+        let after_commit = workspace_fingerprint(ws.clone()).await.unwrap();
+        assert_ne!(after_edit, after_commit);
+
+        // A loose file outside any repo moves it, too.
+        tokio::fs::write(ws.join("notes.txt"), b"scratch\n")
+            .await
+            .unwrap();
+        assert_ne!(
+            after_commit,
+            workspace_fingerprint(ws.clone()).await.unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn fingerprint_is_none_for_empty_or_missing_workspace() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert!(
+            workspace_fingerprint(tmp.path().join("nope"))
+                .await
+                .is_none()
+        );
+        let empty = tmp.path().join("empty");
+        tokio::fs::create_dir_all(&empty).await.unwrap();
+        assert!(workspace_fingerprint(empty).await.is_none());
     }
 
     #[test]
