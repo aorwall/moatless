@@ -54,6 +54,19 @@ pub(crate) fn generate_ingress_route_name(service_name: &str, server_name: &str)
     truncated.trim_end_matches('-').to_string()
 }
 
+/// Generate the deterministic per-task preview NetworkPolicy name.
+///
+/// Format: `moatless-ws-{sanitized_task_id}-preview-ingress` (max 63 chars).
+/// The task id is truncated to fit the fixed prefix/suffix, so the name never
+/// ends in `-`.
+pub fn generate_preview_network_policy_name(task_id: &str) -> String {
+    let prefix = "moatless-ws-";
+    let suffix = "-preview-ingress";
+    let max_id_len = 63 - prefix.len() - suffix.len();
+    let sanitized = sanitize_k8s_name(task_id, max_id_len);
+    truncate_k8s(format!("{prefix}{sanitized}{suffix}"))
+}
+
 /// Generate a deterministic Kubernetes Secret name from a task ID.
 ///
 /// Format: `moatless-secret-{sanitized_task_id}` (max 63 chars).
@@ -177,6 +190,22 @@ mod tests {
         let svc = generate_service_name(&"a".repeat(60));
         let name = generate_ingress_route_name(&svc, &"b".repeat(60));
         assert!(name.len() <= 63);
+    }
+
+    #[test]
+    fn test_generate_preview_network_policy_name() {
+        assert_eq!(
+            generate_preview_network_policy_name("abc123"),
+            "moatless-ws-abc123-preview-ingress"
+        );
+        assert_eq!(
+            generate_preview_network_policy_name("Task_ID"),
+            "moatless-ws-task-id-preview-ingress"
+        );
+        let long = generate_preview_network_policy_name(&"a".repeat(100));
+        assert!(long.len() <= 63);
+        assert!(!long.ends_with('-'));
+        assert!(long.ends_with("-preview-ingress"));
     }
 
     #[test]

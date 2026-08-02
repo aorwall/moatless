@@ -225,6 +225,7 @@ pub fn test_config() -> Config {
             traefik_auth_middleware_name: "test-auth".into(),
             traefik_auth_middleware_namespace: "test".into(),
             traefik_entry_point: "web".into(),
+            traefik_ingress_namespaces: vec!["test".into()],
         },
         database_url: None,
         database: DatabaseConfig {

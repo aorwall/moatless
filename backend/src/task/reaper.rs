@@ -1047,7 +1047,7 @@ async fn collect_labeled_task_ids(k8s: &K8sClient) -> HashSet<String> {
 /// Best-effort delete of every labeled K8s resource for a task. Each delete is
 /// idempotent (404 → Ok) and its failure is logged, never propagated.
 async fn delete_orphaned_task_resources(k8s: &K8sClient, task_id: &str) {
-    use crate::sandbox::k8s::{deployment, ingress, pvc, service};
+    use crate::sandbox::k8s::{deployment, ingress, networkpolicy, pvc, service};
 
     if let Err(e) = deployment::delete_deployment(k8s, task_id).await {
         warn!(task_id = %task_id, error = %e, "orphan-gc: failed to delete Deployment");
@@ -1057,6 +1057,9 @@ async fn delete_orphaned_task_resources(k8s: &K8sClient, task_id: &str) {
     }
     if let Err(e) = ingress::delete_task_ingress_routes(k8s, task_id).await {
         warn!(task_id = %task_id, error = %e, "orphan-gc: failed to delete IngressRoutes");
+    }
+    if let Err(e) = networkpolicy::delete_task_preview_network_policy(k8s, task_id).await {
+        warn!(task_id = %task_id, error = %e, "orphan-gc: failed to delete preview NetworkPolicy");
     }
     if let Err(e) = pvc::delete_task_pvc(k8s, task_id).await {
         warn!(task_id = %task_id, error = %e, "orphan-gc: failed to delete PVC");

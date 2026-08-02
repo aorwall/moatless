@@ -5,7 +5,7 @@ use futures::stream::BoxStream;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -13,6 +13,7 @@ use super::client::K8sClient;
 use super::deployment;
 use super::ingress;
 use super::naming::generate_service_name;
+use super::networkpolicy;
 use super::node_archive;
 use super::owner_ref;
 use super::pod_builder;
@@ -237,9 +238,14 @@ impl K8sSandboxAdapter {
         }
         pod_builder::stamp_operation_generation(&mut pod, ctx);
 
-        // Build servers map for service port exposure
-        let server_ports: BTreeMap<String, u16> =
-            pod_builder::build_servers_map(plan).into_iter().collect();
+        // Build servers map for service port exposure, dropping any port that
+        // collides with a reserved sandbox infrastructure port so it is never
+        // exposed via the Service, an IngressRoute, or the preview NetworkPolicy.
+        let server_ports: BTreeMap<String, u16> = pod_builder::admitted_server_ports(
+            pod_builder::build_servers_map(plan).into_iter().collect(),
+            &self.config,
+            task_id,
+        );
 
         // 5. Create Deployment (wraps pod spec) first so its UID can own the
         //    Service and IngressRoutes — K8s garbage collection then cascades
@@ -263,7 +269,8 @@ impl K8sSandboxAdapter {
         )
         .await?;
 
-        // 5b. Create Traefik IngressRoutes (if proxy_domain is configured)
+        // 5b. Create Traefik IngressRoutes + the preview NetworkPolicy admitting
+        //     Traefik to those same ports (if proxy_domain is configured).
         if self.config.proxy.domain.is_some() {
             if let Err(e) = ingress::create_task_ingress_routes(
                 &self.k8s,
@@ -275,6 +282,18 @@ impl K8sSandboxAdapter {
             .await
             {
                 warn!(task_id = %task_id, error = %e, "Failed to create IngressRoutes");
+            }
+            let preview_ports: BTreeSet<u16> = server_ports.values().copied().collect();
+            if let Err(e) = networkpolicy::create_task_preview_network_policy(
+                &self.k8s,
+                task_id,
+                &preview_ports,
+                &self.config,
+                owner.as_ref(),
+            )
+            .await
+            {
+                warn!(task_id = %task_id, error = %e, "Failed to create preview NetworkPolicy");
             }
         }
 
@@ -312,7 +331,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
     ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
-        self.ensure_running_with_request(task_id, &request, ctx)
+        Box::pin(self.ensure_running_with_request(task_id, &request, ctx))
             .await
             .map_err(map_sandbox_error)
     }
@@ -462,6 +481,9 @@ impl SandboxRuntime for K8sSandboxAdapter {
         ingress::delete_task_ingress_routes(&self.k8s, task_id)
             .await
             .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+        networkpolicy::delete_task_preview_network_policy(&self.k8s, task_id)
+            .await
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
         wait_absent(
             "Service",
             service::wait_for_sandbox_service_deleted(&self.k8s, task_id),
@@ -472,10 +494,18 @@ impl SandboxRuntime for K8sSandboxAdapter {
             ingress::wait_for_task_ingress_routes_deleted(&self.k8s, task_id),
         )
         .await?;
+        // Await absence before reprovision: a create racing the old policy's
+        // deletion would 409-reuse it, then watch it finalize and leave the pod
+        // with no preview policy at all.
+        wait_absent(
+            "NetworkPolicy",
+            networkpolicy::wait_for_task_preview_network_policy_deleted(&self.k8s, task_id),
+        )
+        .await?;
         // 3. PVC is intentionally NOT deleted — workspace data is preserved
 
         // 4. Reprovision with fresh config (provision handles PVC reuse)
-        self.ensure_running_with_request(task_id, &request, ctx)
+        Box::pin(self.ensure_running_with_request(task_id, &request, ctx))
             .await
             .map_err(map_sandbox_error)
     }
@@ -533,6 +563,10 @@ impl SandboxRuntime for K8sSandboxAdapter {
             warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes");
             first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
         }
+        if let Err(e) = networkpolicy::delete_task_preview_network_policy(&self.k8s, task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to delete preview NetworkPolicy");
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
+        }
 
         // Observe every runtime resource absent before deleting archives or
         // publishing Removed. Skip waits when a delete failed; the caller
@@ -578,6 +612,17 @@ impl SandboxRuntime for K8sSandboxAdapter {
             .await
             {
                 warn!(task_id = %task_id, error = %e, "IngressRoutes did not vanish after delete");
+                first_err.get_or_insert(e);
+            }
+        }
+        if first_err.is_none() {
+            if let Err(e) = wait_absent(
+                "NetworkPolicy",
+                networkpolicy::wait_for_task_preview_network_policy_deleted(&self.k8s, task_id),
+            )
+            .await
+            {
+                warn!(task_id = %task_id, error = %e, "Preview NetworkPolicy did not vanish after delete");
                 first_err.get_or_insert(e);
             }
         }
@@ -836,8 +881,11 @@ impl K8sSandboxAdapter {
         }
         warn!(task_id = %task_id, "Sandbox Service missing for existing Deployment, recreating");
 
-        let server_ports: BTreeMap<String, u16> =
-            pod_builder::build_servers_map(plan).into_iter().collect();
+        let server_ports: BTreeMap<String, u16> = pod_builder::admitted_server_ports(
+            pod_builder::build_servers_map(plan).into_iter().collect(),
+            &self.config,
+            task_id,
+        );
         let owner = match deployment::find_deployment(&self.k8s, task_id).await {
             Ok(Some(dep)) => dep
                 .metadata
@@ -871,6 +919,18 @@ impl K8sSandboxAdapter {
             .await
             {
                 warn!(task_id = %task_id, error = %e, "Failed to recreate IngressRoutes");
+            }
+            let preview_ports: BTreeSet<u16> = server_ports.values().copied().collect();
+            if let Err(e) = networkpolicy::create_task_preview_network_policy(
+                &self.k8s,
+                task_id,
+                &preview_ports,
+                &self.config,
+                owner.as_ref(),
+            )
+            .await
+            {
+                warn!(task_id = %task_id, error = %e, "Failed to recreate preview NetworkPolicy");
             }
         }
         info!(task_id = %task_id, "Recreated missing sandbox Service");

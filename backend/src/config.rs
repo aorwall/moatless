@@ -486,6 +486,12 @@ pub struct ProxyConfig {
     pub traefik_auth_middleware_namespace: String,
     /// Traefik entryPoint name for IngressRoutes (default: "websecure")
     pub traefik_entry_point: String,
+    /// Namespaces whose Traefik ingress pods (`app.kubernetes.io/name=traefik`)
+    /// the per-sandbox preview NetworkPolicy admits to the preview ports. The
+    /// policy is what makes a preview URL reachable once ingress NetworkPolicies
+    /// are enforced; deriving its ports from the sandbox's own server map (see
+    /// `k8s/networkpolicy.rs`) is what keeps it from drifting out of sync.
+    pub traefik_ingress_namespaces: Vec<String>,
 }
 
 /// Redis connection and stream settings.
@@ -1007,6 +1013,26 @@ impl Config {
             .and_then(|v| v.parse().ok())
             .unwrap_or(SandboxProviderType::Kubernetes);
 
+        // Namespaces running the Traefik ingress pods that terminate preview
+        // traffic. Defaults to the sandbox namespace (where preview IngressRoutes
+        // are created) plus the shared `platform-ingress`; a comma-separated env
+        // overrides. Duplicates are collapsed so a repeated `from` peer isn't
+        // emitted when the two coincide.
+        let traefik_ingress_namespaces = {
+            let mut namespaces = env_opt("TRAEFIK_INGRESS_NAMESPACES").map_or_else(
+                || vec![sandbox_namespace.clone(), "platform-ingress".to_string()],
+                |s| {
+                    s.split(',')
+                        .map(str::trim)
+                        .filter(|p| !p.is_empty())
+                        .map(String::from)
+                        .collect::<Vec<_>>()
+                },
+            );
+            namespaces.dedup();
+            namespaces
+        };
+
         let config = Self {
             server: ServerConfig {
                 port: env_or("PORT", 8080),
@@ -1111,6 +1137,7 @@ impl Config {
                 traefik_auth_middleware_namespace: env::var("TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE")
                     .unwrap_or(sandbox_namespace),
                 traefik_entry_point: env_str("TRAEFIK_ENTRY_POINT", "websecure"),
+                traefik_ingress_namespaces,
             },
 
             docker: DockerConfig {
@@ -1466,6 +1493,7 @@ impl Config {
                 traefik_auth_middleware_name: "test".into(),
                 traefik_auth_middleware_namespace: "test".into(),
                 traefik_entry_point: "web".into(),
+                traefik_ingress_namespaces: vec!["test".into()],
             },
             docker: DockerConfig {
                 network: "test-network".into(),

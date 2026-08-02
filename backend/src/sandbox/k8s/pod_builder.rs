@@ -1566,10 +1566,72 @@ pub fn build_servers_map(plan: &ProvisionPlan) -> HashMap<String, u16> {
     servers
 }
 
+/// Docker-in-Docker daemon port; served in plaintext on the sandbox pod.
+const DIND_PORT: u16 = 2375;
+/// Sandbox HTTP control port.
+const SANDBOX_HTTP_PORT: u16 = 8001;
+
+/// Ports the sandbox pod reserves for its control plane / infrastructure: the
+/// HTTP control port, the agent gRPC channel, and the dind Docker socket. A
+/// preview server declared on any of these must never be exposed — routing the
+/// authenticated preview edge to the Docker socket or the gRPC control plane
+/// would be a sandbox escape (see backend/src/sandbox/CLAUDE.md).
+pub fn reserved_sandbox_ports(config: &Config) -> [u16; 3] {
+    [SANDBOX_HTTP_PORT, config.sandbox.grpc_port, DIND_PORT]
+}
+
+/// Drop any server whose port collides with a reserved sandbox port, logging
+/// each rejection. The retained map is the single source of truth for what gets
+/// a Service port, an IngressRoute, and a preview NetworkPolicy allowance, so
+/// filtering here keeps a repo from routing the edge onto infrastructure ports.
+pub fn admitted_server_ports(
+    servers: BTreeMap<String, u16>,
+    config: &Config,
+    task_id: &str,
+) -> BTreeMap<String, u16> {
+    let reserved = reserved_sandbox_ports(config);
+    servers
+        .into_iter()
+        .filter(|(name, port)| {
+            let admitted = !reserved.contains(port);
+            if !admitted {
+                warn!(
+                    task_id,
+                    server = %name,
+                    port,
+                    "Refusing to expose preview server on a reserved sandbox port"
+                );
+            }
+            admitted
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sandbox::models::{RepoConfig, ServerConfig};
+
+    #[test]
+    fn admitted_server_ports_drops_reserved_infra_ports() {
+        let config = test_config();
+        let grpc = config.sandbox.grpc_port;
+        let servers = BTreeMap::from([
+            ("web".to_string(), 5733u16),
+            ("http".to_string(), 8001u16),
+            ("dind".to_string(), 2375u16),
+            ("agent".to_string(), grpc),
+            ("api".to_string(), 3000u16),
+        ]);
+
+        let admitted = admitted_server_ports(servers, &config, "task-1");
+
+        assert_eq!(
+            admitted,
+            BTreeMap::from([("web".to_string(), 5733u16), ("api".to_string(), 3000u16)]),
+            "8001, dind (2375), and the gRPC port must be filtered out"
+        );
+    }
 
     #[test]
     fn pod_template_carries_operation_generation() {
@@ -1663,6 +1725,7 @@ mod tests {
                 traefik_auth_middleware_name: "test".into(),
                 traefik_auth_middleware_namespace: "test".into(),
                 traefik_entry_point: "web".into(),
+                traefik_ingress_namespaces: vec!["test".into()],
             },
             docker: DockerConfig {
                 network: "moatless".into(),

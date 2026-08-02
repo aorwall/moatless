@@ -553,6 +553,7 @@ mod tests {
                 traefik_auth_middleware_name: "test".into(),
                 traefik_auth_middleware_namespace: "test".into(),
                 traefik_entry_point: "web".into(),
+                traefik_ingress_namespaces: vec!["test".into()],
             },
             docker: DockerConfig {
                 network: "moatless".into(),

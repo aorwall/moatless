@@ -12,6 +12,11 @@ metadata:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 rules:
   {{- toYaml .Values.rbac.rules | nindent 2 }}
+  # Per-sandbox preview NetworkPolicies admit Traefik to a workspace's declared
+  # preview ports; created and torn down with the workspace (k8s/networkpolicy.rs).
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "create", "delete"]
   {{- if .Values.kubernetes.nodeArchive.enabled }}
   - apiGroups: [""]
     resources: ["configmaps"]

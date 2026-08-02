@@ -9,6 +9,7 @@ pub mod deployment;
 pub mod ingress;
 pub mod leader_election;
 pub mod naming;
+pub mod networkpolicy;
 pub mod node_archive;
 pub mod owner_ref;
 pub mod pod_builder;
