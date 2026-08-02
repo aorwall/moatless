@@ -182,6 +182,7 @@ async fn turn_start(
                         .and_then(Value::as_str)
                         .map(str::to_string),
                     model: model.clone(),
+                    branch: branch(create),
                     first_message: Some(ThreadTurn {
                         task_id,
                         text,
@@ -239,6 +240,7 @@ async fn create_thread(
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 model,
+                branch: branch(command),
                 first_message: None,
             },
         )
@@ -465,6 +467,21 @@ fn translate_model(
         })
 }
 
+/// The branch a create command carries, if it names a non-empty one.
+///
+/// The contract sends `null` for "the repository's default", which reaches
+/// creation as `None` and resolves to the default there. A blank string is the
+/// same intent and is read the same way rather than pinned as a branch named
+/// "".
+fn branch(command: &Value) -> Option<String> {
+    command
+        .get("branch")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+        .map(str::to_string)
+}
+
 fn selected_instance(command: &Value) -> Option<String> {
     command
         .get("modelSelection")
@@ -519,6 +536,7 @@ mod tests {
             task_id: String,
             workspace_id: String,
             instance: String,
+            branch: Option<String>,
             has_first_message: bool,
         },
         UpdateMeta {
@@ -577,6 +595,7 @@ mod tests {
                 task_id: thread.task_id,
                 workspace_id: thread.workspace_id,
                 instance: thread.instance,
+                branch: thread.branch,
                 has_first_message: thread.first_message.is_some(),
             });
             Ok(())
@@ -913,9 +932,34 @@ mod tests {
                 task_id: "task-1".to_string(),
                 workspace_id: "ws-1".to_string(),
                 instance: "claudeAgent".to_string(),
+                branch: None,
                 has_first_message: true,
             }]
         );
+    }
+
+    /// The branch the person picked in the composer reaches the sink, so the
+    /// Task is created against it rather than the repository's default.
+    #[tokio::test]
+    async fn a_bootstrapped_turn_carries_the_picked_branch() {
+        let mut command = turn(Some(("claudeAgent", "claude-opus-5")));
+        command["bootstrap"] = json!({
+            "createThread": {
+                "projectId": "ws-1",
+                "title": "New chat",
+                "runtimeMode": "full-access",
+                "interactionMode": "default",
+                "branch": "feat/checkout",
+                "worktreePath": null,
+                "createdAt": "2026-07-01T09:00:00.000Z"
+            }
+        });
+        let (result, calls) = run_against(command, None).await;
+        assert!(result.is_ok());
+        assert!(matches!(
+            calls.as_slice(),
+            [Call::CreateThread { branch, .. }] if branch.as_deref() == Some("feat/checkout")
+        ));
     }
 
     #[tokio::test]
@@ -941,6 +985,7 @@ mod tests {
                 task_id: "task-1".to_string(),
                 workspace_id: "ws-1".to_string(),
                 instance: "codex".to_string(),
+                branch: None,
                 has_first_message: false,
             }]
         );

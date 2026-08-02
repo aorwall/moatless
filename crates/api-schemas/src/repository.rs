@@ -223,7 +223,7 @@ pub struct RepositoryResponse {
 // BranchListResponse / BranchEntry
 // =============================================================================
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchListResponse {
@@ -231,7 +231,7 @@ pub struct BranchListResponse {
     pub default_branch: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchEntry {

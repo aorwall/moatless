@@ -21,10 +21,14 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::dao::ConversationDao;
+use super::ports::{BranchListError, RepositoryBranchSource};
+use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::sandbox::access::SandboxConnector;
 use crate::sandbox::client::classify_grpc_error;
 use crate::sandbox::error::SandboxError;
+use crate::workspace::dao::WorkspaceDao;
+use moatless_api_schemas::repository::{BranchEntry, BranchListResponse};
 use moatless_backend_core::scope::ScopeContext;
 use sandbox_proto::{GetGitDiffPreviewResponse, GetGitStatusResponse, ListGitRefsResponse};
 
@@ -344,6 +348,99 @@ fn shadows_a_local_branch(
         .is_some_and(|branch| local_names.contains(branch))
 }
 
+/// The branches of a draft thread's workspace, in the shape `vcs.listRefs`
+/// returns.
+///
+/// A draft thread has no Sandbox, so it addresses its Workspace by the project
+/// root rather than a worktree. Its branches are the primary repository's, read
+/// from the git host — the same list Moatless's own branch picker shows before
+/// a Task runs — rather than a checkout that does not exist yet. Access is
+/// gated through the scoped workspace read first, so a project root the viewer
+/// cannot be shown answers as an empty list.
+pub async fn workspace_branches(
+    workspaces: &dyn WorkspaceDao,
+    branches: &dyn RepositoryBranchSource,
+    viewer: &ScopeContext,
+    cwd: &str,
+    request: &RefRequest<'_>,
+) -> Result<Value, BranchListError> {
+    let workspace_id =
+        projection::workspace_id_from_project_root(cwd).ok_or(BranchListError::None)?;
+    if workspaces
+        .find_by_id(workspace_id, viewer)
+        .await
+        .map_err(BranchListError::Failed)?
+        .is_none()
+    {
+        return Err(BranchListError::None);
+    }
+    let Some(primary) = workspaces
+        .find_primary_repo(workspace_id)
+        .await
+        .map_err(BranchListError::Failed)?
+    else {
+        return Err(BranchListError::None);
+    };
+    let response = branches
+        .list_branches(viewer, &primary.repository_id)
+        .await?;
+    Ok(branch_ref_page(&response, request))
+}
+
+/// One page of a repository's branches, as the contract's `vcs.listRefs`
+/// result.
+///
+/// The git host lists a repository's branches in one pass and every knob the
+/// contract offers is a view over that one list — the same relationship
+/// [`ref_page`] has with a Sandbox's refs. A branch on the host has no checkout
+/// here, so none is `current` and none names a `worktreePath`; the default
+/// leads the list already, as [`list_branches`] returns it default-first.
+fn branch_ref_page(response: &BranchListResponse, request: &RefRequest<'_>) -> Value {
+    // A host branch is a plain branch, not a remote-tracking ref, so a request
+    // narrowed to remote refs has nothing to answer with.
+    let matching: Vec<&BranchEntry> = if request.ref_kind == RefKind::Remote {
+        Vec::new()
+    } else {
+        response
+            .branches
+            .iter()
+            .filter(|branch| match request.query {
+                Some(query) => branch.name.to_lowercase().contains(&query.to_lowercase()),
+                None => true,
+            })
+            .collect()
+    };
+
+    let total_count = matching.len();
+    let page: Vec<Value> = matching
+        .into_iter()
+        .skip(request.cursor)
+        .take(request.limit)
+        .map(|branch| {
+            json!({
+                "name": branch.name,
+                "isRemote": false,
+                "remoteName": Value::Null,
+                "current": false,
+                "isDefault": branch.is_default,
+                "worktreePath": Value::Null,
+            })
+        })
+        .collect();
+    let next_cursor = match request.cursor.saturating_add(page.len()) {
+        reached if reached < total_count => json!(reached),
+        _ => Value::Null,
+    };
+
+    json!({
+        "refs": page,
+        "isRepo": true,
+        "hasPrimaryRemote": true,
+        "nextCursor": next_cursor,
+        "totalCount": total_count,
+    })
+}
+
 /// The primary repository's branch state, as the contract's status snapshot.
 pub async fn status(
     conversations: &dyn ConversationDao,
@@ -655,6 +752,217 @@ mod tests {
         let remote = ref_page(&refs, &request("/moatless/tasks/t", &remote));
         assert_eq!(remote["totalCount"], 1);
         assert_eq!(remote["refs"][0]["name"], "origin/other");
+    }
+
+    fn branches(names: &[(&str, bool)]) -> BranchListResponse {
+        BranchListResponse {
+            branches: names
+                .iter()
+                .map(|(name, is_default)| BranchEntry {
+                    name: (*name).to_string(),
+                    is_default: *is_default,
+                })
+                .collect(),
+            default_branch: names
+                .iter()
+                .find(|(_, is_default)| *is_default)
+                .map(|(name, _)| (*name).to_string()),
+        }
+    }
+
+    #[test]
+    fn host_branches_keep_their_default_first_order_and_carry_no_checkout() {
+        let response = branches(&[("main", true), ("feature", false)]);
+        let page = branch_ref_page(&response, &request("/moatless/workspaces/ws-1", &json!({})));
+
+        assert_eq!(page["refs"][0]["name"], "main");
+        assert_eq!(page["refs"][0]["isDefault"], true);
+        assert_eq!(page["refs"][0]["current"], false);
+        assert_eq!(page["refs"][0]["worktreePath"], Value::Null);
+        assert_eq!(page["refs"][1]["name"], "feature");
+        assert_eq!(page["totalCount"], 2);
+        assert_eq!(page["isRepo"], true);
+        assert_eq!(page["nextCursor"], Value::Null);
+    }
+
+    #[test]
+    fn a_host_branch_query_matches_a_name_in_any_case() {
+        let response = branches(&[("main", true), ("Feature/One", false)]);
+        let payload = json!({ "query": "feat" });
+        let page = branch_ref_page(&response, &request("/moatless/workspaces/ws-1", &payload));
+
+        assert_eq!(page["totalCount"], 1);
+        assert_eq!(page["refs"][0]["name"], "Feature/One");
+    }
+
+    #[test]
+    fn a_host_branch_page_reports_where_the_next_one_starts() {
+        let response = branches(&[("main", true), ("a", false), ("b", false)]);
+        let first = ref_page_json(&response, json!({ "limit": 2 }));
+        assert_eq!(first["nextCursor"], 2);
+        assert_eq!(first["totalCount"], 3);
+
+        let second = ref_page_json(&response, json!({ "limit": 2, "cursor": 2 }));
+        assert_eq!(second["refs"].as_array().expect("an array").len(), 1);
+        assert_eq!(second["nextCursor"], Value::Null);
+    }
+
+    /// A host branch is a plain branch, so a request narrowed to remote refs is
+    /// answered with an empty page rather than every branch relabeled remote.
+    #[test]
+    fn host_branches_are_never_remote_refs() {
+        let response = branches(&[("main", true)]);
+        let payload = json!({ "refKind": "remote" });
+        let page = branch_ref_page(&response, &request("/moatless/workspaces/ws-1", &payload));
+        assert_eq!(page["totalCount"], 0);
+    }
+
+    fn ref_page_json(response: &BranchListResponse, payload: Value) -> Value {
+        branch_ref_page(response, &request("/moatless/workspaces/ws-1", &payload))
+    }
+
+    // -- workspace_branches: the draft-thread branch listing ------------------
+
+    use crate::workspace::dao::MockWorkspaceDao;
+    use crate::workspace::models::{Workspace, WorkspaceRepo};
+    use async_trait::async_trait;
+    use moatless_backend_core::scope::Scope;
+
+    /// A branch source that answers with a fixed list, or a fixed failure.
+    struct StubBranches(Result<BranchListResponse, ()>);
+
+    #[async_trait]
+    impl RepositoryBranchSource for StubBranches {
+        async fn list_branches(
+            &self,
+            _viewer: &ScopeContext,
+            _repository_id: &str,
+        ) -> Result<BranchListResponse, BranchListError> {
+            match &self.0 {
+                Ok(response) => Ok(response.clone()),
+                Err(()) => Err(BranchListError::Unavailable("connect your account".into())),
+            }
+        }
+    }
+
+    fn viewer() -> ScopeContext {
+        ScopeContext {
+            user_id: "user-1".to_string(),
+            is_admin: false,
+        }
+    }
+
+    fn workspace() -> Workspace {
+        Workspace {
+            id: "ws-1".to_string(),
+            name: "Project".to_string(),
+            description: None,
+            kind: "single".to_string(),
+            docker_image: None,
+            docker_access: None,
+            sandbox_service_account: None,
+            system_prompt: None,
+            setup_commands: None,
+            env_vars: None,
+            servers: None,
+            resources: None,
+            network_profile: None,
+            source: "manual".to_string(),
+            source_repository_id: None,
+            source_key: None,
+            source_config_path: None,
+            scope: Scope::User,
+            owner_user_id: Some("user-1".to_string()),
+            created_by: Some("user-1".to_string()),
+            deleted: Some(false),
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn placement(repository_id: &str) -> WorkspaceRepo {
+        WorkspaceRepo {
+            id: "wr-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            repository_id: repository_id.to_string(),
+            branch: None,
+            mount_name: None,
+            is_primary: true,
+            position: 0,
+            created_at: None,
+        }
+    }
+
+    /// A workspace with a mock DAO wired to return `workspace` and, when asked,
+    /// `primary`.
+    fn workspaces(found: Option<Workspace>, primary: Option<WorkspaceRepo>) -> MockWorkspaceDao {
+        let mut dao = MockWorkspaceDao::new();
+        dao.expect_find_by_id()
+            .returning(move |_, _| Ok(found.clone()));
+        dao.expect_find_primary_repo()
+            .returning(move |_| Ok(primary.clone()));
+        dao
+    }
+
+    fn project_root() -> RefRequest<'static> {
+        RefRequest::from_payload("/moatless/workspaces/ws-1", &Value::Null)
+    }
+
+    /// The picker of a draft thread reaches the primary repository's branches,
+    /// not a checkout that does not exist yet.
+    #[tokio::test]
+    async fn a_project_root_lists_the_primary_repositorys_branches() {
+        let dao = workspaces(Some(workspace()), Some(placement("repo-1")));
+        let source = StubBranches(Ok(branches(&[("main", true), ("feature", false)])));
+        let page = workspace_branches(
+            &dao,
+            &source,
+            &viewer(),
+            "/moatless/workspaces/ws-1",
+            &project_root(),
+        )
+        .await
+        .expect("a page of branches");
+
+        assert_eq!(page["refs"][0]["name"], "main");
+        assert_eq!(page["totalCount"], 2);
+        assert_eq!(page["isRepo"], true);
+    }
+
+    /// A project root the viewer cannot be shown, and a workspace with no
+    /// repository, are the same empty answer — never a disclosure that the
+    /// workspace exists.
+    #[tokio::test]
+    async fn a_workspace_the_viewer_cannot_reach_lists_no_branches() {
+        for dao in [workspaces(None, None), workspaces(Some(workspace()), None)] {
+            let source = StubBranches(Ok(branches(&[("main", true)])));
+            let result = workspace_branches(
+                &dao,
+                &source,
+                &viewer(),
+                "/moatless/workspaces/ws-1",
+                &project_root(),
+            )
+            .await;
+            assert!(matches!(result, Err(BranchListError::None)));
+        }
+    }
+
+    /// A repository whose git host would not answer surfaces its reason rather
+    /// than an empty list, so the "connect your account" prompt can land.
+    #[tokio::test]
+    async fn an_unavailable_git_host_is_surfaced_not_swallowed() {
+        let dao = workspaces(Some(workspace()), Some(placement("repo-1")));
+        let source = StubBranches(Err(()));
+        let result = workspace_branches(
+            &dao,
+            &source,
+            &viewer(),
+            "/moatless/workspaces/ws-1",
+            &project_root(),
+        )
+        .await;
+        assert!(matches!(result, Err(BranchListError::Unavailable(_))));
     }
 
     #[test]

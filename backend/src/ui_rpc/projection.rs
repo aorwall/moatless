@@ -1054,9 +1054,18 @@ pub(super) fn task_id_from_cwd(cwd: &str) -> Option<&str> {
 /// arrives as. Worth telling apart from an unrecognized path: one is a state
 /// the person can change, the other is a bug.
 pub(super) fn is_project_root(cwd: &str) -> bool {
-    cwd.strip_prefix(NOMINAL_ROOT_PREFIX)
-        .and_then(|rest| rest.strip_prefix('/'))
-        .is_some_and(|id| !id.is_empty() && !id.contains('/'))
+    workspace_id_from_project_root(cwd).is_some()
+}
+
+/// The workspace a project-root `cwd` names, if it names one.
+///
+/// The inverse of [`nominal_root`], and the reason both live here: the client
+/// only ever sends back a root path this module gave it, so listing a not-yet-
+/// created thread's branches reads the workspace id straight back out of it.
+pub(super) fn workspace_id_from_project_root(cwd: &str) -> Option<&str> {
+    cwd.strip_prefix(NOMINAL_ROOT_PREFIX)?
+        .strip_prefix('/')
+        .filter(|id| !id.is_empty() && !id.contains('/'))
 }
 
 /// The model the conversation is running, on the provider instance that runs it.
@@ -3098,5 +3107,30 @@ mod tests {
         for (event, activity) in sent.iter().zip(listed.iter()) {
             assert_eq!(event["payload"]["activity"], *activity);
         }
+    }
+
+    /// The project root the shell reports and the workspace id read back out of
+    /// it are each other's inverse, so a draft thread's branch request resolves
+    /// to the workspace it names. A worktree path is a different namespace and
+    /// is not read as a project root.
+    #[test]
+    fn a_project_root_round_trips_to_its_workspace_id() {
+        assert_eq!(
+            workspace_id_from_project_root(&nominal_root("ws-1")),
+            Some("ws-1")
+        );
+        assert!(is_project_root(&nominal_root("ws-1")));
+        assert_eq!(
+            workspace_id_from_project_root(&nominal_worktree("task-1")),
+            None
+        );
+        assert_eq!(
+            workspace_id_from_project_root("/moatless/workspaces/ws/1"),
+            None
+        );
+        assert_eq!(
+            workspace_id_from_project_root("/moatless/workspaces/"),
+            None
+        );
     }
 }

@@ -11,6 +11,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_api_schemas::agent::AgentDescriptor;
+use moatless_api_schemas::repository::BranchListResponse;
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::shared_models::AgentMode;
@@ -75,6 +76,9 @@ pub struct NewThread {
     pub title: Option<String>,
     /// A catalog model id.
     pub model: Option<String>,
+    /// The branch the person picked, if any. `None` falls back to the primary
+    /// repository's default branch when the Task is created.
+    pub branch: Option<String>,
     /// The first message, when the command carried one. Absent means the Task
     /// is created without a Sandbox.
     pub first_message: Option<ThreadTurn>,
@@ -99,6 +103,39 @@ pub struct QuestionAnswer {
 #[async_trait]
 pub trait AgentCatalogSource: Send + Sync {
     async fn list(&self, viewer: &ScopeContext) -> Vec<AgentDescriptor>;
+}
+
+/// Why a repository's branches could not be listed.
+///
+/// Split by what the branch picker is told: [`Self::None`] is answered with an
+/// empty list, the other two are surfaced or logged where the frame is built.
+#[derive(Debug)]
+pub enum BranchListError {
+    /// Nothing to list: the repository is gone, or it is not one this viewer
+    /// can be shown. Indistinguishable on purpose, so a guessed id discloses
+    /// nothing.
+    None,
+    /// The repository is there and its branches could not be fetched — no token
+    /// connected, or the git host refused. Surfaced in the picker verbatim,
+    /// which is where the "connect your account" prompt has to land.
+    Unavailable(String),
+    /// This deployment failed to answer. The cause is logged, not sent.
+    Failed(sqlx::Error),
+}
+
+/// A repository's branches, read from its git host.
+///
+/// The one read here that is not a database query: a draft thread's branch
+/// picker lists the primary repository's branches before any Sandbox exists,
+/// the same list the Moatless UI shows, which means calling out to the git host
+/// through the same path Moatless's own `GET /branches` uses.
+#[async_trait]
+pub trait RepositoryBranchSource: Send + Sync {
+    async fn list_branches(
+        &self,
+        viewer: &ScopeContext,
+        repository_id: &str,
+    ) -> Result<BranchListResponse, BranchListError>;
 }
 
 /// Everything a T3 command can ask Moatless to do.

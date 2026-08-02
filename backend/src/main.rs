@@ -480,6 +480,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             stopper: app_state.sandbox.clone(),
             preview_tabs: preview_tabs.clone(),
             agents: Arc::new(ui_rpc::backend::AppStateAgents(app_state.clone())),
+            branches: Arc::new(ui_rpc::backend::AppStateBranches(app_state.clone())),
             commands: Arc::new(ui_rpc::backend::AppStateCommands(app_state.clone())),
             model_defaults: ui_rpc::AgentModelDefaults {
                 claude_code: config.sandbox.default_model.clone(),

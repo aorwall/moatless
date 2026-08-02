@@ -249,6 +249,9 @@ struct UiRpcState {
     /// The agent catalog, as this deployment can actually run it. Read on every
     /// config request because credentials come and go without a restart.
     agents: Arc<dyn ports::AgentCatalogSource>,
+    /// A repository's branches, read from its git host, for a draft thread's
+    /// branch picker before any Sandbox exists.
+    branches: Arc<dyn ports::RepositoryBranchSource>,
     /// The one thing this module does that is not a read.
     commands: Arc<dyn ports::ThreadCommandSink>,
     /// In-process fan-out for terminal metadata and events observed through
@@ -286,6 +289,7 @@ pub async fn router_from_env(
         preview_tabs,
         model_defaults,
         agents,
+        branches,
         commands,
     } = dependencies;
     let environment = conversations.listing_head().await?.identity;
@@ -326,6 +330,7 @@ pub async fn router_from_env(
         },
         model_defaults: Arc::new(model_defaults),
         agents,
+        branches,
         commands,
         terminal: terminal::TerminalHub::default(),
     })))
@@ -362,6 +367,9 @@ pub struct UiRpcDependencies {
     pub model_defaults: AgentModelDefaults,
     /// Which agents this viewer can run, and with which models.
     pub agents: Arc<dyn ports::AgentCatalogSource>,
+    /// A repository's branches, read from its git host, for a draft thread's
+    /// branch picker.
+    pub branches: Arc<dyn ports::RepositoryBranchSource>,
     /// Carries out the commands the T3 client dispatches.
     pub commands: Arc<dyn ports::ThreadCommandSink>,
 }
@@ -1541,11 +1549,30 @@ impl ProtocolSession {
                 let Some(cwd) = workspace_cwd(&payload) else {
                     return vec![success_exit(&id, review::no_refs())];
                 };
+                let request = review::RefRequest::from_payload(&cwd, &payload);
+                // A draft thread has no Sandbox yet and addresses its Workspace
+                // by the project root. Its branches are the primary
+                // repository's, read from the git host — the same list the
+                // Moatless branch picker shows before a Task runs.
+                if projection::is_project_root(&cwd) {
+                    return match review::workspace_branches(
+                        state.workspaces.as_ref(),
+                        state.branches.as_ref(),
+                        &viewer_scope(identity),
+                        &cwd,
+                        &request,
+                    )
+                    .await
+                    {
+                        Ok(refs) => vec![success_exit(&id, refs)],
+                        Err(error) => vec![branch_list_exit(&id, &cwd, error, identity)],
+                    };
+                }
                 match review::list_refs(
                     state.conversations.as_ref(),
                     state.sandboxes.as_ref(),
                     &viewer_scope(identity),
-                    &review::RefRequest::from_payload(&cwd, &payload),
+                    &request,
                 )
                 .await
                 {
@@ -1577,6 +1604,18 @@ impl ProtocolSession {
                 {
                     Ok(status) => vec![success_exit(&id, status)],
                     Err(error) => vec![review_failure_exit(&id, &tag, &cwd, &error, identity)],
+                }
+            }
+            "vcs.switchRef" => {
+                // A draft thread has no checkout to switch: its branch is
+                // recorded on the draft and applied when the Task is created,
+                // so the switch is answered as done, echoing the ref the
+                // client should store. A thread that already has a Sandbox
+                // cannot change branch — that is fixed at creation — so the
+                // switch there falls through to unsupported.
+                match branch_switch_result(&payload) {
+                    Some(result) => vec![success_exit(&id, result)],
+                    None => vec![unsupported_exit(&id, &tag)],
                 }
             }
             "review.getDiffPreview" => {
@@ -2802,6 +2841,61 @@ fn review_failure_exit(
     )
 }
 
+/// Answer a project-root `vcs.listRefs` whose branch listing did not produce a
+/// page.
+///
+/// A workspace with no repository the viewer can be shown answers with an empty
+/// list, the same as a conversation with no Sandbox. The other outcomes are the
+/// branch picker's own: an unavailable git host — no token, a host that refused
+/// — is surfaced verbatim so the "connect your account" prompt lands, and a
+/// database failure is logged and reported as a generic git error, since
+/// `GitCommandError` is the shape this method declares.
+fn branch_list_exit(
+    request_id: &RequestId,
+    cwd: &str,
+    error: ports::BranchListError,
+    identity: &AuthIdentity,
+) -> Value {
+    let detail = match error {
+        ports::BranchListError::None => return success_exit(request_id, review::no_refs()),
+        ports::BranchListError::Unavailable(message) => message,
+        ports::BranchListError::Failed(cause) => {
+            error!(%cause, user_id = %identity.user_id, "T3 UI branch listing failed");
+            "The branches could not be listed.".to_string()
+        }
+    };
+    typed_failure_exit(
+        request_id,
+        json!({
+            "_tag": "GitCommandError",
+            "operation": "vcs.listRefs",
+            // Nothing here shells out to git: the branches come from the git
+            // host's API, not a checkout, so this names the read rather than a
+            // shell invocation that does not exist.
+            "command": "repository.ListBranches",
+            "cwd": cwd,
+            "detail": detail,
+        }),
+    )
+}
+
+/// The result of switching a draft thread to a branch, if this is one to
+/// answer.
+///
+/// The switch is a no-op for a draft: there is no checkout yet, so the ref is
+/// echoed back for the client to record on the draft and send at creation.
+/// `None` — a switch on a thread that already has a Sandbox, or one with no
+/// addressable `cwd` — is left for the caller to refuse, because a Task's
+/// branch is fixed once its checkout exists.
+fn branch_switch_result(payload: &Value) -> Option<Value> {
+    let cwd = workspace_cwd(payload)?;
+    if !projection::is_project_root(&cwd) {
+        return None;
+    }
+    let ref_name = payload.get("refName").and_then(Value::as_str)?.trim();
+    (!ref_name.is_empty()).then(|| json!({ "refName": ref_name }))
+}
+
 /// The client is told the listing could not be built; the cause is logged once
 /// here rather than shipped to the browser.
 fn shell_failure_exit(
@@ -3076,6 +3170,23 @@ mod tests {
         }
     }
 
+    /// No test in this file dispatches a project-root `vcs.listRefs`, so the
+    /// git-host branch listing is never reached here; it is asserted in
+    /// `review.rs` against a mock workspace DAO and branch source.
+    struct UnreachableBranches;
+
+    #[async_trait]
+    impl ports::RepositoryBranchSource for UnreachableBranches {
+        async fn list_branches(
+            &self,
+            _viewer: &ScopeContext,
+            _repository_id: &str,
+        ) -> Result<moatless_api_schemas::repository::BranchListResponse, ports::BranchListError>
+        {
+            unreachable!("no test in this file lists a project's branches")
+        }
+    }
+
     /// Nothing in this file dispatches a command that reaches a write; the
     /// command table itself is asserted in `commands.rs` against a recording
     /// sink.
@@ -3209,6 +3320,7 @@ mod tests {
                 tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
             },
             agents: Arc::new(StubAgents),
+            branches: Arc::new(UnreachableBranches),
             commands: Arc::new(UnreachableCommands),
             model_defaults: Arc::new(AgentModelDefaults::default()),
             terminal: terminal::TerminalHub::default(),
@@ -3412,6 +3524,54 @@ mod tests {
                 "totalCount": 0
             })
         );
+    }
+
+    /// Picking a branch for a draft thread is answered as done, echoing the
+    /// ref, so the client records it and sends it when the Task is created —
+    /// there is no checkout to switch yet.
+    #[tokio::test]
+    async fn switching_a_draft_threads_branch_echoes_the_ref() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request(
+                    "97",
+                    "vcs.switchRef",
+                    json!({ "cwd": "/moatless/workspaces/ws-a", "refName": "feature" }),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        assert_eq!(
+            output.frames[0]["exit"]["value"],
+            json!({ "refName": "feature" })
+        );
+    }
+
+    /// A thread that already has a Sandbox cannot change branch — that is fixed
+    /// at creation — so a switch addressed to a worktree is refused rather than
+    /// silently claimed as done.
+    #[tokio::test]
+    async fn switching_an_existing_threads_branch_is_unsupported() {
+        let mut session = session();
+        let output = session
+            .handle_json(
+                &request(
+                    "96",
+                    "vcs.switchRef",
+                    json!({ "cwd": "/moatless/tasks/task-a", "refName": "feature" }),
+                ),
+                &state(),
+                &viewer(),
+            )
+            .await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+        let cause = &output.frames[0]["exit"]["cause"][0];
+        assert_eq!(cause["error"]["_tag"], "UnsupportedMethodError");
     }
 
     /// The diff panel is a surface the person opened on purpose, so a

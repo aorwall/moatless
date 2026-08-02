@@ -12,11 +12,13 @@ use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_backend_core::scope::ScopeContext;
 
 use super::ports::{
-    AgentCatalogSource, CommandRefusal, NewThread, QuestionAnswer, ThreadCommandSink, ThreadMeta,
-    ThreadTurn,
+    AgentCatalogSource, BranchListError, CommandRefusal, NewThread, QuestionAnswer,
+    RepositoryBranchSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
 };
 use crate::message::error::MessageError;
 use crate::message::service as message_service;
+use crate::repository::error::RepositoryError;
+use crate::repository::handlers::list_branches;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::error::TaskError;
@@ -29,6 +31,37 @@ pub struct AppStateAgents(pub AppState);
 impl AgentCatalogSource for AppStateAgents {
     async fn list(&self, viewer: &ScopeContext) -> Vec<AgentDescriptor> {
         crate::agent::service::list_agents(&self.0, viewer).await
+    }
+}
+
+pub struct AppStateBranches(pub AppState);
+
+#[async_trait]
+impl RepositoryBranchSource for AppStateBranches {
+    async fn list_branches(
+        &self,
+        viewer: &ScopeContext,
+        repository_id: &str,
+    ) -> Result<moatless_api_schemas::repository::BranchListResponse, BranchListError> {
+        list_branches(&self.0, viewer, repository_id)
+            .await
+            .map_err(branch_list_error)
+    }
+}
+
+/// A repository read failure, as the branch picker is told it.
+///
+/// A repository the viewer cannot read answers `NotFound`, the same as one that
+/// is gone — neither is a branch list to show. A missing token or a git host
+/// that refused is surfaced verbatim; a database failure is kept apart so it is
+/// logged rather than sent.
+fn branch_list_error(error: RepositoryError) -> BranchListError {
+    match error {
+        RepositoryError::NotFound(_) | RepositoryError::Forbidden(_) => BranchListError::None,
+        RepositoryError::BadRequest(message)
+        | RepositoryError::ProviderError(message)
+        | RepositoryError::Conflict(message) => BranchListError::Unavailable(message),
+        RepositoryError::Db(error) => BranchListError::Failed(error),
     }
 }
 
@@ -143,7 +176,7 @@ impl ThreadCommandSink for AppStateCommands {
             agent_type: Some(agent_type),
             name: thread.title,
             description: None,
-            branch: None,
+            branch: thread.branch,
             message: thread.first_message.as_ref().map(|m| m.text.clone()),
             model: thread.model,
             agent_mode: thread

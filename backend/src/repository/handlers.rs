@@ -14,7 +14,7 @@ use crate::extractors::AuthUser;
 use crate::loops::sync::sync_repo_loops;
 use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
-use moatless_backend_core::scope::Scope;
+use moatless_backend_core::scope::{Scope, ScopeContext};
 
 use super::access::{access_error_for, parse_github_owner_repo, resolve_repository_github_token};
 use super::config_reader::{
@@ -564,11 +564,28 @@ pub async fn get_branches(
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<BranchListResponse>, RepositoryError> {
+    Ok(Json(
+        list_branches(&state, &auth.scope_context(), &repository_id).await?,
+    ))
+}
+
+/// A repository's branches, read from its git host.
+///
+/// The HTTP `GET /branches` handler and the T3 branch picker both list a
+/// repository's branches before any Sandbox exists, so the token resolution and
+/// provider dispatch live here rather than in the handler. Scope is enforced by
+/// the repository lookup: a `repository_id` the viewer cannot read answers
+/// `NotFound`, the same as one that does not exist.
+pub(crate) async fn list_branches(
+    state: &AppState,
+    ctx: &ScopeContext,
+    repository_id: &str,
+) -> Result<BranchListResponse, RepositoryError> {
     let repo = state
         .repositories
-        .find_by_id(&repository_id, &auth.scope_context())
+        .find_by_id(repository_id, ctx)
         .await?
-        .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
+        .ok_or_else(|| RepositoryError::NotFound(repository_id.to_string()))?;
 
     if repo.default_branch.is_none() {
         info!(repository_id = %repository_id, "No default branch set, fetching from provider");
@@ -585,7 +602,7 @@ pub async fn get_branches(
     // Resolve a token for the repository's persisted scope. User-scoped
     // repositories always use their owner, never a viewing admin.
     let access_token = if provider == RepositoryProvider::Github {
-        resolve_repository_github_token(&state, &repo, remote_url)
+        resolve_repository_github_token(state, &repo, remote_url)
             .await?
             .ok_or_else(|| {
                 RepositoryError::BadRequest(
@@ -593,7 +610,7 @@ pub async fn get_branches(
                 )
             })?
     } else {
-        state.provider_tokens.find_provider_token(&auth.user_id.to_string(), provider_str)
+        state.provider_tokens.find_provider_token(&ctx.user_id, provider_str)
             .await
             .map_err(RepositoryError::Db)?
             .ok_or_else(|| {
@@ -611,7 +628,7 @@ pub async fn get_branches(
         RepositoryProvider::Gitness => {
             let full_token = state
                 .provider_tokens
-                .find_provider_token_full(&auth.user_id.to_string(), "gitness")
+                .find_provider_token_full(&ctx.user_id, "gitness")
                 .await
                 .map_err(RepositoryError::Db)?;
             let base_url = full_token
@@ -641,11 +658,7 @@ pub async fn get_branches(
                 default_branch: Some(Some(branch.clone())),
                 ..Default::default()
             };
-            if let Err(e) = state
-                .repositories
-                .update(&repository_id, &patch, &auth.scope_context())
-                .await
-            {
+            if let Err(e) = state.repositories.update(repository_id, &patch, ctx).await {
                 warn!(repository_id = %repository_id, error = %e, "Failed to persist default branch");
             }
         }
@@ -671,10 +684,10 @@ pub async fn get_branches(
         }
     });
 
-    Ok(Json(BranchListResponse {
+    Ok(BranchListResponse {
         branches: entries,
         default_branch,
-    }))
+    })
 }
 
 // =============================================================================
