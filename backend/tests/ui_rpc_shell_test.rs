@@ -210,6 +210,9 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         // reads only; what they do is asserted in
         // `backend/tests/ui_rpc_command_test.rs`.
         agents: Arc::new(ui_rpc_backend::AppStateAgents(test_app_state(pool.clone()))),
+        branches: Arc::new(ui_rpc_backend::AppStateBranches(test_app_state(
+            pool.clone(),
+        ))),
         commands: Arc::new(ui_rpc_backend::AppStateCommands(test_app_state(
             pool.clone(),
         ))),

@@ -256,7 +256,18 @@ impl ThreadCommandSink for AppStateCommands {
             .tasks
             .settle_task(&viewer.user_id, task_id, chrono::Utc::now())
             .await
-            .map_err(|e| Self::state_refusal(task_id, e))
+            .map_err(|e| Self::state_refusal(task_id, e))?;
+        // Settling says nobody is waiting on this thread any more, so the
+        // sandbox it was holding is released rather than left for the idle
+        // reaper. Best-effort: the settlement is already durable, and a viewer
+        // who follows a thread they may not control has no sandbox to stop —
+        // neither case is a reason to report the settle as refused. New
+        // activity clears the settlement (`clear_settled_for_all_followers`)
+        // and the next turn starts the sandbox again.
+        if let Err(error) = task_service::stop_task(&self.0, viewer, task_id).await {
+            tracing::warn!(%error, task_id, "Sandbox stop on settle failed");
+        }
+        Ok(())
     }
 
     async fn unsettle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {

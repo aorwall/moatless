@@ -153,6 +153,16 @@ async fn follow_state(
     .unwrap()
 }
 
+/// The Sandbox intent the lifecycle persisted, or `None` while no operation has
+/// ever asked for one.
+async fn sandbox_intent(pool: &PgPool, task_id: &str) -> Option<(String, Option<String>)> {
+    sqlx::query_as("SELECT desired_state, stop_reason FROM sandboxes WHERE task_id = $1")
+        .bind(task_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap()
+}
+
 async fn listing_change_count(pool: &PgPool, task_id: &str) -> i64 {
     sqlx::query_scalar("SELECT COUNT(*) FROM task_listing_changes WHERE task_id = $1")
         .bind(task_id)
@@ -179,6 +189,7 @@ fn turn(task_id: &str, uuid: &str, text: &str) -> ThreadTurn {
         message_uuid: uuid.into(),
         model: None,
         agent_mode: None,
+        effort: None,
     }
 }
 
@@ -430,6 +441,7 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
                 workspace_id: WS.into(),
                 instance: "claudeAgent".into(),
                 title: Some("From T3".into()),
+                branch: None,
                 model: None,
                 first_message: Some(turn(task_id, message_id, "get started")),
             },
@@ -472,6 +484,7 @@ async fn a_thread_created_with_no_message_gets_no_sandbox(pool: PgPool) {
                 workspace_id: WS.into(),
                 instance: "claudeAgent".into(),
                 title: None,
+                branch: None,
                 model: None,
                 first_message: None,
             },
@@ -508,6 +521,7 @@ async fn sending_into_an_unprovisioned_thread_provisions_it(pool: PgPool) {
             workspace_id: WS.into(),
             instance: "claudeAgent".into(),
             title: None,
+            branch: None,
             model: None,
             first_message: None,
         },
@@ -641,6 +655,47 @@ async fn settling_as_one_follower_leaves_another_followers_row_untouched(pool: P
         follow_state(&pool, USER_2, "t-settle-one").await,
         (None, None, None, None)
     );
+}
+
+#[sqlx::test]
+async fn settling_stops_the_sandbox(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-settle-stops", USER_1).await;
+    follow(&pool, USER_1, "t-settle-stops").await;
+
+    sink(&pool)
+        .settle(&viewer(USER_1), "t-settle-stops")
+        .await
+        .expect("settle is accepted");
+
+    assert_eq!(
+        sandbox_intent(&pool, "t-settle-stops").await,
+        Some(("stopped".to_string(), Some("user".to_string())))
+    );
+}
+
+/// The settlement is the durable part. A follower who may not control the Task
+/// has no Sandbox to stop, and that is not a reason to report the settle — which
+/// already landed — as refused.
+#[sqlx::test]
+async fn settling_a_thread_the_follower_cannot_control_still_settles(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_public_task(&pool, "t-settle-unowned", USER_1).await;
+    follow(&pool, USER_2, "t-settle-unowned").await;
+
+    sink(&pool)
+        .settle(&viewer(USER_2), "t-settle-unowned")
+        .await
+        .expect("settle is accepted");
+
+    assert_eq!(
+        follow_state(&pool, USER_2, "t-settle-unowned")
+            .await
+            .0
+            .as_deref(),
+        Some("settled")
+    );
+    assert_eq!(sandbox_intent(&pool, "t-settle-unowned").await, None);
 }
 
 #[sqlx::test]

@@ -524,6 +524,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         run_metrics: None,
         agent_mode: None,
         model: None,
+        effort: None,
         resume: true,
         sent_at: None,
         created_at: None,
