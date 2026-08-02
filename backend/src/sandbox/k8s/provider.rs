@@ -123,19 +123,18 @@ impl K8sSandboxAdapter {
                     })?;
                 let require_node =
                     node_archive::deployment_requires_retained_node(&existing_deployment);
-                let retained_node =
-                    if self.config.sandbox.node_archive_enabled
-                        && node_archive::deployment_uses_node_archives(&existing_deployment)
-                    {
-                        node_archive::record_current_pod_nodes(&self.k8s, task_id)
-                            .await
-                            .map_err(SandboxError::Runtime)?;
-                        node_archive::retained_node(&self.k8s, task_id, require_node)
-                            .await
-                            .map_err(SandboxError::Runtime)?
-                    } else {
-                        None
-                    };
+                let uses_node_archives = self.config.sandbox.node_archive_enabled
+                    && node_archive::deployment_uses_node_archives(&existing_deployment);
+                let retained_node = if uses_node_archives {
+                    node_archive::record_current_pod_nodes(&self.k8s, task_id)
+                        .await
+                        .map_err(SandboxError::Runtime)?;
+                    node_archive::retained_node(&self.k8s, task_id, require_node)
+                        .await
+                        .map_err(SandboxError::Runtime)?
+                } else {
+                    None
+                };
                 let expected = pod_builder::resolve_sandbox_image(&self.config, plan);
                 if current_image.as_deref() == Some(expected.as_str()) {
                     // Tag unchanged — fast path: scale back up.
@@ -149,10 +148,15 @@ impl K8sSandboxAdapter {
                     // A timeout here surfaces as an environment error rather than
                     // scheduling a new pod straight into the stall.
                     deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
-                    if let Some(node_name) = retained_node.as_deref() {
-                        deployment::pin_to_node(&self.k8s, task_id, node_name, require_node)
-                            .await
-                            .map_err(SandboxError::KubeError)?;
+                    if uses_node_archives {
+                        deployment::set_node_placement(
+                            &self.k8s,
+                            task_id,
+                            retained_node.as_deref(),
+                            require_node,
+                        )
+                        .await
+                        .map_err(SandboxError::KubeError)?;
                     }
                     deployment::stamp_operation_generation(&self.k8s, task_id, ctx)
                         .await
@@ -406,13 +410,16 @@ impl SandboxRuntime for K8sSandboxAdapter {
             let require_node = existing_deployment
                 .as_ref()
                 .is_some_and(node_archive::deployment_requires_retained_node);
-            if let Some(node_name) =
-                node_archive::retained_node(&self.k8s, task_id, require_node).await?
-            {
-                deployment::pin_to_node(&self.k8s, task_id, &node_name, require_node)
-                    .await
-                    .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
-            }
+            let retained_node =
+                node_archive::retained_node(&self.k8s, task_id, require_node).await?;
+            deployment::set_node_placement(
+                &self.k8s,
+                task_id,
+                retained_node.as_deref(),
+                require_node,
+            )
+            .await
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
         }
 
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),

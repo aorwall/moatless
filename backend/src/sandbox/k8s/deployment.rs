@@ -222,21 +222,27 @@ pub async fn stamp_operation_generation(
     Ok(())
 }
 
-/// Pin a stopped/restarting node-backed sandbox to the node that owns its
-/// retained hostPath data. The merge patch preserves the rest of the pod
-/// template.
-pub async fn pin_to_node(
+/// Place a stopped/restarting node-backed sandbox on the node that owns its
+/// retained hostPath data, or clear any prior placement when `node_name` is
+/// `None`. The merge patch preserves the rest of the pod template.
+///
+/// Clearing is load-bearing: a Deployment keeps the placement an earlier start
+/// wrote, so once its recorded nodes are gone the sandbox stays bound to a
+/// destroyed node and never schedules again.
+pub async fn set_node_placement(
     k8s: &K8sClient,
     task_id: &str,
-    node_name: &str,
+    node_name: Option<&str>,
     required: bool,
 ) -> Result<(), kube::Error> {
     let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let deployment_name = generate_deployment_name(task_id);
-    // `null` clears the opposite affinity mode and any `nodeName` left by an
-    // earlier revision, so a merge patch cannot stack two placements.
-    let affinity = pod_builder::retained_node_affinity(node_name, required);
-    let node_affinity = affinity.node_affinity.unwrap_or_default();
+    // `null` clears `nodeName` and whichever affinity mode is unused, so a merge
+    // patch can neither stack two placements nor leave a stale one behind.
+    let node_affinity = node_name
+        .map(|node_name| pod_builder::retained_node_affinity(node_name, required))
+        .and_then(|affinity| affinity.node_affinity)
+        .unwrap_or_default();
     let patch = serde_json::json!({
         "spec": {
             "template": {
