@@ -15,6 +15,11 @@
 //! call, so build output past the cap displaces source that never gets shown.
 //! A Sandbox from before that flag existed ignores it and answers as it always
 //! did.
+//!
+//! **A read is addressed from the workspace root, and a mention is not.** The
+//! root holds a checkout per repository, so a path an agent writes into a
+//! transcript is one directory short of a file here. Reading resolves that;
+//! writing deliberately does not — see [`nested_in_a_checkout`].
 
 use serde_json::{Value, json};
 use tracing::warn;
@@ -193,6 +198,13 @@ pub async fn search_entries(
 /// [`workspace::addressed_conversation`] above, which is what stops a caller
 /// addressing a *different* conversation's Sandbox at all — a Sandbox holds one
 /// conversation's checkout and nothing else.
+///
+/// It is also why the resolution [`read_file`] does is not done here. A write
+/// creates what is missing, so "no file at this path" is the normal case and
+/// not a miss to recover from: applying the same rule would turn saving a new
+/// `docs/notes.md` at the root into overwriting a checkout's existing one. A
+/// client that opened a file this module resolved writes back to the path the
+/// read answered with.
 pub async fn write_file(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
@@ -222,6 +234,12 @@ pub async fn write_file(
 
 /// One file's contents, in the shape the contract's `projects.readFile`
 /// returns.
+///
+/// **The path that comes back is the path that was read**, which is not always
+/// the path that was asked for — see [`nested_in_a_checkout`]. The contract
+/// carries `relativePath` in the result for exactly this reason, and a client
+/// that keeps addressing the file it opened by the path it typed will write its
+/// edits somewhere else.
 pub async fn read_file(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
@@ -230,40 +248,100 @@ pub async fn read_file(
     relative_path: &str,
 ) -> Result<Value, WorkspaceAccessError> {
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
-    let file = sandboxes
+    let client = sandboxes
         .sandbox_client(&task_id)
         .await
-        .map_err(WorkspaceAccessError::NotRunning)?
-        // Without the git overlay: the contract's result carries contents and
-        // nothing else, so asking for a diff would only cost the Sandbox a
-        // `git` invocation per opened file.
-        .read_file(relative_path, false)
-        .await
-        .map_err(|status| {
-            WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
-                status,
-                "read_file",
-            ))
-        })?;
+        .map_err(WorkspaceAccessError::NotRunning)?;
+
+    fn read_failed(status: tonic::Status) -> WorkspaceAccessError {
+        WorkspaceAccessError::Sandbox(crate::sandbox::client::classify_grpc_error(
+            status, "read_file",
+        ))
+    }
+
+    // Without the git overlay: the contract's result carries contents and
+    // nothing else, so asking for a diff would only cost the Sandbox a `git`
+    // invocation per opened file.
+    let (path, file) = match client.read_file(relative_path, false).await {
+        Err(status) if status.code() == tonic::Code::NotFound => {
+            match nested_in_a_checkout(&client, relative_path).await {
+                Some(nested) => {
+                    let file = client
+                        .read_file(&nested, false)
+                        .await
+                        .map_err(read_failed)?;
+                    (nested, file)
+                }
+                // Nothing in the workspace is called this, so the miss the
+                // Sandbox reported is the answer.
+                None => return Err(read_failed(status)),
+            }
+        }
+        outcome => (relative_path.to_string(), outcome.map_err(read_failed)?),
+    };
 
     if file.is_binary.unwrap_or(false) {
         // The Sandbox base64-encodes what it cannot decode as UTF-8. Returning
         // that as `contents` would put the encoding in the editor as if it were
         // the file, so this is refused in the contract's own terms instead.
         return Err(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
-            format!("{relative_path} is a binary file"),
+            format!("{path} is a binary file"),
         )));
     }
 
     let byte_length = file.content.len();
     let contents = truncate_on_char_boundary(&file.content, MAX_FILE_BYTES);
     Ok(json!({
-        "relativePath": relative_path,
+        "relativePath": path,
         "contents": contents,
         // The file's size, not the excerpt's — the client shows it as the file's.
         "byteLength": byte_length,
         "truncated": contents.len() < byte_length
     }))
+}
+
+/// The workspace path a repository-relative path names, when the workspace root
+/// has no such file.
+///
+/// A Moatless workspace is a *set* of checkouts under one root, and the agent
+/// works inside one of them — so the paths it writes into a transcript,
+/// `backend/migrations/0125.sql`, are relative to its repository and not to the
+/// root this module presents. The client has no way to know that: the `cwd` it
+/// resolves a mention against is the workspace root, so what arrives here is
+/// the path the agent wrote, one directory short of a file.
+///
+/// Matching is on whole segments against the same listing [`list_entries`]
+/// reads, so this can only ever name a file the person could already see in
+/// their tree, and it costs a walk only on the miss. The shallowest match wins —
+/// the checkout nearest the root — and equal-length ones break by name, so the
+/// same mention always opens the same file rather than depending on walk order.
+async fn nested_in_a_checkout(
+    client: &crate::sandbox::client::SandboxClient,
+    relative_path: &str,
+) -> Option<String> {
+    let needle = relative_path.trim_start_matches("./").trim_end_matches('/');
+    if needle.is_empty() {
+        return None;
+    }
+    let listing = client
+        .list_files(".", true, true)
+        .await
+        .inspect_err(|error| {
+            warn!(%error, "Could not list the workspace to resolve a repository-relative path");
+        })
+        .ok()?;
+    nested_match(&listing, needle).map(str::to_string)
+}
+
+/// The one entry of `listing` that `needle` names from inside a checkout.
+fn nested_match<'a>(listing: &'a [String], needle: &str) -> Option<&'a str> {
+    let suffix = format!("/{needle}");
+    listing
+        .iter()
+        // Directories carry a trailing slash and are not files to open.
+        .filter(|path| !path.ends_with('/') && path.ends_with(&suffix))
+        .map(String::as_str)
+        .min_by_key(|path| (path.len(), *path))
 }
 
 /// The longest prefix of `contents` within `max_bytes` that is still text.
@@ -298,6 +376,60 @@ mod tests {
         );
         assert_eq!(entry("/"), None, "a bare slash carries no path");
         assert_eq!(entry(""), None);
+    }
+
+    /// The mention an agent writes is relative to the checkout it works in, so
+    /// the path that arrives is one directory short of the file.
+    #[test]
+    fn a_path_relative_to_a_checkout_names_the_file_inside_it() {
+        let listing = [
+            "moatless/".to_string(),
+            "moatless/backend/".to_string(),
+            "moatless/backend/migrations/0125_tasks_closed_at.sql".to_string(),
+            "t3code/package.json".to_string(),
+        ];
+        assert_eq!(
+            nested_match(&listing, "backend/migrations/0125_tasks_closed_at.sql"),
+            Some("moatless/backend/migrations/0125_tasks_closed_at.sql"),
+        );
+    }
+
+    /// Segment boundaries, not substrings: `grations/0125.sql` names nothing,
+    /// and neither does a directory that happens to end the same way.
+    #[test]
+    fn a_match_is_on_whole_segments_and_only_on_files() {
+        let listing = [
+            "moatless/backend/migrations/0125.sql".to_string(),
+            "moatless/backend/migrations/".to_string(),
+        ];
+        assert_eq!(nested_match(&listing, "grations/0125.sql"), None);
+        assert_eq!(nested_match(&listing, "backend/migrations"), None);
+        assert_eq!(
+            nested_match(&listing, "migrations/0125.sql"),
+            Some("moatless/backend/migrations/0125.sql"),
+        );
+    }
+
+    /// Two checkouts of the same shape are the ordinary case in a multi-repo
+    /// workspace, and a mention that fits both has to keep opening the same one
+    /// however the walk happened to be ordered.
+    #[test]
+    fn the_shallowest_match_wins_and_ties_break_by_name() {
+        let listing = [
+            "zzz/src/main.rs".to_string(),
+            "vendored/deep/tree/src/main.rs".to_string(),
+            "api/src/main.rs".to_string(),
+        ];
+        assert_eq!(nested_match(&listing, "src/main.rs"), Some("api/src/main.rs"));
+    }
+
+    /// The workspace root's own files are found by the read itself, so this is
+    /// only ever asked about paths that are not there.
+    #[test]
+    fn a_path_that_is_nowhere_in_the_workspace_resolves_to_nothing() {
+        let listing = ["moatless/backend/migrations/0125.sql".to_string()];
+        assert_eq!(nested_match(&listing, "backend/migrations/9999.sql"), None);
+        assert_eq!(nested_match(&listing, ""), None);
     }
 
     #[test]
@@ -441,5 +573,59 @@ mod tests {
         assert!(file["contents"].is_string());
         assert!(file["byteLength"].as_u64().is_some());
         println!("read {path}: {} bytes", file["byteLength"]);
+    }
+
+    /// The mention case, against a real workspace: a path relative to a
+    /// checkout, which the workspace root has no file at, opens the file inside
+    /// the checkout and answers with where it was found.
+    ///
+    /// Ignored for the same reason as the test above, and run the same way.
+    #[tokio::test]
+    #[ignore = "needs a Sandbox at T3_UI_RPC_TEST_SANDBOX_GRPC"]
+    async fn a_real_sandbox_resolves_a_path_relative_to_one_of_its_checkouts() {
+        let url = std::env::var("T3_UI_RPC_TEST_SANDBOX_GRPC")
+            .expect("point T3_UI_RPC_TEST_SANDBOX_GRPC at a Sandbox's gRPC endpoint");
+        let mut conversations = crate::ui_rpc::dao::MockConversationDao::new();
+        conversations
+            .expect_list_followed_by_ids()
+            .returning(|_, ids| Ok(vec![running(&ids[0])]));
+        let viewer = ScopeContext {
+            user_id: "viewer".into(),
+            is_admin: false,
+        };
+        let cwd = "/moatless/tasks/probe";
+
+        let listing = list_entries(&conversations, &SandboxAt(url.clone()), &viewer, cwd)
+            .await
+            .expect("the sandbox answered");
+        let entries = listing["entries"].as_array().expect("an entries array");
+        let files: Vec<String> = entries
+            .iter()
+            .filter(|entry| entry["kind"] == "file")
+            .filter_map(|entry| Some(entry["path"].as_str()?.to_string()))
+            .collect();
+        // A file inside a checkout, named the way an agent working in that
+        // checkout would name it: without the checkout's own directory. It has
+        // to be one the root itself has no file at, and one no other checkout
+        // answers to first — otherwise the mention is genuinely ambiguous and
+        // the resolution rule, not the sandbox, is what is under test.
+        let (path, nested) = files
+            .iter()
+            .filter_map(|path| Some((path.as_str(), path.split_once('/')?.1)))
+            .find(|(path, nested)| {
+                !files.iter().any(|entry| entry == nested)
+                    && nested_match(&files, nested) == Some(*path)
+            })
+            .expect("a workspace with a file inside a checkout");
+
+        println!("asking for {nested}, which is really {path}");
+        let file = read_file(&conversations, &SandboxAt(url), &viewer, cwd, nested)
+            .await
+            .expect("the sandbox answered");
+        assert_eq!(
+            file["relativePath"], path,
+            "the read answers with the path it read, not the one it was asked for"
+        );
+        assert!(file["contents"].is_string());
     }
 }
