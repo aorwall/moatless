@@ -38,6 +38,7 @@ pub mod preview_tabs;
 mod projection;
 mod providers;
 mod review;
+mod sandbox;
 mod servers;
 mod terminal;
 pub mod workspace;
@@ -76,6 +77,7 @@ use crate::task_listing::{self, EnvironmentIdentity, Resume};
 use crate::ui_rpc::dao::ConversationDao;
 use crate::ui_rpc::preview::{PreviewError, PreviewState};
 use crate::ui_rpc::preview_tabs::PreviewTabDao;
+use crate::ui_rpc::sandbox::{SandboxRpcError, SandboxState};
 use crate::ui_rpc::servers::{ServersError, ServersState};
 use crate::ui_rpc::workspace::WorkspaceAccessError;
 use crate::workspace::dao::WorkspaceDao;
@@ -242,6 +244,8 @@ struct UiRpcState {
     /// What a Task's servers are doing. Distinct from `sandboxes`, which
     /// reaches *into* a Sandbox; this only observes one from outside.
     servers: ServersState,
+    /// What a Task's Sandbox lifecycle is doing, and lifecycle commands.
+    sandbox: SandboxState,
     /// The browser tabs open on a Task, and the fan-out that tells every
     /// replica when one changes.
     preview: PreviewState,
@@ -318,6 +322,11 @@ pub async fn router_from_env(
         conversations,
         sandboxes,
         servers: ServersState {
+            observer: observer.clone(),
+            tasks: tasks.clone(),
+            intent: intent.clone(),
+        },
+        sandbox: SandboxState {
             observer,
             tasks: tasks.clone(),
             intent,
@@ -354,8 +363,9 @@ pub struct UiRpcDependencies {
     pub sandboxes: Arc<dyn SandboxConnector>,
     /// Reports what a Task's servers are doing, without reaching inside.
     pub observer: Arc<dyn SandboxObserver>,
-    /// Authorizes every `servers.*` and `preview.*` call: a scoped read that
-    /// finds nothing is the same answer as a Task that does not exist.
+    /// Authorizes every `servers.*`, `sandbox.*`, and `preview.*` call: a
+    /// scoped read that finds nothing is the same answer as a Task that does
+    /// not exist.
     pub tasks: Arc<dyn TaskDao>,
     /// The desired state a status read is resolved against.
     pub intent: Arc<dyn SandboxIntentReader>,
@@ -1815,9 +1825,9 @@ impl ProtocolSession {
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
                     return vec![failure_exit(&id, "sandbox.status requires a threadId")];
                 };
-                match servers::sandbox_status(&state.servers, &viewer, task_id).await {
+                match sandbox::status(&state.sandbox, &viewer, task_id).await {
                     Ok(status) => vec![success_exit(&id, status)],
-                    Err(error) => vec![servers_failure_exit(&id, &error, identity)],
+                    Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
                 }
             }
             "sandbox.start" => {
@@ -1825,9 +1835,9 @@ impl ProtocolSession {
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
                     return vec![failure_exit(&id, "sandbox.start requires a threadId")];
                 };
-                match servers::start_sandbox(&state.servers, &viewer, task_id).await {
+                match sandbox::start(&state.sandbox, &viewer, task_id).await {
                     Ok(status) => vec![success_exit(&id, status)],
-                    Err(error) => vec![servers_failure_exit(&id, &error, identity)],
+                    Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
                 }
             }
             "sandbox.stop" => {
@@ -1835,9 +1845,9 @@ impl ProtocolSession {
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
                     return vec![failure_exit(&id, "sandbox.stop requires a threadId")];
                 };
-                match servers::stop_sandbox(&state.servers, &viewer, task_id).await {
+                match sandbox::stop(&state.sandbox, &viewer, task_id).await {
                     Ok(status) => vec![success_exit(&id, status)],
-                    Err(error) => vec![servers_failure_exit(&id, &error, identity)],
+                    Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
                 }
             }
             "subscribeServerStatus" => {
@@ -2980,15 +2990,26 @@ fn servers_failure_exit(
     failure_exit(request_id, "Failed to read the conversation's servers")
 }
 
+/// The client is told the sandbox status or command could not be answered; the
+/// cause is logged once here rather than shipped to the browser.
+fn sandbox_failure_exit(
+    request_id: &RequestId,
+    error: &SandboxRpcError,
+    identity: &AuthIdentity,
+) -> Value {
+    error!(%error, user_id = %identity.user_id, "Failed to answer a Task's sandbox lifecycle request");
+    failure_exit(request_id, "Failed to read the conversation's sandbox")
+}
+
 /// A conversation with no Sandbox, as `servers.list` answers it.
 ///
 /// `servers.list` declares no domain error, so there is no typed failure to give
 /// here and a `Die` would reach the panel as an unexpected server error. The
-/// contract names this case itself: `sandboxStatus: "not_created"` alongside an
-/// empty list is what a project with no sandbox looks like, and that is exactly
-/// what an unprovisioned Task is. The method is served; it has nothing to list.
+/// server-list contract names this case itself: an empty list is what a project
+/// with no sandbox has to list. Sandbox lifecycle status is answered separately
+/// by `sandbox.status`.
 fn servers_not_found() -> Value {
-    json!({ "servers": [], "sandboxStatus": "not_created" })
+    json!({ "servers": [] })
 }
 
 /// The method is not one this server has.
@@ -3309,6 +3330,11 @@ mod tests {
             conversations: Arc::new(conversations),
             sandboxes: Arc::new(UnreachableSandboxes),
             servers: ServersState {
+                observer: Arc::new(UnreachableSandboxes),
+                tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
+                intent: Arc::new(UnreachableSandboxes),
+            },
+            sandbox: SandboxState {
                 observer: Arc::new(UnreachableSandboxes),
                 tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
                 intent: Arc::new(UnreachableSandboxes),

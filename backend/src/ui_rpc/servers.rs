@@ -19,13 +19,10 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::sandbox::access::{
-    LogOptions, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
-};
+use crate::sandbox::access::{LogOptions, SandboxIntentReader, SandboxObserver};
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::schemas::ServerEntry;
 use crate::task::dao::TaskDao;
-use crate::task::models::SandboxStopReason;
 use moatless_backend_core::scope::ScopeContext;
 
 /// How often a subscribed status stream asks the runtime what changed.
@@ -46,8 +43,6 @@ pub struct ServersState {
     pub observer: Arc<dyn SandboxObserver>,
     pub tasks: Arc<dyn TaskDao>,
     pub intent: Arc<dyn SandboxIntentReader>,
-    pub starter: Arc<dyn SandboxStarter>,
-    pub stopper: Arc<dyn SandboxStopper>,
 }
 
 /// Why a `servers.*` read could not be answered.
@@ -109,8 +104,8 @@ async fn authorized_task(
 /// than the list being empty. What each row *says* in that case is the
 /// resolver's fallback and not an observation — `starting`, with the ingress
 /// URL its port will have — so a client showing one of these rows is showing a
-/// declaration, and `sandboxStatus` is the field that says whether anything is
-/// running at all.
+/// server declaration only. Sandbox lifecycle status is exposed by
+/// `sandbox.status`.
 pub async fn list(
     state: &ServersState,
     viewer: &ScopeContext,
@@ -129,62 +124,7 @@ pub async fn list(
         .map_err(ServersError::Sandbox)?;
     Ok(json!({
         "servers": status.servers.iter().map(project_server).collect::<Vec<_>>(),
-        "sandboxStatus": status.sandbox_status.as_str(),
     }))
-}
-
-/// A Task's sandbox lifecycle status only, without any declared server rows.
-pub async fn sandbox_status(
-    state: &ServersState,
-    viewer: &ScopeContext,
-    task_id: &str,
-) -> Result<Value, ServersError> {
-    let task = authorized_task(state, viewer, task_id).await?;
-    let desired = state
-        .intent
-        .desired_state(task_id)
-        .await
-        .map_err(ServersError::Sandbox)?;
-    let status = state
-        .observer
-        .live_status(task_id, task.status, desired)
-        .await
-        .map_err(ServersError::Sandbox)?;
-    Ok(json!({
-        "sandboxStatus": status.sandbox_status.as_str(),
-    }))
-}
-
-/// Request that a Task's Sandbox move toward Running, then return its lifecycle
-/// status only.
-pub async fn start_sandbox(
-    state: &ServersState,
-    viewer: &ScopeContext,
-    task_id: &str,
-) -> Result<Value, ServersError> {
-    let _task = authorized_task(state, viewer, task_id).await?;
-    state
-        .starter
-        .start(task_id)
-        .await
-        .map_err(ServersError::Sandbox)?;
-    sandbox_status(state, viewer, task_id).await
-}
-
-/// Request that a Task's Sandbox move toward Stopped, then return its lifecycle
-/// status only.
-pub async fn stop_sandbox(
-    state: &ServersState,
-    viewer: &ScopeContext,
-    task_id: &str,
-) -> Result<Value, ServersError> {
-    let _task = authorized_task(state, viewer, task_id).await?;
-    state
-        .stopper
-        .stop(task_id, SandboxStopReason::User)
-        .await
-        .map_err(ServersError::Sandbox)?;
-    sandbox_status(state, viewer, task_id).await
 }
 
 /// One snapshot of a Task's servers, for the status stream.
@@ -545,31 +485,11 @@ mod db_tests {
         }
     }
 
-    #[async_trait]
-    impl SandboxStarter for NeverAsked {
-        async fn start(&self, _task_id: &str) -> Result<(), SandboxError> {
-            unreachable!("servers.list does not start a sandbox")
-        }
-    }
-
-    #[async_trait]
-    impl SandboxStopper for NeverAsked {
-        async fn stop(
-            &self,
-            _task_id: &str,
-            _reason: SandboxStopReason,
-        ) -> Result<(), SandboxError> {
-            unreachable!("servers.list does not stop a sandbox")
-        }
-    }
-
     fn state(pool: &PgPool) -> ServersState {
         ServersState {
             observer: Arc::new(NeverProvisioned(pool.clone())),
             tasks: Arc::new(PgTaskDao(pool.clone())),
             intent: Arc::new(NeverAsked),
-            starter: Arc::new(NeverAsked),
-            stopper: Arc::new(NeverAsked),
         }
     }
 
@@ -627,10 +547,6 @@ mod db_tests {
         let listed = list(&state(&pool), &viewer("user-1"), "task-1")
             .await
             .expect("the owner may read their own Task");
-
-        // The environment does not exist. That is the field that says so — not
-        // the per-server statuses, which have nothing behind them to report.
-        assert_eq!(listed["sandboxStatus"], "not_created");
 
         let servers = listed["servers"].as_array().expect("an array of servers");
         assert_eq!(
