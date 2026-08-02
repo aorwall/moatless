@@ -1,10 +1,12 @@
 //! Node-local archive location tracking and strict deletion.
 //!
-//! Node-backed workspace and Docker data outlive sandbox pods. A deterministic
-//! task ConfigMap records every node that has hosted such data and the newest
-//! lifecycle generation seen there. Retained starts pin replacements to the
-//! newest recorded node that still exists; hard deletion runs one deterministic
-//! cleanup pod per recorded node before removing the ConfigMap.
+//! Node-backed workspace, Docker, and build-cache data outlive sandbox pods. A
+//! deterministic task ConfigMap records every node that has hosted such data and
+//! the newest lifecycle generation seen there. Starts pin replacements to the
+//! newest recorded node that still exists; a hostPath workspace makes that pin
+//! mandatory, while a cache-only task schedules anywhere once its nodes are gone.
+//! Hard deletion runs one deterministic cleanup pod per surviving recorded node
+//! before removing the ConfigMap.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -111,19 +113,29 @@ pub(crate) fn pod_uses_node_archives(pod: &Pod) -> bool {
     pod.spec
         .as_ref()
         .and_then(|spec| spec.volumes.as_ref())
-        .is_some_and(|volumes| volumes.iter().any(volume_uses_task_scoped_node_archive))
+        .is_some_and(|volumes| volumes.iter().any(volume_holds_task_node_data))
 }
 
 pub(crate) fn deployment_uses_node_archives(deployment: &Deployment) -> bool {
+    deployment_has_volume(deployment, volume_holds_task_node_data)
+}
+
+/// Whether a replacement pod must land back on the recording node.
+pub(crate) fn deployment_requires_retained_node(deployment: &Deployment) -> bool {
+    deployment_has_volume(deployment, volume_requires_retained_node)
+}
+
+fn deployment_has_volume(deployment: &Deployment, predicate: fn(&Volume) -> bool) -> bool {
     deployment
         .spec
         .as_ref()
         .and_then(|spec| spec.template.spec.as_ref())
         .and_then(|spec| spec.volumes.as_ref())
-        .is_some_and(|volumes| volumes.iter().any(volume_uses_task_scoped_node_archive))
+        .is_some_and(|volumes| volumes.iter().any(predicate))
 }
 
-fn volume_uses_task_scoped_node_archive(volume: &Volume) -> bool {
+/// Task-scoped node-local trees owed a cleanup pod on hard deletion.
+fn volume_holds_task_node_data(volume: &Volume) -> bool {
     let Some(host_path) = volume.host_path.as_ref() else {
         return false;
     };
@@ -132,6 +144,13 @@ fn volume_uses_task_scoped_node_archive(volume: &Volume) -> bool {
         "build-cache" => host_path.path.contains("/build-cache/tasks/"),
         _ => false,
     }
+}
+
+/// The workspace checkout is the only node-local tree that cannot be rebuilt. A
+/// build cache costs a cold build and dind's data root costs a re-pull, so
+/// neither may strand a task on a node that no longer exists.
+fn volume_requires_retained_node(volume: &Volume) -> bool {
+    volume.host_path.is_some() && volume.name == "workspace-data"
 }
 
 /// Merge one observation without allowing an older watcher event to lower the
@@ -284,16 +303,32 @@ async fn cluster_node_names(
         })
 }
 
-/// Resolve a retained placement. `require_metadata` is used for an existing
-/// node-backed runtime that is about to replace a pod: proceeding without a
-/// record could silently mount a new empty hostPath on another node.
+/// Resolve a retained placement. `require_node` is set by callers replacing a
+/// pod that mounts irreplaceable node-local data: without a surviving record
+/// they would silently mount a new empty hostPath on another node. Callers whose
+/// node-local data is a cache pass `false` and schedule unpinned instead.
 pub(crate) async fn retained_node(
     k8s: &K8sClient,
     task_id: &str,
-    require_metadata: bool,
+    require_node: bool,
 ) -> Result<Option<String>, RuntimeError> {
-    let Some(records) = load_records(k8s, task_id).await? else {
-        return if require_metadata {
+    let records = load_records(k8s, task_id).await?;
+    // Only a present record set justifies listing nodes.
+    let surviving = match records {
+        Some(_) => cluster_node_names(k8s, None).await?,
+        None => BTreeSet::new(),
+    };
+    resolve_retained(records.as_ref(), &surviving, require_node, task_id)
+}
+
+fn resolve_retained(
+    records: Option<&NodeRecords>,
+    surviving: &BTreeSet<String>,
+    require_node: bool,
+    task_id: &str,
+) -> Result<Option<String>, RuntimeError> {
+    let Some(records) = records else {
+        return if require_node {
             Err(RuntimeError::Infrastructure(format!(
                 "retained node archive metadata is missing for task {task_id}"
             )))
@@ -302,14 +337,29 @@ pub(crate) async fn retained_node(
         };
     };
 
-    let surviving = cluster_node_names(k8s, None).await?;
-    select_newest_surviving(&records, &surviving)
-        .map(Some)
-        .ok_or_else(|| {
-            RuntimeError::Infrastructure(format!(
-                "no recorded archive node for task {task_id} is currently present"
-            ))
-        })
+    match select_newest_surviving(records, surviving) {
+        Some(node) => Ok(Some(node)),
+        None if require_node => Err(RuntimeError::Infrastructure(format!(
+            "no recorded archive node for task {task_id} is currently present"
+        ))),
+        None => {
+            info!(
+                task_id,
+                "Recorded archive nodes are gone; scheduling without a node pin"
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// A destroyed node took its disk with it, so it owes no cleanup. Keeping it in
+/// the plan pins a cleanup pod to a nonexistent node, which never schedules and
+/// blocks removal forever.
+fn surviving_cleanup_nodes(records: NodeRecords, surviving: &BTreeSet<String>) -> Vec<String> {
+    records
+        .into_keys()
+        .filter(|node| surviving.contains(node))
+        .collect()
 }
 
 fn node_selector(config: &Config) -> Result<Option<String>, RuntimeError> {
@@ -341,8 +391,9 @@ pub(crate) async fn prepare_remove(
     let metadata_after = load_records(k8s, task_id).await?;
 
     if let Some(records) = metadata_after {
+        let surviving = cluster_node_names(k8s, None).await?;
         return Ok(RemovalPlan {
-            nodes: records.into_keys().collect(),
+            nodes: surviving_cleanup_nodes(records, &surviving),
         });
     }
 
@@ -656,7 +707,7 @@ mod tests {
 
     #[test]
     fn task_scoped_build_cache_uses_node_archives_but_shared_cache_does_not() {
-        assert!(volume_uses_task_scoped_node_archive(&Volume {
+        assert!(volume_holds_task_node_data(&Volume {
             name: "build-cache".to_string(),
             host_path: Some(HostPathVolumeSource {
                 path: "/mnt/cache/build-cache/tasks/task-1".to_string(),
@@ -664,7 +715,7 @@ mod tests {
             }),
             ..Default::default()
         }));
-        assert!(!volume_uses_task_scoped_node_archive(&Volume {
+        assert!(!volume_holds_task_node_data(&Volume {
             name: "build-cache".to_string(),
             host_path: Some(HostPathVolumeSource {
                 path: "/mnt/cache/build-cache/shared".to_string(),
@@ -672,6 +723,128 @@ mod tests {
             }),
             ..Default::default()
         }));
+    }
+
+    fn host_path_volume(name: &str, path: &str) -> Volume {
+        Volume {
+            name: name.to_string(),
+            host_path: Some(HostPathVolumeSource {
+                path: path.to_string(),
+                type_: Some("DirectoryOrCreate".to_string()),
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn deployment_with_volumes(volumes: Vec<Volume>) -> Deployment {
+        Deployment {
+            spec: Some(k8s_openapi::api::apps::v1::DeploymentSpec {
+                template: k8s_openapi::api::core::v1::PodTemplateSpec {
+                    spec: Some(PodSpec {
+                        volumes: Some(volumes),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn build_cache_alone_does_not_require_a_retained_node() {
+        let deployment = deployment_with_volumes(vec![host_path_volume(
+            "build-cache",
+            "/mnt/cache/build-cache/tasks/task-1",
+        )]);
+
+        assert!(deployment_uses_node_archives(&deployment));
+        assert!(!deployment_requires_retained_node(&deployment));
+    }
+
+    #[test]
+    fn docker_storage_does_not_require_a_retained_node() {
+        let deployment = deployment_with_volumes(vec![host_path_volume(
+            "docker-storage",
+            "/mnt/cache/docker/task-1",
+        )]);
+
+        assert!(deployment_uses_node_archives(&deployment));
+        assert!(!deployment_requires_retained_node(&deployment));
+    }
+
+    #[test]
+    fn hostpath_workspace_requires_a_retained_node() {
+        let deployment = deployment_with_volumes(vec![
+            host_path_volume("workspace-data", "/mnt/cache/workspaces/task-1"),
+            host_path_volume("build-cache", "/mnt/cache/build-cache/tasks/task-1"),
+        ]);
+
+        assert!(deployment_uses_node_archives(&deployment));
+        assert!(deployment_requires_retained_node(&deployment));
+    }
+
+    #[test]
+    fn emptydir_workspace_neither_records_nor_pins() {
+        let deployment = deployment_with_volumes(vec![Volume {
+            name: "workspace-data".to_string(),
+            empty_dir: Some(k8s_openapi::api::core::v1::EmptyDirVolumeSource::default()),
+            ..Default::default()
+        }]);
+
+        assert!(!deployment_uses_node_archives(&deployment));
+        assert!(!deployment_requires_retained_node(&deployment));
+    }
+
+    #[test]
+    fn surviving_recorded_node_is_pinned_whether_or_not_it_is_required() {
+        let records = BTreeMap::from([("node-a".to_string(), 1)]);
+        let surviving = BTreeSet::from(["node-a".to_string()]);
+
+        for require_node in [true, false] {
+            assert_eq!(
+                resolve_retained(Some(&records), &surviving, require_node, "task-1")
+                    .expect("surviving node resolves"),
+                Some("node-a".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn vanished_node_is_fatal_only_when_a_retained_node_is_required() {
+        let records = BTreeMap::from([("gone-node".to_string(), 1)]);
+        let surviving = BTreeSet::from(["node-a".to_string()]);
+
+        assert!(resolve_retained(Some(&records), &surviving, true, "task-1").is_err());
+        assert_eq!(
+            resolve_retained(Some(&records), &surviving, false, "task-1")
+                .expect("cache-only task schedules unpinned"),
+            None
+        );
+    }
+
+    #[test]
+    fn missing_metadata_is_fatal_only_when_a_retained_node_is_required() {
+        let surviving = BTreeSet::from(["node-a".to_string()]);
+
+        assert!(resolve_retained(None, &surviving, true, "task-1").is_err());
+        assert_eq!(
+            resolve_retained(None, &surviving, false, "task-1").expect("no records is not fatal"),
+            None
+        );
+    }
+
+    #[test]
+    fn destroyed_nodes_are_dropped_from_the_removal_plan() {
+        let records =
+            BTreeMap::from([("gone-node".to_string(), 2), ("live-node".to_string(), 1)]);
+        let surviving = BTreeSet::from(["live-node".to_string()]);
+
+        assert_eq!(
+            surviving_cleanup_nodes(records, &surviving),
+            vec!["live-node".to_string()]
+        );
     }
 
     #[test]

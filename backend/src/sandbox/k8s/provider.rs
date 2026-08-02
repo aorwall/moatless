@@ -127,7 +127,9 @@ impl K8sSandboxAdapter {
                         node_archive::record_current_pod_nodes(&self.k8s, task_id)
                             .await
                             .map_err(SandboxError::Runtime)?;
-                        node_archive::retained_node(&self.k8s, task_id, true)
+                        let require_node =
+                            node_archive::deployment_requires_retained_node(&existing_deployment);
+                        node_archive::retained_node(&self.k8s, task_id, require_node)
                             .await
                             .map_err(SandboxError::Runtime)?
                     } else {
@@ -380,16 +382,16 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 .is_some_and(node_archive::deployment_uses_node_archives)
         {
             node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
-            let node_name = node_archive::retained_node(&self.k8s, task_id, true)
-                .await?
-                .ok_or_else(|| {
-                    crate::sandbox::lifecycle::RuntimeError::Infrastructure(format!(
-                        "retained node archive location is missing for task {task_id}"
-                    ))
-                })?;
-            deployment::pin_to_node(&self.k8s, task_id, &node_name)
-                .await
-                .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            let require_node = existing_deployment
+                .as_ref()
+                .is_some_and(node_archive::deployment_requires_retained_node);
+            if let Some(node_name) =
+                node_archive::retained_node(&self.k8s, task_id, require_node).await?
+            {
+                deployment::pin_to_node(&self.k8s, task_id, &node_name)
+                    .await
+                    .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            }
         }
 
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
@@ -419,8 +421,13 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 .as_ref()
                 .is_some_and(node_archive::deployment_uses_node_archives)
         {
+            // Pre-flight: reprovisioning after the teardown below schedules
+            // unpinned, so refuse to tear down a pin that cannot be honoured.
             node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
-            node_archive::retained_node(&self.k8s, task_id, true).await?;
+            let require_node = existing_deployment
+                .as_ref()
+                .is_some_and(node_archive::deployment_requires_retained_node);
+            node_archive::retained_node(&self.k8s, task_id, require_node).await?;
         }
 
         // 1. Delete Deployment (cascades to pods + ReplicaSets). Fail hard on
