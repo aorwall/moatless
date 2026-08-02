@@ -346,6 +346,11 @@ pub struct SendMessageRequest {
     #[serde(default)]
     pub file_ids: Vec<String>,
     pub agent_mode: Option<AgentMode>,
+    /// Reasoning effort for the turn, in the agent's own vocabulary
+    /// (`low`/`medium`/`high`/`xhigh`/`max` for Claude,
+    /// `minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on
+    /// its own default.
+    pub effort: Option<String>,
     #[serde(default)]
     pub contexts: Vec<MessageContextInput>,
     // Tool response fields

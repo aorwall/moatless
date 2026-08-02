@@ -25,6 +25,9 @@ pub struct UserMessage {
     pub text: String,
     pub model: Option<String>,
     pub agent_mode: Option<AgentMode>,
+    /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
+    /// leaves the agent on its own default.
+    pub effort: Option<String>,
     pub file_ids: Vec<String>,
     pub contexts: Vec<MessageContextInput>,
     pub resume: bool,
@@ -117,6 +120,7 @@ pub async fn send_user_message(
                 &message.text,
                 message.model.as_deref(),
                 message.agent_mode.as_ref(),
+                message.effort.as_deref(),
                 &message.file_ids,
                 &message.contexts,
                 message.resume,

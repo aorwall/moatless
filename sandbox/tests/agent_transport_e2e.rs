@@ -365,6 +365,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
         Some(TEST_MODEL.to_string()),
         None,  // agent_type → claude-code
         None,  // agent_mode
+        None,  // effort
         None,  // resume_session_id
         false, // start_fresh
     );
@@ -408,6 +409,7 @@ async fn run_codex_roundtrip() {
         codex_test_model(),
         Some("codex".to_string()),
         None,  // agent_mode
+        None,  // effort
         None,  // resume_session_id
         false, // start_fresh
     );
@@ -451,6 +453,7 @@ async fn run_agent_resume(use_tmux: bool) {
         Some(TEST_MODEL.to_string()),
         None,  // agent_type → claude-code
         None,  // agent_mode
+        None,  // effort
         None,  // resume_session_id → fresh
         false, // start_fresh
     );
@@ -475,6 +478,7 @@ async fn run_agent_resume(use_tmux: bool) {
         Some(TEST_MODEL.to_string()),
         None,                     // agent_type → claude-code
         None,                     // agent_mode
+        None,                     // effort
         Some(session_id.clone()), // resume_session_id → resume turn 1
         false,                    // start_fresh
     );
@@ -515,6 +519,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
         None,
         None,
         None,
+        None,
         false,
     );
     let session_id = tokio::time::timeout(Duration::from_secs(90), ack)
@@ -532,6 +537,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
     let ack = handle.send(
         "What is 3+3? Reply with only the number.".to_string(),
         Some(TEST_MODEL.to_string()),
+        None,
         None,
         None,
         None,
@@ -583,6 +589,7 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
          After calling it, reply with only the word SCHEDULED."
             .to_string(),
         Some(TEST_MODEL.to_string()),
+        None,
         None,
         None,
         None,

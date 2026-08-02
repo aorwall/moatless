@@ -229,6 +229,7 @@ impl CodexProcess {
             resume: resume.clone(),
             agent_type: Some("codex".to_string()),
             agent_mode: input.mode.clone(),
+            effort: input.effort.clone(),
         };
         let config = Arc::clone(&self.cfg.config);
         let model = codex_app_server::resolve_codex_model(&config, &request);

@@ -26,4 +26,5 @@ export const AgentSubType = {
   recovery_exhausted: 'recovery_exhausted',
   session_context_lost: 'session_context_lost',
   activity: 'activity',
+  context_window: 'context_window',
 } as const;

@@ -151,6 +151,7 @@ impl ThreadCommandSink for AppStateCommands {
                 text: turn.text,
                 model: turn.model,
                 agent_mode: turn.agent_mode,
+                effort: turn.effort,
                 resume: true,
                 message_uuid: Some(turn.message_uuid),
                 ..Default::default()
@@ -183,6 +184,7 @@ impl ThreadCommandSink for AppStateCommands {
                 .first_message
                 .as_ref()
                 .and_then(|m| m.agent_mode.clone()),
+            effort: thread.first_message.as_ref().and_then(|m| m.effort.clone()),
             contexts: vec![],
             file_ids: vec![],
             parent_task_id: None,

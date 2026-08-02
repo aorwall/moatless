@@ -14,6 +14,7 @@ export type AgentStatus = typeof AgentStatus[keyof typeof AgentStatus];
 
 export const AgentStatus = {
   running: 'running',
+  waiting: 'waiting',
   idle: 'idle',
   unknown: 'unknown',
 } as const;

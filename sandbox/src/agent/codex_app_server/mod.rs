@@ -615,7 +615,12 @@ pub(crate) fn turn_start_params(
         thread_id: thread_id.to_string(),
         input: vec![UserInput::text(prompt)],
         model: Some(resolve_codex_model(config, request)),
-        effort: Some(DEFAULT_CODEX_REASONING_EFFORT.to_string()),
+        effort: Some(
+            request
+                .effort
+                .clone()
+                .unwrap_or_else(|| DEFAULT_CODEX_REASONING_EFFORT.to_string()),
+        ),
     }
 }
 

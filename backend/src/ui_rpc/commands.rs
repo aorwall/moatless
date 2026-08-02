@@ -152,6 +152,7 @@ async fn turn_start(
         .ok_or_else(|| missing("message.messageId"))?
         .to_string();
     let agent_mode = interaction_mode(command);
+    let effort = selected_effort(command);
 
     let bootstrap = command.get("bootstrap").and_then(|b| b.get("createThread"));
 
@@ -189,6 +190,7 @@ async fn turn_start(
                         message_uuid,
                         model,
                         agent_mode,
+                        effort,
                     }),
                 },
             )
@@ -207,6 +209,7 @@ async fn turn_start(
                 message_uuid,
                 model,
                 agent_mode,
+                effort,
             },
         )
         .await
@@ -490,6 +493,29 @@ fn selected_instance(command: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The reasoning effort a command selected, in the agent's own vocabulary.
+///
+/// T3 carries every per-model choice as one array of `{id, value}` selections
+/// on `modelSelection.options`, keyed by the descriptor ids the provider
+/// published (`providers::effort_option_id`). Only the effort descriptor is read
+/// here; a selection this server never published is another provider's and is
+/// ignored rather than forwarded to an agent that has no such setting.
+fn selected_effort(command: &Value) -> Option<String> {
+    let instance = selected_instance(command)?;
+    let wanted = providers::effort_option_id(&instance);
+    command
+        .get("modelSelection")
+        .and_then(|m| m.get("options"))
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|option| option.get("id").and_then(Value::as_str) == Some(wanted))
+        .and_then(|option| option.get("value"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 /// T3's plan/default toggle, as a Moatless agent mode.
 fn interaction_mode(command: &Value) -> Option<AgentMode> {
     match command.get("interactionMode").and_then(Value::as_str) {
@@ -531,6 +557,7 @@ mod tests {
             message_uuid: String,
             model: Option<String>,
             agent_mode: Option<String>,
+            effort: Option<String>,
         },
         CreateThread {
             task_id: String,
@@ -583,6 +610,7 @@ mod tests {
                 message_uuid: turn.message_uuid,
                 model: turn.model,
                 agent_mode: turn.agent_mode.map(|m| m.0),
+                effort: turn.effort,
             });
             Ok(())
         }
@@ -851,6 +879,7 @@ mod tests {
                 message_uuid: "msg-1".to_string(),
                 model: None,
                 agent_mode: Some("edit".to_string()),
+                effort: None,
             }]
         );
     }
@@ -865,6 +894,7 @@ mod tests {
                 message_uuid: "msg-1".to_string(),
                 model: Some("sonnet".to_string()),
                 agent_mode: Some("edit".to_string()),
+                effort: None,
             }]
         );
     }
@@ -888,6 +918,63 @@ mod tests {
         let (result, calls) = run(turn(Some(("claudeAgent", "claude-opus-4-8")))).await;
         assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
         assert!(calls.is_empty());
+    }
+
+    /// The option array the client sends back, keyed by the descriptor ids
+    /// `providers` published.
+    fn turn_with_options(instance: &str, slug: &str, options: Value) -> Value {
+        let mut command = turn(Some((instance, slug)));
+        command["modelSelection"]["options"] = options;
+        command
+    }
+
+    fn sent_effort(calls: &[Call]) -> Option<String> {
+        match calls.first() {
+            Some(Call::SendTurn { effort, .. }) => effort.clone(),
+            other => panic!("expected a SendTurn, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_selected_effort_reaches_the_sink() {
+        let command = turn_with_options(
+            "claudeAgent",
+            "claude-sonnet-5",
+            json!([{ "id": "effort", "value": "xhigh" }]),
+        );
+        let (_, calls) = run(command).await;
+        assert_eq!(sent_effort(&calls).as_deref(), Some("xhigh"));
+    }
+
+    #[tokio::test]
+    async fn codex_reads_its_effort_off_its_own_descriptor_id() {
+        let command = turn_with_options(
+            "codex",
+            "gpt-5.6-sol",
+            json!([{ "id": "reasoningEffort", "value": "minimal" }]),
+        );
+        let (_, calls) = run_against(command, Some(conversation(AgentType::CODEX))).await;
+        assert_eq!(sent_effort(&calls).as_deref(), Some("minimal"));
+    }
+
+    /// A selection keyed by an id this server never published for the instance
+    /// belongs to some other provider; forwarding it would hand an agent a
+    /// setting it has no vocabulary for.
+    #[tokio::test]
+    async fn an_option_the_instance_never_published_is_ignored() {
+        let command = turn_with_options(
+            "claudeAgent",
+            "claude-sonnet-5",
+            json!([{ "id": "reasoningEffort", "value": "minimal" }, { "id": "verbosity", "value": "high" }]),
+        );
+        let (_, calls) = run(command).await;
+        assert_eq!(sent_effort(&calls), None);
+    }
+
+    #[tokio::test]
+    async fn a_turn_that_picked_no_effort_leaves_the_agent_on_its_default() {
+        let (_, calls) = run(turn(Some(("claudeAgent", "claude-sonnet-5")))).await;
+        assert_eq!(sent_effort(&calls), None);
     }
 
     #[tokio::test]

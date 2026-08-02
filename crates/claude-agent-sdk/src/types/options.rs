@@ -16,6 +16,9 @@ pub struct ClaudeOptions {
     // -- Model --
     pub model: Option<String>,
     pub fallback_model: Option<String>,
+    /// Reasoning effort for the session (`--effort`). The CLI accepts `low`,
+    /// `medium`, `high`, `xhigh` and `max`, and warns-and-ignores anything else.
+    pub effort: Option<String>,
 
     // -- System prompt --
     pub system_prompt: Option<SystemPrompt>,

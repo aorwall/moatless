@@ -127,6 +127,7 @@ pub(super) async fn handle_comment_created(
             forwarded_body,
             None,
             None,
+            None,
             &[],
             &[],
             true,

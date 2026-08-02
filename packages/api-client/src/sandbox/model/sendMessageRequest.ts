@@ -12,6 +12,14 @@ import type { SendMessageRequestToolResponse } from './sendMessageRequestToolRes
 export interface SendMessageRequest {
   agentMode?: null | AgentMode;
   contexts?: MessageContextInput[];
+  /**
+   * Reasoning effort for the turn, in the agent's own vocabulary
+(`low`/`medium`/`high`/`xhigh`/`max` for Claude,
+`minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on
+its own default.
+   * @nullable
+   */
+  effort?: string | null;
   fileIds?: string[];
   message: string;
   /** @nullable */

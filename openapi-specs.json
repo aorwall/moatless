@@ -9147,6 +9147,7 @@
         "description": "Observed Agent lifecycle while its Sandbox is ready.",
         "enum": [
           "running",
+          "waiting",
           "idle",
           "unknown"
         ]
@@ -9167,7 +9168,8 @@
           "recovery_started",
           "recovery_exhausted",
           "session_context_lost",
-          "activity"
+          "activity",
+          "context_window"
         ]
       },
       "AgentType": {
@@ -10536,6 +10538,13 @@
               "string",
               "null"
             ]
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reasoning effort for the first turn, in the agent's own vocabulary\n(`low`/`medium`/`high`/`xhigh`/`max` for Claude,\n`minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on\nits own default."
           },
           "fileIds": {
             "type": "array",
@@ -12880,7 +12889,7 @@
               "string",
               "null"
             ],
-            "description": "What the person wrote as message text."
+            "description": "What the person wrote, as text."
           },
           "messageType": {
             "$ref": "#/components/schemas/MessageType"
@@ -14425,6 +14434,13 @@
             "items": {
               "$ref": "#/components/schemas/MessageContextInput"
             }
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reasoning effort for the turn, in the agent's own vocabulary\n(`low`/`medium`/`high`/`xhigh`/`max` for Claude,\n`minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on\nits own default."
           },
           "fileIds": {
             "type": "array",

@@ -319,6 +319,7 @@ impl AgentProcess for ClaudeProcess {
             resume,
             agent_type: self.cfg.agent_type.clone(),
             agent_mode: input.mode.clone(),
+            effort: input.effort.clone(),
         };
         let options = build_options(
             &self.cfg.config,

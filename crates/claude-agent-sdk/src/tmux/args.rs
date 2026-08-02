@@ -141,6 +141,7 @@ impl TmuxArgs {
 
     fn push_session(&mut self, options: &ClaudeOptions) {
         self.push_optional_pair("--model", &options.model);
+        self.push_optional_pair("--effort", &options.effort);
         self.push_optional_pair("--resume", &options.resume);
 
         if options.continue_conversation == Some(true) {
@@ -265,6 +266,19 @@ mod tests {
         assert!(args.contains(&"--continue".to_string()));
         let model_idx = args.iter().position(|a| a == "--model").unwrap();
         assert_eq!(args[model_idx + 1], "claude-sonnet-4-5");
+    }
+
+    /// Unlike `permission_mode`, effort is honoured in tmux mode: `--effort` is
+    /// a launch flag the TUI takes just as `--print` does.
+    #[test]
+    fn includes_effort() {
+        let options = ClaudeOptions {
+            effort: Some("max".to_string()),
+            ..Default::default()
+        };
+        let args = build_tmux_cli_args(&options, None);
+        let idx = args.iter().position(|a| a == "--effort").unwrap();
+        assert_eq!(args[idx + 1], "max");
     }
 
     #[test]

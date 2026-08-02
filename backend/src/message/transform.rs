@@ -851,6 +851,7 @@ mod tests {
             will_not_resume: None,
             run_metrics: None,
             agent_mode: None,
+            effort: None,
             model: None,
             resume: true,
             sent_at: None,

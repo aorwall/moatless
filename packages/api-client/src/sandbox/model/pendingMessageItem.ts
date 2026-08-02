@@ -14,7 +14,7 @@ import type { MessageType } from './messageType';
 export interface PendingMessageItem {
   agentMode?: null | AgentMode;
   /**
-   * What the person wrote as message text.
+   * What the person wrote, as text.
    * @nullable
    */
   messageText?: string | null;

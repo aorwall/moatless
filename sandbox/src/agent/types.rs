@@ -93,6 +93,10 @@ pub struct AgentRunRequest {
     /// Agent mode identifier.
     #[serde(default)]
     pub agent_mode: Option<String>,
+    /// Reasoning effort, in the agent's own vocabulary. `None` leaves the agent
+    /// on its own default.
+    #[serde(default)]
+    pub effort: Option<String>,
 }
 
 impl AgentRunRequest {
@@ -262,6 +266,7 @@ mod tests {
             resume: None,
             agent_type: None,
             agent_mode: None,
+            effort: None,
         };
         assert_eq!(req.extract_text(), "line one\nline two");
     }
@@ -275,6 +280,7 @@ mod tests {
             resume: None,
             agent_type: None,
             agent_mode: None,
+            effort: None,
         };
         assert_eq!(req.extract_text(), "");
     }

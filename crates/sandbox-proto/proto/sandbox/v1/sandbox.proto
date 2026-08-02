@@ -179,6 +179,10 @@ message PendingAgentDelivery {
   // directly; where it is not, `prompt_text` already restates the question with
   // the answer and the delivery is dispatched as an ordinary message.
   optional PromptResponse prompt_response = 10;
+  // Reasoning effort for the turn, in the agent's own vocabulary
+  // ("low"/"medium"/"high"/"xhigh"/"max" for Claude, "minimal"/"low"/"medium"/
+  // "high" for Codex). Absent means the agent's own default.
+  optional string effort = 11;
 }
 
 // An answer with its structure intact.
@@ -296,6 +300,8 @@ message InterruptedTurn {
   optional string agent_type = 4;
   // Optional agent mode ("edit" or "plan").
   optional string agent_mode = 5;
+  // Reasoning effort the interrupted turn ran with, replayed with it.
+  optional string effort = 6;
 }
 
 // ── Sandbox gRPC API (backend is the client) ────────────────────

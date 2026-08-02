@@ -278,6 +278,10 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push("--fallback-model".to_string());
         args.push(model.clone());
     }
+    if let Some(effort) = &options.effort {
+        args.push("--effort".to_string());
+        args.push(effort.clone());
+    }
 
     // Permission prompt tool — when a PermissionHandler is set, tell CLI to
     // send permission requests via the control protocol (stdin/stdout)
@@ -895,6 +899,24 @@ mod tests {
 
         let model_idx = args.iter().position(|a| a == "--model").unwrap();
         assert_eq!(args[model_idx + 1], "claude-sonnet-4-5-20250929");
+    }
+
+    #[test]
+    fn build_args_with_effort() {
+        let options = ClaudeOptions {
+            effort: Some("xhigh".to_string()),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+
+        let idx = args.iter().position(|a| a == "--effort").unwrap();
+        assert_eq!(args[idx + 1], "xhigh");
+    }
+
+    #[test]
+    fn build_args_without_effort_omits_the_flag() {
+        let args = build_cli_args(&ClaudeOptions::default());
+        assert!(!args.contains(&"--effort".to_string()));
     }
 
     #[test]

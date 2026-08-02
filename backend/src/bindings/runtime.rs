@@ -759,6 +759,7 @@ async fn deliver_to_binding(
         &message_text,
         None,
         None,
+        None,
         &msg.file_ids,
         &[],
         true,

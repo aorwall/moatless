@@ -35,11 +35,14 @@ use super::ClaudeConfig;
 /// The per-Input configuration the live session was opened with. A new Input
 /// compatible with this pastes into the live TUI; an incompatible one forces a
 /// replacement (kill + respawn with `--resume`). Agent type and system prompt
-/// are fixed for the Sandbox lifetime (the fixed-harness decision), so only model, mode, and the
-/// resumed Session id can diverge between Inputs.
+/// are fixed for the Sandbox lifetime (the fixed-harness decision), so only model, mode, effort,
+/// and the resumed Session id can diverge between Inputs.
 struct Fingerprint {
     model: Option<String>,
     mode: Option<String>,
+    /// Effort is a launch flag, so a change forces a replacement rather than a
+    /// paste into the live session.
+    effort: Option<String>,
     /// The live Session id (empty until the first `System` init reports it).
     session_id: String,
 }
@@ -77,26 +80,6 @@ impl ClaudePersistentProcess {
             pending: VecDeque::new(),
             handle_ready: Notify::new(),
         }
-    }
-
-    /// Whether `input` cannot run inside the live session and needs a replacement
-    /// (kill + respawn with `--resume`). Uses the same fingerprint fields as tmux.
-    fn needs_restart(&self, input: &Input) -> bool {
-        if input.start_fresh {
-            return true;
-        }
-        let Some(fp) = &self.fingerprint else {
-            return false;
-        };
-        if input.model != fp.model || input.mode != fp.mode {
-            return true;
-        }
-        if let Some(ResumeSession::WithId(id)) = &input.resume {
-            if !id.is_empty() && id != &fp.session_id {
-                return true;
-            }
-        }
-        false
     }
 
     /// Resolve the resume target for a (re)spawn. `replacing` carries the live
@@ -145,6 +128,7 @@ impl ClaudePersistentProcess {
             resume,
             agent_type: self.cfg.agent_type.clone(),
             agent_mode: input.mode.clone(),
+            effort: input.effort.clone(),
         };
         self.cancel_token = CancellationToken::new();
         let options = build_options(
@@ -170,6 +154,7 @@ impl ClaudePersistentProcess {
         self.fingerprint = Some(Fingerprint {
             model: input.model.clone(),
             mode: input.mode.clone(),
+            effort: input.effort.clone(),
             session_id: paste_session.to_string(),
         });
         self.handle = Some(handle);
@@ -292,7 +277,7 @@ impl AgentProcess for ClaudePersistentProcess {
         }
 
         // Incompatible config: replace the process, resuming the live Session.
-        if self.needs_restart(&input) {
+        if needs_restart(self.fingerprint.as_ref(), &input) {
             let resume_target = self.fingerprint.as_ref().map(|f| f.session_id.clone());
             if self.turn_in_flight {
                 // End the abandoned Turn before the replacement starts.
@@ -374,6 +359,26 @@ impl AgentProcess for ClaudePersistentProcess {
     }
 }
 
+/// Whether `input` cannot run inside the live session and needs a replacement
+/// (kill + respawn with `--resume`). Uses the same fingerprint fields as tmux.
+fn needs_restart(fingerprint: Option<&Fingerprint>, input: &Input) -> bool {
+    if input.start_fresh {
+        return true;
+    }
+    let Some(fp) = fingerprint else {
+        return false;
+    };
+    if input.model != fp.model || input.mode != fp.mode || input.effort != fp.effort {
+        return true;
+    }
+    if let Some(ResumeSession::WithId(id)) = &input.resume {
+        if !id.is_empty() && id != &fp.session_id {
+            return true;
+        }
+    }
+    false
+}
+
 /// Build the `UserMessage` pasted into the TUI. The CLI expects the message's
 /// `session_id` to match the live session so `--resume` can replay it.
 fn make_user_message(text: &str, session_id: &str) -> UserMessage {
@@ -405,5 +410,48 @@ fn make_user_message(text: &str, session_id: &str) -> UserMessage {
         source_tool_use_id: None,
         permission_mode: None,
         priority: MessagePriority::Next,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn live(effort: Option<&str>) -> Fingerprint {
+        Fingerprint {
+            model: Some("claude-sonnet-4-5".to_string()),
+            mode: None,
+            effort: effort.map(str::to_string),
+            session_id: "sess-1".to_string(),
+        }
+    }
+
+    fn input(effort: Option<&str>) -> Input {
+        Input {
+            model: Some("claude-sonnet-4-5".to_string()),
+            effort: effort.map(str::to_string),
+            ..Input::text("in-1", "hi")
+        }
+    }
+
+    /// `--effort` is a launch flag, so the live TUI cannot change it: a Turn that
+    /// asks for a different one has to be run on a replacement process.
+    #[test]
+    fn a_changed_effort_forces_a_replacement() {
+        assert!(needs_restart(
+            Some(&live(Some("high"))),
+            &input(Some("max"))
+        ));
+        assert!(needs_restart(Some(&live(None)), &input(Some("high"))));
+        assert!(needs_restart(Some(&live(Some("high"))), &input(None)));
+    }
+
+    #[test]
+    fn the_same_effort_pastes_into_the_live_session() {
+        assert!(!needs_restart(
+            Some(&live(Some("high"))),
+            &input(Some("high"))
+        ));
+        assert!(!needs_restart(Some(&live(None)), &input(None)));
     }
 }

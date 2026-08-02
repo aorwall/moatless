@@ -44,6 +44,11 @@ pub struct CreateTaskRequest {
     pub message: Option<String>,
     pub model: Option<String>,
     pub agent_mode: Option<AgentMode>,
+    /// Reasoning effort for the first turn, in the agent's own vocabulary
+    /// (`low`/`medium`/`high`/`xhigh`/`max` for Claude,
+    /// `minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on
+    /// its own default.
+    pub effort: Option<String>,
     #[serde(default)]
     pub contexts: Vec<MessageContextInput>,
     #[serde(default)]

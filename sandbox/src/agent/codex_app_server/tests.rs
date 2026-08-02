@@ -582,6 +582,7 @@ fn parity_request() -> AgentRunRequest {
         resume: None,
         agent_type: None,
         agent_mode: None,
+        effort: None,
     }
 }
 
@@ -606,6 +607,16 @@ fn thread_params_carry_the_exec_spawn_parity_set() {
         turn.input.as_slice(),
         [UserInput::Text { text }] if text == "do the thing"
     ));
+}
+
+/// A Turn that asked for an effort runs at it; one that asked for none keeps
+/// the default asserted above.
+#[test]
+fn turn_params_carry_the_requested_effort() {
+    let mut request = parity_request();
+    request.effort = Some("minimal".to_string());
+    let turn = turn_start_params("thread-1", "do the thing", &parity_config(), &request);
+    assert_eq!(turn.effort.as_deref(), Some("minimal"));
 }
 
 #[test]

@@ -518,6 +518,7 @@ fn recovery_input(original: &Input, task_id: &str) -> Input {
         text: context_recovery_prompt(task_id, &original.text),
         model: original.model.clone(),
         mode: original.mode.clone(),
+        effort: original.effort.clone(),
         resume: None,
         start_fresh: true,
         env: original.env.clone(),
@@ -672,6 +673,8 @@ pub(crate) struct CoordinatorService {
     last_model: Option<String>,
     /// The agent mode submitted with the most recent `AgentCommand::Send`.
     last_agent_mode: Option<String>,
+    /// The reasoning effort submitted with the most recent `AgentCommand::Send`.
+    last_effort: Option<String>,
     /// The resume session id submitted with the most recent `AgentCommand::Send`.
     last_resume_session_id: Option<String>,
     /// The `start_fresh` flag from the most recent `AgentCommand::Send`.
@@ -730,6 +733,7 @@ struct SendCommand {
     text: String,
     model: Option<String>,
     agent_mode: Option<String>,
+    effort: Option<String>,
     resume_session_id: Option<String>,
     start_fresh: bool,
     ack: oneshot::Sender<RunAck>,
@@ -759,6 +763,7 @@ impl CoordinatorService {
             last_text: None,
             last_model: None,
             last_agent_mode: None,
+            last_effort: None,
             last_resume_session_id: None,
             last_start_fresh: false,
             retry_attempt: 0,
@@ -1089,10 +1094,11 @@ impl CoordinatorService {
                         let text = self.last_text.clone().unwrap_or_default();
                         let model = self.last_model.clone();
                         let agent_mode = self.last_agent_mode.clone();
+                        let effort = self.last_effort.clone();
                         let resume_session_id = self.last_resume_session_id.clone();
                         let start_fresh = self.last_start_fresh;
 
-                        match self.build_input(text, model, agent_mode, resume_session_id, start_fresh).await {
+                        match self.build_input(text, model, agent_mode, effort, resume_session_id, start_fresh).await {
                             Ok(input) => {
                                 let (throwaway_tx, _throwaway_rx) = oneshot::channel();
                                 if self.coordinator.submit(input, throwaway_tx).await.is_err() {
@@ -1113,6 +1119,7 @@ impl CoordinatorService {
                             text,
                             model,
                             agent_mode,
+                            effort,
                             resume_session_id,
                             start_fresh,
                             ack,
@@ -1121,6 +1128,7 @@ impl CoordinatorService {
                                 text,
                                 model,
                                 agent_mode,
+                                effort,
                                 resume_session_id,
                                 start_fresh,
                                 ack,
@@ -1130,6 +1138,7 @@ impl CoordinatorService {
                         Some(AgentCommand::Recover {
                             text,
                             agent_mode,
+                            effort,
                             resume_session_id,
                         }) => {
                             // A replayed run also gets a fresh recovery budget.
@@ -1144,6 +1153,7 @@ impl CoordinatorService {
                                 text,
                                 None,
                                 agent_mode,
+                                effort,
                                 Some(resume_session_id),
                                 false,
                             ).await {
@@ -1326,6 +1336,7 @@ impl CoordinatorService {
             self.last_model = send.model.clone();
         }
         self.last_agent_mode = send.agent_mode.clone();
+        self.last_effort = send.effort.clone();
         self.last_resume_session_id = send.resume_session_id.clone();
         self.last_start_fresh = send.start_fresh;
 
@@ -1334,6 +1345,7 @@ impl CoordinatorService {
                 send.text,
                 self.last_model.clone(),
                 send.agent_mode,
+                send.effort,
                 send.resume_session_id,
                 send.start_fresh,
             )
@@ -1456,6 +1468,7 @@ impl CoordinatorService {
         text: String,
         model: Option<String>,
         agent_mode: Option<String>,
+        effort: Option<String>,
         resume_session_id: Option<String>,
         start_fresh: bool,
     ) -> Result<Input, String> {
@@ -1523,6 +1536,7 @@ impl CoordinatorService {
             text,
             model,
             mode: agent_mode,
+            effort,
             resume,
             start_fresh,
             env,

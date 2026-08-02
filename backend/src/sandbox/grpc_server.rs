@@ -967,6 +967,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 model: delivery.model,
                 agent_type: delivery.agent_type,
                 agent_mode: delivery.agent_mode,
+                effort: delivery.effort,
                 resume_session_id: delivery.resume_session_id,
                 resume: delivery.resume,
                 start_fresh: delivery.start_fresh,
@@ -1764,6 +1765,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 prompt_text: interrupted.prompt_text,
                 agent_type: task_agent_type,
                 agent_mode: interrupted.agent_mode,
+                effort: interrupted.effort,
             }),
         }))
     }

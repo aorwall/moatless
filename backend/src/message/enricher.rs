@@ -32,6 +32,9 @@ pub struct AgentDelivery {
     pub model: Option<String>,
     pub agent_type: Option<String>,
     pub agent_mode: Option<String>,
+    /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
+    /// leaves the agent on its own default.
+    pub effort: Option<String>,
     pub resume_session_id: Option<String>,
     pub resume: bool,
     pub start_fresh: bool,
@@ -134,6 +137,7 @@ impl<'a> AgentPromptBuilder<'a> {
         let mut file_ids = Vec::new();
         let mut model = None;
         let mut agent_mode = None;
+        let mut effort = None;
         let start_fresh = rows.iter().any(|row| row.start_fresh);
         let resume = !start_fresh
             && self.task_resume_session_id.as_ref().is_some()
@@ -166,6 +170,7 @@ impl<'a> AgentPromptBuilder<'a> {
             if row.agent_mode.is_some() {
                 agent_mode = row.agent_mode.as_ref().map(|mode| mode.0.clone());
             }
+            effort = row.effort.clone().or(effort);
         }
 
         if parts.is_empty() {
@@ -186,6 +191,7 @@ impl<'a> AgentPromptBuilder<'a> {
             model,
             agent_type: Some(self.task_agent_type.clone()),
             agent_mode,
+            effort,
             resume_session_id: if resume {
                 self.task_resume_session_id.clone()
             } else {
@@ -513,6 +519,35 @@ mod tests {
             .expect("the batch names its answer");
         assert_eq!(answer.tool_use_id, "tu-1");
         assert!(answer.approved);
+    }
+
+    /// A batch runs as one Turn, so it runs at one effort: the newest row that
+    /// named one, the same rule the model follows.
+    #[tokio::test]
+    async fn a_batched_delivery_runs_at_the_newest_effort_named_in_it() {
+        let mut first = pending_message(1, "msg-1", "start on this");
+        first.effort = Some("low".to_string());
+        let mut second = pending_message(2, "msg-2", "actually, think harder");
+        second.effort = Some("max".to_string());
+        let rows = vec![first, second, pending_message(3, "msg-3", "and one more")];
+
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries = prompt_builder(&logins, None)
+            .build_pending_deliveries(&rows, &contexts)
+            .await;
+        assert_eq!(deliveries[0].effort.as_deref(), Some("max"));
+    }
+
+    #[tokio::test]
+    async fn a_delivery_nobody_picked_an_effort_for_carries_none() {
+        let rows = vec![pending_message(1, "msg-1", "have another look")];
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries = prompt_builder(&logins, None)
+            .build_pending_deliveries(&rows, &contexts)
+            .await;
+        assert_eq!(deliveries[0].effort, None);
     }
 
     #[test]

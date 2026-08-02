@@ -56,6 +56,7 @@ pub async fn send_message(
             text: req.message,
             model: req.model,
             agent_mode: req.agent_mode,
+            effort: req.effort,
             file_ids: req.file_ids,
             contexts: req.contexts,
             resume: req.resume.unwrap_or(true),

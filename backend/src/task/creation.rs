@@ -154,6 +154,8 @@ pub struct FirstMessage {
     pub text: String,
     pub model: Option<String>,
     pub agent_mode: Option<AgentMode>,
+    /// Reasoning effort for the first turn, in the agent's own vocabulary.
+    pub effort: Option<String>,
     pub file_ids: Vec<String>,
     pub contexts: Vec<MessageContextInput>,
     pub sent_by: Option<String>,
@@ -668,6 +670,7 @@ mod tests {
             text: "hello".into(),
             model: None,
             agent_mode: None,
+            effort: None,
             file_ids: vec![],
             contexts: vec![],
             sent_by: Some("user1".into()),

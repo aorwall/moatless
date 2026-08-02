@@ -55,6 +55,9 @@ pub struct Input {
     pub text: String,
     pub model: Option<String>,
     pub mode: Option<String>,
+    /// Reasoning effort for this Turn, in the agent's own vocabulary. `None`
+    /// leaves the agent on its own default.
+    pub effort: Option<String>,
     pub resume: Option<ResumeSession>,
     /// Begin a new Session instead of resuming or injecting into a running one.
     pub start_fresh: bool,
@@ -73,6 +76,7 @@ impl Input {
             text: text.into(),
             model: None,
             mode: None,
+            effort: None,
             resume: None,
             start_fresh: false,
             env: None,

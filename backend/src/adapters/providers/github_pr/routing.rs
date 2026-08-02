@@ -624,6 +624,7 @@ async fn append_to_binding(
         &msg.text,
         None,
         None,
+        None,
         &msg.file_ids,
         &[],
         false,

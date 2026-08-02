@@ -62,6 +62,9 @@ pub struct ThreadTurn {
     /// A catalog model id, already translated out of T3's published slug.
     pub model: Option<String>,
     pub agent_mode: Option<AgentMode>,
+    /// The reasoning effort selected for this turn, in the agent's own
+    /// vocabulary. `None` leaves the agent on its own default.
+    pub effort: Option<String>,
 }
 
 /// A new Thread, as this surface understood it.

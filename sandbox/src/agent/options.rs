@@ -88,6 +88,7 @@ pub fn build_options(
 
     ClaudeOptions {
         model,
+        effort: claude_effort(request.effort.as_deref()),
         system_prompt,
         // Plan-mode requests always use Plan so the InteractivePermissionHandler
         // can block writes until ExitPlanMode. Otherwise use the configured mode
@@ -147,6 +148,31 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
         preset: "claude_code".to_string(),
         append: Some(build_prompt_append(config, request)),
     })
+}
+
+/// The effort levels the Claude CLI's `--effort` accepts. Anything else it
+/// warns about and ignores, so this module filters instead of forwarding.
+const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+
+/// The `--effort` value for a requested effort, or `None` to leave the CLI on
+/// its own default.
+///
+/// `ultracode` is a Claude Code setting rather than a CLI level and stands for
+/// the highest reasoning the model offers, so it resolves to `xhigh`. A level
+/// this CLI does not know (`ultrathink`, which is prompt-injected where it is
+/// implemented at all) is dropped with a warning rather than passed through for
+/// the CLI to ignore silently.
+fn claude_effort(requested: Option<&str>) -> Option<String> {
+    let requested = requested.map(str::trim).filter(|value| !value.is_empty())?;
+    let level = match requested.to_ascii_lowercase().as_str() {
+        "ultracode" => "xhigh".to_string(),
+        other if CLAUDE_EFFORT_LEVELS.contains(&other) => other.to_string(),
+        other => {
+            warn!(effort = %other, "Unsupported Claude effort level; using the CLI default");
+            return None;
+        }
+    };
+    Some(level)
 }
 
 /// Return the backend-supplied append-system-prompt, prefixed with a note
@@ -462,6 +488,7 @@ mod tests {
             resume: None,
             agent_type: None,
             agent_mode: None,
+            effort: None,
         }
     }
 
@@ -621,6 +648,54 @@ mod tests {
             None,
         );
         assert_eq!(options.permission_mode, Some(PermissionMode::Plan));
+    }
+
+    #[test]
+    fn a_requested_effort_reaches_the_cli() {
+        let mut request = test_request();
+        request.effort = Some("max".to_string());
+        let options = build_options(
+            &test_config(false),
+            &request,
+            CancellationToken::new(),
+            Arc::new(AgentState::new()),
+            None,
+        );
+        assert_eq!(options.effort.as_deref(), Some("max"));
+    }
+
+    #[test]
+    fn no_requested_effort_leaves_the_cli_on_its_default() {
+        assert_eq!(build_test_options(false).effort, None);
+    }
+
+    #[test]
+    fn claude_effort_accepts_every_level_the_cli_does() {
+        for level in CLAUDE_EFFORT_LEVELS {
+            assert_eq!(claude_effort(Some(level)).as_deref(), Some(*level));
+        }
+    }
+
+    #[test]
+    fn claude_effort_is_case_insensitive_and_trims() {
+        assert_eq!(claude_effort(Some("  XHigh ")).as_deref(), Some("xhigh"));
+    }
+
+    /// `ultracode` names the highest reasoning level rather than a CLI one, so
+    /// a selection carried over from a client that offers it still runs high.
+    #[test]
+    fn claude_effort_maps_ultracode_to_the_highest_cli_level() {
+        assert_eq!(claude_effort(Some("ultracode")).as_deref(), Some("xhigh"));
+    }
+
+    /// The CLI warns-and-ignores an unknown level, so forwarding one would look
+    /// like it took effect. Dropping it says the same thing out loud.
+    #[test]
+    fn claude_effort_drops_a_level_the_cli_does_not_know() {
+        assert_eq!(claude_effort(Some("ultrathink")), None);
+        assert_eq!(claude_effort(Some("bogus")), None);
+        assert_eq!(claude_effort(Some("   ")), None);
+        assert_eq!(claude_effort(None), None);
     }
 
     #[test]

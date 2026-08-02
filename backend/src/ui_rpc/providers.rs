@@ -87,6 +87,83 @@ pub fn instance_for(kind: AgentKind) -> &'static str {
     }
 }
 
+/// The option-descriptor id an instance publishes its effort choice under.
+///
+/// The ids are T3's own, for the same reason the model slugs are: a selection
+/// carried over from a standalone T3 is stored against `effort` for Claude and
+/// `reasoningEffort` for Codex (`apps/server/src/provider/Layers/`), and one
+/// published under any other id would leave that selection unread and silently
+/// run the default.
+pub fn effort_option_id(instance: &str) -> &'static str {
+    if instance == CODEX_INSTANCE {
+        "reasoningEffort"
+    } else {
+        "effort"
+    }
+}
+
+/// `(value, label)` for the effort levels an instance offers, weakest first,
+/// alongside the level that runs when nobody chooses.
+///
+/// Both lists are what the agent behind the instance accepts today: the Claude
+/// CLI's `--effort` takes these five and warns-and-ignores anything else, and
+/// Codex's `turn/start` takes a `effort` string per model. Codex publishes no
+/// catalog of its own through this backend, so its list is fixed here and its
+/// default is the level the Sandbox has always sent.
+fn effort_levels(instance: &str) -> (&'static [(&'static str, &'static str)], &'static str) {
+    if instance == CODEX_INSTANCE {
+        (
+            &[
+                ("minimal", "Minimal"),
+                ("low", "Low"),
+                ("medium", "Medium"),
+                ("high", "High"),
+            ],
+            "high",
+        )
+    } else {
+        (
+            &[
+                ("low", "Low"),
+                ("medium", "Medium"),
+                ("high", "High"),
+                ("xhigh", "Extra High"),
+                ("max", "Max"),
+            ],
+            "high",
+        )
+    }
+}
+
+/// The model capabilities an instance publishes — today, the effort picker.
+///
+/// Every model of an instance offers the same levels, so this does not vary per
+/// model. T3 reads the descriptor off the selected model's `capabilities` and
+/// sends the chosen value back on `modelSelection.options`, where
+/// `commands::selected_effort` reads it.
+fn capabilities(instance: &str) -> Value {
+    let (levels, default) = effort_levels(instance);
+    let options: Vec<Value> = levels
+        .iter()
+        .map(|(value, label)| {
+            let mut option = json!({ "id": value, "label": label });
+            if *value == default {
+                option["isDefault"] = json!(true);
+            }
+            option
+        })
+        .collect();
+
+    json!({
+        "optionDescriptors": [{
+            "id": effort_option_id(instance),
+            "label": "Reasoning",
+            "type": "select",
+            "options": options,
+        }],
+    })
+}
+
 /// `(catalog id, published slug, published name)` for the Claude instance.
 ///
 /// The slugs and names are both T3's, copied from its own Claude driver
@@ -238,7 +315,7 @@ pub fn providers(
                     "name": published_name(instance, &id, &label),
                     "isCustom": false,
                     "isDefault": Some(&id) == default_model.as_ref(),
-                    "capabilities": Value::Null,
+                    "capabilities": capabilities(instance),
                 })
             })
             .collect();
@@ -256,6 +333,11 @@ pub fn providers(
             },
             "checkedAt": checked_at,
             "showInteractionModeToggle": true,
+            // Every Task already runs in its own throwaway Sandbox, so there is
+            // no permission tier to pick between: a thread here is always
+            // `full-access` (`projection::RUNTIME_MODE`). Offering the picker
+            // would let a person choose a tier nothing on this side reads.
+            "showRuntimeModeToggle": false,
             "availability": "available",
             "models": models,
             "slashCommands": [],
@@ -498,6 +580,92 @@ mod tests {
                 .filter(|m| m["isDefault"] == json!(true))
                 .count();
             assert_eq!(defaults, 1, "{}", provider["instanceId"]);
+        }
+    }
+
+    /// The effort descriptor as a model row publishes it.
+    fn effort_descriptor(provider: &Value) -> &Value {
+        let descriptors = provider["models"][0]["capabilities"]["optionDescriptors"]
+            .as_array()
+            .unwrap();
+        assert_eq!(descriptors.len(), 1, "{}", provider["instanceId"]);
+        &descriptors[0]
+    }
+
+    fn level_ids(descriptor: &Value) -> Vec<String> {
+        descriptor["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| o["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// The ids are the ones T3 stores a carried-over selection under, so a
+    /// rename here leaves that selection unread and silently runs the default.
+    #[test]
+    fn each_instance_publishes_its_effort_picker_under_t3s_own_id() {
+        let list = published();
+        assert_eq!(effort_descriptor(&list[0])["id"], json!("effort"));
+        assert_eq!(effort_descriptor(&list[1])["id"], json!("reasoningEffort"));
+        for provider in &list {
+            assert_eq!(effort_descriptor(provider)["type"], json!("select"));
+        }
+    }
+
+    /// The levels are what the agent behind the instance accepts; publishing one
+    /// it does not know gets it dropped on the way to the CLI.
+    #[test]
+    fn the_published_levels_are_the_ones_the_agent_accepts() {
+        let list = published();
+        assert_eq!(
+            level_ids(effort_descriptor(&list[0])),
+            vec!["low", "medium", "high", "xhigh", "max"]
+        );
+        assert_eq!(
+            level_ids(effort_descriptor(&list[1])),
+            vec!["minimal", "low", "medium", "high"]
+        );
+    }
+
+    #[test]
+    fn exactly_one_level_per_instance_is_the_default() {
+        for provider in published() {
+            let defaults: Vec<String> = effort_descriptor(&provider)["options"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|o| o["isDefault"] == json!(true))
+                .map(|o| o["id"].as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(defaults, vec!["high"], "{}", provider["instanceId"]);
+        }
+    }
+
+    /// The levels do not vary per model, so every row has to carry the same
+    /// descriptor — T3 reads it off whichever row is selected.
+    #[test]
+    fn every_model_row_carries_the_same_capabilities() {
+        for provider in published() {
+            let rows = provider["models"].as_array().unwrap();
+            for row in rows {
+                assert_eq!(
+                    row["capabilities"], rows[0]["capabilities"],
+                    "{}",
+                    provider["instanceId"]
+                );
+            }
+        }
+    }
+
+    /// A Task always runs in its own throwaway Sandbox, so there is no
+    /// permission tier to choose: the picker stays hidden rather than offering
+    /// a choice nothing on this side reads.
+    #[test]
+    fn the_runtime_mode_picker_is_hidden_and_the_mode_toggle_is_not() {
+        for provider in published() {
+            assert_eq!(provider["showRuntimeModeToggle"], json!(false));
+            assert_eq!(provider["showInteractionModeToggle"], json!(true));
         }
     }
 

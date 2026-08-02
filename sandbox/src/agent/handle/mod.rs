@@ -132,6 +132,8 @@ pub(crate) enum AgentCommand {
         text: String,
         model: Option<String>,
         agent_mode: Option<String>,
+        /// Reasoning effort for the turn, in the agent's own vocabulary.
+        effort: Option<String>,
         /// Session ID from the backend for resuming after pod restart.
         resume_session_id: Option<String>,
         /// The user asked for a fresh agent session: never inject into a
@@ -146,6 +148,7 @@ pub(crate) enum AgentCommand {
     Recover {
         text: String,
         agent_mode: Option<String>,
+        effort: Option<String>,
         resume_session_id: String,
     },
     /// Stop the agent. The `ack` (when present) resolves once the lifecycle
@@ -180,12 +183,14 @@ impl AgentHandle {
     /// - Claude injection: resolves immediately after a successful stdin write,
     ///   carrying the *running* run's id so the message joins its turn.
     /// - New Claude/Codex turn: resolves on `SessionInit` with the real session ID.
+    #[allow(clippy::too_many_arguments)] // reason: one parameter per per-Turn field the command carries
     pub fn send(
         &self,
         text: String,
         model: Option<String>,
         _agent_type: Option<String>,
         agent_mode: Option<String>,
+        effort: Option<String>,
         resume_session_id: Option<String>,
         start_fresh: bool,
     ) -> oneshot::Receiver<RunAck> {
@@ -194,6 +199,7 @@ impl AgentHandle {
             text,
             model,
             agent_mode,
+            effort,
             resume_session_id,
             start_fresh,
             ack: ack_tx,
@@ -233,11 +239,13 @@ impl AgentHandle {
         text: String,
         _agent_type: Option<String>,
         agent_mode: Option<String>,
+        effort: Option<String>,
         resume_session_id: String,
     ) {
         let _ = self.command_tx.send(AgentCommand::Recover {
             text,
             agent_mode,
+            effort,
             resume_session_id,
         });
     }

@@ -17,6 +17,14 @@ export interface CreateTaskRequest {
   contexts?: MessageContextInput[];
   /** @nullable */
   description?: string | null;
+  /**
+   * Reasoning effort for the first turn, in the agent's own vocabulary
+(`low`/`medium`/`high`/`xhigh`/`max` for Claude,
+`minimal`/`low`/`medium`/`high` for Codex). Omit to leave the agent on
+its own default.
+   * @nullable
+   */
+  effort?: string | null;
   fileIds?: string[];
   /** @nullable */
   headless?: boolean | null;

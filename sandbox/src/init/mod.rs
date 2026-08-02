@@ -459,6 +459,7 @@ async fn recover_interrupted_run(state: &SandboxState, origin: WorkspaceOrigin) 
                 prompt_text,
                 turn.agent_type,
                 turn.agent_mode,
+                turn.effort,
                 turn.session_id,
             );
         }

@@ -142,6 +142,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     let model = delivery.model;
     let agent_type = delivery.agent_type;
     let agent_mode = delivery.agent_mode;
+    let effort = delivery.effort;
     let resume_session_id = delivery.resume_session_id;
     let start_fresh = delivery.start_fresh;
 
@@ -156,6 +157,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         model = ?model,
         agent_type = ?agent_type,
         agent_mode = ?agent_mode,
+        effort = ?effort,
         resume_session_id = ?resume_session_id,
         start_fresh,
         "Dispatching messages to agent"
@@ -176,6 +178,7 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
         model,
         agent_type,
         agent_mode,
+        effort,
         resume_session_id,
         start_fresh,
     );

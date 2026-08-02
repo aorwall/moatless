@@ -482,6 +482,7 @@ async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent,
         &message,
         None,
         None,
+        None,
         &[],
         &[],
         true,
@@ -845,6 +846,9 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         run_metrics: None,
         agent_mode,
         model: None,
+        // Effort is a choice on a person's turn; an agent-produced row carries
+        // none, and nothing reads one off these rows.
+        effort: None,
         resume: true,
         sent_at: None,
         created_at: None,

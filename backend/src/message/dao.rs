@@ -167,6 +167,8 @@ pub struct InterruptedTurn {
     pub turn_number: i32,
     pub prompt_text: String,
     pub agent_mode: Option<String>,
+    /// Reasoning effort the interrupted turn ran with, so the replay repeats it.
+    pub effort: Option<String>,
     pub recovery_attempts: i32,
 }
 
@@ -499,13 +501,13 @@ impl MessageDao for PgMessageDao {
                 agent_mode, model, resume, external_event_id,
                 external_adapter, external_source_name, source_task_id,
                 start_fresh, sent_by, external_subject_key, assistant_usage,
-                tool_response
+                tool_response, effort
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
                 $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                $41, $42
+                $41, $42, $43
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -572,6 +574,7 @@ impl MessageDao for PgMessageDao {
         .bind(&msg.external_subject_key)
         .bind(&msg.assistant_usage)
         .bind(&msg.tool_response)
+        .bind(&msg.effort)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -1489,9 +1492,10 @@ impl MessageDao for PgMessageDao {
             i32,
             Option<String>,
             Option<crate::shared_models::AgentMode>,
+            Option<String>,
         )> = sqlx::query_as(
             r#"SELECT m.id, m.agent_session_id, m.turn_number,
-                      m.message_text, m.agent_mode
+                      m.message_text, m.agent_mode, m.effort
                FROM task_messages m
                WHERE m.task_id = $1
                  AND m.message_type = 'user'
@@ -1532,21 +1536,25 @@ impl MessageDao for PgMessageDao {
         // together); take the first that actually has one.
         let Some(session_id) = rows
             .iter()
-            .find_map(|(_, sid, _, _, _)| sid.clone().filter(|s| !s.is_empty()))
+            .find_map(|(_, sid, _, _, _, _)| sid.clone().filter(|s| !s.is_empty()))
         else {
             return Ok(None);
         };
         let agent_mode = rows
             .iter()
             .rev()
-            .find_map(|(_, _, _, _, mode)| mode.as_ref().map(|m| m.0.clone()));
+            .find_map(|(_, _, _, _, mode, _)| mode.as_ref().map(|m| m.0.clone()));
+        let effort = rows
+            .iter()
+            .rev()
+            .find_map(|(_, _, _, _, _, effort)| effort.clone());
 
         // Reproduces what the sandbox dispatcher itself builds from the same
         // rows (`extract_text_from_messages`, joined with newlines over
         // `get_pending_user`'s ordering), so a replay re-sends the same prompt.
         let prompt_text = rows
             .iter()
-            .map(|(_, _, _, text, _)| text.clone().unwrap_or_default())
+            .map(|(_, _, _, text, _, _)| text.clone().unwrap_or_default())
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -1566,6 +1574,7 @@ impl MessageDao for PgMessageDao {
             turn_number,
             prompt_text,
             agent_mode,
+            effort,
             recovery_attempts,
         }))
     }

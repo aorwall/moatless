@@ -168,6 +168,7 @@ async fn execute_schedule_firing(
         &schedule.message_template,
         None,
         Option::<&AgentMode>::None,
+        None,
         &[],
         &[],
         true,

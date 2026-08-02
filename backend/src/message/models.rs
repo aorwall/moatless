@@ -79,6 +79,9 @@ pub struct TaskMessage {
     pub run_metrics: Option<serde_json::Value>,
     pub agent_mode: Option<AgentMode>,
     pub model: Option<String>,
+    /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
+    /// leaves the agent on its own default.
+    pub effort: Option<String>,
     pub resume: bool,
     pub sent_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
@@ -143,6 +146,7 @@ impl TaskMessage {
             run_metrics: None,
             agent_mode: None,
             model: None,
+            effort: None,
             resume: true,
             sent_at: None,
             created_at: None,

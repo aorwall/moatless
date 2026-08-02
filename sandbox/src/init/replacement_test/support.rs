@@ -180,6 +180,7 @@ pub(super) fn interrupted_turn(
         prompt_text: prompt.to_string(),
         agent_type: agent_type.map(ToString::to_string),
         agent_mode: None,
+        effort: None,
     }
 }
 
