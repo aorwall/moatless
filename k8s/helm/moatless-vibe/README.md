@@ -217,8 +217,6 @@ what is actually wired.
 | `t3.image.repository` | T3 SPA image repository | `aorwall/moatless-t3` |
 | `t3.image.tag` | Image tag | `latest` |
 | `t3.replicaCount` | Number of T3 SPA replicas | `1` |
-| `t3.environmentId` | Stable id for this T3 environment | Release name |
-| `t3.label` | Environment name shown in the client | `Moatless` |
 | `t3.extraAllowedOrigins` | Extra origins allowed to open the backend WebSocket | `[]` |
 
 `t3.extraAllowedOrigins` is only needed for a client served from another host —

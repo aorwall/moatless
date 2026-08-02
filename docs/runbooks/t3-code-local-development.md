@@ -94,9 +94,6 @@ entrypoint so the read-only local API proxy remains in place, and enables:
 
 ```dotenv
 T3_UI_RPC_ENABLED=true
-T3_UI_RPC_ENVIRONMENT_ID=moatless-compose
-T3_UI_RPC_LABEL=Moatless Compose
-T3_UI_RPC_SERVER_VERSION=0.0.28
 T3_UI_RPC_ALLOWED_ORIGINS=http://localhost:5733,http://localhost:8080
 ```
 
@@ -107,13 +104,14 @@ instead name a host of the form `*.<domain>`, admitting any host under that
 domain on the same scheme — a deployment serving each sandbox at its own
 hostname needs that, a local checkout does not.
 
-`T3_UI_RPC_ENVIRONMENT_ID` is not the id the backend publishes. The published
-`environmentId` is this value with a digest of the database's identity appended
-— `moatless-compose-3f9a1c0e4b7d8a52` — because T3 keys its cached listing on
-that id, and a listing built against one database must not be reused against
-another. Recreating the compose Postgres volume therefore changes the published
-id, and every connected client rebuilds instead of resuming into a database
-that no longer contains what it holds. That is intended.
+The published `environmentId` is a fixed name with a digest of the database's
+identity appended — `moatless-3f9a1c0e4b7d8a52` — because T3 keys its cached
+listing on that id, and a listing built against one database must not be reused
+against another. Only the digest varies, so a compose stack and a deployed one
+are already different environments. Recreating the compose Postgres volume
+changes the published id, and every connected client rebuilds instead of
+resuming into a database that no longer contains what it holds. That is
+intended.
 
 Check startup:
 

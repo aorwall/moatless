@@ -123,10 +123,6 @@ spec:
             # backend surface nothing calls as two ways to be half-configured.
             - name: T3_UI_RPC_ENABLED
               value: "true"
-            - name: T3_UI_RPC_ENVIRONMENT_ID
-              value: {{ .Values.t3.environmentId | default .Release.Name | quote }}
-            - name: T3_UI_RPC_LABEL
-              value: {{ .Values.t3.label | default "Moatless" | quote }}
             # The Origin allow-list for the WebSocket upgrade. The T3 origin is
             # derived, not configured — see the t3Origin helper.
             - name: T3_UI_RPC_ALLOWED_ORIGINS

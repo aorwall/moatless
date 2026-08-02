@@ -129,13 +129,6 @@ t3:
     tag: "latest"
   # -- Number of T3 SPA replicas
   replicaCount: 1
-  # -- Stable identifier for this deployment's T3 environment. Defaults to the
-  # release name. The backend publishes this with a digest of the database
-  # identity appended, so clients cannot resume a cached listing against a
-  # different database.
-  environmentId: ""
-  # -- Human-readable environment name shown in the T3 client.
-  label: ""
   # -- Additional browser origins allowed to open the backend WebSocket. The
   # origin the T3 UI is served on is always included. Add entries only for
   # clients served from another host — a desktop or mobile build against this

@@ -119,6 +119,17 @@ const VCS_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 /// accumulated while it was blocked into the same single row.
 const OUTBOUND_FRAMES: usize = 64;
 
+/// The T3 Code client release this module's surface matches. A client refuses
+/// a server reporting a different version.
+///
+/// Move it in the change that brings the surface up to a newer client.
+const T3_CLIENT_CONTRACT_VERSION: &str = "0.0.31";
+
+/// The readable half of the environment id, and the name the client displays.
+/// The digest [`environment_id`] appends is what tells environments apart.
+const T3_ENVIRONMENT_NAME: &str = "moatless";
+const T3_ENVIRONMENT_LABEL: &str = "Moatless";
+
 /// How many entries a workspace search answers with when the client asks for no
 /// particular number.
 ///
@@ -150,8 +161,6 @@ const SEARCH_THREADS_MIN_QUERY: usize = 2;
 #[derive(Debug, Clone)]
 struct UiRpcConfig {
     environment_id: String,
-    label: String,
-    server_version: String,
     allowed_origins: Vec<AllowedOrigin>,
 }
 
@@ -279,11 +288,8 @@ pub async fn router_from_env(
         commands,
     } = dependencies;
     let environment = conversations.listing_head().await?.identity;
-    let name = env_value("T3_UI_RPC_ENVIRONMENT_ID", "moatless");
     let config = UiRpcConfig {
-        environment_id: environment_id(&name, &environment),
-        label: env_value("T3_UI_RPC_LABEL", "Moatless"),
-        server_version: env_value("T3_UI_RPC_SERVER_VERSION", env!("CARGO_PKG_VERSION")),
+        environment_id: environment_id(&environment),
         allowed_origins: env::var("T3_UI_RPC_ALLOWED_ORIGINS")
             .unwrap_or_default()
             .split(',')
@@ -394,13 +400,11 @@ pub struct UiRpcDependencies {
 /// — *becomes* a first connection, rather than a claim the client is asked to
 /// check about itself.
 ///
-/// `T3_UI_RPC_ENVIRONMENT_ID` survives as the readable half. Its meaning has
-/// narrowed: it names the deployment, and it no longer decides what makes one
-/// environment different from another. Two deployments sharing a database now
-/// present as one environment however they are configured, which is the truth —
-/// they have the same conversations and the same positions.
-fn environment_id(name: &str, identity: &EnvironmentIdentity) -> String {
-    format!("{}-{}", name.trim(), identity.digest())
+/// The name ([`T3_ENVIRONMENT_NAME`]) is the readable half; the digest is what
+/// tells one environment from another. Two deployments sharing a database are
+/// one environment — the same conversations at the same positions.
+fn environment_id(identity: &EnvironmentIdentity) -> String {
+    format!("{T3_ENVIRONMENT_NAME}-{}", identity.digest())
 }
 
 fn router(state: UiRpcState) -> Router {
@@ -420,16 +424,6 @@ fn router(state: UiRpcState) -> Router {
 
 impl UiRpcConfig {
     fn validate(&self) -> Result<(), UiRpcConfigError> {
-        if self.environment_id.trim().is_empty()
-            || self.label.trim().is_empty()
-            || self.server_version.trim().is_empty()
-        {
-            return Err(UiRpcConfigError::Invalid(
-                "T3_UI_RPC_ENVIRONMENT_ID, T3_UI_RPC_LABEL, and \
-                 T3_UI_RPC_SERVER_VERSION must be non-empty"
-                    .into(),
-            ));
-        }
         if self.allowed_origins.is_empty() {
             return Err(UiRpcConfigError::Invalid(
                 "T3_UI_RPC_ALLOWED_ORIGINS must contain at least one origin".into(),
@@ -468,10 +462,6 @@ fn env_enabled(key: &str) -> Result<bool, UiRpcConfigError> {
             ))),
         },
     }
-}
-
-fn env_value(key: &str, default: &str) -> String {
-    env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
 async fn environment_descriptor(State(state): State<UiRpcState>) -> Json<Value> {
@@ -2021,7 +2011,7 @@ impl ProtocolSession {
                     "status": "unsupported",
                     "platform": platform_os(),
                     "arch": platform_arch(),
-                    "version": state.rpc.server_version
+                    "version": T3_CLIENT_CONTRACT_VERSION
                 }),
             )],
             "orchestration.getArchivedShellSnapshot" => {
@@ -2185,7 +2175,7 @@ impl ProtocolSession {
                     "payload": {
                         "environment": descriptor(&state.rpc),
                         "cwd": "/moatless",
-                        "projectName": state.rpc.label
+                        "projectName": T3_ENVIRONMENT_LABEL
                     }
                 })]),
             ),
@@ -2551,12 +2541,12 @@ fn valid_request_id(id: &str) -> bool {
 fn descriptor(config: &UiRpcConfig) -> Value {
     json!({
         "environmentId": config.environment_id,
-        "label": config.label,
+        "label": T3_ENVIRONMENT_LABEL,
         "platform": {
             "os": platform_os(),
             "arch": platform_arch()
         },
-        "serverVersion": config.server_version,
+        "serverVersion": T3_CLIENT_CONTRACT_VERSION,
         "capabilities": {
             "repositoryIdentity": false,
             "connectionProbe": true,
@@ -3169,9 +3159,7 @@ mod tests {
             .returning(|_, _, _| Ok(Vec::new()));
         UiRpcState {
             rpc: Arc::new(UiRpcConfig {
-                environment_id: environment_id("moatless-test", &stub_identity()),
-                label: "Moatless Test".into(),
-                server_version: "0.0.28".into(),
+                environment_id: environment_id(&stub_identity()),
                 allowed_origins: vec![AllowedOrigin::parse("http://localhost:5733")],
             }),
             environment: Arc::new(stub_identity()),
@@ -3338,7 +3326,7 @@ mod tests {
         assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
         assert_eq!(
             output.frames[0]["exit"]["value"]["environment"]["environmentId"],
-            environment_id("moatless-test", &stub_identity()),
+            environment_id(&stub_identity()),
             "the reported environment id is the configured name and the \
              database's digest"
         );
@@ -3983,11 +3971,29 @@ mod tests {
     fn enabled_configuration_requires_an_origin() {
         let config = UiRpcConfig {
             environment_id: "moatless".into(),
-            label: "Moatless".into(),
-            server_version: "0.0.28".into(),
             allowed_origins: vec![],
         };
         assert!(config.validate().is_err());
+    }
+
+    /// A client refuses a server whose version differs from its own, so the
+    /// descriptor answers with the contract constant.
+    #[test]
+    fn the_descriptor_reports_the_contract_version_the_code_implements() {
+        let config = UiRpcConfig {
+            environment_id: "moatless".into(),
+            allowed_origins: vec![AllowedOrigin::parse("https://example.com")],
+        };
+
+        assert_eq!(
+            descriptor(&config)["serverVersion"],
+            json!(T3_CLIENT_CONTRACT_VERSION)
+        );
+        assert_ne!(
+            T3_CLIENT_CONTRACT_VERSION,
+            env!("CARGO_PKG_VERSION"),
+            "the contract version tracks the T3 client, not this crate"
+        );
     }
 
     #[test]
