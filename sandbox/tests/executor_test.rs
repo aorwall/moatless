@@ -290,7 +290,7 @@ async fn dispatch_with_no_messages_does_nothing() {
 }
 
 #[tokio::test]
-async fn running_codex_turn_still_fetches_pending_messages_for_the_running_turn() {
+async fn dispatcher_fetches_pending_messages_but_ack_waits_for_agent_acceptance() {
     let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
         "late follow-up",
         Some("uuid-late"),
@@ -305,8 +305,7 @@ async fn running_codex_turn_still_fetches_pending_messages_for_the_running_turn(
     assert_eq!(
         backend.get_pending_count(),
         1,
-        "a message that arrives while a Codex Turn runs is still fetched and handed \
-         to the harness, which now steers it into that Turn"
+        "the dispatcher fetches a pending message and hands it to the coordinator"
     );
     assert_eq!(
         backend.ack_count(),
@@ -395,6 +394,38 @@ async fn redispatch_skipped_when_circuit_breaker_active() {
         backend.get_pending_count(),
         1,
         "circuit breaker active — no re-fetch should happen"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn dropped_ack_redispatch_is_skipped_when_agent_is_stopped() {
+    let backend = Arc::new(MockBackendClient::new(vec![
+        vec![make_text_message("hello", Some("uuid-1"))],
+        vec![make_text_message("hello", Some("uuid-1"))],
+    ]));
+    let state = test_state(Arc::clone(&backend) as _);
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    // Wait for the first dispatch to fail startup and schedule redispatch, then
+    // model a user Stop landing before that backoff fires.
+    let mut waited_secs = 0;
+    while state.agent.consecutive_errors().await == 0 && waited_secs < 120 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        waited_secs += 1;
+    }
+    assert!(
+        state.agent.consecutive_errors().await > 0,
+        "test setup did not reach the dropped-ack failure path"
+    );
+
+    state.agent.set_stopped().await;
+    tokio::time::sleep(Duration::from_mins(1)).await;
+
+    assert_eq!(
+        backend.get_pending_count(),
+        1,
+        "a dropped ack must not automatically re-dispatch once the agent is stopped"
     );
 }
 

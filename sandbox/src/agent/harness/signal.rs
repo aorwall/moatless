@@ -15,7 +15,8 @@
 //! Input joining an active compatible execution:
 //!   submit(input)
 //!   → InputAccepted(input_id)
-//!   → Source*                         (no new ExecutionStarted)
+//!   → Source* / Activity*             (no new ExecutionStarted)
+//!                                      (ExecutionFinished may arrive first)
 //!
 //! Harness-internal execution:
 //!   ExecutionStarted(session, cause=harness-internal)
@@ -148,7 +149,8 @@ pub enum Signal {
     /// execution and never after a source event.
     ExecutionStarted { session: SessionId, cause: Cause },
     /// The Agent process accepted a submitted input. The coordinator
-    /// acknowledges the pending Message only after this, against the current Run.
+    /// acknowledges opening inputs after this, against the current Run. For
+    /// active-execution injections, it waits for later non-terminal output.
     InputAccepted { input: InputId },
     /// One native content block, in native order.
     Source(SourceEvent),

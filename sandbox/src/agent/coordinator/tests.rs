@@ -21,8 +21,8 @@ use tonic::Status;
 use crate::agent::harness::error::FailureStage;
 use crate::agent::harness::source::{NativeMessageId, SourceId};
 use crate::agent::harness::{
-    ErrorClass, Harness, HarnessError, Input, Role, Script, SessionId, SessionImpact, SourceEvent,
-    Step,
+    Activity, Cause, ErrorClass, Harness, HarnessError, Input, InputId, Outcome, Role, Script,
+    SessionId, SessionImpact, Signal, SourceEvent, Step,
 };
 use crate::agent::types::{ResumeSession, StopSource};
 use crate::backend_client::BackendClient;
@@ -360,6 +360,326 @@ async fn ack_is_withheld_until_input_accepted() {
         ack_rx.try_recv(),
         Err(oneshot::error::TryRecvError::Empty)
     ));
+}
+
+#[tokio::test]
+async fn injected_input_ack_waits_for_following_source() {
+    let (events, _received, _cancel) = recording_publisher();
+    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+
+    let (first_ack, first_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "initial"), first_ack)
+        .await
+        .expect("submit first");
+    coord
+        .handle_signal(Signal::ExecutionStarted {
+            session: SessionId("sess-1".to_string()),
+            cause: Cause::Input(InputId("in-1".to_string())),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-1".to_string()),
+        })
+        .await;
+    let first = first_rx.await.expect("opening input acked");
+
+    let (second_ack, mut second_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-2", "merge conflict notice"), second_ack)
+        .await
+        .expect("submit second");
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-2".to_string()),
+        })
+        .await;
+
+    assert!(
+        matches!(
+            second_rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ),
+        "an injected input is not acked on transport acceptance alone"
+    );
+
+    coord
+        .handle_signal(Signal::Source(block(
+            "msg-1",
+            text_block("still working"),
+            Role::Assistant,
+        )))
+        .await;
+    let second = second_rx.await.expect("injected input acked after source");
+
+    assert_eq!(second.session_id, "sess-1");
+    assert_eq!(second.run_id, first.run_id);
+}
+
+#[tokio::test]
+async fn injected_input_ack_resolves_on_following_activity() {
+    let (events, _received, _cancel) = recording_publisher();
+    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+
+    let (first_ack, first_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "initial"), first_ack)
+        .await
+        .expect("submit first");
+    coord
+        .handle_signal(Signal::ExecutionStarted {
+            session: SessionId("sess-1".to_string()),
+            cause: Cause::Input(InputId("in-1".to_string())),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-1".to_string()),
+        })
+        .await;
+    let first = first_rx.await.expect("opening input acked");
+
+    let (second_ack, mut second_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-2", "merge conflict notice"), second_ack)
+        .await
+        .expect("submit second");
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-2".to_string()),
+        })
+        .await;
+    assert!(
+        matches!(
+            second_rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ),
+        "activity must be after acceptance to resolve the ack"
+    );
+
+    coord
+        .handle_signal(Signal::Activity(Activity {
+            session: SessionId("sess-1".to_string()),
+            detail: "Bash".to_string(),
+        }))
+        .await;
+    let second = second_rx
+        .await
+        .expect("injected input acked after activity");
+
+    assert_eq!(second.session_id, "sess-1");
+    assert_eq!(second.run_id, first.run_id);
+}
+
+#[tokio::test]
+async fn multiple_injected_input_acks_resolve_on_one_following_source() {
+    let (events, _received, _cancel) = recording_publisher();
+    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+
+    let (first_ack, first_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "initial"), first_ack)
+        .await
+        .expect("submit first");
+    coord
+        .handle_signal(Signal::ExecutionStarted {
+            session: SessionId("sess-1".to_string()),
+            cause: Cause::Input(InputId("in-1".to_string())),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-1".to_string()),
+        })
+        .await;
+    let first = first_rx.await.expect("opening input acked");
+
+    let (second_ack, mut second_rx) = oneshot::channel();
+    let (third_ack, mut third_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-2", "first late notice"), second_ack)
+        .await
+        .expect("submit second");
+    coord
+        .submit(Input::text("in-3", "second late notice"), third_ack)
+        .await
+        .expect("submit third");
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-2".to_string()),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-3".to_string()),
+        })
+        .await;
+    assert!(matches!(
+        second_rx.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    ));
+    assert!(matches!(
+        third_rx.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    ));
+
+    coord
+        .handle_signal(Signal::Source(block(
+            "msg-1",
+            text_block("still working"),
+            Role::Assistant,
+        )))
+        .await;
+    let second = second_rx.await.expect("second input acked");
+    let third = third_rx.await.expect("third input acked");
+
+    assert_eq!(second.run_id, first.run_id);
+    assert_eq!(third.run_id, first.run_id);
+}
+
+#[tokio::test]
+async fn injected_input_ack_is_dropped_when_terminal_arrives_first() {
+    let (events, _received, _cancel) = recording_publisher();
+    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+
+    let (first_ack, first_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "initial"), first_ack)
+        .await
+        .expect("submit first");
+    coord
+        .handle_signal(Signal::ExecutionStarted {
+            session: SessionId("sess-1".to_string()),
+            cause: Cause::Input(InputId("in-1".to_string())),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-1".to_string()),
+        })
+        .await;
+    let _ = first_rx.await.expect("opening input acked");
+
+    let (second_ack, mut second_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-2", "merge conflict notice"), second_ack)
+        .await
+        .expect("submit second");
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-2".to_string()),
+        })
+        .await;
+    assert!(
+        matches!(
+            second_rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ),
+        "accepted injected input is waiting for post-acceptance output"
+    );
+
+    coord
+        .handle_signal(Signal::ExecutionFinished {
+            outcome: Outcome::Completed,
+        })
+        .await;
+
+    assert!(
+        matches!(second_rx.await, Err(oneshot::error::RecvError { .. })),
+        "terminal-before-output drops the ack so the backend delivery is not acknowledged"
+    );
+}
+
+#[tokio::test]
+async fn injected_input_ack_is_dropped_when_cancelled_terminal_arrives_first() {
+    let (events, _received, _cancel) = recording_publisher();
+    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+
+    let (first_ack, first_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "initial"), first_ack)
+        .await
+        .expect("submit first");
+    coord
+        .handle_signal(Signal::ExecutionStarted {
+            session: SessionId("sess-1".to_string()),
+            cause: Cause::Input(InputId("in-1".to_string())),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-1".to_string()),
+        })
+        .await;
+    let _ = first_rx.await.expect("opening input acked");
+
+    let (second_ack, second_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-2", "merge conflict notice"), second_ack)
+        .await
+        .expect("submit second");
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-2".to_string()),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::ExecutionFinished {
+            outcome: Outcome::Cancelled,
+        })
+        .await;
+
+    assert!(
+        matches!(second_rx.await, Err(oneshot::error::RecvError { .. })),
+        "cancelled terminal-before-output drops the ack"
+    );
+}
+
+#[tokio::test]
+async fn injected_input_ack_is_dropped_at_next_execution_start() {
+    let (events, _received, _cancel) = recording_publisher();
+    let mut coord = Coordinator::new(Harness::scripted(Script::new(vec![])), events, "task-1");
+
+    let (first_ack, first_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "initial"), first_ack)
+        .await
+        .expect("submit first");
+    coord
+        .handle_signal(Signal::ExecutionStarted {
+            session: SessionId("sess-1".to_string()),
+            cause: Cause::Input(InputId("in-1".to_string())),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-1".to_string()),
+        })
+        .await;
+    let _ = first_rx.await.expect("opening input acked");
+
+    let (second_ack, second_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-2", "merge conflict notice"), second_ack)
+        .await
+        .expect("submit second");
+    coord
+        .handle_signal(Signal::InputAccepted {
+            input: InputId("in-2".to_string()),
+        })
+        .await;
+    coord
+        .handle_signal(Signal::ExecutionStarted {
+            session: SessionId("sess-2".to_string()),
+            cause: Cause::Internal,
+        })
+        .await;
+
+    assert!(
+        matches!(second_rx.await, Err(oneshot::error::RecvError { .. })),
+        "a new run boundary drops unproven injected acks before run_id changes"
+    );
 }
 
 #[tokio::test]
@@ -787,6 +1107,82 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
 
     // Agent state must be Idle after a successful completion.
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
+
+    cancel.cancel();
+}
+
+#[tokio::test]
+async fn coordinator_service_sends_during_active_turn_into_running_harness() {
+    let cancel = CancellationToken::new();
+    let config = {
+        let mut c = minimal_config();
+        c.agent_type = Some("claude-code".to_string());
+        Arc::new(c)
+    };
+    let agent_state = Arc::new(AgentState::new());
+
+    let script = Script::injecting(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::AwaitInput,
+        Step::AcceptInput,
+        Step::Block(block(
+            "msg-1",
+            text_block("saw the merge conflict"),
+            Role::Assistant,
+        )),
+        Step::Completed,
+    ]);
+    let (tx, received, events) = service_with_harness(
+        Harness::scripted(script),
+        Arc::clone(&config),
+        Arc::clone(&agent_state),
+        cancel.clone(),
+    );
+
+    let (first_ack, first_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "open pr".to_string(),
+        model: None,
+        agent_mode: None,
+        resume_session_id: None,
+        start_fresh: false,
+        ack: first_ack,
+    })
+    .expect("channel open");
+    let first = tokio::time::timeout(Duration::from_secs(5), first_rx)
+        .await
+        .expect("first input accepted")
+        .expect("first ack delivered");
+
+    let (second_ack, second_rx) = oneshot::channel();
+    tx.send(AgentCommand::Send {
+        text: "merge conflict notice".to_string(),
+        model: None,
+        agent_mode: None,
+        resume_session_id: None,
+        start_fresh: false,
+        ack: second_ack,
+    })
+    .expect("channel open");
+
+    let second = tokio::time::timeout(Duration::from_secs(5), second_rx)
+        .await
+        .expect("injected input accepted and followed by output")
+        .expect("second ack delivered");
+    flush(&events).await;
+
+    assert_eq!(first.session_id, "sess-1");
+    assert_eq!(second.session_id, "sess-1");
+    assert_eq!(first.run_id, second.run_id);
+    assert_eq!(
+        sub_types(&received)
+            .into_iter()
+            .filter(|sub_type| sub_type == "started")
+            .count(),
+        1,
+        "the second send must join the existing run, not open a deferred one"
+    );
 
     cancel.cancel();
 }

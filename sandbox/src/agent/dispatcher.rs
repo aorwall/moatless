@@ -22,6 +22,7 @@ use crate::files::uploads::fetch_uploads_for_messages;
 use crate::state::SandboxState;
 
 use super::prompt::{PromptResponse, PromptToolName};
+use super::types::AgentStatus;
 
 /// Spawn a detached dispatcher task whose termination is never silent (Sandbox
 /// spawned-task rule). The task itself logs every ordinary terminal branch; this
@@ -286,6 +287,10 @@ fn schedule_redispatch(
     state: SandboxState,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
     Box::pin(async move {
+        if matches!(state.agent.status().await, AgentStatus::Stopped) {
+            info!("Skipping pending-message re-dispatch — agent is stopped");
+            return;
+        }
         let consecutive_errors = state.agent.consecutive_errors().await;
         if consecutive_errors >= MAX_REDISPATCH_CONSECUTIVE_ERRORS {
             warn!(
@@ -295,6 +300,10 @@ fn schedule_redispatch(
             return;
         }
         tokio::time::sleep(REDISPATCH_BACKOFF).await;
+        if matches!(state.agent.status().await, AgentStatus::Stopped) {
+            info!("Skipping pending-message re-dispatch after backoff — agent is stopped");
+            return;
+        }
         dispatch_pending_messages(state).await;
     })
 }

@@ -9,9 +9,12 @@
 //! - **Run identity** — a fresh Run id is minted on every
 //!   [`Signal::ExecutionStarted`], for both input-opened and harness-internal
 //!   executions, and stamped on every event and acknowledgement of that Run.
-//! - **Acknowledgement** — a pending Message is acknowledged **only** after the
-//!   harness reports [`Signal::InputAccepted`] for it (never on submit, never on
-//!   `ExecutionStarted`), so an unaccepted input is never falsely confirmed.
+//! - **Acknowledgement** — a pending Message that opens an execution is
+//!   acknowledged only after [`Signal::InputAccepted`]. A pending Message
+//!   injected into an already-running execution is acknowledged only after a
+//!   later non-terminal agent signal proves that execution continued past the
+//!   injection point. If the next signal is terminal, the ack is dropped so the
+//!   backend delivery remains unacknowledged and can be redispatched.
 //! - **Backend publication** — each [`Signal::Source`] is published as one
 //!   per-block `agent.message` in the shape the backend assembler consumes
 //!   (server-owned assembly): a native block plus its `blockIndex`, grouped by `uuid`. The
@@ -43,17 +46,17 @@ use std::time::{Duration, Instant};
 
 use moatless_api_schemas::content::CanonicalContentBlock;
 use moatless_events::{AgentSubType, SandboxStatus, TaskTurnSubType};
-use serde_json::{json, Value};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use serde_json::{Value, json};
+use tokio::sync::{RwLock, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::agent::heartbeat::{Heartbeat, HEARTBEAT_TICK_INTERVAL};
+use crate::agent::heartbeat::{HEARTBEAT_TICK_INTERVAL, Heartbeat};
 use crate::agent::types::{ResumeSession, StopSource};
 use crate::backend_client::BackendClient;
 use crate::config::Config;
-use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::Dispatcher;
+use crate::credentials::recovery::CredentialFailureDetector;
 use crate::events::GrpcEventPublisher;
 use crate::init::credentials::filter_agent_credentials;
 use crate::init::workspace_sync;
@@ -61,14 +64,14 @@ use crate::init::workspace_sync;
 use super::agent_state::AgentState;
 use super::background_watch_job::BackgroundWatchJob;
 use super::handle::{
-    credential_recovery::{try_recover_credentials, MAX_CREDENTIAL_RECOVERY_RETRIES},
+    AGENT_TYPE_CLAUDE_CODE, AgentCommand, RunAck,
+    credential_recovery::{MAX_CREDENTIAL_RECOVERY_RETRIES, try_recover_credentials},
     resolve_agent_harness,
-    retry::{compute_backoff, is_retryable_harness_error, MAX_RETRIES},
-    AgentCommand, RunAck, AGENT_TYPE_CLAUDE_CODE,
+    retry::{MAX_RETRIES, compute_backoff, is_retryable_harness_error},
 };
 use super::harness::{
-    Activity, ContextWindow, ErrorClass, Harness, HarnessClosed, HarnessError, Input, InputId,
-    Outcome, Rejection, Role, SessionImpact, Signal, SourceEvent,
+    Activity, Cause, ContextWindow, ErrorClass, Harness, HarnessClosed, HarnessError, Input,
+    InputId, Outcome, Rejection, Role, SessionImpact, Signal, SourceEvent,
 };
 use super::scheduled_job::{JobKind, ScheduledJobRegistry};
 use super::wakeup_job::WakeupJob;
@@ -91,6 +94,15 @@ pub struct Coordinator {
     session_id: String,
     /// Acks awaiting their input's [`Signal::InputAccepted`], keyed by input id.
     pending_acks: HashMap<InputId, oneshot::Sender<RunAck>>,
+    /// The input that opened the current execution. Its ack can resolve as soon
+    /// as it is accepted; accepted inputs not matching this joined an active
+    /// execution and wait for later non-terminal output before acking.
+    opening_input: Option<InputId>,
+    /// Accepted inputs injected into the active execution. They stay unacked
+    /// until the harness emits later non-terminal output (`Source` / `Activity`);
+    /// if the next signal is terminal, the senders are dropped so the dispatcher
+    /// leaves the backend batch unacknowledged for redispatch.
+    accepted_injected_acks: Vec<(InputId, oneshot::Sender<RunAck>)>,
     /// Submitted inputs awaiting acceptance or rejection, keyed by input id.
     /// Retained so a resume that the harness reports as [`SessionImpact::Lost`]
     /// can be re-driven as a fresh context-recovery Turn instead of being dropped.
@@ -122,6 +134,8 @@ impl Coordinator {
             run_id: String::new(),
             session_id: String::new(),
             pending_acks: HashMap::new(),
+            opening_input: None,
+            accepted_injected_acks: Vec::new(),
             pending_inputs: HashMap::new(),
             block_indices: HashMap::new(),
             last_activity_publish: None,
@@ -130,8 +144,9 @@ impl Coordinator {
         }
     }
 
-    /// Submit input and register its acknowledgement. The ack resolves only once
-    /// the harness reports the input accepted (see [`Signal::InputAccepted`]).
+    /// Submit input and register its acknowledgement. Opening-turn inputs ack
+    /// on [`Signal::InputAccepted`]; inputs injected into an active turn ack
+    /// only after later non-terminal output from that turn.
     pub async fn submit(
         &mut self,
         input: Input,
@@ -211,7 +226,10 @@ impl Coordinator {
     /// Map one signal onto Run/ack/publication effects.
     pub(crate) async fn handle_signal(&mut self, signal: Signal) {
         match signal {
-            Signal::ExecutionStarted { session, .. } => {
+            Signal::ExecutionStarted { session, cause } => {
+                self.drop_accepted_injected_acks(
+                    "new execution started before non-terminal output",
+                );
                 // A new execution opens a new Run — for input-opened and
                 // harness-internal executions alike. The acknowledgement (if any)
                 // waits for the following `InputAccepted`. A context-loss recovery
@@ -221,6 +239,10 @@ impl Coordinator {
                 if !self.hold_run_id {
                     self.run_id = new_run_id();
                 }
+                self.opening_input = match cause {
+                    Cause::Input(input) => Some(input),
+                    Cause::Internal => None,
+                };
                 self.hold_run_id = false;
                 self.block_indices.clear();
                 self.publish_turn_start().await;
@@ -234,26 +256,21 @@ impl Coordinator {
             }
             Signal::InputAccepted { input } => {
                 // Accepted: it will never need context-loss recovery, so release
-                // the retained copy. Acknowledge only now, against the current Run,
-                // so the batch joins this Run's turn regardless of ack/event
-                // delivery order.
+                // the retained copy. An input that opened this execution acks at
+                // acceptance. An input injected into an already-running execution
+                // waits until the agent emits later non-terminal output; if the
+                // execution is already at its terminal result, that ack is dropped
+                // so the backend can redispatch the still-unhandled batch.
                 self.pending_inputs.remove(&input);
                 if let Some(ack) = self.pending_acks.remove(&input) {
-                    let run_ack = RunAck {
-                        session_id: self.session_id.clone(),
-                        run_id: self.run_id.clone(),
-                    };
-                    // A closed receiver means the dispatcher gave up waiting for
-                    // this batch (e.g. it timed out and will redispatch). The
-                    // acknowledgement-after-acceptance invariant still held; log
-                    // the drop with the input/Run identity so it stays diagnosable.
-                    if ack.send(run_ack).is_err() {
-                        tracing::warn!(
-                            input = %input.0,
-                            run_id = %self.run_id,
-                            "acceptance ack dropped: receiver closed before delivery"
-                        );
+                    if self.opening_input.as_ref() == Some(&input) {
+                        self.opening_input = None;
+                        self.send_run_ack(input, ack, "acceptance");
+                    } else {
+                        self.accepted_injected_acks.push((input, ack));
                     }
+                } else if self.opening_input.as_ref() == Some(&input) {
+                    self.opening_input = None;
                 }
             }
             Signal::Source(event) => {
@@ -265,10 +282,17 @@ impl Coordinator {
                         message_payload(&event, block_index),
                     )
                     .await;
+                self.ack_accepted_injected_inputs("source");
             }
-            Signal::Activity(activity) => self.publish_activity(&activity).await,
+            Signal::Activity(activity) => {
+                self.publish_activity(&activity).await;
+                self.ack_accepted_injected_inputs("activity");
+            }
             Signal::ContextWindow(window) => self.publish_context_window(window).await,
-            Signal::ExecutionFinished { outcome } => self.publish_outcome(outcome).await,
+            Signal::ExecutionFinished { outcome } => {
+                self.drop_accepted_injected_acks("execution finished before non-terminal output");
+                self.publish_outcome(outcome).await;
+            }
             Signal::InputRejected { input, reason } => {
                 let original = self.pending_inputs.remove(&input);
                 match reason {
@@ -320,6 +344,46 @@ impl Coordinator {
         let index = *slot;
         *slot += 1;
         index
+    }
+
+    fn send_run_ack(&self, input: InputId, ack: oneshot::Sender<RunAck>, reason: &'static str) {
+        let run_ack = RunAck {
+            session_id: self.session_id.clone(),
+            run_id: self.run_id.clone(),
+        };
+        // A closed receiver means the dispatcher gave up waiting for this batch
+        // (e.g. it timed out and will redispatch). The acknowledgement boundary
+        // still held; log the drop with the input/Run identity so it stays
+        // diagnosable.
+        if ack.send(run_ack).is_err() {
+            tracing::warn!(
+                input = %input.0,
+                run_id = %self.run_id,
+                reason,
+                "run ack dropped: receiver closed before delivery"
+            );
+        }
+    }
+
+    fn ack_accepted_injected_inputs(&mut self, reason: &'static str) {
+        let acks = std::mem::take(&mut self.accepted_injected_acks);
+        for (input, ack) in acks {
+            self.send_run_ack(input, ack, reason);
+        }
+    }
+
+    fn drop_accepted_injected_acks(&mut self, reason: &'static str) {
+        if self.accepted_injected_acks.is_empty() {
+            return;
+        }
+        let count = self.accepted_injected_acks.len();
+        self.accepted_injected_acks.clear();
+        tracing::warn!(
+            count,
+            run_id = %self.run_id,
+            reason,
+            "dropping accepted injected input acks"
+        );
     }
 
     async fn publish_turn_start(&self) {
@@ -660,6 +724,15 @@ pub(crate) struct CoordinatorService {
     /// `ExecutionStarted`, cleared on the terminal outcome). Lets the Stop
     /// handler pick the active vs. idle path without an async `AgentState` read.
     turn_active: bool,
+}
+
+struct SendCommand {
+    text: String,
+    model: Option<String>,
+    agent_mode: Option<String>,
+    resume_session_id: Option<String>,
+    start_fresh: bool,
+    ack: oneshot::Sender<RunAck>,
 }
 
 impl CoordinatorService {
@@ -1044,64 +1117,15 @@ impl CoordinatorService {
                             start_fresh,
                             ack,
                         }) => {
-                            // A fresh user Send gets a fresh credential-recovery
-                            // budget: the per-prompt cap is scoped to one prompt.
-                            self.credential_recovery_attempts = 0;
-
-                            // ── Circuit breaker ───────────────────────────────────────
-                            const MAX_CONSECUTIVE_ERRORS: u32 = 3;
-                            if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
-                                warn!(
-                                    consecutive_errors = self.consecutive_errors,
-                                    "Circuit breaker: rejecting send"
-                                );
-                                drop(ack);
-                                self.coordinator
-                                    .events
-                                    .publish_sandbox_event(
-                                        &task_id,
-                                        SandboxStatus::Error,
-                                        json!({
-                                            "error": format!(
-                                                "Agent failed {} consecutive times. Last error: {}",
-                                                self.consecutive_errors,
-                                                self.agent_state.last_error().await.unwrap_or_default()
-                                            )
-                                        }),
-                                    )
-                                    .await;
-                                // Reset so the next user-initiated send gets a fresh budget.
-                                self.consecutive_errors = 0;
-                                continue;
-                            }
-
-                            // Capture last-Send fields for retry rebuilding before
-                            // moving text into build_input.
-                            self.last_text = Some(text.clone());
-                            if model.is_some() {
-                                self.last_model = model.clone();
-                            }
-                            self.last_agent_mode = agent_mode.clone();
-                            self.last_resume_session_id = resume_session_id.clone();
-                            self.last_start_fresh = start_fresh;
-
-                            let input = match self.build_input(
+                            let send = SendCommand {
                                 text,
-                                self.last_model.clone(),
+                                model,
                                 agent_mode,
                                 resume_session_id,
                                 start_fresh,
-                            ).await {
-                                Ok(input) => input,
-                                Err(err) => {
-                                    warn!(error = %err, "Failed to build input; dropping ack");
-                                    drop(ack);
-                                    continue;
-                                }
+                                ack,
                             };
-                            if self.coordinator.submit(input, ack).await.is_err() {
-                                // HarnessClosed — the signal loop will see None next.
-                            }
+                            self.handle_send_command(&task_id, send).await;
                         }
                         Some(AgentCommand::Recover {
                             text,
@@ -1260,6 +1284,70 @@ impl CoordinatorService {
                         .await;
                 }
             }
+        }
+    }
+
+    async fn handle_send_command(&mut self, task_id: &str, send: SendCommand) {
+        // A fresh user Send gets a fresh credential-recovery budget: the
+        // per-prompt cap is scoped to one prompt.
+        self.credential_recovery_attempts = 0;
+
+        // ── Circuit breaker ───────────────────────────────────────
+        const MAX_CONSECUTIVE_ERRORS: u32 = 3;
+        if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+            warn!(
+                consecutive_errors = self.consecutive_errors,
+                "Circuit breaker: rejecting send"
+            );
+            drop(send.ack);
+            self.coordinator
+                .events
+                .publish_sandbox_event(
+                    task_id,
+                    SandboxStatus::Error,
+                    json!({
+                        "error": format!(
+                            "Agent failed {} consecutive times. Last error: {}",
+                            self.consecutive_errors,
+                            self.agent_state.last_error().await.unwrap_or_default()
+                        )
+                    }),
+                )
+                .await;
+            // Reset so the next user-initiated send gets a fresh budget.
+            self.consecutive_errors = 0;
+            return;
+        }
+
+        // Capture last-Send fields for retry rebuilding before moving text into
+        // build_input.
+        self.last_text = Some(send.text.clone());
+        if send.model.is_some() {
+            self.last_model = send.model.clone();
+        }
+        self.last_agent_mode = send.agent_mode.clone();
+        self.last_resume_session_id = send.resume_session_id.clone();
+        self.last_start_fresh = send.start_fresh;
+
+        let input = match self
+            .build_input(
+                send.text,
+                self.last_model.clone(),
+                send.agent_mode,
+                send.resume_session_id,
+                send.start_fresh,
+            )
+            .await
+        {
+            Ok(input) => input,
+            Err(err) => {
+                warn!(error = %err, "Failed to build input; dropping ack");
+                drop(send.ack);
+                return;
+            }
+        };
+        if self.coordinator.submit(input, send.ack).await.is_err() {
+            // HarnessClosed — the signal loop will see None next.
         }
     }
 
