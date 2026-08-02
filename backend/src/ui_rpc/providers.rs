@@ -102,52 +102,72 @@ pub fn effort_option_id(instance: &str) -> &'static str {
     }
 }
 
-/// `(value, label)` for the effort levels an instance offers, weakest first,
-/// alongside the level that runs when nobody chooses.
+/// The effort levels the Claude CLI's `--effort` accepts, weakest first. It
+/// warns-and-ignores anything else, and does not vary them per model.
+const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+
+/// The effort levels a Codex model accepts beyond the base set, weakest first,
+/// as that model's own `model/list` entry reports them.
 ///
-/// Both lists are what the agent behind the instance accepts today: the Claude
-/// CLI's `--effort` takes these five and warns-and-ignores anything else, and
-/// Codex's `turn/start` takes a `effort` string per model. Codex publishes no
-/// catalog of its own through this backend, so its list is fixed here and its
-/// default is the level the Sandbox has always sent.
-fn effort_levels(instance: &str) -> (&'static [(&'static str, &'static str)], &'static str) {
-    if instance == CODEX_INSTANCE {
-        (
-            &[
-                ("minimal", "Minimal"),
-                ("low", "Low"),
-                ("medium", "Medium"),
-                ("high", "High"),
-            ],
-            "high",
-        )
-    } else {
-        (
-            &[
-                ("low", "Low"),
-                ("medium", "Medium"),
-                ("high", "High"),
-                ("xhigh", "Extra High"),
-                ("max", "Max"),
-            ],
-            "high",
-        )
+/// Codex validates the level against the model and fails the whole turn on one
+/// it does not know — `'minimal' is not supported with the 'gpt-5.6-sol' model`
+/// — rather than falling back, so a row publishing a level its model rejects
+/// hands out a choice that cannot run.
+const CODEX_EFFORT_LEVELS: &[(&str, &[&str])] = &[
+    (
+        "gpt-5.6-sol",
+        &["low", "medium", "high", "xhigh", "max", "ultra"],
+    ),
+    (
+        "gpt-5.6-terra",
+        &["low", "medium", "high", "xhigh", "max", "ultra"],
+    ),
+    ("gpt-5.6-luna", &["low", "medium", "high", "xhigh", "max"]),
+];
+
+/// What every Codex model accepts, and so what a model not named in
+/// [`CODEX_EFFORT_LEVELS`] offers.
+const CODEX_BASE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh"];
+
+/// The level that runs when nobody chooses one — what the Sandbox sends for
+/// both agents. It is valid on every model published here, which is what lets
+/// one constant serve them all.
+const DEFAULT_EFFORT: &str = "high";
+
+/// The effort levels a published model row offers, weakest first.
+fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str] {
+    if instance != CODEX_INSTANCE {
+        return CLAUDE_EFFORT_LEVELS;
+    }
+    CODEX_EFFORT_LEVELS
+        .iter()
+        .find(|(model, _)| *model == catalog_model)
+        .map_or(CODEX_BASE_EFFORT_LEVELS, |(_, levels)| *levels)
+}
+
+fn effort_label(level: &str) -> &str {
+    match level {
+        "low" => "Low",
+        "medium" => "Medium",
+        "high" => "High",
+        "xhigh" => "Extra High",
+        "max" => "Max",
+        "ultra" => "Ultra",
+        other => other,
     }
 }
 
-/// The model capabilities an instance publishes — today, the effort picker.
+/// The model capabilities a row publishes — today, the effort picker.
 ///
-/// Every model of an instance offers the same levels, so this does not vary per
-/// model. T3 reads the descriptor off the selected model's `capabilities` and
-/// sends the chosen value back on `modelSelection.options`, where
+/// T3 reads the descriptor off the selected model's `capabilities` and sends
+/// the chosen value back on `modelSelection.options`, where
 /// `commands::selected_effort` reads it.
-fn capabilities(instance: &str) -> Value {
-    let (levels, default) = effort_levels(instance);
-    let options: Vec<Value> = levels
+fn capabilities(instance: &str, catalog_model: &str) -> Value {
+    let options: Vec<Value> = effort_levels(instance, catalog_model)
         .iter()
-        .map(|(value, label)| {
-            let mut option = json!({ "id": value, "label": label });
-            if *value == default {
+        .map(|level| {
+            let mut option = json!({ "id": level, "label": effort_label(level) });
+            if *level == DEFAULT_EFFORT {
                 option["isDefault"] = json!(true);
             }
             option
@@ -315,7 +335,7 @@ pub fn providers(
                     "name": published_name(instance, &id, &label),
                     "isCustom": false,
                     "isDefault": Some(&id) == default_model.as_ref(),
-                    "capabilities": capabilities(instance),
+                    "capabilities": capabilities(instance, &id),
                 })
             })
             .collect();
@@ -333,11 +353,6 @@ pub fn providers(
             },
             "checkedAt": checked_at,
             "showInteractionModeToggle": true,
-            // Every Task already runs in its own throwaway Sandbox, so there is
-            // no permission tier to pick between: a thread here is always
-            // `full-access` (`projection::RUNTIME_MODE`). Offering the picker
-            // would let a person choose a tier nothing on this side reads.
-            "showRuntimeModeToggle": false,
             "availability": "available",
             "models": models,
             "slashCommands": [],
@@ -583,12 +598,16 @@ mod tests {
         }
     }
 
-    /// The effort descriptor as a model row publishes it.
-    fn effort_descriptor(provider: &Value) -> &Value {
-        let descriptors = provider["models"][0]["capabilities"]["optionDescriptors"]
+    /// The effort descriptor as one model row publishes it.
+    fn effort_descriptor<'a>(provider: &'a Value, slug: &str) -> &'a Value {
+        let row = provider["models"]
             .as_array()
-            .unwrap();
-        assert_eq!(descriptors.len(), 1, "{}", provider["instanceId"]);
+            .unwrap()
+            .iter()
+            .find(|m| m["slug"] == json!(slug))
+            .unwrap_or_else(|| panic!("{} publishes no {slug}", provider["instanceId"]));
+        let descriptors = row["capabilities"]["optionDescriptors"].as_array().unwrap();
+        assert_eq!(descriptors.len(), 1, "{slug}");
         &descriptors[0]
     }
 
@@ -606,65 +625,76 @@ mod tests {
     #[test]
     fn each_instance_publishes_its_effort_picker_under_t3s_own_id() {
         let list = published();
-        assert_eq!(effort_descriptor(&list[0])["id"], json!("effort"));
-        assert_eq!(effort_descriptor(&list[1])["id"], json!("reasoningEffort"));
-        for provider in &list {
-            assert_eq!(effort_descriptor(provider)["type"], json!("select"));
-        }
+        assert_eq!(
+            effort_descriptor(&list[0], "claude-opus-5")["id"],
+            json!("effort")
+        );
+        assert_eq!(
+            effort_descriptor(&list[1], "gpt-5.6-sol")["id"],
+            json!("reasoningEffort")
+        );
     }
 
-    /// The levels are what the agent behind the instance accepts; publishing one
-    /// it does not know gets it dropped on the way to the CLI.
+    /// The levels are what the agent behind the row accepts; Codex fails the
+    /// whole turn on one its model does not know.
     #[test]
     fn the_published_levels_are_the_ones_the_agent_accepts() {
         let list = published();
         assert_eq!(
-            level_ids(effort_descriptor(&list[0])),
+            level_ids(effort_descriptor(&list[0], "claude-opus-5")),
             vec!["low", "medium", "high", "xhigh", "max"]
         );
         assert_eq!(
-            level_ids(effort_descriptor(&list[1])),
-            vec!["minimal", "low", "medium", "high"]
+            level_ids(effort_descriptor(&list[1], "gpt-5.6-sol")),
+            vec!["low", "medium", "high", "xhigh", "max", "ultra"]
+        );
+        assert_eq!(
+            level_ids(effort_descriptor(&list[1], "gpt-5.6-luna")),
+            vec!["low", "medium", "high", "xhigh", "max"]
+        );
+        assert_eq!(
+            level_ids(effort_descriptor(&list[1], "gpt-5.5")),
+            vec!["low", "medium", "high", "xhigh"]
         );
     }
 
+    /// Every row's default has to be a level that row also offers, or leaving
+    /// the picker alone picks something the turn will be refused for.
     #[test]
-    fn exactly_one_level_per_instance_is_the_default() {
+    fn exactly_one_level_per_row_is_the_default() {
         for provider in published() {
-            let defaults: Vec<String> = effort_descriptor(&provider)["options"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|o| o["isDefault"] == json!(true))
-                .map(|o| o["id"].as_str().unwrap().to_string())
-                .collect();
-            assert_eq!(defaults, vec!["high"], "{}", provider["instanceId"]);
-        }
-    }
-
-    /// The levels do not vary per model, so every row has to carry the same
-    /// descriptor — T3 reads it off whichever row is selected.
-    #[test]
-    fn every_model_row_carries_the_same_capabilities() {
-        for provider in published() {
-            let rows = provider["models"].as_array().unwrap();
-            for row in rows {
-                assert_eq!(
-                    row["capabilities"], rows[0]["capabilities"],
-                    "{}",
-                    provider["instanceId"]
-                );
+            for row in provider["models"].as_array().unwrap() {
+                let slug = row["slug"].as_str().unwrap();
+                let defaults: Vec<String> = effort_descriptor(&provider, slug)["options"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|o| o["isDefault"] == json!(true))
+                    .map(|o| o["id"].as_str().unwrap().to_string())
+                    .collect();
+                assert_eq!(defaults, vec![DEFAULT_EFFORT], "{slug}");
             }
         }
     }
 
-    /// A Task always runs in its own throwaway Sandbox, so there is no
-    /// permission tier to choose: the picker stays hidden rather than offering
-    /// a choice nothing on this side reads.
+    /// The Claude CLI takes the same levels whatever model it runs, so a row
+    /// carrying different ones would be inventing a distinction.
     #[test]
-    fn the_runtime_mode_picker_is_hidden_and_the_mode_toggle_is_not() {
+    fn every_claude_row_carries_the_same_capabilities() {
+        let list = published();
+        let rows = list[0]["models"].as_array().unwrap();
+        for row in rows {
+            assert_eq!(
+                row["capabilities"], rows[0]["capabilities"],
+                "{}",
+                row["slug"]
+            );
+        }
+    }
+
+    #[test]
+    fn every_instance_offers_the_build_plan_toggle() {
         for provider in published() {
-            assert_eq!(provider["showRuntimeModeToggle"], json!(false));
             assert_eq!(provider["showInteractionModeToggle"], json!(true));
         }
     }
