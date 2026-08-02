@@ -9,7 +9,7 @@ use uuid::Uuid;
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::config::{
     AuthConfig, AuthProvider, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig,
-    GithubPrConfig, LinearConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
+    GithubPrConfig, LinearConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
     SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
     TelegramConfig,
 };
@@ -304,6 +304,11 @@ pub fn test_config() -> Config {
             client_id: "test-client".into(),
         },
         default_run_as_user_id: None,
+        otel: OtelConfig {
+            otlp_endpoint: None,
+            sampling_ratio: 0.1,
+            service_name: "test".into(),
+        },
     }
 }
 

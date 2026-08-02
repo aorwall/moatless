@@ -1758,6 +1758,11 @@ mod tests {
                 client_id: "test-codex-client".into(),
             },
             default_run_as_user_id: None,
+            otel: OtelConfig {
+                otlp_endpoint: None,
+                sampling_ratio: 0.1,
+                service_name: "test".into(),
+            },
         }
     }
 

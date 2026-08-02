@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let SecretsEntry {
             command: SecretsTop::Secrets(cmd),
         } = SecretsEntry::parse();
-        startup::init_tracing();
+        startup::init_tracing(&moatless_vibe_backend::config::OtelConfig::from_env());
         return secret::cli::run(secret::cli::SecretsCli { command: cmd }).await;
     }
 
@@ -76,7 +76,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    startup::init_tracing();
+    // Read directly (not from `Config::from_env`, called next) so tracing is
+    // live before that call's own parse warnings need somewhere to land.
+    let otel_config = moatless_vibe_backend::config::OtelConfig::from_env();
+    let otel_provider = startup::init_tracing(&otel_config);
 
     let config = Config::from_env()?;
     info!(sandbox_namespace = %config.sandbox.namespace, "Starting Moatless Vibe Backend");
@@ -486,6 +489,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 claude_code: config.sandbox.default_model.clone(),
                 codex: config.sandbox.default_codex_model.clone(),
             },
+            otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
         })
         .await?
         {
@@ -769,8 +773,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(relay) = ingress_relay {
         relay.shutdown(RELAY_SHUTDOWN_DEADLINE).await;
     }
+    if let Some(provider) = otel_provider {
+        shutdown_otel_provider(provider).await;
+    }
 
     Ok(())
+}
+
+/// How long shutdown waits for the OTel batch span processor to flush and
+/// close its exporter connection before giving up and exiting anyway. Best
+/// effort: a slow or unreachable collector loses buffered spans, not the
+/// process's own shutdown.
+const OTEL_SHUTDOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Flush and shut down the OTel tracer provider off the async runtime
+/// (`shutdown` blocks the calling thread while it drains the batch
+/// processor), bounded by [`OTEL_SHUTDOWN_DEADLINE`].
+async fn shutdown_otel_provider(provider: opentelemetry_sdk::trace::SdkTracerProvider) {
+    let shutdown = tokio::task::spawn_blocking(move || provider.shutdown());
+    match tokio::time::timeout(OTEL_SHUTDOWN_DEADLINE, shutdown).await {
+        Ok(Ok(Ok(()))) => {}
+        Ok(Ok(Err(e))) => warn!(error = %e, "OTel tracer provider shutdown reported an error"),
+        Ok(Err(e)) => warn!(error = %e, "OTel tracer provider shutdown task panicked"),
+        Err(_) => warn!("OTel tracer provider shutdown timed out; buffered spans may be lost"),
+    }
 }
 
 /// How long shutdown waits for the ingress-outbox relay before reporting it as

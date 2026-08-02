@@ -62,7 +62,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::agent::catalog::AgentKind;
 use crate::auth::identity::{AuthIdentity, AuthMethod};
@@ -164,6 +165,9 @@ const SEARCH_THREADS_MIN_QUERY: usize = 2;
 struct UiRpcConfig {
     environment_id: String,
     allowed_origins: Vec<AllowedOrigin>,
+    /// Whether this deployment exports spans over OTLP — reported to the
+    /// client as `observability.otlpTracesEnabled` (see [`server_config`]).
+    otlp_traces_enabled: bool,
 }
 
 /// One entry of `T3_UI_RPC_ALLOWED_ORIGINS`.
@@ -295,6 +299,7 @@ pub async fn router_from_env(
         agents,
         branches,
         commands,
+        otlp_traces_enabled,
     } = dependencies;
     let environment = conversations.listing_head().await?.identity;
     let config = UiRpcConfig {
@@ -306,6 +311,7 @@ pub async fn router_from_env(
             .filter(|origin| !origin.is_empty())
             .map(AllowedOrigin::parse)
             .collect(),
+        otlp_traces_enabled,
     };
     config.validate()?;
     info!(
@@ -382,6 +388,10 @@ pub struct UiRpcDependencies {
     pub branches: Arc<dyn ports::RepositoryBranchSource>,
     /// Carries out the commands the T3 client dispatches.
     pub commands: Arc<dyn ports::ThreadCommandSink>,
+    /// Whether this deployment exports spans over OTLP (an OTLP endpoint is
+    /// configured — see `config::OtelConfig`), reported to the client as
+    /// `observability.otlpTracesEnabled`.
+    pub otlp_traces_enabled: bool,
 }
 
 /// The identity this deployment presents itself by: a configured name, and a
@@ -1337,6 +1347,68 @@ enum ClientFrame {
     Eof,
 }
 
+/// Root span for a single UI-RPC request. Honors a well-formed client trace
+/// context (W3C-style 32-hex trace id / 16-hex span id) as the parent, so the
+/// request's server-side spans land in the same trace as the client's. A
+/// missing or malformed context mints a fresh root instead of failing the
+/// request, and records the raw client-supplied value for debugging.
+fn request_root_span(
+    tag: &str,
+    trace_id: Option<&str>,
+    span_id: Option<&str>,
+    sampled: Option<bool>,
+) -> tracing::Span {
+    let span = tracing::info_span!(
+        "ui_rpc.request",
+        tag = %tag,
+        client_trace_id = tracing::field::Empty,
+    );
+    match remote_span_context(trace_id, span_id, sampled) {
+        Some(cx) => {
+            let _ = span.set_parent(cx);
+        }
+        None => {
+            if let Some(raw) = trace_id {
+                span.record("client_trace_id", raw);
+            }
+        }
+    }
+    span
+}
+
+/// Parses a client-supplied trace/span id pair into a remote OTel span
+/// context, or `None` if either is missing or malformed. Never fails the
+/// request — callers fall back to minting a fresh root span.
+fn remote_span_context(
+    trace_id: Option<&str>,
+    span_id: Option<&str>,
+    sampled: Option<bool>,
+) -> Option<opentelemetry::Context> {
+    use opentelemetry::trace::{
+        SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
+    };
+
+    // `from_hex` parses any valid hex string regardless of length (it does not
+    // zero-pad), so a short client value like "deadbeef" would otherwise parse
+    // into a spuriously "valid" trace id. The W3C format is fixed-width: reject
+    // anything but exactly 32/16 hex characters before parsing.
+    let trace_id = trace_id.filter(|s| s.len() == 32)?;
+    let span_id = span_id.filter(|s| s.len() == 16)?;
+    let trace_id = TraceId::from_hex(trace_id)
+        .ok()
+        .filter(|id| *id != TraceId::INVALID)?;
+    let span_id = SpanId::from_hex(span_id)
+        .ok()
+        .filter(|id| *id != SpanId::INVALID)?;
+    let flags = if sampled.unwrap_or(false) {
+        TraceFlags::SAMPLED
+    } else {
+        TraceFlags::default()
+    };
+    let span_context = SpanContext::new(trace_id, span_id, flags, true, TraceState::default());
+    Some(opentelemetry::Context::new().with_remote_span_context(span_context))
+}
+
 #[derive(Debug, Default)]
 struct StreamState {
     awaiting_ack: bool,
@@ -1455,12 +1527,15 @@ impl ProtocolSession {
                     span_id,
                     sampled,
                 } => {
-                    // Parsing these fields is intentional even though phase one
-                    // does not consume request headers or tracing context.
-                    drop((headers, trace_id, span_id, sampled));
-                    output
-                        .frames
-                        .extend(self.handle_request(id, tag, payload, state, identity).await);
+                    // Not consumed: the sibling diagnostics spec, not this one.
+                    drop(headers);
+                    let span =
+                        request_root_span(&tag, trace_id.as_deref(), span_id.as_deref(), sampled);
+                    output.frames.extend(
+                        self.handle_request(id, tag, payload, state, identity)
+                            .instrument(span)
+                            .await,
+                    );
                 }
             }
         }
@@ -2671,7 +2746,7 @@ async fn server_config(state: &UiRpcState, identity: &AuthIdentity) -> Value {
         "observability": {
             "logsDirectoryPath": "/moatless/logs",
             "localTracingEnabled": false,
-            "otlpTracesEnabled": false,
+            "otlpTracesEnabled": state.rpc.otlp_traces_enabled,
             "otlpMetricsEnabled": false
         },
         "settings": {},
@@ -3318,6 +3393,7 @@ mod tests {
             rpc: Arc::new(UiRpcConfig {
                 environment_id: environment_id(&stub_identity()),
                 allowed_origins: vec![AllowedOrigin::parse("http://localhost:5733")],
+                otlp_traces_enabled: false,
             }),
             environment: Arc::new(stub_identity()),
             session_cookie_name: Arc::from("moatless_session"),
@@ -4184,6 +4260,7 @@ mod tests {
         let config = UiRpcConfig {
             environment_id: "moatless".into(),
             allowed_origins: vec![],
+            otlp_traces_enabled: false,
         };
         assert!(config.validate().is_err());
     }
@@ -4195,6 +4272,7 @@ mod tests {
         let config = UiRpcConfig {
             environment_id: "moatless".into(),
             allowed_origins: vec![AllowedOrigin::parse("https://example.com")],
+            otlp_traces_enabled: false,
         };
 
         assert_eq!(
@@ -4405,6 +4483,150 @@ mod tests {
             assert_eq!(
                 json(response).await["reason"],
                 "websocket_ticket_issuance_failed"
+            );
+        }
+    }
+
+    mod trace_context {
+        use super::*;
+        use opentelemetry::trace::{TraceContextExt, TracerProvider};
+        use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        const VALID_TRACE_ID: &str = "0af7651916cd43dd8448eb211c80319c";
+        const VALID_SPAN_ID: &str = "b7ad6b7169203331";
+
+        #[tokio::test]
+        async fn otlp_traces_enabled_reflects_whether_export_is_active() {
+            let off = state();
+            assert_eq!(
+                server_config(&off, &viewer()).await["observability"]["otlpTracesEnabled"],
+                false
+            );
+
+            let on = UiRpcState {
+                rpc: Arc::new(UiRpcConfig {
+                    otlp_traces_enabled: true,
+                    ..(*off.rpc).clone()
+                }),
+                ..off
+            };
+            assert_eq!(
+                server_config(&on, &viewer()).await["observability"]["otlpTracesEnabled"],
+                true
+            );
+        }
+
+        #[test]
+        fn well_formed_client_context_parses_into_a_remote_span_context() {
+            let cx = remote_span_context(Some(VALID_TRACE_ID), Some(VALID_SPAN_ID), Some(true))
+                .expect("well-formed ids parse");
+            let span_context = cx.span().span_context().clone();
+            assert_eq!(span_context.trace_id().to_string(), VALID_TRACE_ID);
+            assert_eq!(span_context.span_id().to_string(), VALID_SPAN_ID);
+            assert!(span_context.is_sampled());
+            assert!(span_context.is_remote());
+        }
+
+        #[test]
+        fn unsampled_client_context_carries_no_sampled_flag() {
+            let cx = remote_span_context(Some(VALID_TRACE_ID), Some(VALID_SPAN_ID), Some(false))
+                .expect("well-formed ids parse");
+            assert!(!cx.span().span_context().is_sampled());
+        }
+
+        #[test]
+        fn missing_ids_yield_no_remote_context() {
+            assert!(remote_span_context(None, Some(VALID_SPAN_ID), Some(true)).is_none());
+            assert!(remote_span_context(Some(VALID_TRACE_ID), None, Some(true)).is_none());
+        }
+
+        #[test]
+        fn malformed_ids_yield_no_remote_context() {
+            // Wrong length.
+            assert!(
+                remote_span_context(Some("deadbeef"), Some(VALID_SPAN_ID), Some(true)).is_none()
+            );
+            // Right length, not hex.
+            assert!(
+                remote_span_context(
+                    Some("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"),
+                    Some(VALID_SPAN_ID),
+                    Some(true)
+                )
+                .is_none()
+            );
+            // The all-zero trace id is explicitly invalid per the W3C spec.
+            assert!(
+                remote_span_context(
+                    Some("00000000000000000000000000000000"),
+                    Some(VALID_SPAN_ID),
+                    Some(true)
+                )
+                .is_none()
+            );
+        }
+
+        #[test]
+        fn a_well_formed_client_trace_id_becomes_the_request_spans_trace_id() {
+            let (provider, exporter) = {
+                let exporter = InMemorySpanExporter::default();
+                let provider = SdkTracerProvider::builder()
+                    .with_simple_exporter(exporter.clone())
+                    .build();
+                (provider, exporter)
+            };
+            let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+            let subscriber = tracing_subscriber::registry().with(otel_layer);
+            let _guard = tracing::subscriber::set_default(subscriber);
+
+            {
+                let span = request_root_span(
+                    "shell.list",
+                    Some(VALID_TRACE_ID),
+                    Some(VALID_SPAN_ID),
+                    Some(true),
+                );
+                let _entered = span.enter();
+            }
+            provider.force_flush().expect("flush the simple exporter");
+
+            let spans = exporter.get_finished_spans().expect("exporter is readable");
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0].span_context.trace_id().to_string(), VALID_TRACE_ID);
+        }
+
+        #[test]
+        fn a_malformed_client_trace_id_mints_a_fresh_root_and_records_the_raw_value() {
+            let exporter = InMemorySpanExporter::default();
+            let provider = SdkTracerProvider::builder()
+                .with_simple_exporter(exporter.clone())
+                .build();
+            let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+            let subscriber = tracing_subscriber::registry().with(otel_layer);
+            let _guard = tracing::subscriber::set_default(subscriber);
+
+            {
+                let span = request_root_span("shell.list", Some("not-a-trace-id"), None, None);
+                let _entered = span.enter();
+            }
+            provider.force_flush().expect("flush the simple exporter");
+
+            let spans = exporter.get_finished_spans().expect("exporter is readable");
+            assert_eq!(spans.len(), 1);
+            // A fresh root never shares the malformed client value verbatim as
+            // its trace id, but the raw value is preserved as an attribute.
+            assert_ne!(
+                spans[0].span_context.trace_id().to_string(),
+                "not-a-trace-id"
+            );
+            let recorded = spans[0]
+                .attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "client_trace_id");
+            assert_eq!(
+                recorded.map(|kv| kv.value.as_str().to_string()),
+                Some("not-a-trace-id".to_string())
             );
         }
     }

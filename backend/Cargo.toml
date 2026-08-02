@@ -41,6 +41,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
 
+# OTel tracing, exported to Tempo (backend/src/startup.rs::init_tracing). Off
+# unless an OTLP endpoint is configured — see OtelConfig. Metrics/logs features
+# are left out: Prometheus stays the metrics pipeline (see `metrics` above).
+opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = { version = "0.33", default-features = false }
+
 # Config
 dotenvy = "0.15"
 
@@ -149,6 +157,10 @@ tempfile = "3"
 # actually wrote to a counter rather than that it compiled. Used by
 # `tests/telegram_ingress_test.rs`, which only builds under `db-tests`.
 metrics-util = { version = "0.20", features = ["debugging"], default-features = false }
+
+# In-memory span exporter, so ui_rpc::tests can assert a request's spans share
+# the client's trace id without a real OTLP collector.
+opentelemetry_sdk = { version = "0.32", features = ["testing"] }
 
 [[example]]
 name = "codex_refresh_smoke"

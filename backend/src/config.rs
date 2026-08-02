@@ -913,6 +913,46 @@ impl fmt::Debug for SecretsConfig {
     }
 }
 
+/// OTLP trace export settings (`backend/src/startup.rs::init_tracing`).
+///
+/// `otlp_endpoint: None` (the default — `OTEL_EXPORTER_OTLP_ENDPOINT` unset)
+/// means trace export is off: `init_tracing` omits the OTel layer entirely and
+/// the process behaves exactly as it did before this config existed.
+#[derive(Debug, Clone)]
+pub struct OtelConfig {
+    /// OTLP/gRPC collector endpoint (e.g. `http://tempo:4317`).
+    pub otlp_endpoint: Option<String>,
+    /// Head sampling ratio for the parent-based sampler, applied only to
+    /// traces with no sampling decision already made upstream (env:
+    /// `OTEL_TRACES_SAMPLER_ARG`, matching the OTel SDK's own name for a
+    /// ratio-sampler argument).
+    pub sampling_ratio: f64,
+    /// OTel `service.name` resource (env: `OTEL_SERVICE_NAME`).
+    pub service_name: String,
+}
+
+impl OtelConfig {
+    const DEFAULT_SAMPLING_RATIO: f64 = 0.1;
+    const DEFAULT_SERVICE_NAME: &'static str = "moatless-vibe-backend";
+
+    /// Read directly from the environment, without a `tracing::warn!` on a
+    /// malformed value — this runs once from `main()` before
+    /// `startup::init_tracing` installs a subscriber, and a warning emitted
+    /// before that point has nowhere to land. [`Config::from_env`] reads the
+    /// same variables into [`Config::otel`] afterwards, once logging is live.
+    pub fn from_env() -> Self {
+        Self {
+            otlp_endpoint: env_opt("OTEL_EXPORTER_OTLP_ENDPOINT"),
+            sampling_ratio: env::var("OTEL_TRACES_SAMPLER_ARG")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .filter(|ratio| ratio.is_finite() && *ratio >= 0.0)
+                .unwrap_or(Self::DEFAULT_SAMPLING_RATIO),
+            service_name: env_str("OTEL_SERVICE_NAME", Self::DEFAULT_SERVICE_NAME),
+        }
+    }
+}
+
 // =========================================================================
 // Top-level Config
 // =========================================================================
@@ -944,6 +984,7 @@ pub struct Config {
     /// `LOOP.md` frontmatter omits `runAsUserId` and the repo has no owner.
     /// Env: `MOATLESS_DEFAULT_RUN_AS_USER_ID`.
     pub default_run_as_user_id: Option<String>,
+    pub otel: OtelConfig,
 }
 
 /// Configuration validation errors.
@@ -1203,6 +1244,7 @@ impl Config {
             },
 
             default_run_as_user_id: env_opt("MOATLESS_DEFAULT_RUN_AS_USER_ID"),
+            otel: OtelConfig::from_env(),
         };
 
         config.validate()?;
@@ -1519,6 +1561,11 @@ impl Config {
                 client_id: "test-codex-client".into(),
             },
             default_run_as_user_id: None,
+            otel: OtelConfig {
+                otlp_endpoint: None,
+                sampling_ratio: 0.1,
+                service_name: "test".into(),
+            },
         }
     }
 }

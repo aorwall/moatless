@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use tracing::Instrument;
 
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
@@ -309,9 +310,10 @@ impl Lifecycle {
     pub async fn start(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
+        let span = tracing::Span::current();
         Self::join(
             task_id.to_string(),
-            tokio::spawn(async move { me.op_start(id).await }),
+            tokio::spawn(async move { me.op_start(id).await }.instrument(span)),
         )
         .await
     }
@@ -323,9 +325,10 @@ impl Lifecycle {
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
+        let span = tracing::Span::current();
         Self::join(
             task_id.to_string(),
-            tokio::spawn(async move { me.op_stop(id, reason).await }),
+            tokio::spawn(async move { me.op_stop(id, reason).await }.instrument(span)),
         )
         .await
     }
@@ -333,9 +336,12 @@ impl Lifecycle {
     pub async fn restart(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
+        let span = tracing::Span::current();
         Self::join(
             task_id.to_string(),
-            tokio::spawn(async move { me.op_edge(id, OperationKind::Restart).await }),
+            tokio::spawn(
+                async move { me.op_edge(id, OperationKind::Restart).await }.instrument(span),
+            ),
         )
         .await
     }
@@ -343,9 +349,12 @@ impl Lifecycle {
     pub async fn redeploy(&self, task_id: &str) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
+        let span = tracing::Span::current();
         Self::join(
             task_id.to_string(),
-            tokio::spawn(async move { me.op_edge(id, OperationKind::Redeploy).await }),
+            tokio::spawn(
+                async move { me.op_edge(id, OperationKind::Redeploy).await }.instrument(span),
+            ),
         )
         .await
     }
@@ -357,9 +366,10 @@ impl Lifecycle {
     ) -> Result<LifecycleOutcome, LifecycleError> {
         let me = self.clone();
         let id = task_id.to_string();
+        let span = tracing::Span::current();
         Self::join(
             task_id.to_string(),
-            tokio::spawn(async move { me.op_remove(id, retention).await }),
+            tokio::spawn(async move { me.op_remove(id, retention).await }.instrument(span)),
         )
         .await
     }
@@ -393,6 +403,7 @@ impl Lifecycle {
 
     // ---- Detached bodies (own the lock guard for the transition) ----
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id, op = "start"))]
     async fn op_start(self, task_id: String) -> Result<LifecycleOutcome, LifecycleError> {
         let _guard = self.acquire(&task_id, OperationKind::Start).await?;
         let intent = self.require_intent(&task_id).await?;
@@ -401,6 +412,7 @@ impl Lifecycle {
             .await
     }
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id, op = ?kind))]
     async fn op_edge(
         self,
         task_id: String,
@@ -412,6 +424,7 @@ impl Lifecycle {
         self.run_toward_running(&task_id, kind, &intent).await
     }
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id, op = "stop"))]
     async fn op_stop(
         self,
         task_id: String,
@@ -423,6 +436,7 @@ impl Lifecycle {
         self.run_stop(&task_id, &intent, reason).await
     }
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id, op = "remove"))]
     async fn op_remove(
         self,
         task_id: String,
@@ -605,7 +619,7 @@ impl Lifecycle {
             Err(e) => {
                 return Err(self
                     .publish_failure(task_id, OperationKind::Stop, generation, e)
-                    .await)
+                    .await);
             }
         };
 
@@ -658,7 +672,7 @@ impl Lifecycle {
             Err(e) => {
                 return Err(self
                     .publish_failure(task_id, OperationKind::Remove, generation, e)
-                    .await)
+                    .await);
             }
         };
 
@@ -1392,11 +1406,12 @@ mod tests {
             .lock()
             .expect("lock")
             .replace(Ok(RuntimeOutcome::no_op(ObservedStatus::Removed)));
-        assert!(h
-            .lifecycle
-            .remove("t", ArchiveRetention::DeleteArchives)
-            .await
-            .is_ok());
+        assert!(
+            h.lifecycle
+                .remove("t", ArchiveRetention::DeleteArchives)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -1599,13 +1614,14 @@ mod tests {
         let out = h.lifecycle.start("t").await.expect("ok");
         assert_eq!(out.observed, ObservedStatus::Ready);
         assert!(h.events.facts().contains(&EventFact::Initializing));
-        assert!(h
-            .events
-            .published
-            .lock()
-            .expect("lock")
-            .iter()
-            .all(|e| e.status != moatless_events::SandboxStatus::Ready));
+        assert!(
+            h.events
+                .published
+                .lock()
+                .expect("lock")
+                .iter()
+                .all(|e| e.status != moatless_events::SandboxStatus::Ready)
+        );
     }
 
     #[tokio::test]
@@ -1665,10 +1681,12 @@ mod tests {
             payload.message,
             "Sandbox start failed: runtime infrastructure error: previous pod still terminating"
         );
-        assert!(payload
-            .error
-            .as_deref()
-            .is_some_and(|e| e.contains("previous pod still terminating")));
+        assert!(
+            payload
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("previous pod still terminating"))
+        );
         assert_eq!(
             payload.lifecycle_event.as_deref(),
             Some("runtime_infrastructure")

@@ -80,6 +80,14 @@ spec:
               value: {{ .Values.backend.logLevel | default "info" | quote }}
             - name: RUST_BACKTRACE
               value: {{ .Values.backend.backtrace | default "1" | quote }}
+            {{- with .Values.backend.otel.otlpEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ $.Values.backend.otel.samplingRatio | default "0.1" | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ $.Values.backend.otel.serviceName | default "moatless-vibe-backend" | quote }}
+            {{- end }}
             - name: SANDBOX_IMAGE
               value: {{ include "moatless-vibe.sandboxImage" . | quote }}
             - name: SANDBOX_IMAGE_PULL_POLICY

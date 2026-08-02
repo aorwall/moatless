@@ -41,6 +41,7 @@ use moatless_backend_core::scope::ScopeContext;
         (status = 500, description = "Provisioning failed", body = crate::error::ErrorBody)
     )
 )]
+#[tracing::instrument(skip_all, fields(task_id = %task_id))]
 pub async fn provision_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,
@@ -71,6 +72,7 @@ pub async fn provision_handler(
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
+#[tracing::instrument(skip_all, fields(task_id = %task_id))]
 pub async fn live_status_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,
@@ -109,6 +111,7 @@ pub async fn live_status_handler(
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
+#[tracing::instrument(skip_all, fields(task_id = %task_id))]
 pub async fn sandbox_status_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,
@@ -177,6 +180,7 @@ pub async fn sandbox_status_handler(
         (status = 500, description = "Stop failed", body = crate::error::ErrorBody)
     )
 )]
+#[tracing::instrument(skip_all, fields(task_id = %task_id))]
 pub async fn stop_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,
@@ -206,6 +210,7 @@ pub async fn stop_handler(
         (status = 500, description = "Restart failed", body = crate::error::ErrorBody)
     )
 )]
+#[tracing::instrument(skip_all, fields(task_id = %task_id))]
 pub async fn restart_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,
@@ -237,6 +242,7 @@ pub async fn restart_handler(
         (status = 500, description = "Redeploy failed", body = crate::error::ErrorBody)
     )
 )]
+#[tracing::instrument(skip_all, fields(task_id = %task_id))]
 pub async fn redeploy_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,
@@ -268,6 +274,7 @@ pub async fn redeploy_handler(
         (status = 500, description = "Cleanup failed", body = crate::error::ErrorBody)
     )
 )]
+#[tracing::instrument(skip_all, fields(task_id = %task_id))]
 pub async fn remove_handler(
     State(state): State<SandboxApiState>,
     OptionalScope(scope): OptionalScope,

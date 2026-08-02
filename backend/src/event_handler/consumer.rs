@@ -3,8 +3,8 @@
 //! Subscribes to `task-events:*` streams using a separate consumer group
 //! from the SSE consumer. Processes `agent.*` and `task.metadata.updated` events.
 
-use redis::aio::ConnectionManager;
 use redis::Value;
+use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -382,6 +382,10 @@ impl EventHandlerConsumer {
     }
 
     /// Dispatch a parsed event to the appropriate handler.
+    #[tracing::instrument(
+        skip_all,
+        fields(task_id = %event.task_id, event_type = %event.event_type, sub_type = %event.sub_type)
+    )]
     async fn dispatch_event(&self, event: &AgentEvent) {
         match event.event_key() {
             EventKey::Agent(AgentSubType::Completed) => {

@@ -335,6 +335,20 @@ backend:
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
     # targetMemoryUtilizationPercentage: 80
+  # -- OpenTelemetry trace export (OTLP/gRPC) to Tempo. Off by default: this
+  # chart does not deploy Tempo or an OTel collector — set `otlpEndpoint` to
+  # one your cluster already has (e.g. a Tempo distributor or collector on
+  # port 4317) to turn tracing on. Metrics stay on Prometheus, unaffected.
+  otel:
+    # -- OTLP/gRPC endpoint spans are exported to, e.g. "http://tempo:4317".
+    # Unset ⇒ tracing off, logs-only, exactly as without this block.
+    otlpEndpoint: ""
+    # -- Head sampling ratio for traces with no already-sampled parent
+    # (OTEL_TRACES_SAMPLER_ARG). A request whose client already decided to
+    # sample is always kept regardless of this ratio.
+    samplingRatio: "0.1"
+    # -- OTel `service.name` resource (OTEL_SERVICE_NAME).
+    serviceName: "moatless-vibe-backend"
 
 # Traefik Dashboard (requires Traefik api.dashboard=true)
 traefikDashboard:
@@ -1126,6 +1140,27 @@ monitoring:
     enabled: false
     # -- Additional labels for dashboard ConfigMap (for sidecar discovery)
     dashboardLabels: {}
+    # -- Additional labels for the datasource ConfigMap (for sidecar discovery)
+    datasourceLabels: {}
+    # Tempo trace datasource + Loki→Tempo `trace_id` correlation. This chart
+    # does not deploy Tempo or Loki; both blocks are off until pointed at
+    # instances you already run, alongside backend.otel.otlpEndpoint.
+    tempo:
+      # -- Provision a Tempo datasource (requires monitoring.grafana.enabled)
+      enabled: false
+      # -- Tempo's query endpoint, e.g. "http://tempo:3200"
+      url: ""
+    loki:
+      # -- Redefine an existing Loki datasource with a `trace_id` derived
+      # field linking log lines to their Tempo trace. Only set this if your
+      # Grafana's Loki datasource isn't already provisioned with one — the
+      # name/uid here must match that datasource, or this creates a
+      # duplicate rather than augmenting it.
+      enabled: false
+      # -- Name of the existing Loki datasource to redefine
+      name: "Loki"
+      # -- Loki's query endpoint, e.g. "http://loki:3100"
+      url: ""
   # Prometheus metrics scraping
   prometheus:
     # -- Enable PodMonitor for Prometheus scraping

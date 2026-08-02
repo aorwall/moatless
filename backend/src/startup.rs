@@ -8,18 +8,27 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
+use opentelemetry::trace::TraceContextExt;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::FmtContext;
+use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
 use crate::auth::provider_tokens::{PgProviderTokenAuthDao, ProviderTokenAuthDao};
 use crate::auth::users::{PgUserDao, UserDao};
-use crate::config::Config;
+use crate::config::{Config, OtelConfig};
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::{self, DbPool};
 use crate::events::{EventPublisher, RedisEventPublisher};
@@ -40,13 +49,22 @@ use crate::task::dao::{PgTaskDao, TaskDao};
 // Logging
 // =========================================================================
 
-/// Install JSON tracing subscriber with `RUST_LOG` env-filter support.
-pub fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .json()
+/// Install the layered tracing subscriber: the JSON `fmt` layer (stdout,
+/// shipped to Loki) plus, when `otel.otlp_endpoint` is set, a
+/// `tracing-opentelemetry` layer exporting spans to that OTLP collector.
+///
+/// With no endpoint configured the OTel layer is omitted and behaviour is
+/// identical to the plain `fmt`-only subscriber this replaced. Returns the
+/// `SdkTracerProvider` when export is active — the caller (`main`) owns its
+/// shutdown so buffered spans flush before the process exits.
+///
+/// `RUST_LOG` still controls verbosity via the shared `EnvFilter`; it gates
+/// both layers equally; a lost span there means fewer exported traces, not a
+/// filter divergence between what's logged and what's traced.
+pub fn init_tracing(otel: &OtelConfig) -> Option<SdkTracerProvider> {
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let base_format = tracing_subscriber::fmt::format::json()
         // Lift event fields (incl. `message`) to the JSON root so Loki's
         // `| json | message=…` works directly instead of `fields_message`.
         .flatten_event(true)
@@ -54,8 +72,135 @@ pub fn init_tracing() {
         // (queryable in Loki as `span_<field>`); drop the `spans` array since
         // JSON arrays aren't field-queryable there.
         .with_current_span(true)
-        .with_span_list(false)
+        .with_span_list(false);
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .event_format(TraceContextJson(base_format));
+
+    let (otel_layer, provider, otel_error) = match otel.otlp_endpoint.as_deref() {
+        Some(endpoint) => match build_otel_layer(otel, endpoint) {
+            Ok((layer, provider)) => (Some(layer), Some(provider), None),
+            Err(error) => (None, None, Some(error.to_string())),
+        },
+        None => (None, None, None),
+    };
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer)
+        .with(otel_layer)
         .init();
+
+    // Only reachable once the subscriber above is live, so this actually logs
+    // (a `tracing::warn!` any earlier would have nowhere to land).
+    if let Some(error) = otel_error {
+        tracing::warn!(
+            error,
+            endpoint = otel.otlp_endpoint.as_deref().unwrap_or_default(),
+            "Failed to build the OTLP trace exporter; continuing without trace export"
+        );
+    }
+
+    provider
+}
+
+/// Build the `tracing-opentelemetry` layer and its owning `SdkTracerProvider`
+/// for one configured OTLP/gRPC endpoint (default port 4317).
+///
+/// Sampling is parent-based: a span with an already-sampled remote parent
+/// (the client's `sampled` flag — see `ui_rpc::mod::request_root_span`) is
+/// always kept; a root span is sampled at `otel.sampling_ratio`.
+fn build_otel_layer<S>(
+    otel: &OtelConfig,
+    endpoint: &str,
+) -> Result<
+    (
+        impl tracing_subscriber::Layer<S> + Send + Sync + 'static,
+        SdkTracerProvider,
+    ),
+    opentelemetry_otlp::ExporterBuildError,
+>
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a> + Send + Sync,
+{
+    use opentelemetry::trace::TracerProvider as _;
+
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(endpoint)
+        .build()?;
+
+    let resource = opentelemetry_sdk::Resource::builder()
+        .with_service_name(otel.service_name.clone())
+        .build();
+
+    let provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+            otel.sampling_ratio,
+        ))))
+        .with_resource(resource)
+        .build();
+
+    let tracer = provider.tracer(otel.service_name.clone());
+    let layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    Ok((layer, provider))
+}
+
+/// The active span's OTel trace/span ids as lowercase hex, when a valid OTel
+/// context is attached. `None` whenever export is off (no OTel layer
+/// installed) or no span is currently active — the JSON line then carries no
+/// `trace_id`/`span_id`, exactly as before this existed.
+fn current_trace_context() -> Option<(String, String)> {
+    let cx = tracing::Span::current().context();
+    let span_context = cx.span().span_context().clone();
+    if !span_context.is_valid() {
+        return None;
+    }
+    Some((
+        span_context.trace_id().to_string(),
+        span_context.span_id().to_string(),
+    ))
+}
+
+/// Wraps the standard JSON event formatter to splice `trace_id`/`span_id`
+/// from the active OTel span onto every log line, so a Loki line can be
+/// pivoted to its Tempo trace. Delegates the whole line to the wrapped
+/// formatter and only post-processes when a valid trace context exists, so
+/// output is byte-for-byte the same as before with OTel export off.
+struct TraceContextJson<F>(F);
+
+impl<S, N, F> FormatEvent<S, N> for TraceContextJson<F>
+where
+    S: tracing::Subscriber + for<'lookup> LookupSpan<'lookup>,
+    N: for<'writer> FormatFields<'writer> + 'static,
+    F: FormatEvent<S, N>,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> std::fmt::Result {
+        let Some((trace_id, span_id)) = current_trace_context() else {
+            return self.0.format_event(ctx, writer, event);
+        };
+
+        let mut line = String::new();
+        self.0.format_event(ctx, Writer::new(&mut line), event)?;
+
+        let Ok(serde_json::Value::Object(mut object)) = serde_json::from_str(line.trim_end())
+        else {
+            // Formatter output that doesn't parse as a JSON object is
+            // unexpected but not this layer's problem to fail the line over —
+            // emit it unmodified rather than lose it.
+            return writer.write_str(&line);
+        };
+        object.insert("trace_id".into(), trace_id.into());
+        object.insert("span_id".into(), span_id.into());
+        writeln!(writer, "{}", serde_json::Value::Object(object))
+    }
 }
 
 // =========================================================================

@@ -1,0 +1,36 @@
+{{- if and .Values.monitoring.grafana.enabled (or .Values.monitoring.grafana.tempo.enabled .Values.monitoring.grafana.loki.enabled) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-grafana-datasource
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    grafana_datasource: "1"
+  {{- with .Values.monitoring.grafana.datasourceLabels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  moatless-vibe-tracing.yaml: |-
+    apiVersion: 1
+    datasources:
+      {{- if .Values.monitoring.grafana.tempo.enabled }}
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: {{ .Values.monitoring.grafana.tempo.url | quote }}
+        uid: {{ include "moatless-vibe.fullname" . }}-tempo
+        isDefault: false
+      {{- end }}
+      {{- if .Values.monitoring.grafana.loki.enabled }}
+      - name: {{ .Values.monitoring.grafana.loki.name | quote }}
+        type: loki
+        access: proxy
+        url: {{ .Values.monitoring.grafana.loki.url | quote }}
+        isDefault: false
+        jsonData:
+          derivedFields:
+            - matcherRegex: '"trace_id":"([0-9a-f]+)"'
+              name: trace_id
+              datasourceUid: {{ include "moatless-vibe.fullname" . }}-tempo
+      {{- end }}
+{{- end }}

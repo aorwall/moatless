@@ -31,7 +31,7 @@ use moatless_vibe_backend::message::service as message_service;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::repository::routes::repository_router;
 use moatless_vibe_backend::sandbox::access::{
-    SandboxConnector, SandboxIntentReader, SandboxObserver,
+    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
 };
 use moatless_vibe_backend::sandbox::client::SandboxClient;
 use moatless_vibe_backend::sandbox::error::SandboxError;
@@ -41,7 +41,9 @@ use moatless_vibe_backend::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::tag::dao::{PgTagDao, TagDao};
 use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
-use moatless_vibe_backend::task::models::{SandboxDesiredState, Task, TaskStatus, Visibility};
+use moatless_vibe_backend::task::models::{
+    SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility,
+};
 use moatless_vibe_backend::task_activities::mapping::{
     BlockContext, ConversationWrite, map_content,
 };
@@ -166,6 +168,20 @@ impl SandboxIntentReader for NoSandboxes {
     }
 }
 
+#[async_trait::async_trait]
+impl SandboxStarter for NoSandboxes {
+    async fn start(&self, task_id: &str) -> Result<(), SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+}
+
+#[async_trait::async_trait]
+impl SandboxStopper for NoSandboxes {
+    async fn stop(&self, task_id: &str, _reason: SandboxStopReason) -> Result<(), SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+}
+
 /// The compatibility router's dependencies, as `main` assembles them. Pairing
 /// itself is asserted in `backend/tests/device_pairing_test.rs`; here it is
 /// wired only because the router carries it.
@@ -183,6 +199,9 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         observer: Arc::new(NoSandboxes),
         tasks: Arc::new(PgTaskDao(pool.clone())),
         intent: Arc::new(NoSandboxes),
+        // Nothing this suite drives starts or stops a Sandbox.
+        starter: Arc::new(NoSandboxes),
+        stopper: Arc::new(NoSandboxes),
         // Nothing this suite drives opens a preview tab, and the in-process
         // store is a production path rather than a double — see the epoch note
         // on `PreviewTabDao`.
@@ -195,6 +214,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
             pool.clone(),
         ))),
         model_defaults: defaults(),
+        otlp_traces_enabled: false,
     }
 }
 

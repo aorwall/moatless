@@ -28,7 +28,7 @@ use crate::sandbox::client::SandboxClient;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::lifecycle::outcome::{DegradationWarning, Diagnostics};
 use crate::sandbox::lifecycle::runtime::{
-    map_sandbox_error, RuntimeOperationContext, RuntimeOutcome, SandboxRuntime,
+    RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
 };
 use crate::sandbox::lifecycle::{ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect};
 use crate::sandbox::models::*;
@@ -304,6 +304,7 @@ impl K8sSandboxAdapter {
 
 #[async_trait]
 impl SandboxRuntime for K8sSandboxAdapter {
+    #[tracing::instrument(skip_all, fields(task_id = %task_id))]
     async fn ensure_running(
         &self,
         task_id: &str,
@@ -316,6 +317,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
             .map_err(map_sandbox_error)
     }
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id))]
     async fn stop(
         &self,
         task_id: &str,
@@ -359,6 +361,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         })
     }
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id))]
     async fn restart(
         &self,
         task_id: &str,
@@ -404,6 +407,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
     }
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id))]
     async fn redeploy(
         &self,
         task_id: &str,
@@ -476,6 +480,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
             .map_err(map_sandbox_error)
     }
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id))]
     async fn remove(
         &self,
         task_id: &str,
@@ -997,7 +1002,7 @@ impl K8sSandboxAdapter {
             Ok((0, _)) => {
                 return ExistingPodResult::Stopped {
                     current_image: deployment::deployment_sandbox_image(&dep),
-                }
+                };
             }
             Ok(_) => {}
             Err(e) => {
