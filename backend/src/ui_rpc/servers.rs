@@ -19,10 +19,13 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::sandbox::access::{LogOptions, SandboxIntentReader, SandboxObserver, SandboxStarter};
+use crate::sandbox::access::{
+    LogOptions, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
+};
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::schemas::ServerEntry;
 use crate::task::dao::TaskDao;
+use crate::task::models::SandboxStopReason;
 use moatless_backend_core::scope::ScopeContext;
 
 /// How often a subscribed status stream asks the runtime what changed.
@@ -44,6 +47,7 @@ pub struct ServersState {
     pub tasks: Arc<dyn TaskDao>,
     pub intent: Arc<dyn SandboxIntentReader>,
     pub starter: Arc<dyn SandboxStarter>,
+    pub stopper: Arc<dyn SandboxStopper>,
 }
 
 /// Why a `servers.*` read could not be answered.
@@ -162,6 +166,22 @@ pub async fn start_sandbox(
     state
         .starter
         .start(task_id)
+        .await
+        .map_err(ServersError::Sandbox)?;
+    sandbox_status(state, viewer, task_id).await
+}
+
+/// Request that a Task's Sandbox move toward Stopped, then return its lifecycle
+/// status only.
+pub async fn stop_sandbox(
+    state: &ServersState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Value, ServersError> {
+    let _task = authorized_task(state, viewer, task_id).await?;
+    state
+        .stopper
+        .stop(task_id, SandboxStopReason::User)
         .await
         .map_err(ServersError::Sandbox)?;
     sandbox_status(state, viewer, task_id).await
@@ -532,12 +552,24 @@ mod db_tests {
         }
     }
 
+    #[async_trait]
+    impl SandboxStopper for NeverAsked {
+        async fn stop(
+            &self,
+            _task_id: &str,
+            _reason: SandboxStopReason,
+        ) -> Result<(), SandboxError> {
+            unreachable!("servers.list does not stop a sandbox")
+        }
+    }
+
     fn state(pool: &PgPool) -> ServersState {
         ServersState {
             observer: Arc::new(NeverProvisioned(pool.clone())),
             tasks: Arc::new(PgTaskDao(pool.clone())),
             intent: Arc::new(NeverAsked),
             starter: Arc::new(NeverAsked),
+            stopper: Arc::new(NeverAsked),
         }
     }
 

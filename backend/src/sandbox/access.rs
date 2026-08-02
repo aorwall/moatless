@@ -12,7 +12,7 @@ use super::client::SandboxClient;
 use super::error::SandboxError;
 use super::live_status::LiveStatus;
 use super::schemas::SandboxStatusFullResponse;
-use crate::task::models::{SandboxDesiredState, TaskStatus};
+use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
 /// Which slice of a server container's log to read.
 #[derive(Debug, Clone, Copy)]
@@ -98,6 +98,21 @@ pub trait SandboxStarter: Send + Sync {
 impl SandboxStarter for super::lifecycle::Lifecycle {
     async fn start(&self, task_id: &str) -> Result<(), SandboxError> {
         Self::start(self, task_id).await?;
+        Ok(())
+    }
+}
+
+/// Durable lifecycle write needed by transports that can stop a running Task
+/// environment without taking the whole sandbox API state.
+#[async_trait]
+pub trait SandboxStopper: Send + Sync {
+    async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxError>;
+}
+
+#[async_trait]
+impl SandboxStopper for super::lifecycle::Lifecycle {
+    async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxError> {
+        Self::stop(self, task_id, reason).await?;
         Ok(())
     }
 }

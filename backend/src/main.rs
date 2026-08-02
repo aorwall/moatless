@@ -477,6 +477,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tasks: app_state.tasks.clone(),
             intent: app_state.sandbox.clone(),
             starter: app_state.sandbox.clone(),
+            stopper: app_state.sandbox.clone(),
             preview_tabs: preview_tabs.clone(),
             agents: Arc::new(ui_rpc::backend::AppStateAgents(app_state.clone())),
             commands: Arc::new(ui_rpc::backend::AppStateCommands(app_state.clone())),

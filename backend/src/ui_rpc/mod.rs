@@ -68,7 +68,7 @@ use crate::auth::identity::{AuthIdentity, AuthMethod};
 use crate::auth::models::UserRole;
 use crate::auth::pairing::DevicePairing;
 use crate::sandbox::access::{
-    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter,
+    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
 };
 use crate::task::dao::TaskDao;
 use crate::task_activities::{self, ConversationHead};
@@ -282,6 +282,7 @@ pub async fn router_from_env(
         tasks,
         intent,
         starter,
+        stopper,
         preview_tabs,
         model_defaults,
         agents,
@@ -317,6 +318,7 @@ pub async fn router_from_env(
             tasks: tasks.clone(),
             intent,
             starter,
+            stopper,
         },
         preview: PreviewState {
             tabs: preview_tabs,
@@ -354,6 +356,8 @@ pub struct UiRpcDependencies {
     pub intent: Arc<dyn SandboxIntentReader>,
     /// Starts a Task's Sandbox through the same lifecycle path as the REST API.
     pub starter: Arc<dyn SandboxStarter>,
+    /// Stops a Task's Sandbox through the same lifecycle path as the REST API.
+    pub stopper: Arc<dyn SandboxStopper>,
     pub preview_tabs: Arc<dyn PreviewTabDao>,
     pub model_defaults: AgentModelDefaults,
     /// Which agents this viewer can run, and with which models.
@@ -1787,6 +1791,16 @@ impl ProtocolSession {
                     Err(error) => vec![servers_failure_exit(&id, &error, identity)],
                 }
             }
+            "sandbox.stop" => {
+                let viewer = viewer_scope(identity);
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    return vec![failure_exit(&id, "sandbox.stop requires a threadId")];
+                };
+                match servers::stop_sandbox(&state.servers, &viewer, task_id).await {
+                    Ok(status) => vec![success_exit(&id, status)],
+                    Err(error) => vec![servers_failure_exit(&id, &error, identity)],
+                }
+            }
             "subscribeServerStatus" => {
                 let viewer = viewer_scope(identity);
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
@@ -2980,6 +2994,17 @@ mod tests {
     }
 
     #[async_trait]
+    impl crate::sandbox::access::SandboxStopper for UnreachableSandboxes {
+        async fn stop(
+            &self,
+            task_id: &str,
+            _reason: crate::task::models::SandboxStopReason,
+        ) -> Result<(), crate::sandbox::error::SandboxError> {
+            Err(unreachable(task_id))
+        }
+    }
+
+    #[async_trait]
     impl SandboxObserver for UnreachableSandboxes {
         async fn sandbox_status(
             &self,
@@ -3177,6 +3202,7 @@ mod tests {
                 tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
                 intent: Arc::new(UnreachableSandboxes),
                 starter: Arc::new(UnreachableSandboxes),
+                stopper: Arc::new(UnreachableSandboxes),
             },
             preview: PreviewState {
                 tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),
