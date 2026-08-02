@@ -781,14 +781,58 @@ pub async fn reopen_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let scope_ctx = auth.scope_context();
-    let row = state
+    reopen_task_for(&state, &auth.scope_context(), &task_id).await?;
+
+    let updated = state
         .tasks
-        .find_by_id(&task_id, &scope_ctx)
+        .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+
+    let resp = enrich_task(&updated, &state, &auth.user_id.to_string()).await?;
+    Ok(Json(resp))
+}
+
+/// Close one task on `scope_ctx`'s behalf, leaving any children open.
+///
+/// The close a caller with no way to ask about children makes — the T3
+/// compatibility surface, where archiving a thread is this. The HTTP route
+/// above makes that choice explicit instead, and cascades when it is `true`.
+pub async fn close_task_for(
+    state: &AppState,
+    scope_ctx: &ScopeContext,
+    task_id: &str,
+) -> Result<(), TaskError> {
+    let row = state
+        .tasks
+        .find_by_id(task_id, scope_ctx)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
     if !scope_ctx.can_control(&task_resource(&row)) {
-        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
+        return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
+    }
+
+    close_single_task(state, task_id).await?;
+    tracing::info!(task_id, user_id = %scope_ctx.user_id, "Task closed");
+    Ok(())
+}
+
+/// Reopen one closed task on `scope_ctx`'s behalf.
+///
+/// The status check is what makes this safe to offer as an undo: a task that
+/// was never closed is refused rather than quietly rewritten.
+pub async fn reopen_task_for(
+    state: &AppState,
+    scope_ctx: &ScopeContext,
+    task_id: &str,
+) -> Result<(), TaskError> {
+    let row = state
+        .tasks
+        .find_by_id(task_id, scope_ctx)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
+    if !scope_ctx.can_control(&task_resource(&row)) {
+        return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
     }
 
     if row.status != TaskStatus::Closed {
@@ -801,24 +845,24 @@ pub async fn reopen_task(
     let updated = state
         .tasks
         .update_task(
-            &task_id,
+            task_id,
             &TaskPatch {
                 status: Some(TaskStatus::Open),
                 ..Default::default()
             },
-            &scope_ctx,
+            scope_ctx,
         )
         .await?;
     if !updated {
-        return Err(TaskError::NotFound(task_id.clone()));
+        return Err(TaskError::NotFound(task_id.to_string()));
     }
 
-    tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task reopened");
+    tracing::info!(task_id, user_id = %scope_ctx.user_id, "Task reopened");
 
     if let Some(ref events) = state.events {
         events
             .publish_task_event(
-                &task_id,
+                task_id,
                 TaskSubType::Open,
                 Some(row.agent_type.as_str()),
                 serde_json::json!({"reason": "reopened"}),
@@ -826,14 +870,7 @@ pub async fn reopen_task(
             .await;
     }
 
-    let updated = state
-        .tasks
-        .find_by_id(&task_id, &auth.scope_context())
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-
-    let resp = enrich_task(&updated, &state, &auth.user_id.to_string()).await?;
-    Ok(Json(resp))
+    Ok(())
 }
 
 /// Start a task (provision sandbox and begin agent).

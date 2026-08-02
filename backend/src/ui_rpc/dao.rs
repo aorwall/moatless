@@ -48,6 +48,9 @@ pub struct Conversation {
     /// before the column existed.
     pub created_at_db: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
+    /// When this Task was closed. `None` while it is open, which is every row
+    /// the live listing returns.
+    pub closed_at: Option<DateTime<Utc>>,
 
     /// The newest Turn, by turn number. `None` when the Task has never run.
     pub turn_number: Option<i32>,
@@ -191,6 +194,18 @@ pub trait ConversationDao: Send + Sync {
     /// hidden by it.
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error>;
 
+    /// The other half: every **closed** Task the viewer follows and may still
+    /// read, newest first.
+    ///
+    /// Closing is what T3 calls archiving, so this is the archived listing. The
+    /// follow rule and the read rule are the same two; only the status rule is
+    /// inverted, which is what makes the two listings a partition of what a
+    /// person follows rather than two independent queries.
+    async fn list_followed_closed(
+        &self,
+        viewer: &ScopeContext,
+    ) -> Result<Vec<Conversation>, sqlx::Error>;
+
     /// The same listing, narrowed to Tasks a change has named.
     ///
     /// All three filters still apply, and that is the point of re-reading
@@ -301,9 +316,10 @@ pub trait ConversationDao: Send + Sync {
 }
 
 /// A full shell snapshot is a deployment-sized read with no pagination in T3's
-/// contract. One may run per backend replica; live change re-reads are narrowed
-/// by task id and do not take this permit. This reserves the rest of the main
-/// pool for task control, ingress, and reconciliation under shell overload.
+/// contract, and the archived listing is the same read at the other status. One
+/// of either may run per backend replica; live change re-reads are narrowed by
+/// task id and do not take this permit. This reserves the rest of the main pool
+/// for task control, ingress, and reconciliation under shell overload.
 #[derive(Clone)]
 pub struct PgConversationDao {
     pool: DbPool,
@@ -369,15 +385,19 @@ impl PgConversationDao {
         }
     }
 
-    /// The one listing query, optionally narrowed to a set of Tasks.
+    /// The one listing query, at one status, optionally narrowed to a set of
+    /// Tasks.
     ///
     /// Narrowing is a `WHERE` clause on the same query rather than a second one
     /// because the filters underneath it — the read rule and the follow rule —
     /// are the part that must not drift. A live re-read that admitted a row the
-    /// snapshot would not have is the same disclosure bug in slow motion.
+    /// snapshot would not have is the same disclosure bug in slow motion. The
+    /// archived listing is the same query at `closed` for the same reason: it
+    /// shows a person the conversations they follow, and only those.
     async fn list(
         &self,
         viewer: &ScopeContext,
+        status: TaskStatus,
         task_ids: Option<&[String]>,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
         let full_listing = task_ids.is_none();
@@ -404,7 +424,7 @@ impl PgConversationDao {
         // rather than a literal typed twice: `tasks.status` is `text` with no
         // CHECK constraint, so a misspelling here would be a listing that is
         // always empty and a database that never complains.
-        let open = TaskStatus::Open.as_str();
+        let status = status.as_str();
         let access = viewer.access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
         let question_tool = follower + 1;
@@ -418,7 +438,7 @@ impl PgConversationDao {
                    FROM task_follows tf
                    JOIN tasks t ON t.task_id = tf.task_id
                    WHERE tf.user_id = ${follower}
-                     AND t.status = '{open}'
+                     AND t.status = '{status}'
                      AND {}{narrowed}
                )
                SELECT
@@ -430,6 +450,7 @@ impl PgConversationDao {
                    t.created_at,
                    t.created_at_db,
                    t.updated_at,
+                   t.closed_at,
                    turn.turn_number,
                    turn.status                AS turn_status,
                    turn.started_at            AS turn_started_at,
@@ -591,7 +612,14 @@ impl PgConversationDao {
 #[async_trait]
 impl ConversationDao for PgConversationDao {
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, None).await
+        self.list(viewer, TaskStatus::Open, None).await
+    }
+
+    async fn list_followed_closed(
+        &self,
+        viewer: &ScopeContext,
+    ) -> Result<Vec<Conversation>, sqlx::Error> {
+        self.list(viewer, TaskStatus::Closed, None).await
     }
 
     async fn list_followed_by_ids(
@@ -602,7 +630,7 @@ impl ConversationDao for PgConversationDao {
         if task_ids.is_empty() {
             return Ok(Vec::new());
         }
-        self.list(viewer, Some(task_ids)).await
+        self.list(viewer, TaskStatus::Open, Some(task_ids)).await
     }
 
     async fn search_conversations(

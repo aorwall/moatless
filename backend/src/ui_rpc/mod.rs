@@ -1045,24 +1045,26 @@ impl ShellSnapshot {
     }
 }
 
-/// The archived half of the listing: the viewer's projects, and nothing else.
+/// The archived half of the listing: the closed conversations the viewer
+/// follows, under the same projects the live half carries.
 ///
-/// The client reads this as *the conversations whose `archivedAt` is set*, and
-/// this module never sets one — closing a conversation in Moatless records no
-/// timestamp of its own, and the contract's own empty value is what the row
-/// carries. Returning the live listing here would present every conversation a
-/// person follows as archived.
-async fn archived_shell_snapshot(
+/// Archiving is closing, so this is the live listing's complement — the same
+/// follow and read rules at the other status. The projects come whole rather
+/// than narrowed to the ones these conversations sit in, because the client
+/// groups an archived row under a project it must already hold.
+pub async fn archived_shell_snapshot(
     workspaces: &dyn WorkspaceDao,
     conversations: &dyn ConversationDao,
+    defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
 ) -> Result<Value, sqlx::Error> {
     let sequence = conversations.listing_head().await?.position;
     let workspaces = workspaces.list_readable_including(viewer, &[]).await?;
+    let archived = conversations.list_followed_closed(viewer).await?;
     Ok(projection::shell_snapshot(
         &workspaces,
-        &[],
-        &AgentModelDefaults::default(),
+        &archived,
+        defaults,
         sequence,
     ))
 }
@@ -2157,6 +2159,7 @@ impl ProtocolSession {
                 match archived_shell_snapshot(
                     state.workspaces.as_ref(),
                     state.conversations.as_ref(),
+                    &state.model_defaults,
                     &viewer,
                 )
                 .await
@@ -3317,6 +3320,20 @@ mod tests {
             _task_id: &str,
         ) -> Result<(), ports::CommandRefusal> {
             unreachable!("no test in this file stops a thread")
+        }
+        async fn archive(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file archives a thread")
+        }
+        async fn unarchive(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file unarchives a thread")
         }
         async fn settle(
             &self,

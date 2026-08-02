@@ -526,7 +526,14 @@ impl TaskDao for PgTaskDao {
         }
 
         if let Some(ref status) = patch.status {
-            run_field!("status = $2", status);
+            // `closed_at` is a fact of `status`, so the write that sets one
+            // sets the other. `COALESCE` keeps the original time on a
+            // close-to-close write: a task already closed was closed then.
+            run_field!(
+                "status = $2, closed_at = CASE \
+                 WHEN $2 = 'closed' THEN COALESCE(closed_at, NOW()) ELSE NULL END",
+                status
+            );
         }
         if let Some(ref name) = patch.name {
             run_field!("name = $2", name);

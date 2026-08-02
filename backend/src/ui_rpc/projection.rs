@@ -250,11 +250,11 @@ pub(super) fn thread_detail(
 ) -> Value {
     let mut row = conversation_row(conversation, project_id, defaults);
     let rendered = rendered_transcript(conversation, transcript);
-    // Closing a conversation in Moatless records no timestamp of its own, and
-    // the contract requires this one to be present. A conversation that no
+    // The contract requires this one to be present, and a conversation that no
     // longer exists is not projected at all — the read that would have found it
     // comes back empty and the caller answers "not found" — so null is the only
-    // value this can carry.
+    // value this can carry. Deleting is not archiving: `archivedAt` above is
+    // the close time, and this stays empty.
     row.insert("deletedAt".into(), Value::Null);
     row.insert("messages".into(), Value::Array(rendered.messages));
     row.insert("activities".into(), Value::Array(rendered.activities));
@@ -535,10 +535,10 @@ fn event(
 
 /// The fields both shapes of a conversation carry, with the same values.
 ///
-/// Two fields are deliberately absent rather than null. `interactionMode` has
-/// no separate Moatless state, and `archivedAt` would need a close timestamp
-/// this backend does not record. Settlement and snoozing are follower state and
-/// are emitted here.
+/// `interactionMode` is deliberately absent rather than null: it has no
+/// separate Moatless state. `archivedAt` is the Task's close time, because
+/// archiving a conversation is closing it. Settlement and snoozing are follower
+/// state and are emitted here.
 fn conversation_row(
     conversation: &Conversation,
     project_id: &str,
@@ -567,6 +567,7 @@ fn conversation_row(
         "latestTurn": latest_turn(conversation),
         "createdAt": instant(created),
         "updatedAt": instant(conversation.updated_at.unwrap_or(created)),
+        "archivedAt": nullable_instant(conversation.closed_at),
         "session": session(conversation),
         "settledOverride": conversation
             .settled_override
@@ -1589,6 +1590,7 @@ mod tests {
             created_at: "2026-07-01T09:00:00.000Z".to_string(),
             created_at_db: Some(Utc::now()),
             updated_at: Some(Utc::now()),
+            closed_at: None,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,
@@ -1640,6 +1642,26 @@ mod tests {
         );
         assert_eq!(listed.len(), 1, "the conversation should have been listed");
         listed[0].clone()
+    }
+
+    /// `archivedAt` is the Task's close time. An open conversation carries
+    /// null, which is what puts it in the sidebar rather than the archive; a
+    /// closed one carries the time, which is what the archived listing renders
+    /// and what T3 reads to tell the two apart.
+    #[test]
+    fn a_closed_conversation_is_archived_at_the_time_it_was_closed() {
+        let open = one_thread(&running_conversation("task-a", "ws-a"));
+        assert_eq!(open["archivedAt"], Value::Null);
+
+        let closed_at = DateTime::parse_from_rfc3339("2026-07-04T09:00:00.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut row = running_conversation("task-a", "ws-a");
+        row.closed_at = Some(closed_at);
+        assert_eq!(
+            one_thread(&row)["archivedAt"],
+            json!("2026-07-04T09:00:00.000Z")
+        );
     }
 
     #[test]

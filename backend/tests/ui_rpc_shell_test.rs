@@ -61,8 +61,8 @@ use moatless_vibe_backend::ui_rpc::dao::{
 };
 use moatless_vibe_backend::ui_rpc::preview_tabs::InMemoryPreviewTabDao;
 use moatless_vibe_backend::ui_rpc::{
-    AgentModelDefaults, ShellFeed, UiRpcDependencies, files, router_from_env, shell_snapshot,
-    shell_subscription,
+    AgentModelDefaults, ShellFeed, UiRpcDependencies, archived_shell_snapshot, files,
+    router_from_env, shell_snapshot, shell_subscription,
 };
 use moatless_vibe_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
 use serde_json::{Value, json};
@@ -250,6 +250,31 @@ async fn project_ids(pool: &PgPool, viewer: &ScopeContext) -> Vec<String> {
         .unwrap()
         .iter()
         .map(|project| project["id"].as_str().unwrap().to_string())
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// The archived half of a viewer's listing — the closed conversations they
+/// follow.
+async fn archived_snapshot(pool: &PgPool, viewer: &ScopeContext) -> Value {
+    archived_shell_snapshot(
+        &PgWorkspaceDao(pool.clone()),
+        &PgConversationDao::new(pool.clone()),
+        &defaults(),
+        viewer,
+    )
+    .await
+    .expect("the archived listing query failed")
+}
+
+/// The conversation ids in a viewer's archive, sorted for comparison.
+async fn archived_thread_ids(pool: &PgPool, viewer: &ScopeContext) -> Vec<String> {
+    let mut ids: Vec<String> = archived_snapshot(pool, viewer).await["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|thread| thread["id"].as_str().unwrap().to_string())
         .collect();
     ids.sort();
     ids
@@ -1280,6 +1305,112 @@ async fn only_open_conversations_are_listed(pool: PgPool) {
     );
 }
 
+/// The two halves are one partition of what a person follows: archiving is
+/// closing, so a conversation is in exactly one of them and moves between them
+/// by changing status and nothing else.
+///
+/// `archivedAt` is what tells the client which half a row came from, and it is
+/// maintained by the write that sets the status — so closing stamps it and
+/// reopening clears it, with no separate call to forget.
+#[sqlx::test]
+async fn a_closed_conversation_moves_to_the_archived_listing(pool: PgPool) {
+    seed_live_project(&pool).await;
+    for (task_id, status) in [
+        ("t-open", TaskStatus::Open),
+        ("t-closed", TaskStatus::Closed),
+        ("t-errored", TaskStatus::Error),
+    ] {
+        let mut task = make_task_row(task_id, "user-1");
+        task.workspace_id = Some("ws-live".to_string());
+        task.status = status;
+        PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    }
+
+    // `error` belongs to neither half: it is not open, and it was not put
+    // away. Its conversation is unfinished work whose agent fell over.
+    assert_eq!(
+        archived_thread_ids(&pool, &viewer("user-1")).await,
+        vec!["t-closed".to_string()]
+    );
+
+    let before = Utc::now();
+    PgTaskDao(pool.clone())
+        .update_task(
+            "t-open",
+            &TaskPatch {
+                status: Some(TaskStatus::Closed),
+                ..TaskPatch::default()
+            },
+            &viewer("user-1"),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        thread_ids(&pool, &viewer("user-1")).await,
+        Vec::<String>::new(),
+        "a closed conversation is off the sidebar"
+    );
+    let archived = archived_snapshot(&pool, &viewer("user-1")).await;
+    let closed = archived["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|thread| thread["id"] == "t-open")
+        .expect("the conversation just closed is in the archive");
+    assert!(
+        parse(&closed["archivedAt"]) >= before.trunc_subsecs(3),
+        "archivedAt is the time it was closed, got {}",
+        closed["archivedAt"]
+    );
+
+    PgTaskDao(pool.clone())
+        .update_task(
+            "t-open",
+            &TaskPatch {
+                status: Some(TaskStatus::Open),
+                ..TaskPatch::default()
+            },
+            &viewer("user-1"),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        thread_ids(&pool, &viewer("user-1")).await,
+        vec!["t-open".to_string()]
+    );
+    assert_eq!(
+        archived_thread_ids(&pool, &viewer("user-1")).await,
+        vec!["t-closed".to_string()],
+        "reopening takes the conversation out of the archive"
+    );
+    assert_eq!(
+        thread(&pool, &viewer("user-1"), "t-open").await["archivedAt"],
+        Value::Null,
+        "reopening clears the close time"
+    );
+}
+
+/// The archive is filtered by the same follow rule as the sidebar. A
+/// conversation somebody else closed is not in this viewer's archive unless
+/// they were involved in it.
+#[sqlx::test]
+async fn an_unfollowed_closed_conversation_is_absent_from_the_archive(pool: PgPool) {
+    seed_live_project(&pool).await;
+    let mut task = make_task_row("t-theirs", "user-1");
+    task.workspace_id = Some("ws-live".to_string());
+    task.status = TaskStatus::Closed;
+    PgTaskDao(pool.clone()).insert_task(&task).await.unwrap();
+    unfollow(&pool, "user-1", "t-theirs").await;
+
+    assert!(
+        archived_thread_ids(&pool, &viewer("user-1"))
+            .await
+            .is_empty()
+    );
+}
+
 /// A workspace that was deleted is not listable, so a conversation still
 /// pointing at it has no project either.
 #[sqlx::test]
@@ -2139,6 +2270,13 @@ struct RefusesTheRowRead(PgConversationDao);
 impl ConversationDao for RefusesTheRowRead {
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
         self.0.list_followed(viewer).await
+    }
+
+    async fn list_followed_closed(
+        &self,
+        viewer: &ScopeContext,
+    ) -> Result<Vec<Conversation>, sqlx::Error> {
+        self.0.list_followed_closed(viewer).await
     }
 
     async fn list_followed_by_ids(

@@ -346,6 +346,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
             created_at_db: None,
             updated_at: None,
+            closed_at: None,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,

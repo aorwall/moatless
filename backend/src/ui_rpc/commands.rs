@@ -18,9 +18,14 @@
 //!   the Sandbox's business, not the client's.
 //!
 //! Everything refused is refused because it cannot be honoured, not because it
-//! has not been written yet: closing a Task from T3 is its own change,
-//! Workspaces are not authored from here, and approvals and checkpoints are
-//! never projected in the first place, so no control raises them.
+//! has not been written yet: Moatless has no delete that leaves the Task
+//! recoverable, Workspaces are not authored from here, and approvals and
+//! checkpoints are never projected in the first place, so no control raises
+//! them.
+//!
+//! Archiving is the one command whose two vocabularies differ: T3 archives a
+//! thread, Moatless closes a Task, and they are the same act — see
+//! [`ThreadCommandSink::archive`](super::ports::ThreadCommandSink::archive).
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
@@ -67,6 +72,12 @@ pub async fn dispatch(
         "thread.turn.interrupt" | "thread.session.stop" => {
             ctx.sink.stop(viewer, thread_id(command)?).await?;
         }
+        "thread.archive" => {
+            ctx.sink.archive(viewer, thread_id(command)?).await?;
+        }
+        "thread.unarchive" => {
+            ctx.sink.unarchive(viewer, thread_id(command)?).await?;
+        }
         "thread.settle" => {
             ctx.sink.settle(viewer, thread_id(command)?).await?;
         }
@@ -98,10 +109,10 @@ pub async fn dispatch(
         // Accepted and discarded — see the module comment.
         "thread.runtime-mode.set" | "thread.interaction-mode.set" => {}
 
-        "thread.delete" | "thread.archive" | "thread.unarchive" => {
+        "thread.delete" => {
             return Err(CommandRefusal::Unsupported {
                 command: tag,
-                reason: "Close a task from the Moatless UI instead.".to_string(),
+                reason: "Archive it instead, or delete it from the Moatless UI.".to_string(),
             });
         }
         "project.create" | "project.meta.update" | "project.delete" => {
@@ -574,6 +585,12 @@ mod tests {
         Stop {
             task_id: String,
         },
+        Archive {
+            task_id: String,
+        },
+        Unarchive {
+            task_id: String,
+        },
         Settle {
             task_id: String,
         },
@@ -642,6 +659,26 @@ mod tests {
         }
         async fn stop(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
             self.0.lock().unwrap().push(Call::Stop {
+                task_id: task_id.to_string(),
+            });
+            Ok(())
+        }
+        async fn archive(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Archive {
+                task_id: task_id.to_string(),
+            });
+            Ok(())
+        }
+        async fn unarchive(
+            &self,
+            _viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<(), CommandRefusal> {
+            self.0.lock().unwrap().push(Call::Unarchive {
                 task_id: task_id.to_string(),
             });
             Ok(())
@@ -742,6 +779,7 @@ mod tests {
             created_at: "2026-07-01T09:00:00.000Z".to_string(),
             created_at_db: None,
             updated_at: None,
+            closed_at: None,
             turn_number: None,
             turn_status: None,
             turn_started_at: None,
@@ -1380,12 +1418,52 @@ mod tests {
         }
     }
 
+    /// Archiving is closing and unarchiving is reopening, so both reach the
+    /// sink rather than a refusal. This is the pair a person uses to put a
+    /// finished conversation away and to pull it back out.
+    #[tokio::test]
+    async fn archive_and_unarchive_reach_the_sink() {
+        for (tag, expected) in [
+            (
+                "thread.archive",
+                Call::Archive {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+            (
+                "thread.unarchive",
+                Call::Unarchive {
+                    task_id: "task-1".to_string(),
+                },
+            ),
+        ] {
+            let (result, calls) = run(json!({
+                "type": tag,
+                "commandId": "cmd-1",
+                "threadId": "task-1",
+                "createdAt": "2026-07-01T09:00:00.000Z"
+            }))
+            .await;
+            assert!(result.is_ok(), "{tag}: {result:?}");
+            assert_eq!(calls, vec![expected], "{tag}");
+        }
+    }
+
+    /// A command with no thread on it is rejected before anything is written.
+    #[tokio::test]
+    async fn archiving_without_a_thread_id_writes_nothing() {
+        let (result, calls) = run(json!({ "type": "thread.archive", "commandId": "cmd-1" })).await;
+        assert!(
+            matches!(result, Err(CommandRefusal::Rejected { .. })),
+            "{result:?}"
+        );
+        assert!(calls.is_empty());
+    }
+
     #[tokio::test]
     async fn every_unsupported_command_is_refused_without_a_write() {
         for tag in [
             "thread.delete",
-            "thread.archive",
-            "thread.unarchive",
             "project.create",
             "project.meta.update",
             "project.delete",

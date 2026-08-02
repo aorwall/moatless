@@ -22,6 +22,7 @@ use crate::repository::handlers::list_branches;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::error::TaskError;
+use crate::task::handlers as task_handlers;
 use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
 
@@ -246,6 +247,18 @@ impl ThreadCommandSink for AppStateCommands {
 
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         task_service::stop_task(&self.0, viewer, task_id)
+            .await
+            .map_err(|e| create_refusal(task_id, e))
+    }
+
+    async fn archive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        task_handlers::close_task_for(&self.0, viewer, task_id)
+            .await
+            .map_err(|e| create_refusal(task_id, e))
+    }
+
+    async fn unarchive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        task_handlers::reopen_task_for(&self.0, viewer, task_id)
             .await
             .map_err(|e| create_refusal(task_id, e))
     }

@@ -166,6 +166,16 @@ pub trait ThreadCommandSink: Send + Sync {
     /// from stopping a session; Moatless does not, and both arrive here.
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
+    /// Archive a thread, which in Moatless is closing the Task: the row leaves
+    /// the sidebar, the Sandbox is removed, and inbound comments stop waking
+    /// it. Children are left open — the cascade is a choice the Moatless UI
+    /// asks about, and there is nothing here to ask with.
+    async fn archive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    /// Unarchive a thread, which is reopening the Task. No Sandbox is started;
+    /// the next message does that.
+    async fn unarchive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
     async fn settle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     async fn unsettle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
