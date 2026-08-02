@@ -39,6 +39,7 @@ mod projection;
 mod providers;
 mod review;
 mod servers;
+mod terminal;
 pub mod workspace;
 
 pub use feed::{ShellFeed, ThreadFeed};
@@ -239,6 +240,9 @@ struct UiRpcState {
     agents: Arc<dyn ports::AgentCatalogSource>,
     /// The one thing this module does that is not a read.
     commands: Arc<dyn ports::ThreadCommandSink>,
+    /// In-process fan-out for terminal metadata and events observed through
+    /// this backend instance.
+    terminal: terminal::TerminalHub,
 }
 
 /// Build the T3 compatibility router when its environment gate is enabled.
@@ -311,6 +315,7 @@ pub async fn router_from_env(
         model_defaults: Arc::new(model_defaults),
         agents,
         commands,
+        terminal: terminal::TerminalHub::default(),
     })))
 }
 
@@ -1606,6 +1611,117 @@ impl ProtocolSession {
                     Err(error) => vec![review_failure_exit(&id, &tag, &cwd, &error, identity)],
                 }
             }
+            "terminal.open" => {
+                let viewer = viewer_scope(identity);
+                match terminal::open(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &state.terminal,
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(snapshot) => vec![success_exit(&id, snapshot)],
+                    Err(error) => vec![terminal_failure_exit(&id, &payload, &error, identity)],
+                }
+            }
+            "terminal.attach" => {
+                let viewer = viewer_scope(identity);
+                let stream = match terminal::attach(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        return vec![terminal_failure_exit(&id, &payload, &error, identity)];
+                    }
+                };
+                let producer = tokio::spawn(terminal::forward_attach_stream(
+                    stream,
+                    state.terminal.clone(),
+                    id.clone(),
+                    self.frames.clone(),
+                ));
+                self.start_produced_stream(&id, None, producer)
+            }
+            "terminal.write" => {
+                let viewer = viewer_scope(identity);
+                match terminal::write(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(()) => vec![success_exit(&id, Value::Null)],
+                    Err(error) => vec![terminal_failure_exit(&id, &payload, &error, identity)],
+                }
+            }
+            "terminal.resize" => {
+                let viewer = viewer_scope(identity);
+                match terminal::resize(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(()) => vec![success_exit(&id, Value::Null)],
+                    Err(error) => vec![terminal_failure_exit(&id, &payload, &error, identity)],
+                }
+            }
+            "terminal.clear" => {
+                let viewer = viewer_scope(identity);
+                match terminal::clear(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &state.terminal,
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(()) => vec![success_exit(&id, Value::Null)],
+                    Err(error) => vec![terminal_failure_exit(&id, &payload, &error, identity)],
+                }
+            }
+            "terminal.restart" => {
+                let viewer = viewer_scope(identity);
+                match terminal::restart(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &state.terminal,
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(snapshot) => vec![success_exit(&id, snapshot)],
+                    Err(error) => vec![terminal_failure_exit(&id, &payload, &error, identity)],
+                }
+            }
+            "terminal.close" => {
+                let viewer = viewer_scope(identity);
+                match terminal::close(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &state.terminal,
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(()) => vec![success_exit(&id, Value::Null)],
+                    Err(error) => vec![terminal_failure_exit(&id, &payload, &error, identity)],
+                }
+            }
             "preview.list" => preview_answer(
                 &id,
                 preview::list(&state.preview, &viewer_scope(identity), &payload).await,
@@ -1849,7 +1965,9 @@ impl ProtocolSession {
                     .get("limit")
                     .and_then(Value::as_i64)
                     .filter(|limit| *limit > 0)
-                    .map_or(SEARCH_THREADS_LIMIT, |limit| limit.min(SEARCH_THREADS_LIMIT));
+                    .map_or(SEARCH_THREADS_LIMIT, |limit| {
+                        limit.min(SEARCH_THREADS_LIMIT)
+                    });
                 match state
                     .conversations
                     .search_conversations(&viewer_scope(identity), query, limit)
@@ -2066,6 +2184,23 @@ impl ProtocolSession {
                 ));
                 self.start_produced_stream(&id, None, producer)
             }
+            "subscribeTerminalEvents" => {
+                let producer = tokio::spawn(terminal::forward_value_subscription(
+                    state.terminal.subscribe_events(),
+                    id.clone(),
+                    self.frames.clone(),
+                ));
+                self.start_produced_stream(&id, None, producer)
+            }
+            "subscribeTerminalMetadata" => {
+                let snapshot = state.terminal.metadata_snapshot().await;
+                let producer = tokio::spawn(terminal::forward_value_subscription(
+                    state.terminal.subscribe_metadata(),
+                    id.clone(),
+                    self.frames.clone(),
+                ));
+                self.start_produced_stream(&id, Some(vec![snapshot]), producer)
+            }
             "subscribeVcsStatus" => {
                 // A `cwd` this surface does not address is not a failure here:
                 // the client opens this subscription for every thread it shows,
@@ -2083,17 +2218,10 @@ impl ProtocolSession {
                 ));
                 self.start_produced_stream(&id, None, producer)
             }
-            // `subscribeTerminalEvents`, `subscribeTerminalMetadata` and
-            // `subscribeDiscoveredLocalServers` used to open a stream that never
-            // said anything, which reads to a client as "connected, nothing to
-            // report" and leaves a terminal pane waiting forever. There is no
-            // exec RPC on the Sandbox surface and no local-server discovery
-            // here, so these fall through and say so.
-            //
-            // `subscribeVcsStatus` above keeps its silent stream for the
-            // opposite reason: that one *is* served, and silence there means a
-            // thread with no repository rather than a server without the
-            // surface.
+            // `subscribeDiscoveredLocalServers` used to open a stream that
+            // never said anything, which reads to a client as "connected,
+            // nothing to report". There is no local-server discovery here, so
+            // it falls through and says so.
             _ => vec![unsupported_exit(&id, &tag)],
         }
     }
@@ -2689,6 +2817,34 @@ fn preview_answer(request_id: &RequestId, result: Result<Value, PreviewError>) -
     }
 }
 
+fn terminal_failure_exit(
+    request_id: &RequestId,
+    payload: &Value,
+    error: &terminal::TerminalError,
+    identity: &AuthIdentity,
+) -> Value {
+    match error {
+        terminal::TerminalError::Workspace(WorkspaceAccessError::Database(cause)) => {
+            error!(%cause, user_id = %identity.user_id, "T3 UI terminal request failed");
+        }
+        terminal::TerminalError::Workspace(WorkspaceAccessError::Sandbox(cause))
+        | terminal::TerminalError::Workspace(WorkspaceAccessError::NotRunning(cause))
+        | terminal::TerminalError::Sandbox(cause) => {
+            warn!(%cause, user_id = %identity.user_id, "T3 UI terminal request failed");
+        }
+        terminal::TerminalError::Workspace(
+            WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable,
+        )
+        | terminal::TerminalError::Malformed(_) => {
+            debug!(?error, user_id = %identity.user_id, "T3 UI terminal request refused");
+        }
+    }
+    match terminal::typed_error(error, payload) {
+        Some(error) => typed_failure_exit(request_id, error),
+        None => failure_exit(request_id, terminal::message(error)),
+    }
+}
+
 /// The client is told the servers could not be read; the cause is logged once
 /// here rather than shipped to the browser.
 fn servers_failure_exit(
@@ -3007,6 +3163,7 @@ mod tests {
             agents: Arc::new(StubAgents),
             commands: Arc::new(UnreachableCommands),
             model_defaults: Arc::new(AgentModelDefaults::default()),
+            terminal: terminal::TerminalHub::default(),
         }
     }
 
@@ -3169,8 +3326,7 @@ mod tests {
             json!(["browser-session-cookie", "bearer-access-token"])
         );
         assert_eq!(
-            output.frames[0]["exit"]["value"]["threadResumeCompletionMarker"],
-            true,
+            output.frames[0]["exit"]["value"]["threadResumeCompletionMarker"], true,
             "do not advertise this unless subscribeThread can emit synchronized"
         );
     }
@@ -3570,7 +3726,7 @@ mod tests {
         let mut session = session();
         let output = session
             .handle_json(
-                &request("1", "terminal.open", json!({})),
+                &request("1", "cloud.installRelayClient", json!({})),
                 &state(),
                 &viewer(),
             )
@@ -3579,25 +3735,27 @@ mod tests {
         let cause = &output.frames[0]["exit"]["cause"][0];
         assert_eq!(cause["_tag"], "Fail");
         assert_eq!(cause["error"]["_tag"], "EnvironmentAuthorizationError");
-        assert_eq!(cause["error"]["requiredScope"], "terminal:operate");
+        assert_eq!(cause["error"]["requiredScope"], "relay:write");
     }
 
-    /// A stream that opens and never speaks reads to a client as "connected,
-    /// nothing to report", which leaves a terminal pane waiting for output that
-    /// cannot arrive: there is no exec RPC on the Sandbox surface at all.
+    /// Terminal metadata is now a served stream. It starts with an explicit
+    /// empty snapshot so the client can distinguish "no terminals yet" from a
+    /// connection that never produced a value.
     #[tokio::test]
-    async fn a_terminal_subscription_refuses_rather_than_waiting_forever() {
+    async fn a_terminal_metadata_subscription_starts_with_a_snapshot() {
         let mut session = session();
         let output = session
             .handle_json(
-                &request("7", "subscribeTerminalEvents", json!({})),
+                &request("7", "subscribeTerminalMetadata", json!({})),
                 &state(),
                 &viewer(),
             )
             .await;
 
-        assert!(!session.streams.contains_key("7"), "no stream is opened");
-        assert_eq!(output.frames[0]["exit"]["_tag"], "Failure");
+        assert!(session.streams.contains_key("7"));
+        assert_eq!(output.frames[0]["_tag"], "Chunk");
+        assert_eq!(output.frames[0]["values"][0]["type"], "snapshot");
+        assert_eq!(output.frames[0]["values"][0]["terminals"], json!([]));
     }
 
     /// One character matches most of the corpus and says nothing, and it costs a
@@ -3623,8 +3781,7 @@ mod tests {
     async fn interrupt_terminates_active_stream() {
         let mut session = session();
         // A subscription that stays open and says nothing — a thread with no
-        // repository to report on. `subscribeTerminalEvents` used to stand here
-        // and no longer opens a stream at all.
+        // repository to report on.
         session
             .handle_json(
                 &request("3", "subscribeVcsStatus", json!({})),
@@ -3903,11 +4060,10 @@ mod tests {
                 "urn:ietf:params:oauth:token-type:access_token"
             );
             assert!(body["access_token"].as_str().unwrap().starts_with("mvk_"));
-            // The overlap between what it asked for and what we have. Not
-            // `terminal:operate`, which is the one this deployment cannot back.
+            // The overlap between what it asked for and what we have.
             assert_eq!(
                 body["scope"],
-                "orchestration:read orchestration:operate review:write relay:read"
+                "orchestration:read orchestration:operate terminal:operate review:write relay:read"
             );
             assert!(body["expires_in"].as_i64().unwrap() > 0);
         }

@@ -260,6 +260,7 @@ mod tests {
             heartbeat.clone(),
         );
         late_injector.set(Box::new(agent_handle.clone()));
+        let terminals = crate::terminal::TerminalManager::new(config.workspace_dir.clone());
 
         SandboxState {
             config,
@@ -278,6 +279,7 @@ mod tests {
             system_prompt_cache,
             dispatch_lock: Default::default(),
             supervisor_health: Default::default(),
+            terminals,
         }
     }
 

@@ -16,8 +16,11 @@ use sandbox_proto::{
     GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, ListFilesRequest,
     ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest, ReadFileRequest,
     ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
-    SearchFilesByNameResponse, StopAgentRequest, WriteFileRequest,
+    SearchFilesByNameResponse, StopAgentRequest, TerminalAttachRequest, TerminalAttachStreamEvent,
+    TerminalClearRequest, TerminalCloseRequest, TerminalOpenRequest, TerminalResizeRequest,
+    TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, WriteFileRequest,
 };
+use tonic::Streaming;
 use tonic::transport::Channel;
 use tracing::debug;
 
@@ -419,6 +422,130 @@ impl SandboxClient {
                 )
             })
             .collect())
+    }
+
+    pub async fn terminal_open(
+        &self,
+        request: TerminalOpenRequest,
+    ) -> Result<TerminalSessionSnapshot, tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.terminal_open(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "TerminalOpen gRPC request timed out",
+            )),
+        }
+    }
+
+    pub async fn terminal_attach(
+        &self,
+        request: TerminalAttachRequest,
+    ) -> Result<Streaming<TerminalAttachStreamEvent>, tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.terminal_attach(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "TerminalAttach gRPC request timed out",
+            )),
+        }
+    }
+
+    pub async fn terminal_write(&self, request: TerminalWriteRequest) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.terminal_write(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "TerminalWrite gRPC request timed out",
+            )),
+        }
+    }
+
+    pub async fn terminal_resize(
+        &self,
+        request: TerminalResizeRequest,
+    ) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.terminal_resize(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "TerminalResize gRPC request timed out",
+            )),
+        }
+    }
+
+    pub async fn terminal_clear(&self, request: TerminalClearRequest) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.terminal_clear(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "TerminalClear gRPC request timed out",
+            )),
+        }
+    }
+
+    pub async fn terminal_restart(
+        &self,
+        request: TerminalRestartRequest,
+    ) -> Result<TerminalSessionSnapshot, tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.terminal_restart(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "TerminalRestart gRPC request timed out",
+            )),
+        }
+    }
+
+    pub async fn terminal_close(&self, request: TerminalCloseRequest) -> Result<(), tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.terminal_close(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "TerminalClose gRPC request timed out",
+            )),
+        }
     }
 
     /// Search files by name in the sandbox workspace.

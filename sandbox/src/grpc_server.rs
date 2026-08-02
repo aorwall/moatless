@@ -6,6 +6,10 @@
 //! them — but it does own their live override files (`ApplyServerConfig`),
 //! which is what lets a server be reconfigured without rebuilding the pod.
 
+use std::pin::Pin;
+
+use futures::Stream;
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use tracing::info;
 
@@ -19,8 +23,11 @@ use sandbox_proto::{
     ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest, NotifyMessagesResponse,
     ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RefreshCredentialResponse,
     ScheduledJobInfo, SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride,
-    StopAgentRequest, StopAgentResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse,
-    scheduled_job_info,
+    StopAgentRequest, StopAgentResponse, TerminalAttachRequest, TerminalAttachStreamEvent,
+    TerminalClearRequest, TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse,
+    TerminalOpenRequest, TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest,
+    TerminalSessionSnapshot, TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo,
+    WriteFileRequest, WriteFileResponse, scheduled_job_info,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
@@ -36,6 +43,9 @@ pub struct SandboxServiceImpl {
 
 #[tonic::async_trait]
 impl SandboxService for SandboxServiceImpl {
+    type TerminalAttachStream =
+        Pin<Box<dyn Stream<Item = Result<TerminalAttachStreamEvent, Status>> + Send + 'static>>;
+
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn execute_agent(
         &self,
@@ -294,6 +304,99 @@ impl SandboxService for SandboxServiceImpl {
             .collect();
 
         Ok(Response::new(GetServerConfigResponse { overrides }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn terminal_open(
+        &self,
+        request: Request<TerminalOpenRequest>,
+    ) -> Result<Response<TerminalSessionSnapshot>, Status> {
+        let snapshot = self.state.terminals.open(request.into_inner()).await?;
+        Ok(Response::new(snapshot))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn terminal_attach(
+        &self,
+        request: Request<TerminalAttachRequest>,
+    ) -> Result<Response<Self::TerminalAttachStream>, Status> {
+        let attached = self.state.terminals.attach(request.into_inner()).await?;
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        let mut events = attached.events;
+        let snapshot_event = TerminalAttachStreamEvent {
+            thread_id: attached.snapshot.thread_id.clone(),
+            terminal_id: attached.snapshot.terminal_id.clone(),
+            sequence: attached.snapshot.sequence,
+            event: Some(
+                sandbox_proto::terminal_attach_stream_event::Event::Snapshot(attached.snapshot),
+            ),
+        };
+        let _handle = tokio::spawn(async move {
+            if tx.send(Ok(snapshot_event)).await.is_err() {
+                return;
+            }
+            loop {
+                match events.recv().await {
+                    Ok(event) => {
+                        if tx.send(Ok(event)).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
+        Ok(Response::new(
+            Box::pin(ReceiverStream::new(rx)) as Self::TerminalAttachStream
+        ))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn terminal_write(
+        &self,
+        request: Request<TerminalWriteRequest>,
+    ) -> Result<Response<TerminalWriteResponse>, Status> {
+        self.state.terminals.write(request.into_inner()).await?;
+        Ok(Response::new(TerminalWriteResponse {}))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn terminal_resize(
+        &self,
+        request: Request<TerminalResizeRequest>,
+    ) -> Result<Response<TerminalResizeResponse>, Status> {
+        self.state.terminals.resize(request.into_inner()).await?;
+        Ok(Response::new(TerminalResizeResponse {}))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn terminal_clear(
+        &self,
+        request: Request<TerminalClearRequest>,
+    ) -> Result<Response<TerminalClearResponse>, Status> {
+        self.state.terminals.clear(request.into_inner()).await?;
+        Ok(Response::new(TerminalClearResponse {}))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn terminal_restart(
+        &self,
+        request: Request<TerminalRestartRequest>,
+    ) -> Result<Response<TerminalSessionSnapshot>, Status> {
+        let snapshot = self.state.terminals.restart(request.into_inner()).await?;
+        Ok(Response::new(snapshot))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn terminal_close(
+        &self,
+        request: Request<TerminalCloseRequest>,
+    ) -> Result<Response<TerminalCloseResponse>, Status> {
+        self.state.terminals.close(request.into_inner()).await?;
+        Ok(Response::new(TerminalCloseResponse {}))
     }
 
     // ── File operations ──────────────────────────────────────────

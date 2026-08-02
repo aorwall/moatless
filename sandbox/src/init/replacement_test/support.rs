@@ -39,6 +39,7 @@ fn build_state(
     agent_handle: AgentHandle,
     events: GrpcEventPublisher,
 ) -> SandboxState {
+    let terminals = crate::terminal::TerminalManager::new(config.workspace_dir.clone());
     SandboxState {
         config,
         events,
@@ -56,6 +57,7 @@ fn build_state(
         system_prompt_cache: Arc::new(RwLock::new(None)),
         dispatch_lock: Default::default(),
         supervisor_health: Default::default(),
+        terminals,
     }
 }
 

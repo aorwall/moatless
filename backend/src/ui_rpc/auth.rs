@@ -13,14 +13,14 @@
 //! here is T3's vocabulary for all three: its grant-type URNs, its scope
 //! strings, and its error bodies.
 
+use axum::Json;
 use axum::extract::rejection::FormRejection;
 use axum::extract::{Extension, Form, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use chrono::{SecondsFormat, Utc};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::UiRpcState;
@@ -41,14 +41,13 @@ use crate::auth::pairing::{PairingClient, PairingError};
 /// now granted, because the honest fix for serving something is to admit to
 /// serving it.
 ///
-/// The three that stay out each name a surface with nothing behind it:
-/// `terminal:operate` — the Sandbox gRPC surface has no exec or PTY call at all,
-/// so terminals are unbackable rather than merely unbuilt; `access:write` —
-/// this surface administers no pairings; `relay:write` —
+/// The two that stay out each name a surface with nothing behind it:
+/// `access:write` — this surface administers no pairings; `relay:write` —
 /// `cloud.getRelayClientStatus` answers `"unsupported"`.
-pub(super) const GRANTED_SCOPES: [&str; 5] = [
+pub(super) const GRANTED_SCOPES: [&str; 6] = [
     "orchestration:read",
     "orchestration:operate",
+    "terminal:operate",
     "review:write",
     "access:read",
     "relay:read",
@@ -78,9 +77,9 @@ const KNOWN_SCOPES: [&str; 8] = [
 ///
 /// Every method the *contract* declares is listed, not only the ones this
 /// server dispatches, and that is the point: the gate runs ahead of the dispatch
-/// table, so a client asking for a terminal is told `terminal:operate` is not
-/// granted rather than told the method does not exist. Which of those two is
-/// true depends on the deployment; only one of them is actionable.
+/// table, so a client asking for a withheld surface is told the needed scope is
+/// not granted rather than told the method does not exist. Which of those two
+/// is true depends on the deployment; only one of them is actionable.
 ///
 /// The default is `orchestration:read` — the reference server's own default for
 /// everything unclassified, and the narrowest scope this deployment grants — so
@@ -130,8 +129,8 @@ pub(super) fn required_scope(tag: &str) -> &'static str {
         // so.
         "review.getDiffPreview" => "review:write",
 
-        // Terminals. Nothing here is served, and nothing here *can* be: the
-        // Sandbox gRPC surface has no exec or PTY call.
+        // Terminals. The backend authorizes them here; the PTY itself lives in
+        // the conversation's Sandbox.
         "terminal.open"
         | "terminal.attach"
         | "terminal.write"
@@ -277,7 +276,10 @@ fn granted_scopes(requested: Option<&str>) -> Result<Vec<String>, &'static str> 
     let Some(requested) = requested else {
         return Ok(GRANTED_SCOPES.iter().map(ToString::to_string).collect());
     };
-    if requested.split(' ').any(|scope| !KNOWN_SCOPES.contains(&scope)) {
+    if requested
+        .split(' ')
+        .any(|scope| !KNOWN_SCOPES.contains(&scope))
+    {
         return Err("invalid_scope");
     }
     let granted: Vec<String> = GRANTED_SCOPES
@@ -358,13 +360,12 @@ mod tests {
             "orchestration:read orchestration:operate terminal:operate review:write relay:read",
         ))
         .unwrap();
-        // Four of the five, in the deployment's own order. `terminal:operate` is
-        // the one it asks for that nothing here can back.
         assert_eq!(
             granted,
             [
                 "orchestration:read",
                 "orchestration:operate",
+                "terminal:operate",
                 "review:write",
                 "relay:read"
             ]
@@ -373,10 +374,10 @@ mod tests {
 
     #[test]
     fn a_request_naming_only_scopes_we_lack_is_refused() {
-        // Both are contract scopes this deployment withholds: there is no exec
-        // RPC behind terminals and no relay to install.
+        // Both are contract scopes this deployment withholds: it administers no
+        // pairing sessions over this surface and has no relay to install.
         assert_eq!(
-            granted_scopes(Some("terminal:operate relay:write")),
+            granted_scopes(Some("access:write relay:write")),
             Err("scope_not_granted")
         );
     }
@@ -386,12 +387,18 @@ mod tests {
     /// that was never checked.
     #[test]
     fn a_method_that_changes_something_needs_more_than_read() {
-        assert_eq!(required_scope("orchestration.subscribeShell"), "orchestration:read");
+        assert_eq!(
+            required_scope("orchestration.subscribeShell"),
+            "orchestration:read"
+        );
         assert_eq!(
             required_scope("orchestration.dispatchCommand"),
             "orchestration:operate"
         );
-        assert_eq!(required_scope("projects.writeFile"), "orchestration:operate");
+        assert_eq!(
+            required_scope("projects.writeFile"),
+            "orchestration:operate"
+        );
         assert_eq!(required_scope("review.getDiffPreview"), "review:write");
     }
 
@@ -400,7 +407,10 @@ mod tests {
     /// would answer "you may not" where the truth is "there is no such method".
     #[test]
     fn a_method_this_map_does_not_name_falls_through_to_read() {
-        assert_eq!(required_scope("something.nobodyImplemented"), "orchestration:read");
+        assert_eq!(
+            required_scope("something.nobodyImplemented"),
+            "orchestration:read"
+        );
     }
 
     #[test]

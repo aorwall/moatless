@@ -29,3 +29,4 @@ pub mod server_control;
 pub mod shutdown;
 pub mod state;
 pub mod supervisor;
+pub mod terminal;

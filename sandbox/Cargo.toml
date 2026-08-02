@@ -59,6 +59,9 @@ tower-http = { version = "0.7", features = ["cors", "trace"] }
 futures = "0.3"
 async-trait = "0.1"
 
+# Interactive terminal PTY sessions for the T3 compatibility surface.
+portable-pty = "0.9"
+
 # Filesystem walking (respects .gitignore, skips hidden dirs)
 ignore = "0.4"
 

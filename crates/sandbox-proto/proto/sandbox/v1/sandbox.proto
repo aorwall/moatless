@@ -332,6 +332,145 @@ service SandboxService {
   rpc GetGitDiffPreview(GetGitDiffPreviewRequest) returns (GetGitDiffPreviewResponse);
   rpc GetGitStatus(GetGitStatusRequest) returns (GetGitStatusResponse);
   rpc ListGitRefs(ListGitRefsRequest) returns (ListGitRefsResponse);
+
+  // Interactive terminal sessions. The sandbox owns the process because the
+  // checkout and credentials live there; callers address sessions by the T3
+  // thread/terminal ids they already hold.
+  rpc TerminalOpen(TerminalOpenRequest) returns (TerminalSessionSnapshot);
+  rpc TerminalAttach(TerminalAttachRequest) returns (stream TerminalAttachStreamEvent);
+  rpc TerminalWrite(TerminalWriteRequest) returns (TerminalWriteResponse);
+  rpc TerminalResize(TerminalResizeRequest) returns (TerminalResizeResponse);
+  rpc TerminalClear(TerminalClearRequest) returns (TerminalClearResponse);
+  rpc TerminalRestart(TerminalRestartRequest) returns (TerminalSessionSnapshot);
+  rpc TerminalClose(TerminalCloseRequest) returns (TerminalCloseResponse);
+}
+
+enum TerminalSessionStatus {
+  TERMINAL_SESSION_STATUS_STARTING = 0;
+  TERMINAL_SESSION_STATUS_RUNNING = 1;
+  TERMINAL_SESSION_STATUS_EXITED = 2;
+  TERMINAL_SESSION_STATUS_ERROR = 3;
+}
+
+message TerminalOpenRequest {
+  string thread_id = 1;
+  string terminal_id = 2;
+  string cwd = 3;
+  optional string worktree_path = 4;
+  uint32 cols = 5;
+  uint32 rows = 6;
+  map<string, string> env = 7;
+}
+
+message TerminalAttachRequest {
+  string thread_id = 1;
+  string terminal_id = 2;
+  optional string cwd = 3;
+  optional string worktree_path = 4;
+  uint32 cols = 5;
+  uint32 rows = 6;
+  map<string, string> env = 7;
+  bool restart_if_not_running = 8;
+}
+
+message TerminalWriteRequest {
+  string thread_id = 1;
+  string terminal_id = 2;
+  string data = 3;
+}
+
+message TerminalWriteResponse {}
+
+message TerminalResizeRequest {
+  string thread_id = 1;
+  string terminal_id = 2;
+  uint32 cols = 3;
+  uint32 rows = 4;
+}
+
+message TerminalResizeResponse {}
+
+message TerminalClearRequest {
+  string thread_id = 1;
+  string terminal_id = 2;
+}
+
+message TerminalClearResponse {}
+
+message TerminalRestartRequest {
+  string thread_id = 1;
+  string terminal_id = 2;
+  string cwd = 3;
+  optional string worktree_path = 4;
+  uint32 cols = 5;
+  uint32 rows = 6;
+  map<string, string> env = 7;
+}
+
+message TerminalCloseRequest {
+  string thread_id = 1;
+  optional string terminal_id = 2;
+  bool delete_history = 3;
+}
+
+message TerminalCloseResponse {}
+
+message TerminalSessionSnapshot {
+  string thread_id = 1;
+  string terminal_id = 2;
+  string cwd = 3;
+  optional string worktree_path = 4;
+  TerminalSessionStatus status = 5;
+  optional uint32 pid = 6;
+  string history = 7;
+  optional int32 exit_code = 8;
+  optional int32 exit_signal = 9;
+  string label = 10;
+  string updated_at = 11;
+  uint64 sequence = 12;
+}
+
+message TerminalStartedEvent {
+  TerminalSessionSnapshot snapshot = 1;
+}
+
+message TerminalOutputEvent {
+  string data = 1;
+}
+
+message TerminalExitedEvent {
+  optional int32 exit_code = 1;
+  optional int32 exit_signal = 2;
+}
+
+message TerminalErrorEvent {
+  string message = 1;
+}
+
+message TerminalRestartedEvent {
+  TerminalSessionSnapshot snapshot = 1;
+}
+
+message TerminalActivityEvent {
+  bool has_running_subprocess = 1;
+  string label = 2;
+}
+
+message TerminalAttachStreamEvent {
+  string thread_id = 1;
+  string terminal_id = 2;
+  uint64 sequence = 3;
+  oneof event {
+    TerminalStartedEvent started = 4;
+    TerminalOutputEvent output = 5;
+    TerminalExitedEvent exited = 6;
+    bool closed = 7;
+    TerminalErrorEvent error = 8;
+    bool cleared = 9;
+    TerminalRestartedEvent restarted = 10;
+    TerminalActivityEvent activity = 11;
+    TerminalSessionSnapshot snapshot = 12;
+  }
 }
 
 message RefreshCredentialRequest {

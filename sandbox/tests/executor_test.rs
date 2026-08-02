@@ -247,6 +247,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         heartbeat.clone(),
     );
     late_injector.set(Box::new(agent_handle.clone()));
+    let terminals = moatless_sandbox::terminal::TerminalManager::new(config.workspace_dir.clone());
 
     SandboxState {
         config,
@@ -265,6 +266,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         system_prompt_cache,
         dispatch_lock: Default::default(),
         supervisor_health: Default::default(),
+        terminals,
     }
 }
 

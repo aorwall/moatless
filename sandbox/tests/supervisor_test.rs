@@ -628,6 +628,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
     );
+    let terminals = moatless_sandbox::terminal::TerminalManager::new(config.workspace_dir.clone());
 
     SandboxState {
         config,
@@ -646,5 +647,6 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         system_prompt_cache,
         dispatch_lock: Default::default(),
         supervisor_health: Default::default(),
+        terminals,
     }
 }
