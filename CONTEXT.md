@@ -258,7 +258,11 @@ The LLM the Agent uses (e.g. Opus, Sonnet).
 
 **Subagent**:
 A sub-conversation the Agent spawns via the Task tool, threaded onto the spawning
-tool call (`parent_tool_use_id`).
+tool call (`parent_tool_use_id`). Its own rows are never in the Task's stream. The
+Moatless surface folds them behind the spawning call (see **Subagent
+transcript**); the T3 surface, which has no nesting to fold into, reports that
+one call as a task it watches run — progress while the call is open, a completion
+when it settles, both on the one row.
 
 ### Plugins & skills
 

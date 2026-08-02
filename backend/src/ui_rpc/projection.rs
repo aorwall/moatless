@@ -2443,6 +2443,68 @@ mod tests {
         );
     }
 
+    /// A subagent reaches the client as one task it watches run.
+    ///
+    /// The subagent's own work is not in the Task's stream, so this row is the
+    /// whole of what is seen of it: it is reported as a running task while the
+    /// call is open, and the completion lands on the same row — same id, so the
+    /// client replaces it rather than adding a second row.
+    #[test]
+    fn a_subagent_reaches_the_client_as_one_task_it_watches_run() {
+        let mut conversation = a_conversation();
+        let mut spawn = call(
+            "msg-2",
+            2,
+            3,
+            "call-3",
+            "Task",
+            json!({ "subagent_type": "code-reviewer", "description": "Audit the SQL" }),
+        );
+        spawn.status = ActivityStatus::InProgress;
+        spawn.payload["status"] = json!("inProgress");
+        conversation.activities.push(spawn);
+
+        let projected = detail(&conversation);
+        let running = projected["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["payload"]["data"]["toolCallId"] == "call-3")
+            .expect("the spawning call is a row of the thread");
+        assert_eq!(running["kind"], "task.progress");
+        assert_eq!(running["tone"], "info");
+        assert_eq!(running["payload"]["itemType"], "collab_agent_tool_call");
+        // Headed by the word for what it is, with the brief beside it.
+        assert_eq!(running["payload"]["summary"], "Subagent task");
+        assert_eq!(
+            running["payload"]["detail"],
+            "code-reviewer: Audit the SQL"
+        );
+
+        // The call comes back. The row is the same row.
+        let running_id = running["id"].clone();
+        let spawn = conversation
+            .activities
+            .iter_mut()
+            .find(|activity| activity.tool_use_id.as_deref() == Some("call-3"))
+            .unwrap();
+        spawn.status = ActivityStatus::Completed;
+        spawn.payload["status"] = json!("completed");
+
+        let settled = detail(&conversation);
+        let completed = settled["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["payload"]["data"]["toolCallId"] == "call-3")
+            .expect("the settled call is still a row of the thread");
+        assert_eq!(completed["kind"], "task.completed");
+        assert_eq!(
+            completed["id"], running_id,
+            "the completion lands on the row the progress was reported on"
+        );
+    }
+
     #[test]
     fn a_codex_shell_call_reaches_the_client_as_t3s_ran_command_row() {
         let mut conversation = a_conversation();

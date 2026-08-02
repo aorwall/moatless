@@ -73,9 +73,21 @@ impl<'a> ActivityView<'a> {
         self.activity.is_settled()
     }
 
+    /// Whether this row is the call that spawned a subagent.
+    ///
+    /// The subagent's own work is not in the Task's stream, so this one row is
+    /// the whole of what a client sees of it — which is why it is reported as a
+    /// task rather than as a tool call.
+    fn is_subagent_call(&self) -> bool {
+        self.activity.kind == ActivityKind::ToolCall
+            && t3_item_type(self.summary()) == "collab_agent_tool_call"
+    }
+
     pub fn t3_tone(&self) -> &'static str {
         match self.activity.kind {
             _ if self.activity.is_error => "error",
+            // The tone T3 gives its own `task.*` rows.
+            ActivityKind::ToolCall if self.is_subagent_call() => "info",
             ActivityKind::ToolCall => "tool",
             // `SandboxWarning` falls through to `info`, which is what upstream
             // assigns `runtime.warning`; its amber comes from the kind, not the
@@ -93,6 +105,17 @@ impl<'a> ActivityView<'a> {
 
     pub fn t3_kind(&self) -> &'static str {
         match self.activity.kind {
+            // A subagent is a task the client watches run, not a call it
+            // watches return: the row keeps its id, so the progress it reports
+            // and the completion that follows land on the one row rather than
+            // adding another.
+            ActivityKind::ToolCall if self.is_subagent_call() => {
+                if self.activity.is_settled() {
+                    "task.completed"
+                } else {
+                    "task.progress"
+                }
+            }
             ActivityKind::ToolCall if self.activity.is_settled() => "tool.completed",
             ActivityKind::ToolCall => "tool.updated",
             // Severity in T3's work log is carried by the kind: `runtime.error`
@@ -134,6 +157,12 @@ impl<'a> ActivityView<'a> {
             // T3 stores the provider title as the activity summary. Its
             // ingestion payload intentionally does not duplicate it.
             payload.remove("title");
+            // A `task.*` row is headed by its payload summary and takes the
+            // brief as the line beside it. Without one the brief would be the
+            // heading and the row would lose the word for what it is.
+            if self.is_subagent_call() {
+                payload.insert("summary".into(), Value::String(presentation.summary));
+            }
         } else if let Some(detail) = self.detail() {
             payload.insert("detail".into(), Value::String(detail.to_string()));
         }
@@ -634,6 +663,94 @@ mod tests {
         assert_eq!(
             call.detail.as_deref(),
             Some("test output must not replace the request detail")
+        );
+    }
+
+    /// The spawning call itself, as T3's Claude adapter presents it: the tools
+    /// it classifies as agent work all reach the client under one item type and
+    /// one title, and the detail is the subagent's kind and its brief.
+    #[test]
+    fn a_subagent_call_uses_the_same_presentation_as_t3s_claude_adapter() {
+        for name in ["Task", "Agent", "general-purpose-agent"] {
+            let mut call = stored(
+                ActivityKind::ToolCall,
+                json!({
+                    "title": name,
+                    "itemType": "dynamic_tool_call",
+                    "data": { "toolCallId": "tu-1" },
+                    "input": {
+                        "subagent_type": "code-reviewer",
+                        "description": "Audit the SQL changes",
+                        "prompt": "Read every migration and report"
+                    }
+                }),
+            );
+            call.summary = name.to_string();
+
+            let view = ActivityView::new(&call);
+            let payload = view.t3_payload();
+            assert_eq!(payload["itemType"], "collab_agent_tool_call", "{name}");
+            assert_eq!(view.t3_summary(), "Subagent task", "{name}");
+            assert_eq!(payload["detail"], "code-reviewer: Audit the SQL changes");
+        }
+    }
+
+    /// A subagent is reported as a task the client watches run.
+    ///
+    /// The subagent's own rows are not in the Task's stream, so this row is all
+    /// that is seen of it: open, it is progress; settled, it is a completion —
+    /// and a failed one is toned like every other error.
+    #[test]
+    fn a_subagent_call_is_reported_as_a_task_rather_than_a_tool() {
+        let mut call = stored(ActivityKind::ToolCall, json!({ "input": {} }));
+        call.summary = "Task".to_string();
+
+        call.status = ActivityStatus::InProgress;
+        assert_eq!(ActivityView::new(&call).t3_kind(), "task.progress");
+        assert_eq!(ActivityView::new(&call).t3_tone(), "info");
+
+        call.status = ActivityStatus::Completed;
+        assert_eq!(ActivityView::new(&call).t3_kind(), "task.completed");
+        assert_eq!(ActivityView::new(&call).t3_tone(), "info");
+
+        call.status = ActivityStatus::Failed;
+        call.is_error = true;
+        assert_eq!(ActivityView::new(&call).t3_kind(), "task.completed");
+        assert_eq!(ActivityView::new(&call).t3_tone(), "error");
+
+        // Every other call stays a tool call.
+        let mut bash = stored(ActivityKind::ToolCall, json!({ "input": {} }));
+        bash.summary = "Bash".to_string();
+        bash.status = ActivityStatus::InProgress;
+        assert_eq!(ActivityView::new(&bash).t3_kind(), "tool.updated");
+        assert_eq!(ActivityView::new(&bash).t3_tone(), "tool");
+    }
+
+    /// The classifier is ordered as T3's is, and the order is what decides the
+    /// names that read like agent work but do not contain `agent`: `Task`
+    /// alone is a subagent call, `TaskCreate` reaches the `create` arm first
+    /// and is a file change. Both clients answer the same, so the answer is
+    /// held here rather than corrected.
+    #[test]
+    fn a_name_that_only_looks_like_agent_work_is_classified_as_t3_classifies_it() {
+        assert_eq!(t3_item_type("Task"), "collab_agent_tool_call");
+        assert_eq!(t3_item_type("TaskCreate"), "file_change");
+        assert_eq!(t3_item_type("TaskList"), "dynamic_tool_call");
+    }
+
+    /// Without a `subagent_type` the detail is the brief alone, and the
+    /// description is preferred over the prompt.
+    #[test]
+    fn a_subagent_call_without_a_kind_details_the_brief_alone() {
+        let mut call = stored(
+            ActivityKind::ToolCall,
+            json!({ "input": { "prompt": "Read every migration" } }),
+        );
+        call.summary = "Task".to_string();
+
+        assert_eq!(
+            ActivityView::new(&call).t3_payload()["detail"],
+            "Read every migration"
         );
     }
 
