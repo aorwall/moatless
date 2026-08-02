@@ -11,7 +11,6 @@
 //! These are non-fatal — failures are logged but don't affect health.
 
 mod claude_code_settings;
-mod codex_compat;
 mod codex_config;
 pub(crate) mod codex_watcher;
 pub(crate) mod credentials;
@@ -664,28 +663,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         .await;
     }
 
-    // 8. Link AGENTS.md/CLAUDE.md instruction files so both agents see the same
-    // guidance. AGENTS.md is canonical when present; CLAUDE-only repos get an
-    // AGENTS.md link for Codex. Runs unconditionally because agent type is
-    // decided per-message. Skills are installed into home dirs below.
-    if !state.config.repo_dir.is_empty() {
-        let repo_dir = PathBuf::from(&state.config.repo_dir);
-        let instruction_links = run_init_blocking("link_agent_instruction_files", move || {
-            codex_compat::link_agent_instruction_files(&repo_dir)
-        })
-        .await?;
-        if instruction_links > 0 {
-            publish_sandbox_event(
-                state,
-                "CodexCompatMirrored",
-                &format!("Linked {instruction_links} agent instruction file(s)"),
-                false,
-            )
-            .await;
-        }
-    }
-
-    // 8b. Install the repo's skills into the home-level skill dirs for both
+    // 8. Install the repo's skills into the home-level skill dirs for both
     // agents: `<claude_config_dir>/skills` for Claude and `<codex_home_dir>/skills`
     // for Codex. Skills are discovered relative to cwd (`workspace_dir`), so a
     // repo checked out one level down at `repo_dir` would otherwise be invisible;
@@ -827,7 +805,7 @@ mod tests {
     }
 
     /// The happy path returns the step's value, so counts published as init
-    /// events (staged skills, mirrored AGENTS.md, bridged config) are unchanged.
+    /// events (staged skills, installed repo skills, bridged config) are unchanged.
     #[tokio::test]
     async fn successful_blocking_step_returns_its_value() {
         let staged = run_init_blocking("stage_plugin_skills_for_codex", || 3usize)

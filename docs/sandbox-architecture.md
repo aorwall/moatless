@@ -584,8 +584,9 @@ symlinks, so they survive the workspace volume mount.
 
 A name already present is never overwritten, so a staged image skill wins over a
 repo skill of the same name, and the merge of the two repo roots copies each
-skill once. Only skills are bridged — `CLAUDE.md`/`AGENTS.md` are deliberately
-left in the repo.
+skill once. Only skills are bridged. Instruction files are not: a repo that wants
+both `AGENTS.md` and `CLAUDE.md` commits one as a symlink to the other. Init does
+not create those links, so nothing the sandbox does can drift from the repo.
 
 **Multi-repo limitation**: `install_repo_skills_to_home` takes `repo_dir`, which
 is the workspace's *primary* checkout. Skills shipped by a secondary repo in a

@@ -19,7 +19,7 @@ CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --
 - `agent/coordinator.rs` owns harness-neutral run lifecycle, retry, run IDs, and event publication.
 - `agent/harness/` owns Claude and Codex process/app-server adapters behind the Harness boundary.
 - `agent/dispatcher.rs` fetches pending messages, submits them to the handle, and acknowledges only accepted input.
-- `init/` owns checkout, credentials, AGENTS/CLAUDE linking, transcript restore, workspace restore, and server startup.
+- `init/` owns checkout, credentials, repo skill install, transcript restore, workspace restore, and server startup.
 - `outbox.rs` owns the sandbox-to-backend event buffer and delivery retry policy.
 - `server/` owns configured preview/server process monitoring.
 
@@ -61,4 +61,5 @@ CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --
   acknowledgment. The backend maps `run_id` -> turn number, so a turn is exactly
   one agent run regardless of delivery order.
 - Interactive prompts use `tokio::sync::oneshot` for AskUserQuestion/ExitPlanMode blocking.
+- `init/` does not write into a checkout under `WORKSPACE_DIR`. A file it creates there is untracked and lands in the user's `git status` and PR diff. Anything an agent must discover is staged in a home/config dir instead — `$CLAUDE_CONFIG_DIR`, `$CODEX_HOME`, `/etc/codex/skills` — and a repo that wants `CLAUDE.md` beside its `AGENTS.md`, or `.claude/skills` beside `.agents/skills`, commits that symlink itself. The clone, the configured setup commands, and `workspace_sync`'s restore are the only writers inside a checkout.
 - AGENTS.md is canonical local guidance.
