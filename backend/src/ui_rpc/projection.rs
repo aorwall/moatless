@@ -549,13 +549,13 @@ fn conversation_row(
         "id": conversation.task_id,
         "projectId": project_id,
         // `tasks.name` is nullable and has no non-empty constraint, and the
-        // contract refuses a blank title, so an unnamed conversation falls back
-        // to its id rather than taking the whole listing down.
+        // contract refuses a blank title, so an unnamed conversation shows the
+        // contract's "New thread" placeholder until it is auto-titled.
         "title": conversation
             .name
             .as_deref()
             .and_then(non_empty)
-            .unwrap_or_else(|| conversation.task_id.clone()),
+            .unwrap_or_else(|| "New thread".to_string()),
         "modelSelection": model_selection(conversation, defaults),
         "runtimeMode": RUNTIME_MODE,
         "branch": conversation

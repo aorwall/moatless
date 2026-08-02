@@ -1670,9 +1670,10 @@ async fn a_question_the_agent_called_past_is_no_longer_pending(pool: PgPool) {
 }
 
 /// A conversation with no name still needs a title: the contract refuses an
-/// empty string, and the client shows the row by it.
+/// empty string, so an unnamed conversation shows the "New thread" placeholder
+/// until it is auto-titled.
 #[sqlx::test]
-async fn a_conversation_with_no_name_falls_back_to_its_id(pool: PgPool) {
+async fn a_conversation_with_no_name_falls_back_to_new_thread(pool: PgPool) {
     PgWorkspaceDao(pool.clone())
         .insert_workspace(&make_workspace_row("ws-a", "user-1"))
         .await
@@ -1684,7 +1685,7 @@ async fn a_conversation_with_no_name_falls_back_to_its_id(pool: PgPool) {
 
     let thread = thread(&pool, &viewer("user-1"), "t-nameless").await;
     assert_decodable_thread(&thread);
-    assert_eq!(thread["title"], "t-nameless");
+    assert_eq!(thread["title"], "New thread");
 }
 
 /// Every row in a listing built from every combination the filters distinguish
