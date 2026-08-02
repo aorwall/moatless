@@ -293,7 +293,7 @@ pub async fn write(
         .terminal_write(TerminalWriteRequest {
             thread_id,
             terminal_id: required_string(payload, "terminalId")?.to_string(),
-            data: required_string(payload, "data")?.to_string(),
+            data: required_raw_string(payload, "data")?.to_string(),
         })
         .await
         .map_err(|error| TerminalError::sandbox(classify_grpc_error(error, "terminal_write")))
@@ -617,6 +617,17 @@ fn required_string<'a>(payload: &'a Value, field: &'static str) -> Result<&'a st
         .ok_or(TerminalError::Malformed(field))
 }
 
+fn required_raw_string<'a>(
+    payload: &'a Value,
+    field: &'static str,
+) -> Result<&'a str, TerminalError> {
+    payload
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or(TerminalError::Malformed(field))
+}
+
 fn optional_string(payload: &Value, field: &'static str) -> Result<Option<String>, TerminalError> {
     match payload.get(field) {
         None | Some(Value::Null) => Ok(None),
@@ -822,5 +833,29 @@ mod tests {
         let previous = terminal_summary(&running_snapshot(1111));
 
         assert!(snapshot_is_new_process(Some(&previous), &snapshot));
+    }
+
+    #[test]
+    fn required_raw_string_preserves_terminal_control_input() {
+        let payload = json!({ "data": "\r" });
+
+        assert_eq!(required_raw_string(&payload, "data").unwrap(), "\r");
+    }
+
+    #[test]
+    fn required_raw_string_accepts_whitespace_terminal_input() {
+        let payload = json!({ "data": " " });
+
+        assert_eq!(required_raw_string(&payload, "data").unwrap(), " ");
+    }
+
+    #[test]
+    fn required_raw_string_rejects_empty_terminal_input() {
+        let payload = json!({ "data": "" });
+
+        assert!(matches!(
+            required_raw_string(&payload, "data"),
+            Err(TerminalError::Malformed("data"))
+        ));
     }
 }
