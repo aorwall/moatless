@@ -67,7 +67,9 @@ use crate::agent::catalog::AgentKind;
 use crate::auth::identity::{AuthIdentity, AuthMethod};
 use crate::auth::models::UserRole;
 use crate::auth::pairing::DevicePairing;
-use crate::sandbox::access::{SandboxConnector, SandboxIntentReader, SandboxObserver};
+use crate::sandbox::access::{
+    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter,
+};
 use crate::task::dao::TaskDao;
 use crate::task_activities::{self, ConversationHead};
 use crate::task_listing::{self, EnvironmentIdentity, Resume};
@@ -270,6 +272,7 @@ pub async fn router_from_env(
         observer,
         tasks,
         intent,
+        starter,
         preview_tabs,
         model_defaults,
         agents,
@@ -307,6 +310,7 @@ pub async fn router_from_env(
             observer,
             tasks: tasks.clone(),
             intent,
+            starter,
         },
         preview: PreviewState {
             tabs: preview_tabs,
@@ -342,6 +346,8 @@ pub struct UiRpcDependencies {
     pub tasks: Arc<dyn TaskDao>,
     /// The desired state a status read is resolved against.
     pub intent: Arc<dyn SandboxIntentReader>,
+    /// Starts a Task's Sandbox through the same lifecycle path as the REST API.
+    pub starter: Arc<dyn SandboxStarter>,
     pub preview_tabs: Arc<dyn PreviewTabDao>,
     pub model_defaults: AgentModelDefaults,
     /// Which agents this viewer can run, and with which models.
@@ -1771,6 +1777,26 @@ impl ProtocolSession {
                     Err(error) => vec![servers_failure_exit(&id, &error, identity)],
                 }
             }
+            "sandbox.status" => {
+                let viewer = viewer_scope(identity);
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    return vec![failure_exit(&id, "sandbox.status requires a threadId")];
+                };
+                match servers::sandbox_status(&state.servers, &viewer, task_id).await {
+                    Ok(status) => vec![success_exit(&id, status)],
+                    Err(error) => vec![servers_failure_exit(&id, &error, identity)],
+                }
+            }
+            "sandbox.start" => {
+                let viewer = viewer_scope(identity);
+                let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
+                    return vec![failure_exit(&id, "sandbox.start requires a threadId")];
+                };
+                match servers::start_sandbox(&state.servers, &viewer, task_id).await {
+                    Ok(status) => vec![success_exit(&id, status)],
+                    Err(error) => vec![servers_failure_exit(&id, &error, identity)],
+                }
+            }
             "subscribeServerStatus" => {
                 let viewer = viewer_scope(identity);
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
@@ -2957,6 +2983,13 @@ mod tests {
     }
 
     #[async_trait]
+    impl crate::sandbox::access::SandboxStarter for UnreachableSandboxes {
+        async fn start(&self, task_id: &str) -> Result<(), crate::sandbox::error::SandboxError> {
+            Err(unreachable(task_id))
+        }
+    }
+
+    #[async_trait]
     impl SandboxObserver for UnreachableSandboxes {
         async fn sandbox_status(
             &self,
@@ -3155,6 +3188,7 @@ mod tests {
                 observer: Arc::new(UnreachableSandboxes),
                 tasks: Arc::new(crate::task::dao::MockTaskDao::new()),
                 intent: Arc::new(UnreachableSandboxes),
+                starter: Arc::new(UnreachableSandboxes),
             },
             preview: PreviewState {
                 tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),

@@ -87,6 +87,21 @@ impl SandboxIntentReader for super::lifecycle::Lifecycle {
     }
 }
 
+/// Durable lifecycle write needed by transports that can start a stopped Task
+/// environment without taking the whole sandbox API state.
+#[async_trait]
+pub trait SandboxStarter: Send + Sync {
+    async fn start(&self, task_id: &str) -> Result<(), SandboxError>;
+}
+
+#[async_trait]
+impl SandboxStarter for super::lifecycle::Lifecycle {
+    async fn start(&self, task_id: &str) -> Result<(), SandboxError> {
+        Self::start(self, task_id).await?;
+        Ok(())
+    }
+}
+
 /// The only construction path for a task-addressed [`SandboxClient`].
 ///
 /// The concrete Docker and Kubernetes adapters own their addressing rules and

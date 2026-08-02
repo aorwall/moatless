@@ -15,11 +15,11 @@ use std::time::Duration;
 
 use chrono::Utc;
 use futures::StreamExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::sandbox::access::{LogOptions, SandboxIntentReader, SandboxObserver};
+use crate::sandbox::access::{LogOptions, SandboxIntentReader, SandboxObserver, SandboxStarter};
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::schemas::ServerEntry;
 use crate::task::dao::TaskDao;
@@ -43,6 +43,7 @@ pub struct ServersState {
     pub observer: Arc<dyn SandboxObserver>,
     pub tasks: Arc<dyn TaskDao>,
     pub intent: Arc<dyn SandboxIntentReader>,
+    pub starter: Arc<dyn SandboxStarter>,
 }
 
 /// Why a `servers.*` read could not be answered.
@@ -126,6 +127,44 @@ pub async fn list(
         "servers": status.servers.iter().map(project_server).collect::<Vec<_>>(),
         "sandboxStatus": status.sandbox_status.as_str(),
     }))
+}
+
+/// A Task's sandbox lifecycle status only, without any declared server rows.
+pub async fn sandbox_status(
+    state: &ServersState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Value, ServersError> {
+    let task = authorized_task(state, viewer, task_id).await?;
+    let desired = state
+        .intent
+        .desired_state(task_id)
+        .await
+        .map_err(ServersError::Sandbox)?;
+    let status = state
+        .observer
+        .live_status(task_id, task.status, desired)
+        .await
+        .map_err(ServersError::Sandbox)?;
+    Ok(json!({
+        "sandboxStatus": status.sandbox_status.as_str(),
+    }))
+}
+
+/// Request that a Task's Sandbox move toward Running, then return its lifecycle
+/// status only.
+pub async fn start_sandbox(
+    state: &ServersState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Value, ServersError> {
+    let _task = authorized_task(state, viewer, task_id).await?;
+    state
+        .starter
+        .start(task_id)
+        .await
+        .map_err(ServersError::Sandbox)?;
+    sandbox_status(state, viewer, task_id).await
 }
 
 /// One snapshot of a Task's servers, for the status stream.
@@ -390,7 +429,7 @@ mod db_tests {
     use crate::sandbox::auto_provision::get_server_configs_for_task;
     use crate::sandbox::client::SandboxClient;
     use crate::sandbox::live_status::LiveStatus;
-    use crate::sandbox::models::{server_capabilities_from_config, SandboxStatus, ServerStatus};
+    use crate::sandbox::models::{SandboxStatus, ServerStatus, server_capabilities_from_config};
     use crate::sandbox::schemas::SandboxStatusFullResponse;
     use crate::task::dao::PgTaskDao;
     use crate::task::models::{SandboxDesiredState, TaskStatus};
@@ -486,11 +525,19 @@ mod db_tests {
         }
     }
 
+    #[async_trait]
+    impl SandboxStarter for NeverAsked {
+        async fn start(&self, _task_id: &str) -> Result<(), SandboxError> {
+            unreachable!("servers.list does not start a sandbox")
+        }
+    }
+
     fn state(pool: &PgPool) -> ServersState {
         ServersState {
             observer: Arc::new(NeverProvisioned(pool.clone())),
             tasks: Arc::new(PgTaskDao(pool.clone())),
             intent: Arc::new(NeverAsked),
+            starter: Arc::new(NeverAsked),
         }
     }
 
