@@ -989,6 +989,32 @@ networkPolicy:
     # -- Extra CIDR blocks allowed on :443. Use for corporate artifactories,
     # self-hosted Git, etc.
     extraAllowedCidrs: []
+    # -- Extra egress for specific workspace `networkProfile` values: a map of
+    # profile name to egress rules, rendered verbatim into one NetworkPolicy per
+    # profile (sandbox-profile-egress-networkpolicy.yaml). Allows are additive,
+    # so these add to the rules above; ingress stays with the policy above. A pod
+    # is affected only once an admin sets that workspace's networkProfile.
+    #
+    # An empty `to`/`ports` rule does NOT cover in-VPC or ClusterIP destinations
+    # on the AWS VPC CNI — name the CIDR and port you actually need. Addresses
+    # are environment-specific, hence empty here. Example: a shadow-dev
+    # workspace reaching its database and the kube-apiserver ClusterIP, both of
+    # which broadEgress excludes as private ranges.
+    #   profileEgress:
+    #     moatless-dev:
+    #       - to:
+    #           - ipBlock:
+    #               cidr: 10.30.20.0/24
+    #         ports:
+    #           - protocol: TCP
+    #             port: 5432
+    #       - to:
+    #           - ipBlock:
+    #               cidr: 172.20.0.1/32
+    #         ports:
+    #           - protocol: TCP
+    #             port: 443
+    profileEgress: {}
     # -- Cilium FQDN-based policy (recommended for hardened environments).
     # Requires Cilium with DNS proxy enabled.
     cilium:
