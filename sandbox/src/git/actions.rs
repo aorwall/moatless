@@ -924,6 +924,62 @@ mod tests {
             );
         }
 
+        /// Generation is the one step in the commit phase that reaches outside
+        /// the repository, so it is the one that can fail for reasons the
+        /// caller did not cause. When it does, the phase must fail by name and
+        /// leave the staging RC1 put ahead of it intact, so retrying — or
+        /// typing a message instead — starts from the work already staged.
+        #[tokio::test]
+        async fn a_generation_failure_names_the_commit_phase_and_leaves_the_work_staged() {
+            let dir = repo();
+            let path = dir.path();
+
+            // `env` points at a CLI that is not there, so generation is entered
+            // and fails. No commit message, and the worktree is dirty.
+            let events = run(
+                env(path),
+                StackedActionParams {
+                    action: GitStackedAction::Commit,
+                    commit_message: None,
+                    feature_branch: true,
+                    file_paths: Vec::new(),
+                },
+            )
+            .await;
+
+            assert_eq!(kinds(&events).last(), Some(&"action_failed"));
+            match events
+                .last()
+                .expect("an event")
+                .event
+                .as_ref()
+                .expect("an event body")
+            {
+                Event::ActionFailed(f) => assert_eq!(
+                    f.phase,
+                    Some(GitActionPhase::Commit as i32),
+                    "the failing phase is named"
+                ),
+                other => panic!("expected action_failed, got {other:?}"),
+            }
+
+            assert_eq!(
+                read(path, &["rev-list", "--count", "HEAD"]),
+                "1",
+                "a commit landed without a message"
+            );
+            assert_eq!(
+                read(path, &["diff", "--cached", "--name-only"]),
+                "tracked.txt\nuntracked.txt",
+                "the staging did not survive the failure"
+            );
+            assert_eq!(
+                read(path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+                "main",
+                "a branch was created for a commit that never happened"
+            );
+        }
+
         #[tokio::test]
         async fn a_feature_branch_is_created_from_the_subject_and_keeps_the_index() {
             let dir = repo();
