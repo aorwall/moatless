@@ -1,6 +1,6 @@
 ---
 name: asking-questions
-description: The two shapes a question to the user can take — a ranked pick or a selection from a set — and what earns a place in the message beside the ask. Use when a turn asks the user to decide something, or when another skill reaches a decision point and hands the turn back.
+description: The two shapes a question to the user can take — a ranked pick or a selection from a set — what earns a place in the message beside the ask, and how to deliver it through the question tool where the runtime has one. Use when a turn asks the user to decide something, or when another skill reaches a decision point and hands the turn back.
 ---
 
 # Asking Questions
@@ -35,6 +35,28 @@ Two roles earn a place. Nothing else does.
 - **Over ~150 words, re-run the strike test.** A tripwire, not a cap. Never satisfy it by cutting adjectives.
 - **A fact that survives the strike test still gets one line, not its derivation.** How you established it — the probe, the trace, the three files you read — is not what makes it evidence. Where a page exists, the fact goes on it in full and the message carries the one line plus the link.
 
+## Send it through the question tool where the runtime has one
+
+**Where `AskUserQuestion` — or the runtime's equivalent — is available, the options go through it, not into the prose.** It renders as a form the user clicks; the same options typed as a numbered list make them retype an answer they could have picked.
+
+Both shapes map onto one call:
+
+| Shape | The call |
+|---|---|
+| **A ranked pick** | One question, single-select. Recommendation first, with `(Recommended)` at the end of its label |
+| **A selection from a set** | One question, `multiSelect: true`, one option per item |
+
+- **`label` is what gets picked, `description` is the one line of trade-off.** A label is 1–5 words, not a sentence.
+- **A free-text `Other` is offered automatically on single-select.** Writing your own "something else" option spends one of four slots restating it.
+- **Evidence, stake and the link stay in the message that precedes the call** — the strike test above still decides what goes there. What that message no longer does is repeat the options.
+- **`header` is a chip, not a title** — ≤12 characters.
+
+**The limits are 2–4 options and at most 4 questions per call, and they are where the tool stops fitting.** A set of nine items does not become four grouped options — that is the bundling failure this file opens with. Show the nine in the message and take the answer as text.
+
+**Fall back to the numbered list — a real `1. ` at line start, recommendation first — when the runtime has no such tool** (Codex-style runtimes, headless tasks) **or when the ask does not fit those limits.** Nothing else about the shape changes.
+
+**A question answered by a path, a SHA, or a name you cannot enumerate is not a pick.** Ask it in one line of prose. The tool is for choosing between things you can name — reach for it once you have real candidates to offer, not before.
+
 ## An approval is not a question
 
-The work is done and needs a yes. The artifact is the recommendation, and the one line asking for it is the whole ask — **no options, no ranked list**, because a numbered list under it asks the same thing a second time. **The test is whether anything is left for the user to choose between** — if nothing is, this file does not apply and `/writing-messages` is the whole of it.
+The work is done and needs a yes. The artifact is the recommendation, and the one line asking for it is the whole ask — **no options, no ranked list, and no tool call**, because each of those asks the same thing a second time. **The test is whether anything is left for the user to choose between** — if nothing is, this file does not apply and `/writing-messages` is the whole of it.

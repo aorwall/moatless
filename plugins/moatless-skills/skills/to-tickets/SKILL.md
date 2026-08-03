@@ -47,7 +47,7 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 - **Blocked by**: which other tickets (if any) must complete first
 - **What it delivers**: the end-to-end behaviour this ticket makes work
 
-**Ask it as one selection question** — the second question shape in `/asking-questions`.
+**Ask it as one selection question** — the second question shape in `/asking-questions`, which also decides whether it goes through `AskUserQuestion` or stays a list in the message. A breakdown of more than four tickets is past what the tool can carry, so it stays in the message.
 
 > Which of these need changing — merged, split, or a wrong blocking edge? "All fine" if none.
 

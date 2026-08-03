@@ -14,7 +14,7 @@ Four rules, always:
 - **A "you decide" escape on every decision.** Let the user hand a decision back, then record what you chose so it stays visible and reversible. Approval is theirs alone and takes no escape.
 - **Don't act until the user confirms** you have reached shared understanding.
 
-**Run `/asking-questions` for every question you send, and `/writing-messages` for every turn.** The first owns the two question shapes and what earns a place in the message; the second owns everything true of any turn a person reads. This skill owns *which* question to ask, in what order, and when to stop.
+**Run `/asking-questions` for every question you send, and `/writing-messages` for every turn.** The first owns the two question shapes, what earns a place in the message, and sending the options through `AskUserQuestion` where the runtime has it; the second owns everything true of any turn a person reads. This skill owns *which* question to ask, in what order, and when to stop.
 
 ## Reach shared understanding before deciding anything
 
@@ -43,6 +43,8 @@ Open each batch by naming it and its size:
 > **Decisions — 4 questions:** the seam, the retry policy, message assembly, rollout. Starting with the seam.
 
 That is also the moment to offer the shape — *"one at a time, or all four at once?"* Ask once, at the first batch, then honour the answer. One at a time is the default because it's the safe one; a session with momentum often wants the whole batch, and only the user knows which one this is.
+
+**A batch the user wants all at once is one `AskUserQuestion` call carrying up to four questions**, not four turns in a row. Past four, it is two batches.
 
 Say the estimated total count up front. An estimate is enough — don't delay the batch to make it accurate.
 

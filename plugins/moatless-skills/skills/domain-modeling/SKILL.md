@@ -23,7 +23,7 @@ Create files lazily — only when you have something to write. If no `CONTEXT.md
 
 ## During the session
 
-Every question below is a ranked pick between two readings of a term. Send it per `/asking-questions` — the ask first, the readings as a real numbered list, your recommendation marked.
+Every question below is a ranked pick between two readings of a term. Send it per `/asking-questions` — the ask first, the two readings as the options, your recommendation marked. Where the runtime has `AskUserQuestion`, the readings are its options rather than a numbered list.
 
 ### Challenge against the glossary
 
@@ -60,4 +60,4 @@ Route durable decisions to the smallest artifact that current work already owns:
 
 Plans and old decision records can rot. Treat them as leads, not authority; verify durable architecture and behaviour claims against current code and tests before relying on them.
 
-If none of those fits, ask before adding a new maintained place.
+If none of those fits, ask before adding a new maintained place — per `/asking-questions`, with the places you considered as the options.

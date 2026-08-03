@@ -43,7 +43,7 @@ Establish:
 - What output or state proves the run is complete.
 - Which parts are deterministic enough to deserve bundled commands, scripts, templates, or reference files.
 
-Ask only for decisions. Inspect local files, existing skills, docs, and examples yourself.
+Ask only for decisions, and shape and deliver each one per `/asking-questions` — through `AskUserQuestion` where the runtime has it. Inspect local files, existing skills, docs, and examples yourself.
 
 ### 2. Pick invocation deliberately
 

@@ -7,7 +7,7 @@ description: Shape a user-facing turn so it can be acted on — the ask or the v
 
 Working memory is the constraint, not patience: **nothing in a message should need to be retained to answer it.**
 
-These rules are true of every turn a person reads. **A turn that asks the user to decide something has a shape of its own on top of them — `/asking-questions`.** So does an answer with a fork left in it: "so the question becomes X or Y; I'd keep X" reads as settled to you and as unanswered to the reader, which makes it a question.
+These rules are true of every turn a person reads. **A turn that asks the user to decide something has a shape of its own on top of them — `/asking-questions`, which also owns sending the options through `AskUserQuestion` where the runtime has it.** So does an answer with a fork left in it: "so the question becomes X or Y; I'd keep X" reads as settled to you and as unanswered to the reader, which makes it a question.
 
 ## Seven always-rules
 
@@ -41,8 +41,8 @@ Chat renders through Streamdown with `remark-gfm` and `remark-math`. **Neither i
 |---|---|
 | "Explain" or "walk me through" | Explain fully. Still no preamble, still no closer; add headings so the reader can skim back |
 | Destructive action ahead | Confirm before acting. Safety outranks brevity |
-| Debug spiral — three turns of "still broken" | Stop iterating. Name the assumption that might be wrong, ask one diagnostic question |
-| Real ambiguity | One short clarifying question beats guessing and rewriting |
+| Debug spiral — three turns of "still broken" | Stop iterating. Name the assumption that might be wrong, ask one diagnostic question — per `/asking-questions` |
+| Real ambiguity | One short clarifying question beats guessing and rewriting. It is still a question: `/asking-questions` shapes and delivers it |
 | A rule would delete the answer | The task wins, the shape stays. "What are my options" gets 2–4 ranked options — the options *are* the answer |
 | A rule fights the harness | The harness wins. Do the work rather than asking "want me to"; announce a tool call where required |
 

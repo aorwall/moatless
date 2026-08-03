@@ -23,7 +23,7 @@ Everything else in this skill is *how* to do one of those steps:
 | For | Read |
 |---|---|
 | Asking the questions in steps 1 and 3 | `/grilling` |
-| Shaping the questions themselves | `/asking-questions` |
+| Shaping the questions themselves, and delivering them through the question tool | `/asking-questions` |
 | Everything else true of a turn a person reads | `/writing-messages` |
 | Rendering and updating the page | [HTML-REPORT.md](HTML-REPORT.md), on top of `/html-report` |
 | The elements that go in either surface | [DESIGN.md](DESIGN.md) |
@@ -77,7 +77,7 @@ An interview that only asks ranked decisions produces a decision table and nothi
 The turn itself is four things, in this order, and nothing else — `/asking-questions` owns the shape:
 
 1. **What is being decided**, in one line.
-2. **The options**, as a real numbered list, recommendation first. Never a fork buried in a paragraph: "do you want X, or is there a reason for Y I'm not seeing" is answered by retyping X, which is the tell that no list was offered.
+2. **The options**, through `AskUserQuestion` where the runtime has it, and as a real numbered list where it doesn't — recommendation first either way. Never a fork buried in a paragraph: "do you want X, or is there a reason for Y I'm not seeing" is answered by retyping X, which is the tell that no list was offered.
 3. **At most one line of stake** — what it costs to pick wrong.
 4. **The link**, naming what is on the page: "the protocol difference and the SDK bug are under Decision 5."
 

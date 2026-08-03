@@ -55,7 +55,7 @@ End the report with a **Top recommendation** section: which candidate you'd tack
 
 See [HTML-REPORT.md](HTML-REPORT.md) for the architecture-review layer: style additions, card anatomy, diagram patterns, and tone.
 
-Do NOT propose interfaces yet. After the file is written, ask which candidate to explore. That is a selection from a set, not a ranked pick — shape it per `/asking-questions`.
+Do NOT propose interfaces yet. After the file is written, ask which candidate to explore. That is a selection from a set, not a ranked pick — shape and deliver it per `/asking-questions`, which puts the candidates through `AskUserQuestion` where the runtime has it and the count fits.
 
 ### 3. Grilling loop
 
@@ -65,5 +65,5 @@ Side effects happen inline as decisions crystallize — run the `/domain-modelin
 
 - **Naming a deepened module after a concept not in `CONTEXT.md`?** Add the term to `CONTEXT.md`. Create the file lazily if it doesn't exist.
 - **Sharpening a fuzzy term during the conversation?** Update `CONTEXT.md` right there.
-- **User rejects the candidate with a load-bearing reason?** Record it in the active report/spec, or ask whether to add it to the repo's maintained decision log. Only do this when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing — skip ephemeral reasons ("not worth it right now") and self-evident ones.
+- **User rejects the candidate with a load-bearing reason?** Record it in the active report/spec, or ask whether to add it to the repo's maintained decision log — per `/asking-questions`, with the destinations as the options. Only do this when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing — skip ephemeral reasons ("not worth it right now") and self-evident ones.
 - **Want to explore alternative interfaces for the deepened module?** Run the `/codebase-design` skill and use its design-it-twice parallel sub-agent pattern.
