@@ -42,3 +42,4 @@ Failure modes grouped by step. Diagnose with `kubectl -n <ns> …`; most can be 
 
 - **Backend pod `Running` but status fails** → migrations crashed. `kubectl -n <ns> logs deploy/moatless-vibe-backend | grep -i migra`.
 - **Sandbox pods stuck `ContainerCreating`** → network policy blocks the init container. Inspect `kubectl -n <ns> get networkpolicy` and see the Cilium notes in `provider-*.md`.
+- **Backend warns `cannot ... resource "networkpolicies"`** → release predates the pod-manager Role's `networking.k8s.io/networkpolicies` grant. Preview NetworkPolicies are skipped until `helm upgrade` reapplies RBAC; verify with `kubectl -n <ns> auth can-i delete networkpolicies --as=system:serviceaccount:<ns>:<backend-sa>`.

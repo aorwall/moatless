@@ -26,6 +26,25 @@ use crate::config::Config;
 const TRAEFIK_POD_LABEL: &str = "app.kubernetes.io/name";
 const TRAEFIK_POD_LABEL_VALUE: &str = "traefik";
 
+/// A 403 on the NetworkPolicy API means the backend ServiceAccount holds no
+/// `networking.k8s.io/networkpolicies` grant — the chart's pod-manager Role
+/// carries it, so a cluster running an older release lands here.
+///
+/// Preview policies are optional ingress hardening, so that cluster degrades to
+/// "feature off" rather than wedging: creation is already best-effort, and a
+/// hard-failing delete makes every remove and redeploy retry a permission error
+/// no retry can fix. Nothing leaks either — a ServiceAccount that cannot delete
+/// policies could not create them, and policies created while the grant existed
+/// carry the task Deployment's ownerReference, so K8s GC still collects them.
+fn is_forbidden(error: &kube::Error) -> bool {
+    matches!(error, kube::Error::Api(response) if response.code == 403)
+}
+
+/// Shared operator-facing hint for the 403 warnings.
+const MISSING_RBAC_HINT: &str =
+    "backend ServiceAccount lacks networking.k8s.io/networkpolicies — upgrade the chart \
+     (pod-manager Role) to enable preview NetworkPolicies";
+
 /// Build the per-task preview NetworkPolicy object. Pure — no cluster I/O — so
 /// the selector/port/peer shape is unit-testable.
 ///
@@ -132,6 +151,13 @@ pub async fn create_task_preview_network_policy(
         Err(kube::Error::Api(ref e)) if e.code == 409 => {
             debug!(task_id, policy_name = %name, "Preview NetworkPolicy already exists, reusing");
         }
+        Err(ref e) if is_forbidden(e) => {
+            warn!(
+                task_id,
+                policy_name = %name,
+                "Skipping preview NetworkPolicy: {MISSING_RBAC_HINT}"
+            );
+        }
         Err(e) => {
             warn!(task_id, policy_name = %name, error = %e, "Failed to create preview NetworkPolicy");
             return Err(e);
@@ -141,7 +167,8 @@ pub async fn create_task_preview_network_policy(
     Ok(())
 }
 
-/// Delete the per-task preview NetworkPolicy. Handles 404 gracefully.
+/// Delete the per-task preview NetworkPolicy. Handles 404 and a missing
+/// NetworkPolicy grant (403) gracefully — see [`is_forbidden`].
 pub async fn delete_task_preview_network_policy(
     k8s: &K8sClient,
     task_id: &str,
@@ -158,6 +185,14 @@ pub async fn delete_task_preview_network_policy(
             debug!(task_id, policy_name = %name, "Preview NetworkPolicy not found, already deleted");
             Ok(())
         }
+        Err(ref e) if is_forbidden(e) => {
+            warn!(
+                task_id,
+                policy_name = %name,
+                "Skipping preview NetworkPolicy deletion: {MISSING_RBAC_HINT}"
+            );
+            Ok(())
+        }
         Err(e) => {
             warn!(task_id, policy_name = %name, error = %e, "Failed to delete preview NetworkPolicy");
             Err(e)
@@ -165,7 +200,10 @@ pub async fn delete_task_preview_network_policy(
     }
 }
 
-/// Await observed absence of the task's preview NetworkPolicy.
+/// Await observed absence of the task's preview NetworkPolicy. Without the
+/// NetworkPolicy grant (403) absence is unobservable and there is nothing to
+/// observe — see [`is_forbidden`] — so the wait resolves immediately rather than
+/// burning its full timeout and reporting the resource as lingering.
 pub async fn wait_for_task_preview_network_policy_deleted(
     k8s: &K8sClient,
     task_id: &str,
@@ -176,7 +214,13 @@ pub async fn wait_for_task_preview_network_policy_deleted(
         task_id,
         "NetworkPolicy",
         std::time::Duration::from_mins(1),
-        || async { api.get_opt(&name).await.map(|item| item.is_none()) },
+        || async {
+            match api.get_opt(&name).await {
+                Ok(item) => Ok(item.is_none()),
+                Err(ref error) if is_forbidden(error) => Ok(true),
+                Err(error) => Err(error),
+            }
+        },
     )
     .await
 }
@@ -274,5 +318,22 @@ mod tests {
             policy.metadata.name.as_deref(),
             Some("moatless-ws-task-1-preview-ingress")
         );
+    }
+
+    fn api_error(code: u16) -> kube::Error {
+        kube::Error::Api(Box::new(
+            kube::core::Status::failure("networkpolicies.networking.k8s.io", "Forbidden")
+                .with_code(code),
+        ))
+    }
+
+    #[test]
+    fn only_403_counts_as_missing_networkpolicy_grant() {
+        assert!(is_forbidden(&api_error(403)));
+        // Anything else stays a real error the caller must surface: a 404 has its
+        // own already-deleted branch, and a 500 is genuinely worth retrying.
+        assert!(!is_forbidden(&api_error(404)));
+        assert!(!is_forbidden(&api_error(500)));
+        assert!(!is_forbidden(&kube::Error::LinesCodecMaxLineLengthExceeded));
     }
 }
