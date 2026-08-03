@@ -183,14 +183,25 @@ impl AgentState {
     /// second write is a conflict, not an update.
     ///
     /// Whichever arrives first takes the claim and publishes; the other sees it
-    /// taken and stays quiet. The claim is never released: an id names one call
-    /// for the life of the session.
+    /// taken and stays quiet. A claim outlives the publication it stands for: an
+    /// id names one call for the life of the session.
     pub async fn claim_prompt_publication(&self, tool_use_id: &str) -> bool {
         self.inner
             .write()
             .await
             .published_prompts
             .insert(tool_use_id.to_string())
+    }
+
+    /// Give a claim back, for a publication that did not happen.
+    ///
+    /// A claim states that the call reached the backend by this route, and the
+    /// other route stays quiet on the strength of it. So a claimant whose
+    /// publication was refused has to hand it back — otherwise the call is
+    /// suppressed on both routes and the conversation never learns a question
+    /// was asked, which reads downstream as an agent that stopped for no reason.
+    pub async fn release_prompt_publication(&self, tool_use_id: &str) {
+        self.inner.write().await.published_prompts.remove(tool_use_id);
     }
 
     /// Park a prompt, unless one is already parked. Returns whether it was.
@@ -326,6 +337,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::oneshot::channel();
         let prompt = PendingPrompt {
             tool_name: super::super::prompt::PromptToolName::AskUserQuestion,
+            tool_use_id: "toolu_test".to_string(),
             input: serde_json::json!({"question": "ok?"}),
             sender: tx,
         };
@@ -437,6 +449,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::oneshot::channel();
         let prompt = PendingPrompt {
             tool_name: super::super::prompt::PromptToolName::ExitPlanMode,
+            tool_use_id: "toolu_test".to_string(),
             input: serde_json::json!({}),
             sender: tx,
         };

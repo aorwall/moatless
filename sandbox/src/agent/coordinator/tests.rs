@@ -57,6 +57,7 @@ impl BackendClient for RecordingBackend {
         _message_uuids: Vec<String>,
         _session_id: &str,
         _run_id: &str,
+        _answered_prompt: Option<&str>,
     ) -> Result<(), Status> {
         Ok(())
     }
@@ -2015,6 +2016,7 @@ impl BackendClient for CredBackend {
         _message_uuids: Vec<String>,
         _session_id: &str,
         _run_id: &str,
+        _answered_prompt: Option<&str>,
     ) -> Result<(), Status> {
         Ok(())
     }

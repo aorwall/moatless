@@ -261,6 +261,9 @@ struct Admission {
     /// Set when the submitted event itself was refused: capacity was exhausted
     /// and nothing evictable was left. Always a lifecycle event.
     rejected: Option<QueuedEvent>,
+    /// Whether the submitted event is in the buffer now. It is the newest, so
+    /// eviction reaches it only when it is the sole evictable event there.
+    admitted: bool,
 }
 
 /// Bounded FIFO buffer with the admission policy.
@@ -304,16 +307,19 @@ impl EventBuffer {
         self.buf.push_back(ev);
 
         let mut evicted = Vec::new();
+        let mut admitted = true;
         while self.over_capacity() && self.buf.len() > 1 {
             let Some(idx) = self.buf.iter().position(|e| !e.lifecycle) else {
                 // Only lifecycle events left; fall through to refusal.
                 break;
             };
+            let newest = self.buf.len() - 1;
             // `idx` came from `position()` on this same buffer, so `remove`
             // always yields `Some`; fall through defensively if it somehow can't.
             let Some(removed) = self.buf.remove(idx) else {
                 break;
             };
+            admitted &= idx != newest;
             self.bytes -= removed.size;
             evicted.push(removed);
         }
@@ -330,7 +336,11 @@ impl EventBuffer {
             None
         };
 
-        Admission { evicted, rejected }
+        Admission {
+            evicted,
+            admitted: admitted && rejected.is_none(),
+            rejected,
+        }
     }
 
     fn pop_front(&mut self) -> Option<QueuedEvent> {
@@ -545,10 +555,16 @@ impl EventOutbox {
     /// [`OutboxMetrics::dropped_overflow`], [`OutboxMetrics::rejected_saturated`]
     /// or [`OutboxMetrics::rejected_shutdown`] and, for a drop, announced in
     /// stream order.
-    pub fn enqueue(&self, req: PublishEventRequest) {
+    ///
+    /// Returns whether *this* event entered the buffer. A caller that records
+    /// having published something needs that answer: the admission policy
+    /// refuses a submission outright when the buffer is saturated or the drainer
+    /// has stopped, and a caller told nothing would go on believing an event it
+    /// never sent is on its way.
+    pub fn enqueue(&self, req: PublishEventRequest) -> bool {
         // Scoped so the guard is released before any logging. `Err` hands the
         // request back out so the refusal can be logged outside the lock.
-        let admitted = {
+        let outcome = {
             let mut state = self.shared.state();
             if state.drainer_stopped {
                 Err(req)
@@ -557,7 +573,7 @@ impl EventOutbox {
             }
         };
 
-        let admission = match admitted {
+        let admission = match outcome {
             Ok(admission) => admission,
             Err(refused) => {
                 self.shared
@@ -568,9 +584,10 @@ impl EventOutbox {
                     sub_type = %refused.sub_type,
                     "event send buffer drainer stopped; event refused"
                 );
-                return;
+                return false;
             }
         };
+        let admitted = admission.admitted;
 
         for removed in &admission.evicted {
             self.shared.record_drop(DropReason::Overflow);
@@ -592,6 +609,7 @@ impl EventOutbox {
         }
 
         self.shared.work.notify_one();
+        admitted
     }
 
     /// Account for an event the producer could not put on the wire at all.

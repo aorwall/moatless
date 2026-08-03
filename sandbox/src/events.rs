@@ -53,7 +53,9 @@ impl GrpcEventPublisher {
     /// Enqueue a pre-built request. Assigns a stable `event_id` when the caller
     /// left it empty. Used for events assembled outside the typed helpers below
     /// (e.g. init's sandbox status event with its custom payload shape).
-    pub fn enqueue(&self, mut req: PublishEventRequest) {
+    ///
+    /// Returns whether the outbox took it; see [`EventOutbox::enqueue`].
+    pub fn enqueue(&self, mut req: PublishEventRequest) -> bool {
         if req.event_id.is_empty() {
             req.event_id = uuid::Uuid::new_v4().to_string();
         }
@@ -64,7 +66,7 @@ impl GrpcEventPublisher {
                 "Sanitized NUL bytes from event payload before publishing"
             );
         }
-        self.outbox.enqueue(req);
+        self.outbox.enqueue(req)
     }
 
     /// Publish a task lifecycle event (e.g. status changes, metadata updates).
@@ -82,14 +84,19 @@ impl GrpcEventPublisher {
     ///
     /// Uses `event_type="agent"` so the backend consumer routes these as
     /// `"agent.completed"`, `"agent.error"`, etc.
+    ///
+    /// Returns whether the event was enqueued for delivery. Most callers ignore
+    /// it — they have nothing to undo. The one that does not is the interactive
+    /// prompt announcement, which records the call as published and must not
+    /// record one that was refused.
     pub async fn publish_agent_event(
         &self,
         task_id: &str,
         sub_type: AgentSubType,
         payload: serde_json::Value,
-    ) {
+    ) -> bool {
         self.publish_event(task_id, EventType::Agent, sub_type.as_str(), payload)
-            .await;
+            .await
     }
 
     /// Publish a sandbox lifecycle event (e.g. ready, error, fatal).
@@ -114,19 +121,20 @@ impl GrpcEventPublisher {
             .await;
     }
 
-    /// Internal: build a generic event and enqueue it for delivery.
+    /// Internal: build a generic event and enqueue it for delivery. Returns
+    /// whether it was enqueued.
     async fn publish_event(
         &self,
         task_id: &str,
         event_type: EventType,
         sub_type: &str,
         payload: serde_json::Value,
-    ) {
+    ) -> bool {
         let payload_json = match serde_json::to_string(&payload) {
             Ok(json) => json,
             Err(e) => {
                 tracing::warn!(task_id = %task_id, error = %e, "Failed to serialize event payload");
-                return;
+                return false;
             }
         };
 
@@ -146,7 +154,7 @@ impl GrpcEventPublisher {
                     "Refusing to publish event over the sandbox protocol"
                 );
                 self.outbox.record_unrepresentable();
-                return;
+                return false;
             }
         };
 
@@ -165,7 +173,7 @@ impl GrpcEventPublisher {
             event_id: uuid::Uuid::new_v4().to_string(),
             sequence: 0,
             run_id: self.run_id.clone().unwrap_or_default(),
-        });
+        })
     }
 }
 
@@ -221,23 +229,25 @@ fn sanitize_value_nuls(value: &mut serde_json::Value) -> bool {
     }
 }
 
+/// A `BackendClient` that keeps what it was asked to publish.
+///
+/// Lives here rather than in a test module so the agent's own tests can build a
+/// publisher without restating the trait.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use std::sync::{Arc, Mutex};
+pub(crate) mod test_backend {
+    use std::sync::Mutex;
 
     use sandbox_proto::{
         DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
+        PublishEventRequest,
     };
-    use tokio_util::sync::CancellationToken;
     use tonic::Status;
 
     use crate::backend_client::BackendClient;
 
     #[derive(Default)]
-    struct CapturingBackend {
-        received: Mutex<Vec<PublishEventRequest>>,
+    pub(crate) struct CapturingBackend {
+        pub(crate) received: Mutex<Vec<PublishEventRequest>>,
     }
 
     #[async_trait::async_trait]
@@ -260,6 +270,7 @@ mod tests {
             _message_uuids: Vec<String>,
             _session_id: &str,
             _run_id: &str,
+            _answered_prompt: Option<&str>,
         ) -> Result<(), Status> {
             Err(Status::unimplemented("not used"))
         }
@@ -308,6 +319,18 @@ mod tests {
             Err(Status::unimplemented("not used"))
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::sync::Arc;
+
+    use tokio_util::sync::CancellationToken;
+
+    use super::test_backend::CapturingBackend;
+    use crate::backend_client::BackendClient;
 
     #[test]
     fn sanitize_payload_json_nuls_rewrites_nested_string_values() {

@@ -633,6 +633,87 @@ pub async fn send_tool_response_flow(
     Ok(())
 }
 
+/// Settle the interactive call that an ordinary message answered.
+///
+/// Writing in the chat box answers a parked question as much as the panel does,
+/// but that message carries no tool response, so nothing on its way in settles
+/// the call: the outcome and the resolved row beside it are otherwise written
+/// only by `send_tool_response_flow`. Without them the call stays `in_progress`
+/// and the panel keeps asking a question that has been answered.
+///
+/// The answer recorded is what the run was told — a question hears the text as
+/// its freeform response, a proposed plan hears a rejection carrying it. Both
+/// rows are keyed on the message that answered, so a redelivered acknowledgement
+/// rewrites the same rows.
+pub async fn settle_answered_prompt(
+    messages: &dyn crate::message::dao::MessageDao,
+    task_id: &str,
+    tool_use_id: &str,
+    carrier_uuid: &str,
+) {
+    use crate::task_activities::mapping::{user_input_resolved, PLAN_TOOL, QUESTION_TOOL};
+
+    let call = match messages.find_tool_call(task_id, tool_use_id).await {
+        Ok(Some(call)) => call,
+        Ok(None) => {
+            // The block carrying the call has not reached the backend. An
+            // outcome would settle nothing, and the panel it would close does
+            // not exist either.
+            tracing::warn!(task_id, tool_use_id, "Answered call has no stored row");
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(task_id, tool_use_id, %error, "Could not read the answered call");
+            return;
+        }
+    };
+    if call.is_error.is_some() {
+        return;
+    }
+
+    let text = match messages.find_by_uuid(carrier_uuid).await {
+        Ok(Some(msg)) => msg.message_text.unwrap_or_default(),
+        Ok(None) => String::new(),
+        Err(error) => {
+            tracing::warn!(task_id, carrier_uuid, %error, "Could not read the answer");
+            String::new()
+        }
+    };
+
+    let answer = match call.tool_name.as_str() {
+        QUESTION_TOOL => serde_json::json!({ "response": text }),
+        PLAN_TOOL => serde_json::json!({ "approved": false, "feedback": text }),
+        other => {
+            tracing::warn!(task_id, tool_use_id, other, "Not a call a message can answer");
+            return;
+        }
+    };
+
+    let conversation = ConversationWrite {
+        outcomes: vec![ToolOutcome {
+            task_id: task_id.to_string(),
+            tool_use_id: tool_use_id.to_string(),
+            status: ActivityStatus::Completed,
+            result: answer.clone(),
+            typed_result: None,
+            is_error: false,
+        }],
+        activities: vec![user_input_resolved(
+            task_id,
+            carrier_uuid,
+            tool_use_id,
+            &answer,
+        )],
+        ..Default::default()
+    };
+    if let Err(error) = messages
+        .append_activities(task_id, carrier_uuid, &conversation)
+        .await
+    {
+        tracing::warn!(task_id, tool_use_id, %error, "Could not settle the answered call");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

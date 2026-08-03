@@ -161,6 +161,7 @@ async fn test_agent_state_transitions() {
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let prompt = PendingPrompt {
         tool_name: PromptToolName::AskUserQuestion,
+        tool_use_id: "toolu_test".to_string(),
         input: serde_json::json!({"question": "What color?"}),
         sender: tx,
     };
@@ -185,6 +186,7 @@ async fn test_agent_state_transitions() {
     let (tx2, _rx2) = tokio::sync::oneshot::channel();
     let prompt2 = PendingPrompt {
         tool_name: PromptToolName::ExitPlanMode,
+        tool_use_id: "toolu_test".to_string(),
         input: serde_json::json!({}),
         sender: tx2,
     };
@@ -202,6 +204,7 @@ async fn test_agent_state_transitions() {
     state
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
+            tool_use_id: "toolu_test".to_string(),
             input: serde_json::json!({}),
             sender: tx3,
         })

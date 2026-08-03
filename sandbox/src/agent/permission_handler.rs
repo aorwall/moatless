@@ -105,7 +105,7 @@ impl InteractivePermissionHandler {
             Some(run_id) => sink.events.for_run(&run_id),
             None => sink.events.clone(),
         };
-        events
+        let published = events
             .publish_agent_event(
                 &sink.task_id,
                 moatless_events::AgentSubType::Message,
@@ -117,6 +117,19 @@ impl InteractivePermissionHandler {
                 ),
             )
             .await;
+        // The claim was taken on the strength of a publication that then did not
+        // happen. Hand it back so the block carrying this call still publishes
+        // when the harness delivers it.
+        if !published {
+            self.agent_state
+                .release_prompt_publication(tool_use_id)
+                .await;
+            tracing::warn!(
+                tool = %tool_name,
+                tool_use_id,
+                "Interactive call announcement was not enqueued; leaving the block to publish it"
+            );
+        }
     }
 }
 
@@ -167,6 +180,7 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
 
             let prompt = PendingPrompt {
                 tool_name: prompt_tool,
+                tool_use_id: context.tool_use_id.clone(),
                 input: input_value.clone(),
                 sender: tx,
             };
@@ -614,5 +628,36 @@ mod tests {
             parked.await.unwrap(),
             claude_agent_sdk::PermissionResult::Allow { .. }
         ));
+    }
+
+    /// The claim says the call reached the backend by this route, and the block
+    /// carrying it stays quiet on the strength of that. So an announcement that
+    /// never went anywhere has to hand the claim back — otherwise the call is
+    /// suppressed on both routes and nobody is ever asked the question.
+    #[tokio::test]
+    async fn a_refused_announcement_hands_the_claim_back() {
+        let backend = Arc::new(crate::events::test_backend::CapturingBackend::default());
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let (outbox, drainer) = crate::outbox::EventOutbox::spawn(
+            backend as Arc<dyn crate::backend_client::BackendClient>,
+            "task-1".to_string(),
+            cancel.clone(),
+        );
+        // A stopped drainer refuses everything submitted after it: the outbox
+        // will not take the announcement.
+        cancel.cancel();
+        drainer.shutdown(std::time::Duration::from_secs(5)).await;
+
+        let state = Arc::new(AgentState::new());
+        let handler = test_handler(Arc::clone(&state))
+            .announcing_prompts(GrpcEventPublisher::new(outbox), "task-1".to_string());
+        handler
+            .announce("AskUserQuestion", "tu-1", &serde_json::json!({}))
+            .await;
+
+        assert!(
+            state.claim_prompt_publication("tu-1").await,
+            "the claim is free again, so the block still publishes the call"
+        );
     }
 }

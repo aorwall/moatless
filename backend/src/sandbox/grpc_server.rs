@@ -1058,6 +1058,19 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             }
         }
 
+        let answered_prompt = (!req.answered_prompt_tool_use_id.is_empty())
+            .then(|| req.message_uuids.first())
+            .flatten();
+        if let Some(carrier) = answered_prompt {
+            crate::message::send::settle_answered_prompt(
+                messages.as_ref(),
+                &req.task_id,
+                &req.answered_prompt_tool_use_id,
+                carrier,
+            )
+            .await;
+        }
+
         Ok(Response::new(AcknowledgeMessagesResponse {}))
     }
 

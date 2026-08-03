@@ -164,6 +164,7 @@ impl BackendClient for MockBackend {
         _message_uuids: Vec<String>,
         _session_id: &str,
         _run_id: &str,
+        _answered_prompt: Option<&str>,
     ) -> Result<(), Status> {
         Ok(())
     }
@@ -1015,6 +1016,37 @@ async fn admission_racing_drainer_termination_accounts_for_every_event() {
     }
 }
 
+/// An event evicted on the way in never entered the buffer, and says so. It is
+/// the newest, so eviction reaches it only when the buffer holds nothing else
+/// evictable — which a lifecycle-heavy backlog is exactly the shape of.
+#[tokio::test(start_paused = true)]
+async fn an_event_evicted_on_arrival_reports_that_it_was_not_taken() {
+    let (backend, _received) = MockBackend::new(0);
+    backend.stall();
+    let cancel = CancellationToken::new();
+    let (outbox, _drainer) = EventOutbox::spawn_with_caps(
+        Arc::clone(&backend) as Arc<dyn BackendClient>,
+        "task-1".to_string(),
+        cancel.clone(),
+        1,
+        usize::MAX,
+    );
+
+    // One in flight against the stalled backend, one filling the buffer, both
+    // lifecycle — so the message arriving next is the only evictable event.
+    outbox.enqueue(task_turn_event("active"));
+    wait_until(|| backend.attempt_count() >= 1).await;
+    assert!(outbox.enqueue(task_turn_event("completed")));
+
+    assert!(
+        !outbox.enqueue(agent_event("message")),
+        "the event was evicted to keep the caps, so nothing will send it"
+    );
+    assert_eq!(outbox.metrics().dropped_overflow, 1);
+
+    cancel.cancel();
+}
+
 /// Once the drainer has terminated, admission is refused rather than silently
 /// buffered into a queue with no consumer.
 #[tokio::test(start_paused = true)]
@@ -1026,7 +1058,10 @@ async fn admission_is_refused_after_the_drainer_terminates() {
     cancel.cancel();
     drainer.shutdown(Duration::from_secs(5)).await;
 
-    outbox.enqueue(agent_event("message"));
+    assert!(
+        !outbox.enqueue(agent_event("message")),
+        "a refused submission says so, so a caller with something to undo can"
+    );
 
     let metrics = outbox.metrics();
     assert_eq!(metrics.rejected_shutdown, 1);

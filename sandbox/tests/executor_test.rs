@@ -25,7 +25,8 @@ use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::SandboxState;
 
 use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest,
+    DownloadUploadResponse, GetCredentialsResponse, PendingAgentDelivery,
+    PromptResponse as ProtoPromptResponse, PublishEventRequest,
 };
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -36,7 +37,7 @@ use tokio_util::sync::CancellationToken;
 
 struct MockBackendClient {
     message_batches: Mutex<Vec<Vec<PendingAgentDelivery>>>,
-    acknowledgments: Mutex<Vec<(String, Vec<String>, String)>>,
+    acknowledgments: Mutex<Vec<(String, Vec<String>, String, Option<String>)>>,
     publish_count: AtomicUsize,
     ack_count: AtomicUsize,
     get_pending_count: AtomicUsize,
@@ -66,7 +67,7 @@ impl MockBackendClient {
         self.get_pending_count.load(Ordering::SeqCst)
     }
 
-    fn acknowledgments(&self) -> Vec<(String, Vec<String>, String)> {
+    fn acknowledgments(&self) -> Vec<(String, Vec<String>, String, Option<String>)> {
         self.acknowledgments.lock().unwrap().clone()
     }
 }
@@ -97,11 +98,13 @@ impl BackendClient for MockBackendClient {
         message_uuids: Vec<String>,
         session_id: &str,
         _run_id: &str,
+        answered_prompt: Option<&str>,
     ) -> Result<(), tonic::Status> {
         self.acknowledgments.lock().unwrap().push((
             task_id.to_string(),
             message_uuids,
             session_id.to_string(),
+            answered_prompt.map(str::to_string),
         ));
         self.ack_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
@@ -452,6 +455,7 @@ async fn prompt_response_acknowledges_consumed_message() {
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
+            tool_use_id: "toolu_test".to_string(),
             input: serde_json::json!({"question": "Proceed?"}),
             sender: tx,
         })
@@ -472,12 +476,65 @@ async fn prompt_response_acknowledges_consumed_message() {
         vec![(
             "test-task-1".to_string(),
             vec!["prompt-reply-1".to_string()],
-            "session-active".to_string()
+            "session-active".to_string(),
+            // Nothing else settles the call this message answered, so the ack
+            // names it and the backend settles it.
+            Some("toolu_test".to_string())
         )]
     );
     assert!(
         backend.get_pending_count() >= 1,
         "the follow-up remains pending for a later dispatch"
+    );
+}
+
+#[tokio::test]
+async fn panel_answer_is_not_named_on_its_acknowledgement() {
+    // An answer that came through the panel settled the call on its way in, so
+    // the ack has nothing to ask for.
+    let backend = Arc::new(MockBackendClient::new(vec![vec![PendingAgentDelivery {
+        message_uuids: vec!["prompt-reply-1".to_string()],
+        prompt_text: "Option A".to_string(),
+        prompt_response: Some(ProtoPromptResponse {
+            tool_use_id: "toolu_test".to_string(),
+            tool_name: "AskUserQuestion".to_string(),
+            answers: [("Proceed?".to_string(), "Option A".to_string())].into(),
+            approved: false,
+            feedback: None,
+        }),
+        ..Default::default()
+    }]]));
+    let state = test_state(Arc::clone(&backend) as _);
+    state
+        .agent
+        .set_session_id("session-active".to_string())
+        .await;
+    state.agent.set_run_id("run-active".to_string()).await;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state
+        .agent
+        .set_pending_prompt(PendingPrompt {
+            tool_name: PromptToolName::AskUserQuestion,
+            tool_use_id: "toolu_test".to_string(),
+            input: serde_json::json!({"question": "Proceed?"}),
+            sender: tx,
+        })
+        .await;
+
+    moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
+
+    assert!(matches!(
+        rx.await.expect("prompt response should be delivered"),
+        PromptResponse::AskUserAnswer { .. }
+    ));
+    assert_eq!(
+        backend
+            .acknowledgments()
+            .into_iter()
+            .map(|ack| ack.3)
+            .collect::<Vec<_>>(),
+        vec![None]
     );
 }
 
@@ -501,6 +558,7 @@ async fn prompt_without_run_identity_is_left_pending_not_answered_unackably() {
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
+            tool_use_id: "toolu_test".to_string(),
             input: serde_json::json!({"question": "Proceed?"}),
             sender: tx,
         })

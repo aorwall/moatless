@@ -113,6 +113,7 @@ impl BackendClient for ReplayBackend {
         message_uuids: Vec<String>,
         _session_id: &str,
         _run_id: &str,
+        _answered_prompt: Option<&str>,
     ) -> Result<(), tonic::Status> {
         // Model a transient ack outage: fail (without pruning) until the injected
         // failure budget is exhausted, so the row stays pending and the dispatcher

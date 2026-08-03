@@ -630,6 +630,74 @@ async fn find_tool_call_returns_parent_message_uuid(pool: PgPool) {
     assert_eq!(found.result_content.as_deref(), Some("hi"));
 }
 
+/// Someone who writes in the chat box instead of using the panel answers the
+/// question too. Nothing on that message's way in settles the call, so the
+/// acknowledgement names it and the call comes back here — with the resolved row
+/// beside it that closes the panel.
+#[sqlx::test]
+async fn a_plain_message_settles_the_question_it_answered(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+
+    let mut asking = make_message_row("task-1", "m-ask");
+    asking.message_type = MessageType::Assistant;
+    asking.message_role = MessageRole::Assistant;
+    message_dao::append(
+        &pool,
+        &asking,
+        &[],
+        &conversation_write(
+            "m-ask",
+            MessageType::Assistant,
+            &serde_json::json!([
+                { "type": "tool_use", "id": "tu-1", "name": "AskUserQuestion", "input": {} }
+            ]),
+        ),
+    )
+    .await
+    .unwrap();
+
+    let repo = PgMessageDao(pool.clone());
+    let mut written = make_message_row("task-1", "m-written");
+    written.message_text = Some("the first one".to_string());
+    repo.append(&written, &[], &ConversationWrite::default())
+        .await
+        .unwrap();
+
+    moatless_vibe_backend::message::send::settle_answered_prompt(
+        &repo,
+        "task-1",
+        "tu-1",
+        "m-written",
+    )
+    .await;
+
+    let call = repo
+        .find_tool_call("task-1", "tu-1")
+        .await
+        .unwrap()
+        .expect("the call is still there");
+    assert_eq!(
+        call.is_error,
+        Some(false),
+        "the call came back, so it is no longer in progress"
+    );
+
+    let ((_, _, activities), _) = repo
+        .get_message_for_assembly("task-1", "m-written")
+        .await
+        .unwrap()
+        .expect("the message that answered loads");
+    let resolved = activities
+        .iter()
+        .find(|activity| activity.kind == ActivityKind::UserInputResolved)
+        .expect("the answer wrote a resolved row");
+    assert_eq!(
+        resolved.payload["requestId"], "tu-1",
+        "the panel closes on a row naming the call"
+    );
+    assert_eq!(resolved.payload["answers"]["response"], "the first one");
+}
+
 /// Seam 2 (loader): a change names the row it is about, so the loader reads
 /// that row and the activities written on it — including the ones a later
 /// source event settled.

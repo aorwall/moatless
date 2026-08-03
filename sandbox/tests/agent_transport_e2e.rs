@@ -142,6 +142,7 @@ impl BackendClient for NoopBackend {
         _message_uuids: Vec<String>,
         _session_id: &str,
         _run_id: &str,
+        _answered_prompt: Option<&str>,
     ) -> Result<(), tonic::Status> {
         Ok(())
     }

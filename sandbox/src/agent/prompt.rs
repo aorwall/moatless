@@ -32,6 +32,10 @@ impl PromptToolName {
 pub struct PendingPrompt {
     /// Which tool triggered the prompt.
     pub tool_name: PromptToolName,
+    /// The call that parked the run. Carried so the answer can name the call it
+    /// settles: the backend stores one row per tool-use id, and a panel closes
+    /// on a row naming that id.
+    pub tool_use_id: String,
     /// The tool input (questions, plan content, etc.).
     pub input: serde_json::Value,
     /// Sender to resolve the prompt.
@@ -131,6 +135,7 @@ mod tests {
         let (tx, rx) = oneshot::channel();
         let prompt = PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
+            tool_use_id: "toolu_test".to_string(),
             input: serde_json::json!({}),
             sender: tx,
         };

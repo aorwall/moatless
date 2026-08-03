@@ -158,6 +158,7 @@ async fn prompt_resolution_is_serialised_under_the_dispatch_guard() {
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
+            tool_use_id: "toolu_test".to_string(),
             input: serde_json::Value::Null,
             sender: tx,
         })
@@ -309,6 +310,7 @@ async fn prompt_ack_failure_never_becomes_normal_input() {
         .agent
         .set_pending_prompt(PendingPrompt {
             tool_name: PromptToolName::AskUserQuestion,
+            tool_use_id: "toolu_test".to_string(),
             input: serde_json::Value::Null,
             sender: tx,
         })

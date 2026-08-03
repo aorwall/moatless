@@ -210,9 +210,14 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
             // until it lands or the pod stops (a failed ack is never treated as
             // success), holding the guard throughout so a waiting dispatcher
             // cannot re-fetch and re-run the already-accepted Message.
-            let acked =
-                acknowledge_until_settled(&redelivery_state, uuids, &ack.session_id, &ack.run_id)
-                    .await;
+            let acked = acknowledge_until_settled(
+                &redelivery_state,
+                uuids,
+                &ack.session_id,
+                &ack.run_id,
+                None,
+            )
+            .await;
             drop(dispatch_guard);
             // Messages held back by the start_fresh split are now the only
             // pending ones — re-dispatch them, but only once this batch is
@@ -377,10 +382,25 @@ async fn resolve_pending_prompt(state: &SandboxState) {
     }
 
     if !prompt_response_uuids.is_empty() {
+        // A structured answer came through the panel, which has already settled
+        // the call it names. An ordinary message settles nothing on its way in,
+        // so the ack names the call it answered and the backend settles it —
+        // otherwise the panel keeps asking a question that has been answered.
+        let answered_prompt = prompt_delivery
+            .prompt_response
+            .is_none()
+            .then_some(prompt.tool_use_id.as_str());
         // Same post-acceptance ack policy as ordinary messages: retry until the
         // ack lands or the pod stops, never converting the answered prompt into
         // a re-run or an ordinary Agent input.
-        acknowledge_until_settled(state, prompt_response_uuids, &session_id, &run_id).await;
+        acknowledge_until_settled(
+            state,
+            prompt_response_uuids,
+            &session_id,
+            &run_id,
+            answered_prompt,
+        )
+        .await;
     }
 
     if has_remaining_messages {
@@ -455,6 +475,7 @@ async fn acknowledge_until_settled(
     uuids: Vec<String>,
     session_id: &str,
     run_id: &str,
+    answered_prompt: Option<&str>,
 ) -> bool {
     if uuids.is_empty() {
         return true;
@@ -467,6 +488,7 @@ async fn acknowledge_until_settled(
                 uuids.clone(),
                 session_id,
                 run_id,
+                answered_prompt,
             ) => result,
             () = state.lifecycle_cancel.cancelled() => {
                 info!("Acknowledgement aborted mid-RPC — sandbox is shutting down");

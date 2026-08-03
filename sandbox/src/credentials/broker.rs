@@ -167,6 +167,7 @@ mod tests {
             _: Vec<String>,
             _: &str,
             _: &str,
+            _: Option<&str>,
         ) -> Result<(), tonic::Status> {
             Ok(())
         }

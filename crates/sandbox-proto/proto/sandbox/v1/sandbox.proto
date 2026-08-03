@@ -224,6 +224,12 @@ message AcknowledgeMessagesRequest {
   // joins) the run's turn and stamps it on the acked rows, so messages
   // injected into an in-flight run share its turn number.
   string run_id = 4;
+  // Set when these messages were consumed as the answer to a parked
+  // AskUserQuestion / ExitPlanMode rather than as ordinary input: the tool-use
+  // id of the call they answered. Someone who writes in the chat box instead of
+  // using the panel answers the question just as much, and the backend settles
+  // the call on this so the panel stops asking. Empty on an ordinary ack.
+  string answered_prompt_tool_use_id = 5;
 }
 
 message AcknowledgeMessagesResponse {}

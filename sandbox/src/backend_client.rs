@@ -50,12 +50,17 @@ pub trait BackendClient: Send + Sync {
     /// Acknowledge that messages have been delivered to a session.
     /// `run_id` identifies the agent run that consumed the messages; the
     /// backend uses it to put them on that run's turn.
+    ///
+    /// `answered_prompt` names the interactive call these messages answered,
+    /// and is `None` on an ordinary ack. See
+    /// `AcknowledgeMessagesRequest.answered_prompt_tool_use_id`.
     async fn acknowledge_messages(
         &self,
         task_id: &str,
         message_uuids: Vec<String>,
         session_id: &str,
         run_id: &str,
+        answered_prompt: Option<&str>,
     ) -> Result<(), tonic::Status>;
 
     /// Fetch credentials for sandbox initialization.
@@ -247,6 +252,7 @@ impl BackendClient for BackendGrpcClient {
         message_uuids: Vec<String>,
         session_id: &str,
         run_id: &str,
+        answered_prompt: Option<&str>,
     ) -> Result<(), tonic::Status> {
         let mut client = self.client.clone();
         client
@@ -255,6 +261,7 @@ impl BackendClient for BackendGrpcClient {
                 message_uuids,
                 session_id: session_id.to_string(),
                 run_id: run_id.to_string(),
+                answered_prompt_tool_use_id: answered_prompt.unwrap_or_default().to_string(),
             })
             .await?;
         Ok(())

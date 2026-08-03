@@ -384,6 +384,7 @@ mod tests {
             _uuids: Vec<String>,
             _session_id: &str,
             _run_id: &str,
+            _answered_prompt: Option<&str>,
         ) -> Result<(), Status> {
             Ok(())
         }
