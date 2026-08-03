@@ -203,6 +203,13 @@ jobs:
           cargo test -p moatless-backend-core
           cargo test -p moatless-t3code
           cargo test -p moatless-vibe-backend
+          # 39 of the 40 files in `backend/tests` open with
+          # `#![cfg(feature = "db-tests")]`, so the line above compiles them to
+          # nothing. `--no-run` builds them, and needs no PostgreSQL to do it —
+          # this is what keeps the tier compiling between the runs that have a
+          # database. The feature is empty, so it re-keys one crate's
+          # fingerprint rather than the dependency graph.
+          cargo test -p moatless-vibe-backend --features db-tests --no-run
           cargo test -p moatless-sandbox
           cargo test -p claude-agent-sdk
           cargo test -p moatless-events
