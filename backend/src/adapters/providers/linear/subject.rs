@@ -76,7 +76,7 @@ pub(super) async fn bindings_in_scope(
     // string assembly: exactly one of `$3`/`$4` is ever non-null, and the enum
     // is what guarantees it.
     sqlx::query_as::<_, TaskBinding>(
-        "SELECT id, task_id, adapter_kind AS provider, subject_kind, subject_key, connection_id, \
+        "SELECT id, task_id, adapter_kind, subject_kind, subject_key, connection_id, \
                 loop_id, destination_config, metadata, last_external_event_id, \
                 origin, created_at, last_event_at \
          FROM task_bindings \
