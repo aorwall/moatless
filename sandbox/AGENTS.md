@@ -48,6 +48,7 @@ CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --
 | FRONTEND_URL | (optional) | Frontend URL for constructing task URLs in agent system prompt |
 | SANDBOX_USE_TMUX | false | Use tmux-based Claude SDK transport instead of subprocess/NDJSON |
 | SANDBOX_PERMISSION_MODE | bypassPermissions | Claude CLI permission mode for normal (non-plan) subprocess runs: `default`, `acceptEdits`, `bypassPermissions`, `plan`, `delegate`, `dontAsk`. Plan-mode requests always override with `plan`; ignored in tmux mode |
+| SANDBOX_HEADLESS | false | The task runs with nobody watching it (set by the backend for a headless Task). `AskUserQuestion`, `EnterPlanMode` and `ExitPlanMode` are disallowed, so a turn never parks on an answer that is not coming |
 
 ## Load-Bearing Rules
 

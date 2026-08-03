@@ -209,9 +209,15 @@ pub async fn build_provision_request(
         }
     }
 
+    // A headless task has no browser on it: no preview servers to run, and no
+    // one watching for a prompt, so the sandbox also drops the tools that park
+    // a turn on a person's answer.
     if task.headless {
         repo_config.servers = None;
         repo_config.preview_config = None;
+        env_vars
+            .get_or_insert_with(std::collections::HashMap::new)
+            .insert("SANDBOX_HEADLESS".to_string(), "true".to_string());
     }
 
     // Drop servers this task already auto-disabled (crash-loop remediation).

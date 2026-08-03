@@ -21,6 +21,9 @@ test.describe('Interactive Prompts', () => {
       message:
         'Plan how to add a dark mode toggle to the application. Create a plan but wait for my approval before making changes.',
       name: 'UI Plan Approval E2E',
+      // The plan tools reach the agent only where someone is watching for the
+      // approval prompt — which is what this test drives.
+      headless: false,
     })
 
     // Navigate to the task page

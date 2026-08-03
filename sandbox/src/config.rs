@@ -180,6 +180,13 @@ pub struct Config {
     /// "s3"` pods; when true, the sandbox restores the git working tree from S3
     /// on boot and periodically syncs it back via backend-minted presigned URLs.
     pub workspace_sync_enabled: bool,
+    /// Whether the task runs headless (env: `SANDBOX_HEADLESS`), i.e. nobody is
+    /// expected to be watching it. Set by the backend for tasks created without
+    /// a browser (CLI, loops). Preview servers are already stripped from the
+    /// provision plan for these; here it also removes the tools that would park
+    /// the turn on an answer nobody is there to give (`AskUserQuestion`,
+    /// `EnterPlanMode`, `ExitPlanMode`).
+    pub headless: bool,
 
     // ── Init-related fields ────────────────────────────────────────
     /// Home directory (default: "/home/moatless")
@@ -451,6 +458,7 @@ impl Config {
                 .and_then(|v| parse_permission_mode(&v))
                 .unwrap_or(PermissionMode::BypassPermissions),
             workspace_sync_enabled: env_flag_enabled("WORKSPACE_SYNC_ENABLED"),
+            headless: env_flag_enabled("SANDBOX_HEADLESS"),
 
             home_dir,
             codex_home_dir,
@@ -581,6 +589,7 @@ pub(crate) mod test_support {
             background_job_monitoring_enabled: false,
             permission_mode: PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
+            headless: false,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),
             claude_config_dir: "/tmp/home/.claude".to_string(),

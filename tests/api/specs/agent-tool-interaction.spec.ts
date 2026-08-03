@@ -41,6 +41,8 @@ test.describe('Standalone: Agent asks the user a question', () => {
         'Before making any changes, use the AskUserQuestion tool to ask me ' +
         'what my favorite color is. Then create a file called favorite-color.txt ' +
         'with whatever color I tell you.',
+      // The agent only has AskUserQuestion where someone is watching for it.
+      headless: false,
     })
 
     try {

@@ -56,6 +56,9 @@ test.describe('Chain: Plan Mode', () => {
       name: 'plan mode',
       message: "Create a file called plan-mode.txt containing exactly 'Plan Mode Test'.",
       agentMode: 'plan',
+      // Someone approves the plan further down the chain, so this task is
+      // watched — a headless one gets no plan tools.
+      headless: false,
     })
 
     expect(task.status).toBe('open')

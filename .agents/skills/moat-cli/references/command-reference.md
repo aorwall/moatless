@@ -238,9 +238,19 @@ Create a new task.
 | `--parent` | No | `$TASK_ID` env | Parent task ID |
 | `--no-parent` | No | — | Explicitly create without parent |
 | `--branch` | No | — | Git branch name |
-| `--mode` | No | — | Agent mode: `edit` or `plan` |
+| `--agent-type` | Yes | — | Harness to run under (`moat agents models` lists them) |
+| `--model` | No | — | Model for the chosen harness |
+| `--headless` | No | `true` | Run with nobody watching: no preview servers, no tools that wait on a person |
 
 - **API**: `POST /api/v1/tasks`
+
+CLI-created tasks always run the agent in edit mode. Plan mode is a UI
+affordance and cannot be selected from the CLI.
+
+**Headless**: a headless task starts no preview servers, and its agent runs
+without `AskUserQuestion`, `EnterPlanMode` and `ExitPlanMode` — a turn there
+would park on an answer nobody is present to give. Pass `--headless false` for a
+task someone will open in the UI, which restores both.
 
 **Auto-parent behavior**: If `TASK_ID` env var is set and `--no-parent` is not specified, the new task automatically gets `TASK_ID` as its parent. This enables hierarchical task trees inside sandbox pods.
 
@@ -426,7 +436,6 @@ destination. **There is no `moat messages send`; sending a message to a task is
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--task <id>` | One of task/user/to | Drive the agent on a task |
-| `--mode` | No | Agent mode for `--task`: `edit` or `plan` |
 | `--user <login>` | One of task/user/to | DM a moatless user (pair with `--via slack\|telegram`) |
 | `--to <dest>` | One of task/user/to | Adapter pass-through destination (e.g. `channel:C123`, `issue:LIN-12`); pair with `--via` |
 | `--text` | No | Message text (reads stdin if omitted and piped) |
@@ -434,9 +443,11 @@ destination. **There is no `moat messages send`; sending a message to a task is
 
 - **API** (`--task`): `POST /api/v1/tasks/{task_id}/messages`
 
+`--task` always drives the agent in edit mode; plan mode is a UI affordance and
+cannot be selected from the CLI.
+
 ```bash
 moat send --task <task-id> --text "Add error handling to the login form"
-moat send --task <task-id> --mode plan --text "How would you refactor this?"
 moat send --user alice --via slack --text "Build is green."
 ```
 

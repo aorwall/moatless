@@ -54,9 +54,6 @@ pub enum TaskAction {
         context_files: Vec<String>,
         #[arg(long)]
         branch: Option<String>,
-        /// Agent mode: "edit" or "plan"
-        #[arg(long)]
-        mode: Option<String>,
         /// Harness to run the task with. Run `moat agents models` to list
         /// available harnesses and model IDs.
         #[arg(
@@ -68,9 +65,11 @@ pub enum TaskAction {
         /// Model for the chosen harness, e.g. `haiku` or `gpt-5.4-mini`
         #[arg(long)]
         model: Option<String>,
-        /// Skip preview servers. Defaults to true for CLI-created tasks —
-        /// there is no browser here to view them. Pass `--headless false` for
-        /// a task you intend to open in the UI.
+        /// Run without anyone watching: no preview servers, and no tools that
+        /// wait on a person (AskUserQuestion, Enter/ExitPlanMode). Defaults to
+        /// true for CLI-created tasks — there is no browser here to view them
+        /// or answer a prompt. Pass `--headless false` for a task you intend to
+        /// open in the UI.
         // `num_args`/`default_missing_value` are what make the value optional:
         // a plain `bool` field is a set-true flag in clap, which would leave no
         // way to turn an on-by-default option off.
@@ -286,7 +285,6 @@ pub async fn run(
             message,
             context_files,
             branch,
-            mode,
             agent_type,
             model,
             headless,
@@ -314,7 +312,8 @@ pub async fn run(
                 message,
                 branch,
                 parent_task_id,
-                agent_mode: mode.map(AgentMode),
+                // The CLI always drives the agent in edit mode; plan mode is a UI affordance.
+                agent_mode: Some(AgentMode("edit".to_string())),
                 agent_type: Some(AgentType(agent_type)),
                 contexts,
                 description: None,

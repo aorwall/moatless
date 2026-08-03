@@ -24,9 +24,6 @@ pub struct SendArgs {
     /// Drive the agent on a task by ID
     #[arg(long, group = "send_target")]
     pub task: Option<String>,
-    /// Agent mode for `--task`: "edit" or "plan"
-    #[arg(long, requires = "task")]
-    pub mode: Option<String>,
 
     /// DM a moatless user by login
     #[arg(long, group = "send_target")]
@@ -80,7 +77,8 @@ pub async fn run(
         }
         let req = SendMessageRequest {
             message: text,
-            agent_mode: args.mode.map(AgentMode),
+            // The CLI always drives the agent in edit mode; plan mode is a UI affordance.
+            agent_mode: Some(AgentMode("edit".to_string())),
             contexts: Vec::new(),
             file_ids: Vec::new(),
             model: None,

@@ -211,6 +211,7 @@ mod tests {
             background_job_monitoring_enabled: false,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
+            headless: false,
             default_model: None,
             default_codex_model: None,
             home_dir: home.display().to_string(),

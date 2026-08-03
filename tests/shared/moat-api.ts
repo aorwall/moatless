@@ -292,10 +292,37 @@ export class MoatApi {
       /** Harness to run under. Omitted uses the test suite's standard agent. */
       agentType?: string
       model?: string
-      /** `edit` or `plan`. Omitted means the backend's default. */
+      /**
+       * `edit` or `plan`. Omitted means the backend's default. The CLI always
+       * creates in edit mode, so asking for a mode goes to the API directly.
+       */
       agentMode?: string
+      /**
+       * Whether the task runs with nobody watching. Defaults to the CLI's own
+       * default (true). A test that drives an interactive tool
+       * (`AskUserQuestion`, `ExitPlanMode`) has to pass `false` — a headless
+       * task's agent is not given them.
+       */
+      headless?: boolean
     },
   ): Promise<TaskResponse> {
+    if (config.agentMode) {
+      const created = this.expect<CreatedTask>(
+        await this.moat.raw('POST', '/api/v1/tasks', {
+          ...('workspaceId' in config
+            ? { workspaceId: config.workspaceId }
+            : { repositoryId: config.templateId }),
+          name: scopedName(config.name ?? 'task'),
+          message: config.message,
+          agentType: config.agentType ?? 'claude-code',
+          model: config.model,
+          agentMode: config.agentMode,
+          headless: config.headless ?? true,
+        }),
+      )
+      return created.task
+    }
+
     const args = ['tasks', 'create']
     args.push('--name', scopedName(config.name ?? 'task'))
     if ('workspaceId' in config) {
@@ -306,7 +333,7 @@ export class MoatApi {
     if (config.message) args.push('--message', config.message)
     args.push('--agent-type', config.agentType ?? 'claude-code')
     if (config.model) args.push('--model', config.model)
-    if (config.agentMode) args.push('--mode', config.agentMode)
+    if (config.headless !== undefined) args.push('--headless', String(config.headless))
     const created = await this.moat.json<CreatedTask>(args)
     return created.task
   }

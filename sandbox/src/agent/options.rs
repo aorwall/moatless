@@ -127,17 +127,36 @@ pub fn build_options(
         //   process persists across turns, so Monitor (and the CLI's internal
         //   ScheduleWakeup timer) work natively and Monitor stays allowed.
         //
-        // AskUserQuestion is allowed in both modes: the question reaches a
-        // person as a durable activity and the answer comes back through the
-        // permission handler, so the choice prompt is rendered rather than
-        // dropped.
-        disallowed_tools: Some(if config.use_tmux {
-            Vec::new()
-        } else {
-            vec!["Monitor".to_string()]
-        }),
+        // - The interactive tools (headless tasks only): AskUserQuestion and
+        //   Enter/ExitPlanMode each park the turn until a person answers. A
+        //   headless task has nobody watching for the prompt, so the turn would
+        //   sit on a question that is never answered. Where a person is
+        //   watching, the question reaches them as a durable activity and their
+        //   answer comes back through the permission handler, so they stay
+        //   allowed and the prompt is rendered rather than dropped.
+        disallowed_tools: Some(disallowed_tools(config, is_plan_mode)),
         ..ClaudeOptions::default()
     }
+}
+
+/// The tools kept out of the CLI's context for this run.
+///
+/// See the call site in [`build_options`] for why each one is on the list. A
+/// plan-mode run keeps `ExitPlanMode`: it is the only way out of plan mode, and
+/// asking for plan mode is asking for the approval prompt it raises.
+fn disallowed_tools(config: &Config, is_plan_mode: bool) -> Vec<String> {
+    let mut tools: Vec<&str> = Vec::new();
+    if !config.use_tmux {
+        tools.push("Monitor");
+    }
+    if config.headless {
+        tools.push("AskUserQuestion");
+        tools.push("EnterPlanMode");
+        if !is_plan_mode {
+            tools.push("ExitPlanMode");
+        }
+    }
+    tools.into_iter().map(String::from).collect()
 }
 
 /// Build the system prompt configuration.
@@ -467,6 +486,7 @@ mod tests {
             background_job_monitoring_enabled: false,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
+            headless: false,
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),
             claude_config_dir: "/tmp/home/.claude".to_string(),
@@ -712,6 +732,53 @@ mod tests {
         let disallowed = options.disallowed_tools.expect("disallowed_tools set");
         assert!(!disallowed.contains(&"Monitor".to_string()));
         assert!(!disallowed.contains(&"AskUserQuestion".to_string()));
+    }
+
+    /// The tools that block a turn on a person's answer.
+    const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "EnterPlanMode", "ExitPlanMode"];
+
+    /// A headless task has nobody to answer a prompt, so the tools that wait on
+    /// one are kept out of the agent's context in both transports.
+    #[test]
+    fn headless_blocks_the_interactive_tools() {
+        for use_tmux in [false, true] {
+            let mut config = test_config(use_tmux);
+            config.headless = true;
+            let disallowed = disallowed_tools(&config, false);
+            for tool in INTERACTIVE_TOOLS {
+                assert!(
+                    disallowed.contains(&(*tool).to_string()),
+                    "{tool} must be disallowed when headless (use_tmux={use_tmux})"
+                );
+            }
+        }
+    }
+
+    /// A task someone is watching keeps them: the prompt reaches a person and
+    /// the answer comes back through the permission handler.
+    #[test]
+    fn a_watched_task_keeps_the_interactive_tools() {
+        for use_tmux in [false, true] {
+            let disallowed = disallowed_tools(&test_config(use_tmux), false);
+            for tool in INTERACTIVE_TOOLS {
+                assert!(
+                    !disallowed.contains(&(*tool).to_string()),
+                    "{tool} must stay allowed when not headless (use_tmux={use_tmux})"
+                );
+            }
+        }
+    }
+
+    /// Plan mode blocks every write until `ExitPlanMode`, so a run that asked
+    /// for it keeps the one tool that ends it — even headless.
+    #[test]
+    fn a_headless_plan_run_keeps_exit_plan_mode() {
+        let mut config = test_config(false);
+        config.headless = true;
+        let disallowed = disallowed_tools(&config, true);
+        assert!(!disallowed.contains(&"ExitPlanMode".to_string()));
+        assert!(disallowed.contains(&"AskUserQuestion".to_string()));
+        assert!(disallowed.contains(&"EnterPlanMode".to_string()));
     }
 
     #[test]

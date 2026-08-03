@@ -593,6 +593,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         default_codex_model: None,
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
+        headless: false,
     }
 }
 
