@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -512,10 +512,11 @@ fn build_initialize_request(
         _ => None,
     };
 
+    // The bare schema, matching what `--json-schema` carries.
     let json_schema = options
         .output_format
         .as_ref()
-        .and_then(|f| serde_json::to_value(f).ok());
+        .map(|crate::types::options::OutputFormat::JsonSchema { schema }| schema.clone());
 
     // Serialize hook definitions in the CLI-expected format:
     // Record<HookEvent, Array<{hookCallbackIds: string[], matcher?: string, timeout?: number}>>

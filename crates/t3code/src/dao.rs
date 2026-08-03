@@ -266,6 +266,17 @@ pub trait ConversationDao: Send + Sync {
         task_ids: &[String],
     ) -> Result<Vec<Conversation>, sqlx::Error>;
 
+    /// Whether this viewer may *mutate* the named Task — the `control_filter`
+    /// rule: owner or admin, and never a follower or a public reader. The
+    /// listing above is a read and widens to what a person follows; a write
+    /// path resolves the Task through it and then gates here, because
+    /// visibility never grants control.
+    async fn controls_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
     /// Conversations whose name or Message text contains `query`, at most one
     /// match each, best first.
     ///
@@ -822,6 +833,25 @@ impl ConversationDao for PgConversationDao {
             return Ok(Vec::new());
         }
         self.list(viewer, LISTED_STATUSES, Some(task_ids)).await
+    }
+
+    async fn controls_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let control = viewer.control_filter("", 2);
+        let sql = format!(
+            "SELECT 1 FROM tasks WHERE task_id = $1 AND {}",
+            control.sql()
+        );
+        let found = sqlx::query_scalar::<_, i32>(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(found.is_some())
     }
 
     async fn search_conversations(

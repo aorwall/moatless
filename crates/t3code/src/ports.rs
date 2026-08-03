@@ -141,6 +141,106 @@ pub trait RepositoryBranchSource: Send + Sync {
     ) -> Result<BranchListResponse, BranchListError>;
 }
 
+/// The pull request a Task is bound to, in the shape the status surface reports.
+///
+/// Base and head are non-optional because T3's `pr` field requires both: a
+/// binding whose persisted blob predates them yields no `BoundPullRequest` at
+/// all, so the toolbar shows no pull request rather than one with blank
+/// branches.
+pub struct BoundPullRequest {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub base_ref: String,
+    pub head_ref: String,
+    /// The binding's normalized state kind: `open`, `draft`, `merged` or
+    /// `closed`. The status surface collapses `draft` to `open` for T3's
+    /// three-value set.
+    pub state_kind: String,
+}
+
+/// A pull request resolved from a reference, in the shape T3's
+/// `GitResolvedPullRequest` reports: base and head are the branch names, and
+/// `state` is one of `open`, `closed` or `merged`.
+pub struct ResolvedPullRequest {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub base_branch: String,
+    pub head_branch: String,
+    pub state: String,
+}
+
+/// Why a pull-request reference could not be resolved.
+///
+/// Split by what the attach-PR dialog is told: [`Self::NotFound`] is a reference
+/// that names no pull request the viewer can reach, [`Self::Unavailable`] is a
+/// reachable repository whose host refused or has no GitHub credential — both
+/// surfaced verbatim — and [`Self::Failed`] is this deployment's own failure,
+/// logged rather than sent.
+#[derive(Debug)]
+pub enum PullRequestError {
+    NotFound,
+    Unavailable(String),
+    Failed(String),
+}
+
+/// The pull request a Task is bound to, and resolution of references against a
+/// repository's git host.
+///
+/// A database read like the DAOs for the bound case, but one that has to reach
+/// into an adapter's persisted status blob — and the reference-resolution and
+/// head-lookup calls reach the git host — so it is a port rather than a bare
+/// DAO: `crates/t3code` stays free of any GitHub knowledge, and how a pull
+/// request is recovered or resolved lives on the backend side of this boundary.
+#[async_trait]
+pub trait BoundPullRequestSource: Send + Sync {
+    /// The pull request `task_id` is bound to, or `None` when it has none the
+    /// surface can report yet. Access to the Task is checked before this is
+    /// called, so it takes no viewer.
+    async fn bound_pull_request(&self, task_id: &str) -> Option<BoundPullRequest>;
+
+    /// Resolve a pull-request reference against a repository, for the attach-PR
+    /// dialog. `reference` is already trimmed and is a bare number or
+    /// `owner/repo#N`.
+    async fn resolve_pull_request(
+        &self,
+        viewer: &ScopeContext,
+        repository_id: &str,
+        reference: &str,
+    ) -> Result<ResolvedPullRequest, PullRequestError>;
+
+    /// The open pull request whose head branch is `head`, if any — the signal a
+    /// Task created on a PR's head branch is bound to it. `None` on any failure,
+    /// so a creation that cannot reach the host is created unbound rather than
+    /// refused.
+    async fn open_pull_request_for_head(
+        &self,
+        viewer: &ScopeContext,
+        repository_id: &str,
+        head: &str,
+    ) -> Option<ResolvedPullRequest>;
+}
+
+/// The viewer's connected GitHub identity, for the Source Control panel's auth
+/// badge. `account` is the GitHub login the credential recorded, when known.
+pub struct GithubIdentity {
+    pub account: Option<String>,
+}
+
+/// Whether the viewer has a usable GitHub credential, read from their own
+/// provider-token row rather than from how this session authenticated.
+///
+/// A port because `crates/t3code` stays free of credential storage: which rows
+/// count as a usable GitHub connection, and how a stale one is told apart, live
+/// on the backend side of this boundary.
+#[async_trait]
+pub trait SourceControlAuthSource: Send + Sync {
+    /// The viewer's connected GitHub identity, or `None` when they have no
+    /// usable GitHub credential.
+    async fn github_identity(&self, viewer: &ScopeContext) -> Option<GithubIdentity>;
+}
+
 /// Everything a T3 command can ask Moatless to do.
 #[async_trait]
 pub trait ThreadCommandSink: Send + Sync {
@@ -193,5 +293,15 @@ pub trait ThreadCommandSink: Send + Sync {
         &self,
         viewer: &ScopeContext,
         answer: QuestionAnswer,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Record onto the Task the branch a git action created, closing the drift
+    /// between the checkout — moved to `t3/<slug>` — and the Task row, which
+    /// still names the branch the Task was created on.
+    async fn set_branch(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        branch: &str,
     ) -> Result<(), CommandRefusal>;
 }

@@ -15,24 +15,26 @@ use tracing::info;
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
-    scheduled_job_info, ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess,
-    BackgroundWatchJobInfo, ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest,
-    GetAgentStatusResponse, GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest,
-    GetGitDiffPreviewResponse, GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest,
-    GetServerConfigResponse, GitRef, GitRepoRange, GitWorkingTreeFile, ListFilesRequest,
+    ApplyServerConfigRequest, ApplyServerConfigResponse, BackgroundProcess, BackgroundWatchJobInfo,
+    ExecuteAgentRequest, ExecuteAgentResponse, GetAgentStatusRequest, GetAgentStatusResponse,
+    GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
+    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GetServerConfigResponse,
+    GitActionEvent, GitRef, GitRepoRange, GitStackedAction, GitWorkingTreeFile, ListFilesRequest,
     ListFilesResponse, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest,
     NotifyMessagesResponse, ReadFileRequest, ReadFileResponse, RefreshCredentialRequest,
-    RefreshCredentialResponse, ScheduledJobInfo, SearchFilesByNameRequest,
-    SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest, StopAgentResponse,
-    TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest, TerminalClearResponse,
-    TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest, TerminalResizeRequest,
-    TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest,
-    TerminalWriteResponse, WakeupJobInfo, WriteFileRequest, WriteFileResponse,
+    RefreshCredentialResponse, RunGitStackedActionRequest, ScheduledJobInfo,
+    SearchFilesByNameRequest, SearchFilesByNameResponse, ServerConfigOverride, StopAgentRequest,
+    StopAgentResponse, TerminalAttachRequest, TerminalAttachStreamEvent, TerminalClearRequest,
+    TerminalClearResponse, TerminalCloseRequest, TerminalCloseResponse, TerminalOpenRequest,
+    TerminalResizeRequest, TerminalResizeResponse, TerminalRestartRequest, TerminalSessionSnapshot,
+    TerminalWriteRequest, TerminalWriteResponse, WakeupJobInfo, WriteFileRequest,
+    WriteFileResponse, scheduled_job_info,
 };
 
 use crate::agent::scheduled_job::JobSnapshot;
 use crate::agent::types::AgentStatus;
 use crate::files;
+use crate::git::actions::{self, ActionEnv, StackedActionParams};
 use crate::server_control;
 use crate::state::SandboxState;
 
@@ -45,6 +47,8 @@ pub struct SandboxServiceImpl {
 impl SandboxService for SandboxServiceImpl {
     type TerminalAttachStream =
         Pin<Box<dyn Stream<Item = Result<TerminalAttachStreamEvent, Status>> + Send + 'static>>;
+    type RunGitStackedActionStream =
+        Pin<Box<dyn Stream<Item = Result<GitActionEvent, Status>> + Send + 'static>>;
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn execute_agent(
@@ -596,6 +600,7 @@ impl SandboxService for SandboxServiceImpl {
             has_upstream: status.has_upstream,
             ahead_count: status.ahead_count,
             behind_count: status.behind_count,
+            ahead_of_default_count: status.ahead_of_default_count,
             has_working_tree_changes: status.has_working_tree_changes,
             working_tree_files: status
                 .working_tree_files
@@ -632,6 +637,44 @@ impl SandboxService for SandboxServiceImpl {
                 .collect(),
             truncated: listing.truncated,
         }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn run_git_stacked_action(
+        &self,
+        request: Request<RunGitStackedActionRequest>,
+    ) -> Result<Response<Self::RunGitStackedActionStream>, Status> {
+        let request = request.into_inner();
+        let action = request.action();
+        if action == GitStackedAction::Unspecified {
+            return Err(Status::invalid_argument("action is required"));
+        }
+
+        // The primary checkout, or the named sibling repository under the
+        // workspace when the wire selects one.
+        let repo_dir = match &request.repository {
+            Some(repository) if !repository.is_empty() => {
+                format!("{}/{repository}", self.state.config.workspace_dir)
+            }
+            _ => self.state.config.repo_dir.clone(),
+        };
+        let env = ActionEnv {
+            repo_dir,
+            claude_cli_path: self.state.config.claude_cli_path.clone(),
+            model: self.state.config.default_model.clone(),
+        };
+        let params = StackedActionParams {
+            action,
+            commit_message: request.commit_message,
+            feature_branch: request.feature_branch,
+            file_paths: request.file_paths,
+        };
+
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(actions::run_stacked_action(env, params, tx));
+        Ok(Response::new(
+            Box::pin(ReceiverStream::new(rx)) as Self::RunGitStackedActionStream
+        ))
     }
 }
 

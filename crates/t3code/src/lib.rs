@@ -37,6 +37,7 @@ pub mod dao;
 pub mod data;
 mod feed;
 pub mod files;
+mod git_actions;
 pub mod listing;
 mod oauth;
 pub mod ports;
@@ -271,7 +272,15 @@ struct UiRpcState {
     /// A repository's branches, read from its git host, for a draft thread's
     /// branch picker before any Sandbox exists.
     branches: Arc<dyn ports::RepositoryBranchSource>,
-    /// The one thing this module does that is not a read.
+    /// The pull request a Task is bound to, and reference resolution for the
+    /// attach-PR dialog.
+    pull_requests: Arc<dyn ports::BoundPullRequestSource>,
+    /// The viewer's usable GitHub credential, for the Source Control panel's
+    /// auth badge. Read per request because credentials come and go without a
+    /// restart.
+    source_control_auth: Arc<dyn ports::SourceControlAuthSource>,
+    /// Carries out the commands the T3 client dispatches. No longer this
+    /// module's only write: a git action reaches a Sandbox through `sandboxes`.
     commands: Arc<dyn ports::ThreadCommandSink>,
     /// In-process fan-out for terminal metadata and events observed through
     /// this backend instance.
@@ -329,6 +338,8 @@ pub async fn router_from_env(
         model_defaults,
         agents,
         branches,
+        pull_requests,
+        source_control_auth,
         commands,
         otlp_traces_enabled,
         frontend_url,
@@ -380,6 +391,8 @@ pub async fn router_from_env(
         model_defaults: Arc::new(model_defaults),
         agents,
         branches,
+        pull_requests,
+        source_control_auth,
         commands,
         terminal: terminal::TerminalHub::default(),
     })))
@@ -423,6 +436,11 @@ pub struct UiRpcDependencies {
     /// A repository's branches, read from its git host, for a draft thread's
     /// branch picker.
     pub branches: Arc<dyn ports::RepositoryBranchSource>,
+    /// The pull request a Task is bound to, and reference resolution for the
+    /// attach-PR dialog.
+    pub pull_requests: Arc<dyn ports::BoundPullRequestSource>,
+    /// The viewer's usable GitHub credential, for the Source Control panel.
+    pub source_control_auth: Arc<dyn ports::SourceControlAuthSource>,
     /// Carries out the commands the T3 client dispatches.
     pub commands: Arc<dyn ports::ThreadCommandSink>,
     /// Whether this deployment exports spans over OTLP (an OTLP endpoint is
@@ -1352,6 +1370,14 @@ impl RequestId {
     fn wire(&self) -> Value {
         self.wire.clone()
     }
+
+    #[cfg(test)]
+    fn for_test(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            wire: Value::String(text.to_string()),
+        }
+    }
 }
 
 impl fmt::Display for RequestId {
@@ -1709,13 +1735,13 @@ impl ProtocolSession {
                     }
                 }
             }
-            "server.discoverSourceControl" => vec![success_exit(
-                &id,
-                json!({
-                    "versionControlSystems": [],
-                    "sourceControlProviders": []
-                }),
-            )],
+            "server.discoverSourceControl" => {
+                let github = state
+                    .source_control_auth
+                    .github_identity(&viewer_scope(identity))
+                    .await;
+                vec![success_exit(&id, git_actions::discovery(github.as_ref()))]
+            }
             "vcs.listRefs" => {
                 let Some(cwd) = workspace_cwd(&payload) else {
                     return vec![success_exit(&id, review::no_refs())];
@@ -1768,6 +1794,7 @@ impl ProtocolSession {
                 match review::status_result(
                     state.conversations.as_ref(),
                     state.sandboxes.as_ref(),
+                    state.pull_requests.as_ref(),
                     &viewer_scope(identity),
                     &cwd,
                 )
@@ -2465,6 +2492,81 @@ impl ProtocolSession {
                 ));
                 self.start_produced_stream(&id, None, producer)
             }
+            "git.runStackedAction" => {
+                let viewer = viewer_scope(identity);
+                let opened = match git_actions::open_stacked_action(
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(opened) => opened,
+                    Err(error) => return vec![git_action_failure_exit(&id, &error, identity)],
+                };
+                let request_id = id.clone();
+                let frames = self.frames.clone();
+                let commands = state.commands.clone();
+                let task_id = opened.task_id;
+                let stream = opened.stream;
+                let context = opened.context;
+                let producer = tokio::spawn(async move {
+                    let created_branch =
+                        git_actions::forward_action_stream(stream, context, request_id, frames)
+                            .await;
+                    // A feature branch moved the checkout to `t3/<slug>`; record
+                    // it on the Task so its row stops naming the branch it was
+                    // created on. Best-effort: the action already succeeded.
+                    if let Some(branch) = created_branch {
+                        if let Err(refusal) = commands.set_branch(&viewer, &task_id, &branch).await
+                        {
+                            warn!(
+                                reason = %refusal.message(),
+                                task_id = %task_id,
+                                "T3 git action could not record the branch it created"
+                            );
+                        }
+                    }
+                });
+                self.start_produced_stream(&id, None, producer)
+            }
+            "git.resolvePullRequest" => {
+                match git_actions::resolve_pull_request(
+                    state.workspaces.as_ref(),
+                    state.conversations.as_ref(),
+                    state.pull_requests.as_ref(),
+                    &viewer_scope(identity),
+                    &payload,
+                )
+                .await
+                {
+                    Ok(result) => vec![success_exit(&id, result)],
+                    Err(error) => vec![pull_request_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
+            "git.preparePullRequestThread" => {
+                match git_actions::prepare_pull_request_thread(
+                    state.workspaces.as_ref(),
+                    state.conversations.as_ref(),
+                    state.pull_requests.as_ref(),
+                    &viewer_scope(identity),
+                    &payload,
+                )
+                .await
+                {
+                    Ok(git_actions::PreparedThread::Local(result)) => {
+                        vec![success_exit(&id, result)]
+                    }
+                    // Worktree mode is refused by name, not by falling through to
+                    // the catch-all: this surface prepares a branch, never a
+                    // worktree on disk.
+                    Ok(git_actions::PreparedThread::WorktreeUnsupported) => {
+                        vec![unsupported_exit(&id, &tag)]
+                    }
+                    Err(error) => vec![pull_request_failure_exit(&id, &tag, &error, identity)],
+                }
+            }
             // `subscribeDiscoveredLocalServers` used to open a stream that
             // never said anything, which reads to a client as "connected,
             // nothing to report". There is no local-server discovery here, so
@@ -2497,6 +2599,7 @@ impl ProtocolSession {
             if let Ok(snapshot) = review::status(
                 state.conversations.as_ref(),
                 state.sandboxes.as_ref(),
+                state.pull_requests.as_ref(),
                 &viewer,
                 &cwd,
             )
@@ -3025,6 +3128,91 @@ fn review_failure_exit(
     )
 }
 
+/// Refuse a `git.runStackedAction` that could not be opened.
+///
+/// A refusal the viewer caused — an unaddressable `cwd`, a sandbox that is not
+/// up, a malformed request — rather than a failure part-way through, which
+/// arrives as an `action_failed` frame on the stream instead. A rejected request
+/// is a `Die` (the client sent something it should not have); an access refusal
+/// carries the same `GitCommandError` shape the read path uses, so a stopped
+/// sandbox reads the same whether it is a status read or an action.
+fn git_action_failure_exit(
+    request_id: &RequestId,
+    error: &git_actions::OpenError,
+    identity: &UiRpcAuthIdentity,
+) -> Value {
+    match error {
+        git_actions::OpenError::Rejected(message) => {
+            debug!(%message, user_id = %identity.user_id, "T3 git action rejected");
+            failure_exit(request_id, message.clone())
+        }
+        git_actions::OpenError::Access(access) => {
+            match access {
+                WorkspaceAccessError::Database(cause) => {
+                    error!(%cause, user_id = %identity.user_id, "T3 git action failed");
+                }
+                WorkspaceAccessError::Sandbox(cause) => {
+                    warn!(%cause, user_id = %identity.user_id, "T3 git action failed");
+                }
+                WorkspaceAccessError::NotRunning(cause) => {
+                    debug!(%cause, user_id = %identity.user_id, "T3 git action refused");
+                }
+                WorkspaceAccessError::NoWorktree | WorkspaceAccessError::Unaddressable => {
+                    debug!(?access, user_id = %identity.user_id, "T3 git action refused");
+                }
+            }
+            typed_failure_exit(
+                request_id,
+                json!({
+                    "_tag": "GitCommandError",
+                    "operation": "git.runStackedAction",
+                    "command": "sandbox.RunGitStackedAction",
+                    "cwd": "",
+                    "detail": access.message(),
+                }),
+            )
+        }
+    }
+}
+
+/// Why a pull-request reference could not be resolved, as the failure both
+/// dialog methods declare.
+///
+/// `GitManagerError` is one shape of their `GitManagerServiceError` union, and
+/// the client renders its `message` — `Git manager failed in {operation}:
+/// {detail}` — in the attach-PR dialog. A reference that names no reachable pull
+/// request, or a repository the viewer cannot be shown, is an ordinary outcome
+/// there; a database failure is logged and reported the same way, since a `Die`
+/// would reach the dialog as an undecodable defect.
+fn pull_request_failure_exit(
+    request_id: &RequestId,
+    tag: &str,
+    error: &ports::PullRequestError,
+    identity: &UiRpcAuthIdentity,
+) -> Value {
+    let detail = match error {
+        ports::PullRequestError::NotFound => {
+            "No pull request was found for that reference.".to_string()
+        }
+        ports::PullRequestError::Unavailable(message) => message.clone(),
+        ports::PullRequestError::Failed(cause) => {
+            error!(%cause, %tag, user_id = %identity.user_id, "T3 pull-request resolution failed");
+            "The pull request could not be resolved.".to_string()
+        }
+    };
+    typed_failure_exit(
+        request_id,
+        json!({
+            "_tag": "GitManagerError",
+            "operation": tag,
+            // Nothing here shells out to git: the pull request is read from the
+            // git host's API, so this names the read rather than a checkout.
+            "cwd": "",
+            "detail": detail,
+        }),
+    )
+}
+
 /// Answer a project-root `vcs.listRefs` whose branch listing did not produce a
 /// page.
 ///
@@ -3459,6 +3647,44 @@ mod tests {
         }
     }
 
+    /// A Task in these envelope tests is never bound to a pull request; what a
+    /// bound one projects to is asserted in `review.rs`.
+    struct NoBoundPullRequests;
+
+    #[async_trait]
+    impl ports::BoundPullRequestSource for NoBoundPullRequests {
+        async fn bound_pull_request(&self, _task_id: &str) -> Option<ports::BoundPullRequest> {
+            None
+        }
+        async fn resolve_pull_request(
+            &self,
+            _viewer: &ScopeContext,
+            _repository_id: &str,
+            _reference: &str,
+        ) -> Result<ports::ResolvedPullRequest, ports::PullRequestError> {
+            unreachable!("no test in this file resolves a pull request")
+        }
+        async fn open_pull_request_for_head(
+            &self,
+            _viewer: &ScopeContext,
+            _repository_id: &str,
+            _head: &str,
+        ) -> Option<ports::ResolvedPullRequest> {
+            None
+        }
+    }
+
+    /// The envelope tests never sign in with GitHub; what an authenticated badge
+    /// projects to is asserted in `git_actions.rs`.
+    struct NoGithubIdentity;
+
+    #[async_trait]
+    impl ports::SourceControlAuthSource for NoGithubIdentity {
+        async fn github_identity(&self, _viewer: &ScopeContext) -> Option<ports::GithubIdentity> {
+            None
+        }
+    }
+
     /// Nothing in this file dispatches a command that reaches a write; the
     /// command table itself is asserted in `commands.rs` against a recording
     /// sink.
@@ -3544,6 +3770,14 @@ mod tests {
         ) -> Result<(), ports::CommandRefusal> {
             unreachable!("no test in this file answers a question")
         }
+        async fn set_branch(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _branch: &str,
+        ) -> Result<(), ports::CommandRefusal> {
+            unreachable!("no test in this file sets a branch")
+        }
     }
 
     /// These tests are about the envelope encoding, so the listing behind it
@@ -3612,6 +3846,8 @@ mod tests {
             },
             agents: Arc::new(StubAgents),
             branches: Arc::new(UnreachableBranches),
+            pull_requests: Arc::new(NoBoundPullRequests),
+            source_control_auth: Arc::new(NoGithubIdentity),
             commands: Arc::new(UnreachableCommands),
             model_defaults: Arc::new(AgentModelDefaults::default()),
             terminal: terminal::TerminalHub::default(),

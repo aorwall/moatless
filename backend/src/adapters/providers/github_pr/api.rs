@@ -28,10 +28,6 @@ pub(super) struct ReactionUser {
 /// GitHub PR metadata from the API.
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct PrInfo {
-    #[expect(
-        dead_code,
-        reason = "deserialized GitHub field retained for endpoint parity"
-    )]
     pub(super) number: u64,
     pub(super) title: String,
     pub(super) body: Option<String>,
@@ -65,10 +61,6 @@ pub(super) struct PrInfo {
     )]
     pub(super) user: Option<PrInfoUser>,
     pub(super) head: PrRef,
-    #[expect(
-        dead_code,
-        reason = "deserialized GitHub field retained for endpoint parity"
-    )]
     pub(super) base: PrRef,
 }
 
@@ -91,10 +83,6 @@ pub(super) struct PrInfoUser {
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct PrRef {
     #[serde(rename = "ref")]
-    #[expect(
-        dead_code,
-        reason = "deserialized GitHub field retained for endpoint parity"
-    )]
     pub(super) ref_name: String,
     pub(super) sha: String,
 }
@@ -327,6 +315,48 @@ impl GithubPrApi {
         resp.json::<Vec<CommitPr>>()
             .await
             .map_err(|e| AdapterError::provider_response_invalid("GitHub get_pulls_for_commit", e))
+    }
+
+    /// The open pull request whose head branch is `head`, if any.
+    ///
+    /// `GET /repos/{owner}/{repo}/pulls?head={owner}:{head}&state=open`. GitHub
+    /// filters `head` as `{owner}:{branch}`, so a fork's like-named branch is
+    /// not mistaken for this repository's. A head branch has at most one open
+    /// pull request, so the first match is the answer. Serves three callers: the
+    /// stacked action's `opened_existing` path, the create-PR endpoint's 422
+    /// recovery, and binding a Task prepared from a pull-request reference.
+    pub(super) async fn find_open_pr_for_head(
+        &self,
+        owner: &str,
+        repo: &str,
+        head: &str,
+    ) -> Result<Option<PrInfo>, AdapterError> {
+        let url = format!("{}/repos/{owner}/{repo}/pulls", self.base_url);
+        let head_filter = format!("{owner}:{head}");
+
+        let resp = self
+            .request(reqwest::Method::GET, &url)
+            .query(&[
+                ("head", head_filter.as_str()),
+                ("state", "open"),
+                ("per_page", "1"),
+            ])
+            .send()
+            .await
+            .map_err(|e| AdapterError::provider_unreachable("GitHub find_open_pr_for_head", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(AdapterError::AdapterApi(format!(
+                "GitHub find_open_pr_for_head returned {status}: {text}"
+            )));
+        }
+
+        let prs: Vec<PrInfo> = resp.json().await.map_err(|e| {
+            AdapterError::provider_response_invalid("GitHub find_open_pr_for_head", e)
+        })?;
+        Ok(prs.into_iter().next())
     }
 
     /// Reply to a PR review comment (threaded review reply).
@@ -664,7 +694,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_github_keeps_transport_source() {
@@ -722,8 +752,8 @@ mod error_source_tests {
 
 #[cfg(test)]
 mod request_budget_tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use axum::extract::State;
     use axum::routing::get;
@@ -779,6 +809,86 @@ mod request_budget_tests {
             4,
             "one initial read plus at most three mergeability retries"
         );
+    }
+}
+
+#[cfg(test)]
+mod find_open_pr_tests {
+    use axum::extract::{Query, State};
+    use axum::routing::get;
+    use axum::{Json, Router};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+
+    /// The head filter GitHub was asked for, plus a one-element result, so the
+    /// test can assert both the `{owner}:{branch}` filter and that the first
+    /// match is returned.
+    #[tokio::test]
+    async fn find_open_pr_for_head_filters_by_owner_and_head_and_takes_the_first() {
+        let seen_head = Arc::new(Mutex::new(String::new()));
+
+        async fn pulls(
+            State(seen): State<Arc<Mutex<String>>>,
+            Query(params): Query<HashMap<String, String>>,
+        ) -> Json<serde_json::Value> {
+            *seen.lock().expect("lock") = params.get("head").cloned().unwrap_or_default();
+            Json(serde_json::json!([{
+                "number": 7,
+                "title": "Existing",
+                "body": null,
+                "state": "open",
+                "html_url": "https://github.com/acme/widgets/pull/7",
+                "user": {"login": "octocat"},
+                "head": {"ref": "feature", "sha": "abc"},
+                "base": {"ref": "main", "sha": "def"},
+            }]))
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind GitHub stub");
+        let address = listener.local_addr().expect("stub address");
+        let app = Router::new()
+            .route("/repos/acme/widgets/pulls", get(pulls))
+            .with_state(seen_head.clone());
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("stub serves");
+        });
+
+        let api = GithubPrApi::with_base_url("ghp_test", format!("http://{address}"));
+        let found = api
+            .find_open_pr_for_head("acme", "widgets", "feature")
+            .await
+            .expect("the lookup succeeds")
+            .expect("one open PR");
+
+        assert_eq!(found.number, 7);
+        assert_eq!(found.head.ref_name, "feature");
+        assert_eq!(*seen_head.lock().expect("lock"), "acme:feature");
+    }
+
+    #[tokio::test]
+    async fn find_open_pr_for_head_is_none_when_the_branch_has_no_open_pr() {
+        async fn empty() -> Json<serde_json::Value> {
+            Json(serde_json::json!([]))
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind GitHub stub");
+        let address = listener.local_addr().expect("stub address");
+        let app = Router::new().route("/repos/o/r/pulls", get(empty));
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("stub serves");
+        });
+
+        let api = GithubPrApi::with_base_url("ghp_test", format!("http://{address}"));
+        let found = api
+            .find_open_pr_for_head("o", "r", "feature")
+            .await
+            .expect("the lookup succeeds");
+        assert!(found.is_none());
     }
 }
 

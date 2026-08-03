@@ -13,8 +13,8 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
-use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::adapters::AdapterBindingStatus;
+use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
@@ -31,6 +31,11 @@ use crate::state::AppState;
 ///   stands and is never polled again;
 /// - the persisted status is older than `cutoff`, or was never fetched.
 ///
+/// The terminal rule yields to one exception: a binding whose adapter reports
+/// its persisted blob incomplete — written before the adapter carried a field
+/// it now needs — is refreshed once regardless of terminal state, so the fetch
+/// fills the missing field in.
+///
 /// The terminal rule is a *polling* rule only. Webhook persistence stays
 /// unconditional, so a reopened pull request or a reactivated issue overwrites
 /// a terminal status and becomes refreshable again. If that webhook is missed
@@ -43,6 +48,11 @@ pub(crate) fn should_refresh(
 ) -> bool {
     if status.binding_status_key(binding).is_none() {
         return false;
+    }
+    // A persisted blob missing a field the adapter now writes is refreshed once,
+    // even when terminal, so the fetch fills it in.
+    if !status.persisted_status_is_complete(binding) {
+        return true;
     }
     let terminal = binding
         .external_state_kind
@@ -119,6 +129,7 @@ pub async fn get_or_fetch(
 mod tests {
 
     use chrono::Duration as ChronoDuration;
+    use serde_json::Value;
 
     use crate::adapters::AdapterBindingStatus;
 
@@ -140,6 +151,15 @@ mod tests {
 
         fn is_terminal_state_kind(&self, state_kind: &str) -> bool {
             state_kind == "done"
+        }
+
+        /// Mirrors a real adapter whose blob grew a field: a persisted blob that
+        /// does not carry `headRef` predates the growth and reads incomplete.
+        fn persisted_status_is_complete(&self, binding: &TaskBinding) -> bool {
+            binding
+                .external_status_raw
+                .as_ref()
+                .is_none_or(|raw| raw.get("headRef").and_then(Value::as_str).is_some())
         }
     }
 
@@ -239,6 +259,30 @@ mod tests {
         ));
 
         binding.external_state_kind = Some("open".into());
+        assert!(should_refresh(
+            &StubAdapter { keyed: true },
+            &binding,
+            cutoff()
+        ));
+    }
+
+    #[test]
+    fn terminal_binding_with_a_complete_blob_stays_unpolled() {
+        let mut binding = binding(Some("done"), Some(Utc::now() - ChronoDuration::days(30)));
+        binding.external_status_raw = Some(serde_json::json!({ "headRef": "feature" }));
+        assert!(!should_refresh(
+            &StubAdapter { keyed: true },
+            &binding,
+            cutoff()
+        ));
+    }
+
+    #[test]
+    fn terminal_binding_with_an_incomplete_blob_refreshes_once() {
+        // The blob predates the field the adapter now writes, so it is refreshed
+        // even though its state kind is terminal.
+        let mut binding = binding(Some("done"), Some(Utc::now() - ChronoDuration::days(30)));
+        binding.external_status_raw = Some(serde_json::json!({ "state": "closed" }));
         assert!(should_refresh(
             &StubAdapter { keyed: true },
             &binding,

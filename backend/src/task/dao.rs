@@ -538,6 +538,9 @@ impl TaskDao for PgTaskDao {
         if let Some(ref name) = patch.name {
             run_field!("name = $2", name);
         }
+        if let Some(ref branch) = patch.branch {
+            run_field!("branch = $2", branch);
+        }
         if let Some(ref description) = patch.description {
             run_field!("description = $2", description);
         }
@@ -1033,6 +1036,7 @@ pub async fn clear_settled_for_all_followers(
 pub struct TaskPatch {
     pub status: Option<TaskStatus>,
     pub name: Option<String>,
+    pub branch: Option<String>,
     pub description: Option<String>,
     pub last_message_at: Option<String>,
     pub total_cost_usd: Option<f64>,

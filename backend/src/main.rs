@@ -500,6 +500,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 preview_tabs: preview_tabs.clone(),
                 agents: Arc::new(t3code::backend::AppStateAgents(app_state.clone())),
                 branches: Arc::new(t3code::backend::AppStateBranches(app_state.clone())),
+                pull_requests: Arc::new(t3code::backend::AppStateBoundPullRequests(
+                    app_state.clone(),
+                )),
+                source_control_auth: Arc::new(t3code::backend::AppStateSourceControlAuth(
+                    app_state.clone(),
+                )),
                 commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
                 model_defaults: moatless_t3code::AgentModelDefaults {
                     claude_code: config.sandbox.default_model.clone(),

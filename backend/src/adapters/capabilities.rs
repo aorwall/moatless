@@ -370,6 +370,14 @@ pub(crate) trait AdapterBindingStatus: Send + Sync {
         false
     }
 
+    /// Whether the binding's persisted status blob carries every field this
+    /// adapter now writes. An adapter whose blob shape grew answers `false` for
+    /// a binding written before the growth, so a terminal binding is refreshed
+    /// once to fill the missing fields; the default is that nothing is missing.
+    fn persisted_status_is_complete(&self, _binding: &TaskBinding) -> bool {
+        true
+    }
+
     async fn fetch_binding_status(
         &self,
         _binding: &TaskBinding,

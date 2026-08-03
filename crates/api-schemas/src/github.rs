@@ -43,6 +43,11 @@ pub struct GithubCreatePrResponse {
     /// succeeded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_id: Option<String>,
+    /// `true` when the head branch already had an open pull request, so no new
+    /// one was created and the existing one is returned instead. The stacked
+    /// action reports this as `opened_existing`.
+    #[serde(default)]
+    pub opened_existing: bool,
 }
 
 /// `POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` —

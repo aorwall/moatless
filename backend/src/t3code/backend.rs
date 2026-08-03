@@ -12,6 +12,8 @@ use futures::StreamExt;
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_backend_core::{sandbox as core_sandbox, scope::ScopeContext};
 
+use crate::adapters::models::TaskBinding;
+use crate::bindings::dao::PgTaskBindingDao;
 use crate::message::error::MessageError;
 use crate::message::service as message_service;
 use crate::repository::error::RepositoryError;
@@ -27,8 +29,9 @@ use crate::task::handlers as task_handlers;
 use crate::task::models::TaskStatus;
 use crate::task::service as task_service;
 use moatless_t3code::ports::{
-    AgentCatalogSource, BranchListError, CommandRefusal, NewThread, QuestionAnswer,
-    RepositoryBranchSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
+    AgentCatalogSource, BoundPullRequest, BoundPullRequestSource, BranchListError, CommandRefusal,
+    GithubIdentity, NewThread, PullRequestError, QuestionAnswer, RepositoryBranchSource,
+    ResolvedPullRequest, SourceControlAuthSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
 };
 use moatless_t3code::{
     ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter,
@@ -322,6 +325,301 @@ fn branch_list_error(error: RepositoryError) -> BranchListError {
     }
 }
 
+pub struct AppStateBoundPullRequests(pub AppState);
+
+#[async_trait]
+impl BoundPullRequestSource for AppStateBoundPullRequests {
+    async fn bound_pull_request(&self, task_id: &str) -> Option<BoundPullRequest> {
+        let bindings = PgTaskBindingDao(self.0.db.clone())
+            .find_by_task_id(task_id)
+            .await
+            .ok()?;
+        // The active GitHub PR binding, if any. A Task has at most one.
+        let binding = bindings.into_iter().find(|binding| {
+            binding.active
+                && binding.adapter_kind == "github"
+                && binding.subject_kind == "github_pr"
+        })?;
+        if let Some(pr) = bound_pull_request_from_binding(&binding) {
+            return Some(pr);
+        }
+        // The persisted blob predates base and head, so it yields no reportable
+        // pull request. This is the only path that reads the binding — the
+        // task-connections endpoint's stale-status refresh never runs here — so
+        // refresh it once through the same write-through, then rebuild from what
+        // the fetch filled in. A refresh that cannot be done (no token, API
+        // error, no adapter) leaves the toolbar showing no pull request.
+        let refreshed = self.refresh_incomplete_binding(task_id, &binding).await?;
+        bound_pull_request_from_binding(&refreshed)
+    }
+
+    async fn resolve_pull_request(
+        &self,
+        viewer: &ScopeContext,
+        repository_id: &str,
+        reference: &str,
+    ) -> Result<ResolvedPullRequest, PullRequestError> {
+        let (owner, repo) = self.github_owner_repo(viewer, repository_id).await?;
+        crate::adapters::providers::github_pr::api_routes::resolve_reference_for_dialog(
+            &self.0,
+            &viewer.user_id,
+            &owner,
+            &repo,
+            reference,
+        )
+        .await
+        .map_err(pull_request_error)?
+        .map(resolved_pull_request)
+        .ok_or(PullRequestError::NotFound)
+    }
+
+    async fn open_pull_request_for_head(
+        &self,
+        viewer: &ScopeContext,
+        repository_id: &str,
+        head: &str,
+    ) -> Option<ResolvedPullRequest> {
+        let (owner, repo) = self.github_owner_repo(viewer, repository_id).await.ok()?;
+        crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
+            &self.0,
+            &viewer.user_id,
+            &owner,
+            &repo,
+            head,
+        )
+        .await
+        .ok()?
+        .map(resolved_pull_request)
+    }
+}
+
+impl AppStateBoundPullRequests {
+    /// Fetch live status for a binding whose persisted blob is incomplete and
+    /// return a copy carrying the freshly written-through fields. `None` when no
+    /// live status could be obtained.
+    async fn refresh_incomplete_binding(
+        &self,
+        task_id: &str,
+        binding: &TaskBinding,
+    ) -> Option<TaskBinding> {
+        let created_by = self.task_creator(task_id).await?;
+        let status =
+            crate::bindings::status_service::get_or_fetch(&self.0, binding, &created_by).await?;
+        let mut refreshed = binding.clone();
+        refreshed.external_status = status.status.clone();
+        refreshed.external_state_kind = status.state_kind.clone();
+        refreshed.external_status_raw = Some(status.raw.clone());
+        Some(refreshed)
+    }
+
+    /// The login of the Task's creator, whose token the GitHub status fetch
+    /// resolves. Read directly rather than through a scoped find because the
+    /// port has already had the viewer's access to the Task checked.
+    async fn task_creator(&self, task_id: &str) -> Option<String> {
+        sqlx::query_scalar::<_, Option<String>>("SELECT created_by FROM tasks WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_optional(&self.0.db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+    }
+
+    /// The `owner/repo` a repository's GitHub remote names, if the viewer can be
+    /// shown the repository and it is a GitHub remote.
+    async fn github_owner_repo(
+        &self,
+        viewer: &ScopeContext,
+        repository_id: &str,
+    ) -> Result<(String, String), PullRequestError> {
+        let repository = self
+            .0
+            .repositories
+            .find_by_id(repository_id, viewer)
+            .await
+            .map_err(|error| PullRequestError::Failed(error.to_string()))?
+            .ok_or(PullRequestError::NotFound)?;
+        let remote_url = repository.remote_url.ok_or(PullRequestError::NotFound)?;
+        crate::repository::access::parse_github_owner_repo(&remote_url).ok_or_else(|| {
+            PullRequestError::Unavailable("This repository has no GitHub remote.".to_string())
+        })
+    }
+}
+
+/// A GitHub API failure, as the attach-PR dialog is told it.
+///
+/// A reference that names no pull request the credential can see is `NotFound`;
+/// a missing credential or a host that refused is surfaced verbatim; anything
+/// else is this deployment's own failure, logged rather than sent.
+fn pull_request_error(error: crate::adapters::error::AdapterError) -> PullRequestError {
+    use crate::adapters::error::AdapterError;
+    match error {
+        AdapterError::UserCredential { .. } => PullRequestError::Unavailable(
+            "Connect a GitHub account to resolve pull requests.".to_string(),
+        ),
+        AdapterError::AdapterApi(message) => PullRequestError::Unavailable(message),
+        other => PullRequestError::Failed(other.to_string()),
+    }
+}
+
+fn resolved_pull_request(
+    pr: crate::adapters::providers::github_pr::api_routes::DialogPullRequest,
+) -> ResolvedPullRequest {
+    ResolvedPullRequest {
+        number: pr.number,
+        title: pr.title,
+        url: pr.url,
+        base_branch: pr.base_ref,
+        head_branch: pr.head_ref,
+        state: pr.state,
+    }
+}
+
+/// Bind a newly created Task to the open pull request whose head is its branch,
+/// when the branch names one.
+///
+/// Best-effort: a thread whose branch has no open PR, whose repository has no
+/// GitHub remote, or whose host cannot be reached is created unbound rather than
+/// refused — creating the thread is the operation the person asked for, and the
+/// binding is a convenience layered on it.
+async fn bind_thread_to_open_pr(
+    state: &AppState,
+    viewer: &ScopeContext,
+    workspace_id: &str,
+    branch: &str,
+    task_id: &str,
+) {
+    let Some(repository_id) = state
+        .workspaces
+        .find_primary_repo(workspace_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|placement| placement.repository_id)
+    else {
+        return;
+    };
+    let Some(remote_url) = state
+        .repositories
+        .find_by_id(&repository_id, viewer)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|repository| repository.remote_url)
+    else {
+        return;
+    };
+    let Some((owner, repo)) = crate::repository::access::parse_github_owner_repo(&remote_url)
+    else {
+        return;
+    };
+    let pr =
+        match crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
+            state,
+            &viewer.user_id,
+            &owner,
+            &repo,
+            branch,
+        )
+        .await
+        {
+            Ok(Some(pr)) => pr,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::debug!(%error, task_id, branch, "T3 thread: no open PR for branch to bind");
+                return;
+            }
+        };
+    let source_id = format!("{owner}/{repo}");
+    let thread_properties = serde_json::json!({
+        "owner": owner,
+        "repo": repo,
+        "pr_number": pr.number,
+    });
+    match crate::loops::firing::listen::connect_github_binding(
+        state,
+        &source_id,
+        task_id,
+        thread_properties,
+        Some(&viewer.user_id),
+    )
+    .await
+    {
+        Ok((_, binding)) => tracing::info!(
+            task_id,
+            pr_number = pr.number,
+            binding_id = %binding.id,
+            "T3 thread bound to the open pull request on its branch"
+        ),
+        Err(error) => tracing::warn!(
+            %error,
+            task_id,
+            pr_number = pr.number,
+            "T3 thread failed to bind to the open pull request on its branch"
+        ),
+    }
+}
+
+pub struct AppStateSourceControlAuth(pub AppState);
+
+#[async_trait]
+impl SourceControlAuthSource for AppStateSourceControlAuth {
+    async fn github_identity(&self, viewer: &ScopeContext) -> Option<GithubIdentity> {
+        let presence = self
+            .0
+            .provider_tokens
+            .find_github_scope_presence(&viewer.user_id)
+            .await
+            .ok()??;
+        // A row the refresher marked failed is a connection the viewer must
+        // renew, so it is not a usable credential the panel should call
+        // authenticated.
+        if presence.refresh_failure {
+            return None;
+        }
+        Some(GithubIdentity {
+            account: presence.login,
+        })
+    }
+}
+
+/// Recover the pull request a GitHub binding points at, in the shape the status
+/// surface reports. `None` when the persisted blob predates base and head, so
+/// the toolbar shows no pull request rather than one with blank branches.
+fn bound_pull_request_from_binding(binding: &TaskBinding) -> Option<BoundPullRequest> {
+    let number = binding.subject_key.rsplit_once('#')?.1.parse().ok()?;
+    let raw = binding.external_status_raw.as_ref()?;
+    let non_empty = |key: &str| {
+        raw.get(key)
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let base_ref = non_empty("baseRef")?;
+    let head_ref = non_empty("headRef")?;
+    let title = non_empty("title").unwrap_or_else(|| binding.subject_key.clone());
+    let url = non_empty("url").unwrap_or_else(|| pull_request_url(&binding.subject_key, number));
+    let state_kind = binding
+        .external_state_kind
+        .clone()
+        .unwrap_or_else(|| "open".to_string());
+    Some(BoundPullRequest {
+        number,
+        title,
+        url,
+        base_ref,
+        head_ref,
+        state_kind,
+    })
+}
+
+/// `https://github.com/{owner}/{repo}/pull/{number}` from a `owner/repo#N`
+/// subject key, for a binding whose blob recorded no url.
+fn pull_request_url(subject_key: &str, number: u64) -> String {
+    let repo = subject_key.split('#').next().unwrap_or(subject_key);
+    format!("https://github.com/{repo}/pull/{number}")
+}
+
 pub struct AppStateCommands(pub AppState);
 
 impl AppStateCommands {
@@ -428,6 +726,11 @@ impl ThreadCommandSink for AppStateCommands {
         // runs the first catalog agent of the kind the person picked.
         let agent_type = default_agent_for(&thread.instance);
 
+        // Kept past the request, which moves both: a thread created on a PR's
+        // head branch is bound to that PR once the Task exists.
+        let workspace_id = thread.workspace_id.clone();
+        let branch = thread.branch.clone();
+
         let request = moatless_api_schemas::task::CreateTaskRequest {
             repository_id: None,
             workspace_id: Some(thread.workspace_id),
@@ -461,8 +764,16 @@ impl ThreadCommandSink for AppStateCommands {
             serde_json::Value::Null
         })
         .await
-        .map(|_| ())
-        .map_err(|e| create_refusal(&thread.task_id, e))
+        .map_err(|e| create_refusal(&thread.task_id, e))?;
+
+        // The PR-prepared thread flow drops the pull-request reference before
+        // `thread.create` (ChatView.tsx), so the head branch is the only signal
+        // that this thread belongs to a pull request. Bind it here from that
+        // branch so a review comment on the PR is delivered into this Task.
+        if let Some(branch) = branch.as_deref().filter(|branch| !branch.is_empty()) {
+            bind_thread_to_open_pr(&self.0, viewer, &workspace_id, branch, &thread.task_id).await;
+        }
+        Ok(())
     }
 
     async fn update_meta(
@@ -593,6 +904,37 @@ impl ThreadCommandSink for AppStateCommands {
         .await
         .map(|_| ())
         .map_err(|e| send_refusal(&answer.task_id, e))
+    }
+
+    async fn set_branch(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        branch: &str,
+    ) -> Result<(), CommandRefusal> {
+        let patch = TaskPatch {
+            branch: Some(branch.to_string()),
+            ..Default::default()
+        };
+        let updated = self
+            .0
+            .tasks
+            .update_task(task_id, &patch, viewer)
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, task_id, "T3 branch update failed");
+                CommandRefusal::Failed {
+                    message: "Could not record the branch on that thread.".to_string(),
+                }
+            })?;
+        // The control filter is in the `WHERE`, so a viewer who may not control
+        // the Task gets a clean `false` rather than an error.
+        if !updated {
+            return Err(CommandRefusal::NotWritable {
+                task_id: task_id.to_string(),
+            });
+        }
+        Ok(())
     }
 }
 

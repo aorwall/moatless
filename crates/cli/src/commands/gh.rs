@@ -200,7 +200,12 @@ async fn run_pr_create(
     if json {
         output::print_json_typed(&resp);
     } else {
-        println!("PR created: {}", resp.html_url);
+        let verb = if resp.opened_existing {
+            "PR already open"
+        } else {
+            "PR created"
+        };
+        println!("{verb}: {}", resp.html_url);
         if let Some(bid) = resp.binding_id {
             println!("Bound to task via: {bid}");
         }

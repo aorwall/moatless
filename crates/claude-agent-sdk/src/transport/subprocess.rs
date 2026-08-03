@@ -12,7 +12,7 @@ use crate::error::{Result, SdkError};
 use crate::types::content::ContentBlock;
 use crate::types::control::{ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage};
 use crate::types::messages::{ResultMessage, SdkMessage};
-use crate::types::options::{ClaudeOptions, SystemPrompt};
+use crate::types::options::{ClaudeOptions, OutputFormat, SystemPrompt};
 
 /// Manages the Claude CLI subprocess: spawning, reading NDJSON, writing, and cleanup.
 pub(crate) struct SubprocessTransport {
@@ -418,9 +418,11 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push("--include-partial-messages".to_string());
     }
 
-    // Output format
-    if let Some(format) = &options.output_format {
-        if let Ok(json) = serde_json::to_string(format) {
+    // Output format. `--json-schema` validates its argument as a JSON Schema,
+    // so it takes the bare schema — the tagged `OutputFormat` envelope is
+    // rejected and the CLI exits before the SDK's first control request.
+    if let Some(OutputFormat::JsonSchema { schema }) = &options.output_format {
+        if let Ok(json) = serde_json::to_string(schema) {
             args.push("--json-schema".to_string());
             args.push(json);
         }
@@ -635,8 +637,7 @@ fn log_sdk_message(msg: &SdkMessage) {
         SdkMessage::ToolProgress(m) => {
             trace!(
                 "CLI stdout: tool_progress tool={} elapsed={:.1}s",
-                m.tool_name,
-                m.elapsed_time_seconds
+                m.tool_name, m.elapsed_time_seconds
             );
         }
         SdkMessage::AuthStatus(m) => {

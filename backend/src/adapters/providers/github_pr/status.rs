@@ -2,8 +2,8 @@
 
 use tracing::warn;
 
-use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::adapters::AdapterBindingStatus;
+use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::db::DbPool;
 
@@ -91,6 +91,8 @@ pub(super) fn github_external_status(
     draft: bool,
     title: Option<&str>,
     url: Option<&str>,
+    base_ref: Option<&str>,
+    head_ref: Option<&str>,
 ) -> ExternalStatus {
     let kind = if merged {
         "merged"
@@ -111,6 +113,8 @@ pub(super) fn github_external_status(
             "state": state,
             "merged": merged,
             "draft": draft,
+            "baseRef": base_ref,
+            "headRef": head_ref,
         }),
     }
 }
@@ -123,7 +127,19 @@ fn status_from_pr_info(pr: &PrInfo) -> ExternalStatus {
         pr.draft.unwrap_or(false),
         Some(pr.title.as_str()),
         pr.html_url.as_deref(),
+        Some(pr.base.ref_name.as_str()),
+        Some(pr.head.ref_name.as_str()),
     )
+}
+
+/// The base and head branch names a persisted GitHub status blob recorded, if
+/// it was written since this adapter began carrying them. `None` for a blob
+/// that predates the change, which is what marks it stale for one refresh.
+pub(super) fn status_base_head(binding: &TaskBinding) -> Option<(String, String)> {
+    let raw = binding.external_status_raw.as_ref()?;
+    let base = raw.get("baseRef").and_then(serde_json::Value::as_str)?;
+    let head = raw.get("headRef").and_then(serde_json::Value::as_str)?;
+    Some((base.to_string(), head.to_string()))
 }
 
 /// Stable key naming the pull request a binding points at, so several tasks
@@ -178,6 +194,13 @@ impl AdapterBindingStatus for GithubPrAdapter {
         is_terminal_state_kind(state_kind)
     }
 
+    fn persisted_status_is_complete(&self, binding: &TaskBinding) -> bool {
+        // A blob written before base and head were carried holds neither, so it
+        // is refreshed once to gain them — even a terminal pull request, whose
+        // one refresh reads the branches its status never recorded.
+        binding.external_status_raw.is_none() || status_base_head(binding).is_some()
+    }
+
     async fn fetch_binding_status(
         &self,
         binding: &TaskBinding,
@@ -224,10 +247,10 @@ mod tests {
 
     use axum::http::{Method, StatusCode};
 
-    use super::super::test_support::{start_github_api_stub, StubResponse};
+    use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
     use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use crate::auth::test_support::{StubProviderTokens, github_row};
 
     fn binding_with_config(config: serde_json::Value) -> TaskBinding {
         let now = chrono::Utc::now();
@@ -258,28 +281,61 @@ mod tests {
 
     #[test]
     fn github_merged_beats_closed_and_draft() {
-        let s = github_external_status("closed", true, false, Some("t"), Some("u"));
+        let s = github_external_status("closed", true, false, Some("t"), Some("u"), None, None);
         assert_eq!(s.status.as_deref(), Some("merged"));
         assert_eq!(s.state_kind.as_deref(), Some("merged"));
     }
 
     #[test]
     fn github_closed_not_merged() {
-        let s = github_external_status("closed", false, false, None, None);
+        let s = github_external_status("closed", false, false, None, None, None, None);
         assert_eq!(s.status.as_deref(), Some("closed"));
     }
 
     #[test]
     fn github_draft_when_open() {
-        let s = github_external_status("open", false, true, None, None);
+        let s = github_external_status("open", false, true, None, None, None, None);
         assert_eq!(s.status.as_deref(), Some("draft"));
         assert_eq!(s.state_kind.as_deref(), Some("draft"));
     }
 
     #[test]
     fn github_plain_open() {
-        let s = github_external_status("open", false, false, None, None);
+        let s = github_external_status("open", false, false, None, None, None, None);
         assert_eq!(s.status.as_deref(), Some("open"));
+    }
+
+    #[test]
+    fn the_blob_round_trips_base_and_head() {
+        let s = github_external_status(
+            "open",
+            false,
+            false,
+            Some("t"),
+            Some("u"),
+            Some("main"),
+            Some("feature"),
+        );
+        let mut binding = binding_with_config(serde_json::json!({}));
+        binding.external_status_raw = Some(s.raw);
+        assert_eq!(
+            status_base_head(&binding),
+            Some(("main".to_string(), "feature".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_blob_without_base_and_head_reads_incomplete() {
+        // The shape written before this change: no baseRef, no headRef.
+        let mut binding = binding_with_config(serde_json::json!({}));
+        binding.external_status_raw = Some(serde_json::json!({
+            "title": "t",
+            "url": "u",
+            "state": "open",
+            "merged": false,
+            "draft": false,
+        }));
+        assert!(status_base_head(&binding).is_none());
     }
 
     #[test]

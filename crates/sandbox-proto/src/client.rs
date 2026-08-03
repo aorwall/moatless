@@ -17,15 +17,16 @@ use crate::sandbox_service_client::SandboxServiceClient;
 use crate::{
     ApplyServerConfigRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse,
     GetFileTreeRequest, GetFileTreeResponse, GetGitDiffPreviewRequest, GetGitDiffPreviewResponse,
-    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, ListFilesRequest,
-    ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest, ReadFileRequest,
-    ReadFileResponse, RefreshCredentialRequest, SearchFilesByNameRequest,
-    SearchFilesByNameResponse, StopAgentRequest, TerminalAttachRequest, TerminalAttachStreamEvent,
-    TerminalClearRequest, TerminalCloseRequest, TerminalOpenRequest, TerminalResizeRequest,
-    TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest, WriteFileRequest,
+    GetGitStatusRequest, GetGitStatusResponse, GetServerConfigRequest, GitActionEvent,
+    ListFilesRequest, ListGitRefsRequest, ListGitRefsResponse, NotifyMessagesRequest,
+    ReadFileRequest, ReadFileResponse, RefreshCredentialRequest, RunGitStackedActionRequest,
+    SearchFilesByNameRequest, SearchFilesByNameResponse, StopAgentRequest, TerminalAttachRequest,
+    TerminalAttachStreamEvent, TerminalClearRequest, TerminalCloseRequest, TerminalOpenRequest,
+    TerminalResizeRequest, TerminalRestartRequest, TerminalSessionSnapshot, TerminalWriteRequest,
+    WriteFileRequest,
 };
-use tonic::transport::Channel;
 use tonic::Streaming;
+use tonic::transport::Channel;
 use tracing::debug;
 
 /// A live override of one preview server's start command and env.
@@ -573,6 +574,28 @@ impl SandboxClient {
             Ok(Err(e)) => Err(e),
             Err(_) => Err(tonic::Status::deadline_exceeded(
                 "Git ref listing gRPC request timed out",
+            )),
+        }
+    }
+
+    /// Run one stacked git action and stream its progress. The timeout guards
+    /// only opening the stream — the action itself, which runs hooks and pushes,
+    /// takes as long as it takes and is bounded by the stream, not this deadline.
+    pub async fn run_git_stacked_action(
+        &self,
+        request: RunGitStackedActionRequest,
+    ) -> Result<Streaming<GitActionEvent>, tonic::Status> {
+        let mut client = self.client.clone();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            client.run_git_stacked_action(request).await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(resp)) => Ok(resp.into_inner()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "RunGitStackedAction gRPC request timed out",
             )),
         }
     }

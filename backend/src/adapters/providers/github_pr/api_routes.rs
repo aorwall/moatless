@@ -16,13 +16,13 @@
 //! is consulted, which is also what lets these routes reach a repository the
 //! task isn't bound to: the user's own access is the only thing that decides.
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use moatless_api_schemas::github::{
     GithubBindPrRequest, GithubBindPrResponse, GithubCommentRequest, GithubCommentResponse,
     GithubCreatePrRequest, GithubCreatePrResponse, GithubReplyRequest,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use crate::adapters::common::ensure_task_access;
@@ -74,7 +74,7 @@ pub async fn create_pr(
         task_footer_url(&state, req.task_id.as_deref()).as_deref(),
     );
 
-    let pr = api
+    let created = match api
         .create_pr(
             &owner,
             &repo,
@@ -84,53 +84,97 @@ pub async fn create_pr(
             &base,
             req.draft.unwrap_or(false),
         )
-        .await?;
-
-    let number = pr
-        .get("number")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| AdapterError::AdapterApi("GitHub create_pr: missing number".into()))?;
-    let html_url = pr
-        .get("html_url")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let title = pr
-        .get("title")
-        .and_then(Value::as_str)
-        .unwrap_or(&req.title)
-        .to_string();
-    let pr_state = pr
-        .get("state")
-        .and_then(Value::as_str)
-        .unwrap_or("open")
-        .to_string();
+        .await
+    {
+        Ok(pr) => CreatedPr::from_created(&pr, &req.title)?,
+        // A head branch that already has an open pull request is the one
+        // non-success that is not a failure: GitHub answers 422, and we bind the
+        // pull request that already exists instead of surfacing the 422. Any
+        // other create failure — and a 422 with no open pull request to find —
+        // passes through unchanged.
+        Err(create_error) => match api.find_open_pr_for_head(&owner, &repo, &req.head).await {
+            Ok(Some(existing)) => CreatedPr::from_existing(&existing, &owner, &repo),
+            _ => return Err(create_error),
+        },
+    };
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         let bid = bind_task_to_pr(
             &state,
             &owner,
             &repo,
-            number,
+            created.number,
             task_id,
             &auth.user_id.to_string(),
         )
         .await;
         state
             .recently_sent
-            .note(task_id, &external_id::pr_opened(number));
+            .note(task_id, &external_id::pr_opened(created.number));
         bid
     } else {
         None
     };
 
     Ok(Json(GithubCreatePrResponse {
-        number,
-        html_url,
-        title,
-        state: pr_state,
+        number: created.number,
+        html_url: created.html_url,
+        title: created.title,
+        state: created.state,
         binding_id,
+        opened_existing: created.opened_existing,
     }))
+}
+
+/// The pull request the create endpoint answers with, whether GitHub created it
+/// or the head branch already had one open.
+struct CreatedPr {
+    number: u64,
+    html_url: String,
+    title: String,
+    state: String,
+    opened_existing: bool,
+}
+
+impl CreatedPr {
+    /// From the raw payload GitHub returns on a successful create.
+    fn from_created(pr: &Value, requested_title: &str) -> Result<Self, AdapterError> {
+        Ok(Self {
+            number: pr.get("number").and_then(Value::as_u64).ok_or_else(|| {
+                AdapterError::AdapterApi("GitHub create_pr: missing number".into())
+            })?,
+            html_url: pr
+                .get("html_url")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            title: pr
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or(requested_title)
+                .to_string(),
+            state: pr
+                .get("state")
+                .and_then(Value::as_str)
+                .unwrap_or("open")
+                .to_string(),
+            opened_existing: false,
+        })
+    }
+
+    /// From the open pull request the head branch already had.
+    fn from_existing(pr: &super::api::PrInfo, owner: &str, repo: &str) -> Self {
+        Self {
+            number: pr.number,
+            html_url: pr
+                .html_url
+                .clone()
+                .unwrap_or_else(|| format!("https://github.com/{owner}/{repo}/pull/{}", pr.number)),
+            title: pr.title.clone(),
+            state: pr.state.clone(),
+            opened_existing: true,
+        }
+    }
 }
 
 #[utoipa::path(
@@ -353,6 +397,116 @@ async fn resolve_github_api(
         ))
     })?;
     Ok(GithubPrApi::new(&token))
+}
+
+/// A pull request resolved for the T3 attach-PR dialog and the creation-time
+/// binding, in the shape T3's `GitResolvedPullRequest` reports.
+pub(crate) struct DialogPullRequest {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub base_ref: String,
+    pub head_ref: String,
+    /// `open`, `closed` or `merged`.
+    pub state: String,
+}
+
+/// Resolve an attach-PR reference against the cwd's `repo_owner/repo_name`,
+/// following an `owner/repo#N` or PR-URL reference to the repository it names.
+/// `Ok(None)` when the reference is not one this resolver understands.
+pub(crate) async fn resolve_reference_for_dialog(
+    state: &AppState,
+    user_id: &str,
+    repo_owner: &str,
+    repo_name: &str,
+    reference: &str,
+) -> Result<Option<DialogPullRequest>, AdapterError> {
+    let Some((owner, repo, number)) =
+        parse_pull_request_reference(reference, repo_owner, repo_name)
+    else {
+        return Ok(None);
+    };
+    let api = resolve_github_api(state, user_id, &owner, &repo).await?;
+    let pr = api.get_pr(&owner, &repo, number).await?;
+    Ok(Some(to_dialog_pull_request(&pr, &owner, &repo)))
+}
+
+/// The open pull request whose head branch is `head`, for binding a Task created
+/// on a PR's head branch.
+pub(crate) async fn find_open_pull_request_for_head(
+    state: &AppState,
+    user_id: &str,
+    owner: &str,
+    repo: &str,
+    head: &str,
+) -> Result<Option<DialogPullRequest>, AdapterError> {
+    let api = resolve_github_api(state, user_id, owner, repo).await?;
+    Ok(api
+        .find_open_pr_for_head(owner, repo, head)
+        .await?
+        .map(|pr| to_dialog_pull_request(&pr, owner, repo)))
+}
+
+/// Parse `N`, `owner/repo#N`, or a `github.com/owner/repo/pull/N` URL into the
+/// repository and number to resolve. A bare number names the cwd's repository.
+fn parse_pull_request_reference(
+    reference: &str,
+    default_owner: &str,
+    default_repo: &str,
+) -> Option<(String, String, u64)> {
+    let reference = reference.trim();
+    if let Ok(number) = reference.parse::<u64>() {
+        return Some((default_owner.to_string(), default_repo.to_string(), number));
+    }
+    if let Some((repo_part, number_part)) = reference.split_once('#') {
+        let (owner, repo) = repo_part.trim().split_once('/')?;
+        let number = number_part.trim().parse().ok()?;
+        let (owner, repo) = (owner.trim(), repo.trim());
+        if owner.is_empty() || repo.is_empty() {
+            return None;
+        }
+        return Some((owner.to_string(), repo.to_string(), number));
+    }
+    // A full pull-request URL: `.../{owner}/{repo}/pull/{number}`.
+    let path = reference.split("github.com/").nth(1)?.trim_end_matches('/');
+    let mut segments = path.split('/');
+    let owner = segments.next()?.trim();
+    let repo = segments.next()?.trim();
+    if segments.next()? != "pull" {
+        return None;
+    }
+    let number = segments.next()?.trim().parse().ok()?;
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string(), number))
+}
+
+fn to_dialog_pull_request(pr: &super::api::PrInfo, owner: &str, repo: &str) -> DialogPullRequest {
+    let state = if pr.merged == Some(true) {
+        "merged"
+    } else if pr.state.as_str() == "closed" {
+        "closed"
+    } else {
+        "open"
+    };
+    let url = pr
+        .html_url
+        .clone()
+        .unwrap_or_else(|| format!("https://github.com/{owner}/{repo}/pull/{}", pr.number));
+    let title = if pr.title.trim().is_empty() {
+        format!("#{}", pr.number)
+    } else {
+        pr.title.clone()
+    };
+    DialogPullRequest {
+        number: pr.number,
+        title,
+        url,
+        base_ref: pr.base.ref_name.clone(),
+        head_ref: pr.head.ref_name.clone(),
+        state: state.to_string(),
+    }
 }
 
 /// Build the task URL for the PR-body footer. Returns `None` when no task is

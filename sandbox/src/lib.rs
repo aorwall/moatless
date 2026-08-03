@@ -21,6 +21,7 @@ pub mod credentials;
 pub mod error;
 pub mod events;
 pub mod files;
+pub mod git;
 pub mod grpc_server;
 pub mod init;
 pub mod outbox;

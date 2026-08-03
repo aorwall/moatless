@@ -104,6 +104,11 @@ pub struct RepoStatus {
     pub has_upstream: bool,
     pub ahead_count: u32,
     pub behind_count: u32,
+    /// Commits on HEAD that are not on the default branch. Unlike `ahead_count`,
+    /// which is measured against the upstream and drops to zero once the branch
+    /// is pushed, this stays positive for a branch that has left the default
+    /// branch, which is what decides whether a pull request can still be opened.
+    pub ahead_of_default_count: u32,
     pub has_working_tree_changes: bool,
     pub working_tree_files: Vec<WorkingTreeFile>,
 }
@@ -324,6 +329,15 @@ pub async fn status(workspace_dir: &str, repo_dir: &str) -> RepoStatus {
         (Some(head), Some(default)) => head == default,
         _ => false,
     };
+    // A second command, because `branch.ab` only ever describes the upstream.
+    // `detect_base_ref` resolves the ref the change will be proposed against —
+    // `origin/<default>` when it exists — and answers `None` when no default
+    // branch resolves or HEAD is already on it, both of which count as zero.
+    status.ahead_of_default_count =
+        match detect_base_ref(repo_dir, status.ref_name.as_deref()).await {
+            Some(base) => ahead_of_default_count(repo_dir, &base).await,
+            None => 0,
+        };
     status.working_tree_files = working_tree_files(workspace_dir, repo_dir).await;
     status
 }
@@ -543,6 +557,20 @@ async fn detect_base_ref(repo_dir: &str, head_ref: Option<&str>) -> Option<Strin
         Some(reference) => Some(reference),
         None => verified_ref(repo_dir, &default).await,
     }
+}
+
+/// How many commits HEAD carries that `base_ref` does not.
+async fn ahead_of_default_count(repo_dir: &str, base_ref: &str) -> u32 {
+    let range = format!("{base_ref}..HEAD");
+    quiet(
+        repo_dir,
+        &["rev-list", "--count", &range],
+        METADATA_TIMEOUT_SECS,
+    )
+    .await
+    .trim()
+    .parse()
+    .unwrap_or(0)
 }
 
 /// `reference` if this repository resolves it, `None` otherwise.
@@ -922,6 +950,9 @@ mod tests {
             assert!(!status.has_primary_remote);
             assert!(!status.has_upstream);
             assert_eq!((status.ahead_count, status.behind_count), (0, 0));
+            // One commit on `feature` that `main` does not have, counted against
+            // the default branch even without a remote.
+            assert_eq!(status.ahead_of_default_count, 1);
             assert!(status.has_working_tree_changes);
             let tracked = status
                 .working_tree_files
@@ -929,6 +960,78 @@ mod tests {
                 .find(|file| file.path == "repo/tracked.txt")
                 .expect("the edited file, at a workspace-relative path");
             assert_eq!((tracked.insertions, tracked.deletions), (1, 1));
+        }
+
+        #[tokio::test]
+        async fn ahead_of_default_is_zero_on_the_default_branch() {
+            let workspace = workspace();
+            let repo = workspace.path().join("repo");
+            git(&repo, &["checkout", "-q", "main"]);
+            let status = status(root(&workspace), repo.to_str().expect("a utf-8 path")).await;
+
+            assert!(status.is_default_ref);
+            assert_eq!(status.ahead_of_default_count, 0);
+        }
+
+        #[tokio::test]
+        async fn ahead_of_default_is_zero_when_no_default_branch_resolves() {
+            let workspace = TempDir::new().expect("a temp dir");
+            let repo = workspace.path().join("repo");
+            std::fs::create_dir(&repo).expect("the repo dir");
+            git(&repo, &["init", "--initial-branch=trunk", "-q"]);
+            std::fs::write(repo.join("a.txt"), "a\n").expect("a file");
+            git(&repo, &["add", "-A"]);
+            git(&repo, &["commit", "-qm", "init"]);
+            git(&repo, &["checkout", "-q", "-b", "work"]);
+            std::fs::write(repo.join("b.txt"), "b\n").expect("a second file");
+            git(&repo, &["add", "-A"]);
+            git(&repo, &["commit", "-qm", "more"]);
+
+            let status = status(root(&workspace), repo.to_str().expect("a utf-8 path")).await;
+            assert_eq!(status.ref_name.as_deref(), Some("work"));
+            assert!(!status.is_default_ref);
+            assert_eq!(status.ahead_of_default_count, 0);
+        }
+
+        /// The case `branch.ab` cannot answer and the one that decides whether
+        /// Create PR is reachable: a branch pushed to its upstream reports
+        /// `ahead_count` zero, yet is still one commit past the default branch.
+        #[tokio::test]
+        async fn ahead_of_default_survives_a_push_that_zeroes_ahead_of_upstream() {
+            let origin = TempDir::new().expect("a temp dir");
+            git(
+                origin.path(),
+                &["init", "--bare", "-q", "--initial-branch=main"],
+            );
+            let origin_url = origin.path().to_str().expect("a utf-8 path");
+
+            let workspace = TempDir::new().expect("a temp dir");
+            let repo = workspace.path().join("repo");
+            std::fs::create_dir(&repo).expect("the repo dir");
+            git(&repo, &["init", "--initial-branch=main", "-q"]);
+            git(&repo, &["remote", "add", "origin", origin_url]);
+            std::fs::write(repo.join("a.txt"), "a\n").expect("a file");
+            git(&repo, &["add", "-A"]);
+            git(&repo, &["commit", "-qm", "init"]);
+            git(&repo, &["push", "-q", "-u", "origin", "main"]);
+
+            git(&repo, &["checkout", "-q", "-b", "feature"]);
+            std::fs::write(repo.join("b.txt"), "b\n").expect("a second file");
+            git(&repo, &["add", "-A"]);
+            git(&repo, &["commit", "-qm", "on the branch"]);
+            git(&repo, &["push", "-q", "-u", "origin", "feature"]);
+
+            let status = status(root(&workspace), repo.to_str().expect("a utf-8 path")).await;
+            assert!(status.has_upstream);
+            assert_eq!(
+                (status.ahead_count, status.behind_count),
+                (0, 0),
+                "up to date with its upstream after the push"
+            );
+            assert_eq!(
+                status.ahead_of_default_count, 1,
+                "still one commit past the default branch"
+            );
         }
 
         #[tokio::test]

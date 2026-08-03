@@ -21,7 +21,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::dao::ConversationDao;
-use super::ports::{BranchListError, RepositoryBranchSource};
+use super::ports::{
+    BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource,
+};
 use super::projection;
 use super::workspace::{self, WorkspaceAccessError};
 use crate::data::T3WorkspaceDao;
@@ -432,11 +434,12 @@ fn branch_ref_page(response: &BranchListResponse, request: &RefRequest<'_>) -> V
 pub async fn status(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
+    pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<Value, WorkspaceAccessError> {
-    let status = read_status(conversations, sandboxes, viewer, cwd).await?;
-    Ok(status_snapshot(&status))
+    let (status, pr) = read_status(conversations, sandboxes, pull_requests, viewer, cwd).await?;
+    Ok(status_snapshot(&status, pr.as_ref()))
 }
 
 /// One `snapshot` event of the contract's status stream.
@@ -445,11 +448,11 @@ pub async fn status(
 /// together: one `git status --porcelain=2 --branch` carries the branch, the
 /// dirty paths and the ahead/behind counts, so splitting them would report a
 /// remote half this backend never asked for separately.
-fn status_snapshot(status: &GetGitStatusResponse) -> Value {
+fn status_snapshot(status: &GetGitStatusResponse, pr: Option<&BoundPullRequest>) -> Value {
     json!({
         "_tag": "snapshot",
         "local": local_status(status),
-        "remote": remote_status(status),
+        "remote": remote_status(status, pr),
     })
 }
 
@@ -462,38 +465,44 @@ fn status_snapshot(status: &GetGitStatusResponse) -> Value {
 pub async fn status_result(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
+    pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<Value, WorkspaceAccessError> {
-    let status = read_status(conversations, sandboxes, viewer, cwd).await?;
-    Ok(flat_status(&status))
+    let (status, pr) = read_status(conversations, sandboxes, pull_requests, viewer, cwd).await?;
+    Ok(flat_status(&status, pr.as_ref()))
 }
 
 /// Both halves in one object, which is what the client's own reducer builds out
 /// of the stream's `snapshot`.
-fn flat_status(status: &GetGitStatusResponse) -> Value {
+fn flat_status(status: &GetGitStatusResponse, pr: Option<&BoundPullRequest>) -> Value {
     let mut flat = local_status(status);
-    if let (Some(flat), Value::Object(remote)) = (flat.as_object_mut(), remote_status(status)) {
+    if let (Some(flat), Value::Object(remote)) = (flat.as_object_mut(), remote_status(status, pr)) {
         flat.extend(remote);
     }
     flat
 }
 
+/// The Sandbox's branch state and the pull request the Task is bound to, read
+/// together so a pull request that appears without the checkout changing still
+/// makes the snapshot differ and reaches the poll's dedupe.
 async fn read_status(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
+    pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
     cwd: &str,
-) -> Result<GetGitStatusResponse, WorkspaceAccessError> {
+) -> Result<(GetGitStatusResponse, Option<BoundPullRequest>), WorkspaceAccessError> {
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
         .map_err(workspace::sandbox_access)?;
-    client
-        .get_git_status()
-        .await
-        .map_err(|status| workspace::sandbox_access(classify_grpc_error(status, "get_git_status")))
+    let status = client.get_git_status().await.map_err(|status| {
+        workspace::sandbox_access(classify_grpc_error(status, "get_git_status"))
+    })?;
+    let pr = pull_requests.bound_pull_request(&task_id).await;
+    Ok((status, pr))
 }
 
 /// The half of the status one `git status --porcelain=2 --branch` reads about
@@ -537,15 +546,41 @@ fn local_status(status: &GetGitStatusResponse) -> Value {
 
 /// The half about where the checkout stands against its upstream. Read from the
 /// same command, so it is never reported without the local half beside it.
-fn remote_status(status: &GetGitStatusResponse) -> Value {
+fn remote_status(status: &GetGitStatusResponse, pr: Option<&BoundPullRequest>) -> Value {
     json!({
         "hasUpstream": status.has_upstream,
         "aheadCount": status.ahead_count,
         "behindCount": status.behind_count,
-        // Moatless opens pull requests through its own adapters rather than
-        // from a checkout, so a Sandbox knows of none.
-        "pr": Value::Null,
+        // Measured against the default branch, so Create PR stays enabled after
+        // a push zeroes `aheadCount`.
+        "aheadOfDefaultCount": status.ahead_of_default_count,
+        // The pull request the Task is bound to, joined in from the Binding one
+        // level up; `null` when it has none.
+        "pr": pr.map_or(Value::Null, pull_request_json),
     })
+}
+
+/// One bound pull request, in the shape T3's `VcsStatusChangeRequest` wants.
+fn pull_request_json(pr: &BoundPullRequest) -> Value {
+    json!({
+        "number": pr.number,
+        "title": pr.title,
+        "url": pr.url,
+        "baseRef": pr.base_ref,
+        "headRef": pr.head_ref,
+        "state": t3_pr_state(&pr.state_kind),
+    })
+}
+
+/// The Binding's state kind, mapped onto T3's three-value set. A draft reports
+/// as `open` — T3's `VcsStatusChangeRequestState` has no `draft` — and
+/// draftness is not carried onto this surface.
+fn t3_pr_state(state_kind: &str) -> &'static str {
+    match state_kind {
+        "merged" => "merged",
+        "closed" => "closed",
+        _ => "open",
+    }
 }
 
 fn now_rfc3339() -> String {
@@ -910,28 +945,32 @@ mod tests {
 
     #[test]
     fn a_status_snapshot_carries_both_halves_the_contract_wants() {
-        let snapshot = status_snapshot(&GetGitStatusResponse {
-            is_repo: true,
-            ref_name: "feature".into(),
-            is_default_ref: false,
-            has_primary_remote: true,
-            has_upstream: true,
-            ahead_count: 2,
-            behind_count: 1,
-            has_working_tree_changes: true,
-            working_tree_files: vec![
-                GitWorkingTreeFile {
-                    path: "repo/a.rs".into(),
-                    insertions: 3,
-                    deletions: 1,
-                },
-                GitWorkingTreeFile {
-                    path: "repo/b.rs".into(),
-                    insertions: 4,
-                    deletions: 0,
-                },
-            ],
-        });
+        let snapshot = status_snapshot(
+            &GetGitStatusResponse {
+                is_repo: true,
+                ref_name: "feature".into(),
+                is_default_ref: false,
+                has_primary_remote: true,
+                has_upstream: true,
+                ahead_count: 2,
+                behind_count: 1,
+                ahead_of_default_count: 5,
+                has_working_tree_changes: true,
+                working_tree_files: vec![
+                    GitWorkingTreeFile {
+                        path: "repo/a.rs".into(),
+                        insertions: 3,
+                        deletions: 1,
+                    },
+                    GitWorkingTreeFile {
+                        path: "repo/b.rs".into(),
+                        insertions: 4,
+                        deletions: 0,
+                    },
+                ],
+            },
+            None,
+        );
 
         assert_eq!(snapshot["_tag"], "snapshot");
         assert_eq!(snapshot["local"]["refName"], "feature");
@@ -939,17 +978,69 @@ mod tests {
         assert_eq!(snapshot["local"]["workingTree"]["insertions"], 7);
         assert_eq!(snapshot["local"]["workingTree"]["deletions"], 1);
         assert_eq!(snapshot["remote"]["aheadCount"], 2);
+        assert_eq!(snapshot["remote"]["aheadOfDefaultCount"], 5);
         assert_eq!(snapshot["remote"]["pr"], Value::Null);
+    }
+
+    fn bound_pr(state_kind: &str) -> BoundPullRequest {
+        BoundPullRequest {
+            number: 7,
+            title: "Add widgets".into(),
+            url: "https://github.com/acme/web/pull/7".into(),
+            base_ref: "main".into(),
+            head_ref: "feature".into(),
+            state_kind: state_kind.into(),
+        }
+    }
+
+    #[test]
+    fn a_bound_pull_request_is_reported_with_its_branches() {
+        let pr = bound_pr("open");
+        let remote = remote_status(&GetGitStatusResponse::default(), Some(&pr));
+        assert_eq!(remote["pr"]["number"], 7);
+        assert_eq!(remote["pr"]["baseRef"], "main");
+        assert_eq!(remote["pr"]["headRef"], "feature");
+        assert_eq!(remote["pr"]["state"], "open");
+    }
+
+    /// T3's `VcsStatusChangeRequestState` has no `draft`, so a draft binding
+    /// reports as `open`.
+    #[test]
+    fn a_draft_binding_reports_as_open() {
+        let pr = bound_pr("draft");
+        let remote = remote_status(&GetGitStatusResponse::default(), Some(&pr));
+        assert_eq!(remote["pr"]["state"], "open");
+    }
+
+    #[test]
+    fn merged_and_closed_bindings_keep_their_state() {
+        assert_eq!(
+            remote_status(&GetGitStatusResponse::default(), Some(&bound_pr("merged")))["pr"]["state"],
+            "merged"
+        );
+        assert_eq!(
+            remote_status(&GetGitStatusResponse::default(), Some(&bound_pr("closed")))["pr"]["state"],
+            "closed"
+        );
+    }
+
+    #[test]
+    fn a_task_with_no_binding_reports_a_null_pull_request() {
+        let remote = remote_status(&GetGitStatusResponse::default(), None);
+        assert_eq!(remote["pr"], Value::Null);
     }
 
     /// The contract requires `refName` to be a non-empty string or null, and a
     /// detached HEAD has no name to give.
     #[test]
     fn a_detached_head_reports_no_branch_rather_than_an_empty_one() {
-        let snapshot = status_snapshot(&GetGitStatusResponse {
-            is_repo: true,
-            ..GetGitStatusResponse::default()
-        });
+        let snapshot = status_snapshot(
+            &GetGitStatusResponse {
+                is_repo: true,
+                ..GetGitStatusResponse::default()
+            },
+            None,
+        );
         assert_eq!(snapshot["local"]["refName"], Value::Null);
         assert_eq!(snapshot["local"]["workingTree"]["files"], json!([]));
     }
@@ -993,8 +1084,8 @@ mod tests {
             ahead_count: 2,
             ..GetGitStatusResponse::default()
         };
-        let snapshot = status_snapshot(&status);
-        let flat = flat_status(&status);
+        let snapshot = status_snapshot(&status, None);
+        let flat = flat_status(&status, None);
 
         for (key, value) in snapshot["local"]
             .as_object()

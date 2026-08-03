@@ -4,6 +4,10 @@ pub mod client;
 
 pub mod sandbox {
     pub mod v1 {
+        // Generated protobuf message enums carry size-disparate variants by
+        // design (a bare bool beside a full result message); boxing them to
+        // placate the lint would only churn every construction site.
+        #![allow(clippy::large_enum_variant)]
         tonic::include_proto!("sandbox.v1");
     }
 }

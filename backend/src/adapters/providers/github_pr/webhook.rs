@@ -8,18 +8,18 @@ use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
+use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{Audience, InboundMessage, SubscriptionMatch};
-use crate::adapters::AdapterKind;
 use crate::db::DbPool;
 
 use super::config::GithubPrRuleConfig;
 use super::signals::ReviewDecision;
-use super::status::{github_external_status, WebhookStatusObservation};
+use super::status::{WebhookStatusObservation, github_external_status};
 use super::subject::GithubPrSubject;
 use super::text::{
-    issue_comment_text, pr_opened_text, pr_synchronized_text, review_comment_text, review_text,
-    PrOpenedText, ReviewCommentText,
+    PrOpenedText, ReviewCommentText, issue_comment_text, pr_opened_text, pr_synchronized_text,
+    review_comment_text, review_text,
 };
 
 /// Everything downstream workflows can derive from one raw webhook.
@@ -286,6 +286,8 @@ fn pr_status_observation(
         draft,
         pr.get("title").and_then(serde_json::Value::as_str),
         pr.get("html_url").and_then(serde_json::Value::as_str),
+        pr.pointer("/base/ref").and_then(serde_json::Value::as_str),
+        pr.pointer("/head/ref").and_then(serde_json::Value::as_str),
     );
     Some(WebhookStatusObservation::PullRequest {
         subject_key: GithubPrSubject::new(context.owner, context.repo, pr_number).key(),

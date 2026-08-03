@@ -226,6 +226,12 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         branches: Arc::new(t3code_backend::AppStateBranches(test_app_state(
             pool.clone(),
         ))),
+        pull_requests: Arc::new(t3code_backend::AppStateBoundPullRequests(test_app_state(
+            pool.clone(),
+        ))),
+        source_control_auth: Arc::new(t3code_backend::AppStateSourceControlAuth(test_app_state(
+            pool.clone(),
+        ))),
         commands: Arc::new(t3code_backend::AppStateCommands(test_app_state(
             pool.clone(),
         ))),
@@ -2310,6 +2316,14 @@ impl ConversationDao for RefusesTheRowRead {
         limit: i64,
     ) -> Result<Vec<ConversationMatch>, sqlx::Error> {
         self.0.search_conversations(viewer, query, limit).await
+    }
+
+    async fn controls_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.0.controls_conversation(viewer, task_id).await
     }
 
     // The thread half of the interface: this stub exists for the shell feed's
