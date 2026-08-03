@@ -103,7 +103,12 @@ pub enum InitPhase {
 
 /// Publish a sandbox init event via gRPC.
 ///
-/// These events appear in the frontend's StartupTimeline alongside K8s events.
+/// These land beside the K8s watcher's events as rows a person reads while a
+/// thread starts, so a step earns one only when it either takes long enough to
+/// wonder about — the credential round-trip, the checkout — or went wrong.
+/// Everything else is an `info!`: a row that appears milliseconds after the one
+/// above it tells a reader nothing and buries the two that do.
+///
 /// Uses `EventType::Sandbox` with `SandboxStatus::Initializing` — the sandbox
 /// IS initializing while these events fire. Detailed info goes in the payload.
 async fn publish_sandbox_event(
@@ -285,8 +290,7 @@ pub async fn run_init(state: SandboxState, registrar: Registrar) {
 ///    restored to disk in `run_core_init` (before Ready). We probe for a pending
 ///    Message and, only when none is waiting, enqueue the interrupted-Run replay.
 ///    External gRPC dispatch is still a no-op here because init is not yet Ready.
-/// 2. **Open the gate.** Flip `InitPhase::Ready` (health now returns 200) and
-///    announce `SandboxReady`.
+/// 2. **Open the gate.** Flip `InitPhase::Ready` (health now returns 200).
 /// 3. **Dispatch once, authoritatively.** Drain any pending Message — a no-op if
 ///    step 1 already enqueued a Recover, otherwise the Message that superseded it.
 ///
@@ -298,13 +302,8 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     recover_interrupted_run_unless_pending(state, workspace_origin).await;
 
     *state.init_phase.write().await = InitPhase::Ready;
-    publish_sandbox_event(
-        state,
-        "SandboxReady",
-        "Core initialization complete, starting workspace setup",
-        false,
-    )
-    .await;
+    // No event: the watcher publishes `pod_ready` a moment later off the same
+    // health endpoint this flips, and that is the row that says the Sandbox is up.
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
     // Awaited, not detached: dispatch only fetches, submits to the agent lifecycle task,
@@ -585,17 +584,10 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     )
     .await;
 
-    // 3. Configure git authentication (non-fatal)
+    // 3. Configure git authentication (non-fatal). Writes a config file in
+    //    milliseconds, so only the failure is worth saying anything about.
     if let Err(e) = git::configure_git(&state.config).await {
         warn!(error = %e, "Git configuration failed (non-fatal)");
-    } else {
-        publish_sandbox_event(
-            state,
-            "GitConfigured",
-            "Configured git authentication",
-            false,
-        )
-        .await;
     }
 
     // 4. For the `s3` storage backend, try to restore a full-repo snapshot from
@@ -680,13 +672,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     )
     .await?;
     if staged > 0 {
-        publish_sandbox_event(
-            state,
-            "CodexPluginSkillsStaged",
-            &format!("Staged {staged} plugin skill(s) for Codex"),
-            false,
-        )
-        .await;
+        info!(count = staged, "Staged plugin skills for Codex");
     }
 
     // 8. Install the repo's skills into the home-level skill dirs for both
@@ -745,16 +731,18 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     Ok(origin)
 }
 
-/// Phase 2: Workspace setup.
+/// Phase 2: Workspace setup — run the workspace's configured setup commands.
 ///
-/// Runs after health is ready. All steps are non-fatal — failures are logged
-/// and published as warning events but don't affect pod health.
+/// Runs after health is ready. Every command is non-fatal — a failure is logged
+/// and published as a warning event but doesn't affect pod health.
 ///
-/// Steps:
-/// 1. Copy prebuilt dependencies (node_modules, etc.)
-/// 2. Set up build cache
-/// 3. Run setup commands
+/// A workspace that configures no setup commands says nothing here: there is no
+/// setup for a completion to be the end of.
 async fn run_workspace_setup(state: &SandboxState) {
+    if state.config.setup_commands.is_empty() {
+        return;
+    }
+
     for cmd in &state.config.setup_commands {
         publish_sandbox_event(
             state,

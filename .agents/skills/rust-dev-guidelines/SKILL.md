@@ -100,6 +100,11 @@ rustfmt --edition 2021 --style-edition 2024 <file>...
 That is a no-op on already-2024 modules such as
 `backend/src/adapters/providers/github_pr/`, which is the shape to match.
 
+Naming a `mod.rs` (or any file declaring `mod`) formats its whole subtree, not
+just that file — `rustfmt sandbox/src/init/mod.rs` rewrote all eleven of its
+siblings. `--skip-children` is nightly-only, so on stable the check is
+`git status` afterwards: revert every file you did not touch.
+
 If a `--check` run reports diffs in files you did not touch, that is the split
 above, not your change. Leave them.
 
