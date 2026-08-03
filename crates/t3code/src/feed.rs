@@ -258,7 +258,10 @@ impl ShellFeed {
                     }
                 }
                 // Unfollowed, no longer readable, or gone. From what this
-                // client holds, never from the empty re-read.
+                // client holds, never from the empty re-read. A conversation
+                // that was archived is not here — it comes back present,
+                // carrying `archivedAt`, because a resumed feed holds nothing
+                // and would drop the removal.
                 (None, _) => {
                     if self.threads.contains(id) {
                         items.push(projection::thread_removed(id, position));

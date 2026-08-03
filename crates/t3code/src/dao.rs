@@ -235,14 +235,28 @@ pub trait ConversationDao: Send + Sync {
         viewer: &ScopeContext,
     ) -> Result<Vec<Conversation>, sqlx::Error>;
 
-    /// The same listing, narrowed to Tasks a change has named.
+    /// Both halves at once, narrowed to Tasks a change has named.
     ///
-    /// All three filters still apply, and that is the point of re-reading
-    /// through this rather than projecting the change record itself: a change is
-    /// a deployment-wide fact, and what a viewer may be shown of it is not. A
-    /// Task the viewer does not follow, may no longer read, or that has been
-    /// closed, simply comes back absent — and absent is what the feed above
-    /// turns into the removal that takes the row off the screen.
+    /// The follow rule and the read rule still apply, and that is the point of
+    /// re-reading through this rather than projecting the change record itself:
+    /// a change is a deployment-wide fact, and what a viewer may be shown of it
+    /// is not. A Task the viewer does not follow or may no longer read comes
+    /// back absent — and absent is what the feed above turns into the removal
+    /// that takes the row off the screen.
+    ///
+    /// The status rule is the one that widens. A Task that was closed is still
+    /// followed and still readable, so it comes back present, carrying the
+    /// `archivedAt` that tells the client which half it now belongs to. Absence
+    /// is reserved for a Task that left the viewer's world entirely, because the
+    /// feed may only take back an id it can prove it sent: a client that
+    /// resumed from a cursor is holding a listing this server never built, so
+    /// there is nothing to prove it with and a removal is dropped. An upsert
+    /// carries no such condition, which is what makes archiving reach a resumed
+    /// sidebar.
+    ///
+    /// `error` stays out with the statuses neither half claims: it is not open
+    /// work and it was not put away, and a row upserted under it would return to
+    /// the sidebar rather than leave it.
     async fn list_followed_by_ids(
         &self,
         viewer: &ScopeContext,
@@ -426,6 +440,11 @@ const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
                       ) b ON true
                       LEFT JOIN users u ON u.id::text = m.sent_by"#;
 
+/// The statuses a conversation can be listed under: the sidebar and the archive
+/// together. A Task at any other status is in neither, and comes back absent
+/// from a re-read the same way one the viewer no longer follows does.
+const LISTED_STATUSES: &[TaskStatus] = &[TaskStatus::Open, TaskStatus::Closed];
+
 /// A search term as a `LIKE` operand rather than a `LIKE` pattern.
 ///
 /// `%` and `_` are ordinary characters to the person typing them — someone
@@ -467,8 +486,8 @@ impl PgConversationDao {
         }
     }
 
-    /// The one listing query, at one status, optionally narrowed to a set of
-    /// Tasks.
+    /// The one listing query, at a set of statuses, optionally narrowed to a set
+    /// of Tasks.
     ///
     /// Narrowing is a `WHERE` clause on the same query rather than a second one
     /// because the filters underneath it — the read rule and the follow rule —
@@ -476,10 +495,13 @@ impl PgConversationDao {
     /// snapshot would not have is the same disclosure bug in slow motion. The
     /// archived listing is the same query at `closed` for the same reason: it
     /// shows a person the conversations they follow, and only those.
+    ///
+    /// `statuses` is a set because the two listings are one partition and the
+    /// re-read behind the feed spans both of them.
     async fn list(
         &self,
         viewer: &ScopeContext,
-        status: TaskStatus,
+        statuses: &[TaskStatus],
         task_ids: Option<&[String]>,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
         let full_listing = task_ids.is_none();
@@ -506,7 +528,11 @@ impl PgConversationDao {
         // rather than a literal typed twice: `tasks.status` is `text` with no
         // CHECK constraint, so a misspelling here would be a listing that is
         // always empty and a database that never complains.
-        let status = status.as_str();
+        let statuses = statuses
+            .iter()
+            .map(|status| format!("'{}'", status.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
         let access = viewer.access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
         let question_tool = follower + 1;
@@ -520,7 +546,7 @@ impl PgConversationDao {
                    FROM task_follows tf
                    JOIN tasks t ON t.task_id = tf.task_id
                    WHERE tf.user_id = ${follower}
-                     AND t.status = '{status}'
+                     AND t.status IN ({statuses})
                      AND {}{narrowed}
                )
                SELECT
@@ -762,14 +788,14 @@ impl T3TaskDao for PgConversationDao {
 #[async_trait]
 impl ConversationDao for PgConversationDao {
     async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, TaskStatus::Open, None).await
+        self.list(viewer, &[TaskStatus::Open], None).await
     }
 
     async fn list_followed_closed(
         &self,
         viewer: &ScopeContext,
     ) -> Result<Vec<Conversation>, sqlx::Error> {
-        self.list(viewer, TaskStatus::Closed, None).await
+        self.list(viewer, &[TaskStatus::Closed], None).await
     }
 
     async fn list_followed_by_ids(
@@ -780,7 +806,7 @@ impl ConversationDao for PgConversationDao {
         if task_ids.is_empty() {
             return Ok(Vec::new());
         }
-        self.list(viewer, TaskStatus::Open, Some(task_ids)).await
+        self.list(viewer, LISTED_STATUSES, Some(task_ids)).await
     }
 
     async fn search_conversations(

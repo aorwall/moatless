@@ -407,9 +407,13 @@ fn plan_verdict(answers: &Value) -> Value {
 /// The Task, if this viewer may write to it.
 ///
 /// Resolved through the same narrowed listing the read path uses, so the follow
-/// rule, the read rule and the open-status rule all apply to a write exactly as
-/// they apply to a read. A Task that fails any of them is reported the same way
-/// as one that does not exist.
+/// rule and the read rule apply to a write exactly as they apply to a read. A
+/// Task that fails either is reported the same way as one that does not exist.
+///
+/// The status rule is this function's own, because the two paths want different
+/// answers from it: a reader may open an archived conversation, and a writer may
+/// not add a turn to one. Unarchiving is the way back, and it does not come
+/// through here.
 async fn require_writable(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
@@ -426,6 +430,7 @@ async fn require_writable(
         })?
         .into_iter()
         .next()
+        .filter(|conversation| conversation.closed_at.is_none())
         .ok_or_else(|| CommandRefusal::NotWritable {
             task_id: task_id.to_string(),
         })
@@ -1029,6 +1034,20 @@ mod tests {
     #[tokio::test]
     async fn a_thread_the_viewer_cannot_write_to_is_refused() {
         let (result, calls) = run_against(turn(None), None).await;
+        assert!(matches!(result, Err(CommandRefusal::NotWritable { .. })));
+        assert!(calls.is_empty());
+    }
+
+    /// An archived conversation resolves — the viewer follows it and may read
+    /// it, which is what lets them open it — and a turn into it is still
+    /// refused. Unarchiving is the way back, and it does not come through here.
+    #[tokio::test]
+    async fn a_turn_into_an_archived_thread_is_refused() {
+        let archived = Conversation {
+            closed_at: Some(Utc::now()),
+            ..conversation(AgentType::CLAUDE_CODE)
+        };
+        let (result, calls) = run_against(turn(None), Some(archived)).await;
         assert!(matches!(result, Err(CommandRefusal::NotWritable { .. })));
         assert!(calls.is_empty());
     }

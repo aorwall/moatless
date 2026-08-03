@@ -15,7 +15,7 @@
 
 mod common;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -24,7 +24,8 @@ use chrono::{DateTime, Duration as ChronoDuration, SubsecRound, Utc};
 use futures::future::BoxFuture;
 use moatless_backend_core::activity::{ConversationChange, ConversationHead};
 use moatless_backend_core::sandbox::{
-    LiveStatus, LogOptions, SandboxError, SandboxStatusFullResponse, ServerLogStream,
+    ClusterDiagnostics, LiveStatus, LogOptions, SandboxDiagnosticsEntry, SandboxError,
+    SandboxStatusFullResponse, ServerLogStream,
 };
 use moatless_t3code::dao::{
     Conversation, ConversationDao, ConversationMatch, InteractiveCall, PgConversationDao,
@@ -136,6 +137,13 @@ impl SandboxConnector for NoSandboxes {
 }
 
 #[async_trait::async_trait]
+impl ClusterDiagnostics for NoSandboxes {
+    async fn list_sandbox_diagnostics(&self) -> Result<Vec<SandboxDiagnosticsEntry>, SandboxError> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait::async_trait]
 impl SandboxObserver for NoSandboxes {
     async fn sandbox_status(
         &self,
@@ -201,6 +209,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         conversations: Arc::new(PgConversationDao::new(pool.clone())),
         sandboxes: Arc::new(NoSandboxes),
         observer: Arc::new(NoSandboxes),
+        diagnostics: Arc::new(NoSandboxes),
         tasks: Arc::new(PgConversationDao::new(pool.clone())),
         intent: Arc::new(NoSandboxes),
         // Nothing this suite drives starts or stops a Sandbox.
@@ -221,6 +230,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
             pool.clone(),
         ))),
         model_defaults: defaults(),
+        frontend_url: "http://localhost:3000".into(),
         otlp_traces_enabled: false,
     }
 }
@@ -2308,6 +2318,14 @@ impl ConversationDao for RefusesTheRowRead {
         self.0.transcript(task_id).await
     }
 
+    async fn source_task_names(
+        &self,
+        viewer: &ScopeContext,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, String>, sqlx::Error> {
+        self.0.source_task_names(viewer, task_ids).await
+    }
+
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
         self.0.conversation_head(task_id).await
     }
@@ -3603,6 +3621,12 @@ async fn one_item(pool: &PgPool, feed: &mut ShellFeed, viewer: &ScopeContext) ->
 /// exactly as `applyShellStreamEvent` folds them
 /// (`client-runtime/src/state/shellReducer.ts`). Asserting on this rather than
 /// on the events is what makes a test say *what is on the screen*.
+///
+/// `threads` is the sidebar, so an archived conversation is not in it. The
+/// client keeps that row cached and renders it under its archive; the sidebar
+/// filters it out by `archivedAt` (`SidebarV2.tsx`, `threadSort.ts`). Both
+/// halves of that are the client's, and only the first is what these tests are
+/// about.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Held {
     threads: Vec<String>,
@@ -3658,7 +3682,14 @@ impl Held {
             }
         };
         match item["kind"].as_str().unwrap() {
-            "thread-upserted" => upsert(&mut self.threads, item["thread"]["id"].as_str().unwrap()),
+            "thread-upserted" => {
+                let id = item["thread"]["id"].as_str().unwrap();
+                if item["thread"]["archivedAt"].is_null() {
+                    upsert(&mut self.threads, id);
+                } else {
+                    self.threads.retain(|held| held != id);
+                }
+            }
             "thread-removed" => self
                 .threads
                 .retain(|id| id != item["threadId"].as_str().unwrap()),
@@ -3813,6 +3844,12 @@ async fn deleting_a_conversation_removes_it_from_a_watching_client(pool: PgPool)
 /// A watching client is told, rather than left holding a conversation the next
 /// full listing would not contain — the drift that shows as a sidebar row that
 /// only disappears on reload.
+///
+/// It is told with the row rather than with a removal, because the conversation
+/// has not left the viewer's world: they still follow it and may still read it,
+/// and `archivedAt` is what puts it under the archive instead of the sidebar. A
+/// removal would say something stronger and, on a resumed feed, would not be
+/// sent at all.
 #[sqlx::test]
 async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) {
     seed_live_project(&pool).await;
@@ -3829,9 +3866,9 @@ async fn closing_a_conversation_removes_it_from_a_watching_client(pool: PgPool) 
             .unwrap()
     );
 
-    let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "thread-removed");
-    assert_eq!(item["threadId"], "t-live");
+    let item = one_row(&pool, &mut feed, &viewer).await;
+    assert_eq!(item["thread"]["id"], "t-live");
+    assert!(!item["thread"]["archivedAt"].is_null());
     held.apply(&item);
     assert!(held.threads.is_empty());
 
@@ -4604,6 +4641,70 @@ async fn a_resumed_client_watches_the_next_change_as_a_row_not_a_listing(pool: P
     assert_decodable_upsert(&items[0]);
     assert_eq!(items[0]["thread"]["id"], "t-live");
     assert_eq!(items[0]["thread"]["latestTurn"]["state"], "completed");
+}
+
+/// Archiving reaches a resumed client, which is every client: the T3 web app
+/// reads the snapshot over HTTP and then subscribes from its sequence, so the
+/// feed behind a live sidebar is always a resumed one.
+///
+/// A resumed feed holds no ids it can prove it sent, so it may not name one in a
+/// removal. Archiving therefore arrives as the row itself, carrying
+/// `archivedAt` — which the client filters out of the sidebar and files under
+/// the archive. A conversation that left the viewer's world entirely still has
+/// nothing to arrive as, and that is the case removals are kept for.
+#[sqlx::test]
+async fn archiving_reaches_a_resumed_client_as_the_row_it_archived(pool: PgPool) {
+    seed_live_project(&pool).await;
+    seed_task(&pool, "t-live", "user-1", Some("ws-live")).await;
+    let viewer = viewer("user-1");
+
+    let held = head(&pool).await.position;
+    let (_, mut feed) = reconnect(&pool, &viewer, Some(held)).await;
+
+    PgTaskDao(pool.clone())
+        .update_task(
+            "t-live",
+            &TaskPatch {
+                status: Some(TaskStatus::Closed),
+                ..TaskPatch::default()
+            },
+            &viewer,
+        )
+        .await
+        .unwrap();
+
+    let items = delivered(&pool, &mut feed, &viewer).await;
+    assert_eq!(
+        items.len(),
+        1,
+        "archiving is one event on one conversation, got {items:#?}"
+    );
+    assert_decodable_upsert(&items[0]);
+    assert_eq!(items[0]["thread"]["id"], "t-live");
+    assert!(
+        !items[0]["thread"]["archivedAt"].is_null(),
+        "the archived row must carry the time it was archived, or the client \
+         has no reason to take it off the sidebar: {items:#?}"
+    );
+
+    // Reopening is the same shape at the other status, so the row comes back
+    // with nothing to filter it out by.
+    PgTaskDao(pool.clone())
+        .update_task(
+            "t-live",
+            &TaskPatch {
+                status: Some(TaskStatus::Open),
+                ..TaskPatch::default()
+            },
+            &viewer,
+        )
+        .await
+        .unwrap();
+
+    let items = delivered(&pool, &mut feed, &viewer).await;
+    assert_eq!(items.len(), 1, "got {items:#?}");
+    assert_decodable_upsert(&items[0]);
+    assert_eq!(items[0]["thread"]["archivedAt"], Value::Null);
 }
 
 /// The delta must not be bought by weakening the case it was carved out of.

@@ -26,7 +26,7 @@ use moatless_t3code::dao::PgConversationDao;
 use moatless_t3code::ports::{
     CommandRefusal, NewThread, ThreadCommandSink, ThreadMeta, ThreadTurn,
 };
-use moatless_t3code::{thread_snapshot, AgentModelDefaults};
+use moatless_t3code::{thread_snapshot, AgentModelDefaults, Deployment};
 use moatless_vibe_backend::agent::catalog;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::ScopeContext;
@@ -55,6 +55,15 @@ fn defaults() -> AgentModelDefaults {
     AgentModelDefaults {
         claude_code: Some("claude-opus-4-5".into()),
         codex: Some("gpt-5.6-sol".into()),
+    }
+}
+
+/// The deployment a snapshot is projected against. Nothing here asserts on the
+/// links built from `frontend_url`, so it carries the development origin.
+fn deployment(model_defaults: &AgentModelDefaults) -> Deployment<'_> {
+    Deployment {
+        model_defaults,
+        frontend_url: "http://localhost:3000",
     }
 }
 
@@ -328,7 +337,7 @@ async fn the_thread_snapshot_carries_the_message_id_that_was_sent(pool: PgPool) 
     let snapshot = thread_snapshot(
         &PgConversationDao::new(pool.clone()),
         &PgConversationDao::new(pool.clone()),
-        &defaults(),
+        &deployment(&defaults()),
         &viewer(USER_1),
         "t-snap",
     )
