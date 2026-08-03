@@ -160,13 +160,20 @@ pub(crate) async fn receive(
 
     // Global trigger policy gates the complete delivery, including primary,
     // post-merge, and merge-conflict work. Normalization retains the same
-    // value-only checks so it is complete when exercised directly.
+    // value-only checks so it is complete when exercised directly, and is also
+    // where the derived signals are filtered by their own names.
     let rule_config = GithubPrRuleConfig::from_rule(&rule_for_parse);
     let sender_login = payload
         .pointer("/sender/login")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
-    if rule_config.event_filtered_out(event_type) {
+    // A filtered raw event can still be the carrier for a derived signal the
+    // loop named, so reject here only when nothing at all can come of it.
+    // Normalization applies the same filter per effect.
+    if rule_config.event_filtered_out(event_type)
+        && rule_config.event_filtered_out(super::config::MERGE_CONFLICT)
+        && rule_config.event_filtered_out(super::config::POST_MERGE)
+    {
         debug!(
             event_type,
             "GitHub webhook ignored: event filtered by trigger"

@@ -96,27 +96,47 @@ pub(super) async fn normalize(
     context: &NormalizeContext<'_>,
 ) -> NormalizedWebhook {
     let config = GithubPrRuleConfig::from_rule(context.rule);
-    if config.event_filtered_out(event_type) {
-        return ignored(IgnoredWebhook::EventFiltered);
+    let unknown = config.unknown_event_names();
+    if !unknown.is_empty() {
+        warn!(
+            loop_id = %context.rule.id,
+            ?unknown,
+            known = ?super::config::KNOWN_EVENTS,
+            "Loop names events that do not exist; they filter nothing"
+        );
     }
+    // An ignored sender suppresses every effect of the event, derived included.
     if config.is_ignored_sender(context.sender_login) {
         return ignored(IgnoredWebhook::IgnoredSender);
     }
 
-    let merge_conflict_candidate = super::merge_conflict::candidate(event_type, payload);
-    let post_merge_candidate = super::post_merge::candidate(event_type, payload);
+    // Each derived signal is gated by its own name only. The raw event is just
+    // the carrier — a conflict has no webhook of its own — so filtering out the
+    // carrier's message must not cancel a signal the loop asked to receive.
+    let merge_conflict_candidate = (!config.event_filtered_out(super::config::MERGE_CONFLICT))
+        .then(|| super::merge_conflict::candidate(event_type, payload))
+        .flatten();
+    let post_merge_candidate = (!config.event_filtered_out(super::config::POST_MERGE))
+        .then(|| super::post_merge::candidate(event_type, payload))
+        .flatten();
     let mut status_observations = Vec::new();
 
-    let primary = match event_type {
-        "pull_request" => {
-            normalize_pull_request(payload, context, &config, &mut status_observations).await
+    let primary = if config.event_filtered_out(event_type) {
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
+    } else {
+        match event_type {
+            "pull_request" => {
+                normalize_pull_request(payload, context, &config, &mut status_observations).await
+            }
+            "issue_comment" => normalize_issue_comment(payload, context).await,
+            "pull_request_review_comment" => normalize_review_comment(payload, context).await,
+            "pull_request_review" => {
+                normalize_review(payload, context, &mut status_observations).await
+            }
+            "check_run" => normalize_check_run(payload, context).await,
+            "check_suite" => normalize_check_suite(payload, context, &config).await,
+            _ => Ok(PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedEvent)),
         }
-        "issue_comment" => normalize_issue_comment(payload, context).await,
-        "pull_request_review_comment" => normalize_review_comment(payload, context).await,
-        "pull_request_review" => normalize_review(payload, context, &mut status_observations).await,
-        "check_run" => normalize_check_run(payload, context).await,
-        "check_suite" => normalize_check_suite(payload, context, &config).await,
-        _ => Ok(PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedEvent)),
     };
 
     NormalizedWebhook {

@@ -8,14 +8,43 @@ use crate::adapters::models::SubscriptionMatch;
 /// Linear issue — pure noise that no bound task ever wants delivered.
 const DEFAULT_IGNORED_SENDERS: &[&str] = &["linear-code[bot]"];
 
+/// A conflict with the base branch surfaces only as a change in the PR's
+/// mergeable state, so this adapter derives it from any PR-bearing event rather
+/// than receiving it as a webhook event type. It is named here so a loop can
+/// include or ignore it like any other event.
+pub(super) const MERGE_CONFLICT: &str = "merge_conflict";
+
+/// A base-branch CI run carries no PR reference, so the post-merge notification
+/// is likewise derived rather than received. Named for the same reason.
+pub(super) const POST_MERGE: &str = "post_merge";
+
+/// Every event name a loop's include/ignore list can name: the GitHub webhook
+/// event types this adapter handles, plus the two derived signals above.
+///
+/// `workflow_run` produces no message of its own — it is only ever the carrier
+/// for [`POST_MERGE`] — but it is a real event type this endpoint receives, so
+/// naming it is not a typo.
+pub(super) const KNOWN_EVENTS: &[&str] = &[
+    "pull_request",
+    "issue_comment",
+    "pull_request_review_comment",
+    "pull_request_review",
+    "check_run",
+    "check_suite",
+    "workflow_run",
+    MERGE_CONFLICT,
+    POST_MERGE,
+];
+
 /// Extracted GitHub-specific knobs from an `SubscriptionMatch`.
 #[derive(Debug, Clone)]
 pub(super) struct GithubPrRuleConfig {
-    /// Filter which events to process. Empty means all supported events.
-    /// Possible values: "pull_request", "issue_comment",
-    /// "pull_request_review_comment", "pull_request_review",
-    /// "check_run", "check_suite".
+    /// Events to process, named from [`KNOWN_EVENTS`]. Empty means all of them.
     pub events_filter: Vec<String>,
+    /// Events never processed, named from [`KNOWN_EVENTS`]. Applied after
+    /// `events_filter`, so a name here wins over the same name there. Lets a
+    /// loop drop one event without having to enumerate every event it keeps.
+    pub ignored_events: Vec<String>,
     /// Automatically close the associated task when the PR is merged or closed.
     pub close_task_on_close: bool,
     /// Emit an inbound message when a check_suite completes successfully.
@@ -55,15 +84,40 @@ impl GithubPrRuleConfig {
             events_filter,
             close_task_on_close: rule.close_task_on_close,
             notify_on_success: rule.notify_on_success,
+            ignored_events: string_array(rule.adapter_config.as_ref(), "ignored_events"),
             ignored_senders: ignored_senders(rule.adapter_config.as_ref()),
             ignored_title_patterns: ignored_title_patterns(rule.adapter_config.as_ref()),
         }
     }
 
-    /// True when `event_filter` is set and does not include `event_type`.
-    /// An empty filter means "all supported events" and never filters out.
-    pub(super) fn event_filtered_out(&self, event_type: &str) -> bool {
-        !self.events_filter.is_empty() && !self.events_filter.iter().any(|e| e == event_type)
+    /// Names in either list that are not in [`KNOWN_EVENTS`]. Such a name is
+    /// silently inert — it neither includes nor ignores anything — so callers
+    /// surface it rather than let a typo read as a working filter.
+    pub(super) fn unknown_event_names(&self) -> Vec<&str> {
+        self.events_filter
+            .iter()
+            .chain(&self.ignored_events)
+            .map(String::as_str)
+            .filter(|name| {
+                !KNOWN_EVENTS
+                    .iter()
+                    .any(|known| known.eq_ignore_ascii_case(name))
+            })
+            .collect()
+    }
+
+    /// True when `event` is in `ignored_events`, or when `events_filter` is set
+    /// and does not name it. An empty `events_filter` means "all events".
+    /// Both lists are compared case-insensitively.
+    pub(super) fn event_filtered_out(&self, event: &str) -> bool {
+        if self.ignored_events.iter().any(|e| e.eq_ignore_ascii_case(event)) {
+            return true;
+        }
+        !self.events_filter.is_empty()
+            && !self
+                .events_filter
+                .iter()
+                .any(|e| e.eq_ignore_ascii_case(event))
     }
 
     /// True when `sender` (a `sender.login`) is in `ignored_senders`
@@ -104,13 +158,11 @@ pub(super) fn ignored_senders(adapter_config: Option<&serde_json::Value>) -> Vec
         )
 }
 
-/// Parse `ignored_title_patterns` from a `adapter_config` JSONB value. Unlike
-/// `ignored_senders`, title filtering is opt-in: an absent key, null config, or
-/// non-array value all yield an empty list (no filtering). An explicit array of
-/// strings is used verbatim as case-insensitive regexes.
-pub(super) fn ignored_title_patterns(adapter_config: Option<&serde_json::Value>) -> Vec<String> {
+/// Parse an opt-in string array out of a `adapter_config` JSONB value. An
+/// absent key, null config, or non-array value all yield an empty list.
+fn string_array(adapter_config: Option<&serde_json::Value>, key: &str) -> Vec<String> {
     adapter_config
-        .and_then(|pc| pc.get("ignored_title_patterns"))
+        .and_then(|pc| pc.get(key))
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -118,6 +170,14 @@ pub(super) fn ignored_title_patterns(adapter_config: Option<&serde_json::Value>)
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Parse `ignored_title_patterns` from a `adapter_config` JSONB value. Unlike
+/// `ignored_senders`, title filtering is opt-in: an absent key, null config, or
+/// non-array value all yield an empty list (no filtering). An explicit array of
+/// strings is used verbatim as case-insensitive regexes.
+pub(super) fn ignored_title_patterns(adapter_config: Option<&serde_json::Value>) -> Vec<String> {
+    string_array(adapter_config, "ignored_title_patterns")
 }
 
 #[cfg(test)]
@@ -296,6 +356,100 @@ mod tests {
         assert!(!cfg.event_filtered_out("pull_request"));
         assert!(cfg.event_filtered_out("workflow_run"));
         assert!(cfg.event_filtered_out("issue_comment"));
+    }
+
+    #[test]
+    fn derived_signals_are_included_by_default() {
+        let rule = rule_with(serde_json::json!([]), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        for event in KNOWN_EVENTS {
+            assert!(!cfg.event_filtered_out(event), "{event}");
+        }
+    }
+
+    #[test]
+    fn ignored_events_drops_only_the_named_event() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_events": [MERGE_CONFLICT]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.event_filtered_out(MERGE_CONFLICT));
+        // The events it is derived from keep flowing.
+        assert!(!cfg.event_filtered_out("pull_request"));
+        assert!(!cfg.event_filtered_out("issue_comment"));
+        assert!(!cfg.event_filtered_out(POST_MERGE));
+    }
+
+    #[test]
+    fn ignored_events_wins_over_the_include_list() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!(["pull_request", MERGE_CONFLICT]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_events": [MERGE_CONFLICT]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.event_filtered_out(MERGE_CONFLICT));
+        assert!(!cfg.event_filtered_out("pull_request"));
+    }
+
+    #[test]
+    fn a_review_only_loop_keeps_the_diff_and_discussion_events() {
+        // The shape a PR-review loop runs: it reads the diff and the
+        // conversation, and acts on neither CI nor mergeability.
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({
+                "ignored_events": [MERGE_CONFLICT, POST_MERGE, "check_run", "check_suite"]
+            })),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+
+        for dropped in [MERGE_CONFLICT, POST_MERGE, "check_run", "check_suite"] {
+            assert!(cfg.event_filtered_out(dropped), "{dropped}");
+        }
+        for kept in [
+            "pull_request",
+            "issue_comment",
+            "pull_request_review_comment",
+            "pull_request_review",
+        ] {
+            assert!(!cfg.event_filtered_out(kept), "{kept}");
+        }
+        assert!(cfg.unknown_event_names().is_empty());
+    }
+
+    #[test]
+    fn unknown_event_names_are_reported_from_both_lists() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!(["pull_request", "pull_requests"]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_events": ["merge_conflicts", "MERGE_CONFLICT"]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        // The plural typos are inert; the correctly-named (if oddly-cased) one is not.
+        assert_eq!(
+            cfg.unknown_event_names(),
+            vec!["pull_requests", "merge_conflicts"]
+        );
+    }
+
+    #[test]
+    fn event_names_match_case_insensitively() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_events": ["Merge_Conflict"]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert!(cfg.event_filtered_out(MERGE_CONFLICT));
     }
 
     #[test]

@@ -347,14 +347,101 @@ async fn config_filters_return_reasons_and_suppress_all_candidates() {
     assert!(ignored_sender.status_observations.is_empty());
     assert!(ignored_sender.merge_conflict_candidate.is_none());
 
+    // A sender the loop accepts, so this half isolates event filtering.
+    let accepted_sender = serde_json::json!({
+        "action": "opened",
+        "sender": {"login": "alice"},
+        "pull_request": {"number": 42}
+    });
     let mut rule = fake_rule();
     rule.event_filter = serde_json::json!(["issue_comment"]);
-    let filtered = normalize_payload("pull_request", &payload, &rule).await;
+    let filtered = normalize_payload("pull_request", &accepted_sender, &rule).await;
     assert!(matches!(
         filtered.primary,
         Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
     ));
+    // Neither derived signal is allowlisted either, so nothing is scheduled.
     assert!(filtered.post_merge_candidate.is_none());
+    assert!(filtered.merge_conflict_candidate.is_none());
+}
+
+#[tokio::test]
+async fn ignoring_a_derived_signal_keeps_the_events_it_is_derived_from() {
+    let payload = serde_json::json!({
+        "action": "opened",
+        "sender": {"login": "alice"},
+        "pull_request": {"number": 42}
+    });
+
+    let mut rule = fake_rule();
+    rule.adapter_config = Some(serde_json::json!({"ignored_events": ["merge_conflict"]}));
+    let normalized = normalize_payload("pull_request", &payload, &rule).await;
+
+    // The conflict check is not scheduled — no GitHub call, no FYI message...
+    assert!(normalized.merge_conflict_candidate.is_none());
+    // ...while the PR event itself still produces its message.
+    assert!(matches!(normalized.primary, Ok(PrimaryWebhook::Message(_))));
+}
+
+#[tokio::test]
+async fn allowlisting_only_a_derived_signal_still_schedules_it() {
+    // The raw event is the carrier for the derived signal, so excluding the
+    // carrier's own message must not cancel a signal the loop asked for.
+    let mut rule = fake_rule();
+    rule.event_filter = serde_json::json!(["merge_conflict"]);
+    let normalized = normalize_payload(
+        "pull_request",
+        &serde_json::json!({
+            "action": "opened",
+            "sender": {"login": "alice"},
+            "pull_request": {"number": 42}
+        }),
+        &rule,
+    )
+    .await;
+
+    assert_eq!(
+        normalized
+            .merge_conflict_candidate
+            .expect("merge_conflict was allowlisted")
+            .pr_number,
+        42
+    );
+    // The pull_request message itself is not allowlisted, so it stays filtered.
+    assert!(matches!(
+        normalized.primary,
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
+    ));
+}
+
+#[tokio::test]
+async fn allowlisting_only_post_merge_still_schedules_it() {
+    let mut rule = fake_rule();
+    rule.event_filter = serde_json::json!(["post_merge"]);
+    let normalized = normalize_payload(
+        "workflow_run",
+        &serde_json::json!({
+            "action": "completed",
+            "sender": {"login": "alice"},
+            "workflow_run": {
+                "id": 7,
+                "name": "CI",
+                "event": "push",
+                "conclusion": "failure",
+                "head_sha": "abc123",
+                "head_branch": "main",
+                "html_url": "https://github.com/soaplabs/repo/actions/runs/7",
+                "pull_requests": []
+            }
+        }),
+        &rule,
+    )
+    .await;
+
+    assert!(
+        normalized.post_merge_candidate.is_some(),
+        "post_merge was allowlisted"
+    );
 }
 
 #[tokio::test]

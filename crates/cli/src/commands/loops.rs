@@ -36,7 +36,15 @@ pub enum LoopsAction {
     /// or pass the whole object verbatim with --adapter-config '<json>'.
     ///
     /// Known github_pr keys: ignored_senders (string[]), ignored_title_patterns
-    /// (case-insensitive title regexes, string[]), close_task_on_close, notify_on_success.
+    /// (case-insensitive title regexes, string[]), ignored_events (string[]),
+    /// close_task_on_close, notify_on_success.
+    ///
+    /// Events are named by --event-filter (an allowlist; empty = all) or
+    /// ignored_events (a denylist, which wins). Names: pull_request,
+    /// issue_comment, pull_request_review_comment, pull_request_review,
+    /// check_run, check_suite, plus the two signals this adapter derives —
+    /// merge_conflict and post_merge. Ignoring a derived signal skips its
+    /// GitHub call entirely and keeps the events it is derived from.
     /// The backend validates values (e.g. compiles each regex) — this command does not.
     ///
     /// Examples:
@@ -116,7 +124,15 @@ pub enum LoopsAction {
     /// removes it.
     ///
     /// Known github_pr keys: ignored_senders (string[]), ignored_title_patterns
-    /// (case-insensitive title regexes, string[]), close_task_on_close, notify_on_success.
+    /// (case-insensitive title regexes, string[]), ignored_events (string[]),
+    /// close_task_on_close, notify_on_success.
+    ///
+    /// Events are named by --event-filter (an allowlist; empty = all) or
+    /// ignored_events (a denylist, which wins). Names: pull_request,
+    /// issue_comment, pull_request_review_comment, pull_request_review,
+    /// check_run, check_suite, plus the two signals this adapter derives —
+    /// merge_conflict and post_merge. Ignoring a derived signal skips its
+    /// GitHub call entirely and keeps the events it is derived from.
     /// The backend validates values (e.g. compiles each regex) — this command does not.
     ///
     /// Examples:
