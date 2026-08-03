@@ -2,7 +2,7 @@
 # account 111111111111) via the audited reusable workflows in
 # soaplabs/soap-platform-ci. Gated to soaplabs/moatless-vibe via the `setup`
 # job's `if`. The upstream aorwall/moatless repo publishes to Docker Hub
-# instead (ci.yml/release.yml/build-sandbox-images.yml, gated on
+# instead (ci.yml/release.yml, gated on
 # `github.repository_owner == 'aorwall'`).
 #
 # Triggered on:
@@ -59,7 +59,7 @@ jobs:
   # ── Compute tag + which images this run touches ──
   setup:
     # Fork-only pipeline. On aorwall/moatless the Docker Hub publish jobs
-    # (ci.yml, build-sandbox-images.yml, release.yml) own image publishing.
+    # (ci.yml, release.yml) own image publishing.
     # Every job here depends on setup, so gating it disables the workflow
     # off-fork.
     if: github.repository == 'soaplabs/moatless-vibe'

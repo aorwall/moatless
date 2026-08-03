@@ -15,7 +15,7 @@
 # config wiring.
 #
 # Publishes to the Docker Hub REGISTRY_ORG namespace (defaults to `aorwall`,
-# same convention as build-sandbox-images.yml) — NOT to ECR. Pushing therefore
+# same convention as ci.yml) — NOT to ECR. Pushing therefore
 # needs only the DOCKERHUB_* secrets with write access to that namespace; no
 # AWS OIDC and no GITHUB_TOKEN package scopes are involved.
 
@@ -87,7 +87,7 @@ jobs:
 
       # Registry (inline) cache rather than type=gha: the exported layers here
       # are multi-GB and would evict the sandbox-* GHA cache entries that the
-      # push-to-main build-sandbox-images.yml run depends on.
+      # push-to-main ci.yml run depends on.
       - name: Build and push moatless-dev
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
