@@ -409,8 +409,11 @@ const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role
 /// 1` makes the result deterministic — the most recent binding on that subject —
 /// rather than whichever row the planner returns first.
 ///
-/// `sent_by` on the Linear adapters is a raw actor id that matches no user, so
-/// the join simply yields no name rather than a wrong one.
+/// `sent_by` is a polymorphic text column: a user uuid's text form, but also
+/// sentinels like `system` and the Linear adapters' raw actor ids. `users.id` is
+/// a native `uuid`, so the comparison is made on its text form — casting
+/// `sent_by` the other way would raise on every value that is not a uuid. Those
+/// yield no name rather than a wrong one.
 const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
                           SELECT tb.destination_config
                           FROM task_bindings tb
@@ -421,7 +424,7 @@ const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
                           ORDER BY tb.created_at DESC
                           LIMIT 1
                       ) b ON true
-                      LEFT JOIN users u ON u.id = m.sent_by"#;
+                      LEFT JOIN users u ON u.id::text = m.sent_by"#;
 
 /// A search term as a `LIKE` operand rather than a `LIKE` pattern.
 ///

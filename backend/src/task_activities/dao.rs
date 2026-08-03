@@ -52,6 +52,14 @@ macro_rules! read_activities {
 /// call whose result already arrived must not be reset to `in_progress` by a
 /// second copy of the block that started it — the two arrive on different
 /// Messages and nothing orders them.
+///
+/// The `NOT EXISTS` guard covers the other way the same call can arrive twice:
+/// re-presented under a *different* Message, so it derives a different
+/// `activity_id` that the arbiter above cannot see. `(task_id, tool_use_id)` is
+/// unique, so that insert raises rather than merging, and the raise aborts the
+/// whole Message write. One call is one row and the stored one is the row
+/// [`settle`] will find, so the later arrival is dropped. A NULL `tool_use_id`
+/// matches nothing and so is never guarded — several are not a conflict.
 pub async fn upsert(
     tx: &mut PgConnection,
     position: i64,
@@ -61,7 +69,13 @@ pub async fn upsert(
         r#"INSERT INTO task_activities (
                activity_id, task_id, position, ordinal, message_uuid, parent_uuid,
                kind, status, tool_use_id, summary, payload, is_error
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           )
+           SELECT $1::text, $2::text, $3::bigint, $4::int, $5::text, $6::text,
+                  $7::text, $8::text, $9::text, $10::text, $11::jsonb, $12::boolean
+           WHERE NOT EXISTS (
+               SELECT 1 FROM task_activities
+               WHERE task_id = $2 AND tool_use_id = $9 AND activity_id <> $1
+           )
            ON CONFLICT (activity_id) DO UPDATE SET
                -- `position` and `ordinal` are deliberately absent: a redelivered
                -- block must not move where it already sits in the stream, and
