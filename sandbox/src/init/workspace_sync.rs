@@ -573,16 +573,16 @@ fn append_repo<W: std::io::Write>(
             continue;
         };
         let full = repo_dir.join(rel);
-        // Skip tracked-but-deleted paths and non-regular files (dirs, symlinks) —
-        // `ls-files` lists paths, not on-disk state.
-        match std::fs::symlink_metadata(&full) {
-            Ok(m) if m.is_file() => {}
+        let name = join_prefix(prefix, rel);
+        // `ls-files` lists paths, not on-disk state, so skip tracked-but-deleted
+        // paths and directories. A symlink is stored as a link entry: it is
+        // tracked, so dropping it restores a tree where git reports it deleted.
+        let stored = match std::fs::symlink_metadata(&full) {
+            Ok(m) if m.is_file() => builder.append_path_with_name(&full, &name).is_ok(),
+            Ok(m) if m.is_symlink() => append_symlink(builder, &name, &full),
             _ => continue,
-        }
-        if builder
-            .append_path_with_name(&full, join_prefix(prefix, rel))
-            .is_ok()
-        {
+        };
+        if stored {
             any = true;
         }
     }
@@ -600,6 +600,24 @@ fn append_repo<W: std::io::Write>(
     }
 
     any
+}
+
+/// Append `path` as a tar symlink entry carrying its target, so the link is
+/// stored without being read through. `read_link` never follows it, so this
+/// cannot loop or reach outside the archive root.
+fn append_symlink<W: std::io::Write>(
+    builder: &mut tar::Builder<W>,
+    name: &str,
+    path: &Path,
+) -> bool {
+    let Ok(target) = std::fs::read_link(path) else {
+        return false;
+    };
+    let mut header = tar::Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Symlink);
+    header.set_size(0);
+    header.set_mode(0o777);
+    builder.append_link(&mut header, name, target).is_ok()
 }
 
 /// Build an in-memory **gzipped** tar of all data under `workspace_dir` (git
@@ -702,7 +720,8 @@ fn fingerprint_tree(entries: &mut Vec<(String, u64, u128)>, root: &Path, dir: &P
 
 /// Metadata twin of [`append_repo`]: the working-tree file set from
 /// `git ls-files -c -o --exclude-standard` plus the whole `.git` directory,
-/// contributing `(len, mtime)` for each file instead of its bytes.
+/// contributing `(len, mtime)` for each file — and each symlink, which the tar
+/// walk stores too — instead of its bytes.
 fn fingerprint_repo(entries: &mut Vec<(String, u64, u128)>, repo_dir: &Path, prefix: &str) {
     if let Ok(output) = std::process::Command::new("git")
         .arg("-C")
@@ -720,7 +739,7 @@ fn fingerprint_repo(entries: &mut Vec<(String, u64, u128)>, repo_dir: &Path, pre
                 };
                 let full = repo_dir.join(rel);
                 if let Ok(meta) = std::fs::symlink_metadata(&full) {
-                    if meta.is_file() {
+                    if meta.is_file() || meta.is_symlink() {
                         entries.push((join_prefix(prefix, rel), meta.len(), mtime_nanos(&meta)));
                     }
                 }
@@ -1218,6 +1237,58 @@ mod tests {
         assert!(
             !dst.join("soap-tm").join("target").join("app.jar").exists(),
             "gitignored file inside a repo must not be snapshotted"
+        );
+    }
+
+    /// A repo commits its own agent-config symlinks (`CLAUDE.md -> AGENTS.md`,
+    /// `.claude/skills -> ../.agents/skills`). Restoring without them leaves a
+    /// tree where git reports them deleted, and the deletion gets committed.
+    #[tokio::test]
+    async fn a_committed_symlink_survives_a_snapshot_round_trip() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ws = tmp.path().join("workspace");
+        tokio::fs::create_dir_all(&ws).await.unwrap();
+
+        let repo = ws.join("moatless");
+        init_repo(&repo);
+        tokio::fs::write(repo.join("AGENTS.md"), b"# guidance\n")
+            .await
+            .unwrap();
+        std::os::unix::fs::symlink("AGENTS.md", repo.join("CLAUDE.md")).unwrap();
+        git_add(&repo, &["AGENTS.md", "CLAUDE.md"]);
+        git_commit(&repo, "add guidance");
+
+        let tar = build_tar(ws.clone()).await.expect("tar built");
+
+        let dst = tmp.path().join("restored-ws");
+        tokio::fs::create_dir_all(&dst).await.unwrap();
+        let restored = extract_workspace(
+            tar,
+            dst.clone(),
+            dst.join("moatless"),
+            "moatless".to_string(),
+        )
+        .await
+        .unwrap();
+        assert!(restored, "primary repo present → skip clone");
+
+        let link = dst.join("moatless").join("CLAUDE.md");
+        assert!(
+            std::fs::symlink_metadata(&link).unwrap().is_symlink(),
+            "committed symlink must restore as a symlink"
+        );
+        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("AGENTS.md"));
+
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dst.join("moatless"))
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap();
+        assert!(
+            status.stdout.is_empty(),
+            "restored repo must be clean, got: {}",
+            String::from_utf8_lossy(&status.stdout)
         );
     }
 
