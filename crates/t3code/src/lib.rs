@@ -54,7 +54,8 @@ pub use auth::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use feed::{ShellFeed, ThreadFeed};
 pub use moatless_backend_core::pairing::DevicePairing;
 pub use moatless_backend_core::sandbox::{
-    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
+    ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter,
+    SandboxStopper,
 };
 
 pub type UiRpcDbPool = sqlx::PgPool;
@@ -319,6 +320,7 @@ pub async fn router_from_env(
         conversations,
         sandboxes,
         observer,
+        diagnostics,
         tasks,
         intent,
         starter,
@@ -369,6 +371,7 @@ pub async fn router_from_env(
             intent,
             starter,
             stopper,
+            diagnostics,
         },
         preview: PreviewState {
             tabs: preview_tabs,
@@ -400,6 +403,9 @@ pub struct UiRpcDependencies {
     pub sandboxes: Arc<dyn SandboxConnector>,
     /// Reports what a Task's servers are doing, without reaching inside.
     pub observer: Arc<dyn SandboxObserver>,
+    /// Fleet-wide Sandbox status and live resource usage, deployment-scoped
+    /// rather than per-Task.
+    pub diagnostics: Arc<dyn ClusterDiagnostics>,
     /// Authorizes every `servers.*`, `sandbox.*`, and `preview.*` call: a
     /// scoped read that finds nothing is the same answer as a Task that does
     /// not exist.
@@ -2005,6 +2011,10 @@ impl ProtocolSession {
                     Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
                 }
             }
+            "sandbox.listDiagnostics" => match sandbox::list_diagnostics(&state.sandbox).await {
+                Ok(entries) => vec![success_exit(&id, entries)],
+                Err(error) => vec![sandbox_failure_exit(&id, &error, identity)],
+            },
             "subscribeServerStatus" => {
                 let viewer = viewer_scope(identity);
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
@@ -2778,7 +2788,11 @@ fn descriptor(config: &UiRpcConfig) -> Value {
             // Whether `thread.user-input.respond` is understood. A client
             // cannot otherwise tell this server from one that refuses it, and
             // the descriptor is read before any thread is opened.
-            "userInputResponse": true
+            "userInputResponse": true,
+            // Whether `sandbox.listDiagnostics` is understood. A client
+            // cannot otherwise tell this server from one that answers
+            // `UnsupportedMethodError`.
+            "sandboxDiagnostics": true
         }
     })
 }
@@ -3288,6 +3302,18 @@ mod tests {
     }
 
     #[async_trait]
+    impl ClusterDiagnostics for UnreachableSandboxes {
+        async fn list_sandbox_diagnostics(
+            &self,
+        ) -> Result<
+            Vec<moatless_backend_core::sandbox::SandboxDiagnosticsEntry>,
+            moatless_backend_core::sandbox::SandboxError,
+        > {
+            Ok(Vec::new())
+        }
+    }
+
+    #[async_trait]
     impl SandboxObserver for UnreachableSandboxes {
         async fn sandbox_status(
             &self,
@@ -3577,6 +3603,7 @@ mod tests {
                 intent: Arc::new(UnreachableSandboxes),
                 starter: Arc::new(UnreachableSandboxes),
                 stopper: Arc::new(UnreachableSandboxes),
+                diagnostics: Arc::new(UnreachableSandboxes),
             },
             preview: PreviewState {
                 tabs: Arc::new(preview_tabs::InMemoryPreviewTabDao::new()),
@@ -3668,6 +3695,57 @@ mod tests {
         let output = session.handle_json(&interrupt, &state(), &viewer()).await;
         assert_eq!(output.frames[0]["_tag"], "Exit");
         assert_eq!(output.frames[0]["requestId"], json!(4));
+    }
+
+    /// A fleet with one Sandbox in it, for the dispatch test below. Real
+    /// mapping from pod list and metrics into this shape is unit-tested
+    /// against fixtures in `sandbox::k8s::pod_reader`; this only checks that
+    /// the RPC arm serializes what the seam hands it, unchanged.
+    struct FakeFleet;
+
+    #[async_trait]
+    impl crate::sandbox::access::ClusterDiagnostics for FakeFleet {
+        async fn list_sandbox_diagnostics(
+            &self,
+        ) -> Result<
+            Vec<crate::sandbox::access::SandboxDiagnosticsEntry>,
+            crate::sandbox::error::SandboxError,
+        > {
+            Ok(vec![crate::sandbox::access::SandboxDiagnosticsEntry {
+                task_id: "task-1".into(),
+                title: None,
+                sandbox_status: crate::sandbox::live_status::SandboxStatus::Ready,
+                node_name: Some("node-a".into()),
+                containers: vec![crate::sandbox::access::SandboxDiagnosticsContainer {
+                    name: "sandbox".into(),
+                    state: "running".into(),
+                    restart_count: 0,
+                    cpu_millicores: Some(100),
+                    memory_mb: Some(256),
+                }],
+                total_cpu_millicores: Some(100),
+                total_memory_mb: Some(256),
+            }])
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sandbox_list_diagnostics_request_returns_the_mapped_fleet() {
+        let state = UiRpcState {
+            diagnostics: Arc::new(FakeFleet),
+            ..state()
+        };
+        let frame = request("1", "sandbox.listDiagnostics", json!({}));
+        let mut session = session();
+        let output = session.handle_json(&frame, &state, &viewer()).await;
+
+        assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
+        let sandboxes = &output.frames[0]["exit"]["value"]["sandboxes"];
+        assert_eq!(sandboxes[0]["taskId"], "task-1");
+        assert_eq!(sandboxes[0]["nodeName"], "node-a");
+        assert_eq!(sandboxes[0]["containers"][0]["name"], "sandbox");
+        assert_eq!(sandboxes[0]["containers"][0]["cpuMillicores"], 100);
+        assert_eq!(sandboxes[0]["totalMemoryMb"], 256);
     }
 
     #[tokio::test]

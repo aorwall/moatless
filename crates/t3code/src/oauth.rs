@@ -412,6 +412,17 @@ mod tests {
         );
     }
 
+    /// The fleet diagnostics read is unclassified here on purpose — it is a
+    /// read like `servers.list` and `sandbox.status`, so the default is the
+    /// right answer rather than an omission.
+    #[test]
+    fn fleet_diagnostics_falls_through_to_read() {
+        assert_eq!(
+            required_scope("sandbox.listDiagnostics"),
+            "orchestration:read"
+        );
+    }
+
     #[test]
     fn a_scope_the_contract_does_not_define_is_a_different_refusal() {
         assert_eq!(

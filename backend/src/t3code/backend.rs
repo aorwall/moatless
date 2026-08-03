@@ -31,7 +31,8 @@ use moatless_t3code::ports::{
     RepositoryBranchSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
 };
 use moatless_t3code::{
-    SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
+    ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter,
+    SandboxStopper,
 };
 
 #[async_trait]
@@ -143,6 +144,29 @@ impl SandboxObserver for K8sSandboxAdapter {
         .await
         .map(|stream| stream.map(|item| item.map_err(sandbox_error)).boxed())
         .map_err(sandbox_error)
+    }
+}
+
+#[async_trait]
+impl ClusterDiagnostics for DockerSandboxAdapter {
+    /// Local Docker has no fleet-wide view — a container is only ever addressed
+    /// by its Task. Empty rather than an error, so the diagnostics page renders
+    /// normally under `docker-compose`.
+    async fn list_sandbox_diagnostics(
+        &self,
+    ) -> Result<Vec<core_sandbox::SandboxDiagnosticsEntry>, core_sandbox::SandboxError> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl ClusterDiagnostics for K8sSandboxAdapter {
+    async fn list_sandbox_diagnostics(
+        &self,
+    ) -> Result<Vec<core_sandbox::SandboxDiagnosticsEntry>, core_sandbox::SandboxError> {
+        crate::sandbox::k8s::pod_reader::fetch_fleet_diagnostics(&self.k8s)
+            .await
+            .map_err(|e| core_sandbox::SandboxError::Other(e.to_string()))
     }
 }
 

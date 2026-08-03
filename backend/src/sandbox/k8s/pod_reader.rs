@@ -13,8 +13,9 @@ use tracing::{debug, warn};
 use super::client::K8sClient;
 use super::pod_status::{extract_all_container_statuses, extract_container_observed_statuses};
 use crate::sandbox::access::LogOptions;
-use crate::sandbox::models::ContainerObservedStatus;
+use crate::sandbox::models::{ContainerObservedStatus, ContainerState, PodPhase};
 use crate::sandbox::schemas::RuntimeEvent;
+use moatless_backend_core::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 
 /// Errors from log streaming, distinguishing "not ready yet" from other failures.
 #[derive(Debug)]
@@ -418,6 +419,185 @@ pub(crate) fn parse_memory_to_bytes(s: &str) -> u64 {
     }
 }
 
+// =============================================================================
+// Fleet-wide diagnostics (every Sandbox at once)
+// =============================================================================
+
+/// Response from the K8s Metrics API for every pod in a namespace.
+#[derive(Debug, Deserialize)]
+struct NamespacePodMetrics {
+    items: Vec<NamedPodMetrics>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NamedPodMetrics {
+    metadata: PodMetricsObjectMeta,
+    containers: Vec<ContainerMetrics>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PodMetricsObjectMeta {
+    name: String,
+}
+
+/// Fetch resource usage for every pod in the namespace via one K8s Metrics API
+/// read, keyed by pod name then container name.
+///
+/// Requires metrics-server. Returns an empty map on any failure (metrics
+/// unavailable, RBAC missing, a pod not yet scraped) — the same best-effort
+/// contract [`fetch_container_resource_usage`] makes for a single pod.
+async fn fetch_namespace_resource_usage(
+    k8s: &K8sClient,
+) -> HashMap<String, HashMap<String, ContainerResourceUsage>> {
+    let url = format!(
+        "/apis/metrics.k8s.io/v1beta1/namespaces/{}/pods",
+        k8s.namespace()
+    );
+
+    let request = match hyper::Request::get(&url).body(Vec::new()) {
+        Ok(r) => r,
+        Err(e) => {
+            debug!(error = %e, "Failed to build namespace-wide metrics request");
+            return HashMap::new();
+        }
+    };
+
+    let response: NamespacePodMetrics = match k8s.client.request(request).await {
+        Ok(resp) => resp,
+        Err(kube::Error::Api(ref e)) if e.code == 404 => {
+            debug!(
+                "Namespace-wide pod metrics not yet available — metrics-server has not scraped this namespace yet"
+            );
+            return HashMap::new();
+        }
+        Err(kube::Error::Api(ref e)) if e.code == 403 => {
+            warn!(
+                error = %e,
+                "Missing RBAC for a namespace-wide metrics.k8s.io/pods read — observability Role not bound"
+            );
+            return HashMap::new();
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch namespace-wide pod metrics");
+            return HashMap::new();
+        }
+    };
+
+    response
+        .items
+        .into_iter()
+        .map(|pod| {
+            let containers = pod
+                .containers
+                .into_iter()
+                .map(|c| {
+                    let cpu = parse_cpu_to_millicores(&c.usage.cpu);
+                    let mem = parse_memory_to_bytes(&c.usage.memory);
+                    (
+                        c.name.clone(),
+                        ContainerResourceUsage {
+                            name: c.name,
+                            cpu_millicores: cpu,
+                            memory_bytes: mem,
+                        },
+                    )
+                })
+                .collect();
+            (pod.metadata.name, containers)
+        })
+        .collect()
+}
+
+/// Project one pod, and its resource usage if any was found for it, into the
+/// fleet-wide diagnostics entry.
+///
+/// A pod with no `moatless.io/task-id` label is not a Sandbox and is skipped —
+/// callers list by that label already, so this only matters for defense in
+/// depth. Pure and synchronous, which is what makes it unit-testable without a
+/// K8s API: [`fetch_fleet_diagnostics`] is the thin async wrapper that fetches
+/// the two inputs this closes over.
+fn map_pod_to_diagnostics_entry(
+    pod: &Pod,
+    usage: Option<&HashMap<String, ContainerResourceUsage>>,
+) -> Option<SandboxDiagnosticsEntry> {
+    let task_id = pod
+        .metadata
+        .labels
+        .as_ref()?
+        .get("moatless.io/task-id")?
+        .clone();
+    let node_name = pod.spec.as_ref().and_then(|spec| spec.node_name.clone());
+    let raw_phase = pod
+        .status
+        .as_ref()
+        .and_then(|status| status.phase.as_deref())
+        .unwrap_or("Unknown");
+    let sandbox_status = PodPhase::from(raw_phase).sandbox_status();
+
+    let containers: Vec<SandboxDiagnosticsContainer> = extract_all_container_statuses(pod)
+        .into_iter()
+        .map(|cs| {
+            let container_usage = usage.and_then(|by_name| by_name.get(&cs.name));
+            SandboxDiagnosticsContainer {
+                name: cs.name,
+                state: match cs.state {
+                    ContainerState::Running => "running".to_string(),
+                    ContainerState::Waiting => "waiting".to_string(),
+                    ContainerState::Terminated => "terminated".to_string(),
+                    ContainerState::Unknown => "unknown".to_string(),
+                },
+                restart_count: cs.restart_count,
+                cpu_millicores: container_usage.map(|u| u.cpu_millicores),
+                memory_mb: container_usage.map(|u| u.memory_bytes / (1024 * 1024)),
+            }
+        })
+        .collect();
+
+    let total_cpu_millicores =
+        usage.map(|by_name| by_name.values().map(|u| u.cpu_millicores).sum());
+    let total_memory_mb =
+        usage.map(|by_name| by_name.values().map(|u| u.memory_bytes).sum::<u64>() / (1024 * 1024));
+
+    Some(SandboxDiagnosticsEntry {
+        task_id,
+        title: None,
+        sandbox_status,
+        node_name,
+        containers,
+        total_cpu_millicores,
+        total_memory_mb,
+    })
+}
+
+/// Every Sandbox in the namespace, with its status and — best-effort — live
+/// resource usage: one pod LIST (label key present) plus one namespace-wide
+/// metrics read, joined by pod and container name.
+///
+/// Mirrors [`fetch_all_container_statuses`] + [`fetch_container_resource_usage`]
+/// for one Task; this is the same combinator run once for the whole fleet
+/// instead of once per Task. A failed pod list is a real error — there is
+/// nothing to answer with — but a failed metrics read is not: entries still
+/// carry status and restart counts with `None` usage, the pod list is fetched
+/// first, and metrics are overlaid on it afterward.
+pub async fn fetch_fleet_diagnostics(
+    k8s: &K8sClient,
+) -> Result<Vec<SandboxDiagnosticsEntry>, kube::Error> {
+    let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let lp = ListParams::default().labels("moatless.io/task-id");
+    let pods = pods_api.list(&lp).await?;
+
+    let resource_usage = fetch_namespace_resource_usage(k8s).await;
+
+    Ok(pods
+        .items
+        .iter()
+        .filter_map(|pod| {
+            let pod_name = pod.metadata.name.as_deref().unwrap_or_default();
+            map_pod_to_diagnostics_entry(pod, resource_usage.get(pod_name))
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,5 +633,107 @@ mod tests {
         let e = api_error(500, "etcd unavailable");
         assert!(container_waiting_message(&e).is_none());
         assert!(!no_previous_container(&e));
+    }
+
+    mod fleet_diagnostics {
+        use super::*;
+        use crate::sandbox::k8s::pod_status::test_helpers::{
+            pod_with_phase_and_containers, running_container, waiting_container,
+        };
+        use k8s_openapi::api::core::v1::PodSpec;
+        use std::collections::BTreeMap;
+
+        fn labeled(mut pod: Pod, task_id: &str, node_name: &str) -> Pod {
+            pod.metadata.labels = Some(BTreeMap::from([(
+                "moatless.io/task-id".to_string(),
+                task_id.to_string(),
+            )]));
+            pod.spec = Some(PodSpec {
+                node_name: Some(node_name.to_string()),
+                ..Default::default()
+            });
+            pod
+        }
+
+        fn usage(entries: &[(&str, u64, u64)]) -> HashMap<String, ContainerResourceUsage> {
+            entries
+                .iter()
+                .map(|(name, cpu_millicores, memory_bytes)| {
+                    (
+                        name.to_string(),
+                        ContainerResourceUsage {
+                            name: name.to_string(),
+                            cpu_millicores: *cpu_millicores,
+                            memory_bytes: *memory_bytes,
+                        },
+                    )
+                })
+                .collect()
+        }
+
+        #[test]
+        fn maps_a_running_pod_with_metrics_to_an_entry_with_totals() {
+            let pod = labeled(
+                pod_with_phase_and_containers(
+                    "Running",
+                    vec![
+                        running_container("sandbox", true, true),
+                        running_container("files-server", true, true),
+                    ],
+                ),
+                "task-1",
+                "node-a",
+            );
+            let usage = usage(&[
+                ("sandbox", 100, 200 * 1024 * 1024),
+                ("files-server", 50, 100 * 1024 * 1024),
+            ]);
+
+            let entry = map_pod_to_diagnostics_entry(&pod, Some(&usage)).expect("labeled pod maps");
+
+            assert_eq!(entry.task_id, "task-1");
+            assert_eq!(entry.node_name.as_deref(), Some("node-a"));
+            assert_eq!(entry.containers.len(), 2);
+            let sandbox = entry
+                .containers
+                .iter()
+                .find(|c| c.name == "sandbox")
+                .expect("sandbox container present");
+            assert_eq!(sandbox.state, "running");
+            assert_eq!(sandbox.cpu_millicores, Some(100));
+            assert_eq!(sandbox.memory_mb, Some(200));
+            assert_eq!(entry.total_cpu_millicores, Some(150));
+            assert_eq!(entry.total_memory_mb, Some(300));
+        }
+
+        #[test]
+        fn a_pod_with_no_metrics_has_none_usage_and_none_totals() {
+            let pod = labeled(
+                pod_with_phase_and_containers(
+                    "Pending",
+                    vec![waiting_container("sandbox", "PodInitializing")],
+                ),
+                "task-2",
+                "node-b",
+            );
+
+            let entry = map_pod_to_diagnostics_entry(&pod, None).expect("labeled pod maps");
+
+            assert_eq!(entry.containers.len(), 1);
+            assert_eq!(entry.containers[0].cpu_millicores, None);
+            assert_eq!(entry.containers[0].memory_mb, None);
+            assert_eq!(entry.total_cpu_millicores, None);
+            assert_eq!(entry.total_memory_mb, None);
+        }
+
+        #[test]
+        fn a_pod_without_the_task_id_label_is_skipped() {
+            let pod = pod_with_phase_and_containers(
+                "Running",
+                vec![running_container("sandbox", true, true)],
+            );
+
+            assert!(map_pod_to_diagnostics_entry(&pod, None).is_none());
+        }
     }
 }

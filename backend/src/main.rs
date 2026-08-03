@@ -149,6 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox_connector: Arc<dyn sandbox::access::SandboxConnector>;
     let ui_rpc_sandbox_observer: Arc<dyn moatless_backend_core::sandbox::SandboxObserver>;
     let ui_rpc_sandbox_connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>;
+    let cluster_diagnostics: Arc<dyn moatless_backend_core::sandbox::ClusterDiagnostics>;
     let default_sandbox_image: String;
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
     let docker_watcher_client: Option<sandbox::docker::client::DockerClient>;
@@ -175,6 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
             ui_rpc_sandbox_observer = adapter.clone();
+            cluster_diagnostics = adapter.clone();
             ui_rpc_sandbox_connector = adapter;
             default_sandbox_image = config.sandbox.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::lifecycle::K8sFleetObserver::new(
@@ -207,6 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
             ui_rpc_sandbox_observer = adapter.clone();
+            cluster_diagnostics = adapter.clone();
             ui_rpc_sandbox_connector = adapter;
             default_sandbox_image = config.docker.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::lifecycle::DockerFleetObserver::new(
@@ -489,6 +492,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 conversations: ui_rpc_conversations.clone(),
                 sandboxes: ui_rpc_sandbox_connector.clone(),
                 observer: ui_rpc_sandbox_observer.clone(),
+                diagnostics: cluster_diagnostics.clone(),
                 tasks: ui_rpc_conversations,
                 intent: app_state.sandbox.clone(),
                 starter: app_state.sandbox.clone(),

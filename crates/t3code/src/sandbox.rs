@@ -11,7 +11,8 @@ use serde_json::{Value, json};
 use crate::data::{T3TaskDao, TaskView};
 use moatless_api_schemas::enums::SandboxStopReason;
 use moatless_backend_core::sandbox::{
-    SandboxError, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
+    ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxStarter,
+    SandboxStopper,
 };
 use moatless_backend_core::scope::ScopeContext;
 
@@ -23,6 +24,10 @@ pub struct SandboxState {
     pub intent: Arc<dyn SandboxIntentReader>,
     pub starter: Arc<dyn SandboxStarter>,
     pub stopper: Arc<dyn SandboxStopper>,
+    /// Fleet-wide status and live resource usage. Deployment-scoped rather than
+    /// per-Task, so it takes no `tasks` authorization: the caller's environment
+    /// scope is the whole of it.
+    pub diagnostics: Arc<dyn ClusterDiagnostics>,
 }
 
 /// Why a sandbox lifecycle request could not be answered.
@@ -86,6 +91,20 @@ pub async fn start(
         .await
         .map_err(SandboxRpcError::Sandbox)?;
     status(state, viewer, task_id).await
+}
+
+/// Every Sandbox in the deployment, with its status and live resource usage.
+///
+/// Deployment-global rather than per-Task: there is no `threadId` to authorize
+/// against, so reaching this at all is the authorization, and the read is
+/// already scoped to the caller's environment by the RPC dispatch.
+pub async fn list_diagnostics(state: &SandboxState) -> Result<Value, SandboxRpcError> {
+    let entries = state
+        .diagnostics
+        .list_sandbox_diagnostics()
+        .await
+        .map_err(SandboxRpcError::Sandbox)?;
+    Ok(json!({ "sandboxes": entries }))
 }
 
 /// Request that a Task's Sandbox move toward Stopped, then return lifecycle
