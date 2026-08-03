@@ -721,6 +721,7 @@ mod tests {
             external_author: None,
             source_task_id: None,
             binding_url: None,
+            binding_label: None,
             sent_by_name: None,
         }
     }

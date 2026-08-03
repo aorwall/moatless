@@ -141,10 +141,13 @@ pub struct TranscriptMessage {
     /// The Task a Message was authored by, when it came from `moat send --task`.
     /// Present means the origin is a Task rather than an adapter.
     pub source_task_id: Option<String>,
-    /// The `destination_config->>'url'` of the Binding this Message's
-    /// subject key resolves to, joined in. `None` when no Binding matches or it
-    /// records no url.
+    /// The web address of the Binding this Message's subject key resolves to,
+    /// joined in. `None` when no Binding matches or it records no url.
     pub binding_url: Option<String>,
+    /// What the Binding calls its subject — a Linear issue identifier such as
+    /// `SP-2454`. Preferred over `external_source_name`, which for Linear is the
+    /// subscription's team id rather than anything a reader would recognise.
+    pub binding_label: Option<String>,
     /// The display name of the Moatless user `sent_by` resolved to, joined in.
     /// The `user` fallback where no external author was recorded.
     pub sent_by_name: Option<String>,
@@ -410,12 +413,24 @@ const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role
                       m.created_at, m.external_adapter, m.external_source_name,
                       m.external_subject_key, m.external_event_id,
                       m.external_author, m.source_task_id,
-                      b.destination_config ->> 'url' AS binding_url,
+                      COALESCE(b.destination_config ->> 'issue_url',
+                               b.destination_config ->> 'url') AS binding_url,
+                      COALESCE(b.destination_config ->> 'identifier',
+                               b.destination_config ->> 'issue_identifier')
+                          AS binding_label,
                       COALESCE(u.name, u.login) AS sent_by_name"#;
 
-/// The two joins that carry a Message's origin out of the database: its
-/// Binding's url, and the display name of the Moatless user `sent_by` resolved
-/// to.
+/// The two joins that carry a Message's origin out of the database: what its
+/// Binding says the subject is called and where it lives, and the display name
+/// of the Moatless user `sent_by` resolved to.
+///
+/// Both destination-config reads take the two keys each value has been written
+/// under, the same pair and the same precedence as
+/// `adapters::providers::linear::status::binding_label_and_url`: a Binding made
+/// from an inbound issue or agent session writes `issue_url`, and one made by
+/// posting out to Linear writes `url`. An adapter that stores neither — Slack
+/// and Telegram keep channel coordinates, not links — yields no url, and the
+/// origin carries a label without one.
 ///
 /// The message carries a subject *key* but no subject *kind*, and the unique
 /// binding index is on `(task_id, adapter_kind, subject_kind, subject_key)`, so

@@ -320,9 +320,14 @@ fn message_origin(message: &TranscriptMessage, origins: &OriginContext<'_>) -> O
             "user": author
         }));
     }
+    // The Binding's own name for the subject first: `external_source_name` is
+    // whatever matched the subscription, which for Linear is a team id.
     Some(json!({
         "kind": adapter,
-        "label": message.external_source_name.as_deref(),
+        "label": message
+            .binding_label
+            .as_deref()
+            .or(message.external_source_name.as_deref()),
         "url": message.binding_url.as_deref(),
         "user": author
     }))
@@ -2442,6 +2447,7 @@ mod tests {
             external_author: None,
             source_task_id: None,
             binding_url: None,
+            binding_label: None,
             sent_by_name: None,
         }
     }
@@ -2953,14 +2959,18 @@ mod tests {
         assert_eq!(origin["user"], "octocat");
     }
 
-    /// Any other adapter takes its URL from the binding this Task holds, and
-    /// falls back to the Moatless user when no external handle was captured.
+    /// Any other adapter takes its label and URL from the Binding this Task
+    /// holds, and falls back to the Moatless user when no external handle was
+    /// captured.
     #[test]
     fn an_external_message_without_a_captured_handle_falls_back_to_the_moatless_user() {
         let mut msg = message(1, MessageType::User, "Filed from Linear");
         msg.external_adapter = Some("linear".into());
-        msg.external_source_name = Some("ENG-1 Fix the thing".into());
-        msg.binding_url = Some("https://linear.app/acme/issue/ENG-1".into());
+        // What a Linear subscription matches on is its team id; the issue's own
+        // identifier is on the Binding.
+        msg.external_source_name = Some("f1f0b3a2-team-uuid".into());
+        msg.binding_label = Some("SP-2454".into());
+        msg.binding_url = Some("https://linear.app/soap-labs/issue/SP-2454".into());
         msg.sent_by_name = Some("Ada Lovelace".into());
         let origin = message_origin(
             &msg,
@@ -2971,9 +2981,29 @@ mod tests {
         )
         .expect("origin present");
         assert_eq!(origin["kind"], "linear");
-        assert_eq!(origin["label"], "ENG-1 Fix the thing");
-        assert_eq!(origin["url"], "https://linear.app/acme/issue/ENG-1");
+        assert_eq!(origin["label"], "SP-2454");
+        assert_eq!(origin["url"], "https://linear.app/soap-labs/issue/SP-2454");
         assert_eq!(origin["user"], "Ada Lovelace");
+    }
+
+    /// An adapter whose Binding names no subject keeps whatever matched the
+    /// subscription rather than going unlabelled.
+    #[test]
+    fn an_external_message_whose_binding_names_nothing_falls_back_to_the_source_name() {
+        let mut msg = message(1, MessageType::User, "From Slack");
+        msg.external_adapter = Some("slack".into());
+        msg.external_source_name = Some("#eng".into());
+        let origin = message_origin(
+            &msg,
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .expect("origin present");
+        assert_eq!(origin["label"], "#eng");
+        // Slack keeps channel coordinates on its Binding, not a link.
+        assert_eq!(origin["url"], Value::Null);
     }
 
     /// The GitHub URL, and the fragment each kind of comment opens at.
