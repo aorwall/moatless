@@ -530,9 +530,14 @@ pub(super) fn change_events(
             &conversation.task_id,
             activity_row(activity, &turn, &activity_at, &settled),
         );
-        let slot = usize::try_from(activity.ordinal).unwrap_or(usize::MAX);
+        let slot = usize::try_from(activity_slot(activity)).unwrap_or(usize::MAX);
         payloads.push((slot.saturating_add(1), kind, payload));
     }
+
+    // By slot, because a reader delivers an item only when its sequence is past
+    // the last it delivered: a derived row takes a slot above the blocks, so it
+    // is emitted between two of them and would cost the reader the one after it.
+    payloads.sort_by_key(|(slot, _, _)| *slot);
 
     // `filter_map`, not `map_while`: the items are no longer numbered in list
     // order, so one past the ceiling says nothing about the next.
@@ -572,7 +577,7 @@ fn activity_change_events(
         &conversation.task_id,
         activity_row(activity, &turn, &at, &settled_calls(window)),
     );
-    let slot = usize::try_from(activity.ordinal).unwrap_or(usize::MAX);
+    let slot = usize::try_from(activity_slot(activity)).unwrap_or(usize::MAX);
     change
         .sequence(slot.saturating_add(1))
         .map(|sequence| vec![event(conversation, sequence, &at, kind, payload)])
@@ -1066,8 +1071,32 @@ fn panel_kind(activity: &Activity, settled: &SettledCalls) -> Option<&'static st
 /// force either a special case for the rows that name no Message or the rule
 /// written twice.
 fn activity_sequence(activity: &Activity) -> i64 {
-    activity.position * EVENTS_PER_CHANGE + i64::from(activity.ordinal) + 1
+    activity.position * EVENTS_PER_CHANGE + activity_slot(activity) + 1
 }
+
+/// The slot a row owns inside its change, above the bubble's slot 0.
+///
+/// A row a panel is derived from is written beside the call at the same Message
+/// and the same block, so the block alone numbers the two identically — and a
+/// reader that delivers each sequence once keeps whichever arrived first, always
+/// the call, because it sorts ahead of the row derived from it. The panel row is
+/// then dropped on the way out, which is every appearance and every closure of
+/// that panel.
+///
+/// So derived rows take a band above every block a Message can hold. Read off
+/// the row rather than stored on it, so rows already written are numbered by the
+/// same rule, and a snapshot and a live change go on agreeing.
+fn activity_slot(activity: &Activity) -> i64 {
+    let ordinal = i64::from(activity.ordinal);
+    match activity.kind {
+        ActivityKind::UserInputRequested | ActivityKind::PlanUpdated => DERIVED_SLOT_BASE + ordinal,
+        _ => ordinal,
+    }
+}
+
+/// Where the derived rows' slots begin. Above any block count a Message reaches,
+/// and low enough that the band itself stays inside [`EVENTS_PER_CHANGE`].
+const DERIVED_SLOT_BASE: i64 = 512;
 
 /// The Turn this Message belongs to, in T3's identity for one.
 fn turn_reference(conversation: &Conversation, message: &TranscriptMessage) -> Value {
@@ -3531,6 +3560,88 @@ mod tests {
                 item["event"].clone()
             })
             .collect()
+    }
+
+    /// A call and the panel row derived from it are two rows in one change, and
+    /// each needs a sequence of its own.
+    ///
+    /// The feed delivers an item only when its sequence is past the last it
+    /// delivered, so two rows sharing one costs the second row entirely — and
+    /// the panel row is always the second, because it sorts after the call it is
+    /// derived from. That is the panel's every appearance and every closure.
+    #[test]
+    fn a_panel_row_and_its_call_do_not_share_one_sequence() {
+        let mut call = activity("msg-2", 2, 0, ActivityKind::ToolCall, "AskUserQuestion");
+        call.tool_use_id = Some("call-1".to_string());
+        call.status = ActivityStatus::Completed;
+
+        let mut panel = activity("msg-2", 2, 0, ActivityKind::UserInputRequested, "Question");
+        panel.activity_id = "msg-2:0:user-input".to_string();
+        panel.payload = json!({
+            "requestId": "call-1",
+            "questions": [{
+                "id": "Which store?",
+                "header": "Storage",
+                "question": "Which store?",
+                "multiSelect": false,
+                "options": [{ "label": "Postgres", "description": "Already deployed." }]
+            }]
+        });
+
+        let window = transcript(Vec::new(), vec![call, panel]);
+        let emitted = events(&change(2, Some("msg-2")), &window);
+
+        let sequences: Vec<i64> = emitted
+            .iter()
+            .map(|event| event["sequence"].as_i64().expect("a sequence"))
+            .collect();
+        let unique: HashSet<i64> = sequences.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            sequences.len(),
+            "each row needs its own sequence, got {sequences:?}"
+        );
+    }
+
+    /// A change's items climb, so a reader that delivers each sequence once
+    /// keeps all of them.
+    ///
+    /// A derived row's slot sits above the blocks, so in row order it lands
+    /// between two of them — and a reader comparing against the last sequence it
+    /// delivered would drop every block after it, which is the rest of the turn.
+    #[test]
+    fn a_changes_items_climb_so_a_later_block_survives_a_derived_row() {
+        let mut call = activity("msg-2", 2, 0, ActivityKind::ToolCall, "AskUserQuestion");
+        call.tool_use_id = Some("call-1".to_string());
+
+        let mut panel = activity("msg-2", 2, 0, ActivityKind::UserInputRequested, "Question");
+        panel.activity_id = "msg-2:0:user-input".to_string();
+        panel.payload = json!({
+            "requestId": "call-1",
+            "questions": [{
+                "id": "Which store?",
+                "header": "Storage",
+                "question": "Which store?",
+                "multiSelect": false,
+                "options": [{ "label": "Postgres", "description": "Already deployed." }]
+            }]
+        });
+
+        // The block after the one the question was asked on.
+        let mut later = activity("msg-2", 2, 1, ActivityKind::ToolCall, "Bash");
+        later.tool_use_id = Some("call-2".to_string());
+
+        let window = transcript(Vec::new(), vec![call, panel, later]);
+        let emitted = events(&change(2, Some("msg-2")), &window);
+
+        let sequences: Vec<i64> = emitted
+            .iter()
+            .map(|event| event["sequence"].as_i64().expect("a sequence"))
+            .collect();
+        let mut climbing = sequences.clone();
+        climbing.sort_unstable();
+        assert_eq!(sequences, climbing, "items must be emitted in sequence order");
+        assert_eq!(sequences.len(), 3, "every row reaches the reader");
     }
 
     #[test]
