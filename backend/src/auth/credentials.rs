@@ -19,7 +19,7 @@ use super::github::service::GitHubAppService;
 use super::models::ProviderToken;
 use super::provider_token_dao::ProviderTokenDao;
 use super::provider_tokens::{
-    ProviderTokenAuthDao, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
+    AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF, ProviderTokenAuthDao,
 };
 use super::token_refresh::ensure_fresh_token;
 use crate::credentials::github::scope::GitHubScope;
@@ -475,7 +475,7 @@ async fn mint_installation_token(
             ))
         })?;
         return app
-            .get_repository_installation_token(installation_id, repository)
+            .get_repository_installation_token(installation_id, owner, repository)
             .await;
     }
 
@@ -492,7 +492,7 @@ async fn mint_installation_token(
 mod tests {
     use super::*;
     use crate::auth::provider_tokens::SECRET_REF_TOKEN_PLACEHOLDER;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use crate::auth::test_support::{StubProviderTokens, github_row};
     use crate::secret::test_support::{secret, service_with};
 
     async fn resolve(

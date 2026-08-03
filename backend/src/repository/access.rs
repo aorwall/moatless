@@ -2,6 +2,7 @@
 
 use moatless_backend_core::scope::Scope;
 
+use crate::auth::error::AuthError;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
@@ -117,7 +118,22 @@ pub(crate) async fn resolve_repository_github_token_with(
         &repo_name,
     )
     .await
-    .map_err(|e| RepositoryError::ProviderError(format!("GitHub token resolution failed: {e}")))
+    .map_err(repository_token_resolution_error)
+}
+
+fn repository_token_resolution_error(error: AuthError) -> RepositoryError {
+    match &error {
+        AuthError::Forbidden => RepositoryError::Forbidden(
+            "GitHub App installation cannot access this repository".to_string(),
+        ),
+        AuthError::Config(message)
+            if message.contains("does not have access to repository")
+                || message.contains("does not match bound GitHub installation account") =>
+        {
+            RepositoryError::Forbidden(message.clone())
+        }
+        _ => RepositoryError::ProviderError(format!("GitHub token resolution failed: {error}")),
+    }
 }
 
 /// Parse a supported GitHub remote URL into `(owner, repository)`.

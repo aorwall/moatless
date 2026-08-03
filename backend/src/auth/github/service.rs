@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -48,6 +48,7 @@ pub struct GitHubAppService {
     client_id: Option<String>,
     client_secret: Option<String>,
     default_installation_id: Option<u64>,
+    api_base: String,
     http: reqwest::Client,
     token_cache: RwLock<HashMap<u64, CachedToken>>,
     repository_token_cache: RwLock<HashMap<(u64, String), CachedToken>>,
@@ -69,6 +70,17 @@ struct AppJwtClaims {
 struct InstallationTokenResponse {
     token: String,
     expires_at: String,
+}
+
+#[derive(Deserialize)]
+struct InstallationRepositoriesResponse {
+    repositories: Vec<InstallationRepository>,
+}
+
+#[derive(Deserialize)]
+struct InstallationRepository {
+    id: u64,
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -210,6 +222,7 @@ impl GitHubAppService {
             client_id,
             client_secret,
             default_installation_id,
+            api_base: crate::adapters::github_pr::api::api_base(),
             http,
             token_cache: RwLock::new(HashMap::new()),
             repository_token_cache: RwLock::new(HashMap::new()),
@@ -221,6 +234,12 @@ impl GitHubAppService {
     /// Stable registry key for this App.
     pub fn key(&self) -> &str {
         &self.key
+    }
+
+    #[cfg(test)]
+    fn with_api_base(mut self, api_base: String) -> Self {
+        self.api_base = api_base.trim().trim_end_matches('/').to_string();
+        self
     }
 
     /// Generate a short-lived JWT for authenticating as the GitHub App.
@@ -259,7 +278,7 @@ impl GitHubAppService {
             .http
             .post(format!(
                 "{}/app/installations/{installation_id}/access_tokens",
-                crate::adapters::github_pr::api::api_base()
+                self.api_base
             ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
@@ -309,6 +328,7 @@ impl GitHubAppService {
     pub async fn get_repository_installation_token(
         &self,
         installation_id: u64,
+        owner: &str,
         repository: &str,
     ) -> Result<String, AuthError> {
         let cache_key = (installation_id, repository.to_ascii_lowercase());
@@ -331,7 +351,7 @@ impl GitHubAppService {
             .http
             .post(format!(
                 "{}/app/installations/{installation_id}/access_tokens",
-                crate::adapters::github_pr::api::api_base()
+                self.api_base
             ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
@@ -345,19 +365,35 @@ impl GitHubAppService {
                 ))
             })?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
+        let data = if resp.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
             let body = resp.text().await.unwrap_or_default();
-            return Err(AuthError::OAuth(format!(
-                "GitHub repository installation token request returned {status}: {body}"
-            )));
-        }
+            debug!(
+                installation_id,
+                owner,
+                repository,
+                github_response = %body,
+                "GitHub rejected repository-name restricted token; retrying with repository id"
+            );
+            let repository_id = self
+                .find_installation_repository_id(installation_id, owner, repository)
+                .await?;
+            self.get_repository_installation_token_by_id(installation_id, repository_id)
+                .await?
+        } else {
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(AuthError::OAuth(format!(
+                    "GitHub repository installation token request returned {status}: {body}"
+                )));
+            }
 
-        let data: InstallationTokenResponse = resp.json().await.map_err(|e| {
-            AuthError::OAuth(format!(
-                "Failed to parse GitHub repository installation token response: {e}"
-            ))
-        })?;
+            resp.json().await.map_err(|e| {
+                AuthError::OAuth(format!(
+                    "Failed to parse GitHub repository installation token response: {e}"
+                ))
+            })?
+        };
         let expires_at = data
             .expires_at
             .parse::<DateTime<Utc>>()
@@ -377,6 +413,105 @@ impl GitHubAppService {
         Ok(data.token)
     }
 
+    async fn get_repository_installation_token_by_id(
+        &self,
+        installation_id: u64,
+        repository_id: u64,
+    ) -> Result<InstallationTokenResponse, AuthError> {
+        let app_jwt = self.generate_app_jwt()?;
+        let resp = self
+            .http
+            .post(format!(
+                "{}/app/installations/{installation_id}/access_tokens",
+                self.api_base
+            ))
+            .header("Authorization", format!("Bearer {app_jwt}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "moatless-vibe-backend")
+            .json(&serde_json::json!({ "repository_ids": [repository_id] }))
+            .send()
+            .await
+            .map_err(|e| {
+                AuthError::OAuth(format!(
+                    "GitHub repository-id installation token request failed: {e}"
+                ))
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AuthError::OAuth(format!(
+                "GitHub repository-id installation token request returned {status}: {body}"
+            )));
+        }
+
+        resp.json().await.map_err(|e| {
+            AuthError::OAuth(format!(
+                "Failed to parse GitHub repository-id installation token response: {e}"
+            ))
+        })
+    }
+
+    async fn find_installation_repository_id(
+        &self,
+        installation_id: u64,
+        owner: &str,
+        repository: &str,
+    ) -> Result<u64, AuthError> {
+        let token = self.get_installation_token(installation_id).await?;
+        let mut page = 1u32;
+        loop {
+            let resp = self
+                .http
+                .get(format!(
+                    "{}/installation/repositories?per_page=100&page={page}",
+                    self.api_base
+                ))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "moatless-vibe-backend")
+                .send()
+                .await
+                .map_err(|e| {
+                    AuthError::OAuth(format!(
+                        "GitHub installation repositories request failed: {e}"
+                    ))
+                })?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(AuthError::OAuth(format!(
+                    "GitHub installation repositories request returned {status}: {body}"
+                )));
+            }
+
+            let has_next_page = has_next_page(resp.headers());
+            let data: InstallationRepositoriesResponse = resp.json().await.map_err(|e| {
+                AuthError::OAuth(format!(
+                    "Failed to parse GitHub installation repositories response: {e}"
+                ))
+            })?;
+            if let Some(repository) = data
+                .repositories
+                .into_iter()
+                .find(|entry| entry.name.eq_ignore_ascii_case(repository))
+            {
+                return Ok(repository.id);
+            }
+            if !has_next_page {
+                break;
+            }
+            page += 1;
+        }
+
+        Err(AuthError::Config(format!(
+            "GitHub App installation {installation_id} for account '{owner}' does not have access \
+             to repository '{repository}'. Update the App installation on GitHub to include that \
+             repository, or bind a different installation."
+        )))
+    }
+
     /// Get an installation token using the default installation ID.
     pub async fn get_default_installation_token(&self) -> Result<String, AuthError> {
         let id = self.default_installation_id.ok_or_else(|| {
@@ -391,10 +526,7 @@ impl GitHubAppService {
 
         let resp = self
             .http
-            .get(format!(
-                "{}/app/installations",
-                crate::adapters::github_pr::api::api_base()
-            ))
+            .get(format!("{}/app/installations", self.api_base))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
@@ -425,7 +557,7 @@ impl GitHubAppService {
             .http
             .get(format!(
                 "{}/app/installations/{installation_id}",
-                crate::adapters::github_pr::api::api_base()
+                self.api_base
             ))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
@@ -455,10 +587,7 @@ impl GitHubAppService {
         let app_jwt = self.generate_app_jwt()?;
         let resp = self
             .http
-            .get(format!(
-                "{}/app",
-                crate::adapters::github_pr::api::api_base()
-            ))
+            .get(format!("{}/app", self.api_base))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
@@ -510,10 +639,7 @@ impl GitHubAppService {
         let app_jwt = self.generate_app_jwt()?;
         let resp = self
             .http
-            .get(format!(
-                "{}/app",
-                crate::adapters::github_pr::api::api_base()
-            ))
+            .get(format!("{}/app", self.api_base))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
@@ -621,14 +747,8 @@ impl GitHubAppService {
         let app_jwt = self.generate_app_jwt()?;
 
         for endpoint in [
-            format!(
-                "{}/orgs/{owner}/installation",
-                crate::adapters::github_pr::api::api_base()
-            ),
-            format!(
-                "{}/users/{owner}/installation",
-                crate::adapters::github_pr::api::api_base()
-            ),
+            format!("{}/orgs/{owner}/installation", self.api_base),
+            format!("{}/users/{owner}/installation", self.api_base),
         ] {
             let resp = self
                 .http
@@ -688,10 +808,7 @@ impl GitHubAppService {
         let app_jwt = self.generate_app_jwt()?;
         let meta_resp = self
             .http
-            .get(format!(
-                "{}/app",
-                crate::adapters::github_pr::api::api_base()
-            ))
+            .get(format!("{}/app", self.api_base))
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
@@ -713,10 +830,7 @@ impl GitHubAppService {
         let bot_login = format!("{}[bot]", meta.slug);
         let user_resp = self
             .http
-            .get(format!(
-                "{}/users/{bot_login}",
-                crate::adapters::github_pr::api::api_base()
-            ))
+            .get(format!("{}/users/{bot_login}", self.api_base))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
             .send()
@@ -747,6 +861,17 @@ impl GitHubAppService {
         *self.bot_identity.write().await = Some(identity.clone());
         Ok(identity)
     }
+}
+
+fn has_next_page(headers: &reqwest::header::HeaderMap) -> bool {
+    headers
+        .get(reqwest::header::LINK)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(',')
+                .any(|link| link.split(';').any(|part| part.trim() == r#"rel="next""#))
+        })
 }
 
 /// Turn GitHub's refusal of `GET /app` into something an admin can act on.
@@ -790,9 +915,129 @@ fn refusal(status: reqwest::StatusCode, body: &str, app_id: u64) -> AuthError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+
+    use axum::Json;
+    use axum::body::Bytes;
+    use axum::extract::{Query, State};
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+    use axum::routing::{get, post};
+    use tokio::sync::Mutex;
 
     /// GitHub's own words for the case this was written for.
     const INTEGRATION_NOT_FOUND: &str = r#"{"message":"Integration not found","status":"404"}"#;
+    const TEST_PEM: &str = include_str!("testdata/github_app_test_key.pem");
+
+    fn test_app() -> GitHubAppService {
+        let config = GitHubAppConfig {
+            key: "review-bot".to_string(),
+            app_id: 42,
+            private_key: TEST_PEM.to_string(),
+            client_id: None,
+            client_secret: None,
+            default_installation_id: None,
+        };
+        GitHubAppService::from_app_config(&config).expect("test key parses")
+    }
+
+    fn token_response(token: &str) -> serde_json::Value {
+        serde_json::json!({
+            "token": token,
+            "expires_at": "2099-01-01T00:00:00Z",
+        })
+    }
+
+    async fn github_token_stub(
+        repositories: Vec<serde_json::Value>,
+    ) -> (SocketAddr, Arc<Mutex<Vec<serde_json::Value>>>) {
+        github_token_stub_pages(vec![repositories]).await
+    }
+
+    async fn github_token_stub_pages(
+        pages: Vec<Vec<serde_json::Value>>,
+    ) -> (SocketAddr, Arc<Mutex<Vec<serde_json::Value>>>) {
+        let requests = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let pages = Arc::new(pages);
+        let app = axum::Router::new()
+            .route(
+                "/app/installations/42/access_tokens",
+                post(
+                    |State(requests): State<Arc<Mutex<Vec<serde_json::Value>>>>,
+                     body: Bytes| async move {
+                        let request = if body.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::from_slice(&body).expect("request body is json")
+                        };
+                        requests.lock().await.push(request.clone());
+
+                        if request.get("repositories").is_some() {
+                            return (
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                Json(serde_json::json!({
+                                    "message": "There is at least one repository that does not exist or is not accessible to the parent installation.",
+                                    "status": "422",
+                                })),
+                            );
+                        }
+                        if request.get("repository_ids").is_some() {
+                            return (StatusCode::CREATED, Json(token_response("repo-id-token")));
+                        }
+                        (
+                            StatusCode::CREATED,
+                            Json(token_response("installation-token")),
+                        )
+                    },
+                ),
+            )
+            .route(
+                "/installation/repositories",
+                get({
+                    let pages = Arc::clone(&pages);
+                    move |Query(query): Query<HashMap<String, String>>| {
+                        let pages = Arc::clone(&pages);
+                        async move {
+                            let page = query
+                                .get("page")
+                                .and_then(|value| value.parse::<usize>().ok())
+                                .unwrap_or(1);
+                            let repositories = pages
+                                .get(page.saturating_sub(1))
+                                .cloned()
+                                .unwrap_or_default();
+                            let body = serde_json::json!({ "repositories": repositories });
+                            if page < pages.len() {
+                                (
+                                    [(
+                                        header::LINK,
+                                        format!(
+                                            "<http://github.test/installation/repositories?page={}>; rel=\"next\"",
+                                            page + 1
+                                        ),
+                                    )],
+                                    Json(body),
+                                )
+                                    .into_response()
+                            } else {
+                                Json(body).into_response()
+                            }
+                        }
+                    }
+                }),
+            )
+            .with_state(requests.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind stub");
+        let addr = listener.local_addr().expect("stub addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve stub");
+        });
+        (addr, requests)
+    }
 
     #[test]
     fn a_404_says_which_number_is_wanted_rather_than_repeating_the_status() {
@@ -848,5 +1093,75 @@ mod tests {
 
         assert!(message.contains("502"), "{message}");
         assert!(!message.contains("<html>"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn repository_token_retries_422_with_repository_id() {
+        let (addr, requests) = github_token_stub(vec![serde_json::json!({
+            "id": 987,
+            "name": "Repo",
+        })])
+        .await;
+
+        let token = test_app()
+            .with_api_base(format!("http://{addr}"))
+            .get_repository_installation_token(42, "Acme", "repo")
+            .await
+            .expect("repository-id retry succeeds");
+
+        assert_eq!(token, "repo-id-token");
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 3, "name request, unscoped token, id retry");
+        assert_eq!(requests[0], serde_json::json!({ "repositories": ["repo"] }));
+        assert_eq!(requests[1], serde_json::Value::Null);
+        assert_eq!(requests[2], serde_json::json!({ "repository_ids": [987] }));
+    }
+
+    #[tokio::test]
+    async fn repository_token_follows_github_pagination_to_late_pages() {
+        let mut pages: Vec<Vec<serde_json::Value>> = (0..20)
+            .map(|index| {
+                vec![serde_json::json!({
+                    "id": index,
+                    "name": format!("other-repo-{index}"),
+                })]
+            })
+            .collect();
+        pages.push(vec![serde_json::json!({
+            "id": 987,
+            "name": "repo",
+        })]);
+        let (addr, _requests) = github_token_stub_pages(pages).await;
+
+        let token = test_app()
+            .with_api_base(format!("http://{addr}"))
+            .get_repository_installation_token(42, "Acme", "repo")
+            .await
+            .expect("late-page repository-id retry succeeds");
+
+        assert_eq!(token, "repo-id-token");
+    }
+
+    #[tokio::test]
+    async fn repository_token_names_installation_access_gap() {
+        let (addr, _requests) = github_token_stub(vec![serde_json::json!({
+            "id": 123,
+            "name": "other-repo",
+        })])
+        .await;
+
+        let error = test_app()
+            .with_api_base(format!("http://{addr}"))
+            .get_repository_installation_token(42, "Acme", "repo")
+            .await
+            .expect_err("missing selected repository is an access error");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("does not have access to repository 'repo'"),
+            "{message}"
+        );
+        assert!(message.contains("installation 42"), "{message}");
+        assert!(message.contains("account 'Acme'"), "{message}");
     }
 }
