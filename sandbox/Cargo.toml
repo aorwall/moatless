@@ -68,6 +68,11 @@ ignore = "0.4"
 # Tar archives for the Claude transcript sync (projects/<dashed-cwd>/ → S3)
 tar = "0.4"
 
+# Gzip for the workspace snapshot: source trees compress several-fold, which
+# cuts both the S3 transfer and the tar's in-memory footprint. `rust_backend`
+# keeps this pure Rust (miniz_oxide) with no C toolchain dependency.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
 # Filesystem watch (detects Codex CLI rotating ~/.codex/auth.json so we can
 # write the rotated refresh token back to the backend).
 notify = "8"

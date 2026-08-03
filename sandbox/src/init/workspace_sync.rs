@@ -34,6 +34,11 @@
 //!   detects it and extracts onto `repo_dir`. The next upload writes the
 //!   multi-repo, workspace-relative shape.
 //!
+//! The archive is written as a **gzipped** tar. Source trees compress
+//! several-fold, cutting both the S3 transfer and the heap the snapshot holds
+//! while it is built. Restore detects the gzip magic, so an archive stored
+//! without compression still extracts.
+//!
 //! Unlike the transcript sync, the workspace tar can be large, so it is *not*
 //! proxied through the backend. The sandbox stays AWS-credential-less: the
 //! backend mints short-lived presigned PUT/GET URLs scoped to exactly this
@@ -54,9 +59,13 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -76,6 +85,10 @@ const DEFAULT_INTERVAL_SECS: u64 = 300;
 /// period (shared with the transcript flush) — a stuck upload must never block
 /// the drain.
 const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Leading bytes of a gzip member, used to tell a compressed archive from a
+/// plain tar on restore.
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 /// Per-transfer HTTP timeout for the direct-to-S3 PUT/GET. Generous enough for a
 /// large tar on a slow in-cluster link, but bounded so a stuck transfer can't
@@ -486,7 +499,7 @@ fn rel_from(root: &Path, path: &Path) -> String {
 /// verbatim and every other directory is walked, so all non-repo data under the
 /// workspace is captured. Symlinks and other non-regular files are skipped
 /// (never followed), so the walk can't loop or escape `root`.
-fn append_tree(builder: &mut tar::Builder<Vec<u8>>, root: &Path, dir: &Path) -> bool {
+fn append_tree<W: std::io::Write>(builder: &mut tar::Builder<W>, root: &Path, dir: &Path) -> bool {
     // A git repo root: enumerate via git (honors gitignore) and stop descending.
     if dir.join(".git").is_dir() {
         return append_repo(builder, dir, &rel_from(root, dir));
@@ -536,7 +549,11 @@ fn join_prefix(prefix: &str, rel: &str) -> String {
 /// `dist`, `target`, …) are excluded. The `.git` directory is then appended
 /// wholesale (it is never gitignored), making each repo a *complete* repo on
 /// restore: exact HEAD, index, refs and dirty working tree.
-fn append_repo(builder: &mut tar::Builder<Vec<u8>>, repo_dir: &Path, prefix: &str) -> bool {
+fn append_repo<W: std::io::Write>(
+    builder: &mut tar::Builder<W>,
+    repo_dir: &Path,
+    prefix: &str,
+) -> bool {
     let output = match std::process::Command::new("git")
         .arg("-C")
         .arg(repo_dir)
@@ -585,26 +602,46 @@ fn append_repo(builder: &mut tar::Builder<Vec<u8>>, repo_dir: &Path, prefix: &st
     any
 }
 
-/// Build an in-memory tar of all data under `workspace_dir` (git repos
-/// enumerated with gitignore honored, everything else included verbatim), or
-/// `None` when there's nothing to archive. Entries are stored at their
+/// Build an in-memory **gzipped** tar of all data under `workspace_dir` (git
+/// repos enumerated with gitignore honored, everything else included verbatim),
+/// or `None` when there's nothing to archive. Entries are stored at their
 /// workspace-relative path so the archive untars location-independently onto
 /// `workspace_dir`. Runs on a blocking thread (blocking `git` subprocess + `tar`
-/// + `std::fs`).
+/// + `std::fs` + deflate).
+///
+/// Tar entries stream straight into the encoder, so the uncompressed archive is
+/// never held in memory — only the compressed result is. Source trees compress
+/// several-fold, which shrinks both the S3 transfer and the heap this allocates
+/// inside a sandbox whose memory pressure is what makes the snapshot matter.
 async fn build_tar(workspace_dir: PathBuf) -> Option<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
         if !workspace_dir.is_dir() {
             return None;
         }
-        let mut builder = tar::Builder::new(Vec::new());
+        let encoder = GzEncoder::new(Vec::new(), Compression::default());
+        let mut builder = tar::Builder::new(encoder);
         if !append_tree(&mut builder, &workspace_dir, &workspace_dir) {
             return None;
         }
-        builder.into_inner().ok()
+        builder.into_inner().ok()?.finish().ok()
     })
     .await
     .ok()
     .flatten()
+}
+
+/// Return the plain tar bytes for an archive that may or may not be gzipped.
+///
+/// Archives are written gzipped; a stored archive without the gzip magic is
+/// passed through untouched so it still restores. Runs inside the caller's
+/// blocking context.
+fn decompress_if_gzip(bytes: Vec<u8>) -> std::io::Result<Vec<u8>> {
+    if !bytes.starts_with(&GZIP_MAGIC) {
+        return Ok(bytes);
+    }
+    let mut decoded = Vec::new();
+    GzDecoder::new(std::io::Cursor::new(bytes)).read_to_end(&mut decoded)?;
+    Ok(decoded)
 }
 
 /// Fingerprint the workspace's snapshot content without reading file bodies.
@@ -755,6 +792,7 @@ async fn extract_workspace(
     primary_prefix: String,
 ) -> std::io::Result<bool> {
     tokio::task::spawn_blocking(move || {
+        let bytes = decompress_if_gzip(bytes)?;
         let sub_marker = if primary_prefix.is_empty() {
             String::new()
         } else {
@@ -820,6 +858,7 @@ async fn extract_workspace(
 /// rejects path-traversal (`..`) entries by default.
 async fn extract_tar(bytes: Vec<u8>, dir: PathBuf) -> std::io::Result<()> {
     tokio::task::spawn_blocking(move || {
+        let bytes = decompress_if_gzip(bytes)?;
         let mut archive = tar::Archive::new(std::io::Cursor::new(bytes));
         archive.unpack(&dir)
     })
@@ -972,6 +1011,84 @@ mod tests {
             after_commit,
             workspace_fingerprint(ws.clone()).await.unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn archive_is_gzipped_and_smaller_than_the_plain_tar() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let repo = tmp.path().join("repo");
+        init_repo(&repo);
+        // Compressible, repetitive source content.
+        tokio::fs::write(repo.join("main.rs"), "fn main() {}\n".repeat(500))
+            .await
+            .unwrap();
+        git_add(&repo, &["main.rs"]);
+
+        let archive = build_tar(repo.clone()).await.expect("archive built");
+        assert!(
+            archive.starts_with(&GZIP_MAGIC),
+            "archive must be gzipped for the S3 transfer"
+        );
+
+        let plain = decompress_if_gzip(archive.clone()).unwrap();
+        assert!(
+            archive.len() < plain.len(),
+            "gzip must shrink the payload: {} compressed vs {} plain",
+            archive.len(),
+            plain.len()
+        );
+
+        // And it still restores to the same content.
+        let dst = tmp.path().join("restored");
+        tokio::fs::create_dir_all(&dst).await.unwrap();
+        extract_tar(archive, dst.clone()).await.unwrap();
+        assert_eq!(
+            tokio::fs::read_to_string(dst.join("main.rs"))
+                .await
+                .unwrap(),
+            "fn main() {}\n".repeat(500)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_uncompressed_archive_still_restores() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let repo = tmp.path().join("src-repo");
+        init_repo(&repo);
+        tokio::fs::write(repo.join("a.txt"), b"hi\n").await.unwrap();
+        git_add(&repo, &["a.txt"]);
+
+        // A plain (non-gzipped) tar of the repo at the archive root.
+        let plain_tar = tokio::task::spawn_blocking({
+            let repo = repo.clone();
+            move || {
+                let mut builder = tar::Builder::new(Vec::new());
+                builder.append_dir_all(".", &repo).unwrap();
+                builder.into_inner().unwrap()
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!plain_tar.starts_with(&GZIP_MAGIC));
+
+        let ws = tmp.path().join("ws");
+        let repo_dir = ws.join("primary");
+        tokio::fs::create_dir_all(&repo_dir).await.unwrap();
+        let restored = extract_workspace(
+            plain_tar,
+            ws.clone(),
+            repo_dir.clone(),
+            "primary".to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            restored,
+            "an uncompressed snapshot must still be restorable"
+        );
+        assert!(repo_dir.join("a.txt").exists());
+        assert!(repo_dir.join(".git").is_dir());
     }
 
     #[tokio::test]
