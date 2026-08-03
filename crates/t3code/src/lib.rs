@@ -80,7 +80,7 @@ use tracing::{Instrument, debug, error, info, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::agent::catalog::UiRpcAgentKind;
-use crate::dao::ConversationDao;
+use crate::dao::{ConversationDao, Transcript};
 use crate::data::{T3TaskDao, T3WorkspaceDao};
 use crate::listing::{UiRpcEnvironmentIdentity, UiRpcResume};
 use crate::preview::{PreviewError, PreviewState};
@@ -239,6 +239,9 @@ struct UiRpcState {
     /// the database says it is on each resume; see [`task_listing::resume`].
     environment: Arc<UiRpcEnvironmentIdentity>,
     session_cookie_name: Arc<str>,
+    /// This deployment's own web address, for the one link this module builds —
+    /// a Task origin's link back into the Moatless UI.
+    frontend_url: Arc<str>,
     /// Signs WebSocket tickets. Absent when the deployment configures no JWT
     /// secret, which is the same condition under which session cookies do not
     /// work either; the ticket route then answers that it cannot issue one.
@@ -274,6 +277,25 @@ struct UiRpcState {
     terminal: terminal::TerminalHub,
 }
 
+/// What this deployment is, for the parts of a thread projection that are not
+/// read out of the conversation: the agent settings a thread reports where it
+/// states none of its own, and the address a link back into Moatless is built
+/// from. Grouped so a thread projection takes one value rather than two more
+/// positional arguments.
+pub struct Deployment<'a> {
+    pub model_defaults: &'a AgentModelDefaults,
+    pub frontend_url: &'a str,
+}
+
+impl UiRpcState {
+    fn deployment(&self) -> Deployment<'_> {
+        Deployment {
+            model_defaults: &self.model_defaults,
+            frontend_url: &self.frontend_url,
+        }
+    }
+}
+
 /// Build the T3 compatibility router when its environment gate is enabled.
 ///
 /// Configuration stays at this HTTP boundary rather than becoming part of
@@ -307,6 +329,7 @@ pub async fn router_from_env(
         branches,
         commands,
         otlp_traces_enabled,
+        frontend_url,
     } = dependencies;
     let environment = conversations.listing_head().await?.identity;
     let config = UiRpcConfig {
@@ -329,6 +352,7 @@ pub async fn router_from_env(
         rpc: Arc::new(config),
         environment: Arc::new(environment),
         session_cookie_name: Arc::from(session_cookie_name),
+        frontend_url: Arc::from(frontend_url),
         session_jwt_secret: session_jwt_secret.map(Arc::from),
         pairing,
         workspaces,
@@ -399,6 +423,9 @@ pub struct UiRpcDependencies {
     /// configured — see `config::OtelConfig`), reported to the client as
     /// `observability.otlpTracesEnabled`.
     pub otlp_traces_enabled: bool,
+    /// This deployment's own web address (`config.frontend_url`), for the link a
+    /// Task origin carries back into the Moatless UI.
+    pub frontend_url: String,
 }
 
 /// The identity this deployment presents itself by: a configured name, and a
@@ -563,7 +590,7 @@ async fn thread_snapshot_http(
     match thread_snapshot(
         state.workspaces.as_ref(),
         state.conversations.as_ref(),
-        &state.model_defaults,
+        &state.deployment(),
         &viewer_scope(&identity),
         &thread_id,
     )
@@ -662,7 +689,7 @@ pub async fn shell_snapshot(
 pub async fn thread_snapshot(
     workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
-    model_defaults: &AgentModelDefaults,
+    deployment: &Deployment<'_>,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Option<ThreadSnapshot>, sqlx::Error> {
@@ -706,12 +733,46 @@ pub async fn thread_snapshot(
             "thread": projection::thread_detail(
                 &conversation,
                 project_id,
-                model_defaults,
+                deployment.model_defaults,
                 &transcript,
+                &projection::OriginContext {
+                    frontend_url: deployment.frontend_url,
+                    source_task_names: &source_task_names(conversations, viewer, &transcript).await,
+                },
             )
         }),
         head,
     }))
+}
+
+/// The names of the Tasks a window's Messages came from, by task id.
+///
+/// One scoped read, and only when a Message in the window came from another
+/// Task at all — which nearly none do. A failure here costs the origins their
+/// label and their link; it must not cost the reader the conversation, so it is
+/// logged and answered with nothing.
+async fn source_task_names(
+    conversations: &dyn ConversationDao,
+    viewer: &ScopeContext,
+    window: &Transcript,
+) -> std::collections::HashMap<String, String> {
+    let mut ids: Vec<String> = window
+        .messages
+        .iter()
+        .filter_map(|message| message.source_task_id.clone())
+        .collect();
+    if ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    ids.sort();
+    ids.dedup();
+    match conversations.source_task_names(viewer, &ids).await {
+        Ok(names) => names,
+        Err(error) => {
+            warn!(%error, "T3 UI could not resolve the names of source tasks; origins go unlabelled");
+            std::collections::HashMap::new()
+        }
+    }
 }
 
 /// One conversation as the client receives it, and the position it was built
@@ -753,7 +814,7 @@ pub struct ThreadSnapshot {
 pub async fn thread_subscription(
     workspaces: &dyn T3WorkspaceDao,
     conversations: &dyn ConversationDao,
-    model_defaults: &AgentModelDefaults,
+    deployment: &Deployment<'_>,
     viewer: &ScopeContext,
     task_id: &str,
     after: Option<i64>,
@@ -779,7 +840,10 @@ pub async fn thread_subscription(
             return Ok(None);
         }
         let mut feed = ThreadFeed::resuming_from(task_id.to_string(), cursor);
-        let Some(values) = feed.poll(conversations, viewer).await? else {
+        let Some(values) = feed
+            .poll(conversations, viewer, deployment.frontend_url)
+            .await?
+        else {
             return Ok(None);
         };
         debug!(
@@ -796,7 +860,7 @@ pub async fn thread_subscription(
     }
 
     let Some(snapshot) =
-        thread_snapshot(workspaces, conversations, model_defaults, viewer, task_id).await?
+        thread_snapshot(workspaces, conversations, deployment, viewer, task_id).await?
     else {
         return Ok(None);
     };
@@ -2250,7 +2314,7 @@ impl ProtocolSession {
                 let opened = match thread_subscription(
                     state.workspaces.as_ref(),
                     state.conversations.as_ref(),
-                    &state.model_defaults,
+                    &state.deployment(),
                     &viewer,
                     &task_id,
                     after_sequence(&payload),
@@ -2550,7 +2614,9 @@ impl ProtocolSession {
     ) {
         loop {
             tokio::time::sleep(THREAD_POLL_INTERVAL).await;
-            let polled = feed.poll(state.conversations.as_ref(), &viewer).await;
+            let polled = feed
+                .poll(state.conversations.as_ref(), &viewer, &state.frontend_url)
+                .await;
             let values = match polled {
                 Ok(Some(values)) => values,
                 Ok(None) => {
@@ -3494,6 +3560,7 @@ mod tests {
             }),
             environment: Arc::new(stub_identity()),
             session_cookie_name: Arc::from("moatless_session"),
+            frontend_url: Arc::from("http://localhost:3000"),
             session_jwt_secret: Some(Arc::from("test-secret")),
             pairing: Arc::new(test_pairing(None)),
             workspaces: Arc::new(workspaces),

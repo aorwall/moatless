@@ -237,6 +237,7 @@ mod tests {
                 thread_id: Some("1700000000.000100".into()),
                 message_thread_id: "1700000000.000100".into(),
                 user_id: "user-1".into(),
+                author: Some("@ada".into()),
                 text: "hello".into(),
                 file_ids: vec!["f1".into()],
                 thread_properties: serde_json::json!({ "channel": "C1" }),
@@ -286,6 +287,24 @@ mod tests {
             original.message.external_event_id
         );
         assert_eq!(read.message.source_task_id, original.message.source_task_id);
+        assert_eq!(read.message.author, original.message.author);
+    }
+
+    /// A record the previous build wrote, executed by this one mid-deploy. It
+    /// names no author, and it still admits: nothing about the delivery turns
+    /// on knowing who wrote it.
+    #[test]
+    fn a_payload_written_before_the_author_was_captured_still_reads() {
+        let mut stored = serde_json::to_value(payload()).expect("payload serializes");
+        stored["message"]
+            .as_object_mut()
+            .expect("the message is an object")
+            .remove("author");
+
+        let read: InboundDeliveryPayload =
+            serde_json::from_value(stored).expect("payload reads back");
+        assert_eq!(read.message.author, None);
+        assert_eq!(read.message.text, "hello");
     }
 
     /// A payload the handler cannot read can never be read, so it must not

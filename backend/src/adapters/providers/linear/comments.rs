@@ -93,6 +93,7 @@ pub(super) async fn handle_comment_created(
     }
 
     let rule = super::subject::rule_for_binding(state, recipients[0]).await?;
+    let author = super::actor_handle(comment.user.as_ref());
 
     for binding in recipients {
         // Best-effort heartbeat into the bound agent session so Linear's
@@ -131,11 +132,14 @@ pub(super) async fn handle_comment_created(
             &[],
             &[],
             true,
-            Some(&external_event_id),
-            Some(ADAPTER_LABEL),
-            Some(&binding.subject_key),
-            rule.as_ref().map(|r| r.source_matcher.as_str()),
-            None,
+            crate::message::send::ExternalOrigin {
+                event_id: Some(&external_event_id),
+                adapter: Some(ADAPTER_LABEL),
+                subject_key: Some(&binding.subject_key),
+                source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
+                author: author.as_deref(),
+                source_task_id: None,
+            },
             false,
             comment.user.as_ref().map(|u| u.id.as_str()),
             None,

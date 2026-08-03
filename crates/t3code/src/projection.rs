@@ -4,7 +4,7 @@
 //! Nothing below this module knows the vocabulary: the input is a `Workspace`
 //! row, the output is `serde_json::Value` on the wire.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{Map, Value, json};
@@ -267,6 +267,96 @@ fn thread(conversation: &Conversation, project_id: &str, defaults: &AgentModelDe
     Value::Object(row)
 }
 
+/// What the projection needs to say where a Message came from, beyond the
+/// Message row itself: the deployment's own address, for a link back into
+/// Moatless, and the names of the Tasks other Messages were authored by.
+pub(super) struct OriginContext<'a> {
+    pub frontend_url: &'a str,
+    pub source_task_names: &'a HashMap<String, String>,
+}
+
+/// The one adapter whose URL is derived rather than joined: the GitHub PR
+/// adapter is GitHub-only and its subject key carries the coordinates.
+const GITHUB_PR_ADAPTER: &str = "github_pr";
+
+/// Where one Message came from, or `None` when it came from inside T3.
+///
+/// The first arm that matches wins: a Message authored by another Task is a
+/// task origin even where it also carries adapter columns.
+fn message_origin(message: &TranscriptMessage, origins: &OriginContext<'_>) -> Option<Value> {
+    if let Some(source_task_id) = message.source_task_id.as_deref() {
+        let name = origins.source_task_names.get(source_task_id);
+        return Some(json!({
+            "kind": "task",
+            "label": name,
+            // A Task the reader cannot see yields no name and no link: a link
+            // they could not follow would be worse than none.
+            "url": name.map(|_| format!(
+                "{}/tasks/{source_task_id}",
+                origins.frontend_url.trim_end_matches('/')
+            )),
+            "user": Value::Null
+        }));
+    }
+    let adapter = message.external_adapter.as_deref()?;
+    // The handle the external system knows the writer by, or — on a row written
+    // before that was captured — the Moatless user the send resolved to.
+    let author = message
+        .external_author
+        .as_deref()
+        .or(message.sent_by_name.as_deref());
+    if adapter == GITHUB_PR_ADAPTER {
+        let label = message
+            .external_subject_key
+            .as_deref()
+            .or(message.external_source_name.as_deref());
+        return Some(json!({
+            "kind": adapter,
+            "label": label,
+            "url": github_pr_url(
+                message.external_subject_key.as_deref(),
+                message.external_event_id.as_deref()
+            ),
+            "user": author
+        }));
+    }
+    Some(json!({
+        "kind": adapter,
+        "label": message.external_source_name.as_deref(),
+        "url": message.binding_url.as_deref(),
+        "user": author
+    }))
+}
+
+/// The GitHub URL a pull-request comment opens at, from `owner/repo#N`.
+///
+/// The subject key carries the repository and PR number; the event id says
+/// which kind of comment, which is the fragment. A key that is not `owner/repo#N`
+/// yields no URL rather than a wrong one, and an event id this does not
+/// recognise — or none — leaves the reader at the pull request itself.
+fn github_pr_url(subject_key: Option<&str>, external_event_id: Option<&str>) -> Option<String> {
+    let (repo, number) = subject_key?.split_once('#')?;
+    if repo.split('/').count() != 2 || repo.split('/').any(str::is_empty) {
+        return None;
+    }
+    if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let base = format!("https://github.com/{repo}/pull/{number}");
+    let fragment = external_event_id.and_then(|id| {
+        id.strip_prefix("github:ic:")
+            .map(|comment| format!("#issuecomment-{comment}"))
+            .or_else(|| {
+                id.strip_prefix("github:rc:")
+                    .map(|comment| format!("#discussion_r{comment}"))
+            })
+    });
+    Some(match fragment {
+        Some(fragment) => format!("{base}{fragment}"),
+        None => base,
+    })
+}
+
 /// One conversation, in the shape the thread view carries: the shared row plus
 /// the transcript.
 ///
@@ -286,9 +376,10 @@ pub(super) fn thread_detail(
     project_id: &str,
     defaults: &AgentModelDefaults,
     transcript: &Transcript,
+    origins: &OriginContext<'_>,
 ) -> Value {
     let mut row = conversation_row(conversation, project_id, defaults);
-    let rendered = rendered_transcript(conversation, transcript);
+    let rendered = rendered_transcript(conversation, transcript, origins);
     // The contract requires this one to be present, and a conversation that no
     // longer exists is not projected at all — the read that would have found it
     // comes back empty and the caller answers "not found" — so null is the only
@@ -383,6 +474,7 @@ pub(super) fn change_events(
     conversation: &Conversation,
     change: &ConversationChange,
     window: &Transcript,
+    origins: &OriginContext<'_>,
 ) -> Vec<Value> {
     if let Some(activity_id) = change.activity_id.as_deref() {
         return activity_change_events(conversation, change, window, activity_id);
@@ -418,7 +510,7 @@ pub(super) fn change_events(
     let mut payloads: Vec<(usize, &str, Value)> = Vec::new();
     if let Some(message) = message {
         let turn = turn_reference(conversation, message);
-        if let Some(bubble) = message_bubble(message, &turn, &at) {
+        if let Some(bubble) = message_bubble(message, &turn, &at, origins) {
             payloads.push((
                 0,
                 MESSAGE_SENT,
@@ -524,7 +616,7 @@ fn activity_appended_payload(task_id: &str, activity: Value) -> (&'static str, V
 /// Rewriting rather than re-deriving keeps the two from drifting: whatever a
 /// snapshot would have shown is what an event says.
 fn message_sent_payload(task_id: &str, bubble: &Value) -> Value {
-    json!({
+    let mut payload = json!({
         "threadId": task_id,
         "messageId": bubble["id"],
         "role": bubble["role"],
@@ -533,7 +625,15 @@ fn message_sent_payload(task_id: &str, bubble: &Value) -> Value {
         "streaming": bubble["streaming"],
         "createdAt": bubble["createdAt"],
         "updatedAt": bubble["updatedAt"]
-    })
+    });
+    // Copied the same way as the seven above, so the delta and the snapshot are
+    // one shape: a bubble with no origin produces a payload with none.
+    if let Some(origin) = bubble.get("origin") {
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("origin".into(), origin.clone());
+        }
+    }
+    payload
 }
 
 /// One event, in the envelope every event on this contract carries.
@@ -641,7 +741,11 @@ struct RenderedTranscript {
 /// that only called tools has activities and no Message at all. Ordering is
 /// carried explicitly on each side — Message order for the bubbles, the
 /// conversation's own `position` for the work log.
-fn rendered_transcript(conversation: &Conversation, transcript: &Transcript) -> RenderedTranscript {
+fn rendered_transcript(
+    conversation: &Conversation,
+    transcript: &Transcript,
+    origins: &OriginContext<'_>,
+) -> RenderedTranscript {
     let mut rendered = RenderedTranscript {
         messages: Vec::new(),
         activities: Vec::new(),
@@ -657,7 +761,7 @@ fn rendered_transcript(conversation: &Conversation, transcript: &Transcript) -> 
         let turn = turn_reference(conversation, message);
         rendered
             .messages
-            .extend(message_bubble(message, &turn, &at));
+            .extend(message_bubble(message, &turn, &at, origins));
     }
     let surviving = surviving_context_windows(transcript);
     for activity in &transcript.activities {
@@ -721,7 +825,12 @@ fn surviving_context_windows(transcript: &Transcript) -> HashSet<&str> {
 /// Three of the four ways to contribute nothing are about *which* Message it is
 /// rather than what it holds, which is why this is a match on the type rather
 /// than a filter on the text.
-fn message_bubble(message: &TranscriptMessage, turn: &Value, at: &str) -> Option<Value> {
+fn message_bubble(
+    message: &TranscriptMessage,
+    turn: &Value,
+    at: &str,
+    origins: &OriginContext<'_>,
+) -> Option<Value> {
     let text = message.message_text.as_deref().unwrap_or_default();
     match message.message_type {
         // A leftover carrier row for tool results. Nothing writes these any
@@ -735,16 +844,26 @@ fn message_bubble(message: &TranscriptMessage, turn: &Value, at: &str) -> Option
             if message.user_type == TOOL_RESPONSE_USER_TYPE {
                 return None;
             }
-            (!text.is_empty()).then(|| message_row(message, "user", text.to_string(), turn, at))
+            // Only a `user` bubble can carry an origin: an external message is
+            // someone else speaking, and the agent's own replies are not.
+            (!text.is_empty()).then(|| {
+                message_row(
+                    message,
+                    "user",
+                    text.to_string(),
+                    turn,
+                    at,
+                    message_origin(message, origins),
+                )
+            })
         }
         MessageType::Assistant => (!text.is_empty())
-            .then(|| message_row(message, "assistant", text.to_string(), turn, at)),
+            .then(|| message_row(message, "assistant", text.to_string(), turn, at, None)),
         // A run's own closing line, from before those stopped being written as
         // Messages. Neither the person nor the agent said it, and `system` is
         // the contract's role for exactly that.
-        MessageType::Result | MessageType::Error => {
-            (!text.is_empty()).then(|| message_row(message, "system", text.to_string(), turn, at))
-        }
+        MessageType::Result | MessageType::Error => (!text.is_empty())
+            .then(|| message_row(message, "system", text.to_string(), turn, at, None)),
     }
 }
 
@@ -821,8 +940,9 @@ fn message_row(
     text: String,
     turn: &Value,
     at: &str,
+    origin: Option<Value>,
 ) -> Value {
-    json!({
+    let mut row = json!({
         // `task_messages.uuid` is unique across the deployment and is the
         // identity every other Moatless surface already refers to a Message by.
         "id": message.uuid,
@@ -836,7 +956,15 @@ fn message_row(
         // No column records a later edit, and none happens: the in-place
         // updates this table takes never touch content.
         "updatedAt": at
-    })
+    });
+    // Present only on a Message that came from outside T3. An ordinary bubble
+    // carries no `origin` key at all, byte-identical to before this field.
+    if let Some(origin) = origin {
+        if let Some(object) = row.as_object_mut() {
+            object.insert("origin".into(), origin);
+        }
+    }
+    row
 }
 
 /// One stored activity as the work-log row the contract carries.
@@ -1777,6 +1905,10 @@ mod tests {
             "ws-a",
             &AgentModelDefaults::default(),
             &transcript(Vec::new(), Vec::new()),
+            &OriginContext {
+                frontend_url: "http://localhost:3000",
+                source_task_names: &HashMap::new(),
+            },
         );
         for key in ["settledOverride", "settledAt", "snoozedUntil", "snoozedAt"] {
             assert_eq!(shell[key], detail[key], "{key}");
@@ -2262,7 +2394,7 @@ mod tests {
         "createdAt",
         "updatedAt",
     ];
-    const MESSAGE_OPTIONAL: &[&str] = &["attachments"];
+    const MESSAGE_OPTIONAL: &[&str] = &["attachments", "origin"];
     const MESSAGE_ROLES: &[&str] = &["user", "assistant", "system"];
 
     // `OrchestrationThreadActivity` (`:312-321`).
@@ -2303,6 +2435,14 @@ mod tests {
             // in an assertion failure.
             timestamp: format!("2026-07-01T10:{id:02}:00.000Z"),
             created_at: Some(at(i64::from(id) * 100)),
+            external_adapter: None,
+            external_source_name: None,
+            external_subject_key: None,
+            external_event_id: None,
+            external_author: None,
+            source_task_id: None,
+            binding_url: None,
+            sent_by_name: None,
         }
     }
 
@@ -2426,6 +2566,10 @@ mod tests {
             "ws-a",
             &AgentModelDefaults::default(),
             transcript,
+            &OriginContext {
+                frontend_url: "http://localhost:3000",
+                source_task_names: &HashMap::new(),
+            },
         )
     }
 
@@ -2707,6 +2851,224 @@ mod tests {
                 "the T3 payload must not carry `{key}`"
             );
         }
+    }
+
+    /// A message typed into the composer carries no origin key at all —
+    /// byte-identical to a conversation before this field existed.
+    #[test]
+    fn a_message_typed_into_the_composer_carries_no_origin() {
+        let origin = message_origin(
+            &message(1, MessageType::User, "Hi"),
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &HashMap::new(),
+            },
+        );
+        assert!(origin.is_none());
+    }
+
+    /// A Message authored by another Task names and links that Task.
+    #[test]
+    fn a_message_from_another_task_names_and_links_that_task() {
+        let mut msg = message(1, MessageType::User, "Handoff");
+        msg.source_task_id = Some("task-xyz".into());
+        let names = HashMap::from([("task-xyz".to_string(), "Upstream planning".to_string())]);
+        let origin = message_origin(
+            &msg,
+            // Trailing slash on the base is trimmed, not doubled.
+            &OriginContext {
+                frontend_url: "https://moatless.example/",
+                source_task_names: &names,
+            },
+        )
+        .expect("a task-authored message has an origin");
+        assert_eq!(origin["kind"], "task");
+        assert_eq!(origin["label"], "Upstream planning");
+        assert_eq!(origin["url"], "https://moatless.example/tasks/task-xyz");
+        assert_eq!(origin["user"], Value::Null);
+    }
+
+    /// A Task the reader cannot see resolves to no name, and a link they could
+    /// not follow is worse than none.
+    #[test]
+    fn a_task_origin_the_reader_cannot_see_has_neither_name_nor_link() {
+        let mut msg = message(1, MessageType::User, "Handoff");
+        msg.source_task_id = Some("task-hidden".into());
+        let origin = message_origin(
+            &msg,
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .expect("origin present");
+        assert_eq!(origin["kind"], "task");
+        assert_eq!(origin["label"], Value::Null);
+        assert_eq!(origin["url"], Value::Null);
+    }
+
+    /// A task origin wins even where the row also carries adapter columns.
+    #[test]
+    fn a_task_origin_wins_over_adapter_columns() {
+        let mut msg = message(1, MessageType::User, "Handoff");
+        msg.source_task_id = Some("task-xyz".into());
+        msg.external_adapter = Some("github_pr".into());
+        msg.external_subject_key = Some("octo/repo#42".into());
+        let names = HashMap::from([("task-xyz".to_string(), "Upstream".to_string())]);
+        let origin = message_origin(
+            &msg,
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &names,
+            },
+        )
+        .expect("origin present");
+        assert_eq!(origin["kind"], "task");
+    }
+
+    /// A GitHub PR message derives its URL from the subject key and event id and
+    /// shows the handle the external system knows the writer by.
+    #[test]
+    fn a_github_pr_message_derives_its_url_and_shows_the_external_author() {
+        let mut msg = message(1, MessageType::User, "Please rebase");
+        msg.external_adapter = Some("github_pr".into());
+        msg.external_subject_key = Some("octo/repo#42".into());
+        msg.external_event_id = Some("github:ic:99887766".into());
+        msg.external_source_name = Some("octo/repo".into());
+        msg.external_author = Some("octocat".into());
+        let origin = message_origin(
+            &msg,
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .expect("origin present");
+        assert_eq!(origin["kind"], "github_pr");
+        assert_eq!(origin["label"], "octo/repo#42");
+        assert_eq!(
+            origin["url"],
+            "https://github.com/octo/repo/pull/42#issuecomment-99887766"
+        );
+        assert_eq!(origin["user"], "octocat");
+    }
+
+    /// Any other adapter takes its URL from the binding this Task holds, and
+    /// falls back to the Moatless user when no external handle was captured.
+    #[test]
+    fn an_external_message_without_a_captured_handle_falls_back_to_the_moatless_user() {
+        let mut msg = message(1, MessageType::User, "Filed from Linear");
+        msg.external_adapter = Some("linear".into());
+        msg.external_source_name = Some("ENG-1 Fix the thing".into());
+        msg.binding_url = Some("https://linear.app/acme/issue/ENG-1".into());
+        msg.sent_by_name = Some("Ada Lovelace".into());
+        let origin = message_origin(
+            &msg,
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .expect("origin present");
+        assert_eq!(origin["kind"], "linear");
+        assert_eq!(origin["label"], "ENG-1 Fix the thing");
+        assert_eq!(origin["url"], "https://linear.app/acme/issue/ENG-1");
+        assert_eq!(origin["user"], "Ada Lovelace");
+    }
+
+    /// The GitHub URL, and the fragment each kind of comment opens at.
+    #[test]
+    fn a_github_pr_url_is_built_from_the_subject_key_and_event_id() {
+        assert_eq!(
+            github_pr_url(Some("octo/repo#42"), Some("github:rc:12345")),
+            Some("https://github.com/octo/repo/pull/42#discussion_r12345".to_string())
+        );
+        assert_eq!(
+            github_pr_url(Some("octo/repo#42"), Some("github:ic:678")),
+            Some("https://github.com/octo/repo/pull/42#issuecomment-678".to_string())
+        );
+        // An unrecognised event id — or none — leaves the reader at the PR.
+        assert_eq!(
+            github_pr_url(Some("octo/repo#42"), None),
+            Some("https://github.com/octo/repo/pull/42".to_string())
+        );
+        assert_eq!(
+            github_pr_url(Some("octo/repo#42"), Some("something-else")),
+            Some("https://github.com/octo/repo/pull/42".to_string())
+        );
+    }
+
+    /// A subject key that is not `owner/repo#N` yields no URL rather than a
+    /// wrong one.
+    #[test]
+    fn a_subject_key_that_is_not_owner_repo_number_yields_no_url() {
+        assert_eq!(github_pr_url(Some("not-a-key"), None), None);
+        assert_eq!(github_pr_url(Some("owner/repo#"), None), None);
+        assert_eq!(github_pr_url(Some("owner/repo#abc"), None), None);
+        assert_eq!(github_pr_url(Some("owner#42"), None), None);
+        assert_eq!(github_pr_url(Some("a/b/c#42"), None), None);
+        assert_eq!(github_pr_url(None, None), None);
+    }
+
+    /// The `message-sent` event carries the same origin as the snapshot bubble,
+    /// so a delta and a rebuild render one message the same way.
+    #[test]
+    fn the_message_sent_event_carries_the_same_origin_as_the_snapshot_bubble() {
+        let mut msg = message(1, MessageType::User, "From Slack");
+        msg.external_adapter = Some("slack".into());
+        msg.external_source_name = Some("#eng".into());
+        msg.binding_url = Some("https://acme.slack.com/archives/C1".into());
+        msg.external_author = Some("ada".into());
+        let bubble = message_bubble(
+            &msg,
+            &Value::Null,
+            "2026-07-01T10:00:00.000Z",
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .expect("a user bubble");
+        assert!(bubble.get("origin").is_some());
+        let payload = message_sent_payload("task-a", &bubble);
+        assert_eq!(payload["origin"], bubble["origin"]);
+    }
+
+    /// A composer bubble has no origin, so neither does its event.
+    #[test]
+    fn a_plain_message_sent_event_carries_no_origin() {
+        let bubble = message_bubble(
+            &message(1, MessageType::User, "Hi"),
+            &Value::Null,
+            "2026-07-01T10:00:00.000Z",
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .expect("a user bubble");
+        assert!(bubble.get("origin").is_none());
+        let payload = message_sent_payload("task-a", &bubble);
+        assert!(payload.get("origin").is_none());
+    }
+
+    /// Only a person's bubble can carry an origin; the agent's own reply never
+    /// does, even on a row that happens to hold adapter columns.
+    #[test]
+    fn an_assistant_bubble_never_carries_an_origin() {
+        let mut msg = message(1, MessageType::Assistant, "On it");
+        msg.external_adapter = Some("slack".into());
+        let bubble = message_bubble(
+            &msg,
+            &Value::Null,
+            "2026-07-01T10:00:00.000Z",
+            &OriginContext {
+                frontend_url: "https://moatless.example",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .expect("an assistant bubble");
+        assert!(bubble.get("origin").is_none());
     }
 
     /// A capped read that simply began in the middle would look like a
@@ -3029,9 +3391,17 @@ mod tests {
     }
 
     fn events(change: &ConversationChange, window: &Transcript) -> Vec<Value> {
-        change_events(&running_conversation("task-a", "ws-a"), change, window)
-            .into_iter()
-            .map(|item| {
+        change_events(
+            &running_conversation("task-a", "ws-a"),
+            change,
+            window,
+            &OriginContext {
+                frontend_url: "http://localhost:3000",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .into_iter()
+        .map(|item| {
                 assert_eq!(item["kind"], "event", "every item is a stream event");
                 item["event"].clone()
             })
@@ -3274,7 +3644,11 @@ mod tests {
             change_events(
                 &without,
                 &change(4, None),
-                &transcript(Vec::new(), Vec::new())
+                &transcript(Vec::new(), Vec::new()),
+                &OriginContext {
+                    frontend_url: "http://localhost:3000",
+                    source_task_names: &HashMap::new(),
+                },
             )
             .is_empty()
         );

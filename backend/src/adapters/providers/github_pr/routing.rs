@@ -512,6 +512,7 @@ async fn build_close_inbound_message(
         thread_id: None, // skip thread-context fetch (matches `opened`)
         message_thread_id: info.pr_number.to_string(),
         user_id,
+        author: crate::adapters::models::author_handle(&info.sender_login),
         text,
         file_ids: vec![],
         thread_properties: serde_json::json!({
@@ -628,11 +629,14 @@ async fn append_to_binding(
         &msg.file_ids,
         &[],
         false,
-        msg.external_event_id.as_deref(),
-        Some(ADAPTER_LABEL),
-        Some(&binding.subject_key),
-        Some(rule.source_matcher.as_str()),
-        None,
+        crate::message::send::ExternalOrigin {
+            event_id: msg.external_event_id.as_deref(),
+            adapter: Some(ADAPTER_LABEL),
+            subject_key: Some(&binding.subject_key),
+            source_name: Some(rule.source_matcher.as_str()),
+            author: msg.author.as_deref(),
+            source_task_id: None,
+        },
         false,
         Some(msg.user_id.as_str()),
         None,

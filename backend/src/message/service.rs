@@ -124,11 +124,10 @@ pub async fn send_user_message(
                 &message.file_ids,
                 &message.contexts,
                 message.resume,
-                None,
-                None,
-                None,
-                None,
-                message.source_task_id.as_deref(),
+                send::ExternalOrigin {
+                    source_task_id: message.source_task_id.as_deref(),
+                    ..send::ExternalOrigin::none()
+                },
                 message.start_fresh,
                 Some(sender.user_id),
                 message.message_uuid,

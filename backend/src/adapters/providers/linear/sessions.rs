@@ -178,11 +178,16 @@ pub(super) async fn handle_session_prompted(
             &[],
             &[],
             true,
-            Some(&external_event_id),
-            Some(ADAPTER_LABEL),
-            Some(&binding.subject_key),
-            rule.as_ref().map(|r| r.source_matcher.as_str()),
-            None,
+            crate::message::send::ExternalOrigin {
+                event_id: Some(&external_event_id),
+                adapter: Some(ADAPTER_LABEL),
+                subject_key: Some(&binding.subject_key),
+                source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
+                // A prompt carries no actor; the session's creator is who this
+                // is attributed to, and the created path records that.
+                author: None,
+                source_task_id: None,
+            },
             false,
             None,
             None,
@@ -375,6 +380,7 @@ async fn provision_session_task(
     // ticket and its comments via the `moat` CLI.
     let inbound_text = super::text::build_inbound_text(session);
     let external_event_id = super::external_id::session_created(&session.id);
+    let creator_handle = super::actor_handle(session.creator.as_ref());
     if let Err(e) = crate::message::send::send_message_flow(
         state,
         &task_id,
@@ -385,11 +391,14 @@ async fn provision_session_task(
         &[],
         &[],
         false,
-        Some(&external_event_id),
-        Some(ADAPTER_LABEL),
-        Some(&binding.subject_key),
-        Some(rule.source_matcher.as_str()),
-        None,
+        crate::message::send::ExternalOrigin {
+            event_id: Some(&external_event_id),
+            adapter: Some(ADAPTER_LABEL),
+            subject_key: Some(&binding.subject_key),
+            source_name: Some(rule.source_matcher.as_str()),
+            author: creator_handle.as_deref(),
+            source_task_id: None,
+        },
         false,
         session.creator.as_ref().map(|c| c.id.as_str()),
         None,

@@ -123,6 +123,8 @@ async fn execute_schedule_firing(
         thread_id: None,
         message_thread_id: format!("scheduled:{}", schedule.id),
         user_id: run_as_user_id,
+        // A schedule fires on its own; no external person authored it.
+        author: None,
         text: schedule.message_template.clone(),
         file_ids: vec![],
         thread_properties: serde_json::json!({"schedule_id": schedule.id}),
@@ -172,11 +174,12 @@ async fn execute_schedule_firing(
         &[],
         &[],
         true,
-        msg.external_event_id.as_deref(),
-        Some("scheduled"),
-        None,
-        Some(&schedule.id),
-        None,
+        crate::message::send::ExternalOrigin {
+            event_id: msg.external_event_id.as_deref(),
+            adapter: Some("scheduled"),
+            source_name: Some(&schedule.id),
+            ..crate::message::send::ExternalOrigin::none()
+        },
         false,
         None,
         None,

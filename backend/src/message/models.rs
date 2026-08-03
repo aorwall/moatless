@@ -93,6 +93,11 @@ pub struct TaskMessage {
     /// `None` for non-binding-sourced rows (user sends, schedulers, replies).
     pub external_subject_key: Option<String>,
     pub external_source_name: Option<String>,
+    /// The handle the external system knows the writer by — a GitHub login, a
+    /// Slack display name, a Linear actor. Not a Moatless identity and never
+    /// resolved to one: `sent_by` holds that, and on most adapters it is the
+    /// subscription's owner rather than whoever actually wrote this.
+    pub external_author: Option<String>,
     pub source_task_id: Option<String>,
     /// User declared the next agent run should NOT resume the prior session.
     /// Distinct from `will_not_resume`, which lives on the result row.
@@ -154,6 +159,7 @@ impl TaskMessage {
             external_adapter: None,
             external_subject_key: None,
             external_source_name: None,
+            external_author: None,
             source_task_id: None,
             start_fresh: false,
             sent_by: None,

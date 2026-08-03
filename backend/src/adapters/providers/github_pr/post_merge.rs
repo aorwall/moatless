@@ -207,6 +207,7 @@ pub(super) async fn execute(
         thread_id: Some(pr_number.to_string()),
         message_thread_id: pr_number.to_string(),
         user_id: authenticated.user_id,
+        author: None,
         text: post_merge_ci_text(&execution.run, &execution.owner, &execution.repo, pr_number),
         file_ids: vec![],
         thread_properties: serde_json::json!({

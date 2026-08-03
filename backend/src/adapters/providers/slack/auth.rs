@@ -24,11 +24,22 @@ pub(super) enum SenderIdentity {
     /// Mapped to a system user, by provider id or by email. Carried as the
     /// `uuid` the column is; the string form is built once, where the shared
     /// `InboundMessage` demands one.
-    Mapped { user_id: Uuid },
+    ///
+    /// `handle` rides along on both resolved variants because it says who wrote
+    /// the message in Slack's own terms, which the Moatless user it resolved to
+    /// does not: an unmapped thread reply is attributed to the trigger owner.
+    Mapped {
+        user_id: Uuid,
+        handle: Option<String>,
+    },
     /// No mapping. `is_bot` is the sender's final bot verdict — a foreign bot
     /// allowed through is attributed to the trigger owner rather than notified
     /// — and `email` is the address the unmapped-sender notice quotes.
-    Unmapped { is_bot: bool, email: Option<String> },
+    Unmapped {
+        is_bot: bool,
+        email: Option<String>,
+        handle: Option<String>,
+    },
 }
 
 /// Resolve the sender of one inbound Slack event.
@@ -64,22 +75,31 @@ pub(super) async fn resolve_inbound_sender(
         }
     }
 
+    let handle = info.as_ref().and_then(|info| info.handle.clone());
     let email = info.and_then(|info| info.email);
     if is_bot {
-        return Ok(SenderIdentity::Unmapped { is_bot, email });
+        return Ok(SenderIdentity::Unmapped {
+            is_bot,
+            email,
+            handle,
+        });
     }
 
     // Provider ID first (fast, and it needs no Slack call), then email.
     if let Some(user_id) = user_by_slack_id(db, slack_user_id).await? {
-        return Ok(SenderIdentity::Mapped { user_id });
+        return Ok(SenderIdentity::Mapped { user_id, handle });
     }
     let mapped = match email {
         Some(ref email) => user_by_email(db, slack_user_id, email).await?,
         None => None,
     };
     Ok(match mapped {
-        Some(user_id) => SenderIdentity::Mapped { user_id },
-        None => SenderIdentity::Unmapped { is_bot, email },
+        Some(user_id) => SenderIdentity::Mapped { user_id, handle },
+        None => SenderIdentity::Unmapped {
+            is_bot,
+            email,
+            handle,
+        },
     })
 }
 
@@ -306,7 +326,12 @@ mod tests {
                 .await
                 .expect("an allowed bot skips every query");
 
-        let SenderIdentity::Unmapped { is_bot, email } = identity else {
+        let SenderIdentity::Unmapped {
+            is_bot,
+            email,
+            handle,
+        } = identity
+        else {
             panic!("expected an unmapped bot");
         };
         assert!(is_bot);
@@ -314,6 +339,11 @@ mod tests {
             email.as_deref(),
             Some("bot@example.com"),
             "the email is carried for the notice, not for resolution"
+        );
+        assert_eq!(
+            handle.as_deref(),
+            Some("ci"),
+            "who wrote it in Slack's terms is recorded even with nobody to resolve it to"
         );
     }
 
@@ -348,10 +378,11 @@ mod tests {
             .await
             .expect("an absent user is not an error");
 
-        let SenderIdentity::Unmapped { email, .. } = identity else {
+        let SenderIdentity::Unmapped { email, handle, .. } = identity else {
             panic!("expected an unmapped sender");
         };
         assert_eq!(email, None);
+        assert_eq!(handle, None, "no user info, so no handle to record");
     }
 
     #[tokio::test]

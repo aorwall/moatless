@@ -860,6 +860,7 @@ mod tests {
             external_adapter: None,
             external_subject_key: None,
             external_source_name: None,
+            external_author: None,
             source_task_id: None,
             start_fresh: false,
             sent_by: None,

@@ -268,6 +268,13 @@ pub(super) async fn normalize(
         "Telegram message parsed"
     );
 
+    // Telegram's `@username` where the sender has one — many accounts do not —
+    // else the display name they do have.
+    let author = from_username
+        .map(|handle| format!("@{handle}"))
+        .or_else(|| from_first_name.map(str::to_string))
+        .and_then(|handle| crate::adapters::models::author_handle(&handle));
+
     Ok(Normalization::Message {
         message: Box::new(InboundMessage {
             adapter_kind: AdapterKind::Telegram,
@@ -275,6 +282,7 @@ pub(super) async fn normalize(
             thread_id,
             message_thread_id: msg_thread_id,
             user_id,
+            author,
             text: clean_text,
             file_ids: vec![],
             thread_properties,

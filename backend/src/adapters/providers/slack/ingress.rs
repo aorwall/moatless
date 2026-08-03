@@ -948,6 +948,7 @@ mod tests {
             thread_id: None,
             message_thread_id: "1700000000.000100".into(),
             user_id: "user-1".into(),
+            author: None,
             text: "hello".into(),
             file_ids: vec![],
             thread_properties: serde_json::json!({}),

@@ -502,6 +502,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     codex: config.sandbox.default_codex_model.clone(),
                 },
                 otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
+                frontend_url: config.auth.frontend_url.clone(),
             })
             .await?
         } {

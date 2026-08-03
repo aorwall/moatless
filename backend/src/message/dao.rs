@@ -502,13 +502,13 @@ impl MessageDao for PgMessageDao {
                 agent_mode, model, resume, external_event_id,
                 external_adapter, external_source_name, source_task_id,
                 start_fresh, sent_by, external_subject_key, assistant_usage,
-                tool_response, effort
+                tool_response, effort, external_author
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
                 $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                $41, $42, $43
+                $41, $42, $43, $44
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -576,6 +576,7 @@ impl MessageDao for PgMessageDao {
         .bind(&msg.assistant_usage)
         .bind(&msg.tool_response)
         .bind(&msg.effort)
+        .bind(&msg.external_author)
         .fetch_one(&mut *tx)
         .await?;
 

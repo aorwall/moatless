@@ -683,6 +683,7 @@ async fn inbound_message(
         thread_id,
         message_thread_id: pr_number.to_string(),
         user_id,
+        author: crate::adapters::models::author_handle(context.sender_login),
         text,
         file_ids: vec![],
         thread_properties: serde_json::json!({

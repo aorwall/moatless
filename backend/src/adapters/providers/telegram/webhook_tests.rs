@@ -497,6 +497,11 @@ mod db_tests {
         assert_eq!(message.message_thread_id, "111");
         assert_eq!(message.text, "do the thing");
         assert_eq!(message.user_id, OWNER, "an unmapped sender falls back");
+        assert_eq!(
+            message.author.as_deref(),
+            Some("@ada"),
+            "the sender who could not be resolved is still named in Telegram's terms"
+        );
         assert_eq!(message.external_event_id.as_deref(), Some("tg:m:42"));
         assert_eq!(message.audience, Audience::Everyone);
         assert_eq!(message.adapter_context, serde_json::json!({}));
@@ -551,6 +556,11 @@ mod db_tests {
         assert_eq!(message.source_id, "-100123");
         assert_eq!(message.thread_id.as_deref(), Some("-100123:77"));
         assert_eq!(message.message_thread_id, "-100123:77");
+        assert_eq!(
+            message.author.as_deref(),
+            Some("Ada"),
+            "no @username on this account, so the display name stands in"
+        );
         assert_eq!(
             message.thread_properties,
             serde_json::json!({

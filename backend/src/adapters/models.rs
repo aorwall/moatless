@@ -325,6 +325,16 @@ pub struct InboundMessage {
     pub message_thread_id: String,
     /// Resolved user ID (system user).
     pub user_id: String,
+    /// The handle the external system knows the writer by — a GitHub login, a
+    /// Slack display name, a Linear actor — recorded verbatim and never
+    /// resolved to a Moatless identity (`user_id` holds that, and on most
+    /// adapters it is the subscription's owner rather than this writer).
+    ///
+    /// `#[serde(default)]` because the payload outlives the process that
+    /// admitted it: during a rolling deploy the new build executes a record the
+    /// old build wrote, and that record names no author.
+    #[serde(default)]
+    pub author: Option<String>,
     /// Message text content.
     pub text: String,
     /// File attachment IDs (already uploaded to S3).
@@ -351,6 +361,16 @@ pub struct InboundMessage {
     /// existed.
     #[serde(default)]
     pub audience: Audience,
+}
+
+/// The external system's handle for whoever wrote an inbound event, or `None`
+/// where it named nobody.
+///
+/// Adapters read this off webhook fields that are `#[serde(default)]`, so a
+/// missing sender arrives as an empty string rather than as an absent one.
+pub fn author_handle(handle: &str) -> Option<String> {
+    let trimmed = handle.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// Who an inbound event is for, as stated by the adapter that parsed it.
@@ -467,4 +487,20 @@ pub enum AccessDecision {
     Blocked,
     /// A pairing code was sent to the user; message is not processed.
     PairingSent,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::author_handle;
+
+    /// The three shapes a webhook field arrives in. Whitespace and the empty
+    /// string are the same answer as an absent field: the origin chip names who
+    /// wrote it or names nobody, and never shows a blank.
+    #[test]
+    fn a_handle_that_names_nobody_is_nobody() {
+        assert_eq!(author_handle("alice").as_deref(), Some("alice"));
+        assert_eq!(author_handle("  alice  ").as_deref(), Some("alice"));
+        assert_eq!(author_handle(""), None);
+        assert_eq!(author_handle("   "), None);
+    }
 }

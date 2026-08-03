@@ -32,6 +32,36 @@ async fn task_is_closed(state: &AppState, task_id: &str) -> bool {
     }
 }
 
+/// The provenance that says a Message reached this Task from outside it,
+/// carried as one value rather than as six positional arguments. An internal
+/// send — a person in the composer, task creation — passes
+/// [`ExternalOrigin::none`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ExternalOrigin<'a> {
+    pub event_id: Option<&'a str>,
+    pub adapter: Option<&'a str>,
+    pub subject_key: Option<&'a str>,
+    pub source_name: Option<&'a str>,
+    /// The handle the external system knows the writer by, recorded verbatim
+    /// and never resolved to a Moatless identity.
+    pub author: Option<&'a str>,
+    pub source_task_id: Option<&'a str>,
+}
+
+impl ExternalOrigin<'_> {
+    /// The origin of a Message that came from inside Moatless.
+    pub const fn none() -> Self {
+        Self {
+            event_id: None,
+            adapter: None,
+            subject_key: None,
+            source_name: None,
+            author: None,
+            source_task_id: None,
+        }
+    }
+}
+
 fn attached_file_ids(file_ids: &[String], contexts: &[MessageContextInput]) -> Vec<String> {
     let mut attached = Vec::new();
 
@@ -67,11 +97,7 @@ pub async fn send_message_flow(
     file_ids: &[String],
     contexts: &[MessageContextInput],
     resume: bool,
-    external_event_id: Option<&str>,
-    external_adapter: Option<&str>,
-    external_subject_key: Option<&str>,
-    external_source_name: Option<&str>,
-    source_task_id: Option<&str>,
+    origin: ExternalOrigin<'_>,
     start_fresh: bool,
     sent_by: Option<&str>,
     // The Message's uuid, when the caller owns it. The T3 compatibility
@@ -90,7 +116,7 @@ pub async fn send_message_flow(
     // surface a 409 so the caller knows nothing was queued. `Error` tasks
     // stay sendable to match `start_task` recovery semantics.
     if task_is_closed(state, task_id).await {
-        if let Some(adapter) = external_adapter {
+        if let Some(adapter) = origin.adapter {
             tracing::debug!(
                 task_id = %task_id,
                 external_adapter = %adapter,
@@ -105,7 +131,7 @@ pub async fn send_message_flow(
     // outbound and is racing the webhook), skip the insert entirely. Prevents
     // duplicates from Slack retries, re-delivered webhooks, and `moat reply`
     // self-echoes.
-    if let Some(ext_id) = external_event_id {
+    if let Some(ext_id) = origin.event_id {
         // 1. In-memory race-window check — catches webhooks that land before
         //    `set_external_event_id` has committed.
         if state.recently_sent.contains(task_id, ext_id) {
@@ -119,7 +145,8 @@ pub async fn send_message_flow(
 
         // 2. DB check — tolerates both new prefixed format and any legacy
         //    bare-int rows written before the prefix scheme.
-        let candidates = external_adapter
+        let candidates = origin
+            .adapter
             .and_then(|provider_name| {
                 state
                     .adapters
@@ -241,11 +268,12 @@ pub async fn send_message_flow(
         resume,
         sent_at: None,
         created_at: None,
-        external_event_id: external_event_id.map(std::string::ToString::to_string),
-        external_adapter: external_adapter.map(std::string::ToString::to_string),
-        external_subject_key: external_subject_key.map(std::string::ToString::to_string),
-        external_source_name: external_source_name.map(std::string::ToString::to_string),
-        source_task_id: source_task_id.map(std::string::ToString::to_string),
+        external_event_id: origin.event_id.map(std::string::ToString::to_string),
+        external_adapter: origin.adapter.map(std::string::ToString::to_string),
+        external_subject_key: origin.subject_key.map(std::string::ToString::to_string),
+        external_source_name: origin.source_name.map(std::string::ToString::to_string),
+        external_author: origin.author.map(std::string::ToString::to_string),
+        source_task_id: origin.source_task_id.map(std::string::ToString::to_string),
         start_fresh,
         sent_by: sent_by.map(std::string::ToString::to_string),
     };
@@ -384,6 +412,7 @@ pub async fn persist_error_result(state: &AppState, task_id: &str, error_text: &
         external_adapter: None,
         external_subject_key: None,
         external_source_name: None,
+        external_author: None,
         source_task_id: None,
         start_fresh: false,
         sent_by: None,
@@ -557,6 +586,7 @@ pub async fn send_tool_response_flow(
         external_adapter: None,
         external_subject_key: None,
         external_source_name: None,
+        external_author: None,
         source_task_id: None,
         start_fresh: false,
         sent_by: sent_by.map(std::string::ToString::to_string),

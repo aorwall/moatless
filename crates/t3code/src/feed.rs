@@ -460,6 +460,7 @@ impl ThreadFeed {
         &mut self,
         conversations: &dyn ConversationDao,
         viewer: &ScopeContext,
+        frontend_url: &str,
     ) -> Result<Option<Vec<Value>>, sqlx::Error> {
         let changes = conversations
             .conversation_changes(&self.task_id, self.cursor, THREAD_POLL_CHANGES)
@@ -506,9 +507,14 @@ impl ThreadFeed {
             .changed_messages(&self.task_id, &named, &named_activities)
             .await?;
 
+        let origins = projection::OriginContext {
+            frontend_url,
+            source_task_names: &super::source_task_names(conversations, viewer, &window).await,
+        };
+
         let mut items = Vec::new();
         for change in &changes {
-            for item in projection::change_events(&conversation, change, &window) {
+            for item in projection::change_events(&conversation, change, &window, &origins) {
                 // An event the client has already passed is dropped by it in
                 // silence, so it is dropped here instead: only a resuming feed
                 // ever produces one, and only for the change its cursor sits
@@ -705,6 +711,14 @@ mod tests {
             turn_number: Some(3),
             timestamp: "2026-07-01T10:00:00.000Z".into(),
             created_at: None,
+            external_adapter: None,
+            external_source_name: None,
+            external_subject_key: None,
+            external_event_id: None,
+            external_author: None,
+            source_task_id: None,
+            binding_url: None,
+            sent_by_name: None,
         }
     }
 
@@ -739,7 +753,7 @@ mod tests {
     async fn a_poll_sends_events_rather_than_the_conversation_again() {
         let dao = a_dao(vec![change(9, Some("msg-a"))]);
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
-        let items = feed.poll(&dao, &viewer()).await.unwrap().unwrap();
+        let items = feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap().unwrap();
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["kind"], "event");
@@ -761,7 +775,7 @@ mod tests {
         let dao = a_dao(vec![change(9, Some("msg-a"))]);
         let already = 9 * EVENTS_PER_CHANGE;
         let mut feed = ThreadFeed::resuming_from("task-a".into(), already);
-        let items = feed.poll(&dao, &viewer()).await.unwrap().unwrap();
+        let items = feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap().unwrap();
         assert!(
             items.is_empty(),
             "nothing above the client's position: {items:#?}"
@@ -779,7 +793,7 @@ mod tests {
         dao.expect_list_followed_by_ids()
             .returning(|_, _| Ok(Vec::new()));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
-        assert!(feed.poll(&dao, &viewer()).await.unwrap().is_none());
+        assert!(feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap().is_none());
     }
 
     /// An idle conversation is not a gone one, and a subscription that ended on
@@ -792,7 +806,7 @@ mod tests {
         dao.expect_list_followed_by_ids()
             .returning(|_, _| Ok(vec![a_conversation()]));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
-        assert_eq!(feed.poll(&dao, &viewer()).await.unwrap(), Some(Vec::new()));
+        assert_eq!(feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap(), Some(Vec::new()));
         assert_eq!(feed.cursor, 9, "and the cursor stayed where it was");
     }
 
@@ -810,7 +824,7 @@ mod tests {
             .returning(|_, _| Ok(Vec::new()));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
         assert!(
-            feed.poll(&dao, &viewer()).await.unwrap().is_none(),
+            feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap().is_none(),
             "a conversation that ended without recording a change still ends the subscription"
         );
     }
@@ -832,7 +846,7 @@ mod tests {
             .returning(|_, _, _| Err(sqlx::Error::PoolTimedOut));
 
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
-        assert!(feed.poll(&dao, &viewer()).await.is_err());
+        assert!(feed.poll(&dao, &viewer(), "http://localhost:3000").await.is_err());
         assert_eq!(
             feed.cursor, 9,
             "the next poll has to read change 9 again, or it is never sent"

@@ -374,7 +374,7 @@ pub(super) async fn normalize(
     // The sender lookup: one `users.info`, then the provider-id mapping before
     // the email one. A bot/app account either drops out here or — with
     // `allow_bot_messages` on — stays flagged as a bot for the rest of the way.
-    let (mapped_user, sender_email) = match auth::resolve_inbound_sender(
+    let (mapped_user, sender_email, sender_handle) = match auth::resolve_inbound_sender(
         ctx.api,
         ctx.db,
         event.user,
@@ -393,10 +393,14 @@ pub(super) async fn normalize(
             );
             return ignored("bot_account");
         }
-        auth::SenderIdentity::Mapped { user_id } => (Some(user_id), None),
-        auth::SenderIdentity::Unmapped { is_bot, email } => {
+        auth::SenderIdentity::Mapped { user_id, handle } => (Some(user_id), None, handle),
+        auth::SenderIdentity::Unmapped {
+            is_bot,
+            email,
+            handle,
+        } => {
             is_bot_message = is_bot;
-            (None, email)
+            (None, email, handle)
         }
     };
 
@@ -462,6 +466,9 @@ pub(super) async fn normalize(
             thread_id: event.thread_ts.map(ToString::to_string),
             message_thread_id: thread_ts.to_string(),
             user_id,
+            author: sender_handle
+                .as_deref()
+                .and_then(crate::adapters::models::author_handle),
             text: clean_text,
             file_ids: vec![], // TODO: handle file attachments
             thread_properties: serde_json::json!({

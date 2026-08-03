@@ -533,6 +533,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         external_adapter: None,
         external_subject_key: None,
         external_source_name: None,
+        external_author: None,
         sent_by: None,
         source_task_id: None,
         start_fresh: false,
