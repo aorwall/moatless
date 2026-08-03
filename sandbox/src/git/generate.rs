@@ -90,10 +90,52 @@ pub async fn generate_messages(
         system_prompt: Some(SystemPrompt::Replace(SYSTEM_PROMPT.to_string())),
         cwd: Some(repo_dir.to_string()),
         cli_path: Some(cli_path.to_string()),
-        // Structured output costs a turn of its own: the model calls the
-        // `StructuredOutput` tool and needs a further turn to end the run, so a
-        // ceiling of one fails with "Reached maximum number of turns".
-        max_turns: Some(2),
+        // The staged diff is already in the prompt, and `cwd` is the checkout —
+        // left to itself the model reads and greps its way around the repository
+        // instead of answering, taking 6-9 turns rather than 2-3. Denying the
+        // tools is what keeps the run short.
+        //
+        // Named here is every tool that reads, traverses, mutates or executes.
+        // Which of these names a CLI recognizes varies by version, and an
+        // unrecognized one is a deny rule that matches nothing, so the list
+        // names them all rather than tracking a version.
+        //
+        // `Skill` is on it because `init` installs the repository's skills into
+        // the config dir this run inherits, and a skill is arbitrary
+        // instructions. What the list cannot name is a tool a later CLI or a
+        // settings source advertises that is not here yet — the advertised set
+        // is configuration-dependent, so enumeration narrows this rather than
+        // closing it, and `max_turns` below is carrying that remainder.
+        disallowed_tools: Some(
+            [
+                "Bash",
+                "BashOutput",
+                "Edit",
+                "Glob",
+                "Grep",
+                "KillShell",
+                "LS",
+                "MultiEdit",
+                "NotebookEdit",
+                "NotebookRead",
+                "Read",
+                "Skill",
+                "SlashCommand",
+                "Task",
+                "TodoWrite",
+                "WebFetch",
+                "WebSearch",
+                "Write",
+            ]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
+        ),
+        // Structured output costs a turn of its own — the model calls
+        // `StructuredOutput` and needs a further turn to end the run — and how
+        // many it takes varies with the diff. This is a runaway guard, not a
+        // target, so it sits well above the 2-3 turns a denied-tools run needs.
+        max_turns: Some(8),
         output_format: Some(OutputFormat::JsonSchema {
             schema: output_schema(),
         }),
