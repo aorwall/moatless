@@ -8,7 +8,6 @@
 	},
 	"keywords": [],
 	"author": "",
-	"license": "AGPL-3.0-or-later",
 	"type": "commonjs",
 	"dependencies": {
 		"moatless-vibe": "file:moatless-vibe-0.1.0.tgz"

@@ -2,7 +2,6 @@
 name = "claude-agent-sdk"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
 description = "Rust SDK for the Claude Code agent protocol — spawn, communicate, and control Claude CLI subprocesses"
 keywords = ["claude", "agent", "sdk", "anthropic", "ai"]
 categories = ["api-bindings", "asynchronous"]

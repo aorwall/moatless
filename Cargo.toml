@@ -114,6 +114,3 @@ strip = true
 inherits = "release"
 lto = false
 codegen-units = 16
-
-[workspace.package]
-license = "AGPL-3.0-or-later"

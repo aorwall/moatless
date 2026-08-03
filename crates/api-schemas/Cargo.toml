@@ -3,7 +3,6 @@ name = "moatless-api-schemas"
 version = "0.1.0"
 edition = "2021"
 description = "Shared API request/response types for backend and CLI"
-license = "AGPL-3.0-or-later"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Moatless Team"]
 description = "T3 Code compatibility surface for Moatless Vibe"
-license = "AGPL-3.0-or-later"
 
 [dependencies]
 async-trait = "0.1"

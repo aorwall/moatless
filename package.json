@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "Web UI for Vibe coding with Claude Code",
   "author": "Albert Örwall",
-  "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "https://github.com/aorwall/moatless-vibe"
@@ -32,8 +31,7 @@
     "bin",
     "dist",
     "drizzle",
-    "README.md",
-    "LICENSE"
+    "README.md"
   ],
   "scripts": {
     "postinstall": "turbo run build --filter='./packages/*'",

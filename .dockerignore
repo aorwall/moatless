@@ -7,7 +7,6 @@
 !turbo.json
 !tsconfig.json
 !README.md
-!LICENSE
 
 # Shared build helper used by Ubuntu/Debian Dockerfiles before apt updates.
 !.github/

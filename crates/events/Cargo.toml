@@ -3,7 +3,6 @@ name = "moatless-events"
 version = "0.1.0"
 edition = "2021"
 description = "Canonical event type enums and payloads shared by sandbox and backend"
-license = "AGPL-3.0-or-later"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -1,6 +1,5 @@
 {
   "name": "@moatless/api-client",
-  "license": "AGPL-3.0-or-later",
   "version": "0.1.0",
   "type": "module",
   "main": "./src/index.ts",

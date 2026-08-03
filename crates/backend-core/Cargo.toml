@@ -3,7 +3,6 @@ name = "moatless-backend-core"
 version = "0.1.0"
 edition = "2021"
 description = "Shared backend policy, read vocabularies, and subsystem ports for Moatless"
-license = "AGPL-3.0-or-later"
 
 [dependencies]
 async-trait = "0.1"

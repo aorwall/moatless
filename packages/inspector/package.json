@@ -79,7 +79,6 @@
 		"tagger"
 	],
 	"author": "Albert \u00d6rwall",
-	"license": "MIT",
 	"dependencies": {
 		"@babel/parser": "^8.0.0",
 		"estree-walker": "^3.0.3",
