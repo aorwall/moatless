@@ -10,6 +10,13 @@ use moatless_backend_core::activity::view::ActivityView;
 const MAX_PROJECTED_FILES: usize = 12;
 const MAX_PROJECTED_FILE_DEPTH: usize = 4;
 
+/// The kind that closes an open question panel on the client.
+///
+/// Named because a panel row whose call has come back is projected as one
+/// whether or not anything wrote a resolution beside it — see
+/// `projection::panel_kind`.
+pub const USER_INPUT_RESOLVED_KIND: &str = "user-input.resolved";
+
 pub trait T3ActivityViewExt {
     fn t3_summary(&self) -> Cow<'_, str>;
     fn t3_tone(&self) -> &'static str;
@@ -70,7 +77,7 @@ impl T3ActivityViewExt for ActivityView<'_> {
             // row. Each spelling is the one that client's own deriver matches
             // on, which is why they are dotted where the column is not.
             ActivityKind::UserInputRequested => "user-input.requested",
-            ActivityKind::UserInputResolved => "user-input.resolved",
+            ActivityKind::UserInputResolved => USER_INPUT_RESOLVED_KIND,
             ActivityKind::PlanUpdated => "turn.plan.updated",
             ActivityKind::ContextWindowUpdated => "context-window.updated",
         }

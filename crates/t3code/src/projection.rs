@@ -523,11 +523,12 @@ pub(super) fn change_events(
             ));
         }
     }
+    let settled = settled_calls(window);
     for activity in activities {
         let (turn, activity_at) = activity_anchor(conversation, window, activity);
         let (kind, payload) = activity_appended_payload(
             &conversation.task_id,
-            activity_row(activity, &turn, &activity_at),
+            activity_row(activity, &turn, &activity_at, &settled),
         );
         let slot = usize::try_from(activity.ordinal).unwrap_or(usize::MAX);
         payloads.push((slot.saturating_add(1), kind, payload));
@@ -567,8 +568,10 @@ fn activity_change_events(
         return Vec::new();
     };
     let (turn, at) = activity_anchor(conversation, window, activity);
-    let (kind, payload) =
-        activity_appended_payload(&conversation.task_id, activity_row(activity, &turn, &at));
+    let (kind, payload) = activity_appended_payload(
+        &conversation.task_id,
+        activity_row(activity, &turn, &at, &settled_calls(window)),
+    );
     let slot = usize::try_from(activity.ordinal).unwrap_or(usize::MAX);
     change
         .sequence(slot.saturating_add(1))
@@ -769,6 +772,7 @@ fn rendered_transcript(
             .extend(message_bubble(message, &turn, &at, origins));
     }
     let surviving = surviving_context_windows(transcript);
+    let settled = settled_calls(transcript);
     for activity in &transcript.activities {
         if activity.kind == ActivityKind::ContextWindowUpdated
             && !surviving.contains(activity.activity_id.as_str())
@@ -776,7 +780,9 @@ fn rendered_transcript(
             continue;
         }
         let (turn, at) = activity_anchor(conversation, transcript, activity);
-        rendered.activities.push(activity_row(activity, &turn, &at));
+        rendered
+            .activities
+            .push(activity_row(activity, &turn, &at, &settled));
     }
 
     rendered
@@ -984,19 +990,60 @@ fn message_row(
 /// `sequence` is the number this row's own event carries — see
 /// [`activity_sequence`]. An activity delivered on its own, long after the
 /// snapshot it has to sort into, carries the number it was written with.
-fn activity_row(activity: &Activity, turn: &Value, at: &str) -> Value {
+fn activity_row(activity: &Activity, turn: &Value, at: &str, settled: &SettledCalls) -> Value {
     let view = ActivityView::new(activity);
 
     json!({
         "id": view.activity_id(),
         "tone": view.t3_tone(),
-        "kind": view.t3_kind(),
+        "kind": panel_kind(activity, settled).unwrap_or_else(|| view.t3_kind()),
         "summary": view.t3_summary(),
         "payload": Value::Object(view.t3_payload()),
         "turnId": turn,
         "sequence": activity_sequence(activity),
         "createdAt": at
     })
+}
+
+/// The `tool_use_id`s of the interactive calls that have come back.
+type SettledCalls<'a> = HashSet<&'a str>;
+
+/// Which calls in this window have come back.
+///
+/// An activity leaves `in_progress` when its result lands, so the call's own row
+/// is the whole answer — the same fact [`proposed_plans`] reads, and it needs no
+/// search for who answered.
+fn settled_calls(transcript: &Transcript) -> SettledCalls<'_> {
+    transcript
+        .activities
+        .iter()
+        .filter(|activity| {
+            activity.kind == ActivityKind::ToolCall && ActivityView::new(activity).is_settled()
+        })
+        .filter_map(|activity| activity.tool_use_id.as_deref())
+        .collect()
+}
+
+/// What a question's panel row is, once its call has come back.
+///
+/// The row a panel is derived from is written beside the call rather than being
+/// it, so no result ever lands on it and its own status never moves. Left at
+/// `requested` it asks forever: the client keeps the panel open until it sees a
+/// row naming the same request resolved, and an answer to a settled call is
+/// refused, so the question cannot be got rid of from there at all.
+///
+/// The call's status is what settles it, however it was settled — answered here,
+/// answered on another surface, or dropped by a resuming session. This reads it
+/// the way a tool row already reads its own: open, it is a request; come back, it
+/// is a resolution.
+fn panel_kind(activity: &Activity, settled: &SettledCalls) -> Option<&'static str> {
+    if activity.kind != ActivityKind::UserInputRequested {
+        return None;
+    }
+    let request_id = activity.payload.get("requestId").and_then(Value::as_str)?;
+    settled
+        .contains(request_id)
+        .then_some(crate::activity::USER_INPUT_RESOLVED_KIND)
 }
 
 /// Where one activity sits in the conversation's event numbering.
@@ -3306,6 +3353,54 @@ mod tests {
         let meter = by_kind("context-window.updated");
         assert_eq!(meter["payload"]["usedTokens"], 1_000);
         assert_eq!(meter["payload"]["maxTokens"], 200_000);
+    }
+
+    /// A question the run has stopped waiting on reaches the client resolved,
+    /// with no resolution row of its own.
+    ///
+    /// The client keeps a panel open until it sees a row naming the same request
+    /// resolved, and refuses to answer a call that has come back — so a panel
+    /// left `requested` here is one nobody can get rid of. The call's own status
+    /// is the fact, and it is settled whoever settled it: this covers a question
+    /// answered from another surface and one a resuming session dropped, neither
+    /// of which writes a resolution.
+    #[test]
+    fn a_question_whose_call_came_back_is_projected_resolved() {
+        let mut asked = activity("msg-2", 2, 0, ActivityKind::UserInputRequested, "Question");
+        asked.payload = json!({
+            "requestId": "call-1",
+            "questions": [{
+                "id": "Which store?",
+                "header": "Storage",
+                "question": "Which store?",
+                "multiSelect": false,
+                "options": [{ "label": "Postgres", "description": "Already deployed." }]
+            }]
+        });
+
+        let mut call = activity("msg-2", 2, 1, ActivityKind::ToolCall, "AskUserQuestion");
+        call.tool_use_id = Some("call-1".to_string());
+        call.status = ActivityStatus::InProgress;
+
+        let kind_of = |rows: Vec<Activity>| {
+            detail(&transcript(Vec::new(), rows))["activities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["payload"]["requestId"] == "call-1")
+                .expect("the panel row")["kind"]
+                .clone()
+        };
+
+        // Still waiting on a person: the panel opens.
+        assert_eq!(
+            kind_of(vec![asked.clone(), call.clone()]),
+            "user-input.requested"
+        );
+
+        // The call came back. The panel row is the same row, and says so.
+        call.status = ActivityStatus::Completed;
+        assert_eq!(kind_of(vec![asked, call]), "user-input.resolved");
     }
 
     /// A Sandbox activity belongs to no Message and no turn, and its kind ends
