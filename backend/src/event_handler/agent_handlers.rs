@@ -7,7 +7,7 @@ use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageC
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
 use crate::task::models::TaskStatus;
-use crate::task_activities::mapping::{map_content, BlockContext, ConversationWrite};
+use crate::task_activities::mapping::{BlockContext, ConversationWrite, map_content};
 
 use super::models::{AgentEvent, SdkResultMessage};
 
@@ -46,17 +46,34 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
     }
 
     // Prometheus: this is a successful terminal run (error completions
-    // short-circuit above). Record outcome, cost, turn latency, turn count, and
-    // any permission denials from the SDK result. The tmux backend reports
-    // 0-valued durations on some paths — those are filtered out.
+    // short-circuit above). Record outcome, cost, tokens, turn latency, turn
+    // count, and any permission denials from the SDK result. The tmux backend
+    // reports 0-valued durations on some paths — those are filtered out.
     {
         let agent_type = event.agent_type.as_deref();
         super::metrics::record_run("completed", agent_type);
         if let Some(cost) = sdk_result.total_cost_usd {
             super::metrics::record_cost(agent_type, cost);
         }
+        if let Some(usage) = sdk_result.usage.as_ref() {
+            super::metrics::record_tokens(agent_type, "input", usage.input_tokens);
+            super::metrics::record_tokens(agent_type, "output", usage.output_tokens);
+            super::metrics::record_tokens(
+                agent_type,
+                "cache_creation",
+                usage.cache_creation_input_tokens,
+            );
+            super::metrics::record_tokens(agent_type, "cache_read", usage.cache_read_input_tokens);
+        }
         if let Some(ms) = sdk_result.duration_ms.filter(|&ms| ms > 0) {
-            super::metrics::record_turn_duration(agent_type, "completed", ms as f64 / 1000.0);
+            let context =
+                super::metrics::context_bucket(sdk_result.usage.as_ref(), sdk_result.num_turns);
+            super::metrics::record_turn_duration(
+                agent_type,
+                "completed",
+                context,
+                ms as f64 / 1000.0,
+            );
         }
         if let Some(ms) = sdk_result.duration_api_ms.filter(|&ms| ms > 0) {
             super::metrics::record_turn_api_duration(agent_type, ms as f64 / 1000.0);

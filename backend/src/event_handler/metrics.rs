@@ -14,6 +14,10 @@
 //! - `agent_type` is the handful of agent runtimes (claude, codex, …); `unknown`
 //!   when absent.
 //! - `status` ∈ {`ok`, `error`}; `outcome` ∈ a small fixed terminal-state set.
+//! - `context_bucket` is the five fixed size classes of [`context_bucket`], plus
+//!   `unknown`; `kind` is the four token classes the SDK usage object reports.
+
+use super::models::UsageInfo;
 
 /// Per-tool-call counter, labelled by bucketed `tool`, `agent_type`, and
 /// `status` (`ok` | `error`). Emitted once per `tool_result` block, so it
@@ -30,9 +34,18 @@ pub(crate) const AGENT_RUNS_TOTAL: &str = "moatless_agent_runs_total";
 /// gives $/s) while the buckets show per-run cost distribution.
 pub(crate) const AGENT_COST_USD: &str = "moatless_agent_cost_usd";
 
-/// Wall-clock turn duration in seconds by `agent_type` and `outcome`
-/// (histogram). Sourced from the SDK result's `duration_ms`.
+/// Wall-clock turn duration in seconds by `agent_type`, `outcome`, and
+/// `context_bucket` (histogram). Sourced from the SDK result's `duration_ms`.
+/// The `context_bucket` label is what makes "a big context makes a turn slow"
+/// visible: without it the histogram mixes a 20k-context turn and a 400k one.
 pub(crate) const AGENT_TURN_DURATION_SECONDS: &str = "moatless_agent_turn_duration_seconds";
+
+/// Tokens consumed by a run, by `agent_type` and `kind` (`input` | `output` |
+/// `cache_read` | `cache_creation`) — counter. Sourced from the SDK result's
+/// `usage`, which reports the run's authoritative totals; the per-message
+/// `output_tokens` on the stream is a partial value sampled before the response
+/// finished, so it is not summed here.
+pub(crate) const AGENT_TOKENS_TOTAL: &str = "moatless_agent_tokens_total";
 
 /// API-time portion of a turn in seconds by `agent_type` (histogram). Sourced
 /// from the SDK result's `duration_api_ms` (the tmux backend reports 0 — those
@@ -91,6 +104,46 @@ pub(crate) fn bucket_tool(name: &str) -> &'static str {
     "other"
 }
 
+/// Bucket the prompt size one of a run's internal turns carried, as a bounded
+/// label.
+///
+/// The SDK result reports usage for the whole run — the sum over its internal
+/// API calls — so the input side is divided by `num_turns` to recover what a
+/// single call actually carried. That per-call size is what drives
+/// time-to-first-token, and the run total obscures it: a 20-turn run at a 100k
+/// context and a 4-turn run at a 500k one both report 2M input tokens.
+///
+/// Only the input side counts (prompt + cache read + cache creation); output
+/// tokens are produced by the call, not fed to it.
+///
+/// Label values are zero-padded lower bounds so the lexical order Prometheus and
+/// Grafana sort by is also the numeric one.
+pub(crate) fn context_bucket(usage: Option<&UsageInfo>, num_turns: Option<u32>) -> &'static str {
+    let Some(usage) = usage else {
+        return "unknown";
+    };
+    let input = usage.input_tokens.unwrap_or(0)
+        + usage.cache_read_input_tokens.unwrap_or(0)
+        + usage.cache_creation_input_tokens.unwrap_or(0);
+    if input <= 0 {
+        return "unknown";
+    }
+    // A result reporting 0 turns still ran one call — never divide by zero.
+    let turns = i64::from(num_turns.unwrap_or(1).max(1));
+    let mean = input / turns;
+    if mean < 50_000 {
+        "000-050k"
+    } else if mean < 100_000 {
+        "050-100k"
+    } else if mean < 200_000 {
+        "100-200k"
+    } else if mean < 400_000 {
+        "200-400k"
+    } else {
+        "400k+"
+    }
+}
+
 /// Normalise an optional agent-type label to a non-empty owned string.
 fn agent_label(agent_type: Option<&str>) -> String {
     agent_type
@@ -117,7 +170,11 @@ pub fn describe_agent_metrics() {
     );
     metrics::describe_histogram!(
         AGENT_TURN_DURATION_SECONDS,
-        "Agent turn wall-clock duration in seconds by agent_type and outcome"
+        "Agent turn wall-clock duration in seconds by agent_type, outcome, and context_bucket (mean prompt size per internal turn)"
+    );
+    metrics::describe_counter!(
+        AGENT_TOKENS_TOTAL,
+        "Tokens consumed by agent runs by agent_type and kind (input | output | cache_read | cache_creation)"
     );
     metrics::describe_histogram!(
         AGENT_TURN_API_DURATION_SECONDS,
@@ -164,14 +221,39 @@ pub(crate) fn record_cost(agent_type: Option<&str>, usd: f64) {
     .record(usd);
 }
 
-/// Record turn wall-clock duration (seconds).
-pub(crate) fn record_turn_duration(agent_type: Option<&str>, outcome: &'static str, seconds: f64) {
+/// Record turn wall-clock duration (seconds). `context` must already be
+/// bucketed ([`context_bucket`]).
+pub(crate) fn record_turn_duration(
+    agent_type: Option<&str>,
+    outcome: &'static str,
+    context: &'static str,
+    seconds: f64,
+) {
     metrics::histogram!(
         AGENT_TURN_DURATION_SECONDS,
         "agent_type" => agent_label(agent_type),
         "outcome" => outcome,
+        "context_bucket" => context,
     )
     .record(seconds);
+}
+
+/// Record one run's token consumption for a single `kind`. A missing or
+/// non-positive count is not a zero-valued observation — it is the runtime not
+/// reporting that class at all, so it is skipped rather than counted.
+pub(crate) fn record_tokens(agent_type: Option<&str>, kind: &'static str, tokens: Option<i64>) {
+    let Some(tokens) = tokens
+        .and_then(|t| u64::try_from(t).ok())
+        .filter(|&t| t > 0)
+    else {
+        return;
+    };
+    metrics::counter!(
+        AGENT_TOKENS_TOTAL,
+        "agent_type" => agent_label(agent_type),
+        "kind" => kind,
+    )
+    .increment(tokens);
 }
 
 /// Record turn API time (seconds).
@@ -233,5 +315,68 @@ mod tests {
         assert_eq!(agent_label(None), "unknown");
         assert_eq!(agent_label(Some("")), "unknown");
         assert_eq!(agent_label(Some("claude")), "claude");
+    }
+
+    /// Usage carrying only the input side, which is all `context_bucket` reads.
+    fn input_usage(input: i64, cache_read: i64, cache_creation: i64) -> UsageInfo {
+        UsageInfo {
+            input_tokens: Some(input),
+            output_tokens: Some(9_999_999),
+            cache_creation_input_tokens: Some(cache_creation),
+            cache_read_input_tokens: Some(cache_read),
+        }
+    }
+
+    #[test]
+    fn context_bucket_is_unknown_without_usable_usage() {
+        assert_eq!(context_bucket(None, Some(4)), "unknown");
+        assert_eq!(
+            context_bucket(Some(&input_usage(0, 0, 0)), Some(4)),
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn context_bucket_sums_the_whole_input_side() {
+        // 10k prompt + 120k cache read + 30k cache creation = 160k on one turn.
+        assert_eq!(
+            context_bucket(Some(&input_usage(10_000, 120_000, 30_000)), Some(1)),
+            "100-200k"
+        );
+    }
+
+    #[test]
+    fn context_bucket_divides_the_run_total_by_its_turns() {
+        // 2M input tokens is the top bucket over 1 turn and a mid one over 20 —
+        // this division is the difference between the label meaning "prompt
+        // size" and meaning "how long the run was".
+        let usage = input_usage(2_000_000, 0, 0);
+        assert_eq!(context_bucket(Some(&usage), Some(1)), "400k+");
+        assert_eq!(context_bucket(Some(&usage), Some(20)), "100-200k");
+    }
+
+    #[test]
+    fn context_bucket_treats_a_missing_or_zero_turn_count_as_one_call() {
+        let usage = input_usage(500_000, 0, 0);
+        assert_eq!(context_bucket(Some(&usage), None), "400k+");
+        assert_eq!(context_bucket(Some(&usage), Some(0)), "400k+");
+    }
+
+    #[test]
+    fn context_bucket_labels_sort_lexically_in_numeric_order() {
+        let ascending = [
+            context_bucket(Some(&input_usage(10_000, 0, 0)), Some(1)),
+            context_bucket(Some(&input_usage(70_000, 0, 0)), Some(1)),
+            context_bucket(Some(&input_usage(150_000, 0, 0)), Some(1)),
+            context_bucket(Some(&input_usage(300_000, 0, 0)), Some(1)),
+            context_bucket(Some(&input_usage(900_000, 0, 0)), Some(1)),
+        ];
+        assert_eq!(
+            ascending,
+            ["000-050k", "050-100k", "100-200k", "200-400k", "400k+"]
+        );
+        let mut sorted = ascending;
+        sorted.sort_unstable();
+        assert_eq!(sorted, ascending, "label order must survive a lexical sort");
     }
 }
