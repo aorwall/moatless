@@ -36,7 +36,7 @@ async fn find_or_create_new_tags(pool: PgPool) {
     assert!(!tags[1].tag_id.is_empty());
     // Names should match
     let mut tag_names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
-    tag_names.sort();
+    tag_names.sort_unstable();
     assert_eq!(tag_names, vec!["bug", "feature"]);
 }
 
@@ -70,7 +70,7 @@ async fn set_task_tags(pool: PgPool) {
         .unwrap();
     assert_eq!(task_tags.len(), 2);
     let mut names: Vec<&str> = task_tags.iter().map(|t| t.name.as_str()).collect();
-    names.sort();
+    names.sort_unstable();
     assert_eq!(names, vec!["alpha", "beta"]);
 }
 
@@ -101,7 +101,7 @@ async fn set_task_tags_replaces(pool: PgPool) {
         .unwrap();
     assert_eq!(result.len(), 2);
     let mut names: Vec<&str> = result.iter().map(|t| t.name.as_str()).collect();
-    names.sort();
+    names.sort_unstable();
     assert_eq!(names, vec!["B", "C"]);
 }
 

@@ -552,7 +552,7 @@ async fn no_row_carries_a_trigger_or_connection_label(pool: PgPool) {
     let state = replica(&pool);
     seed_connection(&pool).await;
 
-    let (_, rows) = captured(async {
+    let ((), rows) = captured(async {
         let _ = deliver(&state, &comment_envelope("create", "c-6"), true).await;
         let _ = deliver(&state, &issue_envelope(false), true).await;
         let _ = deliver_bytes(&state, b"not json".to_vec(), true).await;

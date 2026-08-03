@@ -3708,7 +3708,7 @@ impl Held {
                 .threads
                 .retain(|id| id != item["threadId"].as_str().unwrap()),
             "project-upserted" => {
-                upsert(&mut self.projects, item["project"]["id"].as_str().unwrap())
+                upsert(&mut self.projects, item["project"]["id"].as_str().unwrap());
             }
             "project-removed" => self
                 .projects
@@ -4466,7 +4466,7 @@ async fn deleting_a_repository_removes_every_project_it_declared(pool: PgPool) {
         .filter(|item| item["kind"] == "project-removed")
         .map(|item| item["projectId"].as_str().unwrap())
         .collect();
-    removed.sort();
+    removed.sort_unstable();
     assert_eq!(
         removed,
         ["ws-api", "ws-web"],

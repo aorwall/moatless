@@ -99,7 +99,7 @@ fn group_update(update_id: i64, text: &str) -> serde_json::Value {
         "message": {
             "message_id": 42,
             "from": { "id": 999, "first_name": "Ada" },
-            "chat": { "id": -100123, "type": "supergroup" },
+            "chat": { "id": -100_123, "type": "supergroup" },
             "text": text,
         }
     })
@@ -417,7 +417,7 @@ async fn an_update_without_an_id_is_refused_rather_than_acknowledged(pool: PgPoo
             "message": {
                 "message_id": 42,
                 "from": { "id": 999 },
-                "chat": { "id": -100123, "type": "supergroup" },
+                "chat": { "id": -100_123, "type": "supergroup" },
                 "text": "do the thing",
             }
         }),

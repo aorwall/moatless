@@ -22,10 +22,9 @@ cargo build -p moatless-vibe-backend        # or moatless-sandbox
 cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
 cargo clippy -p moatless-t3code --all-targets -- -D warnings
-cargo clippy -p moatless-vibe-backend --all-targets -- -D warnings
+cargo clippy -p moatless-vibe-backend --all-targets --features db-tests -- -D warnings
 cargo clippy -p moatless-sandbox -- -D warnings   # also claude-agent-sdk, moatless-events
 cargo test -p moatless-vibe-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
-cargo test -p moatless-vibe-backend --features db-tests --no-run   # compiles the db-tests tier
 cargo test -p moatless-backend-core
 cargo test -p moatless-t3code
 task rust:gc                                # reclaim target/debug/incremental
@@ -42,13 +41,15 @@ rust:gc` drops `incremental/` once it passes its threshold; compiled
 dependencies in `deps/` survive, so only the next build per configuration is
 non-incremental.
 
-39 of the 40 files in `backend/tests` open with `#![cfg(feature = "db-tests")]`,
-so `cargo test -p moatless-vibe-backend` and `--all-targets` clippy both compile
-them to nothing — a signature they use can change and every other gate stays
-green. `--no-run` builds those binaries and needs no PostgreSQL, Docker or PAT to
-do it, so it is the one check that covers the tier outside a run with a database.
-Run it whenever a change touches a type, trait or struct literal those tests
-construct.
+The backend's clippy line carries `--features db-tests` because 39 of the 40
+files in `backend/tests` open with `#![cfg(feature = "db-tests")]` and compile to
+nothing without it — a signature they construct can change and a bare
+`--all-targets` run stays green. Clippy type-checks that tier without linking it,
+which is why the feature rides on a line you already run rather than a line of
+its own. `ci.yml` also links the 39 binaries with `cargo test -p
+moatless-vibe-backend --features db-tests --no-run`; do not add that locally,
+because `cargo test` under a feature is a separate cargo unit and the first build
+of it recompiles the dependency graph again.
 
 `moatless-backend-core` is linted twice because its `database` feature gates the
 activity DAO and the whole pairing module: `--all-features` is the only run that
@@ -77,7 +78,6 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 
 ## Verification (mandatory after changes)
 - Rust: the clippy line for that crate from the block above, verbatim, and `cargo test -p <crate>`
-- Rust, when the change touches `backend/`: also `cargo test -p moatless-vibe-backend --features db-tests --no-run`
 - Frontend: `bun run type:check` and `bun run biome:check` (quick loop: `bun run post-edit-hook`)
 - Lint ratchet: `noFloatingPromises`, `noMisusedPromises`, `useExhaustiveSwitchCases` are baselined per file in `biome-baseline.json`. Touch a file with baselined violations → fix them, then `bun run lint:ratchet:update`. New files must be clean; the baseline only shrinks.
 

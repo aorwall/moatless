@@ -527,8 +527,7 @@ async fn an_issue_update_with_no_timestamp_is_unidentifiable(pool: PgPool) {
 
     let rejection = deliver(&state, &issue_envelope(false))
         .await
-        .err()
-        .expect("refused");
+        .expect_err("refused");
 
     assert!(
         matches!(
@@ -557,8 +556,7 @@ async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgP
         .expect("Linear adapter registered");
     let rejection = receive(&state, provider, "00ff", &body)
         .await
-        .err()
-        .expect("refused");
+        .expect_err("refused");
 
     assert!(matches!(rejection.error, IngressError::Ingress(_)));
     assert_eq!(rejection.event_type, "Comment");
@@ -573,8 +571,7 @@ async fn an_unparseable_body_is_an_ingress_rejection_with_no_event_type(pool: Pg
 
     let rejection = deliver_signed_bytes(&state, b"not json".to_vec(), true)
         .await
-        .err()
-        .expect("refused");
+        .expect_err("refused");
 
     assert!(matches!(rejection.error, IngressError::Ingress(_)));
     assert_eq!(rejection.event_type, "");
@@ -598,8 +595,7 @@ async fn a_failed_admission_is_not_admitted_and_still_names_its_event_type(pool:
 
     let rejection = deliver(&state, &comment_envelope("create", "c-1"))
         .await
-        .err()
-        .expect("refused");
+        .expect_err("refused");
 
     assert!(
         matches!(rejection.error, IngressError::NotAdmitted(_)),
