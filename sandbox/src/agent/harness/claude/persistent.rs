@@ -137,6 +137,7 @@ impl ClaudePersistentProcess {
             self.cancel_token.clone(),
             Arc::clone(&self.cfg.agent_state),
             input.env.clone(),
+            self.cfg.events.clone(),
         );
 
         let handle = query_tmux_streaming(options)

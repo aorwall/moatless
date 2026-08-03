@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
+use crate::events::GrpcEventPublisher;
 
 use super::agent_state::AgentState;
 use super::permission_handler::InteractivePermissionHandler;
@@ -23,6 +24,7 @@ pub fn build_options(
     cancel_token: CancellationToken,
     agent_state: Arc<AgentState>,
     env: Option<HashMap<String, String>>,
+    events: Option<GrpcEventPublisher>,
 ) -> ClaudeOptions {
     // Determine model: request > agentConfig > DEFAULT_CLAUDE_CODE_MODEL env
     let model = request
@@ -41,9 +43,14 @@ pub fn build_options(
     let is_plan_mode = request.agent_mode.as_deref() == Some("plan");
 
     // Build the permission handler for interactive prompts (AskUserQuestion,
-    // ExitPlanMode). It also enforces plan-mode write blocking when active.
+    // ExitPlanMode). It also enforces plan-mode write blocking when active, and
+    // publishes each prompt it parks on so the question reaches a person.
     let permission_handler =
         InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
+    let permission_handler = match events {
+        Some(events) => permission_handler.announcing_prompts(events, config.task_id.clone()),
+        None => permission_handler,
+    };
 
     // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);
@@ -519,6 +526,7 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AgentState::new()),
             None,
+            None,
         )
     }
 
@@ -650,6 +658,7 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AgentState::new()),
             None,
+            None,
         );
         assert_eq!(options.permission_mode, Some(PermissionMode::AcceptEdits));
     }
@@ -666,6 +675,7 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AgentState::new()),
             None,
+            None,
         );
         assert_eq!(options.permission_mode, Some(PermissionMode::Plan));
     }
@@ -679,6 +689,7 @@ mod tests {
             &request,
             CancellationToken::new(),
             Arc::new(AgentState::new()),
+            None,
             None,
         );
         assert_eq!(options.effort.as_deref(), Some("max"));

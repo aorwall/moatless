@@ -716,6 +716,7 @@ async fn run_missing_session_resume_is_lost() {
         config: Arc::new(config),
         agent_state: Arc::new(AgentState::new()),
         agent_type: Some("claude-code".to_string()),
+        events: None,
     });
 
     // A syntactically valid session id with no transcript under the isolated

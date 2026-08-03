@@ -105,6 +105,9 @@ pub struct ClaudeConfig {
     pub config: Arc<Config>,
     pub agent_state: Arc<AgentState>,
     pub agent_type: Option<String>,
+    /// Publishes the interactive calls the permission handler parks on. `None`
+    /// in tests, which drive the harness without a backend to publish to.
+    pub events: Option<crate::events::GrpcEventPublisher>,
 }
 
 /// One Claude CLI subprocess for a single Turn.
@@ -327,6 +330,7 @@ impl AgentProcess for ClaudeProcess {
             self.cancel_token.clone(),
             Arc::clone(&self.cfg.agent_state),
             input.env.clone(),
+            self.cfg.events.clone(),
         );
 
         match query(&input.text, options).await {

@@ -73,6 +73,7 @@ use super::harness::{
     Activity, Cause, ContextWindow, ErrorClass, Harness, HarnessClosed, HarnessError, Input,
     InputId, Outcome, Rejection, Role, SessionImpact, Signal, SourceEvent,
 };
+use super::prompt::PromptToolName;
 use super::scheduled_job::{JobKind, ScheduledJobRegistry};
 use super::wakeup_job::WakeupJob;
 
@@ -121,6 +122,12 @@ pub struct Coordinator {
     /// failure, so the user sees `retrying` (published by the service) instead of
     /// a terminal error.
     suppress_failure_event: bool,
+    /// Where an interactive call is recorded as published, whichever route
+    /// published it. The permission handler publishes the ones it parks on so a
+    /// person can see what they are being asked; publishing the block again
+    /// would write a second row for one call. `None` in tests that drive a
+    /// coordinator with no agent behind it, where nothing else publishes.
+    prompt_claims: Option<Arc<AgentState>>,
 }
 
 impl Coordinator {
@@ -141,7 +148,17 @@ impl Coordinator {
             last_activity_publish: None,
             hold_run_id: false,
             suppress_failure_event: false,
+            prompt_claims: None,
         }
+    }
+
+    /// Share the state the permission handler claims its announcements in, so a
+    /// call it already published is not published a second time when the block
+    /// holding it drains from the harness.
+    #[must_use]
+    pub fn deduping_announced_prompts(mut self, agent_state: Arc<AgentState>) -> Self {
+        self.prompt_claims = Some(agent_state);
+        self
     }
 
     /// Submit input and register its acknowledgement. Opening-turn inputs ack
@@ -274,14 +291,18 @@ impl Coordinator {
                 }
             }
             Signal::Source(event) => {
+                // The index is spent either way, so the blocks that follow keep
+                // the positions the model gave them.
                 let block_index = self.next_block_index(&event.message_id.0);
-                self.run_events()
-                    .publish_agent_event(
-                        &self.task_id,
-                        AgentSubType::Message,
-                        message_payload(&event, block_index),
-                    )
-                    .await;
+                if !self.published_as_a_prompt(&event.block).await {
+                    self.run_events()
+                        .publish_agent_event(
+                            &self.task_id,
+                            AgentSubType::Message,
+                            message_payload(&event, block_index),
+                        )
+                        .await;
+                }
                 self.ack_accepted_injected_inputs("source");
             }
             Signal::Activity(activity) => {
@@ -344,6 +365,25 @@ impl Coordinator {
         let index = *slot;
         *slot += 1;
         index
+    }
+
+    /// Whether the permission handler already published this block's call.
+    ///
+    /// Only the calls it parks on are asked about: those are announced from the
+    /// handler as it waits, because a person cannot answer a question they were
+    /// never shown. The block itself still arrives here, carrying the same
+    /// tool-use id, and the conversation keeps one row per id — so exactly one
+    /// of the two publishes it, and it is whichever got here first.
+    async fn published_as_a_prompt(&self, block: &CanonicalContentBlock) -> bool {
+        let (Some(state), CanonicalContentBlock::ToolUse { id, name, .. }) =
+            (&self.prompt_claims, block)
+        else {
+            return false;
+        };
+        if PromptToolName::from_tool_name(name).is_none() {
+            return false;
+        }
+        !state.claim_prompt_publication(id).await
     }
 
     fn send_run_ack(&self, input: InputId, ack: oneshot::Sender<RunAck>, reason: &'static str) {

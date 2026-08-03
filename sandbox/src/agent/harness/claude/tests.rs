@@ -25,6 +25,7 @@ fn process() -> ClaudeProcess {
         config: Arc::new(crate::config::test_support::minimal_config()),
         agent_state: Arc::new(AgentState::new()),
         agent_type: Some("claude-code".to_string()),
+        events: None,
     })
 }
 
@@ -466,6 +467,7 @@ async fn e2e_claude_subprocess_turn_through_the_harness() {
         config: Arc::new(config),
         agent_state: Arc::new(AgentState::new()),
         agent_type: Some("claude-code".to_string()),
+        events: None,
     };
 
     let mut harness = Harness::claude(cfg);
@@ -537,6 +539,7 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         config: Arc::new(config),
         agent_state: Arc::new(AgentState::new()),
         agent_type: Some("claude-code".to_string()),
+        events: None,
     };
 
     let mut harness = Harness::claude_persistent(cfg);

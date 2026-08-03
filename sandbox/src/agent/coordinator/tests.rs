@@ -291,6 +291,102 @@ async fn per_block_message_payload_matches_backend_assembly_contract() {
     assert_eq!(messages[1]["message"]["content"][0]["name"], "Bash");
 }
 
+/// An interactive call is published by the permission handler at the moment it
+/// parks on it, so a person can see what they are being asked. The block
+/// holding it arrives here too, carrying the same tool-use id, and the
+/// conversation stores one row per id — so the coordinator must let the
+/// announcement stand rather than write the call a second time.
+#[tokio::test]
+async fn a_call_the_permission_handler_announced_is_not_published_again() {
+    let (events, received, _cancel) = recording_publisher();
+    let plan = |id: &str| serde_json::json!({ "type": "tool_use", "id": id, "name": "ExitPlanMode", "input": {} });
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::Block(block("msg-1", plan("toolu_plan"), Role::Assistant)),
+        Step::Block(block("msg-1", text_block("after"), Role::Assistant)),
+        Step::Completed,
+    ]);
+    let agent_state = Arc::new(crate::agent::agent_state::AgentState::new());
+    // The claim the handler took on its way into the wait.
+    assert!(agent_state.claim_prompt_publication("toolu_plan").await);
+
+    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1")
+        .deduping_announced_prompts(Arc::clone(&agent_state));
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "hi"), ack_tx)
+        .await
+        .expect("submit");
+    coord.pump_one_execution().await;
+    flush(&events).await;
+
+    let messages: Vec<serde_json::Value> = received
+        .lock()
+        .expect("lock")
+        .iter()
+        .filter(|r| r.sub_type == "message")
+        .map(|r| serde_json::from_str(&r.payload_json).expect("json"))
+        .collect();
+
+    // Only the text block is published, and it keeps the position the model gave
+    // it — the skipped call spent index 0.
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["blockIndex"], 1);
+    assert_eq!(messages[0]["message"]["content"][0]["text"], "after");
+}
+
+/// The claim runs the other way too: a call that reaches the coordinator before
+/// the handler announces it is published here, and the claim it takes is what
+/// keeps the announcement from writing it again. Only the calls that park a run
+/// are claimed — every other tool call is published unconditionally, and the
+/// claim set stays as small as the questions asked.
+#[tokio::test]
+async fn a_call_that_arrives_first_publishes_and_takes_the_claim() {
+    let (events, received, _cancel) = recording_publisher();
+    let call = |name: &str, id: &str| serde_json::json!({ "type": "tool_use", "id": id, "name": name, "input": {} });
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-1".to_string())),
+        Step::AcceptInput,
+        Step::Block(block(
+            "msg-1",
+            call("ExitPlanMode", "toolu_plan"),
+            Role::Assistant,
+        )),
+        Step::Block(block("msg-1", call("Bash", "toolu_bash"), Role::Assistant)),
+        Step::Completed,
+    ]);
+    let agent_state = Arc::new(crate::agent::agent_state::AgentState::new());
+    let mut coord = Coordinator::new(Harness::scripted(script), events.clone(), "task-1")
+        .deduping_announced_prompts(Arc::clone(&agent_state));
+    let (ack_tx, _ack_rx) = oneshot::channel();
+    coord
+        .submit(Input::text("in-1", "hi"), ack_tx)
+        .await
+        .expect("submit");
+    coord.pump_one_execution().await;
+    flush(&events).await;
+
+    let ids: Vec<String> = received
+        .lock()
+        .expect("lock")
+        .iter()
+        .filter(|r| r.sub_type == "message")
+        .map(|r| {
+            let payload: serde_json::Value = serde_json::from_str(&r.payload_json).expect("json");
+            payload["message"]["content"][0]["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(ids, vec!["toolu_plan", "toolu_bash"]);
+
+    // The interactive call is spoken for; the ordinary one was never claimed.
+    assert!(!agent_state.claim_prompt_publication("toolu_plan").await);
+    assert!(agent_state.claim_prompt_publication("toolu_bash").await);
+}
+
 #[tokio::test]
 async fn tool_result_block_surfaces_typed_result_at_payload_top_level() {
     let (events, received, _cancel) = recording_publisher();

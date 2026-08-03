@@ -109,6 +109,10 @@ pub use moatless_events::SandboxStatus;
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
     Running,
+    /// Parked on a person: the run is open, and nothing is running until it is
+    /// answered. Must stay in step with `backend::sandbox::live_status`, which
+    /// is what serializes the value this deserializes.
+    Waiting,
     Idle,
     Unknown,
 }
@@ -117,6 +121,7 @@ impl std::fmt::Display for AgentStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AgentStatus::Running => write!(f, "running"),
+            AgentStatus::Waiting => write!(f, "waiting"),
             AgentStatus::Idle => write!(f, "idle"),
             AgentStatus::Unknown => write!(f, "unknown"),
         }
@@ -127,8 +132,27 @@ impl From<&str> for AgentStatus {
     fn from(s: &str) -> Self {
         match s {
             "running" => AgentStatus::Running,
+            "waiting" => AgentStatus::Waiting,
             "idle" | "stopped" => AgentStatus::Idle,
             _ => AgentStatus::Unknown,
+        }
+    }
+}
+
+#[cfg(test)]
+mod agent_status_tests {
+    use super::AgentStatus;
+
+    /// Every status the backend can serialize must round-trip here — a missing
+    /// variant fails the whole `/sandbox/status` response, not just the field.
+    #[test]
+    fn every_backend_status_deserializes() {
+        for wire in ["running", "waiting", "idle", "unknown"] {
+            let json = format!("\"{wire}\"");
+            let parsed: AgentStatus =
+                serde_json::from_str(&json).unwrap_or_else(|e| panic!("{wire}: {e}"));
+            assert_eq!(parsed.to_string(), wire);
+            assert_eq!(AgentStatus::from(wire), parsed);
         }
     }
 }

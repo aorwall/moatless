@@ -42,7 +42,7 @@ impl Orchestrator {
                 &mut *transport,
                 &message_tx,
                 &request_tracker,
-                permission_handler.as_deref(),
+                permission_handler.as_ref(),
                 hook_handler.as_deref(),
                 sdk_mcp_servers.as_ref(),
                 &stdin_writer,
@@ -85,7 +85,7 @@ impl Orchestrator {
         transport: &mut dyn Transport,
         message_tx: &mpsc::Sender<Result<SdkMessage>>,
         request_tracker: &Arc<Mutex<RequestTracker>>,
-        permission_handler: Option<&dyn PermissionHandler>,
+        permission_handler: Option<&Arc<dyn PermissionHandler>>,
         hook_handler: Option<&dyn HookHandler>,
         sdk_mcp_servers: Option<&HashMap<String, SdkMcpServer>>,
         stdin_writer: &Arc<dyn StdinWriter>,
@@ -120,17 +120,66 @@ impl Orchestrator {
                 RawStdoutMessage::IncomingControlRequest {
                     request_id,
                     request,
-                } => {
-                    Self::handle_incoming_control_request(
-                        request_id,
-                        request,
-                        permission_handler,
-                        hook_handler,
-                        sdk_mcp_servers,
-                        stdin_writer,
-                    )
-                    .await;
-                }
+                } => match request {
+                    IncomingControlRequestInner::CanUseTool {
+                        tool_name,
+                        input,
+                        tool_use_id,
+                        agent_id,
+                        permission_suggestions,
+                        blocked_path,
+                        decision_reason,
+                    } => {
+                        // A permission decision may take as long as the person
+                        // making it, so it is answered off this loop. Awaited
+                        // here, one handler that waits stops the only reader of
+                        // the CLI's stdout: every message already written — the
+                        // assistant block holding the very call being asked
+                        // about, the result of the tool before it — stays unread
+                        // until the answer arrives, and the run looks stopped
+                        // rather than parked on a question. Spawned, the stream
+                        // keeps flowing while the question stands.
+                        let context = PermissionContext {
+                            tool_use_id: tool_use_id.clone(),
+                            agent_id,
+                            suggestions: permission_suggestions,
+                            blocked_path,
+                            decision_reason,
+                        };
+                        let permission_handler = permission_handler.cloned();
+                        let stdin_writer = Arc::clone(stdin_writer);
+                        let cancellation_token = cancellation_token.clone();
+                        tokio::spawn(async move {
+                            tokio::select! {
+                                () = Self::answer_can_use_tool(
+                                    request_id,
+                                    &tool_name,
+                                    input,
+                                    context,
+                                    permission_handler.as_deref(),
+                                    &stdin_writer,
+                                ) => {}
+                                () = cancellation_token.cancelled() => {
+                                    debug!(
+                                        tool_name = %tool_name,
+                                        "Cancelled while a permission decision was outstanding \
+                                         — leaving it unanswered"
+                                    );
+                                }
+                            }
+                        });
+                    }
+                    request => {
+                        Self::handle_incoming_control_request(
+                            request_id,
+                            request,
+                            hook_handler,
+                            sdk_mcp_servers,
+                            stdin_writer,
+                        )
+                        .await;
+                    }
+                },
                 RawStdoutMessage::ControlResponse(response) => {
                     Self::handle_control_response(response, request_tracker).await;
                 }
@@ -156,93 +205,95 @@ impl Orchestrator {
         }
     }
 
+    /// Put one `can_use_tool` request to the handler and write its answer.
+    ///
+    /// Runs off the read loop (see the call site): the handler is allowed to
+    /// take arbitrarily long, including waiting on a person.
+    async fn answer_can_use_tool(
+        request_id: String,
+        tool_name: &str,
+        input: serde_json::Map<String, serde_json::Value>,
+        context: PermissionContext,
+        permission_handler: Option<&dyn PermissionHandler>,
+        stdin_writer: &Arc<dyn StdinWriter>,
+    ) {
+        let tool_use_id = context.tool_use_id.clone();
+        let response = if let Some(handler) = permission_handler {
+            match handler.can_use_tool(tool_name, &input, context).await {
+                PermissionResult::Allow {
+                    updated_input,
+                    updated_permissions,
+                } => {
+                    // CLI's Zod schema requires `updatedInput` to be a record
+                    // for `behavior: "allow"` responses. Use the updated input
+                    // if provided, otherwise fall back to the original input.
+                    let input_value = match updated_input {
+                        Some(map) => serde_json::Value::Object(map),
+                        None => serde_json::Value::Object(input),
+                    };
+                    let mut resp = serde_json::json!({
+                        "behavior": "allow",
+                        "toolUseID": tool_use_id,
+                        "updatedInput": input_value,
+                    });
+                    if let Some(perms) = updated_permissions {
+                        resp["updatedPermissions"] =
+                            serde_json::to_value(perms).unwrap_or_default();
+                    }
+                    ControlResponsePayload {
+                        subtype: "success".to_string(),
+                        request_id,
+                        response: Some(resp),
+                        error: None,
+                    }
+                }
+                PermissionResult::Deny { message, interrupt } => {
+                    let mut resp = serde_json::json!({
+                        "behavior": "deny",
+                        "message": message,
+                        "toolUseID": tool_use_id,
+                    });
+                    if let Some(interrupt) = interrupt {
+                        resp["interrupt"] = serde_json::Value::Bool(interrupt);
+                    }
+                    ControlResponsePayload {
+                        subtype: "success".to_string(),
+                        request_id,
+                        response: Some(resp),
+                        error: None,
+                    }
+                }
+            }
+        } else {
+            // No permission handler — auto-allow with original input
+            ControlResponsePayload {
+                subtype: "success".to_string(),
+                request_id,
+                response: Some(serde_json::json!({
+                    "behavior": "allow",
+                    "toolUseID": tool_use_id,
+                    "updatedInput": serde_json::Value::Object(input),
+                })),
+                error: None,
+            }
+        };
+
+        Self::write_control_response(response, stdin_writer).await;
+    }
+
+    /// Handle a control request the read loop answers in line, in the order the
+    /// CLI asked. `can_use_tool` is not one of them — it is spawned; see
+    /// [`Self::answer_can_use_tool`].
     async fn handle_incoming_control_request(
         request_id: String,
         request: IncomingControlRequestInner,
-        permission_handler: Option<&dyn PermissionHandler>,
         hook_handler: Option<&dyn HookHandler>,
         sdk_mcp_servers: Option<&HashMap<String, SdkMcpServer>>,
         stdin_writer: &Arc<dyn StdinWriter>,
     ) {
         match request {
-            IncomingControlRequestInner::CanUseTool {
-                tool_name,
-                input,
-                tool_use_id,
-                agent_id,
-                permission_suggestions,
-                blocked_path,
-                decision_reason,
-            } => {
-                let response = if let Some(handler) = permission_handler {
-                    let context = PermissionContext {
-                        tool_use_id: tool_use_id.clone(),
-                        agent_id,
-                        suggestions: permission_suggestions,
-                        blocked_path,
-                        decision_reason,
-                    };
-
-                    match handler.can_use_tool(&tool_name, &input, context).await {
-                        PermissionResult::Allow {
-                            updated_input,
-                            updated_permissions,
-                        } => {
-                            // CLI's Zod schema requires `updatedInput` to be a record
-                            // for `behavior: "allow"` responses. Use the updated input
-                            // if provided, otherwise fall back to the original input.
-                            let input_value = match updated_input {
-                                Some(map) => serde_json::Value::Object(map),
-                                None => serde_json::Value::Object(input),
-                            };
-                            let mut resp = serde_json::json!({
-                                "behavior": "allow",
-                                "toolUseID": tool_use_id,
-                                "updatedInput": input_value,
-                            });
-                            if let Some(perms) = updated_permissions {
-                                resp["updatedPermissions"] =
-                                    serde_json::to_value(perms).unwrap_or_default();
-                            }
-                            ControlResponsePayload {
-                                subtype: "success".to_string(),
-                                request_id: request_id.clone(),
-                                response: Some(resp),
-                                error: None,
-                            }
-                        }
-                        PermissionResult::Deny { message, interrupt } => {
-                            let mut resp = serde_json::json!({
-                                "behavior": "deny",
-                                "message": message,
-                                "toolUseID": tool_use_id,
-                            });
-                            if let Some(interrupt) = interrupt {
-                                resp["interrupt"] = serde_json::Value::Bool(interrupt);
-                            }
-                            ControlResponsePayload {
-                                subtype: "success".to_string(),
-                                request_id: request_id.clone(),
-                                response: Some(resp),
-                                error: None,
-                            }
-                        }
-                    }
-                } else {
-                    // No permission handler — auto-allow with original input
-                    ControlResponsePayload {
-                        subtype: "success".to_string(),
-                        request_id: request_id.clone(),
-                        response: Some(serde_json::json!({
-                            "behavior": "allow",
-                            "toolUseID": tool_use_id,
-                            "updatedInput": serde_json::Value::Object(input),
-                        })),
-                        error: None,
-                    }
-                };
-
-                Self::write_control_response(response, stdin_writer).await;
+            IncomingControlRequestInner::CanUseTool { .. } => {
+                warn!("can_use_tool reached the in-line control path — ignoring");
             }
             IncomingControlRequestInner::HookCallback {
                 callback_id,

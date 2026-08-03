@@ -3,6 +3,8 @@
 //! Owned by the coordinator service (`coordinator.rs`); harness-neutral so any agent
 //! implementation can reuse it.
 
+use std::collections::HashSet;
+
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -31,6 +33,9 @@ struct AgentInner {
     /// tmux only: the CLI process in the pane. Marks the persistent session so
     /// the busy-process walk can tell it apart from the agent's own work.
     tmux_pane_pid: Option<u32>,
+    /// Interactive calls already published to the backend, by tool-use id.
+    /// See [`AgentState::claim_prompt_publication`].
+    published_prompts: HashSet<String>,
 }
 
 impl Default for AgentState {
@@ -52,6 +57,7 @@ impl AgentState {
                 consecutive_errors: 0,
                 messages_pending: false,
                 tmux_pane_pid: None,
+                published_prompts: HashSet::new(),
             }),
         }
     }
@@ -166,8 +172,43 @@ impl AgentState {
         self.inner.write().await.current_run_id = Some(run_id);
     }
 
-    pub async fn set_pending_prompt(&self, prompt: PendingPrompt) {
-        self.inner.write().await.pending_prompt = Some(prompt);
+    /// Claim the right to publish this interactive call, and report whether the
+    /// claim is this caller's.
+    ///
+    /// One call, two routes to the backend. The permission handler publishes it
+    /// as it parks, because a person cannot answer a question they were never
+    /// shown and the block holding it may not have been written yet. The
+    /// coordinator publishes that block when the harness delivers it. Both carry
+    /// the same tool-use id, and the conversation stores one row per id — so the
+    /// second write is a conflict, not an update.
+    ///
+    /// Whichever arrives first takes the claim and publishes; the other sees it
+    /// taken and stays quiet. The claim is never released: an id names one call
+    /// for the life of the session.
+    pub async fn claim_prompt_publication(&self, tool_use_id: &str) -> bool {
+        self.inner
+            .write()
+            .await
+            .published_prompts
+            .insert(tool_use_id.to_string())
+    }
+
+    /// Park a prompt, unless one is already parked. Returns whether it was.
+    ///
+    /// One question stands at a time: the answer path takes *the* pending
+    /// prompt, and a person answers the one panel the task shows. Permission
+    /// decisions are made off the SDK's read loop, so two interactive calls in
+    /// one assistant message do arrive together — and replacing the standing
+    /// prompt would drop its sender, which the run waiting on it reads as a
+    /// cancellation. The second call is refused instead, and the model is told
+    /// to ask again.
+    pub async fn set_pending_prompt(&self, prompt: PendingPrompt) -> bool {
+        let mut inner = self.inner.write().await;
+        if inner.pending_prompt.is_some() {
+            return false;
+        }
+        inner.pending_prompt = Some(prompt);
+        true
     }
 
     /// Take the pending prompt (removes it from state).

@@ -10,11 +10,27 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use serde_json::json;
+
 use super::agent_state::AgentState;
 use super::prompt::{PendingPrompt, PromptResponse, PromptToolName};
+use crate::events::GrpcEventPublisher;
 
 /// Tools that require plan approval before use.
 const WRITE_TOOLS: &[&str] = &["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
+
+/// Where the call that parked the run is announced, so a person can see the
+/// question they are being asked.
+///
+/// Nothing else guarantees it reaches them in time. The block that holds the
+/// call travels the harness stream on its own schedule — it may not have been
+/// written when permission is asked for, and the CLI is waiting on this answer
+/// before it writes anything more. Announcing from here puts the question in
+/// front of a person the moment it is asked, whatever the stream does.
+struct PromptSink {
+    events: GrpcEventPublisher,
+    task_id: String,
+}
 
 /// Permission handler that intercepts AskUserQuestion and ExitPlanMode.
 ///
@@ -24,6 +40,9 @@ pub struct InteractivePermissionHandler {
     pub agent_state: Arc<AgentState>,
     /// When true, write tools are blocked pending ExitPlanMode approval.
     pub plan_mode_active: Arc<AtomicBool>,
+    /// `None` in tests and wherever no publisher is wired; the prompt then
+    /// parks exactly as before, unannounced.
+    prompt_sink: Option<PromptSink>,
 }
 
 impl InteractivePermissionHandler {
@@ -32,6 +51,7 @@ impl InteractivePermissionHandler {
         Self {
             agent_state,
             plan_mode_active: Arc::new(AtomicBool::new(plan_mode)),
+            prompt_sink: None,
         }
     }
 
@@ -39,6 +59,95 @@ impl InteractivePermissionHandler {
     pub fn new(agent_state: Arc<AgentState>) -> Self {
         Self::with_plan_mode(agent_state, false)
     }
+
+    /// Announce every interactive call this handler parks on through `events`.
+    #[must_use]
+    pub fn announcing_prompts(mut self, events: GrpcEventPublisher, task_id: String) -> Self {
+        self.prompt_sink = Some(PromptSink { events, task_id });
+        self
+    }
+
+    /// Publish the parked call as the `tool_use` block it is.
+    ///
+    /// Shaped exactly like the per-block `agent.message` the coordinator
+    /// publishes for an ordinary block, so the backend's existing mapping does
+    /// the rest: the call row the answer settles, and the joined
+    /// `user_input_requested` row the answer panel is derived from.
+    ///
+    /// The message uuid is derived from the tool-use id rather than allocated,
+    /// so a redelivery of the announcement itself updates the row rather than
+    /// adding a second. The *real* block carrying this call is a different
+    /// message and cannot be deduplicated that way; the two settle it with a
+    /// claim instead, and the one that gets there first publishes.
+    ///
+    /// Run-scoped through `current_run_id` so the call lands on the turn it
+    /// belongs to, the same attribution an ack of the answer already uses.
+    async fn announce(&self, tool_name: &str, tool_use_id: &str, input: &serde_json::Value) {
+        let Some(sink) = &self.prompt_sink else {
+            return;
+        };
+        if tool_use_id.is_empty() {
+            tracing::warn!(
+                tool = %tool_name,
+                "Interactive call carries no tool-use id; parking it unannounced"
+            );
+            return;
+        }
+        // The block holding this call reaches the coordinator by its own route.
+        // Claiming the id here is what keeps the two from writing the same call
+        // twice; losing the claim means the block got there first, and there is
+        // nothing left to announce.
+        if !self.agent_state.claim_prompt_publication(tool_use_id).await {
+            return;
+        }
+
+        let events = match self.agent_state.current_run_id().await {
+            Some(run_id) => sink.events.for_run(&run_id),
+            None => sink.events.clone(),
+        };
+        events
+            .publish_agent_event(
+                &sink.task_id,
+                moatless_events::AgentSubType::Message,
+                prompt_message_payload(
+                    tool_name,
+                    tool_use_id,
+                    input,
+                    &self.agent_state.last_session_id().await.unwrap_or_default(),
+                ),
+            )
+            .await;
+    }
+}
+
+/// The `agent.message` payload announcing one parked interactive call.
+///
+/// Byte-for-byte the shape `coordinator::message_payload` publishes for an
+/// ordinary per-block source event, because it is read by the same handler:
+/// one `blockIndex`, one `content` block, the message's own uuid on the outside
+/// and the inside.
+fn prompt_message_payload(
+    tool_name: &str,
+    tool_use_id: &str,
+    input: &serde_json::Value,
+    session_id: &str,
+) -> serde_json::Value {
+    let uuid = format!("prompt-{tool_use_id}");
+    json!({
+        "uuid": uuid,
+        "blockIndex": 0,
+        "session_id": session_id,
+        "message": {
+            "role": "assistant",
+            "id": uuid,
+            "content": [{
+                "type": "tool_use",
+                "id": tool_use_id,
+                "name": tool_name,
+                "input": input,
+            }],
+        },
+    })
 }
 
 #[async_trait::async_trait]
@@ -47,7 +156,7 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
         &self,
         tool_name: &str,
         input: &serde_json::Map<String, serde_json::Value>,
-        _context: claude_agent_sdk::types::permissions::PermissionContext,
+        context: claude_agent_sdk::types::permissions::PermissionContext,
     ) -> claude_agent_sdk::PermissionResult {
         // Check if this is an interactive prompt tool
         if let Some(prompt_tool) = PromptToolName::from_tool_name(tool_name) {
@@ -58,12 +167,27 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
 
             let prompt = PendingPrompt {
                 tool_name: prompt_tool,
-                input: input_value,
+                input: input_value.clone(),
                 sender: tx,
             };
 
-            // Store the pending prompt
-            self.agent_state.set_pending_prompt(prompt).await;
+            // Store the pending prompt. A question already standing keeps its
+            // place: answering it is what lets the run continue, and there is
+            // one panel to answer it in.
+            if !self.agent_state.set_pending_prompt(prompt).await {
+                return claude_agent_sdk::PermissionResult::Deny {
+                    message: "Another question is already waiting to be answered. \
+                              Ask this one again once that answer arrives."
+                        .to_string(),
+                    interrupt: None,
+                };
+            }
+
+            // Say what is being asked before waiting to be answered: the wait
+            // below ends only when a person answers, and the panel they answer
+            // in is derived from this.
+            self.announce(tool_name, &context.tool_use_id, &input_value)
+                .await;
 
             // Nothing is running while this waits, and the idle reaper asks the
             // agent before pulling the plug: reported as running, a parked run
@@ -392,5 +516,103 @@ mod tests {
             ),
             "Cancelled prompt should return Deny with interrupt"
         );
+    }
+
+    /// The announcement carries the call itself, in the shape the backend's
+    /// per-block `agent.message` handler already reads — which is what makes
+    /// the existing mapping derive the answer panel from it without a second
+    /// code path. The uuid is the tool-use id's, so the row a redelivery (or
+    /// the real block, arriving late once the wait ends) lands on is the same
+    /// one.
+    #[test]
+    fn a_parked_call_is_announced_as_the_block_it_is() {
+        let input = serde_json::json!({ "plan": "do the thing" });
+        let payload = prompt_message_payload("ExitPlanMode", "toolu_plan", &input, "sess-1");
+
+        assert_eq!(payload["uuid"], "prompt-toolu_plan");
+        assert_eq!(payload["blockIndex"], 0);
+        assert_eq!(payload["session_id"], "sess-1");
+        assert_eq!(payload["message"]["id"], "prompt-toolu_plan");
+        assert_eq!(payload["message"]["role"], "assistant");
+
+        let block = &payload["message"]["content"][0];
+        assert_eq!(block["type"], "tool_use");
+        assert_eq!(block["id"], "toolu_plan");
+        assert_eq!(block["name"], "ExitPlanMode");
+        assert_eq!(
+            block["input"], input,
+            "the plan the panel renders is the call's own input"
+        );
+
+        assert_eq!(
+            prompt_message_payload("AskUserQuestion", "toolu_ask", &input, "sess-1")["uuid"],
+            "prompt-toolu_ask",
+            "each call is announced under its own id"
+        );
+    }
+
+    /// Without a publisher the prompt still parks — the announcement is an
+    /// addition to that path, never a precondition for it.
+    #[tokio::test]
+    async fn a_handler_with_no_sink_still_parks_the_prompt() {
+        let state = Arc::new(AgentState::new());
+        let handler = test_handler(Arc::clone(&state));
+        assert!(handler.prompt_sink.is_none());
+
+        let handle = tokio::spawn(async move {
+            handler
+                .can_use_tool("ExitPlanMode", &empty_input(), test_context())
+                .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(state.has_pending_prompt().await, "the prompt still parks");
+
+        let prompt = state.take_pending_prompt().await.unwrap();
+        let _ = prompt.sender.send(PromptResponse::PlanApproved);
+        handle.await.unwrap();
+    }
+
+    /// Two interactive calls in one assistant message reach the handler
+    /// together, because permission decisions are made off the SDK's read loop.
+    /// The one already waiting on a person keeps its place — replacing it would
+    /// drop the sender its own run is waiting on, which reads as a cancellation.
+    #[tokio::test]
+    async fn a_second_question_is_refused_while_the_first_is_unanswered() {
+        let state = Arc::new(AgentState::new());
+        let first = test_handler(Arc::clone(&state));
+        let parked = tokio::spawn(async move {
+            first
+                .can_use_tool("AskUserQuestion", &empty_input(), test_context())
+                .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(state.has_pending_prompt().await);
+
+        let second = test_handler(Arc::clone(&state));
+        let result = second
+            .can_use_tool("ExitPlanMode", &empty_input(), test_context())
+            .await;
+        assert!(
+            matches!(
+                result,
+                claude_agent_sdk::PermissionResult::Deny {
+                    interrupt: None,
+                    ..
+                }
+            ),
+            "the second call is refused, and the turn is not interrupted"
+        );
+
+        // The first question is untouched, and answering it still works.
+        let prompt = state.take_pending_prompt().await.expect("still parked");
+        assert!(matches!(prompt.tool_name, PromptToolName::AskUserQuestion));
+        let _ = prompt.sender.send(PromptResponse::AskUserAnswer {
+            answers: serde_json::json!({ "Which colour?": "blue" }),
+        });
+        assert!(matches!(
+            parked.await.unwrap(),
+            claude_agent_sdk::PermissionResult::Allow { .. }
+        ));
     }
 }

@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn multiple_permission_requests_handled_sequentially() {
+    async fn every_permission_request_is_answered() {
         let mut h = TestHarness::new(Some(Arc::new(AllowAllHandler)), None);
 
         h.feed(make_can_use_tool_request("req-a", "Read", "tu-a"))
@@ -365,11 +365,93 @@ mod tests {
         h.feed(make_can_use_tool_request("req-b", "Write", "tu-b"))
             .await;
 
-        let resp_a = h.read_stdin_line().await;
-        let resp_b = h.read_stdin_line().await;
+        // Decisions are made off the read loop and so may finish in either
+        // order; the CLI pairs them by request id, not by arrival.
+        let mut answered = vec![
+            h.read_stdin_line().await["response"]["request_id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            h.read_stdin_line().await["response"]["request_id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        ];
+        answered.sort();
+        assert_eq!(answered, vec!["req-a", "req-b"]);
+    }
 
-        assert_eq!(resp_a["response"]["request_id"], "req-a");
-        assert_eq!(resp_b["response"]["request_id"], "req-b");
+    /// A handler that parks until it is released, like one waiting on a person.
+    struct ParkingHandler {
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait::async_trait]
+    impl PermissionHandler for ParkingHandler {
+        async fn can_use_tool(
+            &self,
+            _tool_name: &str,
+            _input: &serde_json::Map<String, serde_json::Value>,
+            _context: PermissionContext,
+        ) -> PermissionResult {
+            self.entered.notify_one();
+            self.release.notified().await;
+            PermissionResult::Allow {
+                updated_input: None,
+                updated_permissions: None,
+            }
+        }
+    }
+
+    /// The decision a person has not made yet must not stop the CLI's output
+    /// being read. Answered in line, an unanswered `can_use_tool` blocks the
+    /// only reader of stdout, and everything the CLI already wrote — including
+    /// the assistant block holding the call being asked about — is stranded
+    /// until the answer comes, so a run parked on a question looks stopped.
+    #[tokio::test]
+    async fn a_parked_permission_decision_does_not_stall_the_message_stream() {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let handler = ParkingHandler {
+            entered: entered.clone(),
+            release: release.clone(),
+        };
+        let mut h = TestHarness::new(Some(Arc::new(handler)), None);
+
+        h.feed(make_can_use_tool_request(
+            "req-park",
+            "ExitPlanMode",
+            "tu-park",
+        ))
+        .await;
+        tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified())
+            .await
+            .expect("the handler is asked for a decision");
+
+        // Written by the CLI after the request, and delivered while it stands.
+        let assistant_json = serde_json::json!({
+            "type": "assistant",
+            "uuid": "msg-1",
+            "session_id": "sess-1",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "tu-park", "name": "ExitPlanMode",
+                             "input": {}}]
+            },
+            "parent_tool_use_id": null
+        });
+        h.feed(RawStdoutMessage::Sdk(Box::new(
+            SdkMessage::from_value(assistant_json).unwrap(),
+        )))
+        .await;
+        assert!(matches!(h.recv().await, SdkMessage::Assistant(_)));
+
+        // And the decision, once made, still answers its own request.
+        release.notify_one();
+        let response = h.read_stdin_line().await;
+        assert_eq!(response["response"]["request_id"], "req-park");
+        assert_eq!(response["response"]["response"]["behavior"], "allow");
     }
 
     // ============================================================
