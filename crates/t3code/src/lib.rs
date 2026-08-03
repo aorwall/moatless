@@ -3704,19 +3704,19 @@ mod tests {
     struct FakeFleet;
 
     #[async_trait]
-    impl crate::sandbox::access::ClusterDiagnostics for FakeFleet {
+    impl moatless_backend_core::sandbox::ClusterDiagnostics for FakeFleet {
         async fn list_sandbox_diagnostics(
             &self,
         ) -> Result<
-            Vec<crate::sandbox::access::SandboxDiagnosticsEntry>,
-            crate::sandbox::error::SandboxError,
+            Vec<moatless_backend_core::sandbox::SandboxDiagnosticsEntry>,
+            moatless_backend_core::sandbox::SandboxError,
         > {
-            Ok(vec![crate::sandbox::access::SandboxDiagnosticsEntry {
+            Ok(vec![moatless_backend_core::sandbox::SandboxDiagnosticsEntry {
                 task_id: "task-1".into(),
                 title: None,
-                sandbox_status: crate::sandbox::live_status::SandboxStatus::Ready,
+                sandbox_status: moatless_backend_core::sandbox::SandboxStatus::Ready,
                 node_name: Some("node-a".into()),
-                containers: vec![crate::sandbox::access::SandboxDiagnosticsContainer {
+                containers: vec![moatless_backend_core::sandbox::SandboxDiagnosticsContainer {
                     name: "sandbox".into(),
                     state: "running".into(),
                     restart_count: 0,
@@ -3731,9 +3731,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_sandbox_list_diagnostics_request_returns_the_mapped_fleet() {
+        let base = state();
         let state = UiRpcState {
-            diagnostics: Arc::new(FakeFleet),
-            ..state()
+            sandbox: SandboxState {
+                diagnostics: Arc::new(FakeFleet),
+                ..base.sandbox.clone()
+            },
+            ..base
         };
         let frame = request("1", "sandbox.listDiagnostics", json!({}));
         let mut session = session();

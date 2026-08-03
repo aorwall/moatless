@@ -64,6 +64,10 @@ pub struct ActivityRow {
     pub parent_uuid: Option<String>,
     pub kind: ActivityKind,
     pub status: ActivityStatus,
+    /// The call a later result settles by, set on the call and on nothing else.
+    /// `(task_id, tool_use_id)` is unique in the table, so a second row naming
+    /// the same call is rejected — a derived row joins through `requestId` in
+    /// its payload instead.
     pub tool_use_id: Option<String>,
     pub summary: String,
     pub payload: Value,
@@ -408,7 +412,12 @@ fn joined_row(
         parent_uuid: context.parent_uuid.map(str::to_string),
         kind,
         status: ActivityStatus::Completed,
-        tool_use_id: Some(tool_use_id.to_string()),
+        // The column names the one row a result settles, and `(task_id,
+        // tool_use_id)` is unique on exactly that reading. A joined row is
+        // derived from the call rather than being it, and no result ever lands
+        // on it, so it takes the join through `requestId` in its payload —
+        // which is what every client reads — and leaves the column empty.
+        tool_use_id: None,
         summary: summary.to_string(),
         payload,
         is_error: false,
@@ -836,7 +845,10 @@ pub fn user_input_resolved(
         parent_uuid: None,
         kind: ActivityKind::UserInputResolved,
         status: ActivityStatus::Completed,
-        tool_use_id: Some(tool_use_id.to_string()),
+        // Empty for the reason a joined row's is: the column names the row a
+        // result settles, and this row is not that row. The answer settles the
+        // call through the outcome written beside it.
+        tool_use_id: None,
         summary: "Answered".to_string(),
         // `requestId` is the tool-use id on both rows, which is the whole join:
         // the client closes the panel this names.
@@ -1260,6 +1272,10 @@ mod tests {
         // The joined row happened at the block the call is, not after it.
         assert_eq!(asked.ordinal, written[0].ordinal);
         assert_eq!(asked.payload["requestId"], "tu-1");
+        // Only the call names the call: `(task_id, tool_use_id)` is unique, so
+        // a joined row that repeated it would reject the whole write.
+        assert_eq!(written[0].tool_use_id.as_deref(), Some("tu-1"));
+        assert!(asked.tool_use_id.is_none());
         let question = &asked.payload["questions"][0];
         // The id *is* the question text: that is the key the CLI looks an
         // answer up by, so a synthetic one answers nothing.
@@ -1373,6 +1389,7 @@ mod tests {
             assert_eq!(written[1].kind, ActivityKind::PlanUpdated);
             assert_eq!(written[1].activity_id, "msg-1:3:plan");
             assert_eq!(written[1].payload["plan"], expected);
+            assert!(written[1].tool_use_id.is_none());
         }
     }
 
@@ -1397,6 +1414,37 @@ mod tests {
         assert_eq!(written.len(), 1);
     }
 
+    /// `(task_id, tool_use_id)` is unique in the table, and every row of one
+    /// Message is written in one transaction — so a Message whose rows named a
+    /// call twice would persist none of itself, taking the prose and the calls
+    /// down with the panel.
+    #[test]
+    fn one_message_names_each_call_at_most_once() {
+        let write = map_content(
+            context(),
+            &json!([
+                { "type": "text", "text": "on it" },
+                { "type": "tool_use", "id": "tu-1", "name": TODO_TOOL, "input": { "todos": [
+                    { "content": "first", "status": "pending" },
+                ] } },
+                { "type": "tool_use", "id": "tu-2", "name": QUESTION_TOOL, "input": { "questions": [
+                    { "question": "Which store?", "options": [{ "label": "Postgres" }] },
+                ] } },
+                { "type": "tool_use", "id": "tu-3", "name": PLAN_TOOL, "input": { "plan": "1. Go" } },
+                { "type": "tool_use", "id": "tu-4", "name": "Bash" },
+            ]),
+        );
+
+        let named: Vec<&str> = write
+            .activities
+            .iter()
+            .filter_map(|activity| activity.tool_use_id.as_deref())
+            .collect();
+        assert_eq!(named, ["tu-1", "tu-2", "tu-3", "tu-4"]);
+        // The panels are still derived, and still joined by `requestId`.
+        assert_eq!(write.activities.len(), 7);
+    }
+
     /// Every other call is one row, as it always was.
     #[test]
     fn an_ordinary_call_joins_nothing() {
@@ -1409,7 +1457,9 @@ mod tests {
 
     /// What a person's answer becomes, on the row that carries it to the agent.
     /// `requestId` is the tool-use id on both rows, which is the whole join: the
-    /// client closes the panel this names.
+    /// client closes the panel this names. The column stays empty for the
+    /// reason a joined row's does — it names the row a result settles, and the
+    /// answer settles the call through the outcome written beside this row.
     #[test]
     fn an_answer_is_stored_against_the_call_it_answers() {
         let resolved = user_input_resolved(
@@ -1420,7 +1470,7 @@ mod tests {
         );
         assert_eq!(resolved.kind, ActivityKind::UserInputResolved);
         assert_eq!(resolved.activity_id, "msg-9:0:user-input-resolved");
-        assert_eq!(resolved.tool_use_id.as_deref(), Some("tu-1"));
+        assert!(resolved.tool_use_id.is_none());
         assert_eq!(resolved.payload["requestId"], "tu-1");
         assert_eq!(resolved.payload["answers"]["Which store?"], "Postgres");
     }
