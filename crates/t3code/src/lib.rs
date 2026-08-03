@@ -3236,7 +3236,8 @@ mod tests {
         PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key,
     };
     use moatless_backend_core::sandbox::{
-        LiveStatus, LogOptions, SandboxError, SandboxStatusFullResponse, ServerLogStream,
+        LiveStatus, LogOptions, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError,
+        SandboxStatus, SandboxStatusFullResponse, ServerLogStream,
     };
     use uuid::Uuid;
 
@@ -3704,19 +3705,16 @@ mod tests {
     struct FakeFleet;
 
     #[async_trait]
-    impl moatless_backend_core::sandbox::ClusterDiagnostics for FakeFleet {
+    impl ClusterDiagnostics for FakeFleet {
         async fn list_sandbox_diagnostics(
             &self,
-        ) -> Result<
-            Vec<moatless_backend_core::sandbox::SandboxDiagnosticsEntry>,
-            moatless_backend_core::sandbox::SandboxError,
-        > {
-            Ok(vec![moatless_backend_core::sandbox::SandboxDiagnosticsEntry {
+        ) -> Result<Vec<SandboxDiagnosticsEntry>, SandboxError> {
+            Ok(vec![SandboxDiagnosticsEntry {
                 task_id: "task-1".into(),
                 title: None,
-                sandbox_status: moatless_backend_core::sandbox::SandboxStatus::Ready,
+                sandbox_status: SandboxStatus::Ready,
                 node_name: Some("node-a".into()),
-                containers: vec![moatless_backend_core::sandbox::SandboxDiagnosticsContainer {
+                containers: vec![SandboxDiagnosticsContainer {
                     name: "sandbox".into(),
                     state: "running".into(),
                     restart_count: 0,
@@ -3731,14 +3729,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_sandbox_list_diagnostics_request_returns_the_mapped_fleet() {
-        let base = state();
-        let state = UiRpcState {
-            sandbox: SandboxState {
-                diagnostics: Arc::new(FakeFleet),
-                ..base.sandbox.clone()
-            },
-            ..base
-        };
+        let mut state = state();
+        state.sandbox.diagnostics = Arc::new(FakeFleet);
         let frame = request("1", "sandbox.listDiagnostics", json!({}));
         let mut session = session();
         let output = session.handle_json(&frame, &state, &viewer()).await;
