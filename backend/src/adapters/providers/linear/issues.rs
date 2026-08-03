@@ -446,7 +446,14 @@ async fn persist_issue_status(
 }
 
 /// Post a state-change message to every active agent-session binding for the
-/// issue. Best-effort: failures are logged so the close path still runs.
+/// issue, then wake that task's sandbox so the message is actually run.
+///
+/// The wake is what every other inbound path does after persisting a user
+/// message: a pending row with nobody notified leaves the turn unopened, and a
+/// Task whose newest user message is newer than its last turn reads as still
+/// working until something delivers it.
+///
+/// Best-effort: failures are logged so the close path still runs.
 async fn notify_bindings_of_state_change(
     state: &AppState,
     connection: &AdapterConnection,
@@ -508,6 +515,18 @@ async fn notify_bindings_of_state_change(
                 issue = %issue.identifier,
                 error = %e,
                 "Failed to forward Linear state change to task"
+            );
+            continue;
+        }
+
+        if let Err(e) =
+            crate::sandbox::notify::ensure_sandbox_and_notify(state, &binding.task_id).await
+        {
+            warn!(
+                task_id = %binding.task_id,
+                issue = %issue.identifier,
+                error = %e,
+                "Failed to ensure sandbox for Linear state change"
             );
         }
     }

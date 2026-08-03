@@ -437,6 +437,16 @@ async fn task_status(pool: &PgPool, task_id: &str) -> String {
         .expect("read task status")
 }
 
+/// The durable Sandbox intent for a task. `None` means no Sandbox was ever
+/// requested — what a task nobody woke looks like.
+async fn sandbox_desired_state(pool: &PgPool, task_id: &str) -> Option<String> {
+    sqlx::query_scalar::<_, String>("SELECT desired_state FROM sandboxes WHERE task_id = $1")
+        .bind(task_id)
+        .fetch_optional(pool)
+        .await
+        .expect("read sandbox intent")
+}
+
 /// Every external id the Linear adapter has written onto a forwarded message,
 /// oldest first. The literal strings are the persisted formats.
 async fn forwarded_ids(pool: &PgPool) -> Vec<String> {
@@ -977,6 +987,30 @@ async fn an_issue_transition_persists_status_and_forwards_without_fetching(pool:
         forwarded_ids(&pool).await,
         vec![format!("linear:issue-state:{ISSUE}:1700000000003")],
         "the state change is identified by the issue and Linear's delivery timestamp"
+    );
+}
+
+/// Forwarding a state change also wakes the task that has to act on it.
+///
+/// The message alone is not enough: a pending user message nobody was notified
+/// about never opens a turn, so the Task keeps reading as working — its newest
+/// user message stays newer than its last turn — while no agent ever runs.
+#[sqlx::test]
+async fn an_issue_transition_wakes_the_task_it_forwards_to(pool: PgPool) {
+    let stub = linear_stub().await;
+    let state = replica(&pool, &stub);
+    seed_connection(&pool).await;
+    seed_workspace_token(&pool).await;
+    seed_local_repository(&pool).await;
+    seed_rule_then_session(&state, &pool, None).await;
+
+    deliver(&state, &issue_updated("s0", "s1", "In Progress", "started")).await;
+    drain(&pool, &stub).await;
+
+    assert_eq!(
+        sandbox_desired_state(&pool, TASK).await.as_deref(),
+        Some("running"),
+        "the forwarded state change wakes the bound task's sandbox"
     );
 }
 
