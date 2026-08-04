@@ -41,6 +41,14 @@ rust:gc` drops `incremental/` once it passes its threshold; compiled
 dependencies in `deps/` survive, so only the next build per configuration is
 non-incremental.
 
+The sandbox base image carries mold (as `/usr/bin/ld`, so nothing opts into it)
+and sccache. When the deployment sets `SCCACHE_S3_BUCKET`, the entrypoint points
+sccache at that bucket and exports `RUSTC_WRAPPER`, so a first build here reuses
+objects an earlier sandbox compiled. It shares nothing with CI: sccache keys on
+absolute paths and the two disagree on the checkout dir and `CARGO_HOME`. The
+cache is not a substitute for `target/` — cargo still relinks, and everything
+about the volume cap below still applies.
+
 In a sandbox the workspace volume is capped and overflowing it **evicts the
 pod** — the run dies and only committed work survives. `/opt/moatless` holds
 the checkout and `target/`, so check `df -h /opt/moatless` before the first

@@ -3,8 +3,8 @@
 # Contains: Ubuntu, Node.js, npm, Claude Code CLI, Codex CLI, Task, Bun, pnpm,
 # yarn, TypeScript/tsx, Vite+ (`vp`), Playwright + Chromium, @moatless/inspector
 # in /opt/node_modules, the Rust toolchain (rustup/cargo/clippy/rustfmt) plus
-# protoc/pkg-config so agents can build Rust projects — including moatless-vibe
-# itself — inside the sandbox, git, system tools, moatless user.
+# protoc/pkg-config/mold/sccache so agents can build Rust projects — including
+# moatless-vibe itself — inside the sandbox, git, system tools, moatless user.
 # Does NOT contain: the compiled sandbox/moat binaries or entrypoint scripts —
 # those are added by leaf images (Dockerfile.sandbox, Dockerfile.sandbox-full)
 # so the expensive layers here cache across normal code changes.
@@ -175,6 +175,37 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no
     && echo 'export RUSTUP_HOME="/opt/rust"' >> /etc/profile \
     && echo 'export CARGO_HOME="/opt/cargo"' >> /etc/profile \
     && echo 'export PATH="/opt/cargo/bin:$PATH"' >> /etc/profile
+
+# mold + sccache. Linking dominates a workspace rebuild and a fresh sandbox
+# starts from an empty target/, so these are the two levers that matter here.
+# mold takes over /usr/bin/ld — no cargo config, RUSTFLAGS or linker-driver
+# flag, and nothing to undo for a project that wants its own linker.
+#
+# sccache is inert until docker-entrypoint-sandbox.sh finds SCCACHE_S3_BUCKET
+# and usable AWS credentials, so this layer is safe in local and docker-mode
+# sandboxes that have neither.
+#
+# SCCACHE_VERSION tracks .github/scripts/setup-sccache.sh so the bucket holds one
+# generation of objects, not one per consumer. Sandboxes hit each other, not CI:
+# sccache keys on absolute paths and the two disagree on the checkout dir and
+# CARGO_HOME.
+# renovate: datasource=github-releases depName=rui314/mold
+ARG MOLD_VERSION=2.40.4
+# renovate: datasource=github-releases depName=mozilla/sccache
+ARG SCCACHE_VERSION=v0.10.0
+COPY .github/scripts/install-mold.sh /tmp/install-mold.sh
+RUN MOLD_VERSION="${MOLD_VERSION}" bash /tmp/install-mold.sh \
+    && rm /tmp/install-mold.sh \
+    && case "$(uname -m)" in \
+        x86_64) sccache_target=x86_64-unknown-linux-musl ;; \
+        aarch64) sccache_target=aarch64-unknown-linux-musl ;; \
+        *) echo "unsupported arch $(uname -m) for sccache" >&2; exit 1 ;; \
+    esac \
+    && curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+        "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-${sccache_target}.tar.gz" \
+        | tar -xz -C /usr/local/bin --strip-components=1 --no-anchored sccache \
+    && chmod +x /usr/local/bin/sccache \
+    && sccache --version
 
 # Claude/Codex CLIs. Version source of truth is docker/cli-versions.env, passed
 # in as --build-arg by every build path (ci.yml, build-sandbox.sh);

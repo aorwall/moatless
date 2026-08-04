@@ -13,6 +13,9 @@
 !.github/scripts/
 !.github/scripts/apt-https-mirrors.sh
 
+# mold installer, shared by CI and the sandbox base image.
+!.github/scripts/install-mold.sh
+
 # Docker config
 !docker/
 
