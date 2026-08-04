@@ -5,11 +5,13 @@
 //! admin endpoint. Keeping the parse / metadata / save logic here means every
 //! scope produces an identical row shape and broadcast behaviour.
 
+use std::sync::Arc;
+
+use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::credentials::codex::scope::CodexScope;
-use crate::credentials::WriteSource;
+use crate::credentials::{CredentialService, WriteSource};
 use crate::provider_settings::error::ProviderSettingsError;
 use crate::provider_settings::schemas::{CodexConfigResponse, SaveCodexAuthRequest};
-use crate::state::AppState;
 
 /// Parse the user-supplied Codex `auth.json` body and validate it's a JSON
 /// object. Used by both the user-facing `save_codex_auth` handler and the
@@ -52,7 +54,8 @@ pub fn build_codex_metadata(parsed: &serde_json::Value) -> serde_json::Value {
 /// guarantees they apply identical metadata, error mapping, and broadcast
 /// behaviour.
 pub async fn save_codex_auth_for_scope(
-    state: &AppState,
+    provider_tokens: &Arc<dyn ProviderTokenDao>,
+    credentials_svc: &Arc<CredentialService>,
     scope: CodexScope,
     body: SaveCodexAuthRequest,
 ) -> Result<CodexConfigResponse, ProviderSettingsError> {
@@ -60,8 +63,7 @@ pub async fn save_codex_auth_for_scope(
     let metadata = build_codex_metadata(&parsed);
     let serialized = parsed.to_string();
 
-    state
-        .provider_tokens
+    provider_tokens
         .upsert_codex_blob(
             &scope,
             &serialized,
@@ -78,8 +80,7 @@ pub async fn save_codex_auth_for_scope(
     // provider_tokens.
     if let Err(e) = match &scope {
         CodexScope::User(user_id) => {
-            state
-                .credentials_svc
+            credentials_svc
                 .store(
                     user_id,
                     "CODEX_AUTH_JSON",
@@ -89,8 +90,7 @@ pub async fn save_codex_auth_for_scope(
                 .await
         }
         CodexScope::Global => {
-            state
-                .credentials_svc
+            credentials_svc
                 .broadcast_codex_rotation(&scope, &serialized)
                 .await;
             Ok(())

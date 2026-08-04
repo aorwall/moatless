@@ -12,7 +12,7 @@ use sqlx::Row;
 use tracing::{info, warn};
 
 use crate::auth::error::AuthError;
-use crate::config::{Config, LinearConfig, SlackConfig, TelegramConfig};
+use crate::config::{Config, LinearConfig, SecretsConfig, SlackConfig, TelegramConfig};
 use crate::db::DbPool;
 use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
@@ -113,8 +113,8 @@ pub fn app_key_from_transport_config(transport_config: &Value) -> &str {
         .unwrap_or(DEFAULT_APP_KEY)
 }
 
-fn require_cipher(config: &Config) -> Result<std::sync::Arc<dyn SecretCipher>, AuthError> {
-    LocalEnvelopeSecretCipher::from_config(&config.secrets).ok_or_else(|| {
+fn require_cipher(secrets: &SecretsConfig) -> Result<std::sync::Arc<dyn SecretCipher>, AuthError> {
+    LocalEnvelopeSecretCipher::from_config(secrets).ok_or_else(|| {
         AuthError::Config(
             "DB-backed Adapter app config requires SECRETS_ENCRYPTION_KEY to store secrets"
                 .to_string(),
@@ -197,12 +197,12 @@ async fn insert_app(
 
 pub async fn upsert_adapter_app(
     db: &DbPool,
-    config: &Config,
+    secrets: &SecretsConfig,
     input: AdapterAppInput,
     actor_id: &str,
 ) -> Result<StoredAdapterApp, AuthError> {
     validate_adapter_app(&input)?;
-    let cipher = require_cipher(config)?;
+    let cipher = require_cipher(secrets)?;
     let id = app_id(input.adapter_kind, &input.app_key);
     let fingerprints: Value = input
         .secrets
@@ -615,7 +615,7 @@ pub async fn carry_over_env_and_load_config(
 }
 
 async fn carry_over_env_adapter_apps(config: &Config, db: &DbPool) {
-    let Ok(cipher) = require_cipher(config) else {
+    let Ok(cipher) = require_cipher(&config.secrets) else {
         if config.slack.bot_token.is_some()
             || config.slack.signing_secret.is_some()
             || config.telegram.bot_token.is_some()

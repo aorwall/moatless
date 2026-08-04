@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use super::models::FileMetadata;
 use crate::access_control::resolve_scope_for_create_auth;
-use crate::config::Config;
+use crate::config::S3Config;
 use crate::extractors::AuthUser;
 use moatless_backend_core::scope::ScopedResource;
 
@@ -34,7 +34,7 @@ use super::schemas::UploadResponse;
 )]
 pub async fn upload_file(
     State(s3_storage): State<Option<s3::S3Storage>>,
-    State(config): State<Arc<Config>>,
+    State(s3_config): State<Arc<S3Config>>,
     State(files): State<Arc<dyn FileDao>>,
     auth: AuthUser,
     mut multipart: Multipart,
@@ -43,8 +43,7 @@ pub async fn upload_file(
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
 
-    let bucket = config
-        .s3
+    let bucket = s3_config
         .bucket_name
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
@@ -76,7 +75,7 @@ pub async fn upload_file(
         file_data.ok_or_else(|| FileStorageError::BadRequest("No file field found".to_string()))?;
 
     let file_id = uuid::Uuid::new_v4().to_string();
-    let s3_key = format!("{}/{}", config.s3.key_prefix, file_id);
+    let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
     let resolved_scope =
         resolve_scope_for_create_auth(&auth, Some(moatless_backend_core::scope::Scope::User))
             .map_err(|e| match e {
@@ -136,7 +135,7 @@ pub async fn upload_file(
 )]
 pub async fn download_file(
     State(s3_storage): State<Option<s3::S3Storage>>,
-    State(config): State<Arc<Config>>,
+    State(s3_config): State<Arc<S3Config>>,
     State(files): State<Arc<dyn FileDao>>,
     auth: AuthUser,
     Path(file_id): Path<String>,
@@ -145,8 +144,7 @@ pub async fn download_file(
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
 
-    let bucket = config
-        .s3
+    let bucket = s3_config
         .bucket_name
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
@@ -165,7 +163,7 @@ pub async fn download_file(
         )));
     }
 
-    let s3_key = format!("{}/{}", config.s3.key_prefix, file_id);
+    let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
     let (data, content_type) = s3::get_object(&s3_client.client, bucket, &s3_key)
         .await
         .map_err(FileStorageError::UploadFailed)?;

@@ -13,25 +13,30 @@ use crate::adapter_apps::{
     delete_adapter_app, list_adapter_apps, upsert_adapter_app, AdapterAppInput,
     AdapterAppSecretInput, DEFAULT_APP_KEY,
 };
+use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::models::AdapterConnection;
 use crate::auth::credentials::{
     read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
 };
+use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
+use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{
     APP_INSTALLATION_TOKEN_PLACEHOLDER, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
     SECRET_REF_TOKEN_PLACEHOLDER,
 };
+use crate::config::{AuthConfig, CodexOAuthConfig, SecretsConfig};
 use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
 use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
 use crate::credentials::github::scope::GitHubScope;
+use crate::credentials::CredentialService;
 use crate::credentials::WriteSource;
+use crate::db::DbPool;
 use crate::extractors::AuthUser;
 use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
-use crate::secret::service::SecretCipher;
-use crate::state::AppState;
+use crate::secret::service::{SecretCipher, SecretService};
 
 use super::error::ProviderSettingsError;
 use super::github_client;
@@ -49,11 +54,10 @@ use super::schemas::*;
     )
 )]
 pub async fn get_github_config(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    let token = state
-        .provider_tokens
+    let token = provider_tokens
         .find_provider_token_full(&auth.user_id.to_string(), "github")
         .await?;
 
@@ -230,11 +234,11 @@ fn adapter_app_input(
     )
 )]
 pub async fn admin_list_adapter_apps(
-    State(state): State<AppState>,
+    State(db): State<DbPool>,
     auth: AuthUser,
 ) -> Result<Json<AdapterAppsResponse>, ProviderSettingsError> {
     require_admin(&auth, "read")?;
-    let apps = list_adapter_apps(&state.db)
+    let apps = list_adapter_apps(&db)
         .await?
         .into_iter()
         .map(adapter_app_summary)
@@ -259,7 +263,8 @@ pub async fn admin_list_adapter_apps(
     )
 )]
 pub async fn admin_save_adapter_app(
-    State(state): State<AppState>,
+    State(db): State<DbPool>,
+    State(secrets_config): State<Arc<SecretsConfig>>,
     auth: AuthUser,
     Path((adapter_kind, app_key)): Path<(String, String)>,
     Json(req): Json<SaveAdapterAppRequest>,
@@ -271,8 +276,7 @@ pub async fn admin_save_adapter_app(
         )));
     }
     let input = adapter_app_input(&adapter_kind, &app_key, req)?;
-    let app =
-        upsert_adapter_app(&state.db, &state.config, input, &auth.user_id.to_string()).await?;
+    let app = upsert_adapter_app(&db, &secrets_config, input, &auth.user_id.to_string()).await?;
     Ok(Json(adapter_app_summary(app)))
 }
 
@@ -292,7 +296,7 @@ pub async fn admin_save_adapter_app(
     )
 )]
 pub async fn admin_delete_adapter_app(
-    State(state): State<AppState>,
+    State(db): State<DbPool>,
     auth: AuthUser,
     Path((adapter_kind, app_key)): Path<(String, String)>,
 ) -> Result<axum::http::StatusCode, ProviderSettingsError> {
@@ -302,7 +306,7 @@ pub async fn admin_delete_adapter_app(
             "Use the GitHub App admin endpoints to remove GitHub Apps".to_string(),
         ));
     }
-    delete_adapter_app(&state.db, &adapter_kind, &app_key).await?;
+    delete_adapter_app(&db, &adapter_kind, &app_key).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -351,13 +355,15 @@ fn installation_binding_response(
 }
 
 async fn save_installation_binding(
-    state: &AppState,
+    github_apps: &Arc<GitHubAppRegistry>,
+    provider_tokens: &Arc<dyn ProviderTokenDao>,
+    adapter_connections: &Arc<dyn AdapterConnectionDao>,
     ctx: &ScopeContext,
     scope: &GitHubScope,
     req: GitHubInstallationBindingRequest,
     created_by: &str,
 ) -> Result<GitHubInstallationBindingResponse, ProviderSettingsError> {
-    let app = state.github_apps.require(&req.github_app_key).await?;
+    let app = github_apps.require(&req.github_app_key).await?;
     let installation = app
         .get_installation(req.installation_id)
         .await
@@ -368,8 +374,7 @@ async fn save_installation_binding(
         "account_type": installation.account.account_type,
     });
 
-    state
-        .provider_tokens
+    provider_tokens
         .upsert_github_row(
             scope,
             AUTH_METHOD_APP_INSTALLATION,
@@ -382,7 +387,7 @@ async fn save_installation_binding(
         .await?;
 
     upsert_github_org_connection(
-        state,
+        adapter_connections,
         ctx,
         scope,
         &installation.account.login,
@@ -393,7 +398,7 @@ async fn save_installation_binding(
     .await?;
 
     Ok(installation_binding_response(
-        state.provider_tokens.find_github_row(scope).await?,
+        provider_tokens.find_github_row(scope).await?,
     ))
 }
 
@@ -408,7 +413,7 @@ async fn save_installation_binding(
 /// binding's team (or global). Unbinding leaves the row in place because
 /// task bindings may still reference it.
 async fn upsert_github_org_connection(
-    state: &AppState,
+    adapter_connections: &Arc<dyn AdapterConnectionDao>,
     ctx: &ScopeContext,
     scope: &GitHubScope,
     account_login: &str,
@@ -421,7 +426,7 @@ async fn upsert_github_org_connection(
         return Ok(());
     }
 
-    let repo = &state.adapter_connections;
+    let repo = adapter_connections;
     let existing = repo
         .find_by_external_account(GITHUB_ADAPTER_KIND, account_login)
         .await?;
@@ -475,15 +480,16 @@ async fn upsert_github_org_connection(
     )
 )]
 pub async fn admin_list_github_apps(
-    State(state): State<AppState>,
+    State(github_apps): State<Arc<GitHubAppRegistry>>,
+    State(db): State<DbPool>,
     auth: AuthUser,
 ) -> Result<Json<GitHubAppsResponse>, ProviderSettingsError> {
     require_admin(&auth, "read")?;
 
-    let entries = state.github_apps.entries().await?;
+    let entries = github_apps.entries().await?;
     // Whatever the registry holds that storage does not know about is the
     // deployment-configured login App — the one row this page cannot edit.
-    let stored_apps: HashMap<String, GitHubAppRecord> = match state.github_apps.store() {
+    let stored_apps: HashMap<String, GitHubAppRecord> = match github_apps.store() {
         Some(store) => store
             .list_github_apps()
             .await?
@@ -492,7 +498,7 @@ pub async fn admin_list_github_apps(
             .collect(),
         None => HashMap::new(),
     };
-    let bot_users = bot_users_by_app_key(&state.db).await?;
+    let bot_users = bot_users_by_app_key(&db).await?;
 
     let mut apps = Vec::new();
     for (github_app_key, app) in entries {
@@ -559,8 +565,10 @@ type AppAdministration<'a> = (&'a Arc<dyn AdapterAppDao>, &'a Arc<dyn SecretCiph
 /// configured. Refusing here, by name, is the whole answer to open question 1:
 /// such an installation starts and serves normally, and says plainly why it
 /// cannot store an App the moment someone tries.
-fn app_administration(state: &AppState) -> Result<AppAdministration<'_>, ProviderSettingsError> {
-    let registry = &state.github_apps;
+fn app_administration(
+    github_apps: &Arc<GitHubAppRegistry>,
+) -> Result<AppAdministration<'_>, ProviderSettingsError> {
+    let registry = github_apps;
     let (Some(store), Some(cipher)) = (registry.store(), registry.cipher()) else {
         return Err(ProviderSettingsError::BadRequest(
             "This installation cannot store GitHub Apps: it has no encryption configured. \
@@ -636,12 +644,12 @@ async fn prove_signing_key(
     )
 )]
 pub async fn admin_register_github_app(
-    State(state): State<AppState>,
+    State(github_apps): State<Arc<GitHubAppRegistry>>,
     auth: AuthUser,
     Json(req): Json<RegisterGitHubAppRequest>,
 ) -> Result<(axum::http::StatusCode, Json<GitHubAppRegistrationResponse>), ProviderSettingsError> {
     require_admin(&auth, "register")?;
-    let (store, cipher) = app_administration(&state)?;
+    let (store, cipher) = app_administration(&github_apps)?;
     let actor = auth.user_id.to_string();
     validate_app_key(&req.github_app_key)
         .map_err(|e| audit_refusal(store, &req.github_app_key, &actor, "register", e))?;
@@ -727,13 +735,13 @@ pub async fn admin_register_github_app(
     )
 )]
 pub async fn admin_rotate_github_app_key(
-    State(state): State<AppState>,
+    State(github_apps): State<Arc<GitHubAppRegistry>>,
     auth: AuthUser,
     axum::extract::Path(github_app_key): axum::extract::Path<String>,
     Json(req): Json<RotateGitHubAppKeyRequest>,
 ) -> Result<Json<GitHubAppRegistrationResponse>, ProviderSettingsError> {
     require_admin(&auth, "rotate a key for")?;
-    let (store, cipher) = app_administration(&state)?;
+    let (store, cipher) = app_administration(&github_apps)?;
     let actor = auth.user_id.to_string();
 
     let existing = store
@@ -773,7 +781,7 @@ pub async fn admin_rotate_github_app_key(
     }
     // This backend would otherwise serve its own tokens from the old key until
     // it next noticed the revision move.
-    state.github_apps.forget(&github_app_key).await;
+    github_apps.forget(&github_app_key).await;
     record_app_audit(
         store.as_ref(),
         Some(&record.id),
@@ -808,12 +816,13 @@ pub async fn admin_rotate_github_app_key(
     )
 )]
 pub async fn admin_remove_github_app(
-    State(state): State<AppState>,
+    State(github_apps): State<Arc<GitHubAppRegistry>>,
+    State(db): State<DbPool>,
     auth: AuthUser,
     axum::extract::Path(github_app_key): axum::extract::Path<String>,
 ) -> Result<Json<RemoveGitHubAppResponse>, ProviderSettingsError> {
     require_admin(&auth, "remove")?;
-    let (store, _) = app_administration(&state)?;
+    let (store, _) = app_administration(&github_apps)?;
     let actor = auth.user_id.to_string();
 
     let existing = store
@@ -825,7 +834,7 @@ pub async fn admin_remove_github_app(
     // deleting the identity would make that history unreadable. What they lose
     // is the ability to obtain a token, so they are named in the response
     // rather than quietly broken.
-    let orphaned_bot_users: Vec<String> = bot_users_by_app_key(&state.db)
+    let orphaned_bot_users: Vec<String> = bot_users_by_app_key(&db)
         .await?
         .remove(&github_app_key)
         .into_iter()
@@ -834,7 +843,7 @@ pub async fn admin_remove_github_app(
     if !store.delete_github_app(&github_app_key).await? {
         return Err(not_registered(&github_app_key));
     }
-    state.github_apps.forget(&github_app_key).await;
+    github_apps.forget(&github_app_key).await;
     record_app_audit(
         store.as_ref(),
         Some(&existing.id),
@@ -940,13 +949,12 @@ async fn record_app_audit(
     )
 )]
 pub async fn admin_get_global_github_installation(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
 ) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
     require_admin(&auth, "read")?;
     Ok(Json(installation_binding_response(
-        state
-            .provider_tokens
+        provider_tokens
             .find_github_row(&GitHubScope::Global)
             .await?,
     )))
@@ -965,14 +973,18 @@ pub async fn admin_get_global_github_installation(
     )
 )]
 pub async fn admin_put_global_github_installation(
-    State(state): State<AppState>,
+    State(github_apps): State<Arc<GitHubAppRegistry>>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
+    State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
     auth: AuthUser,
     Json(req): Json<GitHubInstallationBindingRequest>,
 ) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
     require_admin(&auth, "bind")?;
     Ok(Json(
         save_installation_binding(
-            &state,
+            &github_apps,
+            &provider_tokens,
+            &adapter_connections,
             &auth.scope_context(),
             &GitHubScope::Global,
             req,
@@ -993,12 +1005,11 @@ pub async fn admin_put_global_github_installation(
     )
 )]
 pub async fn admin_delete_global_github_installation(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
 ) -> Result<Json<GitHubInstallationBindingResponse>, ProviderSettingsError> {
     require_admin(&auth, "unbind")?;
-    state
-        .provider_tokens
+    provider_tokens
         .delete_github_row(&GitHubScope::Global)
         .await?;
     Ok(Json(installation_binding_response(None)))
@@ -1016,7 +1027,8 @@ pub async fn admin_delete_global_github_installation(
     )
 )]
 pub async fn save_github_pat(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
     Json(req): Json<SavePatRequest>,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
@@ -1029,8 +1041,7 @@ pub async fn save_github_pat(
 
     // For GitHub-OAuth users, preserve the original OAuth token so it can be restored later
     if auth.provider.as_deref() == Some("github") {
-        if let Ok(Some(existing)) = state
-            .provider_tokens
+        if let Ok(Some(existing)) = provider_tokens
             .find_provider_token_full(&auth.user_id.to_string(), "github")
             .await
         {
@@ -1049,7 +1060,7 @@ pub async fn save_github_pat(
                 }
             } else {
                 stash_github_oauth_token(
-                    &state.secrets,
+                    &secrets,
                     &auth.user_id.to_string(),
                     &existing.access_token,
                 )
@@ -1078,8 +1089,7 @@ pub async fn save_github_pat(
     // (config `connected`, `auth/me` providers, PAT-override detection) keep
     // working. Write the secret first — a reference row pointing at a missing
     // secret is a hard failure on read.
-    state
-        .secrets
+    secrets
         .put_secret(
             &auth.scope_context(),
             &auth.user_id.to_string(),
@@ -1094,8 +1104,7 @@ pub async fn save_github_pat(
         )
         .await?;
 
-    state
-        .provider_tokens
+    provider_tokens
         .upsert_token_with_auth_method(
             &auth.user_id.to_string(),
             "github",
@@ -1132,32 +1141,22 @@ pub async fn save_github_pat(
     )
 )]
 pub async fn get_github_oauth_url(
-    State(state): State<AppState>,
+    State(auth_config): State<Arc<AuthConfig>>,
     _auth: AuthUser,
 ) -> Result<Json<OAuthUrlResponse>, ProviderSettingsError> {
-    let client_id = state
-        .config
-        .auth
-        .github_client_id
-        .as_deref()
-        .ok_or_else(|| {
-            ProviderSettingsError::BadRequest(
-                "GitHub OAuth not configured (GITHUB_CLIENT_ID missing)".to_string(),
-            )
-        })?;
+    let client_id = auth_config.github_client_id.as_deref().ok_or_else(|| {
+        ProviderSettingsError::BadRequest(
+            "GitHub OAuth not configured (GITHUB_CLIENT_ID missing)".to_string(),
+        )
+    })?;
 
-    let default_callback = format!(
-        "{}/settings/github/callback",
-        state.config.auth.frontend_url
-    );
-    let callback_url = state
-        .config
-        .auth
+    let default_callback = format!("{}/settings/github/callback", auth_config.frontend_url);
+    let callback_url = auth_config
         .github_callback_url
         .as_deref()
         .unwrap_or(&default_callback);
 
-    let scope = &state.config.auth.github_oauth_scope;
+    let scope = &auth_config.github_oauth_scope;
     let state_param = uuid::Uuid::new_v4().to_string();
 
     let url = format!(
@@ -1183,27 +1182,19 @@ pub async fn get_github_oauth_url(
     )
 )]
 pub async fn exchange_github_token(
-    State(state): State<AppState>,
+    State(auth_config): State<Arc<AuthConfig>>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
     Json(req): Json<ExchangeTokenRequest>,
 ) -> Result<Json<ExchangeTokenResponse>, ProviderSettingsError> {
-    let client_id = state
-        .config
-        .auth
-        .github_client_id
-        .as_deref()
-        .ok_or_else(|| {
-            ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
-        })?;
+    let client_id = auth_config.github_client_id.as_deref().ok_or_else(|| {
+        ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
+    })?;
 
-    let client_secret = state
-        .config
-        .auth
-        .github_client_secret
-        .as_deref()
-        .ok_or_else(|| {
-            ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
-        })?;
+    let client_secret = auth_config.github_client_secret.as_deref().ok_or_else(|| {
+        ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
+    })?;
 
     let (access_token, token_type) =
         github_client::exchange_github_oauth_code(client_id, client_secret, &req.code)
@@ -1220,8 +1211,7 @@ pub async fn exchange_github_token(
     // Set `auth_method` explicitly: this row now carries a real OAuth token, so
     // a previous `secret_ref` marker must not survive and send the resolver
     // looking for a stale secret.
-    state
-        .provider_tokens
+    provider_tokens
         .upsert_token_with_auth_method(
             &auth.user_id.to_string(),
             "github",
@@ -1237,8 +1227,7 @@ pub async fn exchange_github_token(
         (GITHUB_TOKEN, SecretKind::ProviderToken),
         (GITHUB_OAUTH_STASH_KEY, SecretKind::Internal),
     ] {
-        if let Err(e) = state
-            .secrets
+        if let Err(e) = secrets
             .delete_user_secret(&auth.user_id.to_string(), key, Some(kind))
             .await
         {
@@ -1263,11 +1252,11 @@ pub async fn exchange_github_token(
     )
 )]
 pub async fn delete_github_config(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    state
-        .provider_tokens
+    provider_tokens
         .delete_token(&auth.user_id.to_string(), "github")
         .await?;
 
@@ -1275,8 +1264,7 @@ pub async fn delete_github_config(
         (GITHUB_TOKEN, SecretKind::ProviderToken),
         (GITHUB_OAUTH_STASH_KEY, SecretKind::Internal),
     ] {
-        if let Err(e) = state
-            .secrets
+        if let Err(e) = secrets
             .delete_user_secret(&auth.user_id.to_string(), key, Some(kind))
             .await
         {
@@ -1304,7 +1292,8 @@ pub async fn delete_github_config(
     )
 )]
 pub async fn delete_github_pat_override(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
     if auth.provider.as_deref() != Some("github") {
@@ -1313,8 +1302,7 @@ pub async fn delete_github_pat_override(
         ));
     }
 
-    let token = state
-        .provider_tokens
+    let token = provider_tokens
         .find_provider_token_full(&auth.user_id.to_string(), "github")
         .await?
         .ok_or_else(|| ProviderSettingsError::NotFound("No GitHub token found".to_string()))?;
@@ -1325,7 +1313,7 @@ pub async fn delete_github_pat_override(
         ));
     }
 
-    let oauth_token = read_github_oauth_stash(&state.secrets, &auth.user_id.to_string())
+    let oauth_token = read_github_oauth_stash(&secrets, &auth.user_id.to_string())
         .await?
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest(
@@ -1355,8 +1343,7 @@ pub async fn delete_github_pat_override(
 
     // Reset `auth_method` off `secret_ref` — the row carries a usable OAuth
     // token again, so the resolver must stop looking for a secret.
-    state
-        .provider_tokens
+    provider_tokens
         .upsert_token_with_auth_method(
             &auth.user_id.to_string(),
             "github",
@@ -1374,8 +1361,7 @@ pub async fn delete_github_pat_override(
         (GITHUB_TOKEN, SecretKind::ProviderToken),
         (GITHUB_OAUTH_STASH_KEY, SecretKind::Internal),
     ] {
-        if let Err(e) = state
-            .secrets
+        if let Err(e) = secrets
             .delete_user_secret(&auth.user_id.to_string(), key, Some(kind))
             .await
         {
@@ -1406,11 +1392,10 @@ pub async fn delete_github_pat_override(
     )
 )]
 pub async fn get_gitness_config(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
 ) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
-    let token = state
-        .provider_tokens
+    let token = provider_tokens
         .find_provider_token_full(&auth.user_id.to_string(), "gitness")
         .await?;
 
@@ -1456,7 +1441,7 @@ pub async fn get_gitness_config(
     )
 )]
 pub async fn save_gitness_pat(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
     Json(req): Json<SaveGitnessPATRequest>,
 ) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
@@ -1470,8 +1455,7 @@ pub async fn save_gitness_pat(
         "base_url": req.base_url,
     });
 
-    state
-        .provider_tokens
+    provider_tokens
         .upsert_token(
             &auth.user_id.to_string(),
             "gitness",
@@ -1500,11 +1484,10 @@ pub async fn save_gitness_pat(
     )
 )]
 pub async fn delete_gitness_config(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
 ) -> Result<Json<GitnessConfigResponse>, ProviderSettingsError> {
-    state
-        .provider_tokens
+    provider_tokens
         .delete_token(&auth.user_id.to_string(), "gitness")
         .await?;
 
@@ -1530,11 +1513,10 @@ pub async fn delete_gitness_config(
     )
 )]
 pub async fn get_codex_config(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
-    let token = state
-        .provider_tokens
+    let token = provider_tokens
         .find_provider_token_full(&auth.user_id.to_string(), "codex")
         .await?;
 
@@ -1590,12 +1572,18 @@ pub async fn get_codex_config(
     )
 )]
 pub async fn save_codex_auth(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
+    State(credentials_svc): State<Arc<CredentialService>>,
     auth: AuthUser,
     Json(req): Json<SaveCodexAuthRequest>,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
-    let resp =
-        save_codex_auth_for_scope(&state, CodexScope::user(auth.user_id.to_string()), req).await?;
+    let resp = save_codex_auth_for_scope(
+        &provider_tokens,
+        &credentials_svc,
+        CodexScope::user(auth.user_id.to_string()),
+        req,
+    )
+    .await?;
     Ok(Json(resp))
 }
 
@@ -1617,7 +1605,8 @@ pub async fn save_codex_auth(
     )
 )]
 pub async fn admin_save_global_codex_auth(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
+    State(credentials_svc): State<Arc<CredentialService>>,
     auth: AuthUser,
     Json(req): Json<SaveCodexAuthRequest>,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
@@ -1626,7 +1615,9 @@ pub async fn admin_save_global_codex_auth(
             "Admin role required to set the global Codex blob".to_string(),
         ));
     }
-    let resp = save_codex_auth_for_scope(&state, CodexScope::Global, req).await?;
+    let resp =
+        save_codex_auth_for_scope(&provider_tokens, &credentials_svc, CodexScope::Global, req)
+            .await?;
     Ok(Json(resp))
 }
 
@@ -1642,7 +1633,7 @@ pub async fn admin_save_global_codex_auth(
     )
 )]
 pub async fn admin_delete_global_codex_config(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
     if auth.role.as_deref() != Some("admin") {
@@ -1650,8 +1641,7 @@ pub async fn admin_delete_global_codex_config(
             "Admin role required to delete the global Codex blob".to_string(),
         ));
     }
-    state
-        .provider_tokens
+    provider_tokens
         .delete_codex_blob(&CodexScope::Global)
         .await?;
 
@@ -1676,11 +1666,10 @@ pub async fn admin_delete_global_codex_config(
     )
 )]
 pub async fn delete_codex_config(
-    State(state): State<AppState>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
-    state
-        .provider_tokens
+    provider_tokens
         .delete_codex_blob(&CodexScope::user(auth.user_id.to_string()))
         .await?;
 
@@ -1711,14 +1700,14 @@ pub async fn delete_codex_config(
     )
 )]
 pub async fn start_codex_device_login(
-    State(state): State<AppState>,
+    State(codex_oauth_config): State<Arc<CodexOAuthConfig>>,
     _auth: AuthUser,
 ) -> Result<Json<CodexDeviceCodeStartResponse>, ProviderSettingsError> {
     let client = reqwest::Client::new();
     let started = codex_oauth::request_device_code(
         &client,
-        &state.config.codex_oauth.issuer,
-        &state.config.codex_oauth.client_id,
+        &codex_oauth_config.issuer,
+        &codex_oauth_config.client_id,
     )
     .await
     .map_err(ProviderSettingsError::CodexOAuth)?;
@@ -1747,15 +1736,17 @@ pub async fn start_codex_device_login(
     )
 )]
 pub async fn poll_codex_device_login(
-    State(state): State<AppState>,
+    State(codex_oauth_config): State<Arc<CodexOAuthConfig>>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
+    State(credentials_svc): State<Arc<CredentialService>>,
     auth: AuthUser,
     Json(req): Json<CodexDeviceCodePollRequest>,
 ) -> Result<Json<CodexDeviceCodePollResponse>, ProviderSettingsError> {
     let client = reqwest::Client::new();
     let outcome = codex_oauth::poll_once(
         &client,
-        &state.config.codex_oauth.issuer,
-        &state.config.codex_oauth.client_id,
+        &codex_oauth_config.issuer,
+        &codex_oauth_config.client_id,
         &req.device_auth_id,
         &req.user_code,
     )
@@ -1778,8 +1769,7 @@ pub async fn poll_codex_device_login(
             });
 
             let serialized = auth_json.to_string();
-            state
-                .provider_tokens
+            provider_tokens
                 .upsert_token(
                     &auth.user_id.to_string(),
                     "codex",
@@ -1793,8 +1783,7 @@ pub async fn poll_codex_device_login(
             // Broadcast the freshly-minted Codex auth.json to any running
             // sandboxes the user owns so they pick up the new tokens without
             // a restart.
-            if let Err(e) = state
-                .credentials_svc
+            if let Err(e) = credentials_svc
                 .store(
                     &auth.user_id.to_string(),
                     "CODEX_AUTH_JSON",

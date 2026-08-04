@@ -18,7 +18,7 @@ use crate::auth::users::UserDao;
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::compose::Ports;
-use crate::config::Config;
+use crate::config::{AuthConfig, CodexOAuthConfig, Config, S3Config, SecretsConfig};
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::DbPool;
 use crate::event_ingress::outbox::IngressOutbox;
@@ -59,6 +59,15 @@ pub struct AppState {
     pub db: DbPool,
     /// Immutable configuration shared across handlers.
     pub config: Arc<Config>,
+    /// Config sections handed to migrated handlers as `Arc<Section>` ports,
+    /// each built once here. Handing out `Arc<Section>` (not the section by
+    /// value) keeps a secret-bearing section — `AuthConfig`, `SecretsConfig` —
+    /// from being re-cloned on every request. One field per section a handler
+    /// names.
+    pub auth_config: Arc<AuthConfig>,
+    pub codex_oauth_config: Arc<CodexOAuthConfig>,
+    pub secrets_config: Arc<SecretsConfig>,
+    pub s3_config: Arc<S3Config>,
     /// Verifies sandbox-issued `X-User-Token` JWTs. The auth extractors reach
     /// this through [`crate::extractors::UserTokenVerifier`] rather than reading
     /// the token secret off `config` directly.
@@ -314,6 +323,14 @@ impl AppState {
                 config.sandbox.task_token_secret.clone(),
             ));
 
+        // Config-section ports, built once so a secret-bearing section is never
+        // re-cloned per request. `config` still holds the whole tree for
+        // unmigrated call sites.
+        let auth_config = Arc::new(config.auth.clone());
+        let codex_oauth_config = Arc::new(config.codex_oauth.clone());
+        let secrets_config = Arc::new(config.secrets.clone());
+        let s3_config = Arc::new(config.s3.clone());
+
         Self {
             tasks,
             task_creation,
@@ -344,6 +361,10 @@ impl AppState {
             adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
             db: pool,
             config,
+            auth_config,
+            codex_oauth_config,
+            secrets_config,
+            s3_config,
             token_verifier,
             sandbox: lifecycle,
             sandbox_notify,
@@ -380,12 +401,6 @@ impl axum::extract::FromRef<AppState> for Arc<dyn crate::extractors::UserTokenVe
 impl axum::extract::FromRef<AppState> for Arc<SecretService> {
     fn from_ref(state: &AppState) -> Self {
         state.secrets.clone()
-    }
-}
-
-impl axum::extract::FromRef<AppState> for Arc<Config> {
-    fn from_ref(state: &AppState) -> Self {
-        state.config.clone()
     }
 }
 
@@ -440,5 +455,59 @@ impl axum::extract::FromRef<AppState> for Arc<dyn PluginDao> {
 impl axum::extract::FromRef<AppState> for Arc<PluginSyncService> {
     fn from_ref(state: &AppState) -> Self {
         state.plugin_sync.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<AuthConfig> {
+    fn from_ref(state: &AppState) -> Self {
+        state.auth_config.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<CodexOAuthConfig> {
+    fn from_ref(state: &AppState) -> Self {
+        state.codex_oauth_config.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<SecretsConfig> {
+    fn from_ref(state: &AppState) -> Self {
+        state.secrets_config.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<S3Config> {
+    fn from_ref(state: &AppState) -> Self {
+        state.s3_config.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn ProviderTokenDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.provider_tokens.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn AdapterConnectionDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.adapter_connections.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<GitHubAppRegistry> {
+    fn from_ref(state: &AppState) -> Self {
+        state.github_apps.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<CredentialService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.credentials_svc.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for DbPool {
+    fn from_ref(state: &AppState) -> Self {
+        state.db.clone()
     }
 }
