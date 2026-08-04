@@ -17,11 +17,12 @@ name: E2E (manual)
 #
 # Runner: the playwright suite runs on staging-runners-large (its
 # playwright-runner.sh needs only `docker`, which the DinD sidecar provides).
-# The other three jobs are the last ubuntu-latest holdouts in this repo: each
-# shells out to a host Rust toolchain — test-docker.sh requires `cargo-zigbuild`
-# and ziglang. The arc-runner image ships none of that, so a `runs-on` change
-# alone would break them. Fixing that means baking rust + cargo-zigbuild +
-# ziglang into soap-platform-ci/docker/arc-runner (or the e2e-runner image).
+# The other three jobs shell out to a host Rust toolchain — test-docker.sh
+# requires ziglang, and cargo-zigbuild is installed prebuilt below — which the
+# arc-runner image does not ship. They default to ubuntu-latest for that
+# reason. Once rust + ziglang are baked into soap-platform-ci's runner image,
+# set the repo variable `E2E_RUST_RUNNER` to that pool's label to move them; no
+# change to this file is needed.
 
 on:
   workflow_dispatch:
@@ -49,7 +50,7 @@ jobs:
   playwright:
     name: Playwright (${{ inputs.playwright_suite }})
     if: inputs.playwright_suite != 'none'
-    runs-on: staging-runners-large
+    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'staging-runners-large' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
       - name: Run Playwright suite in Docker
@@ -75,14 +76,19 @@ jobs:
   claude-sdk:
     name: claude-agent-sdk (Docker smoke)
     if: inputs.run_claude_sdk
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
       - name: Install cross-compile toolchain
         run: |
           rustup target add x86_64-unknown-linux-gnu
-          cargo install --locked cargo-zigbuild
           pipx install ziglang || pip3 install ziglang
+      # Prebuilt binary. `cargo install --locked cargo-zigbuild` compiled it
+      # from source on every run, before any test work started.
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-zigbuild
       - name: Run claude-agent-sdk smoke test in Docker
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -92,14 +98,19 @@ jobs:
   claude-sandbox-transport:
     name: Claude sandbox transport (Docker E2E)
     if: inputs.run_claude_sandbox_transport
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
       - name: Install cross-compile toolchain
         run: |
           rustup target add x86_64-unknown-linux-gnu
-          cargo install --locked cargo-zigbuild
           pipx install ziglang || pip3 install ziglang
+      # Prebuilt binary. `cargo install --locked cargo-zigbuild` compiled it
+      # from source on every run, before any test work started.
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-zigbuild
       - name: Run Claude sandbox transport E2E in Docker
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -117,14 +128,19 @@ jobs:
   codex-sdk:
     name: Codex CLI (Docker E2E)
     if: inputs.run_codex_sdk
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
       - name: Install cross-compile toolchain
         run: |
           rustup target add x86_64-unknown-linux-gnu
-          cargo install --locked cargo-zigbuild
           pipx install ziglang || pip3 install ziglang
+      # Prebuilt binary. `cargo install --locked cargo-zigbuild` compiled it
+      # from source on every run, before any test work started.
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-zigbuild
       - name: Run Codex CLI E2E in Docker
         env:
           # The sandbox base image is pulled by the harness (SANDBOX_BASE arg).

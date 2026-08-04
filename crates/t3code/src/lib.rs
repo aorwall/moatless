@@ -3431,7 +3431,7 @@ mod tests {
 
     /// The stub's database. Every read in these tests reports it, so nothing
     /// here exercises the identity guard — that needs two real databases, and
-    /// is in `backend/tests/ui_rpc_shell_test.rs`.
+    /// is in `backend/tests/integration/ui_rpc_shell_test.rs`.
     fn stub_identity() -> UiRpcEnvironmentIdentity {
         UiRpcEnvironmentIdentity::new("7667539899605483559:16384")
     }
@@ -3782,7 +3782,7 @@ mod tests {
 
     /// These tests are about the envelope encoding, so the listing behind it
     /// is a stub. What a viewer actually sees is asserted against a real
-    /// database in `backend/tests/ui_rpc_shell_test.rs`.
+    /// database in `backend/tests/integration/ui_rpc_shell_test.rs`.
     fn state() -> UiRpcState {
         let mut workspaces = MockT3WorkspaceDao::new();
         workspaces
@@ -3856,7 +3856,7 @@ mod tests {
 
     /// A session whose pushed frames go nowhere. These tests drive the request
     /// side; what a subscription's poller produces is asserted against a real
-    /// database in `backend/tests/ui_rpc_shell_test.rs`.
+    /// database in `backend/tests/integration/ui_rpc_shell_test.rs`.
     fn session() -> ProtocolSession {
         ProtocolSession::new(mpsc::channel(OUTBOUND_FRAMES).0)
     }

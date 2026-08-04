@@ -834,7 +834,7 @@ mod db_tests {
 
     /// `record_change`'s "call this last", for the one mutation site an
     /// integration test cannot reach: `PgLifecycleDao` is `pub(crate)`, so the
-    /// loop in `tests/task_listing_position_test.rs` cannot name it.
+    /// loop in `tests/integration/task_listing_position_test.rs` cannot name it.
     ///
     /// Same shape as that loop. Someone holds the `sandboxes` row this write
     /// locks `FOR UPDATE`; the write is started and asserted to be waiting on

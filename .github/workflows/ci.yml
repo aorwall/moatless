@@ -42,6 +42,10 @@ env:
   SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-js
   SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-java
   CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  # A registry blip should cost a retry, not a red build.
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
   # Do not upload docker/build-push-action build records as GitHub artifacts:
   # this workflow already uses GHA cache for handoff/build layers, and the org
   # artifact quota can otherwise break post-build cleanup.
@@ -76,12 +80,24 @@ jobs:
       sandbox-image: ${{ steps.filter.outputs.sandbox-image }}
       sandbox-java: ${{ steps.filter.outputs.sandbox-java }}
       helm: ${{ steps.filter.outputs.helm }}
+      cargo-manifest: ${{ steps.filter.outputs.cargo-manifest }}
+      # Narrows rust-test's package set; no deep fetch needed.
+      changed-files: ${{ steps.filter.outputs.everything_files }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
         id: filter
         with:
+          list-files: shell
           filters: |
+            everything:
+              - '**'
+            # Workspace-wide inputs — invalidate all per-crate narrowing.
+            cargo-manifest:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'clippy.toml'
             rust:
               - 'backend/**'
               - 'crates/**'
@@ -176,24 +192,43 @@ jobs:
   # Cache: seeded from `main` (`save-if` below) and restore-only on PRs, so many
   # concurrent PRs share one entry instead of each writing a multi-GB copy into
   # the repo's 10 GB cache budget and evicting the build caches.
-  rust-checks:
-    name: Rust clippy & tests
-    if: github.event_name == 'pull_request'
+  # Split from rust-test: separate cargo fingerprints (rmeta vs codegen), so
+  # one job never shared work — only wall clock.
+  rust-clippy:
+    name: Rust clippy
+    needs: detect-changes
+    if: always() && github.event_name == 'pull_request'
     runs-on: staging-runners-large
     container:
       image: rust:1.97-bookworm
+    timeout-minutes: 30
     env:
-      # Skip debug info for test binaries — meaningfully smaller target dir and
-      # faster link times; backtraces in CI failures rarely need full debuginfo.
-      CARGO_PROFILE_TEST_DEBUG: 0
+      # Deps build under `dev`, not `test` — trimming only the test profile
+      # left all ~612 carrying full debug info. Line numbers survive.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      SCCACHE_S3_BUCKET: ${{ vars.SCCACHE_S3_BUCKET }}
+      SCCACHE_S3_REGION: ${{ vars.SCCACHE_S3_REGION }}
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Authenticate to AWS for sccache
+        if: vars.SCCACHE_S3_BUCKET != ''
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
+          aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
+
+      - name: Configure sccache
+        run: .github/scripts/setup-sccache.sh
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: ". -> target"
-          shared-key: rust-checks
+          shared-key: rust-clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Clippy (deny warnings)
@@ -205,10 +240,6 @@ jobs:
           # module: at default features clippy would lint neither, and a `-p`
           # build of a dependent lints only that dependent.
           cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
-          # And again with it off, because a feature that cannot be dropped is
-          # decorative — every backend crate depends on this one, so sqlx and
-          # rustls would compile for builds that never open a connection.
-          cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
           cargo clippy -p moatless-t3code --all-targets -- -D warnings
           # `--features db-tests` because 39 of the 40 files in `backend/tests`
           # open with `#![cfg(feature = "db-tests")]` and compile to nothing
@@ -220,20 +251,119 @@ jobs:
           cargo clippy -p claude-agent-sdk -- -D warnings
           cargo clippy -p moatless-events -- -D warnings
 
+      # Resolves a different graph (no sqlx/rustls), so it rebuilds the
+      # closure. Guards that `database` stays droppable — manifest-only concern.
+      - name: Clippy (backend-core with default features off)
+        if: needs.detect-changes.outputs.cargo-manifest == 'true'
+        run: cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
+
+      - name: sccache stats
+        if: always() && env.RUSTC_WRAPPER != ''
+        run: "$RUSTC_WRAPPER --show-stats || true"
+
+  rust-test:
+    name: Rust tests
+    needs: detect-changes
+    if: always() && github.event_name == 'pull_request'
+    runs-on: staging-runners-large
+    container:
+      image: rust:1.97-bookworm
+    timeout-minutes: 30
+    env:
+      # Smaller target dir, faster links.
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      SCCACHE_S3_BUCKET: ${{ vars.SCCACHE_S3_BUCKET }}
+      SCCACHE_S3_REGION: ${{ vars.SCCACHE_S3_REGION }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Authenticate to AWS for sccache
+        if: vars.SCCACHE_S3_BUCKET != ''
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
+          aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
+
+      # Linking, not codegen, dominates this job. mold takes over /usr/bin/ld
+      # in the container only; local builds are untouched.
+      - name: Install mold linker
+        run: .github/scripts/install-mold.sh
+
+      - name: Configure sccache
+        run: .github/scripts/setup-sccache.sh
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ". -> target"
+          shared-key: rust-test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # install-action apt-installs jq itself, which needs HTTPS sources here.
+      - name: Install install-action prerequisites
+        run: |
+          .github/scripts/apt-https-mirrors.sh
+          apt-get update
+          apt-get install -y --no-install-recommends jq
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-nextest
+
       # E2E suites (Claude CLI, live sandbox) are `#[ignore]`d and stay off in
       # CI; everything else runs hermetically.
       - name: Test
+        # Steps default to `sh` in this container; the selector needs bash.
+        shell: bash
+        env:
+          CHANGED_FILES: ${{ needs.detect-changes.outputs.changed-files }}
         run: |
-          cargo test -p moatless-backend-core
-          cargo test -p moatless-t3code
-          cargo test -p moatless-vibe-backend
-          # The clippy line above type-checks the db-tests tier; this links it.
-          # `--no-run` builds the 39 binaries without needing PostgreSQL, which
-          # catches what a check cannot see, and runs nothing.
-          cargo test -p moatless-vibe-backend --features db-tests --no-run
-          cargo test -p moatless-sandbox
-          cargo test -p claude-agent-sdk
-          cargo test -p moatless-events
+          set -euo pipefail
+          # Word-splitting is intended; the selector reads one path per line.
+          # shellcheck disable=SC2086
+          printf '%s\n' $CHANGED_FILES > /tmp/changed-files.txt
+
+          # Narrow to the reverse-dep closure. Selecting packages is what
+          # saves time — filtering which tests run still builds everything.
+          PKGS=$(.github/scripts/rust-changed-packages.sh /tmp/changed-files.txt \
+            moatless-backend-core \
+            moatless-t3code \
+            moatless-vibe-backend \
+            moatless-sandbox \
+            claude-agent-sdk \
+            moatless-events)
+          echo "Testing: $PKGS"
+
+          # shellcheck disable=SC2086
+          cargo nextest run --profile ci $PKGS
+          # nextest does not run doctests; the workspace has a handful.
+          # shellcheck disable=SC2086
+          cargo test --doc $PKGS
+
+          # Clippy type-checks the db-tests tier; this links it. No DB needed.
+          case "$PKGS" in
+            *moatless-vibe-backend*)
+              cargo nextest run -p moatless-vibe-backend --features db-tests --no-run
+              ;;
+          esac
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nextest-results
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: sccache stats
+        if: always() && env.RUSTC_WRAPPER != ''
+        run: "$RUSTC_WRAPPER --show-stats || true"
 
   # ── Build every Rust binary the images need, in one job (push + manual) ──
   #
@@ -291,18 +421,40 @@ jobs:
         needs.detect-changes.outputs.sandbox-tools == 'true' ||
         needs.detect-changes.outputs.sandbox-base == 'true' ||
         needs.detect-changes.outputs.sandbox-image == 'true' }}
+      SCCACHE_S3_BUCKET: ${{ vars.SCCACHE_S3_BUCKET }}
+      SCCACHE_S3_REGION: ${{ vars.SCCACHE_S3_REGION }}
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
+      - name: Authenticate to AWS for sccache
+        if: vars.SCCACHE_S3_BUCKET != ''
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
+          aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
+
+      - name: Install mold linker
+        run: .github/scripts/install-mold.sh
+
+      # Sets RUSTC_WRAPPER only when a bucket is configured — the fallback
+      # below keys on that.
+      - name: Configure sccache
+        run: .github/scripts/setup-sccache.sh
+
       # No protoc install: crates/sandbox-proto vendors it (protoc-bin-vendored).
       # sccache still needs apt, hence the mirror rewrite — see the script.
-      - name: Install sccache
+      - name: Install sccache (Actions-cache fallback)
+        if: env.RUSTC_WRAPPER == ''
         run: |
           .github/scripts/apt-https-mirrors.sh
           apt-get update
           apt-get install -y --no-install-recommends sccache
           echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
           echo "SCCACHE_DIR=$HOME/.cache/sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_ON_ACTIONS_CACHE=1" >> "$GITHUB_ENV"
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -312,6 +464,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache sccache objects
+        if: env.SCCACHE_ON_ACTIONS_CACHE == '1'
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
           path: ~/.cache/sccache
@@ -322,8 +475,8 @@ jobs:
 
       - name: Start sccache
         run: |
-          if command -v sccache >/dev/null 2>&1; then
-            sccache --start-server
+          if [ -n "${RUSTC_WRAPPER:-}" ]; then
+            "$RUSTC_WRAPPER" --start-server
           fi
 
       - name: Build binaries (ci profile)
@@ -356,8 +509,8 @@ jobs:
             echo "| packages | \`${PACKAGES:-none}\` |"
             echo "| sccache | \`${RUSTC_WRAPPER:-disabled}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
-          if command -v sccache >/dev/null 2>&1; then
-            sccache --show-stats || true
+          if [ -n "${RUSTC_WRAPPER:-}" ]; then
+            "$RUSTC_WRAPPER" --show-stats || true
           fi
 
       # Dumped here rather than in a job of its own: the binary links GLIBC 2.36
@@ -561,7 +714,7 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:sha-${{ steps.sha.outputs.short }}
           cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
+          cache-to: type=gha,mode=min,scope=frontend
 
   # ── Backend image (push to main + manual dispatch, conditional on changed files) ──
   #
@@ -621,7 +774,7 @@ jobs:
           build-contexts: |
             binary=/tmp/backend-binary
           cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+          cache-to: type=gha,mode=min,scope=backend
 
   # ── Build the truly stable sandbox base (Ubuntu + Node + CLIs + user setup) ──
   # No binaries needed, so it starts immediately and runs alongside build-rust;
@@ -732,7 +885,7 @@ jobs:
           build-contexts: |
             binaries=/tmp/sandbox-binaries
           cache-from: type=gha,scope=sandbox-tools
-          cache-to: type=gha,mode=max,scope=sandbox-tools
+          cache-to: type=gha,mode=min,scope=sandbox-tools
 
   # ── The runtime sandbox = sandbox-base + scripts + Rust binaries ──
   # Pushed under both ${SANDBOX_IMAGE} and ${SANDBOX_JS_IMAGE} (same content,
@@ -803,7 +956,7 @@ jobs:
           build-contexts: |
             binaries=/tmp/sandbox-binaries
           cache-from: type=gha,scope=sandbox
-          cache-to: type=gha,mode=max,scope=sandbox
+          cache-to: type=gha,mode=min,scope=sandbox
 
   build-sandbox-java:
     name: Build & push sandbox-java:${{ matrix.java-version }}
@@ -866,7 +1019,7 @@ jobs:
             JAVA_VERSION=${{ matrix.java-version }}
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
           cache-from: type=gha,scope=sandbox-java-${{ matrix.java-version }}
-          cache-to: type=gha,mode=max,scope=sandbox-java-${{ matrix.java-version }}
+          cache-to: type=gha,mode=min,scope=sandbox-java-${{ matrix.java-version }}
 
   # ── Publish dev Helm chart (push to main + manual dispatch) ──
   publish-helm-dev:
@@ -905,3 +1058,40 @@ jobs:
         run: |
           helm package k8s/helm/moatless-vibe -d ./dist
           helm push ./dist/moatless-*.tgz "oci://registry-1.docker.io/${{ env.REGISTRY_ORG }}"
+
+  # ── Drop this run's binary-handoff cache entries ──
+  #
+  # The four keys below are written once and read once within a single run, but
+  # Actions cache entries survive until LRU eviction against the repo's 10 GB
+  # budget — where each one evicts a Rust dependency cache instead.
+  #
+  # Runs after every consumer, on success or failure, and never fails the run.
+  cleanup-run-caches:
+    name: Drop per-run handoff caches
+    needs:
+      - build-rust
+      - generate-ts-client
+      - build-frontend
+      - build-backend-image
+      - build-sandbox-tools
+      - build-sandbox
+    if: always() && needs.build-rust.result != 'skipped'
+    runs-on: staging-runners
+    permissions:
+      actions: write
+    steps:
+      - name: Delete handoff caches for this SHA
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for key in \
+            "backend-binary-${GITHUB_SHA}" \
+            "openapi-spec-${GITHUB_SHA}" \
+            "sandbox-binaries-${GITHUB_SHA}" \
+            "generated-client-${GITHUB_SHA}"; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/caches?key=${key}" || echo 000)
+            echo "${key}: HTTP ${code}"
+          done

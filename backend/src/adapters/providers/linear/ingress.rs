@@ -32,7 +32,7 @@
 //!
 //! [`receive`] takes an `AppState`, an Adapter, a signature and a body. That is
 //! the seam: every decision below the route is drivable from a test that never
-//! builds a `Request`, and `backend/tests/linear_ingress_test.rs` drives it.
+//! builds a `Request`, and `backend/tests/integration/linear_ingress_test.rs` drives it.
 
 use tracing::{info, warn};
 

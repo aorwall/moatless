@@ -62,6 +62,9 @@ temp/client/src/routeTree.gen.ts
 .config
 !docker/.config/
 !docker/.config/jira-config.yml
+# cargo-nextest reads this from the workspace root; CI runs `--profile ci`.
+!/.config/
+!/.config/nextest.toml
 .cache
 .gitconfig
 .playwright-mcp/

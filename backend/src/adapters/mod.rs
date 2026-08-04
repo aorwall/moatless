@@ -18,7 +18,7 @@ pub(crate) mod subject_events;
 /// Reachable from `backend/tests/` as well as from in-crate tests, because the
 /// workflows whose API-call budgets need pinning take an `AppState` and no
 /// in-crate test can build one. Both tiers stubbing the same way is the point:
-/// a second copy of this in `backend/tests/common/` would drift, and a drifted
+/// a second copy of this in `backend/tests/integration/common/` would drift, and a drifted
 /// stub is a test that quietly reaches the real sender. Never compiled into a
 /// release build — `db-tests` is a test-only feature.
 #[cfg(any(test, feature = "db-tests"))]

@@ -6,7 +6,7 @@ mod api;
 mod auth;
 mod config;
 mod context;
-/// `pub`, unlike `github_pr`'s: `backend/tests/adapter_inbound_delivery_test.rs`
+/// `pub`, unlike `github_pr`'s: `backend/tests/integration/adapter_inbound_delivery_test.rs`
 /// registers this handler by hand, and an integration test is a separate crate
 /// that `pub(crate)` puts out of reach. It narrows the day that test stops
 /// naming it.
