@@ -41,7 +41,6 @@ use crate::skill::service::SkillService;
 use crate::tag::dao::TagDao;
 use crate::task::creation::{RealPreflight, TaskCreationService};
 use crate::task::dao::TaskDao;
-use crate::task::reaper::AgentStatusPort;
 use crate::task::relations::TaskRelationDao;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
@@ -60,15 +59,23 @@ pub struct AppState {
     pub db: DbPool,
     /// Immutable configuration shared across handlers.
     pub config: Arc<Config>,
+    /// Verifies sandbox-issued `X-User-Token` JWTs. The auth extractors reach
+    /// this through [`crate::extractors::UserTokenVerifier`] rather than reading
+    /// the token secret off `config` directly.
+    pub token_verifier: Arc<dyn crate::extractors::UserTokenVerifier>,
     /// The one Sandbox value on `AppState`: the durable lifecycle handle. Callers
     /// request transitions (`start`/`stop`/`restart`/`redeploy`/`remove`) and read
     /// desired state through it rather than driving a provider directly.
     pub sandbox: Arc<Lifecycle>,
-    /// The reaper's idle-eligibility read of live agent status, behind a
-    /// consumer-owned one-method port. The provider handle is not on `AppState`.
-    pub agent_status: Arc<dyn AgentStatusPort>,
     /// Message notification port. Address construction stays inside the
     /// connector-backed adapter rather than on `AppState`.
+    ///
+    /// Still a field, unlike `agent_status`: its only reader
+    /// (`sandbox::notify::notify_sandbox_for_task`) is reached through
+    /// `ensure_sandbox_and_notify(&AppState)`, whose seven handler/adapter/loop
+    /// callers would each have to take the port to remove it — that is the
+    /// per-handler sweep. It leaves `AppState` in the slice that migrates those
+    /// callers. See `.plans/backend-ports-and-crates.md` Step 5.
     pub sandbox_notify: Arc<dyn NotifyPort>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
@@ -181,7 +188,6 @@ impl AppState {
         config: Arc<Config>,
         lifecycle: Arc<Lifecycle>,
         connector: Arc<dyn SandboxConnector>,
-        agent_status: Arc<dyn AgentStatusPort>,
         sandbox_notify: Arc<dyn NotifyPort>,
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<crate::file_storage::s3::S3Storage>,
@@ -303,6 +309,11 @@ impl AppState {
             preflight,
         ));
 
+        let token_verifier: Arc<dyn crate::extractors::UserTokenVerifier> =
+            Arc::new(crate::sandbox::jwt::JwtUserTokenVerifier::new(
+                config.sandbox.task_token_secret.clone(),
+            ));
+
         Self {
             tasks,
             task_creation,
@@ -333,8 +344,8 @@ impl AppState {
             adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
             db: pool,
             config,
+            token_verifier,
             sandbox: lifecycle,
-            agent_status,
             sandbox_notify,
             events,
             s3,
@@ -351,5 +362,23 @@ impl AppState {
                     .build(),
             ),
         }
+    }
+}
+
+// `FromRef` lets a handler extract exactly the port it names —
+// `State(port): State<Arc<dyn Port>>` — from the one router-held `AppState`,
+// so handlers stop naming `AppState`. `State<AppState>` still resolves through
+// axum's blanket `FromRef<S> for S`, so migrated and unmigrated handlers share
+// one router. One impl is added here per port as its module migrates.
+
+impl axum::extract::FromRef<AppState> for Arc<dyn crate::extractors::UserTokenVerifier> {
+    fn from_ref(state: &AppState) -> Self {
+        state.token_verifier.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<SecretService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.secrets.clone()
     }
 }

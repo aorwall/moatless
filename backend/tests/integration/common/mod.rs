@@ -31,7 +31,6 @@ use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::shared_models::AgentType;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
-use moatless_vibe_backend::task::reaper::AgentStatusPort;
 use moatless_vibe_backend::workspace::models::{Workspace, WorkspaceRepo};
 
 // =========================================================================
@@ -103,15 +102,6 @@ pub struct MockSandboxConnector;
 impl SandboxConnector for MockSandboxConnector {
     async fn sandbox_client(&self, _task_id: &str) -> Result<SandboxClient, SandboxError> {
         Err(SandboxError::Other("mock: not implemented".into()))
-    }
-}
-
-pub struct MockAgentStatus;
-
-#[async_trait]
-impl AgentStatusPort for MockAgentStatus {
-    async fn agent_status(&self, _task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse> {
-        None
     }
 }
 
@@ -377,7 +367,6 @@ pub fn test_app_state_with_config(
         config,
         lifecycle,
         connector,
-        Arc::new(MockAgentStatus),
         Arc::new(MockNotify),
         None, // events
         None, // s3

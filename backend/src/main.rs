@@ -398,14 +398,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sandbox_notify: Arc<dyn sandbox::lifecycle::NotifyPort> = Arc::new(
             sandbox::lifecycle::GrpcNotify::new(sandbox_connector.clone()),
         );
+        // The reaper's consumer-owned agent-status port. Handed to
+        // `spawn_task_reaper` at construction rather than carried on `AppState`.
+        let agent_status: Arc<dyn crate::task::reaper::AgentStatusPort> = Arc::new(
+            crate::task::reaper::ConnectorAgentStatus::new(sandbox_connector.clone()),
+        );
         let app_state = AppState::new(
             &ports,
             Arc::new(config.clone()),
             lifecycle,
             sandbox_connector.clone(),
-            Arc::new(crate::task::reaper::ConnectorAgentStatus::new(
-                sandbox_connector.clone(),
-            )),
             sandbox_notify.clone(),
             event_publisher,
             s3_client,
@@ -646,7 +648,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         if let Some(k8s) = reaper_k8s {
-            if let Some(handle) = spawn_task_reaper(&app_state, k8s.clone(), cancel.clone()) {
+            if let Some(handle) = spawn_task_reaper(
+                &app_state,
+                agent_status.clone(),
+                k8s.clone(),
+                cancel.clone(),
+            ) {
                 supervisor.supervise(
                     "task-reaper",
                     // Readiness: required cleanup — idle sandboxes and inactive
@@ -962,6 +969,7 @@ fn spawn_sandbox_reconciler(
 /// enabled. `None` when the reaper is switched off.
 fn spawn_task_reaper(
     app_state: &AppState,
+    agent_status: Arc<dyn crate::task::reaper::AgentStatusPort>,
     k8s: sandbox::k8s::client::K8sClient,
     cancel: CancellationToken,
 ) -> Option<tokio::task::JoinHandle<()>> {
@@ -971,6 +979,7 @@ fn spawn_task_reaper(
     }
     let handle = task::reaper::spawn_task_reaper(
         app_state.clone(),
+        agent_status,
         k8s,
         app_state.messages.clone(),
         app_state.tasks.clone(),

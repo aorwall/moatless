@@ -230,6 +230,38 @@ pub fn is_token_near_expiry(token: &str, secret: &str, threshold_secs: u64) -> b
     }
 }
 
+/// Verifies `X-User-Token` JWTs against the process token secret, satisfying
+/// the consumer-declared [`crate::extractors::UserTokenVerifier`] port. Keeps
+/// the `sandbox::jwt` dependency behind the port so the auth extractors do not
+/// name this module.
+pub struct JwtUserTokenVerifier {
+    secret: Option<String>,
+}
+
+impl JwtUserTokenVerifier {
+    pub fn new(secret: Option<String>) -> Self {
+        Self { secret }
+    }
+}
+
+impl crate::extractors::UserTokenVerifier for JwtUserTokenVerifier {
+    fn verify_user_token(
+        &self,
+        token: &str,
+    ) -> Result<crate::extractors::VerifiedUserToken, crate::extractors::TokenVerifyError> {
+        let secret = self
+            .secret
+            .as_deref()
+            .ok_or(crate::extractors::TokenVerifyError::NotConfigured)?;
+        let claims = verify_user_auth_token(token, secret)
+            .map_err(|e| crate::extractors::TokenVerifyError::Invalid(e.to_string()))?;
+        Ok(crate::extractors::VerifiedUserToken {
+            user_id: claims.user_id,
+            login: claims.login,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,5 +335,32 @@ mod tests {
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");
         assert_eq!(claims.aud, None);
+    }
+
+    #[test]
+    fn port_maps_outcomes_to_the_extractor_error() {
+        use crate::extractors::{TokenVerifyError, UserTokenVerifier};
+
+        // No configured secret -> NotConfigured.
+        let unconfigured = JwtUserTokenVerifier::new(None);
+        assert!(matches!(
+            unconfigured.verify_user_token("anything"),
+            Err(TokenVerifyError::NotConfigured)
+        ));
+
+        let verifier = JwtUserTokenVerifier::new(Some("test-secret".to_string()));
+
+        // A valid token -> the two fields the extractor reads.
+        let token =
+            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+        let verified = verifier.verify_user_token(&token).expect("valid token");
+        assert_eq!(verified.user_id, "user-456");
+        assert_eq!(verified.login, "john");
+
+        // Garbage -> Invalid, not a panic.
+        assert!(matches!(
+            verifier.verify_user_token("not-a-jwt"),
+            Err(TokenVerifyError::Invalid(_))
+        ));
     }
 }

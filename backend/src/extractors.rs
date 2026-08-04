@@ -9,7 +9,9 @@
 //! Anything else is a 401. `X-User-*` headers are never trusted — the auth
 //! middleware strips them before validation.
 
-use axum::extract::FromRequestParts;
+use std::sync::Arc;
+
+use axum::extract::{FromRef, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -17,9 +19,36 @@ use uuid::Uuid;
 
 use crate::auth::identity::AuthIdentity;
 use crate::auth::models::UserRole;
-use crate::sandbox::jwt;
-use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
+
+/// Verifies a sandbox-issued `X-User-Token` JWT.
+///
+/// Declared consumer-side so the extractors state which one value they need of
+/// the process — token verification — rather than reaching through the whole
+/// `AppState`. The implementation (and its dependency on `sandbox::jwt` and the
+/// token secret) lives behind this port, which is why generifying the auth
+/// extractors over any router state `S` costs no `sandbox` import here.
+pub trait UserTokenVerifier: Send + Sync {
+    /// Verify a long-lived user auth token, returning the identity it carries.
+    fn verify_user_token(&self, token: &str) -> Result<VerifiedUserToken, TokenVerifyError>;
+}
+
+/// The identity a verified user token carries. Only the two fields the auth
+/// extractor reads.
+pub struct VerifiedUserToken {
+    pub user_id: String,
+    pub login: String,
+}
+
+/// Why verifying a user token failed.
+#[derive(Debug)]
+pub enum TokenVerifyError {
+    /// This process was started without a token secret, so no user token can be
+    /// verified.
+    NotConfigured,
+    /// A token was present but did not verify.
+    Invalid(String),
+}
 
 /// Authenticated user extracted from request extensions, user token, or dev-mode headers.
 #[derive(Debug, Clone)]
@@ -48,6 +77,7 @@ impl AuthUser {
 }
 
 /// Error returned when auth headers are missing.
+#[derive(Debug)]
 pub struct AuthError(String);
 
 impl IntoResponse for AuthError {
@@ -56,13 +86,14 @@ impl IntoResponse for AuthError {
     }
 }
 
-impl FromRequestParts<AppState> for AuthUser {
+impl<S> FromRequestParts<S> for AuthUser
+where
+    S: Send + Sync,
+    Arc<dyn UserTokenVerifier>: FromRef<S>,
+{
     type Rejection = AuthError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         // Read X-Task-Id header (used by all auth paths)
         let task_id = parts
             .headers
@@ -89,24 +120,22 @@ impl FromRequestParts<AppState> for AuthUser {
             .get("x-user-token")
             .and_then(|v| v.to_str().ok())
         {
-            let secret = state
-                .config
-                .sandbox
-                .task_token_secret
-                .as_deref()
-                .ok_or_else(|| AuthError("Token verification not configured".to_string()))?;
+            let verifier = Arc::<dyn UserTokenVerifier>::from_ref(state);
+            let verified = verifier.verify_user_token(token).map_err(|e| match e {
+                TokenVerifyError::NotConfigured => {
+                    AuthError("Token verification not configured".to_string())
+                }
+                TokenVerifyError::Invalid(msg) => AuthError(format!("Invalid user token: {msg}")),
+            })?;
 
-            let claims = jwt::verify_user_auth_token(token, secret)
-                .map_err(|e| AuthError(format!("Invalid user token: {e}")))?;
-
-            let user_id = claims
+            let user_id = verified
                 .user_id
                 .parse::<Uuid>()
                 .map_err(|_| AuthError("Invalid user id in token".to_string()))?;
 
             return Ok(AuthUser {
                 user_id,
-                login: claims.login,
+                login: verified.login,
                 role: None,
                 provider: Some("user-token".to_string()),
                 group_id: None,
@@ -127,13 +156,14 @@ impl FromRequestParts<AppState> for AuthUser {
 #[derive(Debug, Clone)]
 pub struct MaybeAuthUser(pub Option<AuthUser>);
 
-impl FromRequestParts<AppState> for MaybeAuthUser {
+impl<S> FromRequestParts<S> for MaybeAuthUser
+where
+    S: Send + Sync,
+    Arc<dyn UserTokenVerifier>: FromRef<S>,
+{
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         match AuthUser::from_request_parts(parts, state).await {
             Ok(user) => Ok(MaybeAuthUser(Some(user))),
             Err(_) => Ok(MaybeAuthUser(None)),
@@ -169,15 +199,141 @@ impl<S: Send + Sync> FromRequestParts<S> for OptionalScope {
     }
 }
 
-/// Extractor that builds a `ScopeContext` from the authenticated user.
-impl FromRequestParts<AppState> for ScopeContext {
-    type Rejection = AuthError;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let auth = AuthUser::from_request_parts(parts, state).await?;
-        Ok(auth.scope_context())
+    /// Configurable [`UserTokenVerifier`] for exercising the `X-User-Token` path
+    /// of the auth extractor without minting real JWTs — the second implementor
+    /// of the port. `verify_user_auth_token` itself is covered in `sandbox::jwt`.
+    enum StubOutcome {
+        Ok { user_id: String, login: String },
+        NotConfigured,
+        Invalid(String),
+    }
+
+    struct StubVerifier(StubOutcome);
+
+    impl UserTokenVerifier for StubVerifier {
+        fn verify_user_token(&self, _token: &str) -> Result<VerifiedUserToken, TokenVerifyError> {
+            match &self.0 {
+                StubOutcome::Ok { user_id, login } => Ok(VerifiedUserToken {
+                    user_id: user_id.clone(),
+                    login: login.clone(),
+                }),
+                StubOutcome::NotConfigured => Err(TokenVerifyError::NotConfigured),
+                StubOutcome::Invalid(msg) => Err(TokenVerifyError::Invalid(msg.clone())),
+            }
+        }
+    }
+
+    // A bare `Arc<dyn UserTokenVerifier>` is a valid router state here: axum's
+    // blanket `FromRef<S> for S` (S: Clone) satisfies the extractor's bound.
+    fn state(outcome: StubOutcome) -> Arc<dyn UserTokenVerifier> {
+        Arc::new(StubVerifier(outcome))
+    }
+
+    fn parts_with_token(token: Option<&str>, task_id: Option<&str>) -> Parts {
+        let mut builder = Request::builder();
+        if let Some(token) = token {
+            builder = builder.header("x-user-token", token);
+        }
+        if let Some(task_id) = task_id {
+            builder = builder.header("x-task-id", task_id);
+        }
+        builder.body(()).unwrap().into_parts().0
+    }
+
+    #[tokio::test]
+    async fn valid_token_authenticates_as_agent_context() {
+        let uid = "11111111-1111-1111-1111-111111111111";
+        let st = state(StubOutcome::Ok {
+            user_id: uid.to_string(),
+            login: "alice".to_string(),
+        });
+        let mut parts = parts_with_token(Some("tok"), Some("task-42"));
+
+        let user = AuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect("valid token authenticates");
+
+        assert_eq!(user.user_id.to_string(), uid);
+        assert_eq!(user.login, "alice");
+        assert_eq!(user.provider.as_deref(), Some("user-token"));
+        assert_eq!(user.task_id.as_deref(), Some("task-42"));
+        assert!(user.is_agent_context);
+    }
+
+    #[tokio::test]
+    async fn missing_secret_maps_to_not_configured_rejection() {
+        let st = state(StubOutcome::NotConfigured);
+        let mut parts = parts_with_token(Some("tok"), None);
+
+        let err = AuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect_err("no secret rejects");
+        assert_eq!(err.0, "Token verification not configured");
+    }
+
+    #[tokio::test]
+    async fn invalid_token_maps_to_invalid_rejection() {
+        let st = state(StubOutcome::Invalid("bad signature".to_string()));
+        let mut parts = parts_with_token(Some("tok"), None);
+
+        let err = AuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect_err("invalid token rejects");
+        assert_eq!(err.0, "Invalid user token: bad signature");
+    }
+
+    #[tokio::test]
+    async fn non_uuid_user_id_is_rejected() {
+        let st = state(StubOutcome::Ok {
+            user_id: "not-a-uuid".to_string(),
+            login: "alice".to_string(),
+        });
+        let mut parts = parts_with_token(Some("tok"), None);
+
+        let err = AuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect_err("non-uuid rejects");
+        assert_eq!(err.0, "Invalid user id in token");
+    }
+
+    #[tokio::test]
+    async fn no_token_and_no_identity_falls_through() {
+        let st = state(StubOutcome::NotConfigured);
+        let mut parts = parts_with_token(None, None);
+
+        let err = AuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect_err("no auth rejects");
+        assert_eq!(err.0, "Authentication required");
+    }
+
+    #[tokio::test]
+    async fn maybe_auth_user_swallows_rejection() {
+        let st = state(StubOutcome::Invalid("bad".to_string()));
+        let mut parts = parts_with_token(Some("tok"), None);
+
+        let MaybeAuthUser(user) = MaybeAuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect("MaybeAuthUser is infallible");
+        assert!(user.is_none());
+    }
+
+    #[tokio::test]
+    async fn maybe_auth_user_passes_through_success() {
+        let st = state(StubOutcome::Ok {
+            user_id: "22222222-2222-2222-2222-222222222222".to_string(),
+            login: "bob".to_string(),
+        });
+        let mut parts = parts_with_token(Some("tok"), None);
+
+        let MaybeAuthUser(user) = MaybeAuthUser::from_request_parts(&mut parts, &st)
+            .await
+            .expect("MaybeAuthUser is infallible");
+        assert_eq!(user.expect("some user").login, "bob");
     }
 }

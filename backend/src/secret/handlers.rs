@@ -1,11 +1,13 @@
 //! Secret HTTP handlers.
 
+use std::sync::Arc;
+
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 
 use crate::extractors::AuthUser;
-use crate::state::AppState;
+use crate::secret::service::SecretService;
 
 use super::error::SecretError;
 use super::schemas::{
@@ -24,12 +26,11 @@ use super::schemas::{
     )
 )]
 pub async fn list_secrets(
-    State(state): State<AppState>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
     Query(query): Query<ListSecretsQuery>,
 ) -> Result<Json<Vec<SecretMetadataResponse>>, SecretError> {
-    let rows = state
-        .secrets
+    let rows = secrets
         .list_metadata(&auth.scope_context(), query.scope)
         .await?;
     Ok(Json(rows))
@@ -46,14 +47,11 @@ pub async fn list_secrets(
     )
 )]
 pub async fn get_secret(
-    State(state): State<AppState>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<SecretMetadataResponse>, SecretError> {
-    let row = state
-        .secrets
-        .get_metadata(&auth.scope_context(), &id)
-        .await?;
+    let row = secrets.get_metadata(&auth.scope_context(), &id).await?;
     Ok(Json(row))
 }
 
@@ -68,12 +66,11 @@ pub async fn get_secret(
     )
 )]
 pub async fn put_secret(
-    State(state): State<AppState>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
     Json(req): Json<PutSecretRequest>,
 ) -> Result<Json<SecretMutationResponse>, SecretError> {
-    let row = state
-        .secrets
+    let row = secrets
         .put_secret(&auth.scope_context(), &auth.user_id.to_string(), req)
         .await?;
     Ok(Json(SecretMutationResponse { secret: row }))
@@ -91,13 +88,12 @@ pub async fn put_secret(
     )
 )]
 pub async fn patch_secret(
-    State(state): State<AppState>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Json(req): Json<PatchSecretRequest>,
 ) -> Result<Json<SecretMutationResponse>, SecretError> {
-    let row = state
-        .secrets
+    let row = secrets
         .patch_secret(&auth.scope_context(), &auth.user_id.to_string(), &id, req)
         .await?;
     Ok(Json(SecretMutationResponse { secret: row }))
@@ -114,12 +110,11 @@ pub async fn patch_secret(
     )
 )]
 pub async fn delete_secret(
-    State(state): State<AppState>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, SecretError> {
-    state
-        .secrets
+    secrets
         .delete_secret(&auth.scope_context(), &auth.user_id.to_string(), &id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -135,12 +130,11 @@ pub async fn delete_secret(
     )
 )]
 pub async fn validate_secrets(
-    State(state): State<AppState>,
+    State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
     Json(req): Json<ValidateSecretsRequest>,
 ) -> Result<Json<ValidateSecretsResponse>, SecretError> {
-    let resp = state
-        .secrets
+    let resp = secrets
         .validate_required(&auth.scope_context(), req)
         .await?;
     Ok(Json(resp))

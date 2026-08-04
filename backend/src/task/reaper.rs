@@ -63,6 +63,7 @@ enum ReaperError {
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_task_reaper(
     app_state: AppState,
+    agent_status: Arc<dyn AgentStatusPort>,
     k8s: K8sClient,
     messages: Arc<dyn MessageDao>,
     tasks: Arc<dyn TaskDao>,
@@ -102,6 +103,7 @@ pub fn spawn_task_reaper(
                     debug!(identity = %identity, "Task reaper is leader, running reap cycle");
                     if let Err(e) = run_reap_cycle(
                         &app_state,
+                        agent_status.as_ref(),
                         &k8s,
                         &messages,
                         &tasks,
@@ -138,6 +140,7 @@ pub fn spawn_task_reaper(
 #[allow(clippy::too_many_arguments)]
 async fn run_reap_cycle(
     app_state: &AppState,
+    agent_status: &dyn AgentStatusPort,
     k8s: &K8sClient,
     messages: &Arc<dyn MessageDao>,
     tasks: &Arc<dyn TaskDao>,
@@ -171,7 +174,7 @@ async fn run_reap_cycle(
     // Close turns left stuck `active` by a lost terminal event.
     // Independent of the idle/close passes below and best-effort, so a failure
     // here never blocks them.
-    reconcile_orphaned_turns(app_state, &sandbox_ids, &stuck_turns).await;
+    reconcile_orphaned_turns(app_state, agent_status, &sandbox_ids, &stuck_turns).await;
 
     // Orphan-GC deletes only taskless resources. Desired Removed convergence
     // for existing Tasks belongs to the Sandbox reconciler.
@@ -192,7 +195,7 @@ async fn run_reap_cycle(
         return Ok(());
     };
 
-    let stats = apply_reaper_decisions(app_state, tasks, events, snapshot).await;
+    let stats = apply_reaper_decisions(app_state, agent_status, tasks, events, snapshot).await;
     log_reaper_stats(stats);
 
     Ok(())
@@ -377,6 +380,7 @@ async fn load_agent_lifecycle(
 
 async fn apply_reaper_decisions(
     app_state: &AppState,
+    agent_status: &dyn AgentStatusPort,
     tasks: &Arc<dyn TaskDao>,
     events: &Option<Arc<dyn EventPublisher>>,
     snapshot: ReaperSnapshot,
@@ -436,7 +440,16 @@ async fn apply_reaper_decisions(
             }
             ReapDecision::Keep => {}
             ReapDecision::Stop => {
-                if stop_idle_sandbox(app_state, task_id, ttl_minutes, latest_at, reap_floor).await {
+                if stop_idle_sandbox(
+                    app_state,
+                    agent_status,
+                    task_id,
+                    ttl_minutes,
+                    latest_at,
+                    reap_floor,
+                )
+                .await
+                {
                     stats.stopped_count += 1;
                 }
             }
@@ -448,6 +461,7 @@ async fn apply_reaper_decisions(
 
 async fn stop_idle_sandbox(
     app_state: &AppState,
+    agent_status: &dyn AgentStatusPort,
     task_id: &str,
     ttl_minutes: i32,
     latest_at: Option<DateTime<Utc>>,
@@ -455,7 +469,7 @@ async fn stop_idle_sandbox(
 ) -> bool {
     // Defense in depth: the activity floor can go stale, so ask the agent
     // itself before pulling the plug. An unreadable status falls through.
-    if let Some(status) = agent_status_snapshot(app_state.agent_status.as_ref(), task_id).await {
+    if let Some(status) = agent_status_snapshot(agent_status, task_id).await {
         if agent_holds_the_sandbox(&status.status) {
             info!(
                 task_id = %task_id,
@@ -538,6 +552,7 @@ fn log_reaper_stats(stats: ReaperStats) {
 /// can't be determined, is left alone so a slow-but-live turn is never killed.
 async fn reconcile_orphaned_turns(
     app_state: &AppState,
+    agent_status: &dyn AgentStatusPort,
     running_sandbox_ids: &[String],
     stuck: &[UnclosedTurn],
 ) {
@@ -559,7 +574,7 @@ async fn reconcile_orphaned_turns(
             // Sandbox is up — only orphaned if the agent has gone terminal.
             // Unknown status ⇒ conservative skip (treat as possibly live).
             matches!(
-                agent_is_terminal(app_state, &turn.task_id).await,
+                agent_is_terminal(agent_status, &turn.task_id).await,
                 Some(true)
             )
         } else {
@@ -589,8 +604,8 @@ async fn task_desires_running(app_state: &AppState, task_id: &str) -> bool {
 /// Returns `Some(true)` if the sandbox agent is `idle`/`stopped`, `Some(false)`
 /// if it's still `running`, and `None` when the status can't be read (no client,
 /// gRPC error) — the caller treats `None` conservatively as "possibly live".
-async fn agent_is_terminal(app_state: &AppState, task_id: &str) -> Option<bool> {
-    agent_status_snapshot(app_state.agent_status.as_ref(), task_id)
+async fn agent_is_terminal(agent_status: &dyn AgentStatusPort, task_id: &str) -> Option<bool> {
+    agent_status_snapshot(agent_status, task_id)
         .await
         .map(|resp| agent_turn_is_over(&resp.status))
 }
