@@ -164,27 +164,28 @@ async fn execute_schedule_firing(
         state.loops.set_ongoing_task(&route.id, &task_id).await?;
     }
 
-    crate::message::send::send_message_flow(
-        state,
-        &task_id,
-        &schedule.message_template,
-        None,
-        Option::<&AgentMode>::None,
-        None,
-        &[],
-        &[],
-        true,
-        crate::message::send::ExternalOrigin {
-            event_id: msg.external_event_id.as_deref(),
-            adapter: Some("scheduled"),
-            source_name: Some(&schedule.id),
-            ..crate::message::send::ExternalOrigin::none()
-        },
-        false,
-        None,
-        None,
-    )
-    .await?;
+    state
+        .message_send
+        .send_message_flow(
+            &task_id,
+            &schedule.message_template,
+            None,
+            Option::<&AgentMode>::None,
+            None,
+            &[],
+            &[],
+            true,
+            crate::message::send::ExternalOrigin {
+                event_id: msg.external_event_id.as_deref(),
+                adapter: Some("scheduled"),
+                source_name: Some(&schedule.id),
+                ..crate::message::send::ExternalOrigin::none()
+            },
+            false,
+            None,
+            None,
+        )
+        .await?;
 
     if !is_new_task {
         crate::sandbox::notify::ensure_sandbox_and_notify(state, &task_id).await?;

@@ -280,29 +280,30 @@ async fn provision_issue_task(
     // Forward the inbound prompt: issue link + read-the-ticket instructions.
     let inbound_text = super::text::build_issue_inbound_text(issue);
     let external_event_id = super::external_id::issue_created(&issue.id);
-    if let Err(e) = crate::message::send::send_message_flow(
-        state,
-        &task_id,
-        &inbound_text,
-        None,
-        None,
-        None,
-        &[],
-        &[],
-        false,
-        crate::message::send::ExternalOrigin {
-            event_id: Some(&external_event_id),
-            adapter: Some(ADAPTER_LABEL),
-            subject_key: Some(&binding.subject_key),
-            source_name: Some(rule.source_matcher.as_str()),
-            author: None,
-            source_task_id: None,
-        },
-        false,
-        None,
-        None,
-    )
-    .await
+    if let Err(e) = state
+        .message_send
+        .send_message_flow(
+            &task_id,
+            &inbound_text,
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            false,
+            crate::message::send::ExternalOrigin {
+                event_id: Some(&external_event_id),
+                adapter: Some(ADAPTER_LABEL),
+                subject_key: Some(&binding.subject_key),
+                source_name: Some(rule.source_matcher.as_str()),
+                author: None,
+                source_task_id: None,
+            },
+            false,
+            None,
+            None,
+        )
+        .await
     {
         warn!(
             task_id = %task_id,
@@ -486,29 +487,30 @@ async fn notify_bindings_of_state_change(
 
     for binding in bindings {
         let external_event_id = super::external_id::issue_state(&issue.id, delivered_at);
-        if let Err(e) = crate::message::send::send_message_flow(
-            state,
-            &binding.task_id,
-            &body,
-            None,
-            None,
-            None,
-            &[],
-            &[],
-            true,
-            crate::message::send::ExternalOrigin {
-                event_id: Some(&external_event_id),
-                adapter: Some(ADAPTER_LABEL),
-                subject_key: Some(&binding.subject_key),
-                source_name: None,
-                author: None,
-                source_task_id: None,
-            },
-            false,
-            None,
-            None,
-        )
-        .await
+        if let Err(e) = state
+            .message_send
+            .send_message_flow(
+                &binding.task_id,
+                &body,
+                None,
+                None,
+                None,
+                &[],
+                &[],
+                true,
+                crate::message::send::ExternalOrigin {
+                    event_id: Some(&external_event_id),
+                    adapter: Some(ADAPTER_LABEL),
+                    subject_key: Some(&binding.subject_key),
+                    source_name: None,
+                    author: None,
+                    source_task_id: None,
+                },
+                false,
+                None,
+                None,
+            )
+            .await
         {
             warn!(
                 task_id = %binding.task_id,

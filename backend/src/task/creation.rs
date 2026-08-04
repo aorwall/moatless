@@ -140,7 +140,7 @@ pub struct FirstMessage {
     pub contexts: Vec<MessageContextInput>,
     pub sent_by: Option<String>,
     /// The message's uuid when the caller owns it — see
-    /// [`crate::message::send::send_message_flow`].
+    /// [`crate::message::send::MessageSendService::send_message_flow`].
     pub message_uuid: Option<String>,
 }
 

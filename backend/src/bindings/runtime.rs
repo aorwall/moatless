@@ -751,38 +751,39 @@ async fn deliver_to_binding(
         }
     }
 
-    crate::message::send::send_message_flow(
-        state,
-        &binding.task_id,
-        &message_text,
-        None,
-        None,
-        None,
-        &msg.file_ids,
-        &[],
-        true,
-        crate::message::send::ExternalOrigin {
-            event_id: msg.external_event_id.as_deref(),
-            adapter: Some(adapter_label),
-            subject_key: Some(&binding.subject_key),
-            // The source's own name where the subscription carries one, else the
-            // matcher that identified it — a repository full name, a channel id.
-            // A label a reader recognises beats no label at all.
-            source_name: Some(
-                config
-                    .source_name
-                    .as_deref()
-                    .unwrap_or(config.source_id.as_str()),
-            ),
-            author: msg.author.as_deref(),
-            source_task_id: None,
-        },
-        false,
-        Some(msg.user_id.as_str()),
-        None,
-    )
-    .await
-    .map_err(AdapterError::MessageDelivery)?;
+    state
+        .message_send
+        .send_message_flow(
+            &binding.task_id,
+            &message_text,
+            None,
+            None,
+            None,
+            &msg.file_ids,
+            &[],
+            true,
+            crate::message::send::ExternalOrigin {
+                event_id: msg.external_event_id.as_deref(),
+                adapter: Some(adapter_label),
+                subject_key: Some(&binding.subject_key),
+                // The source's own name where the subscription carries one, else the
+                // matcher that identified it — a repository full name, a channel id.
+                // A label a reader recognises beats no label at all.
+                source_name: Some(
+                    config
+                        .source_name
+                        .as_deref()
+                        .unwrap_or(config.source_id.as_str()),
+                ),
+                author: msg.author.as_deref(),
+                source_task_id: None,
+            },
+            false,
+            Some(msg.user_id.as_str()),
+            None,
+        )
+        .await
+        .map_err(AdapterError::MessageDelivery)?;
 
     let repo = state.task_bindings.clone();
     if let Some(ref ext_id) = msg.external_event_id {

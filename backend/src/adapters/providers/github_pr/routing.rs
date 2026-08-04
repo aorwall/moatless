@@ -618,31 +618,32 @@ async fn append_to_binding(
     binding: &TaskBinding,
     msg: &InboundMessage,
 ) -> Result<(), AdapterError> {
-    crate::message::send::send_message_flow(
-        state,
-        &binding.task_id,
-        &msg.text,
-        None,
-        None,
-        None,
-        &msg.file_ids,
-        &[],
-        false,
-        crate::message::send::ExternalOrigin {
-            event_id: msg.external_event_id.as_deref(),
-            adapter: Some(ADAPTER_LABEL),
-            subject_key: Some(&binding.subject_key),
-            source_name: Some(rule.source_matcher.as_str()),
-            author: msg.author.as_deref(),
-            source_task_id: None,
-        },
-        false,
-        Some(msg.user_id.as_str()),
-        None,
-    )
-    .await
-    // Logged once at the transport boundary by `AdapterError::into_response`.
-    .map_err(AdapterError::MessageDelivery)?;
+    state
+        .message_send
+        .send_message_flow(
+            &binding.task_id,
+            &msg.text,
+            None,
+            None,
+            None,
+            &msg.file_ids,
+            &[],
+            false,
+            crate::message::send::ExternalOrigin {
+                event_id: msg.external_event_id.as_deref(),
+                adapter: Some(ADAPTER_LABEL),
+                subject_key: Some(&binding.subject_key),
+                source_name: Some(rule.source_matcher.as_str()),
+                author: msg.author.as_deref(),
+                source_task_id: None,
+            },
+            false,
+            Some(msg.user_id.as_str()),
+            None,
+        )
+        .await
+        // Logged once at the transport boundary by `AdapterError::into_response`.
+        .map_err(AdapterError::MessageDelivery)?;
 
     let binding_repo = state.task_bindings.clone();
     if let Some(ref ext_id) = msg.external_event_id {

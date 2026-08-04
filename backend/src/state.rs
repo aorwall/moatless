@@ -29,6 +29,7 @@ use crate::loops::dao::LoopDao;
 use crate::loops::firing::receipts::EventReceiptDao;
 use crate::loops::sync::LoopSyncService;
 use crate::message::dao::MessageDao;
+use crate::message::send::{MessageSendService, SelfEchoFilter};
 use crate::plugin::dao::PluginDao;
 use crate::plugin::sync::PluginSyncService;
 use crate::repository::access::RepositoryTokenResolver;
@@ -183,6 +184,9 @@ pub struct AppState {
     /// Reconciles a repository's git-declared loops; holds the four ports the
     /// reconcile tree would otherwise thread through every frame.
     pub loop_sync: Arc<LoopSyncService>,
+    /// The message-send flows over the ports they read; holds the self-echo
+    /// dedup filter so the message domain no longer names the adapter registry.
+    pub message_send: Arc<MessageSendService>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugins, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
@@ -294,6 +298,16 @@ impl AppState {
             repo_token_resolver.clone(),
         ));
 
+        // Hoisted so the self-echo filter and the struct literal share one cache.
+        let recently_sent = Arc::new(RecentlySent::new());
+        let message_send = Arc::new(MessageSendService::new(
+            messages.clone(),
+            tasks.clone(),
+            task_turns.clone(),
+            files.clone(),
+            SelfEchoFilter::new(recently_sent.clone(), adapters.clone()),
+        ));
+
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("moatless-vibe-backend")
@@ -395,6 +409,7 @@ impl AppState {
             workspaces,
             git_sync,
             loop_sync,
+            message_send,
             skills,
             adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
             db: pool,
@@ -412,7 +427,7 @@ impl AppState {
             github_app_service,
             github_apps,
             credentials_svc,
-            recently_sent: Arc::new(RecentlySent::new()),
+            recently_sent,
             linear_active_turns: Arc::new(ActiveLinearTurns::new()),
             tool_call_names: Arc::new(
                 moka::future::Cache::builder()

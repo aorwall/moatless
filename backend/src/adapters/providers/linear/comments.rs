@@ -122,29 +122,30 @@ pub(super) async fn handle_comment_created(
         }
 
         let external_event_id = super::external_id::comment(&comment.id);
-        if let Err(e) = crate::message::send::send_message_flow(
-            state,
-            &binding.task_id,
-            forwarded_body,
-            None,
-            None,
-            None,
-            &[],
-            &[],
-            true,
-            crate::message::send::ExternalOrigin {
-                event_id: Some(&external_event_id),
-                adapter: Some(ADAPTER_LABEL),
-                subject_key: Some(&binding.subject_key),
-                source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
-                author: author.as_deref(),
-                source_task_id: None,
-            },
-            false,
-            comment.user.as_ref().map(|u| u.id.as_str()),
-            None,
-        )
-        .await
+        if let Err(e) = state
+            .message_send
+            .send_message_flow(
+                &binding.task_id,
+                forwarded_body,
+                None,
+                None,
+                None,
+                &[],
+                &[],
+                true,
+                crate::message::send::ExternalOrigin {
+                    event_id: Some(&external_event_id),
+                    adapter: Some(ADAPTER_LABEL),
+                    subject_key: Some(&binding.subject_key),
+                    source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
+                    author: author.as_deref(),
+                    source_task_id: None,
+                },
+                false,
+                comment.user.as_ref().map(|u| u.id.as_str()),
+                None,
+            )
+            .await
         {
             warn!(
                 task_id = %binding.task_id,

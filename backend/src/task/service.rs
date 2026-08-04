@@ -41,7 +41,7 @@ pub struct CreateTaskIntent {
     /// Whether to start a sandbox as part of creation.
     pub provision: bool,
     /// The first message's uuid when the caller owns it — see
-    /// [`crate::message::send::send_message_flow`].
+    /// [`crate::message::send::MessageSendService::send_message_flow`].
     pub first_message_uuid: Option<String>,
 }
 
@@ -79,8 +79,7 @@ where
     let outcome = state
         .task_creation
         .create(new_task, build_event_payload, move |task_id, fm| async move {
-            if let Err(e) = crate::message::send::send_message_flow(
-                &state_msg,
+            if let Err(e) = state_msg.message_send.send_message_flow(
                 &task_id,
                 &fm.text,
                 fm.model.as_deref(),

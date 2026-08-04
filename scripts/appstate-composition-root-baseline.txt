@@ -65,7 +65,6 @@ backend/src/loops/firing/schedule_runner.rs
 backend/src/loops/http/handlers.rs
 backend/src/message/handlers.rs
 backend/src/message/hooks.rs
-backend/src/message/send.rs
 backend/src/message/service.rs
 backend/src/sandbox/notify.rs
 backend/src/sandbox/preflight.rs

@@ -195,31 +195,32 @@ pub(super) async fn handle_session_prompted(
         // next agent run's events flow through to Linear's UI.
         state.linear_active_turns.open(&binding.task_id);
         let external_event_id = super::external_id::prompt(activity_id);
-        if let Err(e) = crate::message::send::send_message_flow(
-            state,
-            &binding.task_id,
-            body,
-            None,
-            None,
-            None,
-            &[],
-            &[],
-            true,
-            crate::message::send::ExternalOrigin {
-                event_id: Some(&external_event_id),
-                adapter: Some(ADAPTER_LABEL),
-                subject_key: Some(&binding.subject_key),
-                source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
-                // A prompt carries no actor; the session's creator is who this
-                // is attributed to, and the created path records that.
-                author: None,
-                source_task_id: None,
-            },
-            false,
-            None,
-            None,
-        )
-        .await
+        if let Err(e) = state
+            .message_send
+            .send_message_flow(
+                &binding.task_id,
+                body,
+                None,
+                None,
+                None,
+                &[],
+                &[],
+                true,
+                crate::message::send::ExternalOrigin {
+                    event_id: Some(&external_event_id),
+                    adapter: Some(ADAPTER_LABEL),
+                    subject_key: Some(&binding.subject_key),
+                    source_name: rule.as_ref().map(|r| r.source_matcher.as_str()),
+                    // A prompt carries no actor; the session's creator is who this
+                    // is attributed to, and the created path records that.
+                    author: None,
+                    source_task_id: None,
+                },
+                false,
+                None,
+                None,
+            )
+            .await
         {
             warn!(
                 task_id = %binding.task_id,
@@ -410,29 +411,30 @@ async fn provision_session_task(
     let inbound_text = super::text::build_inbound_text(session);
     let external_event_id = super::external_id::session_created(&session.id);
     let creator_handle = super::actor_handle(session.creator.as_ref());
-    if let Err(e) = crate::message::send::send_message_flow(
-        state,
-        &task_id,
-        &inbound_text,
-        None,
-        None,
-        None,
-        &[],
-        &[],
-        false,
-        crate::message::send::ExternalOrigin {
-            event_id: Some(&external_event_id),
-            adapter: Some(ADAPTER_LABEL),
-            subject_key: Some(&binding.subject_key),
-            source_name: Some(rule.source_matcher.as_str()),
-            author: creator_handle.as_deref(),
-            source_task_id: None,
-        },
-        false,
-        session.creator.as_ref().map(|c| c.id.as_str()),
-        None,
-    )
-    .await
+    if let Err(e) = state
+        .message_send
+        .send_message_flow(
+            &task_id,
+            &inbound_text,
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            false,
+            crate::message::send::ExternalOrigin {
+                event_id: Some(&external_event_id),
+                adapter: Some(ADAPTER_LABEL),
+                subject_key: Some(&binding.subject_key),
+                source_name: Some(rule.source_matcher.as_str()),
+                author: creator_handle.as_deref(),
+                source_task_id: None,
+            },
+            false,
+            session.creator.as_ref().map(|c| c.id.as_str()),
+            None,
+        )
+        .await
     {
         warn!(
             task_id = %task_id,

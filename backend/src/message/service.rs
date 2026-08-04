@@ -6,7 +6,7 @@
 //! needed the same behaviour from a WebSocket frame, where there is no request
 //! body to parse and no response to build.
 //!
-//! [`send_message_flow`](super::send::send_message_flow) below this is the
+//! [`send_message_flow`](super::send::MessageSendService::send_message_flow) below this is the
 //! persistence step alone; it neither checks access nor wakes anything, which is
 //! why the adapters and loops call it directly and callers acting for a
 //! person call this instead.
@@ -34,7 +34,7 @@ pub struct UserMessage {
     pub source_task_id: Option<String>,
     pub start_fresh: bool,
     /// The message's uuid when the caller owns it. See
-    /// [`send::send_message_flow`].
+    /// [`send::MessageSendService::send_message_flow`].
     pub message_uuid: Option<String>,
     /// An answer to a question the agent asked, rather than a new message.
     /// Both halves are required; one alone is treated as a plain message,
@@ -102,43 +102,48 @@ pub async fn send_user_message(
 
     let message_uuid = match message.tool_response {
         Some(response) => {
-            send::send_tool_response_flow(
-                state,
-                task_id,
-                &response.tool_use_id,
-                &response.tool_name,
-                response.payload.as_ref(),
-                Some(sender.user_id),
-            )
-            .await?;
+            state
+                .message_send
+                .send_tool_response_flow(
+                    task_id,
+                    &response.tool_use_id,
+                    &response.tool_name,
+                    response.payload.as_ref(),
+                    Some(sender.user_id),
+                )
+                .await?;
             None
         }
         None => {
-            send::send_message_flow(
-                state,
-                task_id,
-                &message.text,
-                message.model.as_deref(),
-                message.agent_mode.as_ref(),
-                message.effort.as_deref(),
-                &message.file_ids,
-                &message.contexts,
-                message.resume,
-                send::ExternalOrigin {
-                    source_task_id: message.source_task_id.as_deref(),
-                    ..send::ExternalOrigin::none()
-                },
-                message.start_fresh,
-                Some(sender.user_id),
-                message.message_uuid,
-            )
-            .await?
+            state
+                .message_send
+                .send_message_flow(
+                    task_id,
+                    &message.text,
+                    message.model.as_deref(),
+                    message.agent_mode.as_ref(),
+                    message.effort.as_deref(),
+                    &message.file_ids,
+                    &message.contexts,
+                    message.resume,
+                    send::ExternalOrigin {
+                        source_task_id: message.source_task_id.as_deref(),
+                        ..send::ExternalOrigin::none()
+                    },
+                    message.start_fresh,
+                    Some(sender.user_id),
+                    message.message_uuid,
+                )
+                .await?
         }
     };
 
     if let Err(error_msg) = crate::sandbox::notify::ensure_sandbox_and_notify(state, task_id).await
     {
-        send::persist_error_result(state, task_id, &error_msg).await;
+        state
+            .message_send
+            .persist_error_result(task_id, &error_msg)
+            .await;
     }
 
     tracing::info!(task_id = %task_id, user_id = %sender.user_id, "Message sent to agent");

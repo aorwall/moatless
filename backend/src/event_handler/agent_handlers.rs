@@ -493,31 +493,34 @@ async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent,
         event.task_id, error_msg
     );
 
-    match crate::message::send::send_message_flow(
-        state,
-        &relation.to_task_id,
-        &message,
-        None,
-        None,
-        None,
-        &[],
-        &[],
-        true,
-        crate::message::send::ExternalOrigin {
-            source_task_id: Some(&event.task_id),
-            ..crate::message::send::ExternalOrigin::none()
-        },
-        false,
-        None,
-        None,
-    )
-    .await
+    match state
+        .message_send
+        .send_message_flow(
+            &relation.to_task_id,
+            &message,
+            None,
+            None,
+            None,
+            &[],
+            &[],
+            true,
+            crate::message::send::ExternalOrigin {
+                source_task_id: Some(&event.task_id),
+                ..crate::message::send::ExternalOrigin::none()
+            },
+            false,
+            None,
+            None,
+        )
+        .await
     {
         Ok(_message_uuid) => {
             if let Err(error_msg) =
                 crate::sandbox::notify::ensure_sandbox_and_notify(state, &relation.to_task_id).await
             {
-                crate::message::send::persist_error_result(state, &relation.to_task_id, &error_msg)
+                state
+                    .message_send
+                    .persist_error_result(&relation.to_task_id, &error_msg)
                     .await;
             }
         }
