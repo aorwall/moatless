@@ -1,7 +1,7 @@
 # Make the ports singular, then split the backend into crates
 
-> **Status:** Steps 1-7 approved. Steps 8-11 **withdrawn** pending re-derivation - see the note under Architecture and key flows.
-> **Updated:** 2026-08-03
+> **Status:** Steps 1-4 **shipped** on `main` (#287, #299, #300, #301, merged together as #302). Steps 5-7 approved, not started. Steps 8-11 **withdrawn** pending re-derivation - see the note under Architecture and key flows.
+> **Updated:** 2026-08-04
 > **Vocabulary:** CONTEXT.md
 > **Predecessors:** `.plans/backend-crate-split.md`, `.plans/backend-crate-hierarchy.md`
 > **Related:** `.plans/remaining-adapter-breakup.md` — runs after Step 4, see Out of scope.
