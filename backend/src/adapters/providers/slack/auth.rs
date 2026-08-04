@@ -107,7 +107,7 @@ pub(super) async fn user_by_slack_id(
     let row: Option<(Uuid,)> = sqlx::query_as(
         r#"SELECT u.id FROM users u
                JOIN user_provider_ids p ON u.id = p.user_id
-               WHERE p.adapter_kind = 'slack' AND p.provider_user_id = $1
+               WHERE p.provider = 'slack' AND p.provider_user_id = $1
                LIMIT 1"#,
     )
     .bind(slack_user_id)
