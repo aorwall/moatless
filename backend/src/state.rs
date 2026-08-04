@@ -502,6 +502,18 @@ impl axum::extract::FromRef<AppState> for Arc<GitSyncService> {
     }
 }
 
+impl axum::extract::FromRef<AppState> for Arc<LoopSyncService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.loop_sync.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<RepositoryTokenResolver> {
+    fn from_ref(state: &AppState) -> Self {
+        state.repo_token_resolver.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<SkillService> {
     fn from_ref(state: &AppState) -> Self {
         state.skills.clone()

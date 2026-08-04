@@ -9,21 +9,25 @@ use tracing::{debug, info, warn};
 use moatless_api_schemas::loops::{LoopSyncSummary, SyncConfigResponse};
 use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 
+use std::sync::Arc;
+
 use crate::access_control::resolve_scope_for_create_auth;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::db::DbPool;
 use crate::extractors::AuthUser;
+use crate::loops::sync::LoopSyncService;
 use crate::secret::models::looks_like_secret_key;
-use crate::state::AppState;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
-use super::access::{access_error_for, parse_github_owner_repo};
+use super::access::{access_error_for, parse_github_owner_repo, RepositoryTokenResolver};
 use super::config_reader::{
     validate_repository_access_target, verify_repository_access, AccessStatus,
 };
-use super::dao::RepositoryPatch;
+use super::dao::{RepositoryDao, RepositoryPatch};
 use super::error::RepositoryError;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use super::schemas::*;
-use crate::workspace::git_sync::SyncForce;
+use crate::workspace::git_sync::{GitSyncService, SyncForce};
 
 pub(crate) fn validate_non_secret_env_vars(
     env_vars: Option<&std::collections::HashMap<String, String>>,
@@ -53,7 +57,8 @@ pub(crate) fn validate_non_secret_env_vars(
     )
 )]
 pub async fn create_repository(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(git_sync): State<Arc<GitSyncService>>,
     auth: AuthUser,
     Json(req): Json<CreateRepositoryRequest>,
 ) -> Result<(StatusCode, Json<RepositoryResponse>), RepositoryError> {
@@ -65,7 +70,7 @@ pub async fn create_repository(
     let scope_ctx = auth.scope_context();
 
     ensure_unique_remote_url(
-        state.repositories.as_ref(),
+        repositories.as_ref(),
         None,
         req.remote_url.as_deref(),
         resolved_scope.scope,
@@ -92,16 +97,14 @@ pub async fn create_repository(
         updated_at: Some(now),
     };
 
-    state
-        .repositories
+    repositories
         .insert(&row)
         .await
         .map_err(|error| RepositoryError::from_write_error(error, row.remote_url.as_deref()))?;
 
     // A repository is only a git connection; its run-config flows to the
     // workspace via the git sync below, not into repo columns.
-    let final_row = state
-        .repositories
+    let final_row = repositories
         .find_by_id(&id, &scope_ctx)
         .await?
         .unwrap_or(row);
@@ -111,7 +114,7 @@ pub async fn create_repository(
         // `.moatless/config.json`). Loop sync is deliberately never automatic:
         // an administrator must invoke the explicit sync endpoint.
         log_workspace_sync(
-            &state,
+            &git_sync,
             &final_row,
             &auth,
             "create",
@@ -127,13 +130,13 @@ pub async fn create_repository(
 /// Run `sync_repo_workspaces` and log the outcome (`Ok=>info!`, `Err=>warn!`),
 /// never blocking the caller. A failure yields an empty summary.
 async fn log_workspace_sync(
-    state: &AppState,
+    git_sync: &Arc<GitSyncService>,
     repo: &Repository,
     auth: &AuthUser,
     phase: &str,
     force: &SyncForce,
 ) -> WorkspaceSyncSummary {
-    match state.git_sync.sync_repo_workspaces(repo, auth, force).await {
+    match git_sync.sync_repo_workspaces(repo, auth, force).await {
         Ok(summary) => {
             if summary.created + summary.updated + summary.reclaimed + summary.removed > 0
                 || !summary.skipped.is_empty()
@@ -168,10 +171,10 @@ async fn log_workspace_sync(
     )
 )]
 pub async fn list_repositories(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<RepositoryResponse>>, RepositoryError> {
-    let rows = state.repositories.list_all(&auth.scope_context()).await?;
+    let rows = repositories.list_all(&auth.scope_context()).await?;
     let repos: Vec<RepositoryResponse> = rows.into_iter().map(Into::into).collect();
     Ok(Json(repos))
 }
@@ -190,12 +193,11 @@ pub async fn list_repositories(
     )
 )]
 pub async fn get_repository(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let row = state
-        .repositories
+    let row = repositories
         .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
@@ -219,14 +221,13 @@ pub async fn get_repository(
     )
 )]
 pub async fn update_repository(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
     Json(req): Json<UpdateRepositoryRequest>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
     let ctx = auth.scope_context();
-    let existing = state
-        .repositories
+    let existing = repositories
         .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
@@ -262,7 +263,7 @@ pub async fn update_repository(
         .or_else(|| existing.remote_url.clone());
 
     ensure_unique_remote_url(
-        state.repositories.as_ref(),
+        repositories.as_ref(),
         Some(&repository_id),
         target_remote_url.as_deref(),
         target_scope,
@@ -283,15 +284,13 @@ pub async fn update_repository(
         ..Default::default()
     };
 
-    state
-        .repositories
+    repositories
         .update(&repository_id, &patch, &ctx)
         .await
         .map_err(|error| RepositoryError::from_write_error(error, target_remote_url.as_deref()))?;
 
     // Re-fetch updated row
-    let updated = state
-        .repositories
+    let updated = repositories
         .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
@@ -348,12 +347,13 @@ fn preserved_user_scope(existing: &Repository) -> Result<String, RepositoryError
     )
 )]
 pub async fn verify_access(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repo_token_resolver): State<Arc<RepositoryTokenResolver>>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
-    let repository = state
-        .repositories
+    let repository = repositories
         .find_by_id(&repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
@@ -366,14 +366,8 @@ pub async fn verify_access(
     validate_repository_access_target(remote_url, provider)?;
 
     let token = match provider {
-        RepositoryProvider::Github => {
-            state
-                .repo_token_resolver
-                .resolve(&repository, remote_url)
-                .await?
-        }
-        RepositoryProvider::Gitlab => state
-            .provider_tokens
+        RepositoryProvider::Github => repo_token_resolver.resolve(&repository, remote_url).await?,
+        RepositoryProvider::Gitlab => provider_tokens
             .find_provider_token(&auth.user_id.to_string(), provider.as_str())
             .await
             .map_err(RepositoryError::Db)?
@@ -388,7 +382,7 @@ pub async fn verify_access(
     let status = verify_repository_access(remote_url, token.as_deref(), provider).await;
     let ctx = auth.scope_context();
     let updated = persist_access_verification(
-        state.repositories.as_ref(),
+        repositories.as_ref(),
         &repository,
         status,
         chrono::Utc::now(),
@@ -438,24 +432,24 @@ async fn persist_access_verification(
     )
 )]
 pub async fn delete_repository(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(db): State<DbPool>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<StatusCode, RepositoryError> {
     let ctx = auth.scope_context();
-    state
-        .repositories
+    repositories
         .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
 
-    if !state.repositories.soft_delete(&repository_id, &ctx).await? {
+    if !repositories.soft_delete(&repository_id, &ctx).await? {
         return Err(RepositoryError::NotFound(repository_id.clone()));
     }
 
     // Soft-delete workspaces this repo declared in git — once the source repo is
     // gone no future sync will prune them. Best-effort; the repo is already deleted.
-    if let Err(e) = delete_declared_workspaces(&state.db, &repository_id).await {
+    if let Err(e) = delete_declared_workspaces(&db, &repository_id).await {
         warn!(repository_id = %repository_id, error = %e, "Failed to soft-delete git workspaces for deleted repo");
     }
 
@@ -509,13 +503,12 @@ async fn delete_declared_workspaces(
     )
 )]
 pub async fn convert_to_template(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<RepositoryResponse>, RepositoryError> {
     let ctx = auth.scope_context();
-    let existing = state
-        .repositories
+    let existing = repositories
         .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
@@ -532,13 +525,9 @@ pub async fn convert_to_template(
         ..Default::default()
     };
 
-    state
-        .repositories
-        .update(&repository_id, &patch, &ctx)
-        .await?;
+    repositories.update(&repository_id, &patch, &ctx).await?;
 
-    let updated = state
-        .repositories
+    let updated = repositories
         .find_by_id(&repository_id, &ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
@@ -562,12 +551,21 @@ pub async fn convert_to_template(
     )
 )]
 pub async fn get_branches(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(repo_token_resolver): State<Arc<RepositoryTokenResolver>>,
+    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<BranchListResponse>, RepositoryError> {
     Ok(Json(
-        list_branches(&state, &auth.scope_context(), &repository_id).await?,
+        list_branches(
+            &repositories,
+            &repo_token_resolver,
+            &provider_tokens,
+            &auth.scope_context(),
+            &repository_id,
+        )
+        .await?,
     ))
 }
 
@@ -579,12 +577,13 @@ pub async fn get_branches(
 /// the repository lookup: a `repository_id` the viewer cannot read answers
 /// `NotFound`, the same as one that does not exist.
 pub(crate) async fn list_branches(
-    state: &AppState,
+    repositories: &Arc<dyn RepositoryDao>,
+    repo_token_resolver: &Arc<RepositoryTokenResolver>,
+    provider_tokens: &Arc<dyn ProviderTokenDao>,
     ctx: &ScopeContext,
     repository_id: &str,
 ) -> Result<BranchListResponse, RepositoryError> {
-    let repo = state
-        .repositories
+    let repo = repositories
         .find_by_id(repository_id, ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.to_string()))?;
@@ -604,8 +603,7 @@ pub(crate) async fn list_branches(
     // Resolve a token for the repository's persisted scope. User-scoped
     // repositories always use their owner, never a viewing admin.
     let access_token = if provider == RepositoryProvider::Github {
-        state
-            .repo_token_resolver
+        repo_token_resolver
             .resolve(&repo, remote_url)
             .await?
             .ok_or_else(|| {
@@ -614,7 +612,7 @@ pub(crate) async fn list_branches(
                 )
             })?
     } else {
-        state.provider_tokens.find_provider_token(&ctx.user_id, provider_str)
+        provider_tokens.find_provider_token(&ctx.user_id, provider_str)
             .await
             .map_err(RepositoryError::Db)?
             .ok_or_else(|| {
@@ -630,8 +628,7 @@ pub(crate) async fn list_branches(
         RepositoryProvider::Github => fetch_github_branches(remote_url, &access_token).await?,
         RepositoryProvider::Gitlab => fetch_gitlab_branches(remote_url, &access_token).await?,
         RepositoryProvider::Gitness => {
-            let full_token = state
-                .provider_tokens
+            let full_token = provider_tokens
                 .find_provider_token_full(&ctx.user_id, "gitness")
                 .await
                 .map_err(RepositoryError::Db)?;
@@ -662,7 +659,7 @@ pub(crate) async fn list_branches(
                 default_branch: Some(Some(branch.clone())),
                 ..Default::default()
             };
-            if let Err(e) = state.repositories.update(repository_id, &patch, ctx).await {
+            if let Err(e) = repositories.update(repository_id, &patch, ctx).await {
                 warn!(repository_id = %repository_id, error = %e, "Failed to persist default branch");
             }
         }
@@ -1089,7 +1086,9 @@ async fn fetch_gitness_branches(
     )
 )]
 pub async fn sync_config(
-    State(state): State<AppState>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(loop_sync): State<Arc<LoopSyncService>>,
+    State(git_sync): State<Arc<GitSyncService>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<SyncConfigResponse>, RepositoryError> {
@@ -1099,8 +1098,7 @@ pub async fn sync_config(
         ));
     }
     let scope_ctx = auth.scope_context();
-    let repo = state
-        .repositories
+    let repo = repositories
         .find_by_id(&repository_id, &scope_ctx)
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.clone()))?;
@@ -1108,7 +1106,7 @@ pub async fn sync_config(
     // Explicit, user-initiated sync: git is authoritative again, so overridden
     // workspaces are reclaimed. The automatic sync on task start is not.
     let (updated, loops, workspaces) =
-        sync_repo_config(&state, &repo, &auth, &SyncForce::All).await?;
+        sync_repo_config(&loop_sync, &git_sync, &repo, &auth, &SyncForce::All).await?;
 
     Ok(Json(SyncConfigResponse {
         repository: updated.into(),
@@ -1126,7 +1124,8 @@ pub async fn sync_config(
 /// operation so the administrator cannot mistake a skipped refresh for a
 /// successful approval revocation.
 pub(crate) async fn sync_repo_config(
-    state: &AppState,
+    loop_sync: &Arc<LoopSyncService>,
+    git_sync: &Arc<GitSyncService>,
     repo: &Repository,
     auth: &AuthUser,
     force: &SyncForce,
@@ -1140,15 +1139,14 @@ pub(crate) async fn sync_repo_config(
     // This is the sole repository-wide Loop sync path. Surface fetch and
     // reconciliation failures so an administrator never mistakes a skipped
     // refresh for a successful approval revocation.
-    let loops = state
-        .loop_sync
+    let loops = loop_sync
         .sync_repo_loops(repo, auth)
         .await
         .map_err(|error| RepositoryError::ProviderError(error.to_string()))?;
 
     // Reconcile git-declared workspaces (`.moatless/workspaces.json` or the
     // legacy `.moatless/config.json` → workspace run-config).
-    let workspaces = log_workspace_sync(state, repo, auth, "sync-config", force).await;
+    let workspaces = log_workspace_sync(git_sync, repo, auth, "sync-config", force).await;
 
     Ok((repo.clone(), loops, workspaces))
 }
