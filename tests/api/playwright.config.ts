@@ -42,8 +42,11 @@ export default defineConfig({
   // Chains are serial internally; this allows separate chains to parallelize
   fullyParallel: false,
 
-  // Workers: 1 on CI (safer), 3 locally (chains are independent)
-  workers: process.env.CI ? 1 : 3,
+  // Workers: 1 on CI (safer), 3 locally (chains are independent). E2E_WORKERS
+  // overrides both — chains carry a run-scope prefix and share no fixtures, so
+  // what caps this is how many sandboxes the environment will hold, and only
+  // whoever started it knows that.
+  workers: Number(process.env.E2E_WORKERS) || (process.env.CI ? 1 : 3),
 
   // Fail the build on CI if you accidentally left test.only in source code
   forbidOnly: !!process.env.CI,

@@ -36,8 +36,16 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ci-admin-password-1234}
       POSTGRES_USER: ${POSTGRES_USER:-moatless}
       POSTGRES_DB: ${POSTGRES_DB:-moatless}
-      # Deterministic Playwright behavior (workers=1, retries, forbidOnly)
+      # Deterministic Playwright behavior (retries, forbidOnly, reporters)
       CI: ${CI:-1}
+      # Worker count, when the caller wants something other than the CI default
+      # of 1. Chains carry a run-scope prefix and share no fixtures, so the
+      # ceiling is how many sandboxes the host will hold, not correctness.
+      E2E_WORKERS: ${E2E_WORKERS:-}
+      # The CLI the suites drive the product through. Defaults to whatever is
+      # on PATH; playwright-runner.sh points it at a staged binary when the
+      # caller supplies one, because this image ships no moat of its own.
+      MOAT_BIN: ${MOAT_BIN:-moat}
     volumes:
       # Repo root (docker-compose/ lives under it) — Playwright sources + configs
       - ..:/workspace

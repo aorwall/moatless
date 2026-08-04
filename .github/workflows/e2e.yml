@@ -23,6 +23,13 @@ name: E2E (manual)
 # reason. Once rust + ziglang are baked into soap-platform-ci's runner image,
 # set the repo variable `E2E_RUST_RUNNER` to that pool's label to move them; no
 # change to this file is needed.
+#
+# The playwright suite needs two compiled artifacts: the backend under test, and
+# the `moat` CLI every tests/api chain speaks through. `build-binaries` produces
+# both, in the container and under the cache key ci.yml's own Rust job uses, so
+# a dispatch off main starts warm. It cannot instead restore ci.yml's published
+# binary: `cleanup-run-caches` deletes `backend-binary-<sha>` at the end of every
+# CI run, and a dispatch here is its own run with no such cache to read.
 
 on:
   workflow_dispatch:
@@ -32,6 +39,10 @@ on:
         type: choice
         default: 'api'
         options: ['none', 'api', 'ui', 'all']
+      workers:
+        description: 'Playwright workers (chains are independent; 1 serialises)'
+        type: string
+        default: '3'
       run_claude_sdk:
         description: 'Run claude-agent-sdk smoke test in Docker'
         type: boolean
@@ -45,16 +56,145 @@ on:
         type: boolean
         default: false
 
+env:
+  # Every one of these feeds Swatinem/rust-cache's key hash, which covers all
+  # CARGO*/CC*/CFLAGS*/CXX*/CMAKE*/RUST* variables in scope. They are ci.yml's
+  # values verbatim so `build-binaries` below lands on the same key its Rust job
+  # writes; drift here silently turns a warm restore into a cold compile.
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+
 jobs:
+  # ── The binaries the suite runs against ──
+  #
+  # Same container, same preamble and same cache key as ci.yml's `build-rust`.
+  # That is the whole point of the job: on soaplabs/moatless it restores the
+  # dependency cache main last wrote and compiles only what changed. A fork,
+  # or any runner where RUNNER_TEMP differs, hashes RUSTC_WRAPPER differently,
+  # misses, and compiles cold — slower, still correct.
+  #
+  # Restore-only. This workflow consumes the cache ci.yml maintains and must
+  # never write to it.
+  build-binaries:
+    name: Build backend + moat CLI
+    if: inputs.playwright_suite != 'none'
+    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'staging-runners-large' || 'ubuntu-latest' }}
+    container:
+      image: rust:1.97-bookworm
+    env:
+      SCCACHE_S3_BUCKET: ${{ vars.SCCACHE_S3_BUCKET }}
+      SCCACHE_S3_REGION: ${{ vars.SCCACHE_S3_REGION }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      # sccache is an optimisation; a broken OIDC trust must not turn a build
+      # red. On failure no credentials are exported and the setup script skips.
+      - name: Authenticate to AWS for sccache
+        if: vars.SCCACHE_S3_BUCKET != ''
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
+          aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
+
+      - name: Install mold linker
+        run: .github/scripts/install-mold.sh
+
+      - name: Configure sccache
+        run: .github/scripts/setup-sccache.sh
+
+      - name: Install sccache (Actions-cache fallback)
+        if: env.RUSTC_WRAPPER == ''
+        run: |
+          .github/scripts/apt-https-mirrors.sh
+          apt-get update
+          apt-get install -y --no-install-recommends sccache
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_DIR=$HOME/.cache/sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_ON_ACTIONS_CACHE=1" >> "$GITHUB_ENV"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ". -> target"
+          shared-key: rust-ci
+          save-if: false
+
+      - name: Cache sccache objects
+        if: env.SCCACHE_ON_ACTIONS_CACHE == '1'
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.cache/sccache
+          key: ${{ runner.os }}-sccache-rust-ci-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-sccache-rust-ci-
+            ${{ runner.os }}-sccache-
+
+      - name: Start sccache
+        run: |
+          if [ -n "${RUSTC_WRAPPER:-}" ]; then
+            "$RUSTC_WRAPPER" --start-server
+          fi
+
+      # `ci` inherits `release`, so the backend under test is optimised the way
+      # the published image is — the suite is not exercising a debug build.
+      - name: Build binaries (ci profile)
+        run: cargo build --profile ci -p moatless-vibe-backend -p moatless-cli
+
+      - name: Summarize Rust build
+        if: always()
+        run: |
+          {
+            echo "## E2E binaries"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| sccache | \`${RUSTC_WRAPPER:-disabled}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${RUSTC_WRAPPER:-}" ]; then
+            "$RUSTC_WRAPPER" --show-stats || true
+          fi
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-binaries
+          path: |
+            target/ci/moatless-vibe-backend
+            target/ci/moat
+          retention-days: 1
+          if-no-files-found: error
+
   # ── The E2E suite against the full Docker stack ──
   playwright:
     name: Playwright (${{ inputs.playwright_suite }})
+    needs: build-binaries
     if: inputs.playwright_suite != 'none'
     runs-on: ${{ github.repository == 'soaplabs/moatless' && 'staging-runners-large' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-binaries
+          path: /tmp/e2e-binaries
+
+      - name: Make binaries executable
+        run: chmod +x /tmp/e2e-binaries/moatless-vibe-backend /tmp/e2e-binaries/moat
+
       - name: Run Playwright suite in Docker
         env:
+          # The backend image becomes the distroless runtime stage alone, and
+          # the suite drives this moat rather than looking for one on PATH.
+          BACKEND_BINARY: /tmp/e2e-binaries/moatless-vibe-backend
+          MOAT_BIN_SRC: /tmp/e2e-binaries/moat
+          E2E_WORKERS: ${{ inputs.workers }}
           GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

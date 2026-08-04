@@ -40,6 +40,10 @@ coverage/
 playwright-report/
 test-results/
 
+# Binaries playwright-runner.sh stages for the e2e container to reach through
+# its repo bind mount
+.e2e-bin/
+
 # Build cache
 .turbo/
 .vite/

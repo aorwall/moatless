@@ -28,7 +28,9 @@ export default defineConfig({
 
   fullyParallel: false,
 
-  workers: process.env.CI ? 1 : 2,
+  // E2E_WORKERS overrides; browser specs are heavier than the api chains, so
+  // the local default stays lower than that suite's.
+  workers: Number(process.env.E2E_WORKERS) || (process.env.CI ? 1 : 2),
 
   forbidOnly: !!process.env.CI,
 
