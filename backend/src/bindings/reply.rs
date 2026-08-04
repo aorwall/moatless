@@ -6,7 +6,6 @@ use crate::adapters::common::{
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{OutboundReply, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
-use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::outbound;
 use crate::message::models::{MessageRole, MessageType, TaskMessage};
 use crate::state::AppState;
@@ -35,7 +34,7 @@ impl<'a> ExternalReplyService<'a> {
                 AdapterError::AdapterNotConfigured("No adapters configured".into())
             })?;
 
-        let repo = PgTaskBindingDao(self.state.db.clone());
+        let repo = self.state.task_bindings.clone();
         let bindings = if let Some(binding_id) = binding_id {
             let binding = repo
                 .find_by_id(binding_id)
@@ -209,7 +208,9 @@ impl<'a> ExternalReplyService<'a> {
                     );
                 }
             }
-            if let Err(e) = PgTaskBindingDao(self.state.db.clone())
+            if let Err(e) = self
+                .state
+                .task_bindings
                 .touch_cursor(&binding.id, external_id)
                 .await
             {

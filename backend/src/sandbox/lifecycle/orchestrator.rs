@@ -25,6 +25,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing::Instrument;
 
+use moatless_backend_core::sandbox as core_sandbox;
+
+use crate::sandbox::error::SandboxError;
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
 
 use super::error::LifecycleError;
@@ -912,6 +915,47 @@ impl Lifecycle {
             })?;
         self.events.publish(task_id, &event).await;
         Ok(())
+    }
+}
+
+// The durable-lifecycle ports of the sandbox runtime contract. `Lifecycle` is
+// the sole writer of Sandbox intent; these hand a transport the one capability
+// it needs without taking the whole orchestrator. A `LifecycleError` reaches
+// the contract through this module's `SandboxError`, so the three client-visible
+// lifecycle outcomes keep their mapping.
+#[async_trait]
+impl core_sandbox::SandboxIntentReader for Lifecycle {
+    async fn desired_state(
+        &self,
+        task_id: &str,
+    ) -> Result<SandboxDesiredState, core_sandbox::SandboxError> {
+        Self::desired_state(self, task_id)
+            .await
+            .map_err(|e| SandboxError::from(e).into_contract())
+    }
+}
+
+#[async_trait]
+impl core_sandbox::SandboxStarter for Lifecycle {
+    async fn start(&self, task_id: &str) -> Result<(), core_sandbox::SandboxError> {
+        Self::start(self, task_id)
+            .await
+            .map(|_| ())
+            .map_err(|e| SandboxError::from(e).into_contract())
+    }
+}
+
+#[async_trait]
+impl core_sandbox::SandboxStopper for Lifecycle {
+    async fn stop(
+        &self,
+        task_id: &str,
+        reason: SandboxStopReason,
+    ) -> Result<(), core_sandbox::SandboxError> {
+        Self::stop(self, task_id, reason)
+            .await
+            .map(|_| ())
+            .map_err(|e| SandboxError::from(e).into_contract())
     }
 }
 

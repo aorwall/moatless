@@ -24,6 +24,22 @@ pub trait AdapterConnectionDao: Send + Sync {
         external_account_id: &str,
     ) -> Result<Option<AdapterConnection>, sqlx::Error>;
 
+    /// Look up a connection by Adapter + external account. Used for webhook
+    /// routing where we identify the tenant from the inbound event, not from
+    /// an authenticated caller — no scope filter applied.
+    async fn find_by_scope_value(
+        &self,
+        adapter_kind: &str,
+        scope_value: &str,
+    ) -> Result<Option<AdapterConnection>, sqlx::Error>;
+
+    /// List all connections for an Adapter, unscoped. Used by webhook routing
+    /// to enumerate all tenants for an Adapter — no authenticated caller.
+    async fn list_by_provider(
+        &self,
+        adapter_kind: &str,
+    ) -> Result<Vec<AdapterConnection>, sqlx::Error>;
+
     async fn list(
         &self,
         ctx: &ScopeContext,
@@ -39,7 +55,17 @@ pub trait AdapterConnectionDao: Send + Sync {
     async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error>;
 }
 
-pub struct PgAdapterConnectionDao(pub DbPool);
+pub struct PgAdapterConnectionDao(DbPool);
+
+impl PgAdapterConnectionDao {
+    /// Construct over a pool. The only way to build one — ad-hoc construction
+    /// at use sites is what the composition-root invariant bans, so the field
+    /// is private and callers take an `Arc<dyn AdapterConnectionDao>` port
+    /// instead.
+    pub fn new(pool: DbPool) -> Self {
+        Self(pool)
+    }
+}
 
 const PROVIDER_CONNECTION_SELECT: &str = r#"
     SELECT id,
@@ -243,6 +269,21 @@ impl AdapterConnectionDao for PgAdapterConnectionDao {
     ) -> Result<Option<AdapterConnection>, sqlx::Error> {
         PgAdapterConnectionDao::find_by_external_account(self, adapter_kind, external_account_id)
             .await
+    }
+
+    async fn find_by_scope_value(
+        &self,
+        adapter_kind: &str,
+        scope_value: &str,
+    ) -> Result<Option<AdapterConnection>, sqlx::Error> {
+        PgAdapterConnectionDao::find_by_scope_value(self, adapter_kind, scope_value).await
+    }
+
+    async fn list_by_provider(
+        &self,
+        adapter_kind: &str,
+    ) -> Result<Vec<AdapterConnection>, sqlx::Error> {
+        PgAdapterConnectionDao::list_by_provider(self, adapter_kind).await
     }
 
     async fn list(

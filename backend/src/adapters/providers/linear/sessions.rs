@@ -27,7 +27,6 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
     AdapterConnection, SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN,
 };
-use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
@@ -134,7 +133,7 @@ pub(super) async fn handle_session_prompted(
     activity_id: &str,
     body: &str,
 ) -> Result<(), AdapterError> {
-    let binding_repo = PgTaskBindingDao(state.db.clone());
+    let binding_repo = state.task_bindings.clone();
     let bindings: Vec<TaskBinding> = binding_repo
         .find_by_subject(ADAPTER, SUBJECT_KIND, session_id)
         .await?
@@ -237,7 +236,8 @@ async fn provision_session_task(
     // what makes the *execution* converge. Return early rather than creating a
     // second task. Keyed on session id, so multiple *distinct* sessions on the
     // same issue still each get their own task.
-    match PgTaskBindingDao(state.db.clone())
+    match state
+        .task_bindings
         .find_by_subject(ADAPTER, SUBJECT_KIND, &session.id)
         .await
     {
@@ -264,7 +264,8 @@ async fn provision_session_task(
     // The lookup uses destination_config.issue_id so it matches both
     // `linear_agent_session` and `linear_issue` bindings. The new task is
     // linked as `related_to` — a peer sharing the issue, not a child.
-    let related = match PgTaskBindingDao(state.db.clone())
+    let related = match state
+        .task_bindings
         .find_active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
         .await
     {

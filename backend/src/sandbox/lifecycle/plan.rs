@@ -9,7 +9,6 @@ use std::sync::Arc;
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::db::DbPool;
 use crate::plugin::dao::PluginDao;
 use crate::repository::dao::RepositoryDao;
 use crate::sandbox::auto_provision::{build_provision_request, get_server_configs_for_task};
@@ -31,15 +30,22 @@ pub struct ProvisionDeps {
 }
 
 impl ProvisionDeps {
-    pub fn from_pool(pool: &DbPool) -> Self {
+    /// Assemble from the composed ports. The composition root is the only place
+    /// a `Pg*Dao` is constructed, so this takes the five ports it needs rather
+    /// than a pool.
+    pub fn new(
+        tasks: Arc<dyn TaskDao>,
+        repos: Arc<dyn RepositoryDao>,
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        plugins: Arc<dyn PluginDao>,
+        workspaces: Arc<dyn WorkspaceDao>,
+    ) -> Self {
         Self {
-            tasks: Arc::new(crate::task::dao::PgTaskDao(pool.clone())),
-            repos: Arc::new(crate::repository::dao::PgRepositoryDao(pool.clone())),
-            provider_tokens: Arc::new(crate::auth::provider_token_dao::PgProviderTokenDao(
-                pool.clone(),
-            )),
-            plugins: Arc::new(crate::plugin::dao::PgPluginDao(pool.clone())),
-            workspaces: Arc::new(crate::workspace::dao::PgWorkspaceDao(pool.clone())),
+            tasks,
+            repos,
+            provider_tokens,
+            plugins,
+            workspaces,
         }
     }
 
@@ -100,10 +106,24 @@ mod db_tests {
     use super::*;
     use sqlx::PgPool;
 
+    /// Assemble deps straight from a test pool, bypassing the composition root
+    /// the same way the `db-tests` suite always has.
+    fn deps_from_pool(pool: &PgPool) -> ProvisionDeps {
+        ProvisionDeps::new(
+            Arc::new(crate::task::dao::PgTaskDao(pool.clone())),
+            Arc::new(crate::repository::dao::PgRepositoryDao(pool.clone())),
+            Arc::new(crate::auth::provider_token_dao::PgProviderTokenDao(
+                pool.clone(),
+            )),
+            Arc::new(crate::plugin::dao::PgPluginDao(pool.clone())),
+            Arc::new(crate::workspace::dao::PgWorkspaceDao(pool.clone())),
+        )
+    }
+
     #[sqlx::test]
     async fn bad_plan_is_permanent_rejected(pool: PgPool) {
         seed_task_with(&pool, "t1", "open", "running").await;
-        let error = ProvisionDeps::from_pool(&pool)
+        let error = deps_from_pool(&pool)
             .build_request("t1")
             .await
             .expect_err("missing repository is an unbuildable plan");

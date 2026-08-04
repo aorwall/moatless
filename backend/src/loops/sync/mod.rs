@@ -22,7 +22,6 @@ use self::fetcher::{GitHubLoopFetcher, LoopFetcher};
 use self::models::{LoopFrontmatter, ParsedLoop};
 pub use self::parser::parse_loop;
 use crate::adapters::common::next_fire_at;
-use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::models::RoutingMode;
 use crate::extractors::AuthUser;
 use crate::loops::dao::{ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
@@ -302,7 +301,8 @@ async fn resolve_loop(
                     "cannot parse owner/repo from {remote_url}"
                 )));
             };
-            let Some(connection) = PgAdapterConnectionDao(state.db.clone())
+            let Some(connection) = state
+                .adapter_connections
                 .find_by_external_account("github", &owner)
                 .await?
             else {
@@ -334,7 +334,8 @@ async fn resolve_loop(
             // Resolve the slack connection from `teamId`, or fall back to the
             // single configured slack connection when unambiguous.
             let connection = if let Some(team) = fm.team_id.as_deref() {
-                let Some(connection) = PgAdapterConnectionDao(state.db.clone())
+                let Some(connection) = state
+                    .adapter_connections
                     .find_by_external_account("slack", team)
                     .await?
                 else {
@@ -344,9 +345,7 @@ async fn resolve_loop(
                 };
                 connection
             } else {
-                let conns = PgAdapterConnectionDao(state.db.clone())
-                    .list_by_provider("slack")
-                    .await?;
+                let conns = state.adapter_connections.list_by_provider("slack").await?;
                 match conns.as_slice() {
                     [one] => one.clone(),
                     [] => {
@@ -388,7 +387,8 @@ async fn resolve_loop(
             // workspace/organization id), or fall back to the single configured
             // Linear connection when unambiguous.
             let connection = if let Some(org) = fm.team_id.as_deref() {
-                let Some(connection) = PgAdapterConnectionDao(state.db.clone())
+                let Some(connection) = state
+                    .adapter_connections
                     .find_by_external_account("linear", org)
                     .await?
                 else {
@@ -398,9 +398,7 @@ async fn resolve_loop(
                 };
                 connection
             } else {
-                let conns = PgAdapterConnectionDao(state.db.clone())
-                    .list_by_provider("linear")
-                    .await?;
+                let conns = state.adapter_connections.list_by_provider("linear").await?;
                 match conns.as_slice() {
                     [one] => one.clone(),
                     [] => {

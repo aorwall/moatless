@@ -109,7 +109,8 @@ pub(super) async fn api_for_binding(
     // reason: session routing for an agent-side notification; no caller identity
     #[allow(clippy::disallowed_methods)]
     let sys = ScopeContext::system();
-    let connection = crate::adapters::dao::PgAdapterConnectionDao(state.db.clone())
+    let connection = state
+        .adapter_connections
         .find_by_id(&binding.connection_id, &sys)
         .await;
     match connection {
@@ -174,24 +175,4 @@ pub(super) async fn api_for_single_workspace(
                 .into(),
         )),
     }
-}
-
-/// The Moatless user behind a Linear login, if that person has connected their
-/// own Linear account.
-///
-/// Distinct from everything above: those answer "which workspace token do we
-/// call as", this answers "who is the human that did this". A Linear actor with
-/// no `provider_tokens` row is an ordinary outcome — most issue commenters have
-/// never signed into Moatless — so `None` is not an error.
-pub(super) async fn resolve_user(
-    identity: &str,
-    db: &DbPool,
-) -> Result<Option<String>, AdapterError> {
-    sqlx::query_scalar::<_, String>(
-        "SELECT user_id FROM provider_tokens WHERE provider = 'linear' AND provider_login = $1 LIMIT 1",
-    )
-    .bind(identity)
-    .fetch_optional(db)
-    .await
-    .map_err(AdapterError::Db)
 }

@@ -15,7 +15,7 @@ use crate::adapters::models::{
 use crate::adapters::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
-    AdapterPostBindingFollowup, AdapterUserIdentity,
+    AdapterPostBindingFollowup,
 };
 use crate::db::DbPool;
 use crate::state::AppState;
@@ -130,17 +130,6 @@ impl LinearAdapter {
 impl Adapter for LinearAdapter {
     fn adapter_kind(&self) -> AdapterKind {
         AdapterKind::Linear
-    }
-}
-
-#[async_trait::async_trait]
-impl AdapterUserIdentity for LinearAdapter {
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        db: &DbPool,
-    ) -> Result<Option<String>, AdapterError> {
-        super::auth::resolve_user(identity, db).await
     }
 }
 

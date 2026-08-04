@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
-use crate::bindings::dao::PgTaskBindingDao;
+use crate::bindings::dao::TaskBindingDao;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
@@ -40,16 +40,16 @@ pub(super) async fn close_active_bindings_for_issue(
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
-    let binding_repo = PgTaskBindingDao(state.db.clone());
+    let binding_repo = state.task_bindings.as_ref();
     let rows =
         super::subject::bindings_in_scope(state, super::subject::BindingScope::OnIssue(&issue.id))
             .await?;
 
     for binding in rows {
-        if !binding_is_close_eligible(state, &binding_repo, rule, issue, &binding).await {
+        if !binding_is_close_eligible(state, binding_repo, rule, issue, &binding).await {
             continue;
         }
-        close_linear_bound_task(state, api, &binding_repo, issue, &binding).await;
+        close_linear_bound_task(state, api, binding_repo, issue, &binding).await;
     }
 
     Ok(())
@@ -57,7 +57,7 @@ pub(super) async fn close_active_bindings_for_issue(
 
 async fn binding_is_close_eligible(
     state: &AppState,
-    binding_repo: &PgTaskBindingDao,
+    binding_repo: &dyn TaskBindingDao,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
     binding: &TaskBinding,
@@ -81,7 +81,7 @@ async fn binding_is_close_eligible(
 }
 
 async fn sole_binding_for_task(
-    binding_repo: &PgTaskBindingDao,
+    binding_repo: &dyn TaskBindingDao,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) -> bool {
@@ -137,7 +137,7 @@ async fn task_can_be_closed(state: &AppState, issue: &IssuePayload, binding: &Ta
 async fn close_linear_bound_task(
     state: &AppState,
     api: &LinearAgentApi,
-    binding_repo: &PgTaskBindingDao,
+    binding_repo: &dyn TaskBindingDao,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) {
@@ -230,7 +230,7 @@ async fn remove_sandbox_after_linear_close(state: &AppState, binding: &TaskBindi
     }
 }
 
-async fn deactivate_linear_task_bindings(binding_repo: &PgTaskBindingDao, binding: &TaskBinding) {
+async fn deactivate_linear_task_bindings(binding_repo: &dyn TaskBindingDao, binding: &TaskBinding) {
     if let Err(e) = binding_repo.deactivate_by_task(&binding.task_id).await {
         warn!(task_id = %binding.task_id, error = %e, "Failed to deactivate bindings on Linear close");
     }

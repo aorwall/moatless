@@ -18,7 +18,6 @@
 use moatless_backend_core::scope::ScopeContext;
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryRequest,
 };
@@ -162,7 +161,8 @@ async fn resolve(
     // input.
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    let connection = PgAdapterConnectionDao(state.db.clone())
+    let connection = state
+        .adapter_connections
         .find_by_id(connection_id, &sys_ctx)
         .await
         .map_err(AdapterDeliveryFailure::retryable)?

@@ -82,6 +82,22 @@ pub trait TaskBindingDao: Send + Sync {
         raw: &serde_json::Value,
     ) -> Result<(), sqlx::Error>;
 
+    /// Persist the PR's latest review decision (approved / changes_requested /
+    /// …) onto a binding. Leaves the `external_status*` columns untouched.
+    async fn update_review_decision(
+        &self,
+        id: &str,
+        review_decision: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Persist the PR's mergeable state (clean / dirty / …) onto a binding.
+    /// Leaves the `external_status*` columns untouched.
+    async fn update_mergeable_state(
+        &self,
+        id: &str,
+        mergeable_state: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+
     /// Batch-fetch full binding rows (including `destination_config` and the
     /// `external_status*` columns) for a set of tasks. Drives the
     /// task-connections admin view.
@@ -97,7 +113,16 @@ pub trait TaskBindingDao: Send + Sync {
     ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error>;
 }
 
-pub struct PgTaskBindingDao(pub DbPool);
+pub struct PgTaskBindingDao(DbPool);
+
+impl PgTaskBindingDao {
+    /// Construct over a pool. The only way to build one — ad-hoc construction
+    /// at use sites is what the composition-root invariant bans, so the field
+    /// is private and callers take an `Arc<dyn TaskBindingDao>` port instead.
+    pub fn new(pool: DbPool) -> Self {
+        Self(pool)
+    }
+}
 
 /// Flat row returned by `find_recent_for_loop`. Binding columns are
 /// optional — schedule loops spawn tasks without a binding.
@@ -250,6 +275,22 @@ impl TaskBindingDao for PgTaskBindingDao {
         raw: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         PgTaskBindingDao::update_external_status(self, id, status, state_kind, raw).await
+    }
+
+    async fn update_review_decision(
+        &self,
+        id: &str,
+        review_decision: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        PgTaskBindingDao::update_review_decision(self, id, review_decision).await
+    }
+
+    async fn update_mergeable_state(
+        &self,
+        id: &str,
+        mergeable_state: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        PgTaskBindingDao::update_mergeable_state(self, id, mergeable_state).await
     }
 
     async fn find_by_task_ids(&self, task_ids: &[String]) -> Result<Vec<TaskBinding>, sqlx::Error> {

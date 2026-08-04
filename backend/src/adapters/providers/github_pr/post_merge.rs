@@ -7,7 +7,6 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
 use crate::adapters::AdapterKind;
-use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
 use super::subject::GithubPrSubject;
@@ -188,7 +187,8 @@ pub(super) async fn execute(
     let subject_key = GithubPrSubject::new(&execution.owner, &execution.repo, pr_number).key();
 
     // Skip unless some active task is still connected to the PR.
-    if !PgTaskBindingDao(state.db.clone())
+    if !state
+        .task_bindings
         .find_by_subject("github", "github_pr", &subject_key)
         .await?
         .iter()

@@ -2,10 +2,11 @@
 
 use tracing::warn;
 
-use crate::adapters::AdapterBindingStatus;
 use crate::adapters::models::{ExternalStatus, TaskBinding};
-use crate::bindings::dao::PgTaskBindingDao;
-use crate::db::DbPool;
+use crate::adapters::AdapterBindingStatus;
+use std::sync::Arc;
+
+use crate::bindings::dao::TaskBindingDao;
 
 use super::adapter::GithubPrAdapter;
 use super::api::PrInfo;
@@ -25,9 +26,11 @@ pub(super) enum WebhookStatusObservation {
 }
 
 /// Apply a normalized webhook observation best-effort and off the response path.
-pub(super) fn apply_webhook_observation(db: DbPool, observation: WebhookStatusObservation) {
+pub(super) fn apply_webhook_observation(
+    repository: Arc<dyn TaskBindingDao>,
+    observation: WebhookStatusObservation,
+) {
     tokio::spawn(async move {
-        let repository = PgTaskBindingDao(db);
         let subject_key = match &observation {
             WebhookStatusObservation::PullRequest { subject_key, .. }
             | WebhookStatusObservation::ReviewDecision { subject_key, .. } => subject_key,
@@ -247,10 +250,10 @@ mod tests {
 
     use axum::http::{Method, StatusCode};
 
-    use super::super::test_support::{StubResponse, start_github_api_stub};
+    use super::super::test_support::{start_github_api_stub, StubResponse};
     use super::*;
     use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{StubProviderTokens, github_row};
+    use crate::auth::test_support::{github_row, StubProviderTokens};
 
     fn binding_with_config(config: serde_json::Value) -> TaskBinding {
         let now = chrono::Utc::now();

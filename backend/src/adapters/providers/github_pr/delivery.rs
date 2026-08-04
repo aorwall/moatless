@@ -66,7 +66,6 @@ use moatless_backend_core::scope::ScopeContext;
 
 use tracing::info;
 
-use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::{
     register_typed_delivery, AdapterDeliveryFailure, AdapterDeliveryHandlers,
     AdapterDeliveryRequest,
@@ -155,7 +154,8 @@ impl DeliveryContext {
         // by caller input.
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
-        let connection = PgAdapterConnectionDao(state.db.clone())
+        let connection = state
+            .adapter_connections
             .find_by_id(&self.connection_id, &sys_ctx)
             .await
             .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?

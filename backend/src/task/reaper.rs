@@ -622,11 +622,11 @@ pub trait AgentStatusPort: Send + Sync {
 
 /// Satisfies [`AgentStatusPort`] through the task-addressed connector.
 pub struct ConnectorAgentStatus {
-    connector: Arc<dyn crate::sandbox::access::SandboxConnector>,
+    connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>,
 }
 
 impl ConnectorAgentStatus {
-    pub fn new(connector: Arc<dyn crate::sandbox::access::SandboxConnector>) -> Self {
+    pub fn new(connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>) -> Self {
         Self { connector }
     }
 }
@@ -955,10 +955,7 @@ async fn auto_close_task(
 
     // A closed task is terminal — deactivate its bindings so inbound comments
     // don't resurrect it. Best-effort; the runtime guards are the backstop.
-    if let Err(e) = crate::bindings::dao::PgTaskBindingDao(app_state.db.clone())
-        .deactivate_by_task(task_id)
-        .await
-    {
+    if let Err(e) = app_state.task_bindings.deactivate_by_task(task_id).await {
         warn!(task_id, error = %e, "auto-close: failed to deactivate bindings");
     }
 

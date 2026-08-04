@@ -14,7 +14,8 @@ use std::sync::Arc;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use super::access::{SandboxConnector, SandboxObserver};
+use super::status_reader::SandboxStatusReader;
+use moatless_backend_core::sandbox::SandboxConnector;
 use super::file_handlers;
 use super::handlers;
 use super::lifecycle::Lifecycle;
@@ -24,7 +25,7 @@ use crate::team::dao::TeamDao;
 /// State shared across sandbox API handlers.
 #[derive(Clone)]
 pub struct SandboxApiState {
-    pub observer: Arc<dyn SandboxObserver>,
+    pub observer: Arc<dyn SandboxStatusReader>,
     pub connector: Arc<dyn SandboxConnector>,
     /// Shared durable lifecycle handle — the sole writer of Sandbox intent. The
     /// lifecycle HTTP handlers (`provision`/`stop`/`restart`/`redeploy`/`cleanup`)

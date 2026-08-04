@@ -36,5 +36,5 @@ pub(crate) use capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
     AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation,
     AdapterMessageReply, AdapterNewThread, AdapterOutboundContent, AdapterPostBindingFollowup,
-    AdapterReactions, AdapterUserIdentity,
+    AdapterReactions,
 };

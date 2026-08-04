@@ -135,6 +135,18 @@ jobs:
   # pin — fail fast when rust-toolchain.toml and Dockerfile.sandbox-base
   # diverge. Cheap (no checkout beyond the two files), runs on every PR/push
   # regardless of change filters so drift is caught wherever it's introduced.
+  # The composition root (backend/src/compose.rs) is the only place a concrete
+  # `Pg*Dao` is constructed; every other production site takes an `Arc<dyn *Dao>`
+  # port. A syntactic grep is the right instrument because the tuple-struct
+  # constructor is exactly the banned single expression. Cheap, no Rust build.
+  dao-composition-root:
+    name: DAO composition-root invariant
+    runs-on: staging-runners
+    steps:
+      - uses: actions/checkout@v6
+      - name: No Pg*Dao construction outside the composition root
+        run: ./scripts/check-dao-composition-root.sh
+
   toolchain-drift:
     name: Sandbox toolchain drift
     runs-on: staging-runners

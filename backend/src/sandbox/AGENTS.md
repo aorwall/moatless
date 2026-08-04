@@ -8,7 +8,7 @@ Docker sandboxes. It runs inside `moatless-vibe-backend`.
 - HTTP routes in `routes.rs` call handlers; handlers do not own provider logic.
 - `lifecycle/` owns durable sandbox intent and all start/stop/restart/redeploy/remove orchestration.
 - `SandboxRuntime` is the provider mutation port. `k8s/provider.rs` and `docker/provider.rs` implement it natively and return `RuntimeOutcome`; provider adapters do not publish lifecycle events.
-- `access.rs` exposes read-only seams: `SandboxObserver` for live status/logs and `SandboxConnector` for task-addressed `SandboxClient` construction.
+- The read-only seams are split by audience. The T3 contract ports (`SandboxObserver`, `SandboxConnector`, `SandboxIntentReader`, `SandboxStarter`, `SandboxStopper`) are declared once in `moatless-backend-core` (`sandbox` module) so `backend` and `crates/t3code` share one vocabulary; the provider adapters implement them and narrow backend types to the contract through `t3code::projection`. `status_reader.rs`'s `SandboxStatusReader` is the backend-local rich read (the 13-field `SandboxStatusFullResponse`, live status, and log streams) the HTTP routes need. `access.rs` holds only the `LogOptions` request struct shared by both.
 - File handlers get a ready `SandboxClient` through `SandboxConnector`, then call file/search methods directly.
 - The unified task reaper lives in `backend/src/task/reaper.rs`; task-scoped stop/remove still routes through lifecycle.
 

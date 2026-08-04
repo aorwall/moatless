@@ -15,15 +15,6 @@ impl AdapterInboundPresentation for SlackAdapter {
         Some(text::reply_instructions(self.bot_user_id()))
     }
 
-    fn sender_label_suffix(&self, msg: &InboundMessage) -> Option<String> {
-        let provider_user_id = msg
-            .adapter_context
-            .get("user_id")
-            .and_then(serde_json::Value::as_str)
-            .filter(|value| !value.is_empty())?;
-        Some(format!(", Slack: {provider_user_id}"))
-    }
-
     fn inbound_message_prefix(&self, msg: &InboundMessage) -> Option<String> {
         msg.adapter_context
             .get("is_bot_mentioned")
@@ -218,23 +209,6 @@ mod tests {
             source_task_id: None,
             audience: Audience::Everyone,
         }
-    }
-
-    #[test]
-    fn the_sender_label_carries_the_slack_id_when_there_is_one() {
-        let adapter = SlackAdapter::new("token", "secret", None);
-        assert_eq!(
-            adapter.sender_label_suffix(&message(serde_json::json!({"user_id": "U1"}))),
-            Some(", Slack: U1".to_string())
-        );
-        assert_eq!(
-            adapter.sender_label_suffix(&message(serde_json::json!({"user_id": ""}))),
-            None
-        );
-        assert_eq!(
-            adapter.sender_label_suffix(&message(serde_json::json!({}))),
-            None
-        );
     }
 
     /// A mention demands a reply; anything else is announced as a thread

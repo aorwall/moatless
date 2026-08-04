@@ -7,7 +7,6 @@
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
-use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryRequest;
 use crate::adapters::error::AdapterError;
 use crate::adapters::ingress::{IngressError, Outcome};
@@ -212,7 +211,7 @@ pub(crate) async fn receive(
     // have no separate post-observation rejection for the documented Ticket 01
     // partial shape.
     for observation in normalized.status_observations {
-        super::status::apply_webhook_observation(state.db.clone(), observation);
+        super::status::apply_webhook_observation(state.task_bindings.clone(), observation);
     }
     let primary = normalized.primary.map_err(ingress)?;
 
@@ -339,7 +338,8 @@ async fn resolve_provider_event(
     org: &str,
     repo_full_name: &str,
 ) -> Result<Option<(AdapterConnection, Option<SubscriptionMatch>)>, AdapterError> {
-    let connection = PgAdapterConnectionDao(state.db.clone())
+    let connection = state
+        .adapter_connections
         .find_by_scope_value(super::delivery::ADAPTER, org)
         .await?;
     let Some(connection) = connection else {

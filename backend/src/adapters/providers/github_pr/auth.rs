@@ -6,7 +6,6 @@ use tracing::debug;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{BindingContext, SubscriptionMatch, TaskBinding};
-use crate::adapters::AdapterUserIdentity;
 use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
@@ -15,7 +14,6 @@ use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::db::DbPool;
 use crate::secret::service::SecretService;
 
-use super::adapter::GithubPrAdapter;
 use super::api::GithubPrApi;
 
 pub(super) struct GithubPrAuth {
@@ -261,17 +259,6 @@ fn binding_filter_user_id<'a>(
         .or_else(|| metadata.get("filter_user_id"))
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.is_empty())
-}
-
-#[async_trait::async_trait]
-impl AdapterUserIdentity for GithubPrAdapter {
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        db: &DbPool,
-    ) -> Result<Option<String>, AdapterError> {
-        mapped_user(identity, db).await.map_err(AdapterError::Db)
-    }
 }
 
 #[cfg(test)]

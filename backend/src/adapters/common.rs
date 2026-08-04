@@ -9,7 +9,6 @@ use moatless_api_schemas::loops::{
 use serde::Deserialize;
 
 use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
-use crate::adapters::dao::PgAdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
 use crate::loops::dao::{LoopRecord, LoopSourceRow};
@@ -191,7 +190,8 @@ pub(crate) async fn load_adapter_connection_for_auth(
     ctx: &ScopeContext,
     id: &str,
 ) -> Result<AdapterConnection, AdapterError> {
-    PgAdapterConnectionDao(state.db.clone())
+    state
+        .adapter_connections
         .find_by_id(id, ctx)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Provider connection {id} not found")))
@@ -252,7 +252,8 @@ pub(crate) async fn resolve_connection(
         }
         return Ok(conn);
     }
-    let rows = PgAdapterConnectionDao(state.db.clone())
+    let rows = state
+        .adapter_connections
         .list(ctx, Some(kind.as_str()))
         .await?;
     let mut iter = rows.into_iter();

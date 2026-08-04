@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use moatless_backend_core::sandbox::SandboxStarter;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
@@ -44,27 +45,6 @@ use crate::task::relations::{
     record_created_by, record_related_to, CreatedByParent, RelatedTask, TaskRelationDao,
 };
 use crate::task::schemas::MessageContextInput;
-
-/// Provision seam: the one lifecycle capability the creation sequence needs.
-/// Implemented by the concrete `Lifecycle` handle in production; mocked in unit
-/// tests so provisioning can be exercised without a database.
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait SandboxStarter: Send + Sync {
-    /// Best-effort provision. `Ok(())` means a start was initiated; `Err`
-    /// carries a human-readable reason for the sandbox error event.
-    async fn start(&self, task_id: &str) -> Result<(), String>;
-}
-
-#[async_trait]
-impl SandboxStarter for crate::sandbox::lifecycle::Lifecycle {
-    async fn start(&self, task_id: &str) -> Result<(), String> {
-        crate::sandbox::lifecycle::Lifecycle::start(self, task_id)
-            .await
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-}
 
 /// Preflight seam: GitHub-token validation before a sandbox is provisioned.
 /// Wired once in state assembly ([`RealPreflight`]) so every creation path gets
@@ -398,7 +378,7 @@ impl TaskCreationService {
                     self.publish_sandbox_error(
                         &task_id,
                         "Sandbox provisioning failed during task creation.",
-                        &e,
+                        &e.to_string(),
                         "provision_failed",
                     )
                     .await;
@@ -474,6 +454,15 @@ mod tests {
     use crate::task::dao::MockTaskDao;
     use crate::task::relations::MockTaskRelationDao;
     use crate::test_support::RecordingPublisher;
+    use moatless_backend_core::sandbox::SandboxError;
+
+    mockall::mock! {
+        Starter {}
+        #[async_trait]
+        impl SandboxStarter for Starter {
+            async fn start(&self, task_id: &str) -> Result<(), SandboxError>;
+        }
+    }
 
     /// What `insert_task` resolves for a request that names no workspace: the
     /// repository's shadow workspace.
@@ -546,7 +535,7 @@ mod tests {
 
     fn service(
         tasks: MockTaskDao,
-        starter: MockSandboxStarter,
+        starter: MockStarter,
         preflight: Arc<dyn PreflightPort>,
         publisher: Arc<RecordingPublisher>,
     ) -> TaskCreationService {
@@ -576,7 +565,7 @@ mod tests {
             .withf(|row| row.status == TaskStatus::Open)
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         starter.expect_start().times(1).returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
@@ -605,7 +594,7 @@ mod tests {
             .withf(|row| row.workspace_id.is_none())
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
@@ -628,7 +617,7 @@ mod tests {
             .withf(|row| row.model.as_deref() == Some("claude-opus-4-6"))
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
@@ -655,7 +644,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
 
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         let start_order = Arc::clone(&order);
         starter.expect_start().times(1).returning(move |_| {
             start_order.lock().expect("order lock").push("start");
@@ -702,7 +691,7 @@ mod tests {
             .withf(|row| row.status == TaskStatus::Error)
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         starter.expect_start().never();
 
         let mut preflight = MockPreflightPort::new();
@@ -734,11 +723,11 @@ mod tests {
             .withf(|row| row.status == TaskStatus::Open)
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         starter
             .expect_start()
             .times(1)
-            .returning(|_| Err("boom".into()));
+            .returning(|_| Err(SandboxError::Other("boom".into())));
 
         let publisher = Arc::new(RecordingPublisher::new());
         let svc = service(tasks, starter, preflight_ok(), publisher.clone());
@@ -771,7 +760,7 @@ mod tests {
             .expect_insert_task()
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
@@ -797,7 +786,7 @@ mod tests {
             .withf(|row| row.task_id == "3f1c9d42-0a7e-4b19-8c55-11d2ab6e7f30")
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         starter.expect_start().returning(|_| Ok(()));
 
         let publisher = Arc::new(RecordingPublisher::new());
@@ -824,7 +813,7 @@ mod tests {
             .expect_insert_task()
             .times(1)
             .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
-        let mut starter = MockSandboxStarter::new();
+        let mut starter = MockStarter::new();
         starter.expect_start().never();
 
         let publisher = Arc::new(RecordingPublisher::new());

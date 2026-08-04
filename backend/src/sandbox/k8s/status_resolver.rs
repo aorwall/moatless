@@ -17,7 +17,7 @@ use super::pod_status::{
     DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
 use crate::config::Config;
-use crate::sandbox::access::SandboxConnector;
+use moatless_backend_core::sandbox::SandboxConnector;
 use crate::sandbox::live_status::{derive_live_status, AgentStatus, LiveStatus};
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;

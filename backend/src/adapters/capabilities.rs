@@ -5,7 +5,6 @@ use crate::adapters::models::{
     AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, NewThreadInfo,
     OutboundReply, SubscriptionMatch, TaskBinding,
 };
-use crate::db::DbPool;
 use crate::state::AppState;
 
 use moatless_api_schemas::enums::AdapterKind;
@@ -82,59 +81,8 @@ pub trait Adapter: Send + Sync {
     }
 }
 
-/// Universal identity surface every registered Adapter exposes.
-pub(crate) trait AdapterIdentity: Send + Sync {
-    /// Adapter type identifier.
-    fn adapter_kind(&self) -> AdapterKind;
-
-    /// Canonical Adapter key for external messages and external labels.
-    fn provider_key(&self) -> &'static str {
-        self.adapter_kind().as_str()
-    }
-
-    /// Adapter key used by Adapter connections and Subscription sources.
-    fn connection_provider_key(&self) -> &'static str {
-        self.provider_key()
-    }
-}
-
-impl<T: Adapter + ?Sized> AdapterIdentity for T {
-    fn adapter_kind(&self) -> AdapterKind {
-        Adapter::adapter_kind(self)
-    }
-
-    fn provider_key(&self) -> &'static str {
-        Adapter::provider_key(self)
-    }
-
-    fn connection_provider_key(&self) -> &'static str {
-        Adapter::connection_provider_key(self)
-    }
-}
-
-/// Resolve Adapter-side identities into Moatless user identities.
-#[async_trait::async_trait]
-pub(crate) trait AdapterUserIdentity: Send + Sync {
-    // `allow`, not `expect`: `slack::auth`'s tests still call this directly, so
-    // the lint fires in the lib build and not in the test build.
-    #[allow(
-        dead_code,
-        reason = "registered by every Adapter and reachable through \
-                  `Adapters::user_identity`, which carries the same allow — but \
-                  nothing dispatches through it. Telegram's normalization was the \
-                  last caller and now calls `telegram::auth::resolve_sender` \
-                  directly, since it resolves the sender without holding the \
-                  Adapter; Slack's breakup does the same."
-    )]
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        db: &DbPool,
-    ) -> Result<Option<String>, AdapterError>;
-}
-
 /// Build persisted binding destinations from Adapter thread data.
-pub(crate) trait AdapterDestinationBuilder: AdapterIdentity {
+pub(crate) trait AdapterDestinationBuilder: Adapter {
     /// Scope value used to find the Adapter connection for a thread binding.
     fn connection_scope_value_from_existing_thread(
         &self,
@@ -191,7 +139,7 @@ pub(crate) trait AdapterDestinationBuilder: AdapterIdentity {
 }
 
 /// Shared message formatting limits for outbound capabilities that send text.
-pub(crate) trait AdapterOutboundContent: AdapterIdentity {
+pub(crate) trait AdapterOutboundContent: Adapter {
     /// Whether this Adapter supports file attachments in outbound messages.
     fn supports_files(&self) -> bool {
         false
@@ -260,14 +208,14 @@ pub(crate) trait AdapterDirectDestination: AdapterOutboundContent {
 
 /// Resolve direct-message destinations for provider-side users.
 #[async_trait::async_trait]
-pub(crate) trait AdapterDirectMessage: AdapterIdentity {
+pub(crate) trait AdapterDirectMessage: Adapter {
     /// Resolve the destination that addresses a single external user directly.
     async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError>;
 }
 
 /// Optional follow-up after a direct destination send creates a binding.
 #[async_trait::async_trait]
-pub(crate) trait AdapterPostBindingFollowup: AdapterIdentity {
+pub(crate) trait AdapterPostBindingFollowup: Adapter {
     /// Follow-up the provider runs after an outbound send created a binding.
     async fn on_binding_created(
         &self,
@@ -291,7 +239,7 @@ pub(crate) trait AdapterNewThread: AdapterOutboundContent {
 
 /// Reaction support for external messages.
 #[async_trait::async_trait]
-pub(crate) trait AdapterReactions: AdapterIdentity {
+pub(crate) trait AdapterReactions: Adapter {
     async fn add_reaction(
         &self,
         binding: &BindingContext,
@@ -312,24 +260,6 @@ pub(crate) trait AdapterReactions: AdapterIdentity {
 pub(crate) trait AdapterInboundPresentation: Send + Sync {
     fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
         vec![external_id.to_string()]
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "presentation capability keeps the sender-label hook for adapter-specific UI polish"
-        )
-    )]
-    #[cfg_attr(
-        test,
-        allow(
-            dead_code,
-            reason = "test target may not exercise every optional presentation hook"
-        )
-    )]
-    fn sender_label_suffix(&self, _msg: &InboundMessage) -> Option<String> {
-        None
     }
 
     fn inbound_message_prefix(&self, _msg: &InboundMessage) -> Option<String> {

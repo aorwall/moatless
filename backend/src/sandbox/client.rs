@@ -59,22 +59,5 @@ impl SchemaScheduledJobInfo {
 }
 
 pub fn classify_grpc_error(e: tonic::Status, operation: &str) -> SandboxError {
-    match moatless_backend_core::sandbox::classify_grpc_error(e, operation) {
-        moatless_backend_core::sandbox::SandboxError::NotReady(message) => {
-            SandboxError::NotReady(message)
-        }
-        moatless_backend_core::sandbox::SandboxError::NotFound(message) => {
-            SandboxError::NotFound(message)
-        }
-        moatless_backend_core::sandbox::SandboxError::BadRequest(message) => {
-            SandboxError::BadRequest(message)
-        }
-        moatless_backend_core::sandbox::SandboxError::Unsupported { operation, source } => {
-            SandboxError::Unsupported { operation, source }
-        }
-        moatless_backend_core::sandbox::SandboxError::Grpc { operation, source } => {
-            SandboxError::Grpc { operation, source }
-        }
-        other => SandboxError::Internal(other.to_string()),
-    }
+    moatless_backend_core::sandbox::classify_grpc_error(e, operation).into()
 }

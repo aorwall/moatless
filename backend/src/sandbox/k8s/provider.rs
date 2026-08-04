@@ -24,7 +24,8 @@ use super::service;
 use super::status_resolver::StatusResolver;
 use super::storage::StorageBackend;
 use crate::config::Config;
-use crate::sandbox::access::{SandboxConnector, SandboxObserver};
+use crate::sandbox::status_reader::SandboxStatusReader;
+use moatless_backend_core::sandbox as core_sandbox;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::lifecycle::outcome::{DegradationWarning, Diagnostics};
@@ -733,7 +734,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
 }
 
 #[async_trait]
-impl SandboxObserver for K8sSandboxAdapter {
+impl SandboxStatusReader for K8sSandboxAdapter {
     async fn sandbox_status(
         &self,
         task_id: &str,
@@ -793,16 +794,32 @@ impl SandboxObserver for K8sSandboxAdapter {
 }
 
 #[async_trait]
-impl SandboxConnector for K8sSandboxAdapter {
-    async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError> {
-        self.require_sandbox_ready(task_id).await?;
+impl core_sandbox::SandboxConnector for K8sSandboxAdapter {
+    async fn sandbox_client(
+        &self,
+        task_id: &str,
+    ) -> Result<SandboxClient, core_sandbox::SandboxError> {
+        self.require_sandbox_ready(task_id)
+            .await
+            .map_err(SandboxError::into_contract)?;
         let service_name = generate_service_name(task_id);
         SandboxClient::for_service(
             &service_name,
             self.k8s.namespace(),
             self.config.sandbox.grpc_port,
         )
-        .map_err(SandboxError::GrpcClient)
+        .map_err(|e| core_sandbox::SandboxError::GrpcClient(e.to_string()))
+    }
+}
+
+#[async_trait]
+impl core_sandbox::ClusterDiagnostics for K8sSandboxAdapter {
+    async fn list_sandbox_diagnostics(
+        &self,
+    ) -> Result<Vec<core_sandbox::SandboxDiagnosticsEntry>, core_sandbox::SandboxError> {
+        crate::sandbox::k8s::pod_reader::fetch_fleet_diagnostics(&self.k8s)
+            .await
+            .map_err(|e| core_sandbox::SandboxError::Other(e.to_string()))
     }
 }
 

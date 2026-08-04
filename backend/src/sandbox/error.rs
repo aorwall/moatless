@@ -2,6 +2,7 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use moatless_backend_core::sandbox as core_sandbox;
 
 use crate::error::error_response;
 
@@ -146,6 +147,82 @@ impl From<crate::sandbox::lifecycle::LifecycleError> for SandboxError {
     }
 }
 
+impl SandboxError {
+    /// This module's error as the sandbox runtime contract states it.
+    ///
+    /// Every variant is named, so a variant added here does not compile until
+    /// its contract mapping is decided. The two container runtimes reach the
+    /// contract as a [`core_sandbox::ProviderKind`] and a message, so nothing
+    /// downstream of the contract compiles `kube` or `bollard`. The backend-only
+    /// outcomes — configuration, token minting, the database, lifecycle, and the
+    /// HTTP-only 409/403 the contract does not model — flatten to `Other` with
+    /// their rendered text intact.
+    pub(crate) fn into_contract(self) -> core_sandbox::SandboxError {
+        use core_sandbox::ProviderKind;
+
+        let rendered = self.to_string();
+        match self {
+            Self::NotReady(message) => core_sandbox::SandboxError::NotReady(message),
+            Self::NotFound(message) => core_sandbox::SandboxError::NotFound(message),
+            Self::BadRequest(message) => core_sandbox::SandboxError::BadRequest(message),
+            Self::Unsupported { operation, source } => {
+                core_sandbox::SandboxError::Unsupported { operation, source }
+            }
+            Self::Grpc { operation, source } => {
+                core_sandbox::SandboxError::Grpc { operation, source }
+            }
+            Self::GrpcClient(source) => core_sandbox::SandboxError::GrpcClient(source.to_string()),
+            Self::KubeError(_) | Self::PodBuildError(_) => core_sandbox::SandboxError::Provider {
+                kind: ProviderKind::Kubernetes,
+                message: rendered,
+            },
+            Self::DockerError(_) | Self::Docker { .. } | Self::DockerConfig(_) => {
+                core_sandbox::SandboxError::Provider {
+                    kind: ProviderKind::Docker,
+                    message: rendered,
+                }
+            }
+            Self::ConfigMissing(_)
+            | Self::JwtError(_)
+            | Self::JwtSigning { .. }
+            | Self::Database { .. }
+            | Self::Authorization(_)
+            | Self::Runtime(_)
+            | Self::Lifecycle(_)
+            | Self::Conflict(_)
+            | Self::Forbidden(_)
+            | Self::InvalidResponse(_)
+            | Self::Internal(_) => core_sandbox::SandboxError::Other(rendered),
+        }
+    }
+}
+
+impl From<core_sandbox::SandboxError> for SandboxError {
+    /// The contract error as this module's error.
+    ///
+    /// Every variant is named, so a variant added to the contract does not
+    /// compile until its module mapping is decided. A provider-classified or
+    /// client-construction failure has already been flattened past the point
+    /// where the runtime that raised it could be reconstructed, so both — and
+    /// the contract's `Other` — arrive as an internal failure with their text
+    /// intact.
+    fn from(error: core_sandbox::SandboxError) -> Self {
+        use core_sandbox::SandboxError as Contract;
+
+        let rendered = error.to_string();
+        match error {
+            Contract::NotReady(message) => Self::NotReady(message),
+            Contract::NotFound(message) => Self::NotFound(message),
+            Contract::BadRequest(message) => Self::BadRequest(message),
+            Contract::Unsupported { operation, source } => Self::Unsupported { operation, source },
+            Contract::Grpc { operation, source } => Self::Grpc { operation, source },
+            Contract::GrpcClient(_) | Contract::Provider { .. } | Contract::Other(_) => {
+                Self::Internal(rendered)
+            }
+        }
+    }
+}
+
 impl IntoResponse for SandboxError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
@@ -236,6 +313,122 @@ impl IntoResponse for SandboxError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core_sandbox::{ProviderKind, SandboxError as ContractError};
+
+    fn kube_error() -> kube::Error {
+        kube::Error::Api(
+            kube::core::Status::failure("pods \"sandbox-t-1\" not found", "NotFound")
+                .with_code(404)
+                .boxed(),
+        )
+    }
+
+    /// The contract must be satisfiable without compiling either container
+    /// runtime, so every `kube`- and `bollard`-shaped failure has to arrive as a
+    /// kind and a message.
+    #[test]
+    fn container_runtime_failures_reach_the_contract_provider_classified() {
+        let cases = vec![
+            (
+                SandboxError::KubeError(kube_error()),
+                ProviderKind::Kubernetes,
+            ),
+            (
+                SandboxError::PodBuildError("no node has 4 CPUs free".into()),
+                ProviderKind::Kubernetes,
+            ),
+            (
+                SandboxError::DockerError("inspect response had no config".into()),
+                ProviderKind::Docker,
+            ),
+            (
+                SandboxError::Docker {
+                    operation: "creating the sandbox container",
+                    source: bollard::errors::Error::DockerResponseServerError {
+                        status_code: 500,
+                        message: "/var/run/docker.sock: permission denied".to_string(),
+                    },
+                },
+                ProviderKind::Docker,
+            ),
+            (
+                SandboxError::DockerConfig(
+                    serde_json::from_str::<serde_json::Value>("{not json").unwrap_err(),
+                ),
+                ProviderKind::Docker,
+            ),
+        ];
+
+        for (error, expected) in cases {
+            let rendered = error.to_string();
+            match error.into_contract() {
+                ContractError::Provider { kind, message } => {
+                    assert_eq!(kind, expected, "{rendered}");
+                    assert_eq!(message, rendered);
+                }
+                other => panic!("{rendered} classified as {other:?}"),
+            }
+        }
+    }
+
+    /// The transport outcomes a caller acts on — 404, 400, a sandbox too old to
+    /// serve a method — keep their shape across the boundary rather than
+    /// flattening into a string.
+    #[test]
+    fn transport_outcomes_keep_their_contract_shape() {
+        assert!(matches!(
+            SandboxError::NotReady("starting".into()).into_contract(),
+            ContractError::NotReady(m) if m == "starting"
+        ));
+        assert!(matches!(
+            SandboxError::NotFound("src/mystery".into()).into_contract(),
+            ContractError::NotFound(m) if m == "src/mystery"
+        ));
+        assert!(matches!(
+            SandboxError::BadRequest("path is a directory".into()).into_contract(),
+            ContractError::BadRequest(m) if m == "path is a directory"
+        ));
+        assert!(matches!(
+            SandboxError::Unsupported {
+                operation: "list_git_refs".into(),
+                source: tonic::Status::unimplemented("unknown service"),
+            }
+            .into_contract(),
+            ContractError::Unsupported { operation, .. } if operation == "list_git_refs"
+        ));
+        assert!(matches!(
+            SandboxError::Grpc {
+                operation: "read_file".into(),
+                source: tonic::Status::internal("boom"),
+            }
+            .into_contract(),
+            ContractError::Grpc { operation, .. } if operation == "read_file"
+        ));
+    }
+
+    /// The backend-local outcomes — configuration, the database, lifecycle, and
+    /// the two HTTP-only statuses — have no contract shape, and flatten with
+    /// their text intact.
+    #[test]
+    fn backend_local_failures_flatten_with_their_message() {
+        for error in [
+            SandboxError::ConfigMissing("TASK_TOKEN_SECRET".into()),
+            SandboxError::JwtError("missing signing secret".into()),
+            SandboxError::Database {
+                context: "reading the task row for provisioning",
+                source: sqlx::Error::Protocol("connection reset".to_string()),
+            },
+            SandboxError::Conflict("another operation is in progress".into()),
+            SandboxError::Forbidden("no access to task".into()),
+            SandboxError::Internal("crash".into()),
+        ] {
+            let rendered = error.to_string();
+            match error.into_contract() {
+                ContractError::Other(message) => assert_eq!(message, rendered),
+                other => panic!("{rendered} classified as {other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn error_display_messages() {

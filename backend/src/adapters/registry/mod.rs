@@ -5,9 +5,8 @@ use std::sync::Arc;
 
 use crate::adapters::capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
-    AdapterDirectDestination, AdapterDirectMessage, AdapterIdentity, AdapterInboundPresentation,
+    AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation,
     AdapterMessageReply, AdapterNewThread, AdapterPostBindingFollowup, AdapterReactions,
-    AdapterUserIdentity,
 };
 use crate::adapters::error::AdapterError;
 
@@ -31,8 +30,6 @@ mod bootstrap;
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
-    identities: HashMap<AdapterKind, Arc<dyn AdapterIdentity>>,
-    user_identities: HashMap<AdapterKind, Arc<dyn AdapterUserIdentity>>,
     destination_builders: HashMap<AdapterKind, Arc<dyn AdapterDestinationBuilder>>,
     binding_replies: HashMap<AdapterKind, Arc<dyn AdapterBindingReply>>,
     message_replies: HashMap<AdapterKind, Arc<dyn AdapterMessageReply>>,
@@ -59,8 +56,6 @@ impl Adapters {
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
-            identities: HashMap::new(),
-            user_identities: HashMap::new(),
             destination_builders: HashMap::new(),
             binding_replies: HashMap::new(),
             message_replies: HashMap::new(),
@@ -85,18 +80,6 @@ impl Adapters {
     /// `pub(crate)` if a stand-in registry is ever needed from another module.
     fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
         self.providers.insert(provider.adapter_kind(), provider);
-    }
-
-    fn register_identity(&mut self, provider: Arc<dyn AdapterIdentity>) {
-        self.identities.insert(provider.adapter_kind(), provider);
-    }
-
-    fn register_user_identity(
-        &mut self,
-        kind: AdapterKind,
-        provider: Arc<dyn AdapterUserIdentity>,
-    ) {
-        self.user_identities.insert(kind, provider);
     }
 
     fn register_destination_builder(
@@ -159,10 +142,7 @@ impl Adapters {
     /// The Webhook adapter has no concrete-only methods, so it has no typed
     /// handle and lives in the map alone.
     pub fn register_webhook(&mut self, provider: Arc<super::webhook::adapter::WebhookAdapter>) {
-        let kind = AdapterKind::Webhook;
         self.register_trait_object(provider.clone());
-        self.register_identity(provider.clone());
-        self.register_user_identity(kind, provider.clone());
         self.register_binding_reply(provider.clone());
         self.register_message_reply(provider);
     }
@@ -173,8 +153,6 @@ impl Adapters {
     ) {
         let kind = AdapterKind::GithubPr;
         self.register_trait_object(provider.clone());
-        self.register_identity(provider.clone());
-        self.register_user_identity(kind, provider.clone());
         self.register_destination_builder(kind, provider.clone());
         self.register_binding_reply(provider.clone());
         self.register_message_reply(provider.clone());
@@ -187,8 +165,6 @@ impl Adapters {
     pub fn register_linear(&mut self, provider: Arc<super::linear::adapter::LinearAdapter>) {
         let kind = AdapterKind::Linear;
         self.register_trait_object(provider.clone());
-        self.register_identity(provider.clone());
-        self.register_user_identity(kind, provider.clone());
         self.register_binding_reply(provider.clone());
         self.register_message_reply(provider.clone());
         self.register_direct_destination(provider.clone());
@@ -201,8 +177,6 @@ impl Adapters {
     pub(crate) fn register_slack(&mut self, provider: Arc<super::slack::adapter::SlackAdapter>) {
         let kind = AdapterKind::Slack;
         self.register_trait_object(provider.clone());
-        self.register_identity(provider.clone());
-        self.register_user_identity(kind, provider.clone());
         self.register_destination_builder(kind, provider.clone());
         self.register_binding_reply(provider.clone());
         self.register_message_reply(provider.clone());
@@ -220,8 +194,6 @@ impl Adapters {
     ) {
         let kind = AdapterKind::Telegram;
         self.register_trait_object(provider.clone());
-        self.register_identity(provider.clone());
-        self.register_user_identity(kind, provider.clone());
         self.register_destination_builder(kind, provider.clone());
         self.register_binding_reply(provider.clone());
         self.register_message_reply(provider.clone());
@@ -253,40 +225,6 @@ impl Adapters {
 
     pub fn get(&self, adapter_kind: AdapterKind) -> Option<&Arc<dyn Adapter>> {
         self.providers.get(&adapter_kind)
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "identity capability accessor is exercised by optional adapter workflows"
-        )
-    )]
-    pub(crate) fn identity(
-        &self,
-        adapter_kind: AdapterKind,
-    ) -> Result<&dyn AdapterIdentity, AdapterError> {
-        self.identities
-            .get(&adapter_kind)
-            .map(Arc::as_ref)
-            .ok_or_else(|| unsupported_adapter(adapter_kind))
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "user identity capability accessor is exercised by optional adapter workflows"
-        )
-    )]
-    pub(crate) fn user_identity(
-        &self,
-        adapter_kind: AdapterKind,
-    ) -> Result<&dyn AdapterUserIdentity, AdapterError> {
-        self.user_identities
-            .get(&adapter_kind)
-            .map(Arc::as_ref)
-            .ok_or_else(|| unsupported_user_identity(adapter_kind))
     }
 
     pub(crate) fn destination_builder(
@@ -424,22 +362,21 @@ impl Adapters {
     }
 
     pub fn provider_key_for_name(&self, name: &str) -> Option<&'static str> {
-        self.identity_by_name(name)
-            .map(AdapterIdentity::provider_key)
+        self.identity_by_name(name).map(Adapter::provider_key)
     }
 
-    pub(crate) fn identity_by_name(&self, name: &str) -> Option<&dyn AdapterIdentity> {
+    pub(crate) fn identity_by_name(&self, name: &str) -> Option<&dyn Adapter> {
         self.adapter_kind_for_name(name)
-            .and_then(|kind| self.identities.get(&kind).map(Arc::as_ref))
+            .and_then(|kind| self.providers.get(&kind).map(Arc::as_ref))
     }
 
     fn adapter_kind_for_name(&self, name: &str) -> Option<AdapterKind> {
         if let Some(kind) =
-            AdapterKind::parse(name).filter(|kind| self.identities.contains_key(kind))
+            AdapterKind::parse(name).filter(|kind| self.providers.contains_key(kind))
         {
             return Some(kind);
         }
-        self.identities.iter().find_map(|(kind, provider)| {
+        self.providers.iter().find_map(|(kind, provider)| {
             (provider.provider_key() == name || provider.connection_provider_key() == name)
                 .then_some(*kind)
         })
@@ -464,31 +401,6 @@ impl Adapters {
     pub fn registered_types(&self) -> Vec<AdapterKind> {
         self.providers.keys().copied().collect()
     }
-}
-
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "paired with the optional identity capability accessor"
-    )
-)]
-fn unsupported_adapter(adapter_kind: AdapterKind) -> AdapterError {
-    AdapterError::BadRequest(format!("No adapter registered for {adapter_kind:?}"))
-}
-
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "paired with the optional user identity capability accessor"
-    )
-)]
-fn unsupported_user_identity(adapter_kind: AdapterKind) -> AdapterError {
-    AdapterError::BadRequest(format!(
-        "{} Adapter does not support user identity lookup",
-        adapter_kind.as_str()
-    ))
 }
 
 fn unsupported_destination_builder(adapter_kind: AdapterKind) -> AdapterError {

@@ -2,7 +2,7 @@
 
 use crate::db::DbPool;
 
-pub struct PgEventReceiptDao(pub DbPool);
+pub struct PgEventReceiptDao(DbPool);
 
 #[async_trait::async_trait]
 pub trait EventReceiptDao: Send + Sync {
@@ -17,6 +17,10 @@ pub trait EventReceiptDao: Send + Sync {
 }
 
 impl PgEventReceiptDao {
+    pub fn new(pool: DbPool) -> Self {
+        Self(pool)
+    }
+
     /// Insert an event receipt.
     ///
     /// Returns `true` when this is the first time the event has been seen for

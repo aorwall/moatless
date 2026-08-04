@@ -1714,6 +1714,20 @@ mod tests {
         ) -> Result<(), sqlx::Error> {
             unimplemented!("not reachable from deactivate_task_bindings")
         }
+        async fn update_review_decision(
+            &self,
+            _id: &str,
+            _review_decision: Option<&str>,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn update_mergeable_state(
+            &self,
+            _id: &str,
+            _mergeable_state: Option<&str>,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
         async fn find_by_task_ids(
             &self,
             _task_ids: &[String],

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use sandbox_proto::AgentStopSource;
 
-use crate::sandbox::access::SandboxConnector;
+use moatless_backend_core::sandbox::SandboxConnector;
 use crate::task::models::SandboxStopReason;
 
 use super::orchestrator::AgentStopPort;

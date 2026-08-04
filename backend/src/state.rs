@@ -1,54 +1,53 @@
 //! Unified application state for API routes.
 //!
 //! All handler-facing database access goes through DAO trait objects,
-//! enabling full unit-test mocking without a real database.
+//! enabling full unit-test mocking without a real database. They are built by
+//! the composition root ([`crate::compose`]) and handed to [`AppState::new`].
 
 use std::sync::Arc;
 
-use crate::adapters::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
+use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::Adapters;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
-use crate::auth::provider_tokens::{PgProviderTokenAuthDao, ProviderTokenAuthDao};
-use crate::auth::users::{PgUserDao, UserDao};
-use crate::bindings::dao::{PgTaskBindingDao, TaskBindingDao};
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
+use crate::auth::users::UserDao;
+use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::recently_sent::RecentlySent;
+use crate::compose::Ports;
 use crate::config::Config;
 use crate::credentials::{BroadcastContext, CredentialService};
 use crate::db::DbPool;
-use crate::event_ingress::outbox::{IngressOutbox, PgIngressOutbox};
+use crate::event_ingress::outbox::IngressOutbox;
 use crate::events::EventPublisher;
-use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
-use crate::file_storage::dao::{FileDao, PgFileDao};
+use crate::feedback::dao::FeedbackDao;
+use crate::file_storage::dao::FileDao;
 use crate::loops::dao::LoopDao;
-use crate::message::dao::{MessageDao, PgMessageDao};
-use crate::plugin::dao::{PgPluginDao, PluginDao};
+use crate::loops::firing::receipts::EventReceiptDao;
+use crate::message::dao::MessageDao;
+use crate::plugin::dao::PluginDao;
 use crate::plugin::sync::PluginSyncService;
-use crate::repository::dao::{PgRepositoryDao, RepositoryDao};
-use crate::sandbox::access::SandboxConnector;
-use crate::sandbox::lifecycle::runtime::SandboxRuntime;
-use crate::sandbox::lifecycle::{
-    FleetObserver, GrpcAgentStop, Lifecycle, NotifyPort, OutboxEventSink, PgLifecycleDao,
-    PgLifecycleLock, ProvisionDeps, Reconciler, ReconcilerConfig, SystemWallClock,
-};
+use crate::repository::dao::RepositoryDao;
+use crate::sandbox::lifecycle::{Lifecycle, NotifyPort};
 use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator};
-use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
-use crate::secret::dao::{PgSecretDao, SecretDao};
-use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
+use crate::secret::audit::SecretAuditDao;
+use crate::secret::dao::SecretDao;
+use crate::secret::service::SecretService;
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
-use crate::tag::dao::{PgTagDao, TagDao};
+use crate::tag::dao::TagDao;
 use crate::task::creation::{RealPreflight, TaskCreationService};
-use crate::task::dao::{PgTaskDao, TaskDao};
+use crate::task::dao::TaskDao;
 use crate::task::reaper::AgentStatusPort;
-use crate::task::relations::{PgTaskRelationDao, TaskRelationDao};
-use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
-use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
-use crate::team::dao::{PgTeamDao, TeamDao};
-use crate::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
+use crate::task::relations::TaskRelationDao;
+use crate::task_event::dao::TaskEventDao;
+use crate::task_turn::dao::TaskTurnDao;
+use crate::team::dao::TeamDao;
+use crate::workspace::dao::WorkspaceDao;
+use moatless_backend_core::sandbox::SandboxConnector;
 
 /// Shared application state for task/message/agent/file routes.
 ///
@@ -121,6 +120,10 @@ pub struct AppState {
     /// credential/webhook-secret rows inbound and outbound calls resolve
     /// against. Handlers read and write connections through this port.
     pub adapter_connections: Arc<dyn AdapterConnectionDao>,
+    /// Durable adapter-event deduplication (`adapter_event_receipts`). The
+    /// binding resolver records a delivery here so a redelivered webhook does
+    /// not double-post to a task.
+    pub event_receipts: Arc<dyn EventReceiptDao>,
     /// Single owner of persistence for the four Loop tables (`loops`,
     /// `loop_configs`, `subscriptions`,
     /// `schedules`).
@@ -163,99 +166,56 @@ pub struct AppState {
     pub adapter_delivery: Arc<AdapterDeliveryStore>,
 }
 
-/// Bounded per-Task lock-acquire attempts before a lifecycle call surfaces
-/// `OperationInProgress`. The inline retry is only a latency fast path — the
-/// reconciler is the durable retry owner — so this stays small.
-const LIFECYCLE_LOCK_ATTEMPTS: u32 = 3;
-
-/// Build the shared durable Sandbox lifecycle handle over its Postgres and
-/// runtime adapters. One instance is shared by `AppState`, the sandbox API, and
-/// the pod watcher so Sandbox intent writes and per-Task locks stay
-/// single-sourced. `pool` backs the lifecycle and plan DAOs; `lock_pool` must
-/// be the dedicated lock-only pool.
-pub fn build_lifecycle(
-    pool: DbPool,
-    lock_pool: DbPool,
-    plan: ProvisionDeps,
-    runtime: Arc<dyn SandboxRuntime>,
-    connector: Arc<dyn SandboxConnector>,
-    default_sandbox_image: String,
-    events: Option<Arc<dyn EventPublisher>>,
-) -> Arc<Lifecycle> {
-    let store = Arc::new(PgLifecycleDao::new(pool.clone()));
-    Arc::new(
-        Lifecycle::new(
-            store,
-            runtime,
-            Arc::new(GrpcAgentStop::new(connector)),
-            Arc::new(OutboxEventSink::new(events)),
-            Arc::new(PgLifecycleLock::new(lock_pool)),
-            Arc::new(SystemWallClock),
-        )
-        .with_plan_knowledge(plan, default_sandbox_image)
-        .with_lock_attempts(LIFECYCLE_LOCK_ATTEMPTS),
-    )
-}
-
-/// Assemble the desired-state reconciler over the shared pool, the lifecycle
-/// handle it drives operations through, and a fleet observer. Keeps the
-/// concrete `Pg*` adapters private to this constructor.
-pub fn build_reconciler(
-    pool: DbPool,
-    lifecycle: Arc<Lifecycle>,
-    observer: Arc<dyn FleetObserver>,
-    notify: Arc<dyn NotifyPort>,
-    config: ReconcilerConfig,
-) -> Reconciler {
-    Reconciler::new(
-        (*lifecycle).clone(),
-        Arc::new(PgLifecycleDao::new(pool.clone())),
-        Arc::new(PgMessageDao(pool)),
-        observer,
-        notify,
-        Arc::new(SystemWallClock),
-        config,
-    )
-}
-
 impl AppState {
-    /// Build `AppState` with Postgres-backed DAOs.
+    /// Build `AppState` over the ports the composition root assembled.
     ///
-    /// Wires all `Arc<dyn …Dao>` from a single connection pool,
-    /// keeping the concrete `Pg*` types private to this constructor.
-    // reason: independent infrastructure handles (pool, lifecycle, connector,
-    // events, s3, adapters, apps); bundling them behind a one-use struct only
-    // shuffles the same fields.
+    /// The services wired here are the ones that need a runtime handle the
+    /// composition root does not have — the sandbox connector and the lifecycle
+    /// handle — so they are assembled from `ports` rather than in it.
+    // reason: independent infrastructure handles (ports, config, lifecycle,
+    // connector, events, s3, adapters); bundling them behind a one-use struct
+    // only shuffles the same fields.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        pool: DbPool,
-        lifecycle: Arc<Lifecycle>,
+        ports: &Ports,
         config: Arc<Config>,
+        lifecycle: Arc<Lifecycle>,
         connector: Arc<dyn SandboxConnector>,
         agent_status: Arc<dyn AgentStatusPort>,
         sandbox_notify: Arc<dyn NotifyPort>,
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<crate::file_storage::s3::S3Storage>,
         adapters: Option<Arc<Adapters>>,
-        github_apps: Arc<GitHubAppRegistry>,
     ) -> Self {
-        let github_app_service = github_apps.default_service();
-
-        let tasks: Arc<dyn TaskDao> = Arc::new(PgTaskDao(pool.clone()));
-        let workspaces: Arc<dyn WorkspaceDao> = Arc::new(PgWorkspaceDao(pool.clone()));
-        let repositories: Arc<dyn RepositoryDao> = Arc::new(PgRepositoryDao(pool.clone()));
-        let plugins: Arc<dyn PluginDao> = Arc::new(PgPluginDao(pool.clone()));
-        let provider_tokens: Arc<dyn ProviderTokenDao> = Arc::new(PgProviderTokenDao(pool.clone()));
-        let provider_token_auth: Arc<dyn ProviderTokenAuthDao> =
-            Arc::new(PgProviderTokenAuthDao(pool.clone()));
-        let secret_records: Arc<dyn SecretDao> = Arc::new(PgSecretDao(pool.clone()));
-        let secret_audits: Arc<dyn SecretAuditDao> = Arc::new(PgSecretAuditDao(pool.clone()));
-        let secret_cipher = LocalEnvelopeSecretCipher::from_config(&config.secrets);
-        let secrets = Arc::new(SecretService::new(
-            secret_records.clone(),
-            secret_audits.clone(),
-            secret_cipher,
-        ));
+        let Ports {
+            pool,
+            tasks,
+            task_relations,
+            task_bindings,
+            task_events,
+            task_turns,
+            messages,
+            feedback,
+            repositories,
+            workspaces,
+            tags,
+            files,
+            teams,
+            plugins,
+            loops,
+            adapter_connections,
+            event_receipts,
+            ingress_outbox,
+            users,
+            provider_tokens,
+            provider_token_auth,
+            secret_records,
+            secret_audits,
+            secrets,
+            github_apps,
+            github_app_service,
+            ..
+        } = ports.clone();
 
         // Shared HTTP client for Codex token refresh — kept warm across calls.
         let codex_http = Arc::new(
@@ -277,7 +237,7 @@ impl AppState {
                 github_app_service.clone(),
                 Some(BroadcastContext {
                     connector,
-                    tasks: Arc::new(PgTaskDao(pool.clone())),
+                    tasks: tasks.clone(),
                 }),
             )
             .with_codex_refresh(pool.clone(), codex_http)
@@ -318,14 +278,6 @@ impl AppState {
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         ));
 
-        // The shared durable Sandbox lifecycle handle is built once by the caller
-        // (`build_lifecycle`) so the sandbox API and pod watcher share this
-        // instance — one intent writer, one per-Task lock.
-
-        let tags: Arc<dyn TagDao> = Arc::new(PgTagDao(pool.clone()));
-        let task_relations: Arc<dyn TaskRelationDao> = Arc::new(PgTaskRelationDao(pool.clone()));
-        let users: Arc<dyn UserDao> = Arc::new(PgUserDao(pool.clone()));
-
         // Wire GitHub-token preflight once here so every task-creation path
         // (HTTP, loops, adapters) gets the same check for free.
         let preflight = Arc::new(RealPreflight::new(
@@ -355,24 +307,25 @@ impl AppState {
             tasks,
             task_creation,
             task_relations,
-            task_bindings: Arc::new(PgTaskBindingDao(pool.clone())),
-            adapter_connections: Arc::new(PgAdapterConnectionDao(pool.clone())),
-            loops: Arc::new(LoopDao::new(pool.clone())),
-            messages: Arc::new(PgMessageDao(pool.clone())),
-            feedback: Arc::new(PgFeedbackDao(pool.clone())),
+            task_bindings,
+            adapter_connections,
+            event_receipts,
+            loops,
+            messages,
+            feedback,
             repositories,
             tags,
-            files: Arc::new(PgFileDao(pool.clone())),
+            files,
             users,
             provider_tokens,
             provider_token_auth,
             secret_records,
             secret_audits,
             secrets,
-            teams: Arc::new(PgTeamDao(pool.clone())),
-            task_events: Arc::new(PgTaskEventDao(pool.clone())),
-            ingress_outbox: Arc::new(PgIngressOutbox(pool.clone())),
-            task_turns: Arc::new(PgTaskTurnDao(pool.clone())),
+            teams,
+            task_events,
+            ingress_outbox,
+            task_turns,
             plugins,
             plugin_sync,
             workspaces,

@@ -50,7 +50,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         user_id: "user-1".to_string(),
         is_admin: false,
     };
-    PgAdapterConnectionDao(pool.clone())
+    PgAdapterConnectionDao::new(pool.clone())
         .upsert(&connection, &ctx)
         .await
         .unwrap();
@@ -178,7 +178,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
 
     // 3. Verify a task_bindings row was created for this task pointing at
     //    the seeded org connection and repo trigger.
-    let connection = PgAdapterConnectionDao(pool.clone())
+    let connection = PgAdapterConnectionDao::new(pool.clone())
         .find_by_scope_value("github", "foo")
         .await
         .unwrap()
@@ -190,7 +190,7 @@ async fn gh_pr_create_auto_connects_task_binding(pool: PgPool) {
         .unwrap()
         .expect("seeded github trigger");
 
-    let bindings = PgTaskBindingDao(pool.clone())
+    let bindings = PgTaskBindingDao::new(pool.clone())
         .find_by_task_id(task_id)
         .await
         .unwrap();

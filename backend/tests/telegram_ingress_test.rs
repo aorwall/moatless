@@ -35,7 +35,7 @@ use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::adapters::routes::adapter_router;
 use moatless_vibe_backend::adapters::Adapters;
-use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
+use moatless_vibe_backend::compose::compose;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::Scope;
 use moatless_vibe_backend::state::AppState;
@@ -57,13 +57,9 @@ const WEBHOOK_PATH: &str = "/api/v1/adapters/telegram/webhook";
 async fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.telegram.bot_token = Some("fake-token".to_string());
-    let adapters = Adapters::from_config(
-        &config,
-        pool.clone(),
-        Arc::new(GitHubAppRegistry::default()),
-    )
-    .await
-    .expect("adapter registry");
+    let adapters = Adapters::from_config(&config, &compose(pool.clone(), &config))
+        .await
+        .expect("adapter registry");
     test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)))
 }
 

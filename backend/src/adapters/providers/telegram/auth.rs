@@ -3,10 +3,7 @@
 use tracing::{info, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::AdapterUserIdentity;
 use crate::db::DbPool;
-
-use super::adapter::TelegramAdapter;
 
 /// The system user a Telegram sender is linked to, if any.
 ///
@@ -32,16 +29,5 @@ pub(super) async fn resolve_sender(
     } else {
         warn!(telegram_user_id = %telegram_user_id, "No system user found for Telegram user");
         Ok(None)
-    }
-}
-
-#[async_trait::async_trait]
-impl AdapterUserIdentity for TelegramAdapter {
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        db: &DbPool,
-    ) -> Result<Option<String>, AdapterError> {
-        resolve_sender(identity, db).await
     }
 }

@@ -11,7 +11,6 @@ use crate::adapters::models::{
     ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
 };
 use crate::adapters::AdapterKind;
-use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recently_sent::RecentlySent;
 use crate::sandbox::lifecycle::ArchiveRetention;
@@ -115,7 +114,7 @@ pub(super) async fn route_event(
     }
 
     let subject_key = GithubPrSubject::from_thread_properties(&msg.thread_properties)?.key();
-    let binding_repo = PgTaskBindingDao(state.db.clone());
+    let binding_repo = state.task_bindings.clone();
 
     // Provenance: who wrote this event, where it can be named. The
     // `Moatless task:` footer link `<frontend_url>/tasks/<id>` the adapter
@@ -349,7 +348,7 @@ pub(super) async fn close_subject(
     let repo = subject.repo();
     let subject_key = subject.key();
 
-    let bindings_repo = PgTaskBindingDao(state.db.clone());
+    let bindings_repo = state.task_bindings.clone();
     // Only auto-close tasks that were *created by* this PR trigger
     // (origin = ingress). Tasks merely connected to the PR (origin =
     // connected_thread, e.g. an agent on a UI-created task ran `gh pr create`)
@@ -645,7 +644,7 @@ async fn append_to_binding(
     // Logged once at the transport boundary by `AdapterError::into_response`.
     .map_err(AdapterError::MessageDelivery)?;
 
-    let binding_repo = PgTaskBindingDao(state.db.clone());
+    let binding_repo = state.task_bindings.clone();
     if let Some(ref ext_id) = msg.external_event_id {
         if let Err(e) = binding_repo.touch_cursor(&binding.id, ext_id).await {
             warn!(

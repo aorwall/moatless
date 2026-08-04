@@ -23,5 +23,6 @@ pub mod notify;
 pub mod preflight;
 pub mod routes;
 pub mod schemas;
+pub mod status_reader;
 pub mod secrets;
 pub mod server_runner;

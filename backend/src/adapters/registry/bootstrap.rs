@@ -2,48 +2,32 @@
 
 use std::sync::Arc;
 
-use crate::auth::github::registry::GitHubAppRegistry;
-use crate::db::DbPool;
+use crate::compose::Ports;
 
 use super::Adapters;
 
 impl Adapters {
-    /// Build adapters from application config.
+    /// Build adapters from application config and the composed ports.
     ///
     /// Returns `None` when no providers are configured.
     ///
-    /// `github_apps` is the shared App registry — passed in so the
-    /// `GithubPrAdapter` and `AppState` hit the same token cache. The
-    /// `GithubPrAdapter` resolves runtime GitHub tokens through the canonical
-    /// resolver, which needs the registry to mint installation tokens for bot
-    /// users (`auth_method = 'github_app_installation'`).
-    pub async fn from_config(
-        config: &crate::config::Config,
-        db: DbPool,
-        github_apps: Arc<GitHubAppRegistry>,
-    ) -> Option<Self> {
-        use crate::auth::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
-        use crate::auth::provider_tokens::{PgProviderTokenAuthDao, ProviderTokenAuthDao};
-        use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
-        use crate::secret::dao::{PgSecretDao, SecretDao};
-        use crate::secret::service::{LocalEnvelopeSecretCipher, SecretService};
-
+    /// `ports.github_apps` is the shared App registry, so the `GithubPrAdapter`
+    /// and `AppState` hit the same token cache. The `GithubPrAdapter` resolves
+    /// runtime GitHub tokens through the canonical resolver, which needs the
+    /// registry to mint installation tokens for bot users (`auth_method =
+    /// 'github_app_installation'`). Slack, Telegram and Linear read their own
+    /// per-workspace rows straight off `ports.pool`.
+    pub async fn from_config(config: &crate::config::Config, ports: &Ports) -> Option<Self> {
         let mut providers = Self::new();
 
-        let provider_tokens: Arc<dyn ProviderTokenDao> = Arc::new(PgProviderTokenDao(db.clone()));
-        let provider_token_auth: Arc<dyn ProviderTokenAuthDao> =
-            Arc::new(PgProviderTokenAuthDao(db.clone()));
-        let github_app_service = github_apps.default_service();
-
+        let db = ports.pool.clone();
+        let provider_tokens = ports.provider_tokens.clone();
+        let provider_token_auth = ports.provider_token_auth.clone();
+        let github_apps = ports.github_apps.clone();
+        let github_app_service = ports.github_app_service.clone();
         // Needed so the GitHub adapter can resolve `secret_ref` provider tokens
         // (validated PATs live in `secrets`, not `provider_tokens`).
-        let secret_records: Arc<dyn SecretDao> = Arc::new(PgSecretDao(db.clone()));
-        let secret_audits: Arc<dyn SecretAuditDao> = Arc::new(PgSecretAuditDao(db.clone()));
-        let secrets = Arc::new(SecretService::new(
-            secret_records,
-            secret_audits,
-            LocalEnvelopeSecretCipher::from_config(&config.secrets),
-        ));
+        let secrets = ports.secrets.clone();
 
         let runtime_config = Arc::new(config.clone());
         let slack = crate::adapters::slack::adapter::SlackAdapter::from_db(

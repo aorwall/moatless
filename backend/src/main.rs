@@ -13,6 +13,7 @@ use tracing::{info, warn};
 
 use moatless_vibe_backend::agent;
 use moatless_vibe_backend::auth;
+use moatless_vibe_backend::compose::{compose, register_builtin_delivery_handlers, Ports};
 use moatless_vibe_backend::config::{Config, SandboxProviderType};
 use moatless_vibe_backend::event_handler;
 use moatless_vibe_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
@@ -127,9 +128,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         config
     };
+    // The composition root: every port this process has, built once from the
+    // pool and the configuration it just resolved. Everything downstream
+    // receives ports from here rather than building its own.
+    let ports: Option<Ports> = db_pool.as_ref().map(|pool| compose(pool.clone(), &config));
+    if let Some(ref ports) = ports {
+        // Off the boot path: carrying over proves each App against GitHub, and
+        // the API must not wait on GitHub to start answering.
+        tokio::spawn({
+            let github_apps = ports.github_apps.clone();
+            let entries = config.auth.github_apps.clone();
+            async move { github_apps.carry_over_env_apps(&entries).await }
+        });
+    }
     let event_publisher = startup::init_event_publisher(&config).await;
-    let (sse_state, sse_consumer) =
-        startup::init_sse(&config, db_pool.as_ref(), cancel.clone()).await?;
+    let (sse_state, sse_consumer) = startup::init_sse(
+        &config,
+        ports.as_ref().map(|p| p.tasks.clone()),
+        cancel.clone(),
+    )
+    .await?;
     if let Some(handle) = sse_consumer {
         supervisor.supervise(
             "sse-redis-consumer",
@@ -140,15 +158,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let s3_client = startup::init_s3(&config).await;
-    let provision_deps = db_pool
-        .as_ref()
-        .map(moatless_vibe_backend::sandbox::lifecycle::ProvisionDeps::from_pool);
-    // Build the configured runtime/observer/connector adapter once.
+    let provision_deps = ports.as_ref().map(|p| {
+        moatless_vibe_backend::sandbox::lifecycle::ProvisionDeps::new(
+            p.tasks.clone(),
+            p.repositories.clone(),
+            p.provider_tokens.clone(),
+            p.plugins.clone(),
+            p.workspaces.clone(),
+        )
+    });
+    // Build the configured runtime/observer/connector adapter once. The rich
+    // 13-field read the HTTP routes need is the backend-local
+    // `SandboxStatusReader`; the T3 contract observer is projected from it at
+    // its one construction site, and the one connector serves both surfaces.
     let sandbox_runtime: Arc<dyn sandbox::lifecycle::SandboxRuntime>;
-    let sandbox_observer: Arc<dyn sandbox::access::SandboxObserver>;
-    let sandbox_connector: Arc<dyn sandbox::access::SandboxConnector>;
-    let ui_rpc_sandbox_observer: Arc<dyn moatless_backend_core::sandbox::SandboxObserver>;
-    let ui_rpc_sandbox_connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>;
+    let sandbox_observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>;
+    let sandbox_connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>;
     let cluster_diagnostics: Arc<dyn moatless_backend_core::sandbox::ClusterDiagnostics>;
     let default_sandbox_image: String;
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
@@ -175,9 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
-            ui_rpc_sandbox_observer = adapter.clone();
-            cluster_diagnostics = adapter.clone();
-            ui_rpc_sandbox_connector = adapter;
+            cluster_diagnostics = adapter;
             default_sandbox_image = config.sandbox.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::lifecycle::K8sFleetObserver::new(
                 k8s.clone(),
@@ -208,9 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
-            ui_rpc_sandbox_observer = adapter.clone();
-            cluster_diagnostics = adapter.clone();
-            ui_rpc_sandbox_connector = adapter;
+            cluster_diagnostics = adapter;
             default_sandbox_image = config.docker.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::lifecycle::DockerFleetObserver::new(
                 docker_client.clone(),
@@ -228,7 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Criticality::Fatal,
         startup::spawn_grpc_server(
             &config,
-            db_pool.as_ref(),
+            ports.as_ref(),
             event_publisher.clone(),
             s3_client.clone().map(std::sync::Arc::new),
             sandbox_connector.clone(),
@@ -240,36 +261,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Sandbox route state keeps only authorization DAOs. The pod watcher
     // separately needs workspace and task-event DAOs.
-    let sandbox_tasks: Option<Arc<dyn moatless_vibe_backend::task::dao::TaskDao>> =
-        db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::task::dao::PgTaskDao(p.clone()))
-                as Arc<dyn moatless_vibe_backend::task::dao::TaskDao>
-        });
-    let sandbox_teams: Option<Arc<dyn moatless_vibe_backend::team::dao::TeamDao>> =
-        db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::team::dao::PgTeamDao(p.clone()))
-                as Arc<dyn moatless_vibe_backend::team::dao::TeamDao>
-        });
-    let sandbox_workspaces: Option<Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceDao>> =
-        db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::workspace::dao::PgWorkspaceDao(
-                p.clone(),
-            )) as Arc<dyn moatless_vibe_backend::workspace::dao::WorkspaceDao>
-        });
-    let sandbox_task_events: Option<Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventDao>> =
-        db_pool.as_ref().map(|p| {
-            Arc::new(moatless_vibe_backend::task_event::dao::PgTaskEventDao(
-                p.clone(),
-            )) as Arc<dyn moatless_vibe_backend::task_event::dao::TaskEventDao>
-        });
+    let sandbox_tasks = ports.as_ref().map(|p| p.tasks.clone());
+    let sandbox_teams = ports.as_ref().map(|p| p.teams.clone());
+    let sandbox_workspaces = ports.as_ref().map(|p| p.workspaces.clone());
+    let sandbox_task_events = ports.as_ref().map(|p| p.task_events.clone());
 
     // Build the shared durable Sandbox lifecycle handle once (requires the DB).
     // The sandbox API, the pod watcher, and AppState all drive transitions
     // through this single instance, so Sandbox intent and per-Task locks stay
     // single-sourced. The lock adapter needs a dedicated lock-only pool.
     let lifecycle: Option<Arc<moatless_vibe_backend::sandbox::lifecycle::Lifecycle>> =
-        match db_pool.as_ref() {
-            Some(pool) => {
+        match ports.as_ref() {
+            Some(ports) => {
                 let db_url = config
                     .database_url
                     .as_deref()
@@ -280,17 +283,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     moatless_vibe_backend::db::PoolKind::Lock,
                 )
                 .await?;
-                Some(moatless_vibe_backend::state::build_lifecycle(
-                    pool.clone(),
-                    lock_pool,
-                    provision_deps
-                        .clone()
-                        .ok_or("provision dependencies missing with database pool")?,
-                    sandbox_runtime.clone(),
-                    sandbox_connector.clone(),
-                    default_sandbox_image.clone(),
-                    event_publisher.clone(),
-                ))
+                Some(
+                    ports.build_lifecycle(
+                        lock_pool,
+                        provision_deps
+                            .clone()
+                            .ok_or("provision dependencies missing with database pool")?,
+                        sandbox_runtime.clone(),
+                        sandbox_connector.clone(),
+                        default_sandbox_image.clone(),
+                        event_publisher.clone(),
+                    ),
+                )
             }
             None => None,
         };
@@ -360,8 +364,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Auth routes (needs DB)
     let mut auth_middleware_state: Option<auth::middleware::AuthMiddlewareState> = None;
-    if let Some(ref pool) = db_pool {
-        let auth_state = auth::routes::AuthState::new(pool.clone(), Arc::new(config.clone()));
+    if let Some(ref ports) = ports {
+        let auth_state = auth::routes::AuthState::new(ports, Arc::new(config.clone()));
 
         // Build middleware state sharing the same repos and cache
         auth_middleware_state = Some(auth::middleware::AuthMiddlewareState {
@@ -386,25 +390,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ingress_relay: Option<IngressRelayHandle> = None;
 
     // Domain routes (need DB)
-    if let Some(pool) = db_pool {
-        // Build the GitHub App registry once and share it between AppState and
-        // the adapter layer so they hit the same token cache.
-        let github_apps = Arc::new(crate::auth::github::registry::GitHubAppRegistry::new(
-            crate::auth::github::service::GitHubAppService::from_config(&config).map(Arc::new),
-            Some(Arc::new(
-                moatless_vibe_backend::adapter_apps::dao::PgAdapterAppDao(pool.clone()),
-            )),
-            crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
-        ));
-        // Off the boot path: carrying over proves each App against GitHub, and
-        // the API must not wait on GitHub to start answering.
-        tokio::spawn({
-            let github_apps = github_apps.clone();
-            let entries = config.auth.github_apps.clone();
-            async move { github_apps.carry_over_env_apps(&entries).await }
-        });
-        let adapter_registry =
-            adapters::Adapters::from_config(&config, pool.clone(), github_apps.clone()).await;
+    if let Some(ports) = ports {
+        let adapter_registry = adapters::Adapters::from_config(&config, &ports).await;
         // The shared lifecycle was built above; it is present whenever the DB is.
         let lifecycle = lifecycle
             .ok_or("lifecycle handle required to build AppState (missing database pool)")?;
@@ -412,9 +399,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox::lifecycle::GrpcNotify::new(sandbox_connector.clone()),
         );
         let app_state = AppState::new(
-            pool,
-            lifecycle,
+            &ports,
             Arc::new(config.clone()),
+            lifecycle,
             sandbox_connector.clone(),
             Arc::new(crate::task::reaper::ConnectorAgentStatus::new(
                 sandbox_connector.clone(),
@@ -423,7 +410,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             event_publisher,
             s3_client,
             adapter_registry.map(Arc::new),
-            github_apps,
         );
 
         // The browser tabs open on each Task. Built at the composition root
@@ -476,22 +462,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_state.clone(),
         ));
         if let Some(t3code_router) = {
-            let ui_rpc_conversations = Arc::new(moatless_t3code::dao::PgConversationDao::new(
-                app_state.db.clone(),
-            ));
+            let ui_rpc_conversations = ports.ui_rpc_conversations.clone();
             moatless_t3code::router_from_env(moatless_t3code::UiRpcDependencies {
                 session_cookie_name: config.auth.session_cookie_name.clone(),
                 session_jwt_secret: auth::jwt::get_jwt_secret(&config).map(String::from),
-                pairing: Arc::new(auth::pairing::DevicePairing::new(
-                    Arc::new(auth::pairing::PgPairingCodeDao(app_state.db.clone())),
-                    Arc::new(auth::pairing::PgPairingApiKeyIssuer(Arc::new(
-                        auth::api_keys::PgApiKeyDao(app_state.db.clone()),
-                    ))),
-                )),
+                pairing: ports.pairing.clone(),
                 workspaces: ui_rpc_conversations.clone(),
                 conversations: ui_rpc_conversations.clone(),
-                sandboxes: ui_rpc_sandbox_connector.clone(),
-                observer: ui_rpc_sandbox_observer.clone(),
+                sandboxes: sandbox_connector.clone(),
+                observer: t3code::projection::contract_observer(sandbox_observer.clone()),
                 diagnostics: cluster_diagnostics.clone(),
                 tasks: ui_rpc_conversations,
                 intent: app_state.sandbox.clone(),
@@ -539,12 +518,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // admin credential is unreachable, and continuing would produce a
         // server nobody can log into.
         if config.auth.provider == moatless_vibe_backend::config::AuthProvider::Local {
-            let credentials = moatless_vibe_backend::auth::password::dao::PgUserCredentialDao(
-                app_state.db.clone(),
-            );
             auth::password::bootstrap::ensure_local_admin(
-                app_state.users.as_ref(),
-                &credentials,
+                ports.users.as_ref(),
+                ports.user_credentials.as_ref(),
                 &config.auth,
             )
             .await
@@ -553,8 +529,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Ensure test API user + key (if configured)
         if let Some(ref key) = config.auth.test_api_key {
-            let api_keys = moatless_vibe_backend::auth::api_keys::PgApiKeyDao(app_state.db.clone());
-            auth::test_user::ensure_test_user(app_state.users.as_ref(), &api_keys, key).await;
+            auth::test_user::ensure_test_user(ports.users.as_ref(), ports.api_keys.as_ref(), key)
+                .await;
         }
 
         // Background workers
@@ -603,10 +579,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // registered per Adapter — an empty registry simply means this build
         // claims no kinds.
         let mut adapter_delivery_handlers = adapters::delivery::AdapterDeliveryHandlers::new();
-        adapters::delivery::register_builtin_delivery_handlers(
-            &mut adapter_delivery_handlers,
-            &app_state,
-        );
+        register_builtin_delivery_handlers(&mut adapter_delivery_handlers, &app_state);
         let adapter_delivery_handlers = Arc::new(adapter_delivery_handlers);
         supervisor.supervise(
             "adapter-delivery-worker",
@@ -658,8 +631,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_lease_duration(120);
             Arc::new(K8sLeaderGuard(election)) as Arc<dyn LeaderGuard>
         });
-        let reconciler = moatless_vibe_backend::state::build_reconciler(
-            app_state.db.clone(),
+        let reconciler = ports.build_reconciler(
             app_state.sandbox.clone(),
             sandbox_fleet_observer,
             sandbox_notify,

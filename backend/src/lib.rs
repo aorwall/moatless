@@ -17,6 +17,7 @@ pub mod adapters;
 pub mod agent;
 pub mod auth;
 pub mod bindings;
+pub mod compose;
 pub mod config;
 pub mod credentials;
 pub mod db;

@@ -1,18 +1,14 @@
-//! Slack identity resolution, by use case.
+//! Slack identity resolution.
 //!
-//! Three callers, one place: the bot's own identity at construction, the
-//! inbound sender during normalization, and the `AdapterUserIdentity` lookup
-//! the shared reply paths use. Every `users` / `user_provider_ids` query the
-//! Slack Adapter makes lives here.
+//! One use case: resolving the inbound sender during normalization. Every
+//! `users` / `user_provider_ids` query the Slack Adapter makes lives here.
 
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::AdapterUserIdentity;
 use crate::db::DbPool;
 
-use super::adapter::SlackAdapter;
 use super::api::{SlackApi, SlackUserInfo};
 
 /// What one inbound Slack sender resolved to.
@@ -131,8 +127,7 @@ pub(super) async fn user_by_slack_id(
     }
 }
 
-/// Look up a local system user by email. Shared by the inbound sender use case
-/// and by the `AdapterUserIdentity` impl below.
+/// Look up a local system user by email, for inbound sender normalization.
 pub(super) async fn user_by_email(
     db: &DbPool,
     identity: &str,
@@ -219,51 +214,11 @@ pub(super) async fn bot_user_id(api: &SlackApi, configured: Option<&str>) -> Opt
     }
 }
 
-#[async_trait::async_trait]
-impl AdapterUserIdentity for SlackAdapter {
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        db: &DbPool,
-    ) -> Result<Option<String>, AdapterError> {
-        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
-        let Some(info) = app.api.get_user_info(identity).await? else {
-            warn!(slack_user = %identity, "Slack users.info returned no user");
-            return Ok(None);
-        };
-
-        // Bot / app accounts share emails across deployments — never resolve them by email.
-        if info.is_bot || info.is_app_user {
-            tracing::info!(
-                slack_user = %identity,
-                is_bot = info.is_bot,
-                is_app_user = info.is_app_user,
-                handle = %info.handle.as_deref().unwrap_or(""),
-                "Slack user is a bot/app account — skipping email-based user mapping"
-            );
-            return Ok(None);
-        }
-
-        let Some(email) = info.email else {
-            warn!(slack_user = %identity, "Slack API returned no email for user");
-            return Ok(None);
-        };
-
-        // The trait speaks `String` for every provider, so the id is rendered
-        // here rather than carried as one.
-        Ok(user_by_email(db, identity, &email)
-            .await?
-            .map(|id| id.to_string()))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::adapters::test_support::ProviderStub;
-    use crate::adapters::AdapterUserIdentity;
     use crate::db::DbPool;
 
-    use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;
     use super::{bot_user_id, resolve_inbound_sender, SenderIdentity};
 
@@ -383,52 +338,6 @@ mod tests {
         };
         assert_eq!(email, None);
         assert_eq!(handle, None, "no user info, so no handle to record");
-    }
-
-    #[tokio::test]
-    async fn a_bot_account_is_never_resolved_by_the_identity_capability() {
-        let stub = stub(bot("soapbot")).await;
-        let adapter = SlackAdapter::with_api(api(&stub), "secret", None);
-
-        assert_eq!(
-            adapter
-                .resolve_user("U1BOT", &unreachable_pool())
-                .await
-                .expect("a bot is dropped before the email query"),
-            None
-        );
-    }
-
-    #[tokio::test]
-    async fn a_user_without_an_email_is_never_resolved_by_the_identity_capability() {
-        let stub = stub(serde_json::json!({
-            "ok": true,
-            "user": { "id": "U1", "name": "alice", "is_bot": false, "profile": {} }
-        }))
-        .await;
-        let adapter = SlackAdapter::with_api(api(&stub), "secret", None);
-
-        assert_eq!(
-            adapter
-                .resolve_user("U1", &unreachable_pool())
-                .await
-                .expect("no email means no query"),
-            None
-        );
-    }
-
-    #[tokio::test]
-    async fn an_absent_user_is_never_resolved_by_the_identity_capability() {
-        let stub = stub(serde_json::json!({"ok": true})).await;
-        let adapter = SlackAdapter::with_api(api(&stub), "secret", None);
-
-        assert_eq!(
-            adapter
-                .resolve_user("U1", &unreachable_pool())
-                .await
-                .expect("no user means no query"),
-            None
-        );
     }
 
     #[tokio::test]

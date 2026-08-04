@@ -13,7 +13,8 @@ use urlencoding;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use crate::adapters::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::compose::Ports;
 use crate::config::{AuthProvider, Config};
 use crate::db::DbPool;
 use crate::error::ErrorBody;
@@ -32,11 +33,11 @@ use super::identity::AuthIdentity;
 use super::jwt::{self, SessionClaims};
 use super::models::UserRole;
 use super::oauth::provider::OAuthProvider;
-use super::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
+use super::provider_token_dao::ProviderTokenDao;
 use super::provider_tokens::ProviderTokenAuthDao;
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 
-use super::pairing::{DevicePairing, PgPairingApiKeyIssuer};
+use super::pairing::DevicePairing;
 use super::password::dao::UserCredentialDao;
 use super::password::hash;
 use super::password::throttle::LoginThrottle;
@@ -150,52 +151,27 @@ pub struct AuthState {
 }
 
 impl AuthState {
-    /// Build auth state with Postgres-backed DAOs.
-    pub fn new(pool: DbPool, config: Arc<Config>) -> Self {
-        use super::api_keys::PgApiKeyDao;
-        use super::provider_tokens::PgProviderTokenAuthDao;
-        use super::sessions::PgSessionDao;
-        use super::users::PgUserDao;
-
+    /// Build auth state over the ports the composition root assembled.
+    pub fn new(ports: &Ports, config: Arc<Config>) -> Self {
         let providers = OAuthProviders::from_config(&config);
         let cache = AuthCache::new(config.auth.cache_ttl_secs);
-        let tasks: Option<Arc<dyn crate::task::dao::TaskDao>> =
-            Some(Arc::new(crate::task::dao::PgTaskDao(pool.clone())));
-        let github_apps = Arc::new(GitHubAppRegistry::new(
-            super::github::service::GitHubAppService::from_config(&config).map(Arc::new),
-            Some(Arc::new(crate::adapter_apps::dao::PgAdapterAppDao(
-                pool.clone(),
-            ))),
-            crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
-        ));
-        let github_app_service = github_apps.default_service();
-        let secrets = Arc::new(SecretService::new(
-            Arc::new(crate::secret::dao::PgSecretDao(pool.clone())),
-            Arc::new(crate::secret::audit::PgSecretAuditDao(pool.clone())),
-            crate::secret::service::LocalEnvelopeSecretCipher::from_config(&config.secrets),
-        ));
-        let api_keys: Arc<dyn ApiKeyDao> = Arc::new(PgApiKeyDao(pool.clone()));
-        let pairing = Arc::new(DevicePairing::new(
-            Arc::new(super::pairing::PgPairingCodeDao(pool.clone())),
-            Arc::new(PgPairingApiKeyIssuer(api_keys.clone())),
-        ));
         Self {
-            sessions: Arc::new(PgSessionDao(pool.clone())),
-            api_keys,
-            pairing,
-            users: Arc::new(PgUserDao(pool.clone())),
-            credentials: Arc::new(super::password::dao::PgUserCredentialDao(pool.clone())),
+            sessions: ports.sessions.clone(),
+            api_keys: ports.api_keys.clone(),
+            pairing: ports.pairing.clone(),
+            users: ports.users.clone(),
+            credentials: ports.user_credentials.clone(),
             login_throttle: LoginThrottle::new(),
-            provider_tokens: Arc::new(PgProviderTokenAuthDao(pool.clone())),
-            provider_tokens_dao: Arc::new(PgProviderTokenDao(pool.clone())),
-            adapter_connections: Arc::new(PgAdapterConnectionDao(pool.clone())),
-            github_app_service,
-            github_apps,
-            secrets,
+            provider_tokens: ports.provider_token_auth.clone(),
+            provider_tokens_dao: ports.provider_tokens.clone(),
+            adapter_connections: ports.adapter_connections.clone(),
+            github_app_service: ports.github_app_service.clone(),
+            github_apps: ports.github_apps.clone(),
+            secrets: ports.secrets.clone(),
             providers: Arc::new(providers),
             cache,
-            tasks,
-            db: pool,
+            tasks: Some(ports.tasks.clone()),
+            db: ports.pool.clone(),
             config,
         }
     }

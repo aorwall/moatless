@@ -123,10 +123,7 @@ async fn run_worker_until_terminal(
     budget: Duration,
 ) {
     let mut handlers = AdapterDeliveryHandlers::new();
-    moatless_vibe_backend::adapters::delivery::register_builtin_delivery_handlers(
-        &mut handlers,
-        state,
-    );
+    moatless_vibe_backend::compose::register_builtin_delivery_handlers(&mut handlers, state);
 
     let cancel = CancellationToken::new();
     let handle = spawn_adapter_delivery_worker(

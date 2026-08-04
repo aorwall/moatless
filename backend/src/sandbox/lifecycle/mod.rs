@@ -86,17 +86,17 @@ pub use types::{
 };
 
 // The desired-state reconciler and its production fleet-observer adapters,
-// assembled by `state::build_reconciler` and spawned by `main`.
+// assembled by `compose::Ports::build_reconciler` and spawned by `main`.
 pub use observe::{DockerFleetObserver, GrpcNotify, K8sFleetObserver};
 pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig, RuntimeObservation};
 
-// The system clock `state` hands to the `Lifecycle` and `Reconciler`. The ports,
-// runtime seam, and correlation internals are named through their defining
-// submodules (`super::orchestrator`, `super::runtime`, `super::types`), so no
-// curated re-export widens them.
+// The system clock the composition root hands to the `Lifecycle` and
+// `Reconciler`. The ports, runtime seam, and correlation internals are named
+// through their defining submodules (`super::orchestrator`, `super::runtime`,
+// `super::types`), so no curated re-export widens them.
 pub(crate) use orchestrator::SystemWallClock;
 
-// The concrete port adapters `AppState` assembles into a `Lifecycle`.
+// The concrete port adapters the composition root assembles into a `Lifecycle`.
 pub(crate) use agent_stop::GrpcAgentStop;
 pub(crate) use dao::PgLifecycleDao;
 pub(crate) use event_sink::OutboxEventSink;

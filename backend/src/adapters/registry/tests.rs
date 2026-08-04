@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::super::capabilities::{Adapter, AdapterIdentity};
+use super::super::capabilities::Adapter;
 use super::Adapters;
 use crate::adapters::error::AdapterError;
 use crate::auth::github::registry::GitHubAppRegistry;
@@ -15,7 +15,7 @@ struct IdentityOnlyProvider {
     kind: AdapterKind,
 }
 
-impl AdapterIdentity for IdentityOnlyProvider {
+impl Adapter for IdentityOnlyProvider {
     fn adapter_kind(&self) -> AdapterKind {
         self.kind
     }
@@ -84,11 +84,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
         AdapterKind::Linear,
     ] {
         assert!(providers.get(kind).is_some(), "{kind:?} identity adapter");
-        assert!(providers.identity(kind).is_ok(), "{kind:?} identity");
-        assert!(
-            providers.user_identity(kind).is_ok(),
-            "{kind:?} user identity"
-        );
         assert!(
             providers
                 .outbound_for_binding_reply_by_name(kind.as_str())
@@ -103,8 +98,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
         );
     }
     assert!(providers.get(AdapterKind::Webhook).is_some());
-    assert!(providers.identity(AdapterKind::Webhook).is_ok());
-    assert!(providers.user_identity(AdapterKind::Webhook).is_ok());
     assert!(providers
         .outbound_for_binding_reply_by_name("webhook")
         .is_ok());
@@ -254,11 +247,39 @@ async fn capability_lookup_by_name_preserves_provider_aliases() {
     }
 }
 
+/// Name resolution reads the `Adapter` map, not a separate identity map. It must
+/// still resolve a kind's canonical key, its provider aliases, and an unknown
+/// name exactly as before — the `github` connection alias resolving to the
+/// `github_pr` provider key is the case a silent regression here would break.
+#[tokio::test]
+async fn name_resolution_resolves_against_the_adapter_map() {
+    let providers = registry_with_all_current_adapters();
+
+    assert_eq!(providers.provider_key_for_name("slack"), Some("slack"));
+    assert_eq!(
+        providers.provider_key_for_name("github_pr"),
+        Some("github_pr")
+    );
+    // `github` is GitHub PR's connection alias; the provider key it maps to is
+    // the adapter target key `github_pr`.
+    assert_eq!(providers.provider_key_for_name("github"), Some("github_pr"));
+    assert_eq!(providers.provider_key_for_name("nope"), None);
+
+    let github = providers
+        .identity_by_name("github")
+        .expect("github alias resolves to an adapter");
+    assert_eq!(github.adapter_kind(), AdapterKind::GithubPr);
+    assert_eq!(github.provider_key(), "github_pr");
+    assert_eq!(github.connection_provider_key(), "github");
+
+    assert!(providers.identity_by_name("nope").is_none());
+}
+
 #[tokio::test]
 async fn missing_outbound_capability_returns_registry_owned_error() {
     let mut providers = Adapters::new();
     let kind = AdapterKind::Slack;
-    providers.register_identity(Arc::new(IdentityOnlyProvider { kind }));
+    providers.register_trait_object(Arc::new(IdentityOnlyProvider { kind }));
 
     match providers.outbound_for_direct_destination(kind) {
         Err(AdapterError::BadRequest(msg)) => {

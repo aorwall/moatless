@@ -24,8 +24,9 @@ use super::naming::{
 };
 use super::status_resolver::DockerStatusResolver;
 use crate::config::Config;
-use crate::sandbox::access::{SandboxConnector, SandboxObserver};
 use crate::sandbox::client::SandboxClient;
+use crate::sandbox::status_reader::SandboxStatusReader;
+use moatless_backend_core::sandbox as core_sandbox;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt;
 use crate::sandbox::lifecycle::outcome::{DegradationWarning, Diagnostics, ServerFailure};
@@ -580,7 +581,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
 }
 
 #[async_trait]
-impl SandboxObserver for DockerSandboxAdapter {
+impl SandboxStatusReader for DockerSandboxAdapter {
     async fn sandbox_status(
         &self,
         task_id: &str,
@@ -624,15 +625,33 @@ impl SandboxObserver for DockerSandboxAdapter {
 }
 
 #[async_trait]
-impl SandboxConnector for DockerSandboxAdapter {
-    async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError> {
-        self.require_sandbox_ready(task_id).await?;
+impl core_sandbox::SandboxConnector for DockerSandboxAdapter {
+    async fn sandbox_client(
+        &self,
+        task_id: &str,
+    ) -> Result<SandboxClient, core_sandbox::SandboxError> {
+        self.require_sandbox_ready(task_id)
+            .await
+            .map_err(SandboxError::into_contract)?;
         let container_name = generate_container_name(task_id);
         let url = format!(
             "http://{}:{}",
             container_name, self.config.sandbox.grpc_port
         );
-        SandboxClient::connect(&url).map_err(SandboxError::GrpcClient)
+        SandboxClient::connect(&url)
+            .map_err(|e| core_sandbox::SandboxError::GrpcClient(e.to_string()))
+    }
+}
+
+/// Local Docker has no fleet-wide view — a container is only ever addressed by
+/// its Task. Empty rather than an error, so the diagnostics page renders
+/// normally under `docker-compose`.
+#[async_trait]
+impl core_sandbox::ClusterDiagnostics for DockerSandboxAdapter {
+    async fn list_sandbox_diagnostics(
+        &self,
+    ) -> Result<Vec<core_sandbox::SandboxDiagnosticsEntry>, core_sandbox::SandboxError> {
+        Ok(Vec::new())
     }
 }
 

@@ -22,7 +22,6 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, ADAPTER_EVENT_BINDING_ORIGIN};
-use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 use crate::task::models::Visibility;
 
@@ -207,7 +206,8 @@ async fn provision_issue_task(
     cfg: &LinearRuleConfig,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
-    let existing = PgTaskBindingDao(state.db.clone())
+    let existing = state
+        .task_bindings
         .find_active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
         .await?;
     if existing
@@ -397,7 +397,7 @@ async fn persist_issue_status(
     connection: &AdapterConnection,
     issue: &IssuePayload,
 ) {
-    let repo = PgTaskBindingDao(state.db.clone());
+    let repo = state.task_bindings.clone();
     let status = super::status::linear_external_status(
         issue.state_name(),
         issue.state_kind(),

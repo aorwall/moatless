@@ -129,19 +129,6 @@ pub(crate) use typed::{
 pub use worker::spawn_adapter_delivery_worker;
 
 use crate::adapters::error::AdapterError;
-use crate::state::AppState;
-
-/// Register every built-in provider's durable delivery handlers.
-pub fn register_builtin_delivery_handlers(
-    handlers: &mut AdapterDeliveryHandlers,
-    state: &AppState,
-) {
-    crate::adapters::slack::delivery::register(handlers, state);
-    crate::adapters::telegram::delivery::register(handlers, state);
-    crate::adapters::github_pr::delivery::register(handlers, state);
-    crate::adapters::linear::delivery::register(handlers, state);
-    crate::adapters::webhook::delivery::register(handlers, state);
-}
 
 /// Admission failures reach the sender as "not accepted, send it again".
 ///

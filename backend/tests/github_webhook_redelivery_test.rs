@@ -36,8 +36,7 @@ use moatless_vibe_backend::adapters::delivery::{
 };
 use moatless_vibe_backend::adapters::routes::adapter_router;
 use moatless_vibe_backend::adapters::Adapters;
-use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
-use moatless_vibe_backend::auth::github::service::GitHubAppService;
+use moatless_vibe_backend::compose::compose;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
@@ -176,12 +175,7 @@ async fn registered_replica(
     config.auth.frontend_url = "https://app.example.com".to_string();
     config.github_pr.webhook_secret = webhook_secret.map(str::to_string);
     config.github_pr.bot_token = bot_token.map(str::to_string);
-    let github_apps = Arc::new(GitHubAppRegistry::new(
-        GitHubAppService::from_config(&config).map(Arc::new),
-        None,
-        None,
-    ));
-    let adapters = Adapters::from_config(&config, pool.clone(), github_apps)
+    let adapters = Adapters::from_config(&config, &compose(pool.clone(), &config))
         .await
         .expect("GitHub PR adapter configured");
     test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)))
@@ -533,10 +527,7 @@ async fn delivery_payload(pool: &PgPool, kind: &str, event_id: &str) -> Option<s
 /// Run the worker until `done` holds or the budget elapses, then cancel it.
 async fn run_worker_until(state: &AppState, budget: Duration, done: impl AsyncFn() -> bool) {
     let mut handlers = AdapterDeliveryHandlers::new();
-    moatless_vibe_backend::adapters::delivery::register_builtin_delivery_handlers(
-        &mut handlers,
-        state,
-    );
+    moatless_vibe_backend::compose::register_builtin_delivery_handlers(&mut handlers, state);
     let cancel = CancellationToken::new();
     let handle = spawn_adapter_delivery_worker(
         state.adapter_delivery.clone(),

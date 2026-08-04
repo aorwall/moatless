@@ -15,7 +15,6 @@
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
 use super::webhook_payloads::{AgentSession, IssuePayload};
@@ -106,7 +105,7 @@ pub(super) async fn comment_recipients(
     connection: &AdapterConnection,
     issue_id: &str,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
-    let binding_repo = PgTaskBindingDao(state.db.clone());
+    let binding_repo = state.task_bindings.clone();
     let mut rows = Vec::new();
     for subject_kind in [SUBJECT_KIND_SESSION, SUBJECT_KIND_ISSUE] {
         rows.extend(
@@ -134,7 +133,8 @@ pub(super) async fn active_bindings_on_issue(
     subject_kind: &str,
     issue_id: &str,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
-    let rows = PgTaskBindingDao(state.db.clone())
+    let rows = state
+        .task_bindings
         .find_active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
         .await?;
     Ok(rows

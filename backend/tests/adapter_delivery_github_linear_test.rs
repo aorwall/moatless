@@ -240,10 +240,7 @@ fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterDel
 /// The registry the running process builds, assembled the same way `main` does.
 fn registered_handlers(state: &AppState) -> Arc<AdapterDeliveryHandlers> {
     let mut handlers = AdapterDeliveryHandlers::new();
-    moatless_vibe_backend::adapters::delivery::register_builtin_delivery_handlers(
-        &mut handlers,
-        state,
-    );
+    moatless_vibe_backend::compose::register_builtin_delivery_handlers(&mut handlers, state);
     Arc::new(handlers)
 }
 

@@ -41,6 +41,14 @@ rust:gc` drops `incremental/` once it passes its threshold; compiled
 dependencies in `deps/` survive, so only the next build per configuration is
 non-incremental.
 
+In a sandbox the workspace volume is capped and overflowing it **evicts the
+pod** — the run dies and only committed work survives. `/opt/moatless` holds
+the checkout and `target/`, so check `df -h /opt/moatless` before the first
+full build and between commits, and run `task rust:gc` when it tightens.
+`cargo clean` is the wrong reflex: it discards `deps/` too, so the next build
+recompiles every dependency into the same volume. Commit each logical change as
+it goes green rather than batching, so an eviction costs one commit.
+
 The backend's clippy line carries `--features db-tests` because 39 of the 40
 files in `backend/tests` open with `#![cfg(feature = "db-tests")]` and compile to
 nothing without it — a signature they construct can change and a bare

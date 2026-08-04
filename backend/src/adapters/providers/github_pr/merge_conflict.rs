@@ -5,7 +5,6 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
 use crate::adapters::AdapterKind;
-use crate::bindings::dao::PgTaskBindingDao;
 use crate::state::AppState;
 
 use super::signals::MergeableState;
@@ -73,7 +72,8 @@ pub(super) async fn execute(
     let subject = GithubPrSubject::new(&execution.owner, &execution.repo, execution.pr_number);
     let subject_key = subject.key();
 
-    if !PgTaskBindingDao(state.db.clone())
+    if !state
+        .task_bindings
         .find_by_subject("github", "github_pr", &subject_key)
         .await?
         .iter()
@@ -173,7 +173,7 @@ async fn record_state_and_notify(
     pr_is_open: bool,
     conflict_message: &InboundMessage,
 ) {
-    let binding_repo = PgTaskBindingDao(state.db.clone());
+    let binding_repo = state.task_bindings.clone();
     let bindings = match binding_repo
         .find_by_subject("github", "github_pr", subject_key)
         .await

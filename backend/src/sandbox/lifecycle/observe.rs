@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::sandbox::access::{SandboxConnector, SandboxObserver};
+use crate::sandbox::status_reader::SandboxStatusReader;
+use moatless_backend_core::sandbox::SandboxConnector;
 use crate::sandbox::docker::client::DockerClient;
 use crate::sandbox::docker::container_builder::{SANDBOX_SERVICE, SERVICE_LABEL};
 use crate::sandbox::docker::naming::generate_container_name;
@@ -23,7 +24,7 @@ use super::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 
 /// Confirm a Task's status authoritatively via the observer's live-status read.
 async fn confirm(
-    observer: &Arc<dyn SandboxObserver>,
+    observer: &Arc<dyn SandboxStatusReader>,
     task_id: &str,
     task_status: TaskStatus,
     desired_state: SandboxDesiredState,
@@ -38,11 +39,11 @@ async fn confirm(
 /// Kubernetes fleet observer: one Deployment LIST → coarse status per Task.
 pub struct K8sFleetObserver {
     k8s: K8sClient,
-    observer: Arc<dyn SandboxObserver>,
+    observer: Arc<dyn SandboxStatusReader>,
 }
 
 impl K8sFleetObserver {
-    pub fn new(k8s: K8sClient, observer: Arc<dyn SandboxObserver>) -> Self {
+    pub fn new(k8s: K8sClient, observer: Arc<dyn SandboxStatusReader>) -> Self {
         Self { k8s, observer }
     }
 }
@@ -100,11 +101,11 @@ impl FleetObserver for K8sFleetObserver {
 /// → coarse status per Task.
 pub struct DockerFleetObserver {
     docker: DockerClient,
-    observer: Arc<dyn SandboxObserver>,
+    observer: Arc<dyn SandboxStatusReader>,
 }
 
 impl DockerFleetObserver {
-    pub fn new(docker: DockerClient, observer: Arc<dyn SandboxObserver>) -> Self {
+    pub fn new(docker: DockerClient, observer: Arc<dyn SandboxStatusReader>) -> Self {
         Self { docker, observer }
     }
 }

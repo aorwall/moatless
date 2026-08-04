@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
+use moatless_backend_core::sandbox::SandboxConnector;
+use moatless_backend_core::sandbox::SandboxError;
+use moatless_vibe_backend::compose::compose;
 use moatless_vibe_backend::config::{
     AuthConfig, AuthProvider, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig,
     GithubPrConfig, LinearConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
@@ -15,16 +17,14 @@ use moatless_vibe_backend::config::{
 };
 use moatless_vibe_backend::message::models::{MessageRole, MessageType, TaskMessage};
 use moatless_vibe_backend::repository::models::{Repository, RepositoryKind, RepositoryProvider};
-use moatless_vibe_backend::sandbox::access::SandboxConnector;
 use moatless_vibe_backend::sandbox::client::SandboxClient;
-use moatless_vibe_backend::sandbox::error::SandboxError;
 use moatless_vibe_backend::sandbox::lifecycle::{
     ArchiveRetention, NotifyPort, ObservedStatus, ProvisionDeps, RuntimeOperationContext,
     RuntimeOutcome, SandboxRuntime,
 };
 use moatless_vibe_backend::scope::ScopeContext;
 use moatless_vibe_backend::shared_models::AgentType;
-use moatless_vibe_backend::state::{AppState, build_lifecycle};
+use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_vibe_backend::task::reaper::AgentStatusPort;
 use moatless_vibe_backend::workspace::models::{Workspace, WorkspaceRepo};
@@ -97,7 +97,7 @@ pub struct MockSandboxConnector;
 #[async_trait]
 impl SandboxConnector for MockSandboxConnector {
     async fn sandbox_client(&self, _task_id: &str) -> Result<SandboxClient, SandboxError> {
-        Err(SandboxError::Internal("mock: not implemented".into()))
+        Err(SandboxError::Other("mock: not implemented".into()))
     }
 }
 
@@ -350,37 +350,33 @@ pub fn test_app_state_with_config(
     adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
     config: Config,
 ) -> AppState {
-    let github_apps = Arc::new(GitHubAppRegistry::new(
-        moatless_vibe_backend::auth::github::service::GitHubAppService::from_config(&config)
-            .map(Arc::new),
-        Some(Arc::new(
-            moatless_vibe_backend::adapter_apps::dao::PgAdapterAppDao(pool.clone()),
-        )),
-        moatless_vibe_backend::secret::service::LocalEnvelopeSecretCipher::from_config(
-            &config.secrets,
-        ),
-    ));
+    let ports = compose(pool.clone(), &config);
+    let config = Arc::new(config);
     let connector: Arc<dyn SandboxConnector> = Arc::new(MockSandboxConnector);
-    let lifecycle = build_lifecycle(
+    let lifecycle = ports.build_lifecycle(
         pool.clone(),
-        pool.clone(),
-        ProvisionDeps::from_pool(&pool),
+        ProvisionDeps::new(
+            ports.tasks.clone(),
+            ports.repositories.clone(),
+            ports.provider_tokens.clone(),
+            ports.plugins.clone(),
+            ports.workspaces.clone(),
+        ),
         Arc::new(MockSandboxRuntime),
         connector.clone(),
         "mock-sandbox:latest".into(),
         None,
     );
     AppState::new(
-        pool.clone(),
+        &ports,
+        config,
         lifecycle,
-        Arc::new(config),
         connector,
         Arc::new(MockAgentStatus),
         Arc::new(MockNotify),
         None, // events
         None, // s3
         adapters,
-        github_apps,
     )
 }
 

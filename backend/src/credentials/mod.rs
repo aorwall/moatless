@@ -31,7 +31,7 @@ use crate::auth::provider_tokens::{
 };
 use crate::auth::token_refresh::ensure_fresh_token_with_dao;
 use crate::db::DbPool;
-use crate::sandbox::access::SandboxConnector;
+use moatless_backend_core::sandbox::SandboxConnector;
 use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;

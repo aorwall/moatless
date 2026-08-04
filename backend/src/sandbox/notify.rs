@@ -2,7 +2,7 @@
 
 use moatless_backend_core::scope::ScopeContext;
 
-use super::access::SandboxConnector;
+use moatless_backend_core::sandbox::SandboxConnector;
 use crate::sandbox::lifecycle::{LifecycleError, ObservedStatus};
 use crate::state::AppState;
 

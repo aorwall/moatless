@@ -33,7 +33,7 @@ use tower::ServiceExt as _;
 
 use moatless_vibe_backend::adapters::routes::adapter_router;
 use moatless_vibe_backend::adapters::Adapters;
-use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
+use moatless_vibe_backend::compose::compose;
 use moatless_vibe_backend::state::AppState;
 
 use common::{test_app_state_with_adapters, test_config};
@@ -53,8 +53,7 @@ async fn replica(pool: &PgPool) -> AppState {
     config.slack.signing_secret = Some(SIGNING_SECRET.to_string());
     config.slack.bot_user_id = Some("U0BOT".to_string());
 
-    let github_apps = Arc::new(GitHubAppRegistry::new(None, None, None));
-    let adapters = Adapters::from_config(&config, pool.clone(), github_apps)
+    let adapters = Adapters::from_config(&config, &compose(pool.clone(), &config))
         .await
         .expect("Slack adapter configured");
     test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)))

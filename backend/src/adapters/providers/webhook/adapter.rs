@@ -20,9 +20,7 @@ use crate::adapters::models::{
 };
 use crate::adapters::{
     Adapter, AdapterBindingReply, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
-    AdapterUserIdentity,
 };
-use crate::db::DbPool;
 
 /// Inbound webhook payload.
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
@@ -210,18 +208,6 @@ impl Default for WebhookAdapter {
 impl Adapter for WebhookAdapter {
     fn adapter_kind(&self) -> AdapterKind {
         AdapterKind::Webhook
-    }
-}
-
-#[async_trait::async_trait]
-impl AdapterUserIdentity for WebhookAdapter {
-    async fn resolve_user(
-        &self,
-        identity: &str,
-        _db: &DbPool,
-    ) -> Result<Option<String>, AdapterError> {
-        // Webhook users are passed directly as system user IDs
-        Ok(Some(identity.to_string()))
     }
 }
 
