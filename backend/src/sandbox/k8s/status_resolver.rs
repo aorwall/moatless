@@ -179,7 +179,10 @@ impl StatusResolver {
                 })
                 .collect()
         } else {
-            // For Stopped/NotFound, show configs with Starting status as fallback
+            // Stopped/NotFound/Terminating/Succeeded: no pod is serving, so the
+            // declared servers are listed as stopped. `Starting` here would
+            // promise a page that is about to load and leave every client
+            // spinning against an ingress with no backend.
             server_configs
                 .iter()
                 .map(|config| {
@@ -188,7 +191,7 @@ impl StatusResolver {
                         name: config.name.clone(),
                         label: config.label.clone().unwrap_or_else(|| config.name.clone()),
                         port: config.port,
-                        status: ServerStatus::Starting,
+                        status: ServerStatus::Stopped,
                         url,
                         error: None,
                         detail: None,

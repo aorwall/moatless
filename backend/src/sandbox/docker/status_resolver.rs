@@ -142,11 +142,31 @@ impl DockerStatusResolver {
             None,
         );
 
+        // The Task's declared servers are listed even with nothing running, so
+        // a client can show what the Task declares rather than an empty panel.
+        // No container is inspected: the sandbox is not running, so every one
+        // of them is stopped, and the exit code a torn-down server container
+        // left behind is not a failure of that server.
+        let servers = server_configs
+            .iter()
+            .map(|config| ServerEntry {
+                name: config.name.clone(),
+                label: config.label.clone().unwrap_or_else(|| config.name.clone()),
+                port: config.port,
+                status: ServerStatus::Stopped,
+                url: None,
+                error: None,
+                detail: None,
+                default: config.default,
+                capabilities: server_capabilities_from_config(config),
+            })
+            .collect();
+
         SandboxStatusFullResponse {
             sandbox_status: live_status.sandbox_status,
             sandbox_error: live_status.sandbox_error,
             agent_status: live_status.agent_status,
-            servers: vec![],
+            servers,
             resources: None,
             container_diagnostics: None,
             runtime_events: None,
