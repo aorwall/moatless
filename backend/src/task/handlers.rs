@@ -1031,7 +1031,11 @@ async fn maybe_sync_repo_config_on_start(
     // Automatic sync: workspaces the user overrode from the UI/CLI stay
     // overridden — only an explicit sync-config or reset-git reclaims them.
     let force = crate::workspace::git_sync::SyncForce::RespectOverrides;
-    match crate::workspace::git_sync::sync_repo_workspaces(state, repo, auth, &force).await {
+    match state
+        .git_sync
+        .sync_repo_workspaces(repo, auth, &force)
+        .await
+    {
         Ok(workspaces) => {
             tracing::info!(
                 repository_id = %repo.id,

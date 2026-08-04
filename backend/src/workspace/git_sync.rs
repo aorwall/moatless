@@ -22,23 +22,25 @@
 //! tombstone and is only restored by resetting that specific workspace.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use chrono::Utc;
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::db::DbPool;
 use crate::extractors::AuthUser;
-use crate::repository::access::access_error_for;
+use crate::repository::access::{access_error_for, RepositoryTokenResolver};
 use crate::repository::config_reader::{
     fetch_provider_file, verify_repository_access, AccessStatus,
 };
-use crate::repository::dao::RepositoryPatch;
+use crate::repository::dao::{RepositoryDao, RepositoryPatch};
 use crate::repository::error::{is_remote_url_conflict, RepositoryError};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
 use crate::sandbox::models::ServerConfig;
-use crate::state::AppState;
-use crate::workspace::dao::{ensure_shadow_workspace, WorkspacePatch};
+use crate::workspace::dao::{ensure_shadow_workspace, WorkspaceDao, WorkspacePatch};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
 use moatless_backend_core::scope::ScopeContext;
@@ -207,152 +209,183 @@ enum UpsertOutcome {
     Skipped,
 }
 
-/// Fetch, resolve, and reconcile the workspaces declared in a repository.
-///
-/// `workspaces.json` wins when present (its entries are the desired set, and any
-/// `config.json` git workspace is pruned by reconcile-delete). Otherwise a
-/// present `config.json` flags the repo's shadow workspace `ws_<repo_id>` in
-/// place. Best-effort/non-fatal: callers log the outcome.
-pub async fn sync_repo_workspaces(
-    state: &AppState,
-    repo: &Repository,
-    auth: &AuthUser,
-    force: &SyncForce,
-) -> Result<WorkspaceSyncSummary, RepositoryError> {
-    let mut summary = WorkspaceSyncSummary::default();
+/// Reconciles a repository's git-declared workspaces, holding the ports the
+/// reconcile tree threads through every frame (the workspace, repository, and
+/// provider-token DAOs, the pool, and the repository token resolver).
+pub struct GitSyncService {
+    db: DbPool,
+    workspaces: Arc<dyn WorkspaceDao>,
+    repositories: Arc<dyn RepositoryDao>,
+    provider_tokens: Arc<dyn ProviderTokenDao>,
+    repo_token_resolver: Arc<RepositoryTokenResolver>,
+}
 
-    let Some(remote_url) = repo.remote_url.as_deref() else {
-        return Ok(summary);
-    };
-    let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-    let token = resolve_sync_token(state, repo, auth, provider, remote_url).await;
-    let token_str = token.as_deref();
-    let branch = repo.default_branch.as_deref();
+impl GitSyncService {
+    pub fn new(
+        db: DbPool,
+        workspaces: Arc<dyn WorkspaceDao>,
+        repositories: Arc<dyn RepositoryDao>,
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        repo_token_resolver: Arc<RepositoryTokenResolver>,
+    ) -> Self {
+        Self {
+            db,
+            workspaces,
+            repositories,
+            provider_tokens,
+            repo_token_resolver,
+        }
+    }
 
-    // source_keys present in git this round — reconcile-delete keeps only these.
-    let mut present: HashSet<String> = HashSet::new();
+    /// Fetch, resolve, and reconcile the workspaces declared in a repository.
+    ///
+    /// `workspaces.json` wins when present (its entries are the desired set, and any
+    /// `config.json` git workspace is pruned by reconcile-delete). Otherwise a
+    /// present `config.json` flags the repo's shadow workspace `ws_<repo_id>` in
+    /// place. Best-effort/non-fatal: callers log the outcome.
+    pub async fn sync_repo_workspaces(
+        &self,
+        repo: &Repository,
+        auth: &AuthUser,
+        force: &SyncForce,
+    ) -> Result<WorkspaceSyncSummary, RepositoryError> {
+        let mut summary = WorkspaceSyncSummary::default();
 
-    match fetch_moatless_workspaces(remote_url, branch, token_str, provider).await? {
-        Some(file) => {
-            // workspaces.json wins. Its entries are the desired set; the
-            // config.json git workspace (if any) is pruned by reconcile-delete
-            // because CONFIG_JSON_KEY is never inserted into `present`.
-            let mut seen_keys: HashSet<String> = HashSet::new();
-            for entry in &file.workspaces {
-                let source_key = source_key_for(entry);
-                if !seen_keys.insert(source_key.clone()) {
-                    // A duplicate source_key would violate workspaces_git_source_unique.
-                    warn!(repository_id = %repo.id, %source_key, "Duplicate workspace source_key; skipping later entry");
-                    summary.skipped.push(WorkspaceSyncSkip {
-                        source_key,
-                        reason: "duplicate source_key".to_string(),
-                    });
-                    continue;
-                }
-                if let Err(e) = validate_non_secret_env_vars(entry.env_vars.as_ref()) {
-                    warn!(repository_id = %repo.id, %source_key, error = %e, "Skipping workspace with invalid envVars");
-                    summary.skipped.push(WorkspaceSyncSkip {
-                        source_key,
-                        reason: e.to_string(),
-                    });
-                    continue;
-                }
+        let Some(remote_url) = repo.remote_url.as_deref() else {
+            return Ok(summary);
+        };
+        let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+        let token = self
+            .resolve_sync_token(repo, auth, provider, remote_url)
+            .await;
+        let token_str = token.as_deref();
+        let branch = repo.default_branch.as_deref();
 
-                let run = match run_config_from_entry(entry) {
-                    Ok(run) => run,
-                    Err(e) => {
+        // source_keys present in git this round — reconcile-delete keeps only these.
+        let mut present: HashSet<String> = HashSet::new();
+
+        match fetch_moatless_workspaces(remote_url, branch, token_str, provider).await? {
+            Some(file) => {
+                // workspaces.json wins. Its entries are the desired set; the
+                // config.json git workspace (if any) is pruned by reconcile-delete
+                // because CONFIG_JSON_KEY is never inserted into `present`.
+                let mut seen_keys: HashSet<String> = HashSet::new();
+                for entry in &file.workspaces {
+                    let source_key = source_key_for(entry);
+                    if !seen_keys.insert(source_key.clone()) {
+                        // A duplicate source_key would violate workspaces_git_source_unique.
+                        warn!(repository_id = %repo.id, %source_key, "Duplicate workspace source_key; skipping later entry");
                         summary.skipped.push(WorkspaceSyncSkip {
                             source_key,
-                            reason: format!("serialize run-config: {e}"),
+                            reason: "duplicate source_key".to_string(),
                         });
                         continue;
                     }
-                };
-                let placements = resolve_placements(state, repo, &entry.repos, auth).await?;
-
-                present.insert(source_key.clone());
-                let desired = DesiredWorkspace {
-                    fixed_id: None,
-                    source_key,
-                    source_config_path: ".moatless/workspaces.json".to_string(),
-                    name: entry.name.clone(),
-                    description: entry.description.clone(),
-                    run,
-                    placements,
-                };
-                record_outcome(
-                    &mut summary,
-                    upsert_git_workspace(state, repo, &desired, force).await?,
-                    &desired.source_key,
-                );
-            }
-        }
-        None => {
-            // Fall back to config.json: flag the repo's shadow workspace in place.
-            if let Some(config) =
-                fetch_moatless_config(remote_url, branch, token_str, provider).await?
-            {
-                let run = match run_config_from_moatless_config(&config) {
-                    Ok(run) => run,
-                    Err(e) => {
+                    if let Err(e) = validate_non_secret_env_vars(entry.env_vars.as_ref()) {
+                        warn!(repository_id = %repo.id, %source_key, error = %e, "Skipping workspace with invalid envVars");
                         summary.skipped.push(WorkspaceSyncSkip {
-                            source_key: CONFIG_JSON_KEY.to_string(),
-                            reason: format!("serialize run-config: {e}"),
+                            source_key,
+                            reason: e.to_string(),
                         });
-                        return Ok(summary);
+                        continue;
                     }
-                };
-                present.insert(CONFIG_JSON_KEY.to_string());
-                let desired = DesiredWorkspace {
-                    fixed_id: Some(format!("ws_{}", repo.id)),
-                    source_key: CONFIG_JSON_KEY.to_string(),
-                    source_config_path: ".moatless/config.json".to_string(),
-                    name: repo.name.clone(),
-                    description: repo.description.clone(),
-                    // The shadow mirrors the run-config declared in config.json.
-                    run,
-                    placements: vec![ResolvedPlacement {
-                        repository_id: repo.id.clone(),
-                        branch: None,
-                        mount_name: None,
-                        primary: true,
-                    }],
-                };
-                record_outcome(
-                    &mut summary,
-                    upsert_git_workspace(state, repo, &desired, force).await?,
-                    &desired.source_key,
-                );
-            } else {
-                debug!(repository_id = %repo.id, "No .moatless/workspaces.json or config.json; nothing to sync");
+
+                    let run = match run_config_from_entry(entry) {
+                        Ok(run) => run,
+                        Err(e) => {
+                            summary.skipped.push(WorkspaceSyncSkip {
+                                source_key,
+                                reason: format!("serialize run-config: {e}"),
+                            });
+                            continue;
+                        }
+                    };
+                    let placements = self.resolve_placements(repo, &entry.repos, auth).await?;
+
+                    present.insert(source_key.clone());
+                    let desired = DesiredWorkspace {
+                        fixed_id: None,
+                        source_key,
+                        source_config_path: ".moatless/workspaces.json".to_string(),
+                        name: entry.name.clone(),
+                        description: entry.description.clone(),
+                        run,
+                        placements,
+                    };
+                    record_outcome(
+                        &mut summary,
+                        self.upsert_git_workspace(repo, &desired, force).await?,
+                        &desired.source_key,
+                    );
+                }
+            }
+            None => {
+                // Fall back to config.json: flag the repo's shadow workspace in place.
+                if let Some(config) =
+                    fetch_moatless_config(remote_url, branch, token_str, provider).await?
+                {
+                    let run = match run_config_from_moatless_config(&config) {
+                        Ok(run) => run,
+                        Err(e) => {
+                            summary.skipped.push(WorkspaceSyncSkip {
+                                source_key: CONFIG_JSON_KEY.to_string(),
+                                reason: format!("serialize run-config: {e}"),
+                            });
+                            return Ok(summary);
+                        }
+                    };
+                    present.insert(CONFIG_JSON_KEY.to_string());
+                    let desired = DesiredWorkspace {
+                        fixed_id: Some(format!("ws_{}", repo.id)),
+                        source_key: CONFIG_JSON_KEY.to_string(),
+                        source_config_path: ".moatless/config.json".to_string(),
+                        name: repo.name.clone(),
+                        description: repo.description.clone(),
+                        // The shadow mirrors the run-config declared in config.json.
+                        run,
+                        placements: vec![ResolvedPlacement {
+                            repository_id: repo.id.clone(),
+                            branch: None,
+                            mount_name: None,
+                            primary: true,
+                        }],
+                    };
+                    record_outcome(
+                        &mut summary,
+                        self.upsert_git_workspace(repo, &desired, force).await?,
+                        &desired.source_key,
+                    );
+                } else {
+                    debug!(repository_id = %repo.id, "No .moatless/workspaces.json or config.json; nothing to sync");
+                }
             }
         }
-    }
 
-    // Reconcile-delete: soft-delete any git workspace for this repo whose
-    // source_key is no longer declared. Soft so in-flight tasks pointing at it
-    // keep working — provision lookups don't filter `deleted`.
-    let existing: Vec<(String, Option<String>)> = sqlx::query_as(
-        "SELECT id, source_key FROM workspaces \
+        // Reconcile-delete: soft-delete any git workspace for this repo whose
+        // source_key is no longer declared. Soft so in-flight tasks pointing at it
+        // keep working — provision lookups don't filter `deleted`.
+        let existing: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT id, source_key FROM workspaces \
          WHERE source_repository_id = $1 AND source = 'git' \
            AND (deleted IS NULL OR deleted = false)",
-    )
-    .bind(&repo.id)
-    .fetch_all(&state.db)
-    .await?;
-    // reason: git reconcile mirrors repository content across the repo's own
-    // workspaces; the caller's access to trigger the sync was already checked.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-    for (id, key) in existing {
-        let keep = key.as_deref().is_some_and(|k| present.contains(k));
-        if !keep {
-            state.workspaces.soft_delete(&id, &sys_ctx).await?;
-            summary.removed += 1;
+        )
+        .bind(&repo.id)
+        .fetch_all(&self.db)
+        .await?;
+        // reason: git reconcile mirrors repository content across the repo's own
+        // workspaces; the caller's access to trigger the sync was already checked.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        for (id, key) in existing {
+            let keep = key.as_deref().is_some_and(|k| present.contains(k));
+            if !keep {
+                self.workspaces.soft_delete(&id, &sys_ctx).await?;
+                summary.removed += 1;
+            }
         }
-    }
 
-    Ok(summary)
+        Ok(summary)
+    }
 }
 
 /// Fold one upsert outcome into the running summary.
@@ -498,277 +531,233 @@ fn reclaim_override(
         .then_some(UpsertOutcome::Reclaimed)
 }
 
-/// Insert or update the workspace row + placements for one desired workspace.
-///
-/// Returns [`UpsertOutcome::Skipped`] when the workspace has been manually
-/// overridden (`source = 'manual'`) and `force` does not reclaim it.
-async fn upsert_git_workspace(
-    state: &AppState,
-    repo: &Repository,
-    desired: &DesiredWorkspace,
-    force: &SyncForce,
-) -> Result<UpsertOutcome, RepositoryError> {
-    // reason: git sync writes workspaces derived from repository content, not
-    // caller input; scope/owner are inherited from the repository row.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-    let (workspace_id, outcome) = if let Some(id) = &desired.fixed_id {
-        // Shadow workspace — look up by id to check if it has been overridden.
-        let existing: Option<(String, Option<bool>)> =
-            sqlx::query_as("SELECT source, deleted FROM workspaces WHERE id = $1")
-                .bind(id)
-                .fetch_optional(&state.db)
-                .await?;
-        match existing {
-            Some((source, deleted)) if source == "manual" => {
-                let Some(outcome) = reclaim_override(id, deleted, force) else {
-                    debug!(workspace_id = %id, "skipping git sync — workspace has been manually overridden");
-                    return Ok(UpsertOutcome::Skipped);
-                };
-                (id.clone(), outcome)
+impl GitSyncService {
+    /// Insert or update the workspace row + placements for one desired workspace.
+    ///
+    /// Returns [`UpsertOutcome::Skipped`] when the workspace has been manually
+    /// overridden (`source = 'manual'`) and `force` does not reclaim it.
+    async fn upsert_git_workspace(
+        &self,
+        repo: &Repository,
+        desired: &DesiredWorkspace,
+        force: &SyncForce,
+    ) -> Result<UpsertOutcome, RepositoryError> {
+        // reason: git sync writes workspaces derived from repository content, not
+        // caller input; scope/owner are inherited from the repository row.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        let (workspace_id, outcome) = if let Some(id) = &desired.fixed_id {
+            // Shadow workspace — look up by id to check if it has been overridden.
+            let existing: Option<(String, Option<bool>)> =
+                sqlx::query_as("SELECT source, deleted FROM workspaces WHERE id = $1")
+                    .bind(id)
+                    .fetch_optional(&self.db)
+                    .await?;
+            match existing {
+                Some((source, deleted)) if source == "manual" => {
+                    let Some(outcome) = reclaim_override(id, deleted, force) else {
+                        debug!(workspace_id = %id, "skipping git sync — workspace has been manually overridden");
+                        return Ok(UpsertOutcome::Skipped);
+                    };
+                    (id.clone(), outcome)
+                }
+                Some(_) => (id.clone(), UpsertOutcome::Updated),
+                None => {
+                    // Doesn't exist yet — create it (idempotent, race-safe).
+                    ensure_shadow_workspace(&self.db, &repo.id).await?;
+                    (id.clone(), UpsertOutcome::Created)
+                }
             }
-            Some(_) => (id.clone(), UpsertOutcome::Updated),
-            None => {
-                // Doesn't exist yet — create it (idempotent, race-safe).
-                ensure_shadow_workspace(&state.db, &repo.id).await?;
-                (id.clone(), UpsertOutcome::Created)
-            }
-        }
-    } else {
-        // Look up by natural key — include 'manual' so an overridden workspace
-        // is found and skipped (or reclaimed) rather than re-created under the
-        // same key. Soft-deleted rows are reused too, so a delete never orphans
-        // the key behind a row that no lookup would find again.
-        let existing: Option<(String, String, Option<bool>)> = sqlx::query_as(
-            "SELECT id, source, deleted FROM workspaces \
+        } else {
+            // Look up by natural key — include 'manual' so an overridden workspace
+            // is found and skipped (or reclaimed) rather than re-created under the
+            // same key. Soft-deleted rows are reused too, so a delete never orphans
+            // the key behind a row that no lookup would find again.
+            let existing: Option<(String, String, Option<bool>)> = sqlx::query_as(
+                "SELECT id, source, deleted FROM workspaces \
              WHERE source_repository_id = $1 AND source_key = $2 \
                AND source IN ('git', 'manual') \
              LIMIT 1",
-        )
-        .bind(&repo.id)
-        .bind(&desired.source_key)
-        .fetch_optional(&state.db)
-        .await?;
-
-        match existing {
-            Some((id, source, deleted)) if source == "manual" => {
-                let Some(outcome) = reclaim_override(&id, deleted, force) else {
-                    debug!(workspace_id = %id, source_key = %desired.source_key,
-                        "skipping git sync — workspace has been manually overridden");
-                    return Ok(UpsertOutcome::Skipped);
-                };
-                (id, outcome)
-            }
-            Some((id, _, _)) => (id, UpsertOutcome::Updated),
-            None => {
-                let id = format!("ws_{}", uuid::Uuid::new_v4());
-                let row = Workspace {
-                    id: id.clone(),
-                    name: desired.name.clone(),
-                    description: desired.description.clone(),
-                    kind: "single".to_string(), // refresh_kind fixes below
-                    docker_image: desired.run.docker_image.clone(),
-                    docker_access: desired.run.docker_access,
-                    sandbox_service_account: desired.run.sandbox_service_account.clone(),
-                    system_prompt: desired.run.system_prompt.clone(),
-                    setup_commands: desired.run.setup_commands.clone(),
-                    env_vars: desired.run.env_vars.clone(),
-                    servers: desired.run.servers.clone(),
-                    resources: desired.run.resources.clone(),
-                    network_profile: desired.run.network_profile.clone(),
-                    source: "git".to_string(),
-                    source_repository_id: Some(repo.id.clone()),
-                    source_key: Some(desired.source_key.clone()),
-                    source_config_path: Some(desired.source_config_path.clone()),
-                    scope: repo.scope,
-                    owner_user_id: repo.owner_user_id.clone(),
-                    created_by: repo.created_by.clone(),
-                    deleted: Some(false),
-                    created_at: None,
-                    updated_at: None,
-                };
-                state.workspaces.insert_workspace(&row).await?;
-                (id, UpsertOutcome::Created)
-            }
-        }
-    };
-
-    // Un-delete if a prior reconcile soft-deleted this workspace (key re-added).
-    //
-    // This puts the project back into every listing that dropped it, so it
-    // records here — in its own transaction, guarded on the un-delete, and last.
-    // The patch below would record too, but the two are separate transactions,
-    // and a failure between them would leave the workspace visible again with
-    // nothing recorded.
-    let mut tx = state.db.begin().await?;
-    let reclaimed =
-        sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
-            .bind(&workspace_id)
-            .execute(&mut *tx)
-            .await?;
-    if reclaimed.rows_affected() > 0 {
-        crate::task_listing::record_workspace_change(&mut tx, &workspace_id).await?;
-    }
-    tx.commit().await?;
-
-    // Apply run-config + provenance + name/description + scope, idempotently.
-    let patch = WorkspacePatch {
-        name: Some(desired.name.clone()),
-        description: Some(desired.description.clone()),
-        kind: None,
-        scope: Some(repo.scope),
-        owner_user_id: Some(repo.owner_user_id.clone()),
-        docker_image: Some(desired.run.docker_image.clone()),
-        docker_access: Some(desired.run.docker_access),
-        sandbox_service_account: Some(desired.run.sandbox_service_account.clone()),
-        system_prompt: Some(desired.run.system_prompt.clone()),
-        setup_commands: Some(desired.run.setup_commands.clone()),
-        env_vars: Some(desired.run.env_vars.clone()),
-        servers: Some(desired.run.servers.clone()),
-        resources: Some(desired.run.resources.clone()),
-        network_profile: Some(desired.run.network_profile.clone()),
-        source: Some("git".to_string()),
-        source_repository_id: Some(Some(repo.id.clone())),
-        source_key: Some(Some(desired.source_key.clone())),
-        source_config_path: Some(Some(desired.source_config_path.clone())),
-    };
-    state
-        .workspaces
-        .update(&workspace_id, &patch, &sys_ctx)
-        .await?;
-
-    // Replace placements (delete-all + re-insert non-primary, then elect one
-    // primary) so the partial unique index never sees two primaries mid-write.
-    sqlx::query("DELETE FROM workspace_repos WHERE workspace_id = $1")
-        .bind(&workspace_id)
-        .execute(&state.db)
-        .await?;
-
-    let mut placement_ids: Vec<String> = Vec::with_capacity(desired.placements.len());
-    let mut primary_choice: Option<String> = None;
-    for (i, p) in desired.placements.iter().enumerate() {
-        let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
-        state
-            .workspaces
-            .add_repo(
-                &WorkspaceRepo {
-                    id: placement_id.clone(),
-                    workspace_id: workspace_id.clone(),
-                    repository_id: p.repository_id.clone(),
-                    branch: p.branch.clone(),
-                    mount_name: p.mount_name.clone(),
-                    is_primary: false,
-                    position: i as i32,
-                    created_at: None,
-                },
-                &sys_ctx,
             )
+            .bind(&repo.id)
+            .bind(&desired.source_key)
+            .fetch_optional(&self.db)
             .await?;
-        if primary_choice.is_none() && p.primary {
-            primary_choice = Some(placement_id.clone());
-        }
-        placement_ids.push(placement_id);
-    }
-    if let Some(target) = primary_choice.or_else(|| placement_ids.first().cloned()) {
-        state
-            .workspaces
-            .set_primary(&workspace_id, &target, &sys_ctx)
-            .await?;
-    }
-    state
-        .workspaces
-        .refresh_kind(&workspace_id, &sys_ctx)
-        .await?;
 
-    if matches!(outcome, UpsertOutcome::Reclaimed) {
-        info!(
-            %workspace_id, source_key = %desired.source_key,
-            "Reclaimed manually overridden workspace from git; local edits replaced"
-        );
-    }
-    Ok(outcome)
-}
-
-/// Resolve each `repos[].url` to a repository id, creating (and verifying) rows
-/// for URLs that don't resolve yet.
-async fn resolve_placements(
-    state: &AppState,
-    source_repo: &Repository,
-    refs: &[MoatlessWorkspaceRepoRef],
-    auth: &AuthUser,
-) -> Result<Vec<ResolvedPlacement>, RepositoryError> {
-    let mut out = Vec::with_capacity(refs.len());
-    for r in refs {
-        let repository_id = resolve_or_create_repo(state, source_repo, &r.url, auth).await?;
-        out.push(ResolvedPlacement {
-            repository_id,
-            branch: r.branch.clone(),
-            mount_name: r.mount_name.clone(),
-            primary: r.primary,
-        });
-    }
-    Ok(out)
-}
-
-/// Find a repository by normalized URL (scoped to the source repo's tenant), or
-/// create one inheriting provider/scope/owner. Auto-created repos — and existing
-/// `unchecked` ones — are verified against the provider and stamped.
-async fn resolve_or_create_repo(
-    state: &AppState,
-    source_repo: &Repository,
-    url: &str,
-    auth: &AuthUser,
-) -> Result<String, RepositoryError> {
-    let provider = source_repo.provider.unwrap_or(RepositoryProvider::Github);
-    let key = normalize_remote_url(url);
-    let token = resolve_sync_token(state, source_repo, auth, provider, url).await;
-
-    if let Some(existing) = state
-        .repositories
-        .find_by_normalized_remote_url(&key, source_repo.scope, source_repo.owner_user_id.clone())
-        .await?
-    {
-        if existing.access_status == "unchecked" {
-            if let Some(existing_url) = existing.remote_url.clone() {
-                let status =
-                    verify_repository_access(&existing_url, token.as_deref(), provider).await;
-                stamp_access(state, &existing.id, status, &existing_url).await;
+            match existing {
+                Some((id, source, deleted)) if source == "manual" => {
+                    let Some(outcome) = reclaim_override(&id, deleted, force) else {
+                        debug!(workspace_id = %id, source_key = %desired.source_key,
+                        "skipping git sync — workspace has been manually overridden");
+                        return Ok(UpsertOutcome::Skipped);
+                    };
+                    (id, outcome)
+                }
+                Some((id, _, _)) => (id, UpsertOutcome::Updated),
+                None => {
+                    let id = format!("ws_{}", uuid::Uuid::new_v4());
+                    let row = Workspace {
+                        id: id.clone(),
+                        name: desired.name.clone(),
+                        description: desired.description.clone(),
+                        kind: "single".to_string(), // refresh_kind fixes below
+                        docker_image: desired.run.docker_image.clone(),
+                        docker_access: desired.run.docker_access,
+                        sandbox_service_account: desired.run.sandbox_service_account.clone(),
+                        system_prompt: desired.run.system_prompt.clone(),
+                        setup_commands: desired.run.setup_commands.clone(),
+                        env_vars: desired.run.env_vars.clone(),
+                        servers: desired.run.servers.clone(),
+                        resources: desired.run.resources.clone(),
+                        network_profile: desired.run.network_profile.clone(),
+                        source: "git".to_string(),
+                        source_repository_id: Some(repo.id.clone()),
+                        source_key: Some(desired.source_key.clone()),
+                        source_config_path: Some(desired.source_config_path.clone()),
+                        scope: repo.scope,
+                        owner_user_id: repo.owner_user_id.clone(),
+                        created_by: repo.created_by.clone(),
+                        deleted: Some(false),
+                        created_at: None,
+                        updated_at: None,
+                    };
+                    self.workspaces.insert_workspace(&row).await?;
+                    (id, UpsertOutcome::Created)
+                }
             }
+        };
+
+        // Un-delete if a prior reconcile soft-deleted this workspace (key re-added).
+        //
+        // This puts the project back into every listing that dropped it, so it
+        // records here — in its own transaction, guarded on the un-delete, and last.
+        // The patch below would record too, but the two are separate transactions,
+        // and a failure between them would leave the workspace visible again with
+        // nothing recorded.
+        let mut tx = self.db.begin().await?;
+        let reclaimed =
+            sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
+                .bind(&workspace_id)
+                .execute(&mut *tx)
+                .await?;
+        if reclaimed.rows_affected() > 0 {
+            crate::task_listing::record_workspace_change(&mut tx, &workspace_id).await?;
         }
-        return Ok(existing.id);
+        tx.commit().await?;
+
+        // Apply run-config + provenance + name/description + scope, idempotently.
+        let patch = WorkspacePatch {
+            name: Some(desired.name.clone()),
+            description: Some(desired.description.clone()),
+            kind: None,
+            scope: Some(repo.scope),
+            owner_user_id: Some(repo.owner_user_id.clone()),
+            docker_image: Some(desired.run.docker_image.clone()),
+            docker_access: Some(desired.run.docker_access),
+            sandbox_service_account: Some(desired.run.sandbox_service_account.clone()),
+            system_prompt: Some(desired.run.system_prompt.clone()),
+            setup_commands: Some(desired.run.setup_commands.clone()),
+            env_vars: Some(desired.run.env_vars.clone()),
+            servers: Some(desired.run.servers.clone()),
+            resources: Some(desired.run.resources.clone()),
+            network_profile: Some(desired.run.network_profile.clone()),
+            source: Some("git".to_string()),
+            source_repository_id: Some(Some(repo.id.clone())),
+            source_key: Some(Some(desired.source_key.clone())),
+            source_config_path: Some(Some(desired.source_config_path.clone())),
+        };
+        self.workspaces
+            .update(&workspace_id, &patch, &sys_ctx)
+            .await?;
+
+        // Replace placements (delete-all + re-insert non-primary, then elect one
+        // primary) so the partial unique index never sees two primaries mid-write.
+        sqlx::query("DELETE FROM workspace_repos WHERE workspace_id = $1")
+            .bind(&workspace_id)
+            .execute(&self.db)
+            .await?;
+
+        let mut placement_ids: Vec<String> = Vec::with_capacity(desired.placements.len());
+        let mut primary_choice: Option<String> = None;
+        for (i, p) in desired.placements.iter().enumerate() {
+            let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
+            self.workspaces
+                .add_repo(
+                    &WorkspaceRepo {
+                        id: placement_id.clone(),
+                        workspace_id: workspace_id.clone(),
+                        repository_id: p.repository_id.clone(),
+                        branch: p.branch.clone(),
+                        mount_name: p.mount_name.clone(),
+                        is_primary: false,
+                        position: i as i32,
+                        created_at: None,
+                    },
+                    &sys_ctx,
+                )
+                .await?;
+            if primary_choice.is_none() && p.primary {
+                primary_choice = Some(placement_id.clone());
+            }
+            placement_ids.push(placement_id);
+        }
+        if let Some(target) = primary_choice.or_else(|| placement_ids.first().cloned()) {
+            self.workspaces
+                .set_primary(&workspace_id, &target, &sys_ctx)
+                .await?;
+        }
+        self.workspaces
+            .refresh_kind(&workspace_id, &sys_ctx)
+            .await?;
+
+        if matches!(outcome, UpsertOutcome::Reclaimed) {
+            info!(
+                %workspace_id, source_key = %desired.source_key,
+                "Reclaimed manually overridden workspace from git; local edits replaced"
+            );
+        }
+        Ok(outcome)
     }
 
-    // Create the row, then verify reachability and stamp — a missing or
-    // inaccessible repo is still created + placed, just flagged.
-    let status = verify_repository_access(url, token.as_deref(), provider).await;
-    let now = Utc::now();
-    let id = uuid::Uuid::new_v4().to_string();
-    let row = Repository {
-        id: id.clone(),
-        name: repo_name_from_url(url),
-        kind: RepositoryKind::Remote,
-        remote_url: Some(url.to_string()),
-        default_branch: None,
-        description: None,
-        provider: Some(provider),
-        scope: source_repo.scope,
-        owner_user_id: source_repo.owner_user_id.clone(),
-        created_by: source_repo.created_by.clone(),
-        access_status: status.as_str().to_string(),
-        access_checked_at: Some(now),
-        access_error: access_error_for(status, url),
-        deleted: Some(false),
-        created_at: Some(now),
-        updated_at: Some(now),
-    };
-    if status == AccessStatus::Ok {
-        info!(repository_id = %id, %url, "Auto-created repository for git-synced workspace");
-    } else {
-        warn!(repository_id = %id, %url, status = status.as_str(), "Auto-created repository is unreachable");
+    /// Resolve each `repos[].url` to a repository id, creating (and verifying) rows
+    /// for URLs that don't resolve yet.
+    async fn resolve_placements(
+        &self,
+        source_repo: &Repository,
+        refs: &[MoatlessWorkspaceRepoRef],
+        auth: &AuthUser,
+    ) -> Result<Vec<ResolvedPlacement>, RepositoryError> {
+        let mut out = Vec::with_capacity(refs.len());
+        for r in refs {
+            let repository_id = self
+                .resolve_or_create_repo(source_repo, &r.url, auth)
+                .await?;
+            out.push(ResolvedPlacement {
+                repository_id,
+                branch: r.branch.clone(),
+                mount_name: r.mount_name.clone(),
+                primary: r.primary,
+            });
+        }
+        Ok(out)
     }
-    match state.repositories.insert(&row).await {
-        Ok(()) => Ok(id),
-        Err(error) if is_remote_url_conflict(&error) => state
+
+    /// Find a repository by normalized URL (scoped to the source repo's tenant), or
+    /// create one inheriting provider/scope/owner. Auto-created repos — and existing
+    /// `unchecked` ones — are verified against the provider and stamped.
+    async fn resolve_or_create_repo(
+        &self,
+        source_repo: &Repository,
+        url: &str,
+        auth: &AuthUser,
+    ) -> Result<String, RepositoryError> {
+        let provider = source_repo.provider.unwrap_or(RepositoryProvider::Github);
+        let key = normalize_remote_url(url);
+        let token = self
+            .resolve_sync_token(source_repo, auth, provider, url)
+            .await;
+
+        if let Some(existing) = self
             .repositories
             .find_by_normalized_remote_url(
                 &key,
@@ -776,61 +765,110 @@ async fn resolve_or_create_repo(
                 source_repo.owner_user_id.clone(),
             )
             .await?
-            .map(|existing| existing.id)
-            .ok_or_else(|| RepositoryError::Db(error)),
-        Err(error) => Err(RepositoryError::Db(error)),
-    }
-}
+        {
+            if existing.access_status == "unchecked" {
+                if let Some(existing_url) = existing.remote_url.clone() {
+                    let status =
+                        verify_repository_access(&existing_url, token.as_deref(), provider).await;
+                    self.stamp_access(&existing.id, status, &existing_url).await;
+                }
+            }
+            return Ok(existing.id);
+        }
 
-/// Best-effort stamp of a repository's `access_status`.
-async fn stamp_access(state: &AppState, repository_id: &str, status: AccessStatus, url: &str) {
-    let patch = RepositoryPatch {
-        access_status: Some(status.as_str().to_string()),
-        access_checked_at: Some(Some(Utc::now())),
-        access_error: Some(access_error_for(status, url)),
-        ..Default::default()
-    };
-    // reason: access-status stamping is sync bookkeeping on rows the reconcile
-    // itself created or resolved.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-    if let Err(e) = state
-        .repositories
-        .update(repository_id, &patch, &sys_ctx)
-        .await
-    {
-        warn!(%repository_id, error = %e, "Failed to stamp repository access_status");
+        // Create the row, then verify reachability and stamp — a missing or
+        // inaccessible repo is still created + placed, just flagged.
+        let status = verify_repository_access(url, token.as_deref(), provider).await;
+        let now = Utc::now();
+        let id = uuid::Uuid::new_v4().to_string();
+        let row = Repository {
+            id: id.clone(),
+            name: repo_name_from_url(url),
+            kind: RepositoryKind::Remote,
+            remote_url: Some(url.to_string()),
+            default_branch: None,
+            description: None,
+            provider: Some(provider),
+            scope: source_repo.scope,
+            owner_user_id: source_repo.owner_user_id.clone(),
+            created_by: source_repo.created_by.clone(),
+            access_status: status.as_str().to_string(),
+            access_checked_at: Some(now),
+            access_error: access_error_for(status, url),
+            deleted: Some(false),
+            created_at: Some(now),
+            updated_at: Some(now),
+        };
+        if status == AccessStatus::Ok {
+            info!(repository_id = %id, %url, "Auto-created repository for git-synced workspace");
+        } else {
+            warn!(repository_id = %id, %url, status = status.as_str(), "Auto-created repository is unreachable");
+        }
+        match self.repositories.insert(&row).await {
+            Ok(()) => Ok(id),
+            Err(error) if is_remote_url_conflict(&error) => self
+                .repositories
+                .find_by_normalized_remote_url(
+                    &key,
+                    source_repo.scope,
+                    source_repo.owner_user_id.clone(),
+                )
+                .await?
+                .map(|existing| existing.id)
+                .ok_or_else(|| RepositoryError::Db(error)),
+            Err(error) => Err(RepositoryError::Db(error)),
+        }
     }
-}
 
-/// Resolve a GitHub/provider token for the sync, best-effort (unauthenticated
-/// works for public GitHub repos).
-async fn resolve_sync_token(
-    state: &AppState,
-    repository: &Repository,
-    auth: &AuthUser,
-    provider: RepositoryProvider,
-    remote_url: &str,
-) -> Option<String> {
-    if provider == RepositoryProvider::Github {
-        state
-            .repo_token_resolver
-            .resolve(repository, remote_url)
-            .await
-            .unwrap_or_else(|e| {
-                warn!(error = %e, "Workspace sync: failed to resolve GitHub token");
-                None
-            })
-    } else {
-        match state
-            .provider_tokens
-            .find_provider_token(&auth.user_id.to_string(), provider.as_str())
+    /// Best-effort stamp of a repository's `access_status`.
+    async fn stamp_access(&self, repository_id: &str, status: AccessStatus, url: &str) {
+        let patch = RepositoryPatch {
+            access_status: Some(status.as_str().to_string()),
+            access_checked_at: Some(Some(Utc::now())),
+            access_error: Some(access_error_for(status, url)),
+            ..Default::default()
+        };
+        // reason: access-status stamping is sync bookkeeping on rows the reconcile
+        // itself created or resolved.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        if let Err(e) = self
+            .repositories
+            .update(repository_id, &patch, &sys_ctx)
             .await
         {
-            Ok(token) => token.map(|t| t.access_token),
-            Err(e) => {
-                warn!(error = %e, "Workspace sync: failed to load provider token");
-                None
+            warn!(%repository_id, error = %e, "Failed to stamp repository access_status");
+        }
+    }
+
+    /// Resolve a GitHub/provider token for the sync, best-effort (unauthenticated
+    /// works for public GitHub repos).
+    async fn resolve_sync_token(
+        &self,
+        repository: &Repository,
+        auth: &AuthUser,
+        provider: RepositoryProvider,
+        remote_url: &str,
+    ) -> Option<String> {
+        if provider == RepositoryProvider::Github {
+            self.repo_token_resolver
+                .resolve(repository, remote_url)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!(error = %e, "Workspace sync: failed to resolve GitHub token");
+                    None
+                })
+        } else {
+            match self
+                .provider_tokens
+                .find_provider_token(&auth.user_id.to_string(), provider.as_str())
+                .await
+            {
+                Ok(token) => token.map(|t| t.access_token),
+                Err(e) => {
+                    warn!(error = %e, "Workspace sync: failed to load provider token");
+                    None
+                }
             }
         }
     }

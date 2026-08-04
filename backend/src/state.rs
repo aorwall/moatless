@@ -47,6 +47,7 @@ use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::team::dao::TeamDao;
 use crate::workspace::dao::WorkspaceDao;
+use crate::workspace::git_sync::GitSyncService;
 use moatless_backend_core::sandbox::SandboxConnector;
 
 /// Shared application state for task/message/agent/file routes.
@@ -175,6 +176,9 @@ pub struct AppState {
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// Provisioning resolves a task's repository composition through this.
     pub workspaces: Arc<dyn WorkspaceDao>,
+    /// Reconciles a repository's git-declared workspaces; holds the ports the
+    /// reconcile tree would otherwise thread through every frame.
+    pub git_sync: Arc<GitSyncService>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugins, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
@@ -269,6 +273,14 @@ impl AppState {
             github_app_service.clone(),
             github_apps.clone(),
             secrets.clone(),
+        ));
+
+        let git_sync = Arc::new(GitSyncService::new(
+            pool.clone(),
+            workspaces.clone(),
+            repositories.clone(),
+            provider_tokens.clone(),
+            repo_token_resolver.clone(),
         ));
 
         let skill_http = reqwest::Client::builder()
@@ -370,6 +382,7 @@ impl AppState {
             plugins,
             plugin_sync,
             workspaces,
+            git_sync,
             skills,
             adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
             db: pool,

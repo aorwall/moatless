@@ -14,7 +14,7 @@ use crate::state::AppState;
 
 use super::dao::WorkspacePatch;
 use super::error::WorkspaceError;
-use super::git_sync::{sync_repo_workspaces, SyncForce};
+use super::git_sync::SyncForce;
 use super::models::{Workspace, WorkspaceRepo};
 use super::schemas::{
     workspace_response, AddRepoRequest, CreateWorkspaceRequest, ResetGitWorkspaceResponse,
@@ -486,7 +486,11 @@ pub async fn reset_git_workspace(
         )),
         Some(repo) => {
             let force = SyncForce::Only(workspace_id.clone());
-            match sync_repo_workspaces(&state, &repo, &auth, &force).await {
+            match state
+                .git_sync
+                .sync_repo_workspaces(&repo, &auth, &force)
+                .await
+            {
                 // `Only` reclaims at most this one workspace, so a non-zero
                 // count is proof that *this* workspace was rewritten from git —
                 // `updated` would also count the repo's other workspaces.

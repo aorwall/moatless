@@ -24,7 +24,7 @@ use super::dao::RepositoryPatch;
 use super::error::RepositoryError;
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
 use super::schemas::*;
-use crate::workspace::git_sync::{sync_repo_workspaces, SyncForce};
+use crate::workspace::git_sync::SyncForce;
 
 pub(crate) fn validate_non_secret_env_vars(
     env_vars: Option<&std::collections::HashMap<String, String>>,
@@ -134,7 +134,7 @@ async fn log_workspace_sync(
     phase: &str,
     force: &SyncForce,
 ) -> WorkspaceSyncSummary {
-    match sync_repo_workspaces(state, repo, auth, force).await {
+    match state.git_sync.sync_repo_workspaces(repo, auth, force).await {
         Ok(summary) => {
             if summary.created + summary.updated + summary.reclaimed + summary.removed > 0
                 || !summary.skipped.is_empty()
