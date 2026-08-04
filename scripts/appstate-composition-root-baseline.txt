@@ -75,5 +75,3 @@ backend/src/task/connections_handlers.rs
 backend/src/task/handlers.rs
 backend/src/task/reaper.rs
 backend/src/task/service.rs
-backend/src/team/handlers.rs
-backend/src/workspace/handlers.rs

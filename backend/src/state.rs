@@ -478,6 +478,30 @@ impl axum::extract::FromRef<AppState> for Arc<dyn TagDao> {
     }
 }
 
+impl axum::extract::FromRef<AppState> for Arc<dyn TeamDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.teams.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn WorkspaceDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.workspaces.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn RepositoryDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.repositories.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<GitSyncService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.git_sync.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<SkillService> {
     fn from_ref(state: &AppState) -> Self {
         state.skills.clone()
