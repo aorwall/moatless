@@ -739,6 +739,7 @@ mod tests {
                 messages: vec![a_message(11, "msg-a")],
                 activities: Vec::new(),
                 omitted: 0,
+                settled_requests: HashSet::new(),
             })
         });
         dao

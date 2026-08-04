@@ -13,7 +13,7 @@
 //! No T3 vocabulary appears in this file. The names are Moatless's; the
 //! translation belongs one module up.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -164,6 +164,18 @@ pub struct Transcript {
     /// The rows past `TRANSCRIPT_LIMIT` that were left out, oldest first.
     /// Zero for every transcript that fits, which is nearly all of them.
     pub omitted: i64,
+    /// Of the requests these rows ask, the ones whose call has come back.
+    ///
+    /// A panel row is written *beside* the call rather than being it, so no
+    /// result ever lands on it and its own status never moves: the call's status
+    /// is the whole answer. The call is not always among these rows. It is
+    /// stored once — `(task_id, tool_use_id)` is unique — while the panel row
+    /// beside it carries no `tool_use_id` and so is written again every time a
+    /// resuming session re-presents the call, on whichever Message it lands on.
+    /// From then on the two sit on different Messages, and a read narrowed to
+    /// one of them holds the panel without the call. So this is looked up by
+    /// request id rather than read out of `activities`.
+    pub settled_requests: HashSet<String>,
 }
 
 /// One conversation a search matched, and the text that matched in it.
@@ -1025,10 +1037,13 @@ impl ConversationDao for PgConversationDao {
         )
         .await?;
 
+        let settled_requests = activities::settled_requests(&self.pool, task_id, &activities).await?;
+
         Ok(Transcript {
             messages,
             activities,
             omitted,
+            settled_requests,
         })
     }
 
@@ -1078,6 +1093,7 @@ impl ConversationDao for PgConversationDao {
                 messages: Vec::new(),
                 activities: Vec::new(),
                 omitted: 0,
+                settled_requests: HashSet::new(),
             });
         }
         // Just the named rows. A result no longer lands on a Message of its
@@ -1115,11 +1131,13 @@ impl ConversationDao for PgConversationDao {
         // join the same set by a primary-key lookup.
         let mut activities = activities::for_messages(&self.pool, task_id, uuids).await?;
         activities.extend(activities::for_activity_ids(&self.pool, task_id, activity_ids).await?);
+        let settled_requests = activities::settled_requests(&self.pool, task_id, &activities).await?;
 
         Ok(Transcript {
             messages,
             activities,
             omitted: 0,
+            settled_requests,
         })
     }
 

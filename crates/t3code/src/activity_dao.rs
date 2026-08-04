@@ -1,6 +1,10 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use moatless_backend_core::activity::dao::Activity;
+use moatless_backend_core::activity::mapping::ActivityKind;
 use moatless_backend_core::activity::models::{ConversationChange, ConversationHead};
+use serde_json::Value;
 
 use crate::UiRpcDbPool;
 
@@ -76,6 +80,44 @@ pub async fn for_activity_ids(
     .bind(activity_ids)
     .fetch_all(pool)
     .await
+}
+
+/// Of the requests `activities` ask, the ones whose call has come back.
+///
+/// One indexed lookup on `(task_id, tool_use_id)` per read, and none at all for
+/// a read that asks nothing — which is nearly every one. See
+/// [`crate::dao::Transcript::settled_requests`] for why the call cannot be found
+/// among the rows themselves.
+pub async fn settled_requests(
+    pool: &UiRpcDbPool,
+    task_id: &str,
+    activities: &[Activity],
+) -> Result<HashSet<String>, sqlx::Error> {
+    let asked: Vec<String> = activities
+        .iter()
+        .filter(|activity| activity.kind == ActivityKind::UserInputRequested)
+        .filter_map(|activity| activity.payload.get("requestId").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    if asked.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let settled: Vec<(String,)> = sqlx::query_as(
+        r#"SELECT tool_use_id
+           FROM task_activities
+           WHERE task_id = $1
+             AND tool_use_id = ANY($2)
+             AND kind = 'tool_call'
+             AND status <> 'in_progress'"#,
+    )
+    .bind(task_id)
+    .bind(&asked)
+    .fetch_all(pool)
+    .await?;
+    Ok(settled
+        .into_iter()
+        .map(|(tool_use_id,)| tool_use_id)
+        .collect())
 }
 
 pub async fn find_tool_call(

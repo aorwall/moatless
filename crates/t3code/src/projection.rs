@@ -523,12 +523,12 @@ pub(super) fn change_events(
             ));
         }
     }
-    let settled = settled_calls(window);
+    let settled = &window.settled_requests;
     for activity in activities {
         let (turn, activity_at) = activity_anchor(conversation, window, activity);
         let (kind, payload) = activity_appended_payload(
             &conversation.task_id,
-            activity_row(activity, &turn, &activity_at, &settled),
+            activity_row(activity, &turn, &activity_at, settled),
         );
         let slot = usize::try_from(activity_slot(activity)).unwrap_or(usize::MAX);
         payloads.push((slot.saturating_add(1), kind, payload));
@@ -575,7 +575,7 @@ fn activity_change_events(
     let (turn, at) = activity_anchor(conversation, window, activity);
     let (kind, payload) = activity_appended_payload(
         &conversation.task_id,
-        activity_row(activity, &turn, &at, &settled_calls(window)),
+        activity_row(activity, &turn, &at, &window.settled_requests),
     );
     let slot = usize::try_from(activity_slot(activity)).unwrap_or(usize::MAX);
     change
@@ -777,7 +777,7 @@ fn rendered_transcript(
             .extend(message_bubble(message, &turn, &at, origins));
     }
     let surviving = surviving_context_windows(transcript);
-    let settled = settled_calls(transcript);
+    let settled = &transcript.settled_requests;
     for activity in &transcript.activities {
         if activity.kind == ActivityKind::ContextWindowUpdated
             && !surviving.contains(activity.activity_id.as_str())
@@ -787,7 +787,7 @@ fn rendered_transcript(
         let (turn, at) = activity_anchor(conversation, transcript, activity);
         rendered
             .activities
-            .push(activity_row(activity, &turn, &at, &settled));
+            .push(activity_row(activity, &turn, &at, settled));
     }
 
     rendered
@@ -1010,24 +1010,8 @@ fn activity_row(activity: &Activity, turn: &Value, at: &str, settled: &SettledCa
     })
 }
 
-/// The `tool_use_id`s of the interactive calls that have come back.
-type SettledCalls<'a> = HashSet<&'a str>;
-
-/// Which calls in this window have come back.
-///
-/// An activity leaves `in_progress` when its result lands, so the call's own row
-/// is the whole answer — the same fact [`proposed_plans`] reads, and it needs no
-/// search for who answered.
-fn settled_calls(transcript: &Transcript) -> SettledCalls<'_> {
-    transcript
-        .activities
-        .iter()
-        .filter(|activity| {
-            activity.kind == ActivityKind::ToolCall && ActivityView::new(activity).is_settled()
-        })
-        .filter_map(|activity| activity.tool_use_id.as_deref())
-        .collect()
-}
+/// The requests whose call has come back — [`Transcript::settled_requests`].
+type SettledCalls = HashSet<String>;
 
 /// What a question's panel row is, once its call has come back.
 ///
@@ -2590,11 +2574,22 @@ mod tests {
         activity
     }
 
+    /// The rows, plus the requests the database would report settled for them —
+    /// which for rows that carry their own call is exactly what it reads off
+    /// them. A test whose call sits outside the rows sets the field directly.
     fn transcript(messages: Vec<TranscriptMessage>, activities: Vec<Activity>) -> Transcript {
+        let settled_requests = activities
+            .iter()
+            .filter(|activity| {
+                activity.kind == ActivityKind::ToolCall && ActivityView::new(activity).is_settled()
+            })
+            .filter_map(|activity| activity.tool_use_id.clone())
+            .collect();
         Transcript {
             messages,
             activities,
             omitted: 0,
+            settled_requests,
         }
     }
 
@@ -3600,6 +3595,47 @@ mod tests {
             unique.len(),
             sequences.len(),
             "each row needs its own sequence, got {sequences:?}"
+        );
+    }
+
+    /// A panel row reaches the client resolved even when the call it names is
+    /// not among the rows being projected.
+    ///
+    /// A resuming session re-presents the call under a new Message. The call
+    /// itself is stored once — `(task_id, tool_use_id)` is unique, so the second
+    /// arrival is dropped — but the panel row beside it carries no
+    /// `tool_use_id`, so it is written again, on the new Message. From then on
+    /// the two live on different Messages, and every change naming the panel's
+    /// one carries the panel without the call.
+    #[test]
+    fn a_panel_row_is_resolved_by_a_call_outside_the_rows_being_read() {
+        let mut panel = activity("msg-9", 9, 0, ActivityKind::UserInputRequested, "Question");
+        panel.activity_id = "msg-9:0:user-input".to_string();
+        panel.payload = json!({
+            "requestId": "call-1",
+            "questions": [{
+                "id": "Which store?",
+                "header": "Storage",
+                "question": "Which store?",
+                "multiSelect": false,
+                "options": [{ "label": "Postgres", "description": "Already deployed." }]
+            }]
+        });
+
+        // The call came back long ago, on the Message it was first presented
+        // on, which this change does not name.
+        let mut window = transcript(Vec::new(), vec![panel]);
+        window.settled_requests = HashSet::from(["call-1".to_string()]);
+        let emitted = events(&change(9, Some("msg-9")), &window);
+
+        let panel_event = emitted
+            .iter()
+            .find(|event| event["payload"]["activity"]["payload"]["requestId"] == "call-1")
+            .expect("the panel row");
+        assert_eq!(
+            panel_event["payload"]["activity"]["kind"],
+            "user-input.resolved",
+            "a settled call resolves its panel wherever the call is stored"
         );
     }
 

@@ -267,6 +267,76 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
     assert!(!call.settled, "nobody has answered it yet");
 }
 
+/// A question re-presented on a later Message is read as settled, though that
+/// Message holds no call.
+///
+/// A resuming session re-presents the call it was parked on. The call is stored
+/// once — `(task_id, tool_use_id)` is unique, so the second arrival is dropped —
+/// but the joined panel row carries no `tool_use_id` and is written again, on the
+/// new Message. From then on the two sit on different Messages, so a read
+/// narrowed to the panel's holds no call to read the answer off. The client keeps
+/// a panel open until something says the request resolved and refuses to answer a
+/// call that has come back, so a panel left `requested` here is one nobody can
+/// get rid of.
+#[sqlx::test]
+async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPool) {
+    seed_task(&pool).await;
+
+    let asked = serde_json::json!([{
+        "type": "tool_use",
+        "id": "toolu_ask",
+        "name": "AskUserQuestion",
+        "input": { "questions": [{
+            "question": "Which store?",
+            "options": [{ "label": "Postgres" }, { "label": "Redis" }]
+        }] }
+    }]);
+    append(&pool, "the-question", asked.clone()).await;
+
+    // Answered, wherever from: the call comes back.
+    PgMessageDao(pool.clone())
+        .append_activities(
+            TASK,
+            "the-question",
+            &write("the-answer", MessageType::User, &tool_result("toolu_ask")),
+        )
+        .await
+        .unwrap();
+
+    // The session resumes and presents the same call again, on a new Message.
+    append(&pool, "the-resume", asked).await;
+
+    let dao = PgConversationDao::new(pool.clone());
+    let window = dao
+        .changed_messages(TASK, &["the-resume".to_string()], &[])
+        .await
+        .unwrap();
+
+    assert!(
+        window
+            .activities
+            .iter()
+            .all(|activity| activity.kind != ActivityKind::ToolCall),
+        "the call stayed on the Message it was first presented on: {:?}",
+        window
+            .activities
+            .iter()
+            .map(|activity| (activity.activity_id.as_str(), activity.kind))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        window.activities.iter().any(|activity| {
+            activity.kind == ActivityKind::UserInputRequested
+                && activity.payload["requestId"] == "toolu_ask"
+        }),
+        "the panel row was written again"
+    );
+    assert!(
+        window.settled_requests.contains("toolu_ask"),
+        "the request is read as settled from the call, wherever it is stored"
+    );
+}
+
 /// An activity that happened on no Message is named by the change, and read back
 /// by that name.
 ///
