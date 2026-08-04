@@ -18,7 +18,6 @@ use sqlx::{PgPool, Row};
 use moatless_backend_core::scope::ScopeContext;
 use moatless_vibe_backend::extractors::AuthUser;
 use moatless_vibe_backend::loops::sync::parse_loop;
-use moatless_vibe_backend::loops::sync::sync_loops;
 use moatless_vibe_backend::repository::dao as repository_dao;
 
 use common::{make_repository_row, test_app_state};
@@ -141,7 +140,11 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
         parse_loop(SCHEDULE_LOOP, "daily-health-check").unwrap(),
     ];
 
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
     assert_eq!(summary.created, 2, "both loops created");
     assert_eq!(summary.updated, 0);
     assert_eq!(summary.removed, 0);
@@ -240,7 +243,11 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     // Re-sync dropping the github_pr loop: it should be removed, schedule kept,
     // manual trigger still untouched.
     let loops = vec![parse_loop(SCHEDULE_LOOP, "daily-health-check").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
     assert_eq!(summary.created, 0);
     assert_eq!(summary.updated, 1, "schedule loop updated in place");
     assert_eq!(summary.removed, 1, "java-review loop removed");
@@ -286,7 +293,11 @@ async fn github_pr_loop_without_connection_is_skipped(pool: PgPool) {
     let auth = auth("user-1");
 
     let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
 
     assert_eq!(summary.created, 0);
     assert_eq!(summary.updated, 0);
@@ -319,7 +330,11 @@ async fn sync_creates_slack_loop(pool: PgPool) {
     let auth = auth("user-1");
 
     let loops = vec![parse_loop(SLACK_LOOP, "e2e-triage").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
     assert_eq!(summary.created, 1, "slack loop created");
     assert_eq!(summary.updated, 0);
     assert!(
@@ -371,7 +386,11 @@ async fn sync_creates_linear_loop(pool: PgPool) {
     let auth = auth("user-1");
 
     let loops = vec![parse_loop(LINEAR_LOOP, "ready-pool").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
     assert_eq!(summary.created, 1, "linear loop created");
     assert!(
         summary.skipped.is_empty(),
@@ -428,7 +447,11 @@ async fn linear_loop_without_connection_is_skipped(pool: PgPool) {
     let auth = auth("user-1");
 
     let loops = vec![parse_loop(LINEAR_LOOP, "ready-pool").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
 
     assert_eq!(summary.created, 0);
     assert_eq!(summary.skipped.len(), 1, "linear loop skipped");
@@ -450,7 +473,11 @@ async fn slack_loop_without_connection_is_skipped(pool: PgPool) {
     let auth = auth("user-1");
 
     let loops = vec![parse_loop(SLACK_LOOP, "e2e-triage").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
 
     assert_eq!(summary.created, 0);
     assert_eq!(summary.updated, 0);
@@ -487,7 +514,11 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
 
     // First sync creates the managed loop.
     let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
     assert_eq!(summary.created, 1);
 
     // Simulate a firing linking an ongoing task to the loop's rule row.
@@ -507,7 +538,11 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
 
     // Re-sync the same loop; the reconciler must preserve the runtime link.
     let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
     assert_eq!(summary.updated, 1, "loop updated in place");
 
     let ongoing: Option<String> =
@@ -533,7 +568,11 @@ async fn resync_skips_an_override_and_preserves_its_approval(pool: PgPool) {
     let state = test_app_state(pool.clone());
     let auth = auth("user-1");
     let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
-    sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
 
     let loop_id: String = sqlx::query_scalar(
         "SELECT id FROM triggers \
@@ -555,7 +594,11 @@ async fn resync_skips_an_override_and_preserves_its_approval(pool: PgPool) {
     state.loops.override_git(&loop_id, &admin).await.unwrap();
 
     let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
-    let summary = sync_loops(&state, &repo, &auth, loops).await.unwrap();
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
     assert_eq!(summary.updated, 0);
     assert_eq!(summary.approvals_revoked, 0);
     assert_eq!(summary.overrides_skipped, 1);
@@ -588,14 +631,15 @@ async fn concurrent_activation_and_resync_finish_in_a_serial_state(pool: PgPool)
 
     let state = test_app_state(pool.clone());
     let auth = auth("user-1");
-    sync_loops(
-        &state,
-        &repo,
-        &auth,
-        vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()],
-    )
-    .await
-    .unwrap();
+    state
+        .loop_sync
+        .sync_loops(
+            &repo,
+            &auth,
+            vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()],
+        )
+        .await
+        .unwrap();
     let loop_id: String = sqlx::query_scalar(
         "SELECT id FROM triggers \
          WHERE source_repository_id = $1 AND source_key = 'java-review'",
@@ -610,8 +654,7 @@ async fn concurrent_activation_and_resync_finish_in_a_serial_state(pool: PgPool)
     };
 
     let activate = state.loops.activate(&loop_id, "approved-user", &admin);
-    let resync = sync_loops(
-        &state,
+    let resync = state.loop_sync.sync_loops(
         &repo,
         &auth,
         vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()],

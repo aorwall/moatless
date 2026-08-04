@@ -63,7 +63,6 @@ backend/src/loops/firing/inbound.rs
 backend/src/loops/firing/listen.rs
 backend/src/loops/firing/schedule_runner.rs
 backend/src/loops/http/handlers.rs
-backend/src/loops/sync/mod.rs
 backend/src/message/handlers.rs
 backend/src/message/hooks.rs
 backend/src/message/send.rs

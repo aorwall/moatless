@@ -27,6 +27,7 @@ use crate::feedback::dao::FeedbackDao;
 use crate::file_storage::dao::FileDao;
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::receipts::EventReceiptDao;
+use crate::loops::sync::LoopSyncService;
 use crate::message::dao::MessageDao;
 use crate::plugin::dao::PluginDao;
 use crate::plugin::sync::PluginSyncService;
@@ -179,6 +180,9 @@ pub struct AppState {
     /// Reconciles a repository's git-declared workspaces; holds the ports the
     /// reconcile tree would otherwise thread through every frame.
     pub git_sync: Arc<GitSyncService>,
+    /// Reconciles a repository's git-declared loops; holds the four ports the
+    /// reconcile tree would otherwise thread through every frame.
+    pub loop_sync: Arc<LoopSyncService>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugins, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
@@ -283,6 +287,13 @@ impl AppState {
             repo_token_resolver.clone(),
         ));
 
+        let loop_sync = Arc::new(LoopSyncService::new(
+            adapter_connections.clone(),
+            loops.clone(),
+            tags.clone(),
+            repo_token_resolver.clone(),
+        ));
+
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("moatless-vibe-backend")
@@ -383,6 +394,7 @@ impl AppState {
             plugin_sync,
             workspaces,
             git_sync,
+            loop_sync,
             skills,
             adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
             db: pool,
@@ -532,6 +544,11 @@ impl axum::extract::FromRef<AppState> for Arc<CredentialService> {
     }
 }
 
+// Naming `DbPool` gives a handler the pool for a raw-pool query function that
+// predates the DAO layer (the sites Step 3 left alone). It is a named residue,
+// not a grant to run new SQL from a handler — new persistence goes through a DAO
+// port constructed in the composition root. See `.plans/backend-ports-and-crates.md`
+// Step 5, `AppState.db`.
 impl axum::extract::FromRef<AppState> for DbPool {
     fn from_ref(state: &AppState) -> Self {
         state.db.clone()

@@ -660,7 +660,10 @@ pub async fn reset_git_loop(
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Repository {repository_id} not found")))?;
 
-    let result = crate::loops::sync::reset_repo_loop(&state, &repository, &auth, source_key).await;
+    let result = state
+        .loop_sync
+        .reset_repo_loop(&repository, &auth, source_key)
+        .await;
     let record = state
         .loops
         .get(&id, &ctx)

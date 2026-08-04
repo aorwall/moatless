@@ -11,7 +11,6 @@ use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 
 use crate::access_control::resolve_scope_for_create_auth;
 use crate::extractors::AuthUser;
-use crate::loops::sync::sync_repo_loops;
 use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
 use moatless_backend_core::scope::{Scope, ScopeContext};
@@ -1141,7 +1140,9 @@ pub(crate) async fn sync_repo_config(
     // This is the sole repository-wide Loop sync path. Surface fetch and
     // reconciliation failures so an administrator never mistakes a skipped
     // refresh for a successful approval revocation.
-    let loops = sync_repo_loops(state, repo, auth)
+    let loops = state
+        .loop_sync
+        .sync_repo_loops(repo, auth)
         .await
         .map_err(|error| RepositoryError::ProviderError(error.to_string()))?;
 
