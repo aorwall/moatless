@@ -44,7 +44,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 # 2026-07-01: pull patched libnss3/nss >= 2:3.98-1ubuntu0.2 (CVE-2026-12318, SP-1966).
 # 2026-07-03: pull patched linux-libc-dev >= 6.8.0-134.134 fixing 91 kernel CVEs
 # (3 CRITICAL: CVE-2026-43414, -31448, -43071; 88 HIGH), SP-2021.
-ARG APT_SECURITY_REFRESH=2026-07-03
+# 2026-08-04: pull patched vim >= 2:9.1.0016-1ubuntu7.17 (CVE-2026-57455,
+# spell_soundfold_sofo() stack OOB write, SP-2067); libxml2 >=
+# 2.9.14+dfsg-1.3ubuntu3.8 (CVE-2026-6653, SP-1843); tar >= 1.35+dfsg-3ubuntu0.3
+# (CVE-2026-5704, SP-1889).
+ARG APT_SECURITY_REFRESH=2026-08-04
 
 # Install essential system packages
 RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" \

@@ -150,8 +150,40 @@ RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/moatless
 # sandboxes; this Dockerfile cannot rely on the upstream sandbox-base rebuild.
 # apt-get upgrade pulls security patches for everything inherited from the base
 # image (notably gh, docker-ce-cli — Go binaries that age out of CVE compliance).
-RUN apt-get update && \
+#
+# APT_SECURITY_REFRESH is referenced inside the RUN below so bumping it changes
+# the layer's cache key. Without it the `apt-get upgrade -y` layer is served from
+# the registry cache (cd-ecr.yml publishes this image with
+# `cache-mode: inline-registry`) and silently keeps whatever package versions the
+# cached layer held — the upgrade appears to run but re-pulls nothing. Same
+# rationale as APT_SECURITY_REFRESH in Dockerfile.sandbox-base, which does not
+# reach this image: the fork does not build sandbox-base (that workflow is gated
+# to the aorwall repo), so a refresh there never lands in the platform-ECR
+# moatless-sandbox image this Dockerfile produces.
+#
+# The guarded packages below fail the build closed if a stale apt mirror leaves
+# one under its CVE-fixed version, rather than silently shipping a vulnerable
+# image. An uninstalled package is skipped, not treated as a failure.
+#
+# 2026-08-04:
+#   vim      >= 2:9.1.0016-1ubuntu7.17  CVE-2026-57455 (SP-2067) — stack OOB
+#            write in spell_soundfold_sofo(), reachable via sound-based spell
+#            suggestion. Noble ships 2:9.1.0016-1ubuntu7.18.
+#   libxml2  >= 2.9.14+dfsg-1.3ubuntu3.8 CVE-2026-6653 (SP-1843) — use-after-free
+#            in xmlParseInternalSubset.
+#   tar      >= 1.35+dfsg-3ubuntu0.3     CVE-2026-5704 (SP-1889) — malicious
+#            archive hidden-file injection. Noble ships 1.35+dfsg-3ubuntu0.4.
+ARG APT_SECURITY_REFRESH=2026-08-04
+RUN echo "OS security refresh: ${APT_SECURITY_REFRESH}" && \
+    apt-get update && \
     apt-get upgrade -y && \
+    for spec in "vim=2:9.1.0016-1ubuntu7.17" "libxml2=2.9.14+dfsg-1.3ubuntu3.8" "tar=1.35+dfsg-3ubuntu0.3"; do \
+        pkg="${spec%%=*}"; want="${spec#*=}"; \
+        have="$(dpkg-query -W -f='${Version}' "$pkg" 2>/dev/null || true)"; \
+        if [ -n "$have" ] && ! dpkg --compare-versions "$have" ge "$want"; then \
+            echo "CVE guard: $pkg $have is below required $want" >&2; exit 1; \
+        fi; \
+    done && \
     apt-get install -y --no-install-recommends wget apt-transport-https gpg maven postgresql-client protobuf-compiler unzip && \
     wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" > /etc/apt/sources.list.d/adoptium.list && \
