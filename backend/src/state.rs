@@ -382,3 +382,63 @@ impl axum::extract::FromRef<AppState> for Arc<SecretService> {
         state.secrets.clone()
     }
 }
+
+impl axum::extract::FromRef<AppState> for Arc<Config> {
+    fn from_ref(state: &AppState) -> Self {
+        state.config.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Option<crate::file_storage::s3::S3Storage> {
+    fn from_ref(state: &AppState) -> Self {
+        state.s3.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn FileDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.files.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn FeedbackDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.feedback.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn TaskDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.tasks.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn TaskEventDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_events.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn TagDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.tags.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<SkillService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.skills.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn PluginDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.plugins.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<PluginSyncService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.plugin_sync.clone()
+    }
+}

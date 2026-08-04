@@ -1,12 +1,14 @@
 //! Skill HTTP handlers.
 
+use std::sync::Arc;
+
 use axum::extract::{Path, State};
 use axum::Json;
 
 use super::error::SkillError;
 use super::schemas::ListSkillsResponse;
+use super::service::SkillService;
 use crate::extractors::AuthUser;
-use crate::state::AppState;
 
 /// List all skills discovered for a repository.
 ///
@@ -32,13 +34,10 @@ use crate::state::AppState;
     )
 )]
 pub async fn list_repository_skills(
-    State(state): State<AppState>,
+    State(skills): State<Arc<SkillService>>,
     auth: AuthUser,
     Path(repository_id): Path<String>,
 ) -> Result<Json<ListSkillsResponse>, SkillError> {
-    let skills = state
-        .skills
-        .list_for_repository(&repository_id, &auth)
-        .await?;
+    let skills = skills.list_for_repository(&repository_id, &auth).await?;
     Ok(Json(ListSkillsResponse { skills }))
 }

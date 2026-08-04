@@ -1,10 +1,11 @@
 //! Tag HTTP handlers.
 
+use std::sync::Arc;
+
 use axum::extract::State;
 use axum::Json;
 
-use crate::state::AppState;
-
+use super::dao::TagDao;
 use super::error::TagError;
 use super::schemas::TagResponse;
 
@@ -18,8 +19,10 @@ use super::schemas::TagResponse;
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
 )]
-pub async fn list_tags(State(state): State<AppState>) -> Result<Json<Vec<TagResponse>>, TagError> {
-    let rows = state.tags.list_all().await?;
+pub async fn list_tags(
+    State(tags): State<Arc<dyn TagDao>>,
+) -> Result<Json<Vec<TagResponse>>, TagError> {
+    let rows = tags.list_all().await?;
 
     let tags: Vec<TagResponse> = rows
         .into_iter()

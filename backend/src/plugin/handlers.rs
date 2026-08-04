@@ -3,16 +3,19 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 
+use std::sync::Arc;
+
 use crate::extractors::AuthUser;
-use crate::state::AppState;
 
 use super::activation;
+use super::dao::PluginDao;
 use super::error::PluginError;
 use super::models::{ActivationRow, Plugin};
 use super::schemas::{
     ActivationReach, ActivationResponse, CreatePluginRequest, EffectivePluginResponse,
     PluginResponse, PluginSkillResponse, SetActivationRequest,
 };
+use super::sync::PluginSyncService;
 
 /// A plugin is loadable code (hooks/commands run inside sandboxes), so
 /// registering or removing one — and setting the default everybody gets — is a
@@ -39,10 +42,10 @@ fn ensure_admin(auth: &AuthUser) -> Result<(), PluginError> {
     )
 )]
 pub async fn list_plugins(
-    State(state): State<AppState>,
+    State(plugins): State<Arc<dyn PluginDao>>,
     _auth: AuthUser,
 ) -> Result<Json<Vec<PluginResponse>>, PluginError> {
-    let rows = state.plugins.list_all().await?;
+    let rows = plugins.list_all().await?;
     let items = rows.into_iter().map(to_response).collect();
     Ok(Json(items))
 }
@@ -60,7 +63,7 @@ pub async fn list_plugins(
     )
 )]
 pub async fn create_plugin(
-    State(state): State<AppState>,
+    State(plugins): State<Arc<dyn PluginDao>>,
     auth: AuthUser,
     Json(req): Json<CreatePluginRequest>,
 ) -> Result<Json<PluginResponse>, PluginError> {
@@ -76,7 +79,7 @@ pub async fn create_plugin(
         updated_at: None,
     };
 
-    if let Err(e) = state.plugins.insert(&row).await {
+    if let Err(e) = plugins.insert(&row).await {
         // Check for unique constraint violation on name
         if let sqlx::Error::Database(ref db_err) = e {
             if db_err.constraint().is_some() {
@@ -104,12 +107,12 @@ pub async fn create_plugin(
     )
 )]
 pub async fn delete_plugin(
-    State(state): State<AppState>,
+    State(plugins): State<Arc<dyn PluginDao>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<axum::http::StatusCode, PluginError> {
     ensure_admin(&auth)?;
-    let deleted = state.plugins.delete(&id).await?;
+    let deleted = plugins.delete(&id).await?;
     if !deleted {
         return Err(PluginError::NotFound(format!("Plugin '{id}' not found")));
     }
@@ -133,17 +136,17 @@ pub async fn delete_plugin(
     )
 )]
 pub async fn list_plugin_skills(
-    State(state): State<AppState>,
+    State(plugins): State<Arc<dyn PluginDao>>,
+    State(plugin_sync): State<Arc<PluginSyncService>>,
     _auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<PluginSkillResponse>>, PluginError> {
-    let plugin = state
-        .plugins
+    let plugin = plugins
         .find_by_id(&id)
         .await?
         .ok_or_else(|| PluginError::NotFound(format!("Plugin '{id}' not found")))?;
 
-    let skills = state.plugin_sync.skills(&plugin).await?;
+    let skills = plugin_sync.skills(&plugin).await?;
     Ok(Json(
         skills
             .into_iter()
@@ -172,14 +175,11 @@ pub async fn list_plugin_skills(
     )
 )]
 pub async fn list_plugin_activations(
-    State(state): State<AppState>,
+    State(plugins): State<Arc<dyn PluginDao>>,
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<ActivationResponse>>, PluginError> {
-    let rows = state
-        .plugins
-        .list_activations_for(Some(auth.user_id))
-        .await?;
+    let rows = plugins.list_activations_for(Some(auth.user_id)).await?;
 
     Ok(Json(
         rows.into_iter()
@@ -218,15 +218,14 @@ pub async fn list_plugin_activations(
     )
 )]
 pub async fn set_plugin_activation(
-    State(state): State<AppState>,
+    State(plugins): State<Arc<dyn PluginDao>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Json(req): Json<SetActivationRequest>,
 ) -> Result<Json<ActivationResponse>, PluginError> {
     let user_id = activation_user_id(&auth, req.reach)?;
 
-    state
-        .plugins
+    plugins
         .find_by_id(&id)
         .await?
         .ok_or_else(|| PluginError::NotFound(format!("Plugin '{id}' not found")))?;
@@ -237,7 +236,7 @@ pub async fn set_plugin_activation(
         user_id,
         enabled: req.enabled,
     };
-    state.plugins.set_activation(&row).await?;
+    plugins.set_activation(&row).await?;
 
     Ok(Json(ActivationResponse {
         plugin_id: row.plugin_id,
@@ -268,15 +267,14 @@ pub async fn set_plugin_activation(
     )
 )]
 pub async fn clear_plugin_activation(
-    State(state): State<AppState>,
+    State(plugins): State<Arc<dyn PluginDao>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<ClearActivationParams>,
 ) -> Result<axum::http::StatusCode, PluginError> {
     let user_id = activation_user_id(&auth, params.reach)?;
 
-    let cleared = state
-        .plugins
+    let cleared = plugins
         .clear_activation(&id, params.skill_name, user_id)
         .await?;
     if !cleared {
@@ -307,10 +305,10 @@ pub struct ClearActivationParams {
     )
 )]
 pub async fn list_effective_plugins(
-    State(state): State<AppState>,
+    State(plugins): State<Arc<dyn PluginDao>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<EffectivePluginResponse>>, PluginError> {
-    let resolved = activation::resolve_for_user(state.plugins.as_ref(), Some(auth.user_id)).await?;
+    let resolved = activation::resolve_for_user(plugins.as_ref(), Some(auth.user_id)).await?;
 
     Ok(Json(
         resolved

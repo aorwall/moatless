@@ -163,6 +163,19 @@ jobs:
       - name: No Pg*Dao construction outside the composition root
         run: ./scripts/check-dao-composition-root.sh
 
+  # Step 5 invariant — AppState is named by the composition root and nothing
+  # else. A shrinking baseline (scripts/appstate-composition-root-baseline.txt)
+  # tracks the modules still holding the god object mid-sweep; each slice deletes
+  # its own entries. Same string/comment-blanking tokenizer as the DAO check,
+  # no Rust build.
+  appstate-composition-root:
+    name: AppState composition-root invariant
+    runs-on: staging-runners
+    steps:
+      - uses: actions/checkout@v6
+      - name: AppState is named only by the composition root and the routing tables
+        run: ./scripts/check-appstate-composition-root.sh
+
   toolchain-drift:
     name: Sandbox toolchain drift
     runs-on: staging-runners

@@ -4,4 +4,5 @@
 //! SSE clients via the shared SSE event bus.
 
 pub mod consumer;
+pub mod handlers;
 pub mod routes;

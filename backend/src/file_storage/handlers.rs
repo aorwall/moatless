@@ -7,12 +7,15 @@ use axum::response::Response;
 use axum::Json;
 use axum_extra::extract::Multipart;
 
+use std::sync::Arc;
+
 use super::models::FileMetadata;
 use crate::access_control::resolve_scope_for_create_auth;
+use crate::config::Config;
 use crate::extractors::AuthUser;
-use crate::state::AppState;
 use moatless_backend_core::scope::ScopedResource;
 
+use super::dao::FileDao;
 use super::error::FileStorageError;
 use super::s3;
 use super::schemas::UploadResponse;
@@ -30,14 +33,17 @@ use super::schemas::UploadResponse;
     )
 )]
 pub async fn upload_file(
-    State(state): State<AppState>,
+    State(s3_storage): State<Option<s3::S3Storage>>,
+    State(config): State<Arc<Config>>,
+    State(files): State<Arc<dyn FileDao>>,
     auth: AuthUser,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, FileStorageError> {
-    let s3_client = state.s3.as_ref().ok_or(FileStorageError::S3NotConfigured)?;
+    let s3_client = s3_storage
+        .as_ref()
+        .ok_or(FileStorageError::S3NotConfigured)?;
 
-    let bucket = state
-        .config
+    let bucket = config
         .s3
         .bucket_name
         .as_ref()
@@ -70,7 +76,7 @@ pub async fn upload_file(
         file_data.ok_or_else(|| FileStorageError::BadRequest("No file field found".to_string()))?;
 
     let file_id = uuid::Uuid::new_v4().to_string();
-    let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
+    let s3_key = format!("{}/{}", config.s3.key_prefix, file_id);
     let resolved_scope =
         resolve_scope_for_create_auth(&auth, Some(moatless_backend_core::scope::Scope::User))
             .map_err(|e| match e {
@@ -105,7 +111,7 @@ pub async fn upload_file(
         uploaded_at: chrono::Utc::now(),
     };
 
-    state.files.insert_metadata(&meta).await?;
+    files.insert_metadata(&meta).await?;
 
     Ok(Json(UploadResponse {
         file_id,
@@ -129,21 +135,23 @@ pub async fn upload_file(
     )
 )]
 pub async fn download_file(
-    State(state): State<AppState>,
+    State(s3_storage): State<Option<s3::S3Storage>>,
+    State(config): State<Arc<Config>>,
+    State(files): State<Arc<dyn FileDao>>,
     auth: AuthUser,
     Path(file_id): Path<String>,
 ) -> Result<Response, FileStorageError> {
-    let s3_client = state.s3.as_ref().ok_or(FileStorageError::S3NotConfigured)?;
+    let s3_client = s3_storage
+        .as_ref()
+        .ok_or(FileStorageError::S3NotConfigured)?;
 
-    let bucket = state
-        .config
+    let bucket = config
         .s3
         .bucket_name
         .as_ref()
         .ok_or(FileStorageError::S3NotConfigured)?;
 
-    let meta = state
-        .files
+    let meta = files
         .find_by_id(&file_id)
         .await?
         .ok_or_else(|| FileStorageError::NotFound(file_id.clone()))?;
@@ -157,7 +165,7 @@ pub async fn download_file(
         )));
     }
 
-    let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
+    let s3_key = format!("{}/{}", config.s3.key_prefix, file_id);
     let (data, content_type) = s3::get_object(&s3_client.client, bucket, &s3_key)
         .await
         .map_err(FileStorageError::UploadFailed)?;

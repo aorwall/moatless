@@ -1,0 +1,84 @@
+# Sweep baseline for scripts/check-appstate-composition-root.sh (Step 5).
+#
+# Each path is a module not yet migrated off `AppState`. This list is a ratchet:
+# every sweep slice DELETES the entries it clears, and the check fails on any
+# entry that no longer names AppState (you cleared it — remove its line) and on
+# any new file that names AppState without being listed here. When this file is
+# empty the sweep is complete and AppState survives only in the composition root
+# (main/state/compose) and the routing tables (*/routes.rs, loops/http/mod.rs).
+#
+# Do not add entries to grow coverage — the baseline only shrinks. Order is the
+# `find | sort` order the check walks, so a regenerated list diffs cleanly.
+backend/src/adapters/capabilities.rs
+backend/src/adapters/common.rs
+backend/src/adapters/delivery/typed.rs
+backend/src/adapters/footer.rs
+backend/src/adapters/handlers.rs
+backend/src/adapters/inbound_delivery.rs
+backend/src/adapters/providers/github_pr/api_routes.rs
+backend/src/adapters/providers/github_pr/delivery.rs
+backend/src/adapters/providers/github_pr/handlers.rs
+backend/src/adapters/providers/github_pr/ingress.rs
+backend/src/adapters/providers/github_pr/merge_conflict.rs
+backend/src/adapters/providers/github_pr/post_merge.rs
+backend/src/adapters/providers/github_pr/routing.rs
+backend/src/adapters/providers/github_pr/shell_reconcile.rs
+backend/src/adapters/providers/linear/activity.rs
+backend/src/adapters/providers/linear/adapter.rs
+backend/src/adapters/providers/linear/api_routes.rs
+backend/src/adapters/providers/linear/auth.rs
+backend/src/adapters/providers/linear/close.rs
+backend/src/adapters/providers/linear/comments.rs
+backend/src/adapters/providers/linear/delivery.rs
+backend/src/adapters/providers/linear/handlers.rs
+backend/src/adapters/providers/linear/ingress.rs
+backend/src/adapters/providers/linear/issues.rs
+backend/src/adapters/providers/linear/notifications.rs
+backend/src/adapters/providers/linear/sessions.rs
+backend/src/adapters/providers/linear/subject.rs
+backend/src/adapters/providers/linear/text.rs
+backend/src/adapters/providers/slack/delivery.rs
+backend/src/adapters/providers/slack/handlers.rs
+backend/src/adapters/providers/slack/ingress.rs
+backend/src/adapters/providers/telegram/delivery.rs
+backend/src/adapters/providers/telegram/handlers.rs
+backend/src/adapters/providers/telegram/ingress.rs
+backend/src/adapters/providers/telegram/poller.rs
+backend/src/adapters/providers/webhook/delivery.rs
+backend/src/adapters/providers/webhook/handlers.rs
+backend/src/adapters/subject_events.rs
+backend/src/agent/handlers.rs
+backend/src/agent/service.rs
+backend/src/auth/credentials.rs
+backend/src/bindings/direct_send.rs
+backend/src/bindings/handlers.rs
+backend/src/bindings/outbound.rs
+backend/src/bindings/reply.rs
+backend/src/bindings/runtime.rs
+backend/src/bindings/status_service.rs
+backend/src/credentials/codex/auth_json.rs
+backend/src/event_handler/agent_handlers.rs
+backend/src/event_handler/consumer.rs
+backend/src/event_handler/mod.rs
+backend/src/loops/firing/inbound.rs
+backend/src/loops/firing/listen.rs
+backend/src/loops/firing/schedule_runner.rs
+backend/src/loops/http/handlers.rs
+backend/src/loops/sync/mod.rs
+backend/src/message/handlers.rs
+backend/src/message/hooks.rs
+backend/src/message/send.rs
+backend/src/message/service.rs
+backend/src/provider_settings/handlers.rs
+backend/src/repository/access.rs
+backend/src/repository/handlers.rs
+backend/src/sandbox/notify.rs
+backend/src/sandbox/preflight.rs
+backend/src/t3code/backend.rs
+backend/src/task/connections_handlers.rs
+backend/src/task/handlers.rs
+backend/src/task/reaper.rs
+backend/src/task/service.rs
+backend/src/team/handlers.rs
+backend/src/workspace/git_sync.rs
+backend/src/workspace/handlers.rs

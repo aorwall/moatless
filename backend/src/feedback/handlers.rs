@@ -1,12 +1,15 @@
 //! Feedback HTTP handlers.
 
+use std::sync::Arc;
+
 use axum::extract::{Path, State};
 use axum::Json;
 use chrono::Utc;
 
 use crate::extractors::AuthUser;
-use crate::state::AppState;
+use crate::task::dao::TaskDao;
 
+use super::dao::FeedbackDao;
 use super::error::{FeedbackError, UnknownFeedbackDiscriminant};
 use super::models::{Feedback, FeedbackSource};
 use super::schemas::{
@@ -27,7 +30,8 @@ use super::schemas::{
     )
 )]
 pub async fn create_feedback(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(feedback): State<Arc<dyn FeedbackDao>>,
     auth: AuthUser,
     Json(req): Json<CreateFeedbackRequest>,
 ) -> Result<Json<FeedbackResponse>, FeedbackError> {
@@ -67,8 +71,7 @@ pub async fn create_feedback(
     }
 
     // Verify task exists and the caller has access.
-    let _task = state
-        .tasks
+    let _task = tasks
         .find_by_id(&req.task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| FeedbackError::TaskNotFound(req.task_id.clone()))?;
@@ -92,7 +95,7 @@ pub async fn create_feedback(
         created_at: Utc::now(),
     };
 
-    state.feedback.insert(&row).await?;
+    feedback.insert(&row).await?;
     tracing::info!(
         task_id = %row.task_id,
         feedback_id = %row.feedback_id,
@@ -121,18 +124,18 @@ pub async fn create_feedback(
     )
 )]
 pub async fn list_task_feedback(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(feedback): State<Arc<dyn FeedbackDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<ListFeedbackResponse>, FeedbackError> {
     // Access check via the task lookup.
-    let _task = state
-        .tasks
+    let _task = tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| FeedbackError::TaskNotFound(task_id.clone()))?;
 
-    let rows = state.feedback.list_for_task(&task_id).await?;
+    let rows = feedback.list_for_task(&task_id).await?;
     let items = rows
         .iter()
         .map(to_response)

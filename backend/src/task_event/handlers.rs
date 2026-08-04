@@ -1,12 +1,15 @@
 //! Task event HTTP handlers.
 
+use std::sync::Arc;
+
 use axum::extract::{Path, Query, State};
 use axum::Json;
 
+use super::dao::TaskEventDao;
 use super::error::TaskEventError;
 use super::schemas::*;
 use crate::extractors::AuthUser;
-use crate::state::AppState;
+use crate::task::dao::TaskDao;
 
 /// List persisted events for a task.
 #[utoipa::path(
@@ -23,14 +26,14 @@ use crate::state::AppState;
     )
 )]
 pub async fn list_task_events(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_events): State<Arc<dyn TaskEventDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Query(query): Query<ListTaskEventsQuery>,
 ) -> Result<Json<ListTaskEventsResponse>, TaskEventError> {
     // Verify task exists and user has access
-    state
-        .tasks
+    tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskEventError::TaskNotFound(task_id.clone()))?;
@@ -49,8 +52,7 @@ pub async fn list_task_events(
     // `moat events` both want the tail of a task's history, and `list_events`
     // would hand back the oldest `limit` rows — so a long-running task showed a
     // window frozen near its start.
-    let events = state
-        .task_events
+    let events = task_events
         .list_recent_events(&task_id, &event_types, limit, offset)
         .await?;
 
