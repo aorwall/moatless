@@ -42,7 +42,7 @@ use crate::secret::service::SecretService;
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::TagDao;
-use crate::task::creation::{RealPreflight, TaskCreationService};
+use crate::task::creation::{PreflightPort, RealPreflight, TaskCreationService};
 use crate::task::dao::TaskDao;
 use crate::task::relations::TaskRelationDao;
 use crate::task_event::dao::TaskEventDao;
@@ -132,6 +132,10 @@ pub struct AppState {
     /// Single owner of the create-then-provision sequence (short-id, preflight,
     /// insert, tags, relations, provision, first message, event).
     pub task_creation: Arc<TaskCreationService>,
+    /// GitHub-token preflight, assembled once at the composition root. The
+    /// task-start handler calls the same port `task_creation` runs rather than
+    /// reassembling the credential handles and validator per request.
+    pub preflight: Arc<dyn PreflightPort>,
     pub task_relations: Arc<dyn TaskRelationDao>,
     /// Task↔external-subject bindings (`task_bindings`) — the return channel a
     /// task replies on. Handlers read and write bindings through this port.
@@ -343,8 +347,10 @@ impl AppState {
         ));
 
         // Wire GitHub-token preflight once here so every task-creation path
-        // (HTTP, loops, adapters) gets the same check for free.
-        let preflight = Arc::new(RealPreflight::new(
+        // (HTTP, loops, adapters) runs the same check. Held on `AppState` as the
+        // `PreflightPort` so the task-start handler calls the same port
+        // `task_creation` does rather than reassembling the check per request.
+        let preflight: Arc<dyn PreflightPort> = Arc::new(RealPreflight::new(
             PreflightCredentials {
                 secrets: secrets.clone(),
                 provider_tokens: provider_tokens.clone(),
@@ -364,7 +370,7 @@ impl AppState {
             repositories.clone(),
             events.clone(),
             lifecycle.clone(),
-            preflight,
+            preflight.clone(),
         ));
 
         let token_verifier: Arc<dyn crate::extractors::UserTokenVerifier> =
@@ -383,6 +389,7 @@ impl AppState {
         Self {
             tasks,
             task_creation,
+            preflight,
             task_relations,
             task_bindings,
             adapter_connections,

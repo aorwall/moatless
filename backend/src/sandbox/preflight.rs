@@ -32,13 +32,13 @@ use crate::repository::access::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::sandbox::secrets::{resolve_task_github_token, TaskCredentialInputs};
 use crate::secret::service::SecretService;
-use crate::state::AppState;
 use crate::task::models::Task;
 
 /// The exact set of credential-resolution dependencies the GitHub preflight
-/// consumes. `TaskCreationService` owns its own `PreflightCredentials`, while
-/// HTTP handlers build one from `AppState` via [`PreflightCredentials::from_state`].
-/// All fields are cheap `Arc` clones.
+/// consumes. Assembled once at the composition root and consumed by
+/// `RealPreflight`, which is held on `AppState` as `preflight` and shared by
+/// `TaskCreationService` and the task-start handler. All fields are cheap
+/// `Arc` clones.
 #[derive(Clone)]
 pub struct PreflightCredentials {
     pub secrets: Arc<SecretService>,
@@ -48,21 +48,6 @@ pub struct PreflightCredentials {
     pub github_apps: Arc<GitHubAppRegistry>,
     pub users: Arc<dyn UserDao>,
     pub credentials_svc: Arc<CredentialService>,
-}
-
-impl PreflightCredentials {
-    /// Snapshot the credential handles off an assembled `AppState`.
-    pub fn from_state(state: &AppState) -> Self {
-        Self {
-            secrets: state.secrets.clone(),
-            provider_tokens: state.provider_tokens.clone(),
-            github_app_service: state.github_app_service.clone(),
-            provider_token_auth: state.provider_token_auth.clone(),
-            github_apps: state.github_apps.clone(),
-            users: state.users.clone(),
-            credentials_svc: state.credentials_svc.clone(),
-        }
-    }
 }
 
 /// Failure modes for the pre-flight check.

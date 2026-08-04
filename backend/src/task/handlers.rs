@@ -920,16 +920,7 @@ pub async fn start_task(
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
 
-    let validator = crate::sandbox::preflight::RealGithubValidator;
-    let preflight_creds = crate::sandbox::preflight::PreflightCredentials::from_state(&state);
-    if let Err(e) = crate::sandbox::preflight::preflight_validate_github_token(
-        &preflight_creds,
-        &row,
-        &repo,
-        &validator,
-    )
-    .await
-    {
+    if let Err(e) = state.preflight.validate(&row, &repo).await {
         let msg = e.user_message();
         tracing::warn!(task_id = %task_id, error = %e, "Start preflight failed");
         if let Err(db_err) = state
