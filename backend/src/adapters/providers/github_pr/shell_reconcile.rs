@@ -580,7 +580,10 @@ async fn resolve_task_repository_github_token(
             "GitHub target does not match the task repository".to_string(),
         ));
     }
-    crate::repository::access::resolve_repository_github_token(state, &repository, remote_url).await
+    state
+        .repo_token_resolver
+        .resolve(&repository, remote_url)
+        .await
 }
 
 /// Extract the GitHub repository, remote branch and pushed commit from

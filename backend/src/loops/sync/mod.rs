@@ -25,7 +25,7 @@ use crate::adapters::common::next_fire_at;
 use crate::adapters::models::RoutingMode;
 use crate::extractors::AuthUser;
 use crate::loops::dao::{ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
-use crate::repository::access::{parse_github_owner_repo, resolve_repository_github_token};
+use crate::repository::access::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryProvider};
 use crate::state::AppState;
 
@@ -546,7 +546,11 @@ async fn resolve_github_token(
     repository: &Repository,
     remote_url: &str,
 ) -> Option<String> {
-    match resolve_repository_github_token(state, repository, remote_url).await {
+    match state
+        .repo_token_resolver
+        .resolve(repository, remote_url)
+        .await
+    {
         Ok(token) => token,
         Err(e) => {
             warn!(error = %e, "Loop sync: failed to resolve GitHub token");

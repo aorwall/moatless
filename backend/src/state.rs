@@ -30,6 +30,7 @@ use crate::loops::firing::receipts::EventReceiptDao;
 use crate::message::dao::MessageDao;
 use crate::plugin::dao::PluginDao;
 use crate::plugin::sync::PluginSyncService;
+use crate::repository::access::RepositoryTokenResolver;
 use crate::repository::dao::RepositoryDao;
 use crate::sandbox::lifecycle::{Lifecycle, NotifyPort};
 use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator};
@@ -147,6 +148,9 @@ pub struct AppState {
     pub messages: Arc<dyn MessageDao>,
     pub feedback: Arc<dyn FeedbackDao>,
     pub repositories: Arc<dyn RepositoryDao>,
+    /// Resolves a repository's GitHub token from the credential ports, for the
+    /// operations that carry no run-as identity (the repository scope selects).
+    pub repo_token_resolver: Arc<RepositoryTokenResolver>,
     pub tags: Arc<dyn TagDao>,
     pub files: Arc<dyn FileDao>,
     pub users: Arc<dyn UserDao>,
@@ -259,6 +263,14 @@ impl AppState {
             .with_secrets(secrets.clone()),
         );
 
+        let repo_token_resolver = Arc::new(RepositoryTokenResolver::new(
+            provider_tokens.clone(),
+            provider_token_auth.clone(),
+            github_app_service.clone(),
+            github_apps.clone(),
+            secrets.clone(),
+        ));
+
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("moatless-vibe-backend")
@@ -342,6 +354,7 @@ impl AppState {
             messages,
             feedback,
             repositories,
+            repo_token_resolver,
             tags,
             files,
             users,

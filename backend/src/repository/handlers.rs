@@ -16,7 +16,7 @@ use crate::secret::models::looks_like_secret_key;
 use crate::state::AppState;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
-use super::access::{access_error_for, parse_github_owner_repo, resolve_repository_github_token};
+use super::access::{access_error_for, parse_github_owner_repo};
 use super::config_reader::{
     validate_repository_access_target, verify_repository_access, AccessStatus,
 };
@@ -368,7 +368,10 @@ pub async fn verify_access(
 
     let token = match provider {
         RepositoryProvider::Github => {
-            resolve_repository_github_token(&state, &repository, remote_url).await?
+            state
+                .repo_token_resolver
+                .resolve(&repository, remote_url)
+                .await?
         }
         RepositoryProvider::Gitlab => state
             .provider_tokens
@@ -602,7 +605,9 @@ pub(crate) async fn list_branches(
     // Resolve a token for the repository's persisted scope. User-scoped
     // repositories always use their owner, never a viewing admin.
     let access_token = if provider == RepositoryProvider::Github {
-        resolve_repository_github_token(state, &repo, remote_url)
+        state
+            .repo_token_resolver
+            .resolve(&repo, remote_url)
             .await?
             .ok_or_else(|| {
                 RepositoryError::BadRequest(

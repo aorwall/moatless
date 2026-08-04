@@ -28,7 +28,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use crate::extractors::AuthUser;
-use crate::repository::access::{access_error_for, resolve_repository_github_token};
+use crate::repository::access::access_error_for;
 use crate::repository::config_reader::{
     fetch_provider_file, verify_repository_access, AccessStatus,
 };
@@ -813,7 +813,9 @@ async fn resolve_sync_token(
     remote_url: &str,
 ) -> Option<String> {
     if provider == RepositoryProvider::Github {
-        resolve_repository_github_token(state, repository, remote_url)
+        state
+            .repo_token_resolver
+            .resolve(repository, remote_url)
             .await
             .unwrap_or_else(|e| {
                 warn!(error = %e, "Workspace sync: failed to resolve GitHub token");

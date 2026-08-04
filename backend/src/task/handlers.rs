@@ -995,11 +995,9 @@ async fn maybe_sync_repo_config_on_start(
     // Resolve a token for the existence probe; fall back to an unauthenticated
     // probe (works for public repos) if we can't load one.
     let token = if provider == RepositoryProvider::Github {
-        crate::repository::access::resolve_repository_github_token(
-            state,
-            repo,
-            remote_url,
-        )
+        state
+            .repo_token_resolver
+            .resolve(repo, remote_url)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to resolve GitHub token; probing unauthenticated");

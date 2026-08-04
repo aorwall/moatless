@@ -1,5 +1,7 @@
 //! Repository-aware provider access and credential selection.
 
+use std::sync::Arc;
+
 use moatless_backend_core::scope::Scope;
 
 use crate::auth::error::AuthError;
@@ -9,7 +11,6 @@ use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::credentials::github::scope::GitHubScope;
 use crate::secret::service::SecretService;
-use crate::state::AppState;
 
 use super::config_reader::AccessStatus;
 use super::error::RepositoryError;
@@ -32,24 +33,53 @@ fn github_credential_scope(repository: &Repository) -> Result<GitHubScope, Repos
     }
 }
 
-/// Resolve a GitHub token for an operation on `remote_url`, with no run-as
-/// identity in play — the repository's persisted scope selects the credential.
-pub(crate) async fn resolve_repository_github_token(
-    state: &AppState,
-    repository: &Repository,
-    remote_url: &str,
-) -> Result<Option<String>, RepositoryError> {
-    resolve_repository_github_token_with(
-        state.provider_tokens.as_ref(),
-        Some(state.provider_token_auth.as_ref()),
-        state.github_app_service.as_deref(),
-        state.github_apps.as_ref(),
-        Some(state.secrets.as_ref()),
-        repository,
-        remote_url,
-        None,
-    )
-    .await
+/// Resolves a repository's GitHub token from the composition-root credential
+/// ports, for operations with no run-as identity in play — the repository's
+/// persisted scope selects the credential.
+pub struct RepositoryTokenResolver {
+    provider_tokens: Arc<dyn ProviderTokenDao>,
+    provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
+    github_app_service: Option<Arc<GitHubAppService>>,
+    github_apps: Arc<GitHubAppRegistry>,
+    secrets: Arc<SecretService>,
+}
+
+impl RepositoryTokenResolver {
+    pub(crate) fn new(
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
+        github_app_service: Option<Arc<GitHubAppService>>,
+        github_apps: Arc<GitHubAppRegistry>,
+        secrets: Arc<SecretService>,
+    ) -> Self {
+        Self {
+            provider_tokens,
+            provider_token_auth,
+            github_app_service,
+            github_apps,
+            secrets,
+        }
+    }
+
+    /// Resolve a GitHub token for an operation on `remote_url`, with no run-as
+    /// identity in play — the repository's persisted scope selects the credential.
+    pub(crate) async fn resolve(
+        &self,
+        repository: &Repository,
+        remote_url: &str,
+    ) -> Result<Option<String>, RepositoryError> {
+        resolve_repository_github_token_with(
+            self.provider_tokens.as_ref(),
+            Some(self.provider_token_auth.as_ref()),
+            self.github_app_service.as_deref(),
+            self.github_apps.as_ref(),
+            Some(self.secrets.as_ref()),
+            repository,
+            remote_url,
+            None,
+        )
+        .await
+    }
 }
 
 /// Dependency-injected form used by sandbox credential delivery.
