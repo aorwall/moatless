@@ -25,6 +25,15 @@ if [ -z "${SCCACHE_S3_BUCKET:-}" ]; then
     exit 0
 fi
 
+# The auth step is continue-on-error, so a failed role assumption reaches here
+# with the bucket set but nothing to sign requests with. Compiling without a
+# cache is the correct degradation; pointing sccache at a bucket it cannot
+# reach is not.
+if [ -z "${AWS_ACCESS_KEY_ID:-}" ]; then
+    echo "::warning::SCCACHE_S3_BUCKET is set but no AWS credentials were exported — skipping sccache."
+    exit 0
+fi
+
 arch="$(uname -m)"
 case "$arch" in
     x86_64)  target="x86_64-unknown-linux-musl" ;;
