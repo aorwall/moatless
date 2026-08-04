@@ -211,7 +211,7 @@ The sandbox is provisioned at `requests: {cpu 2, memory 4Gi}`, `limits: {cpu 4, 
 - A CI check that fails when a new `DbPool`-to-DAO construction appears outside that root.
 - Fifteen crates under `crates/`, replacing the single `backend/` crate: nine bands, the adapter vocabulary, two sandbox providers, five adapter providers minus the overlap, and a root that is only wiring.
 - Six consumer-owned ports that do not exist today, each declared by the crate that calls upward — listed in Step 9.
-- Two more, declared by `bindings` and implemented by the adapter registry: `OutboundProviders` and `BindingStatusSource`, in Step 7c.
+- Two more, declared by `bindings` and implemented by the adapter registry: `OutboundProviders` and `BindingStatusSource`, in Step 7c. (That these are two ports and not one is the crate-split side's glimpse of the several-jobs breadth recorded at the "`bindings` reads twelve ports" note under Step 5 — whether `bindings` becomes one crate or several is settled there, not here.)
 
 **Changes materially**
 
@@ -420,6 +420,8 @@ The CI check added here greps for the `Pg[A-Za-z]+Dao(` constructor outside the 
 - **`AppState.db`** is carried into a handler signature wherever that handler calls a raw-pool query function predating the DAO layer — `State(db): State<DbPool>`, handed out by a `FromRef<AppState> for DbPool` impl alongside the DAO ports. This is a named residue, not a new grant. The call sites are the same population Step 3 deliberately left alone (`list_adapter_apps`, `upsert_adapter_app`, `delete_adapter_app`, `bot_users_by_app_key`, the `workspace/git_sync.rs` pool helpers); converting them to DAOs is that step reopened, not Step 5 scope. The `FromRef` impl names the pool for those call sites — it is not sanction to run new SQL from a handler. DAO construction still happens only in the composition root, and raw-pool services keep their own pools as Step 2 sets out. Each sweep slice reports how many `State<DbPool>` parameters it adds and the running total, so the final count is chosen rather than discovered.
 
 - **`message/send.rs:111`** reads `state.recently_sent` and `:127` reads `inbound_presentation_by_name`. Under this step that becomes a named port rather than a field: given an adapter name and an external id, what other ids could this event be stored under. That is self-echo deduplication, and it should be modelled as such rather than as access to the whole adapter registry.
+
+- **`bindings` reads twelve ports because it is five jobs sharing a `mod.rs`, not one job needing twelve.** When Step 5's sweep reaches `bindings`, the union of its `state.*` reads is twelve — {adapters, task_bindings, messages, loops, adapter_connections, tasks, task_turns, recently_sent, config, s3, files, event_receipts} — the largest single count in the sweep. The twelve do not belong to one handler: `runtime` (inbound routing + fan-out), `outbound` (thread/reply sends), `reply` (external replies), `status_service` (binding status) and `handlers` (the HTTP surface) each read a coherent slice, and the union is large only because L1's ten modules share one directory — the same shape `adapters/models.rs` had before 7a. Per-handler ports make each slice visible; whether `bindings` is then one crate or several is a Step 7/10 question, and the L1 table is where that split would be drawn. Recorded so the twelve reads read as five jobs made visible, not one god-handler.
 
 #### Step 6 — `BackendSandboxServiceImpl`, `Config`, and the `Option`-as-mode pattern
 
