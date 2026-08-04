@@ -72,10 +72,10 @@ pub mod reason {
     /// The inner payload is absent, does not parse, or parses without the field
     /// the workflow keys on.
     pub const MALFORMED_PAYLOAD: &str = "malformed_payload";
-    /// A session was created on a team with no active Subscription. The
-    /// heartbeat is still posted; nothing durable records that Linear asked and
-    /// we declined — spec Open question 2, for which this reason is the interim
-    /// answer.
+    /// A session was created on a team with no active Subscription. The session
+    /// is closed with a terminal `error` activity so its Linear panel doesn't
+    /// spin forever; nothing durable records that Linear asked and we declined —
+    /// spec Open question 2, for which this reason is the interim answer.
     pub const NO_SUBSCRIPTION: &str = "no_subscription";
     /// A prompt carrying no body, or no activity to carry one.
     pub const EMPTY_BODY: &str = "empty_body";
@@ -273,11 +273,17 @@ async fn dispatch(
     // delivery that is about to fail anyway.
     let unmet = !requirement_met(state, &connection, requires.as_ref()).await?;
 
-    apply(state, &connection, &effects).await;
-
     if unmet {
+        // A created session on a team with no active Subscription. No
+        // provisioning is admitted, so nothing downstream will ever post a
+        // terminal activity — close the session here instead. The heartbeat is
+        // deliberately skipped: it would only keep the panel `active` before
+        // the `error` that immediately follows.
+        decline_sessions(state, &connection, &effects).await;
         return Ok(ignored(envelope, reason::NO_SUBSCRIPTION));
     }
+
+    apply(state, &connection, &effects).await;
 
     let mut kinds = Vec::with_capacity(requests.len());
     for request in requests {
@@ -337,7 +343,7 @@ async fn requirement_met(
     if rules.is_empty() {
         warn!(
             team_id = %team_id,
-            "Linear session created but no active rule found for team — emitting heartbeat only"
+            "Linear session created but no active rule found for team — closing the session"
         );
         return Ok(false);
     }
@@ -368,6 +374,32 @@ async fn apply(state: &AppState, connection: &AdapterConnection, effects: &[Effe
         {
             warn!(session_id, error = %e, "Failed to emit Linear thought activity");
         }
+    }
+}
+
+/// Close every session a refused plan opened, with a terminal `error` activity.
+///
+/// The counterpart to [`apply`] for the one admission that is dropped after its
+/// panel is already open: a created session whose team has no active
+/// Subscription. Linear infers session state from the last activity, so without
+/// a terminal one the panel stays `active` indefinitely — this posts the `error`
+/// that closes it. Best-effort, exactly like [`apply`]: a resolve or post
+/// failure is logged and the drop carries on.
+async fn decline_sessions(state: &AppState, connection: &AdapterConnection, effects: &[Effect]) {
+    if effects.is_empty() {
+        return;
+    }
+    let api = match super::auth::api_for_connection(state, connection).await {
+        Ok(api) => api,
+        Err(e) => {
+            warn!(error = %e, "Failed to resolve Linear app config to decline session");
+            return;
+        }
+    };
+    for effect in effects {
+        let Effect::SessionHeartbeat { session_id, .. } = effect;
+        super::sessions::decline_session(&api, session_id, super::sessions::NO_ACTIVE_RULE_DECLINE)
+            .await;
     }
 }
 

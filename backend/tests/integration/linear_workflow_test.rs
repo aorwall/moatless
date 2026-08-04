@@ -61,8 +61,8 @@ use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{
-    drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row, seed_team,
-    test_app_state_with_config, test_config, USER_1,
+    drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
+    seed_linear_app, seed_team, test_app_state_with_config, test_config, USER_1,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -157,7 +157,14 @@ async fn drain(pool: &PgPool, stub: &ProviderStub) {
 // Fixtures
 // =========================================================================
 
-async fn seed_connection(pool: &PgPool) {
+/// The connection, plus the `adapter_apps` row its client is resolved from.
+///
+/// Both are required before any Linear call leaves the process: the connection
+/// names the workspace, and the app row is where `api_for_connection` reads the
+/// `api_base_url` that points the client at `stub`. Without the app row the
+/// client cannot be built, every emitter skips its call best-effort, and each
+/// budget below reads as zero.
+async fn seed_connection(pool: &PgPool, stub: &ProviderStub) {
     sqlx::query(
         "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
@@ -169,6 +176,7 @@ async fn seed_connection(pool: &PgPool) {
     .execute(pool)
     .await
     .expect("seed Linear connection");
+    seed_linear_app(pool, stub.base_url()).await;
 }
 
 /// The workspace OAuth token every Linear call resolves before it reaches HTTP.
@@ -503,7 +511,7 @@ async fn binding_status(pool: &PgPool) -> Vec<(String, Option<String>, Option<St
 async fn a_created_session_posts_one_heartbeat_and_admits_the_rest(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(&state, None).await;
@@ -528,21 +536,33 @@ async fn a_created_session_posts_one_heartbeat_and_admits_the_rest(pool: PgPool)
     );
 }
 
-/// No Subscription, no admission — but the heartbeat is still posted.
+/// No Subscription, no admission — and the session is closed rather than left
+/// spinning.
 ///
-/// A session Linear opened must not sit blank while an operator works out that
-/// no rule matched. The plan's Open question 2 is about whether the drop should
-/// also be durable; this pins that the heartbeat happens either way.
+/// A session Linear opened must not sit `active` forever while nothing runs
+/// behind it. No provisioning is admitted, so nothing downstream will post a
+/// terminal activity; the drop itself closes the session with a terminal
+/// `error` so the panel reaches a resolved state.
 #[sqlx::test]
-async fn a_created_session_with_no_rule_still_posts_its_heartbeat(pool: PgPool) {
+async fn a_created_session_with_no_rule_closes_the_session(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
 
     assert_eq!(deliver(&state, &session_created()).await, StatusCode::OK);
 
     assert_eq!(stub.graphql_operations(), vec!["agentActivityCreate"]);
+    let content_type = serde_json::from_str::<serde_json::Value>(&stub.requests()[0].body)
+        .expect("stub recorded a JSON body")
+        .pointer("/variables/input/content/type")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    assert_eq!(
+        content_type.as_deref(),
+        Some("error"),
+        "the session is closed with a terminal error, not left on the ephemeral heartbeat"
+    );
     let admitted: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM adapter_delivery")
         .fetch_one(&pool)
         .await
@@ -564,7 +584,7 @@ async fn a_created_session_with_no_rule_still_posts_its_heartbeat(pool: PgPool) 
 async fn provisioning_an_unscoped_session_makes_two_calls_in_order(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(&state, None).await;
@@ -606,7 +626,7 @@ async fn provisioning_an_unscoped_session_makes_two_calls_in_order(pool: PgPool)
 async fn provisioning_a_project_scoped_session_fetches_the_issue_once(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(
@@ -635,7 +655,7 @@ async fn provisioning_a_project_scoped_session_fetches_the_issue_once(pool: PgPo
 async fn provisioning_moves_the_issue_to_the_start_state_once(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(
@@ -669,7 +689,7 @@ async fn provisioning_moves_the_issue_to_the_start_state_once(pool: PgPool) {
 async fn provisioning_skips_the_board_move_when_the_issue_is_already_there(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(&state, Some(serde_json::json!({"start_state": "Todo"}))).await;
@@ -696,7 +716,7 @@ async fn provisioning_skips_the_board_move_when_the_issue_is_already_there(pool:
 async fn a_second_provisioning_attempt_creates_no_second_task(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(&state, None).await;
@@ -731,7 +751,7 @@ async fn a_second_provisioning_attempt_creates_no_second_task(pool: PgPool) {
 async fn a_prompt_heartbeats_once_and_forwards_under_the_activity_id(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
@@ -759,7 +779,7 @@ async fn a_prompt_heartbeats_once_and_forwards_under_the_activity_id(pool: PgPoo
 async fn a_prompt_to_a_deactivated_binding_reaches_nothing(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
@@ -793,7 +813,7 @@ async fn a_prompt_to_a_deactivated_binding_reaches_nothing(pool: PgPool) {
 async fn a_comment_heartbeats_only_session_bindings_and_reaches_both(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
@@ -836,7 +856,7 @@ async fn a_comment_heartbeats_only_session_bindings_and_reaches_both(pool: PgPoo
 async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
@@ -893,7 +913,7 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
 async fn a_task_does_not_receive_back_its_own_comment(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
@@ -931,7 +951,7 @@ async fn a_task_does_not_receive_back_its_own_comment(pool: PgPool) {
 async fn an_issue_update_with_no_transition_does_nothing(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
@@ -961,7 +981,7 @@ async fn an_issue_update_with_no_transition_does_nothing(pool: PgPool) {
 async fn an_issue_transition_persists_status_and_forwards_without_fetching(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
@@ -999,7 +1019,7 @@ async fn an_issue_transition_persists_status_and_forwards_without_fetching(pool:
 async fn an_issue_transition_wakes_the_task_it_forwards_to(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(&state, &pool, None).await;
@@ -1020,7 +1040,7 @@ async fn an_issue_transition_wakes_the_task_it_forwards_to(pool: PgPool) {
 async fn a_terminal_transition_closes_the_task_and_posts_one_response(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(
@@ -1046,7 +1066,7 @@ async fn a_terminal_transition_closes_the_task_and_posts_one_response(pool: PgPo
 async fn a_terminal_transition_without_the_flag_leaves_the_task_open(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(
@@ -1079,7 +1099,7 @@ async fn a_terminal_transition_without_the_flag_leaves_the_task_open(pool: PgPoo
 async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(
@@ -1131,7 +1151,7 @@ async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
 async fn a_binding_from_a_different_origin_is_not_closed(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(
@@ -1163,7 +1183,7 @@ async fn a_binding_from_a_different_origin_is_not_closed(pool: PgPool) {
 async fn a_binding_from_a_different_rule_is_not_closed(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(
@@ -1197,7 +1217,7 @@ async fn a_binding_from_a_different_rule_is_not_closed(pool: PgPool) {
 async fn an_already_closed_task_gets_no_second_close(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(
@@ -1233,7 +1253,7 @@ async fn an_already_closed_task_gets_no_second_close(pool: PgPool) {
 async fn a_status_entry_creates_a_task_and_links_it_back(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(
@@ -1270,7 +1290,7 @@ async fn a_status_entry_creates_a_task_and_links_it_back(pool: PgPool) {
 async fn a_status_entry_preflight_failure_posts_one_comment_and_stops(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_preflight_failing_repository(&pool).await;
     seed_rule(
@@ -1302,7 +1322,7 @@ async fn a_status_entry_preflight_failure_posts_one_comment_and_stops(pool: PgPo
 async fn a_second_status_entry_creates_no_second_task(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(
@@ -1335,7 +1355,7 @@ async fn a_second_status_entry_creates_no_second_task(pool: PgPool) {
 async fn a_status_entry_with_unmet_labels_creates_nothing(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule(
@@ -1376,7 +1396,7 @@ async fn a_status_entry_with_unmet_labels_creates_nothing(pool: PgPool) {
 async fn a_status_notification_closes_the_task_the_same_way(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_local_repository(&pool).await;
     seed_rule_then_session(

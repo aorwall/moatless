@@ -42,7 +42,8 @@ use moatless_vibe_backend::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 
 use common::{
-    linear_config, make_repository_row, seed_team, test_app_state_with_config, test_config, USER_1,
+    linear_config, make_repository_row, seed_linear_app, seed_team, test_app_state_with_config,
+    test_config, USER_1,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -107,7 +108,13 @@ async fn deliver_signed_bytes(
     receive(state, provider, &signature, &body).await
 }
 
-async fn seed_connection(pool: &PgPool) {
+/// The connection, plus the `adapter_apps` row its client is resolved from.
+///
+/// The app row is where `api_for_connection` reads the `api_base_url` that
+/// points the resolved client at `stub`. Without it the client cannot be built,
+/// every Linear emitter skips its call best-effort, and a test asserting what
+/// reached Linear sees nothing at all.
+async fn seed_connection(pool: &PgPool, stub: &ProviderStub) {
     sqlx::query(
         "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
@@ -119,6 +126,7 @@ async fn seed_connection(pool: &PgPool) {
     .execute(pool)
     .await
     .expect("seed Linear connection");
+    seed_linear_app(pool, stub.base_url()).await;
 }
 
 /// The workspace OAuth token every Linear call resolves before it reaches HTTP.
@@ -266,6 +274,20 @@ fn reason_of(outcome: Result<Outcome, Rejection>) -> &'static str {
     }
 }
 
+/// The `agentActivityCreate` `input` of the one call the stub recorded — the
+/// assertion hook for which activity the response path posted (its `content.type`
+/// and whether it was `ephemeral`).
+#[track_caller]
+fn sole_activity_input(stub: &ProviderStub) -> serde_json::Value {
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 1, "expected exactly one Linear call");
+    let body: serde_json::Value =
+        serde_json::from_str(&requests[0].body).expect("stub recorded a JSON body");
+    body.pointer("/variables/input")
+        .cloned()
+        .unwrap_or_else(|| panic!("activity call carried no input: {body}"))
+}
+
 // =========================================================================
 // The seam itself
 // =========================================================================
@@ -276,7 +298,7 @@ fn reason_of(outcome: Result<Outcome, Rejection>) -> &'static str {
 async fn receive_admits_a_signed_delivery_without_an_http_request(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let outcome = deliver(&state, &comment_envelope("create", "c-1")).await;
 
@@ -297,7 +319,7 @@ async fn receive_admits_a_signed_delivery_without_an_http_request(pool: PgPool) 
 async fn each_event_type_admits_its_own_kind_and_a_redelivery_admits_nothing(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     assert_eq!(
         kinds_of(deliver(&state, &issue_envelope(true)).await),
@@ -347,7 +369,7 @@ async fn each_event_type_admits_its_own_kind_and_a_redelivery_admits_nothing(poo
 async fn a_created_session_posts_its_heartbeat_then_admits_provisioning(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     seed_rule(&state, &pool).await;
 
@@ -370,7 +392,7 @@ async fn a_created_session_posts_its_heartbeat_then_admits_provisioning(pool: Pg
 async fn an_unsigned_delivery_is_no_signature(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let body = serde_json::to_vec(&comment_envelope("create", "c-1")).expect("serialize");
     assert_eq!(
@@ -408,7 +430,7 @@ async fn an_unknown_or_absent_organization_is_no_connection(pool: PgPool) {
 async fn an_event_type_this_adapter_does_not_handle_is_unsupported_event(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let envelope = serde_json::json!({
         "action": "create",
@@ -427,7 +449,7 @@ async fn an_event_type_this_adapter_does_not_handle_is_unsupported_event(pool: P
 async fn an_action_this_adapter_does_not_act_on_is_unsupported_action(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let mut created_issue = issue_envelope(true);
     created_issue["action"] = serde_json::json!("create");
@@ -449,7 +471,7 @@ async fn an_action_this_adapter_does_not_act_on_is_unsupported_action(pool: PgPo
 async fn an_absent_or_unparseable_inner_payload_is_malformed_payload(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let mut no_data = comment_envelope("create", "c-1");
     no_data.as_object_mut().expect("object").remove("data");
@@ -471,14 +493,16 @@ async fn an_absent_or_unparseable_inner_payload_is_malformed_payload(pool: PgPoo
     }
 }
 
-/// The interim answer to the plan's Open question 2: nothing durable records
-/// that Linear asked and we declined, but the metric now says so — and the
-/// heartbeat is still posted, because the panel is already open.
+/// A created session on a team with no active Subscription is dropped as
+/// `NO_SUBSCRIPTION` — and the session is closed with a terminal `error`
+/// activity rather than left spinning. No provisioning is admitted, so nothing
+/// downstream would ever post a terminal activity; without one Linear leaves the
+/// panel `active` forever.
 #[sqlx::test]
-async fn a_created_session_with_no_active_rule_is_no_subscription(pool: PgPool) {
+async fn a_created_session_with_no_active_rule_closes_the_session(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
     seed_workspace_token(&pool).await;
     // Deliberately no rule seeded.
 
@@ -486,10 +510,22 @@ async fn a_created_session_with_no_active_rule_is_no_subscription(pool: PgPool) 
         reason_of(deliver(&state, &session_envelope("created")).await),
         reason::NO_SUBSCRIPTION
     );
+    // Exactly one call, and it is the terminal `error` that closes the panel —
+    // not the ephemeral heartbeat, which would only keep it `active`.
+    let input = sole_activity_input(&stub);
     assert_eq!(
-        stub.graphql_operations(),
-        vec!["agentActivityCreate"],
-        "the heartbeat survives the drop"
+        input
+            .pointer("/content/type")
+            .and_then(serde_json::Value::as_str),
+        Some("error"),
+        "the session is closed with a terminal error, got {input}"
+    );
+    assert_eq!(
+        input
+            .pointer("/ephemeral")
+            .and_then(serde_json::Value::as_bool),
+        Some(false),
+        "a terminal activity is never ephemeral"
     );
     assert_eq!(admitted_count(&pool).await, 0);
 }
@@ -498,7 +534,7 @@ async fn a_created_session_with_no_active_rule_is_no_subscription(pool: PgPool) 
 async fn a_prompt_carrying_nothing_to_forward_is_empty_body(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let mut empty = session_envelope("prompted");
     empty["agentActivity"] = serde_json::json!({"id": "act-1", "body": ""});
@@ -523,7 +559,7 @@ async fn a_prompt_carrying_nothing_to_forward_is_empty_body(pool: PgPool) {
 async fn an_issue_update_with_no_timestamp_is_unidentifiable(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let rejection = deliver(&state, &issue_envelope(false))
         .await
@@ -545,7 +581,7 @@ async fn an_issue_update_with_no_timestamp_is_unidentifiable(pool: PgPool) {
 async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let body = serde_json::to_vec(&comment_envelope("create", "c-1")).expect("serialize");
     let provider = state
@@ -567,7 +603,7 @@ async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgP
 async fn an_unparseable_body_is_an_ingress_rejection_with_no_event_type(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     let rejection = deliver_signed_bytes(&state, b"not json".to_vec(), true)
         .await
@@ -584,7 +620,7 @@ async fn an_unparseable_body_is_an_ingress_rejection_with_no_event_type(pool: Pg
 async fn a_failed_admission_is_not_admitted_and_still_names_its_event_type(pool: PgPool) {
     let stub = linear_stub().await;
     let state = replica(&pool, &stub);
-    seed_connection(&pool).await;
+    seed_connection(&pool, &stub).await;
 
     // The durable write is the thing that has to fail, and it is the only thing
     // that may: every guard above it has already passed.

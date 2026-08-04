@@ -37,6 +37,32 @@ use super::webhook_payloads::AgentSession;
 
 const ADAPTER_LABEL: &str = "linear";
 
+/// Body of the terminal `error` activity posted when a created session reaches
+/// no task: no active Subscription for the team, or one disabled between
+/// admission and execution. Linear infers session state from the last activity,
+/// so a created session that only ever got the ephemeral heartbeat stays
+/// `active` in the panel forever; a terminal `error` closes it and tells the
+/// user why nothing started.
+pub(super) const NO_ACTIVE_RULE_DECLINE: &str =
+    "No Moatless automation is configured for this Linear team, so I can't start a task for this issue.";
+
+/// Close a Linear agent session with a terminal `error` activity when no task
+/// will be provisioned behind it.
+///
+/// A created session that received only the ephemeral heartbeat sits `active`
+/// in Linear's UI indefinitely — the heartbeat resets the 10-second stale timer
+/// but nothing moves the session to a terminal state. Emitting `error` is what
+/// closes the panel. Best-effort: a failure to post is logged, not propagated,
+/// because the caller has already decided not to do the work.
+pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, message: &str) {
+    if let Err(e) = api
+        .agent_activity_create(session_id, ActivityKind::Error, message, false)
+        .await
+    {
+        warn!(session_id, error = %e, "Failed to post Linear session decline activity");
+    }
+}
+
 /// Select the spawn rule for a created session and provision its task.
 ///
 /// This is the body of what used to be a detached spawn, now the executable
@@ -65,6 +91,8 @@ pub(super) async fn provision_selected_session_task(
             session_id = %session.id,
             "Linear session created but no spawn rule selected — skipping task creation"
         );
+        // Close the session rather than leaving Linear's panel spinning.
+        decline_session(api, &session.id, NO_ACTIVE_RULE_DECLINE).await;
         return Ok(());
     };
 

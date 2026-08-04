@@ -64,9 +64,10 @@ pub(super) enum Effect {
 ///
 /// A created session is the one event whose admission is gated on state
 /// `normalize` cannot see. The gate is not moved by this refactor: the
-/// Subscription lookup runs before the heartbeat, exactly where it always did,
-/// and an unmet requirement is [`reason::NO_SUBSCRIPTION`] with the heartbeat
-/// still posted.
+/// Subscription lookup runs before the heartbeat, exactly where it always did.
+/// An unmet requirement is [`reason::NO_SUBSCRIPTION`]; rather than the
+/// heartbeat, the session is closed with a terminal `error` activity so its
+/// panel doesn't spin forever behind an admission that never happens.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Requirement {
     /// At least one active Subscription bound to this Linear team.

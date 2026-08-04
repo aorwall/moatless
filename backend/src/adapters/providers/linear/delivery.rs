@@ -375,12 +375,34 @@ async fn execute_session_provision(
     let rules = super::ingress::resolve_rules_for_team(&state, &connection, &team_id)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
+
     if rules.is_empty() {
         info!(
             session_id = %payload.session.id,
             team_id = %team_id,
             "Linear session provisioning skipped: no active rule for the team"
         );
+        // The rule that admitted this session was disabled before the worker
+        // ran. Close the session so its Linear panel doesn't spin forever.
+        //
+        // Resolved here rather than above the guard, and best-effort: there is
+        // no work left to redo on this record, so a credential failure must not
+        // turn a settled no-op into a retry.
+        match super::auth::api_for_connection(&state, &connection).await {
+            Ok(api) => {
+                super::sessions::decline_session(
+                    &api,
+                    &payload.session.id,
+                    super::sessions::NO_ACTIVE_RULE_DECLINE,
+                )
+                .await;
+            }
+            Err(e) => warn!(
+                session_id = %payload.session.id,
+                error = %e,
+                "Failed to resolve Linear app config to decline session"
+            ),
+        }
         return Ok(());
     }
 

@@ -134,6 +134,36 @@ pub fn linear_config(webhook_secret: Option<&str>, api_base_url: Option<&str>) -
     }
 }
 
+/// The `adapter_apps` row every Linear API call resolves its client from.
+///
+/// Linear app credentials are DB-authoritative: `api_for_connection` builds its
+/// client from [`linear_app_config`], which reads `adapter_apps` and returns
+/// `None` when no row exists — and every Linear emitter treats that as
+/// best-effort and silently skips the call. So a test that seeds only
+/// [`linear_config`] makes *no* Linear calls at all, and any API-call budget it
+/// asserts is vacuous. Seed this alongside the connection.
+///
+/// `api_base_url` lives in `config_json` (not the secret rows), which is what
+/// points the resolved client at a stub. No `adapter_app_secrets` rows are
+/// needed: the OAuth client id/secret are only read to refresh a token, and a
+/// seeded token that is not near expiry is never refreshed.
+///
+/// [`linear_app_config`]: moatless_vibe_backend::adapter_apps::linear_app_config
+#[allow(dead_code)]
+pub async fn seed_linear_app(pool: &sqlx::PgPool, api_base_url: &str) {
+    sqlx::query(
+        "INSERT INTO adapter_apps \
+         (id, adapter_kind, app_key, display_name, enabled, config_json, created_by, updated_by) \
+         VALUES ('aa_linear_test', 'linear', 'default', 'Linear (test)', true, $1, $2, $2) \
+         ON CONFLICT (adapter_kind, app_key) DO UPDATE SET config_json = $1",
+    )
+    .bind(serde_json::json!({ "api_base_url": api_base_url }))
+    .bind(USER_1)
+    .execute(pool)
+    .await
+    .expect("seed Linear adapter app");
+}
+
 /// Minimal Config for tests — no env vars needed.
 #[allow(dead_code)]
 pub fn test_config() -> Config {

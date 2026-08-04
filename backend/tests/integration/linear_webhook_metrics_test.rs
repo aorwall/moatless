@@ -399,11 +399,12 @@ async fn an_unsupported_session_action_is_ignored_as_unsupported_action(pool: Pg
 /// A created session on a team with no active Subscription. The heartbeat is
 /// attempted and nothing durable is written.
 ///
-/// The heartbeat surviving the drop is asserted where it is observable — the
+/// The session closing on the drop is asserted where it is observable — the
 /// `AgentSessionEvent.created` budget in `linear_workflow_test.rs`, which
-/// spends its one `agentActivityCreate` with a rule and without one. Open
-/// question 2 in the plan is about whether the drop should also become durable;
-/// `no_subscription` is the interim answer, and it is this row.
+/// spends its one `agentActivityCreate` with a rule (the heartbeat) and without
+/// one (a terminal `error` that closes the panel). Open question 2 in the plan
+/// is about whether the drop should also become durable; `no_subscription` is
+/// the interim answer, and it is this row.
 #[sqlx::test]
 async fn a_created_session_with_no_rule_is_ignored_as_no_subscription(pool: PgPool) {
     let state = replica(&pool);

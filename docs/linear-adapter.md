@@ -358,6 +358,13 @@ emission point per outcome:
 | Agent error | `event_handler::consumer` (`AgentSubType::Error`) | `error` | `payload.error` (or `payload.message`) string. |
 | Sandbox error | `event_handler::consumer` (`SandboxSubType::Error`) | `error` | `payload.message` string. |
 | External close | `agent_runtime::close_active_bindings_for_issue` (Linear issue moved to terminal state) | `response` | `"Linear issue {identifier} transitioned to {state}; closing this task."` |
+| No task provisioned | `ingress::decline_sessions` (no active Subscription) / `delivery::execute_session_provision` (rule disabled between admission and execution) / `sessions::provision_selected_session_task` (no spawn rule selected) | `error` | `sessions::NO_ACTIVE_RULE_DECLINE`. |
+| Preflight failed | `sessions::provision_session_task` (`insert_event_task` → `AccessDenied`) | `error` | `"Couldn't start this task: {msg}"`. |
+
+A created session that never provisions a task would otherwise sit `active` in
+Linear's panel forever — the ephemeral heartbeat resets the 10-second stale
+timer but nothing moves the session to a terminal state. Every "we didn't create
+a task" path therefore closes the session with a terminal `error` activity.
 
 `send_reply_for_binding` deliberately does **not** post a `response`
 activity — the agent's reply lands as a Linear issue comment, and the
