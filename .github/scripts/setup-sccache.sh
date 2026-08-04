@@ -53,19 +53,26 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 
 chmod +x "${install_dir}/sccache"
 
-# SCCACHE_BASEDIRS rewrites absolute paths in the compilation inputs to be
-# relative to the workspace, so an object cached by one job hits for another
-# whose checkout landed at a different path (containerised jobs and host jobs
-# do not agree on $GITHUB_WORKSPACE).
+export SCCACHE_BUCKET="${SCCACHE_S3_BUCKET}"
+export SCCACHE_REGION="${SCCACHE_S3_REGION:-eu-north-1}"
+export SCCACHE_S3_KEY_PREFIX="${SCCACHE_S3_KEY_PREFIX:-moatless/}"
+
+# Prove the bucket is reachable before any cargo invocation depends on it.
+# sccache probes `<prefix>/.sccache_check` when its server starts and treats a
+# failure as fatal, so a wrapper pointed at a bucket it cannot read fails every
+# compile — SCCACHE_IGNORE_SERVER_IO_ERROR does not cover this. Starting the
+# server here turns that into a warning and an uncached build.
+if ! "${install_dir}/sccache" --start-server >/dev/null 2>&1; then
+    echo "::warning::sccache could not reach s3://${SCCACHE_S3_BUCKET} — compiling uncached."
+    "${install_dir}/sccache" --start-server 2>&1 | grep -m1 'error' || true
+    exit 0
+fi
+
 {
     echo "RUSTC_WRAPPER=${install_dir}/sccache"
-    echo "SCCACHE_BUCKET=${SCCACHE_S3_BUCKET}"
-    echo "SCCACHE_REGION=${SCCACHE_S3_REGION:-eu-north-1}"
-    echo "SCCACHE_S3_KEY_PREFIX=${SCCACHE_S3_KEY_PREFIX:-moatless/}"
-    echo "SCCACHE_BASEDIRS=${GITHUB_WORKSPACE:-$PWD}"
-    # An unreachable or throttled bucket must degrade to a plain rustc call,
-    # never fail the build.
-    echo "SCCACHE_IGNORE_SERVER_IO_ERROR=1"
+    echo "SCCACHE_BUCKET=${SCCACHE_BUCKET}"
+    echo "SCCACHE_REGION=${SCCACHE_REGION}"
+    echo "SCCACHE_S3_KEY_PREFIX=${SCCACHE_S3_KEY_PREFIX}"
 } >> "${GITHUB_ENV:-/dev/stdout}"
 
 echo "sccache configured against s3://${SCCACHE_S3_BUCKET}"
