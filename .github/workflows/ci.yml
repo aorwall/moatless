@@ -496,12 +496,6 @@ jobs:
             ${{ runner.os }}-sccache-rust-ci-
             ${{ runner.os }}-sccache-
 
-      - name: Start sccache
-        run: |
-          if [ -n "${RUSTC_WRAPPER:-}" ]; then
-            "$RUSTC_WRAPPER" --start-server
-          fi
-
       - name: Build binaries (ci profile)
         run: |
           PACKAGES=""

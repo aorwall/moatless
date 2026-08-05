@@ -135,12 +135,6 @@ jobs:
             ${{ runner.os }}-sccache-rust-ci-
             ${{ runner.os }}-sccache-
 
-      - name: Start sccache
-        run: |
-          if [ -n "${RUSTC_WRAPPER:-}" ]; then
-            "$RUSTC_WRAPPER" --start-server
-          fi
-
       # `ci` inherits `release`, so the backend under test is optimised the way
       # the published image is — the suite is not exercising a debug build.
       - name: Build binaries (ci profile)

@@ -429,12 +429,6 @@ jobs:
             ${{ runner.os }}-sccache-${{ steps.build.outputs.cache_key }}-
             ${{ runner.os }}-sccache-
 
-      - name: Start sccache
-        run: |
-          if command -v sccache >/dev/null 2>&1; then
-            sccache --start-server
-          fi
-
       - name: Apply release-fast profile overrides (non-tag builds)
         if: steps.build.outputs.fast == 'true'
         run: |
