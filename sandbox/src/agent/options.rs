@@ -10,6 +10,7 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use crate::agent::handle::{resolve_agent_harness, AGENT_TYPE_CODEX};
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
 use crate::events::GrpcEventPublisher;
@@ -215,11 +216,14 @@ fn claude_effort(requested: Option<&str>) -> Option<String> {
 pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String {
     let backend_prompt = request.system_prompt.clone().unwrap_or_default();
     let layout_note = build_workspace_layout_note(config);
-    let append = if backend_prompt.is_empty() {
-        layout_note
-    } else {
-        format!("{layout_note}\n\n{backend_prompt}")
-    };
+    let mut sections = vec![layout_note];
+    if let Some(repo_instructions) = build_repo_instructions_section(config) {
+        sections.push(repo_instructions);
+    }
+    if !backend_prompt.is_empty() {
+        sections.push(backend_prompt);
+    }
+    let append = sections.join("\n\n");
     info!(
         append_system_prompt_len = append.len(),
         has_request_prompt = request.system_prompt.is_some(),
@@ -286,6 +290,80 @@ fn build_workspace_layout_note(config: &Config) -> String {
              be lost when the sandbox is recycled."
         )
     }
+}
+
+/// The root instruction filenames to look for, in preference order, for the
+/// harness this sandbox runs: Claude's own memory loading reads `CLAUDE.md` and
+/// Codex's reads `AGENTS.md`, so the agent is shown the file it would have
+/// loaded itself. A repo commits one of the two (often as a symlink to the
+/// other), so the other name is the fallback.
+fn repo_instruction_filenames(config: &Config) -> [&'static str; 2] {
+    let is_codex = config
+        .agent_type
+        .as_deref()
+        .and_then(|raw| resolve_agent_harness(raw).ok())
+        == Some(AGENT_TYPE_CODEX);
+    if is_codex {
+        ["AGENTS.md", "CLAUDE.md"]
+    } else {
+        ["CLAUDE.md", "AGENTS.md"]
+    }
+}
+
+/// Build the "# Repository Instructions" section: each checked-out repo's root
+/// instruction file, embedded so the agent has it from the first turn regardless
+/// of its cwd. Each block states where the repo is cloned and which file this
+/// is, and nothing else — the file's own contents are the instructions.
+///
+/// These same files are kept out of the agents' on-the-fly memory loading
+/// (Claude's `claudeMdExcludes`, Codex's `project_doc_max_bytes = 0`; both set
+/// in `init`), so the content here is not pulled in a second time when the agent
+/// opens a file inside that directory.
+///
+/// Returns `None` when no checked-out repo has a non-empty root instruction file.
+fn build_repo_instructions_section(config: &Config) -> Option<String> {
+    let filenames = repo_instruction_filenames(config);
+    let mut blocks: Vec<String> = Vec::new();
+    for dir in config.repo_dirs() {
+        let Some((filename, content)) = read_repo_instruction_file(&dir, filenames) else {
+            continue;
+        };
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let dir = dir.trim_end_matches('/');
+        blocks.push(format!(
+            "This repository is cloned at `{dir}`. This is its `{filename}`:\n\n{trimmed}"
+        ));
+    }
+
+    if blocks.is_empty() {
+        return None;
+    }
+
+    let mut section = String::from("# Repository Instructions");
+    for block in blocks {
+        section.push_str("\n\n");
+        section.push_str(&block);
+    }
+    Some(section)
+}
+
+/// Read a repo's root instruction file, returning `(filename, contents)` for the
+/// first of `filenames` that exists and reads. Follows symlinks (the
+/// `CLAUDE.md -> AGENTS.md` convention), so either name yields the text.
+fn read_repo_instruction_file(
+    dir: &str,
+    filenames: [&'static str; 2],
+) -> Option<(&'static str, String)> {
+    for filename in filenames {
+        let path = Path::new(dir).join(filename);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            return Some((filename, content));
+        }
+    }
+    None
 }
 
 /// Build plugin configs from the plugins cloned into the sandbox.
@@ -884,5 +962,121 @@ mod tests {
             .find("BACKEND-PROMPT")
             .expect("backend prompt present");
         assert!(note_idx < backend_idx, "layout note must come first");
+    }
+
+    fn repo(mount_name: &str, is_primary: bool) -> RepoCheckout {
+        RepoCheckout {
+            clone_url: "https://example.com/repo.git".into(),
+            branch: None,
+            provider: "github".into(),
+            mount_name: mount_name.into(),
+            is_primary,
+        }
+    }
+
+    /// Each repo's root instruction file lands in the prompt named by its full
+    /// path; a repo carrying only the other filename is picked up via the
+    /// fallback.
+    #[test]
+    fn repo_instructions_section_embeds_each_repos_root_file_with_its_path() {
+        let root = tempdir().unwrap();
+        let ws = root.path().to_string_lossy().to_string();
+        let api_dir = format!("{ws}/api");
+        let web_dir = format!("{ws}/web");
+        write(&PathBuf::from(&api_dir).join("CLAUDE.md"), "API RULES");
+        write(&PathBuf::from(&web_dir).join("AGENTS.md"), "WEB RULES");
+
+        let mut config = test_config(false);
+        config.workspace_dir = ws;
+        config.repo_dir = api_dir.clone();
+        config.repos = vec![repo("api", true), repo("web", false)];
+
+        let mut request = test_request();
+        request.system_prompt = Some("BACKEND-PROMPT".to_string());
+        let append = build_prompt_append(&config, &request);
+
+        assert!(append.contains("# Repository Instructions"));
+        assert!(append.contains(&format!(
+            "This repository is cloned at `{api_dir}`. This is its `CLAUDE.md`:"
+        )));
+        assert!(append.contains("API RULES"));
+        // Only AGENTS.md exists here, so the fallback name is what gets reported.
+        assert!(append.contains(&format!(
+            "This repository is cloned at `{web_dir}`. This is its `AGENTS.md`:"
+        )));
+        assert!(append.contains("WEB RULES"));
+
+        // Order: layout note, then repo instructions, then the backend prompt.
+        let layout_idx = append.find("## Workspace layout").unwrap();
+        let repo_idx = append.find("# Repository Instructions").unwrap();
+        let backend_idx = append.find("BACKEND-PROMPT").unwrap();
+        assert!(layout_idx < repo_idx && repo_idx < backend_idx);
+    }
+
+    /// A repo committing both names is reported under the one the running agent
+    /// would have loaded itself: `CLAUDE.md` for Claude, `AGENTS.md` for Codex.
+    #[test]
+    fn repo_instructions_filename_follows_the_agent() {
+        let root = tempdir().unwrap();
+        let ws = root.path().to_string_lossy().to_string();
+        let dir = format!("{ws}/api");
+        write(&PathBuf::from(&dir).join("CLAUDE.md"), "CLAUDE COPY");
+        write(&PathBuf::from(&dir).join("AGENTS.md"), "AGENTS COPY");
+
+        let mut config = test_config(false);
+        config.workspace_dir = ws;
+        config.repo_dir = dir.clone();
+        config.repos = vec![repo("api", true)];
+
+        config.agent_type = Some("claude-code".to_string());
+        let claude = build_prompt_append(&config, &test_request());
+        assert!(claude.contains(&format!(
+            "This repository is cloned at `{dir}`. This is its `CLAUDE.md`:"
+        )));
+        assert!(claude.contains("CLAUDE COPY"));
+        assert!(!claude.contains("AGENTS COPY"));
+
+        config.agent_type = Some("codex".to_string());
+        let codex = build_prompt_append(&config, &test_request());
+        assert!(codex.contains(&format!(
+            "This repository is cloned at `{dir}`. This is its `AGENTS.md`:"
+        )));
+        assert!(codex.contains("AGENTS COPY"));
+        assert!(!codex.contains("CLAUDE COPY"));
+    }
+
+    /// Claude's transport/model variants are the same harness, and an unset or
+    /// unknown type is not Codex — all keep the `CLAUDE.md` preference.
+    #[test]
+    fn repo_instruction_filenames_default_to_claude() {
+        let mut config = test_config(false);
+        for agent_type in [
+            None,
+            Some("claude-code-tui"),
+            Some("claude-code-fable"),
+            Some("gpt-9000"),
+        ] {
+            config.agent_type = agent_type.map(str::to_string);
+            assert_eq!(
+                repo_instruction_filenames(&config),
+                ["CLAUDE.md", "AGENTS.md"],
+                "agent_type={agent_type:?}"
+            );
+        }
+    }
+
+    /// A repo with no root instruction file adds no section rather than an empty
+    /// heading.
+    #[test]
+    fn repo_instructions_section_absent_without_instruction_files() {
+        let root = tempdir().unwrap();
+        let ws = root.path().to_string_lossy().to_string();
+        let mut config = test_config(false);
+        config.repo_dir = format!("{ws}/api");
+        config.workspace_dir = ws;
+        config.repos = vec![repo("api", true)];
+
+        let append = build_prompt_append(&config, &test_request());
+        assert!(!append.contains("# Repository Instructions"));
     }
 }

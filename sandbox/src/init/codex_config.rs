@@ -4,11 +4,20 @@
 //! backend whose `github_*` tools authenticate via ChatGPT OAuth and return
 //! 404 against our repos). The agent uses the already-authenticated `gh`
 //! CLI for GitHub operations instead — see `agent::options::GITHUB_CLI_HINT`.
+//!
+//! `project_doc_max_bytes = 0` turns off Codex's automatic `AGENTS.md`
+//! discovery: each repo's root instructions are embedded in the developer
+//! instructions instead (see `agent::options::build_repo_instructions_section`),
+//! so letting Codex load them again from the working directory would duplicate
+//! them.
 
 use tokio::fs;
 use tracing::{info, warn};
 
-const CONFIG_TOML: &str = "[features]\napps = false\n";
+// `project_doc_max_bytes` is a top-level key, so it must precede the `[features]`
+// table header — a bare key written after the header would parse as
+// `features.project_doc_max_bytes` instead.
+const CONFIG_TOML: &str = "project_doc_max_bytes = 0\n\n[features]\napps = false\n";
 
 /// Write the default Codex `config.toml` into `codex_home_dir`.
 ///
@@ -46,6 +55,12 @@ mod tests {
             .unwrap();
         assert_eq!(contents, CONFIG_TOML);
         assert!(contents.contains("apps = false"));
+        assert!(contents.contains("project_doc_max_bytes = 0"));
+        // `project_doc_max_bytes` is a top-level key, so it must appear before the
+        // `[features]` header — otherwise TOML nests it as `features.*`.
+        let doc_idx = contents.find("project_doc_max_bytes").unwrap();
+        let features_idx = contents.find("[features]").unwrap();
+        assert!(doc_idx < features_idx);
     }
 
     #[tokio::test]

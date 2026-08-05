@@ -554,7 +554,12 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
 
     // 2. Write the default Claude Code settings file. Static defaults; safe to
     //    overwrite on every start. Non-fatal — Claude CLI still runs without it.
-    claude_code_settings::write_claude_code_settings(&state.config.claude_config_dir).await;
+    let claude_md_excludes = claude_code_settings::claude_md_excludes(&state.config.repo_dirs());
+    claude_code_settings::write_claude_code_settings(
+        &state.config.claude_config_dir,
+        &claude_md_excludes,
+    )
+    .await;
 
     // 2b. Write the default Codex config.toml. Disables the broken
     //     `codex_apps` MCP server. Non-fatal — Codex still runs without it.

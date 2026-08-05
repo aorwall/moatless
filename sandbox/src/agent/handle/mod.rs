@@ -44,7 +44,7 @@ const AGENT_TYPE_CLAUDE_CODE_CLI: &str = "claude-code-cli";
 /// Claude Code pinned to the `fable` model. Same executor family as claude-code;
 /// the model is forced backend-side when the message carries none.
 const AGENT_TYPE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
-const AGENT_TYPE_CODEX: &str = "codex";
+pub(crate) const AGENT_TYPE_CODEX: &str = "codex";
 
 /// Resolve a raw agent-type string into the canonical harness identifier,
 /// rejecting values this Sandbox has no harness for.

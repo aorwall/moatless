@@ -363,6 +363,25 @@ fn env_flag_enabled(name: &str) -> bool {
 }
 
 impl Config {
+    /// Absolute checkout directory of every repository placed in this sandbox,
+    /// primary first. A legacy single-repo pod (no `WORKSPACE_REPOS`) falls back
+    /// to [`Self::repo_dir`]. Empty entries are dropped so callers never build a
+    /// path against a sandbox with nothing checked out.
+    pub fn repo_dirs(&self) -> Vec<String> {
+        if self.repos.is_empty() {
+            if self.repo_dir.is_empty() {
+                Vec::new()
+            } else {
+                vec![self.repo_dir.clone()]
+            }
+        } else {
+            self.repos
+                .iter()
+                .map(|repo| repo.dir(&self.workspace_dir))
+                .collect()
+        }
+    }
+
     /// Load configuration from environment variables.
     pub fn from_env() -> Self {
         let parsed = parse_repo_config();
@@ -682,6 +701,41 @@ mod tests {
         assert!(!env_flag_value_enabled(""));
         assert!(!env_flag_value_enabled("false"));
         assert!(!env_flag_value_enabled("0"));
+    }
+
+    fn checkout(mount_name: &str, is_primary: bool) -> super::RepoCheckout {
+        super::RepoCheckout {
+            clone_url: "https://example.com/repo.git".into(),
+            branch: None,
+            provider: "github".into(),
+            mount_name: mount_name.into(),
+            is_primary,
+        }
+    }
+
+    #[test]
+    fn repo_dirs_lists_every_checkout_under_the_workspace() {
+        let mut config = minimal_config();
+        config.workspace_dir = "/ws".into();
+        config.repo_dir = "/ws/api".into();
+        config.repos = vec![checkout("api", true), checkout("web", false)];
+        assert_eq!(config.repo_dirs(), vec!["/ws/api", "/ws/web"]);
+    }
+
+    #[test]
+    fn repo_dirs_falls_back_to_repo_dir_without_workspace_repos() {
+        let mut config = minimal_config();
+        config.repo_dir = "/ws/only".into();
+        config.repos = Vec::new();
+        assert_eq!(config.repo_dirs(), vec!["/ws/only"]);
+    }
+
+    #[test]
+    fn repo_dirs_empty_when_nothing_checked_out() {
+        let mut config = minimal_config();
+        config.repo_dir = String::new();
+        config.repos = Vec::new();
+        assert!(config.repo_dirs().is_empty());
     }
 
     #[test]
