@@ -110,6 +110,7 @@ behaviour widens.
 | `E2E_GITHUB_PAT` is unset on the repository | `tests/shared/profile.ts` gates `githubRepositories` on it | A repository-settings change; un-skips 7 tests |
 | No `cargo fmt --all --check` gate | `ci.yml`; a standing diff in `adapters/providers/github_pr/api.rs` | Sweep and gate together, so the gate starts green |
 | Nothing alerts when `main` goes red | `ci.yml` | Pairs with a nightly build for the image tier |
+| A sandbox readiness test intermittently hangs to the CI timeout | `sandbox/src/init/replacement_test/readiness.rs::sustained_ack_failure_never_re_runs_and_aborts_on_shutdown` | When it fires a second time on `main`, or when anyone next works in `sandbox/src/init` |
 
 **Route literals.** The suite already imports generated *types* from
 `@moatless/api-client` (`tests/shared/types.ts`, `tests/shared/wait-helpers.ts`),

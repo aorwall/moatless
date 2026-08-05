@@ -21,8 +21,7 @@ use tracing::{debug, info, warn};
 use crate::credentials::codex::scope::CodexScope;
 use crate::credentials::CredentialService;
 use crate::db::DbPool;
-use crate::sandbox::k8s::client::K8sClient;
-use crate::sandbox::k8s::leader_election::LeaderElection;
+use crate::leader::LeaderGuard;
 
 /// Spawn the background Codex refresher as a tokio task.
 ///
@@ -38,29 +37,20 @@ use crate::sandbox::k8s::leader_election::LeaderElection;
 pub fn spawn_codex_refresher(
     db: DbPool,
     credentials_svc: Arc<CredentialService>,
-    k8s: K8sClient,
+    leader_guard: Arc<dyn LeaderGuard>,
     interval: Duration,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
     let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
 
     tokio::spawn(async move {
-        // Lease duration must exceed the check interval — use 2x as buffer.
-        let lease_duration_secs: i32 = (interval.as_secs() * 2).try_into().unwrap_or(i32::MAX);
-        let leader_election = LeaderElection::new_with_name(
-            &k8s,
-            identity.clone(),
-            "moatless-codex-refresher".to_string(),
-        )
-        .with_lease_duration(lease_duration_secs);
-
         loop {
             if cancel.is_cancelled() {
                 info!("Codex refresher shutting down (cancellation)");
                 return;
             }
 
-            match leader_election.try_acquire_or_renew().await {
+            match leader_guard.try_acquire_or_renew().await {
                 Ok(true) => {
                     debug!(identity = %identity, "Codex refresher is leader, running sweep");
                     if let Err(e) = run_sweep(&db, &credentials_svc).await {

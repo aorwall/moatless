@@ -1,7 +1,7 @@
 # Make the ports singular, then split the backend into crates
 
-> **Status:** Steps 1-4 **shipped** on `main` (#287, #299, #300, #301, merged together as #302). Steps 5-7 approved, not started. Steps 8-11 **withdrawn** pending re-derivation - see the note under Architecture and key flows.
-> **Updated:** 2026-08-04
+> **Status:** Steps 1-7 **shipped** on `main` (1-4 as #302; Step 5 `8cd2cd32d`, Step 6 `f43e7f356`, Step 7 `c8a2dbdb6`). Steps 8-9 **partially shipped** — four of eight placement moves (`fff12035f`, `23ad5c6d6`) and one of six ports (#340, `1bdb50374`); see the Step 8 and Step 9 outcome blocks. Steps 10-11 not started: the crate-level accounting is now re-derived by `tools/crate-census` (see the re-derivation note under Architecture and key flows).
+> **Updated:** 2026-08-05
 > **Vocabulary:** CONTEXT.md
 > **Predecessors:** `.plans/backend-crate-split.md`, `.plans/backend-crate-hierarchy.md`
 > **Related:** `.plans/remaining-adapter-breakup.md` — runs after Step 4, see Out of scope.
@@ -525,7 +525,7 @@ Step 7 builds `adapter-model`; Steps 8 to 11 build the rest. It is stated once h
 
 | Crate | Lines | Takes from `backend/src` |
 |---|---:|---|
-| `moatless-core` | 8,062 | `config.rs` `error.rs` `db.rs` `events.rs` `metrics.rs` `feature_flags.rs` `shared_models.rs` `scope.rs` `lib.rs` `test_support.rs` · `file_storage/` `task_event/` `task_listing/` `tag/` `secret/` |
+| `moatless-core` | 8,062 | `config.rs` `error.rs` `db.rs` `events.rs` `metrics.rs` `feature_flags.rs` `shared_models.rs` `scope.rs` `lib.rs` `test_support.rs` `leader.rs` · `file_storage/` `task_event/` `task_listing/` `tag/` `secret/` |
 | `moatless-identity` | 12,220 | `auth/` `extractors.rs` `access_control.rs` `team/` `adapter_apps/` |
 | `moatless-workspaces` | 11,470 | `workspace/` `repository/` `skill/` `plugin/` `credentials/` |
 | `moatless-tasks` | 17,998 | `task/` `message/` `task_activities/` `task_turn/` `agent/` `event_ingress/` `feedback/` |
@@ -539,9 +539,11 @@ Step 7 builds `adapter-model`; Steps 8 to 11 build the rest. It is stated once h
 | `moatless-adapter-slack` | 6,200 | `adapters/providers/slack/` |
 | `moatless-adapter-telegram` | 4,234 | `adapters/providers/telegram/` |
 | `moatless-adapter-webhook` | 784 | `adapters/providers/webhook/` |
-| `moatless-server` | 9,766 | `main.rs` `startup.rs` `state.rs` `supervisor.rs` `leader.rs` · `sse/` `t3code/` `event_handler/` `setup/` `provider_settings/` |
+| `moatless-server` | 9,766 | `main.rs` `startup.rs` `state.rs` `supervisor.rs` · `sse/` `t3code/` `event_handler/` `setup/` `provider_settings/` |
 
 Total 140,055 — today's `backend/src`, unchanged in size, only in shape. The `adapter-model`/`loops` division of the old 15,016 is approximate until Step 7a's three splits are cut.
+
+This module→crate mapping is the **input** to `tools/crate-census` (`bands.rs::crate_of_backend_mod`), not a restatement of its output, so it stays here. It is not cheaply reducible to one literal source — one is a markdown table a human reads, the other a Rust `match` — so the rule is a same-commit invariant instead: **any change to this table and `bands.rs::crate_of_backend_mod` land in the same commit.** Ruling A moved `leader.rs` to core in both.
 
 `access_control.rs` is under identity rather than core because its only content is a helper over `AuthUser` (`access_control.rs:10`); leaving it in core is the single edge that would make core depend on identity.
 
@@ -566,7 +568,25 @@ Total 140,055 — today's `backend/src`, unchanged in size, only in shape. The `
 > Steps 1-6 are unaffected: every anchor and count they rest on was independently reproduced.
 > Do not carve a crate against the numbers below until they are re-derived with sub-module and
 > `super::` resolution, and every illegal reference is pinned to a named step the way Steps 8
-> and 8 already do.
+> and 9 already do.
+
+**Re-derived — `tools/crate-census`.** The accounting above is re-derived by a syn resolver that follows `crate::`/`super::`/`self::`/`use` and `pub use` re-export chains to definition sites, scans attribute and macro token streams and doc comments as separate classes, and scores each reference against the 15 target-crate bands (`adapter-model` placed below `identity`, confirming 9f). It is the Step 10 ratchet — `scripts/crate-census-baseline.txt`, checked by `scripts/check-crate-census.sh` in CI — and is deleted at 10i, when Cargo enforces the bands. Its one blind spot, macro-generated paths, is audited to zero and re-inventoried on every run; the only `macro_rules!` in scope are local SQL builders that emit no path. Full output: `scripts/crate-census-report.txt`.
+
+Today's counts (production, cross-crate): **238 illegal Cargo edges** — 206 CODE, 16 attribute-embedded, 16 macro-embedded (Ruling A, built below, took the four `LeaderGuard` edges off); the per-`(source → target)`-class breakdown is the report's, not restated here. Intra-doc paths are a separate class, never a Cargo edge and never in this total: 52 cross-crate doc paths, of which 8 point upward across the band order (real carve work — an up-pointing `///` link stops resolving the moment the boundary exists, as Step 8f showed — but listed in their own section of the baseline, out of the ratcheted count, so an illegal total cannot move when a comment is edited). Removing exactly the 238 turns the target-crate graph from **one 14-crate strongly-connected component into a DAG** (Tarjan, both runs in the report) — the acyclicity claim holds only once they are gone. The count runs above the earlier 121-213 estimate because the AppState sweep (Step 5) is in flight: 66 of the 238 are live `crate::state::AppState` edges the estimate assumed already ported. (A file-based `#[cfg(test)] mod ...;` — `auth/test_support.rs`, `adapters/registry/tests.rs` — is scored test-context, not production, so it does not inflate the total.)
+
+**A precondition is met when the census says the edge is zero, not when the step it names is marked shipped.** Three shipped steps left residue a later step assumed gone: Step 5 shipped and 66 edges are still live AppState; Step 1 shipped and made the `FleetObserver` port singular and provider-free, but — not being a placement step — left its two provider adapters (`K8sFleetObserver`, `DockerFleetObserver`) inside the control-band `sandbox/lifecycle/observe.rs` directory, so `sandbox-control` reads as fanning out (Ruling F relocates them, a placement, not a missing abstraction); Step 3 shipped and the codex refresher bypassed the `LeaderGuard` port (now closed by Ruling A). Read every "requires Step N" precondition against the census, not the ship log.
+
+**All 238 references are now pinned to a named step; zero are unpinned.** The last 7 — the `sandbox-control -> sandbox-docker`/`-k8s` refs in `backend/src/sandbox/lifecycle/observe.rs` (lines 15-18, 54, 84) — are not a control-band site fanning out: they are the two `FleetObserver` provider adapters (`K8sFleetObserver`, `DockerFleetObserver`, `observe.rs` header and `:39`/`:103`) sitting in the control-band directory. Ruling F relocates each into its provider crate; the `FleetObserver` port and its reconciler stay in the control band. Pinned to 10f, the placement step for exactly this defect in both directions.
+
+Rulings that repriced the other 19 formerly-unpinned refs:
+- **Ruling A (LeaderGuard, Step-3 residue) — BUILT.** The `LeaderGuard` port exists (`leader.rs`) for exactly this. The codex refresher bypassed it (`workspaces -> sandbox-k8s` ×3); `schedule_runner` used it correctly but `leader.rs` was a root file the table mapped to `server`, so it read `loops -> server` ×1. The trait moved to `core` (dependency-free; `leader` now maps to core), `K8sLeaderGuard` moved beside the k8s client (`sandbox::k8s::leader_election`), and the refresher now takes `Arc<dyn LeaderGuard>` built at the composition root. Four edges gone, no new abstraction — the trait gained a second consumer of the shape it already had.
+- **Ruling B (10f, repriced).** Eleven of the eighteen `sandbox-control -> provider` refs are the 10f defect in the control→provider direction: non-Kubernetes helpers under `k8s/` — workspace-config parsing (`auto_provision`), failure-reason strings (`pod_status`), `StorageBackend` — moved down to `sandbox-control`. 10f's stated content was three symbols; the census shows fourteen. Pinned to 10f.
+- **Ruling C (8g, handler placement).** `file_storage`, `secret`, `task_event` each own a `handlers.rs`, and `auth/routes.rs`, that reach `identity` (`AuthUser`) and `tasks` (`TaskDao`). An HTTP handler taking an `AuthUser` and a `TaskDao` is server-band by nature: one handler-placement question, not four edges.
+- **Ruling D (9e, reopened).** `tasks -> adapter-github-pr` (`message/hooks::reconcile_shell_command`) is the consumer-declared-hook shape (the `AgentErrorSink` precedent — one impl, declared by the consumer, registered at the root), not the `Adapter`-trait method that `shell_reconcile.rs:34-36` refuses. Still open, still blocking 10d.
+- **Ruling E (jwt placement).** `identity -> sandbox-control` — `auth/routes.rs` verifies a *user* auth token via `sandbox::jwt::verify_user_auth_token`; that is identity work sitting under `sandbox/` only because sandbox tokens are minted there too. Placement move.
+- **Ruling F (FleetObserver adapters, placement).** The 7 `sandbox-control -> sandbox-docker`/`-k8s` refs in `observe.rs` are the two `FleetObserver` provider adapters (`K8sFleetObserver:39`, `DockerFleetObserver:103`) living in the control-band directory, not new fan-out. The port already exists in `lifecycle/reconciler.rs`. Move `K8sFleetObserver` into `moatless-sandbox-k8s` and `DockerFleetObserver` into `moatless-sandbox-docker`; the `FleetObserver` trait and its reconciler stay in `sandbox-control`. Both adapters depend down on `sandbox-control` (the port, `ObserveError`, `RuntimeObservation`) and on `tasks` (`SandboxDesiredState`, `TaskStatus`); they are independent of each other, so no sibling edge appears. All 7 edges die, no abstraction invented — pinned to 10f. Unpinned drops to 0.
+
+**10a's precondition is not "none".** `moatless-core` has 15 illegal outgoing references — 10 to `identity` (the `AuthUser`/`access_control` handlers in `file_storage`, `secret`, `task_event`), 4 AppState routers to `server`, 1 `TaskDao` to `tasks` — so it does not compile as a crate until Step 5, the 8g handler placement, and the `TaskDao` holding are resolved. Carve readiness is a **frontier**, re-run after each carve: a crate is carvable only when it has no illegal outgoing edge *and* every crate it depends on is already extracted. Only `core` (the base case, depending on the floor alone) is decidable today, and it is blocked; `sandbox-k8s` and `server` have no illegal outgoing edges but still depend on un-carved crates, so they read WAITING, not READY. See the report's carve-readiness table.
 
 **The band order.** Cargo edges point from a crate to the crates it depends on, so a legal edge always runs from a higher band to a lower one:
 
@@ -682,15 +702,17 @@ The `Cargo.toml` files appear one band at a time, lowest first, because a crate 
 | # | Crate | Precondition beyond the band below |
 |---|---|---|
 | — | `moatless-adapter-model` | already a crate — Step 7a extracts it, and it is listed here only because the bands below depend on it |
-| 10a | `moatless-core` | none |
-| 10b | `moatless-identity` | 8b, 8g, and Step 6's `auth/routes.rs:145` |
-| 10c | `moatless-workspaces` | **re-derived (Step 9 outcome):** 8b + 8d fold into the error/credential cluster; 9b done (`ServerConfig` placement shipped, `SandboxConnector` a floor phantom); 9d stays open (→ 10g). The one remaining precondition is the **9c broadcast refactor** below |
-| 10d | `moatless-tasks` | 8f, 9a, 9e, Step 5, the `tasks`/`message → loops` port that 8c's real content became (see the Step 8 outcome — 8c is not a placement move), **and inverting `TaskReaper`'s two above-band concrete fields — `k8s: K8sClient` and `sandbox: Arc<Lifecycle>` — to ports, which is a precondition of the crate compiling, not optional cleanup (see the note below)** |
-| 10e | `moatless-sandbox-control` | Step 1 — the ports must be singular and provider-free |
-| 10f | `moatless-sandbox-k8s`, `moatless-sandbox-docker` | Step 1's error classification, **plus the only sibling edge in the graph**: `sandbox/docker` imports `k8s/pod_reader.rs`'s `parse_cpu_to_millicores` and `parse_memory_to_bytes`, and `k8s/pod_status.rs`'s `DEFAULT_SERVER_READINESS_TIMEOUT_SECS`. None of the three is Kubernetes-specific — they parse CPU and memory strings and hold a timeout. They move down to `moatless-sandbox-control` in this commit, and the two crates then have no edge between them |
-| 10g | `moatless-loops` | 8c, **9d (server-band composition — see below)**, and Step 7 — `bindings` must not name `Adapters` |
-| 10h | the five `moatless-adapter-*` | **Step 7d**, which now carries the registry field-widening as well as the accessor deletion. Without it, `github_pr`, `linear`, `slack` and `telegram` each depend on the registry that depends on them, and no provider extracts |
+| 10a | `moatless-core` | **8g handler placement** (Ruling C — analysis pending). Edges: report |
+| 10b | `moatless-identity` | **8b credential/error cluster**; **8g handler placement**. Edges: report |
+| 10c | `moatless-workspaces` | the **9c broadcast refactor** (below); **9d** (→ 10g). Edges: report |
+| 10d | `moatless-tasks` | **8f**, **9a**, **9e** (reopened hook), the **`tasks`/`message → loops` port** (8c's real content — not a placement move), and the **`TaskReaper` field inversion** (below). Edges: report |
+| 10e | `moatless-sandbox-control` | **Ruling F** relocates the two `FleetObserver` provider adapters out of the control-band directory (a placement, done at 10f); the port itself is provider-free (Step 1). Edges: report |
+| 10f | `moatless-sandbox-k8s`, `moatless-sandbox-docker` | **Placement moves**: the non-Kubernetes helpers under `k8s/` down to `sandbox-control` (Ruling B), and the two `FleetObserver` provider adapters from `observe.rs` into their provider crates (Ruling F). Edges: report |
+| 10g | `moatless-loops` | **8c**, **9d** (server-band composition, below), **Step 7** (`bindings` must not name `Adapters`). Edges: report |
+| 10h | the five `moatless-adapter-*` | **Step 7d** (registry field-widening + accessor deletion). Edges: report |
 | 10i | `moatless-server` | everything above |
+
+The precondition column names **only the design work the census cannot compute** — the refactors, placements, and reopened decisions below. It carries no edge counts, symbol lists, or "requires Step N" that `tools/crate-census` already scores; "Edges: report" means `scripts/crate-census-report.txt`'s carve-readiness table is the current, machine-generated authority for what edge each carve must first drive to zero. Two hand-maintained copies of what the census computes would disagree eventually and the reader could not tell which is current — the same rule that keeps `docs/deferred-changes.md` from rotting, applied here.
 
 **10c precondition — the 9c broadcast refactor (named change, not a port).** `store()` (`credentials/mod.rs:338`) stops broadcasting at all; the two server-band callers (`state.rs:293`, `startup.rs:466` assemble the context; the fan-out is auto-invoked from `store()`, `refresh.rs:68`, `refresh.rs:171`) broadcast explicitly. That deletes the `Option<BroadcastContext>` (`mod.rs:105`, whose doc admits "when omitted, store does not broadcast" — the optional side effect *is* the smell), deletes the duplicated `BroadcastContext` assembly at both composition roots, removes `TaskDao` from credentials, and kills `workspaces → tasks` — one change paying four ways, with no trait anywhere. **Entry condition:** it lands with the fan-out test credentials never had (`broadcast_ctx` is always `None` in their suite, so the loud path is unexercised). Do not smuggle it into Step 9; do not narrow it to hoisting only the task lookup, which leaves the optional side effect in place and buys only the edge.
 

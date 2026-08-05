@@ -1208,6 +1208,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crate-census"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "walkdir",
+]
+
+[[package]]
 name = "crc"
 version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

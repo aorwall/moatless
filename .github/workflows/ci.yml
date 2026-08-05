@@ -193,6 +193,43 @@ jobs:
       - name: bindings names crate::adapters only in the shrinking baseline
         run: ./scripts/check-bindings-adapters-baseline.sh
 
+  # Step 10 invariant — the cross-crate reference census baseline is current.
+  # `crate-census` (tools/crate-census) resolves crate::/super::/self::/use and
+  # re-export chains to definition sites and lists the illegal edges that must
+  # reach zero before each carve. Shrinking baseline
+  # (scripts/crate-census-baseline.txt); deleted at 10i. Builds a small syn tool,
+  # not the backend closure.
+  crate-census:
+    name: cross-crate census baseline
+    # `staging-runners-large`, not the plain pool, because this is a container
+    # job: the check runs `cargo run -p crate-census`, so it needs the toolchain
+    # the container carries, and only the large pool provides the node externals
+    # a containerized `actions/checkout` mounts. The clippy/test jobs run here too.
+    runs-on: staging-runners-large
+    container:
+      image: rust:1.97-bookworm
+    steps:
+      # SHA-pinned for consistency with the other container jobs (clippy/test).
+      # The checkout failure this job hit was the runner pool, not the tag: the
+      # SHA-pinned checkout failed identically until it moved to the large pool
+      # (see the runs-on note above).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      # A small syn tool (syn + walkdir), not the backend closure, so its own
+      # cache key keeps it off the multi-GB clippy/test entries.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ". -> target"
+          shared-key: crate-census
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The check runs `git diff`; the container runs as root while the checkout
+      # is owned by another uid, so git rejects the repo as dubious-ownership.
+      # Only this job runs git, so it is the only one that needs this.
+      - name: Mark the checkout safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Illegal cross-crate edges stay within the shrinking census baseline
+        run: ./scripts/check-crate-census.sh
+
   toolchain-drift:
     name: Sandbox toolchain drift
     runs-on: staging-runners

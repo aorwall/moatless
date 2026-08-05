@@ -18,8 +18,9 @@ use moatless_vibe_backend::config::{Config, SandboxProviderType};
 use moatless_vibe_backend::event_handler;
 use moatless_vibe_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
 use moatless_vibe_backend::feature_flags;
-use moatless_vibe_backend::leader::{K8sLeaderGuard, LeaderGuard};
+use moatless_vibe_backend::leader::LeaderGuard;
 use moatless_vibe_backend::sandbox;
+use moatless_vibe_backend::sandbox::k8s::leader_election::K8sLeaderGuard;
 use moatless_vibe_backend::sse::routes::sse_router;
 use moatless_vibe_backend::startup;
 use moatless_vibe_backend::state::AppState;
@@ -1019,11 +1020,23 @@ fn spawn_codex_refresher(
         info!("Codex refresher disabled (CODEX_REFRESHER_INTERVAL_SECS=0)");
         return None;
     }
+    let interval = std::time::Duration::from_secs(interval_secs);
+    // Build the K8s leader guard at the composition root; the refresher depends
+    // only on the `LeaderGuard` port, not on K8s.
+    let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    let lease_duration_secs: i32 = (interval.as_secs() * 2).try_into().unwrap_or(i32::MAX);
+    let election = sandbox::k8s::leader_election::LeaderElection::new_with_name(
+        &k8s,
+        identity,
+        "moatless-codex-refresher".to_string(),
+    )
+    .with_lease_duration(lease_duration_secs);
+    let leader_guard: Arc<dyn LeaderGuard> = Arc::new(K8sLeaderGuard(election));
     let handle = moatless_vibe_backend::credentials::codex::refresher::spawn_codex_refresher(
         app_state.db.clone(),
         Arc::clone(&app_state.credentials_svc),
-        k8s,
-        std::time::Duration::from_secs(interval_secs),
+        leader_guard,
+        interval,
         cancel,
     );
     info!(interval_secs, "Codex refresher spawned");

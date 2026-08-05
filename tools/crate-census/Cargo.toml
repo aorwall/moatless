@@ -1,0 +1,18 @@
+[package]
+name = "crate-census"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "crate-census"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "visit", "extra-traits"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+walkdir = "2"

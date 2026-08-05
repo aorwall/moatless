@@ -12,6 +12,7 @@ members = [
     "crates/adapter-model",
     "crates/t3code",
     # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
+    "tools/crate-census",
 ]
 resolver = "2"
 

@@ -172,3 +172,15 @@ impl LeaderElection {
         Ok(())
     }
 }
+
+/// K8s Lease-based [`LeaderGuard`] wrapping a [`LeaderElection`]. Lives here,
+/// beside the K8s client, so the dependency-free `LeaderGuard` trait stays free
+/// of K8s and its consumers (cron scheduler, codex refresher) depend only on it.
+pub struct K8sLeaderGuard(pub LeaderElection);
+
+#[async_trait::async_trait]
+impl crate::leader::LeaderGuard for K8sLeaderGuard {
+    async fn try_acquire_or_renew(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.0.try_acquire_or_renew().await?)
+    }
+}

@@ -24,6 +24,8 @@ cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D 
 cargo clippy -p moatless-t3code --all-targets -- -D warnings
 cargo clippy -p moatless-vibe-backend --all-targets --features db-tests -- -D warnings
 cargo clippy -p moatless-sandbox -- -D warnings   # also claude-agent-sdk, moatless-events
+cargo clippy -p crate-census --all-targets -- -D warnings   # Step-10 cross-crate census tool; deleted at 10i
+cargo run -p crate-census                   # regenerate scripts/crate-census-{baseline,report}.txt
 cargo test -p moatless-vibe-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
 cargo test -p moatless-backend-core
 cargo test -p moatless-t3code
