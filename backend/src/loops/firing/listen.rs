@@ -4,316 +4,266 @@
 //! connections/Loops and delegates Adapter-specific binding destination
 //! construction to the owning Adapter.
 
+use std::sync::Arc;
+
 use tracing::{info, warn};
 
+use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, BindingContext, SubscriptionMatch, TaskBinding};
-use crate::adapters::{AdapterDestinationBuilder, AdapterKind};
+use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use crate::adapters::{AdapterDestinationBuilder, AdapterKind, Adapters};
+use crate::loops::dao::LoopDao;
 use crate::state::AppState;
 
-/// Connect a task to an existing Adapter thread by creating a task binding.
-pub async fn connect(
-    state: &AppState,
-    provider_type: AdapterKind,
-    source_id: &str,
-    task_id: &str,
-    external_thread_id: &str,
-    thread_properties: serde_json::Value,
-    filter_user_id: Option<&str>,
-) -> Result<(String, BindingContext), AdapterError> {
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured(provider_type.as_str().to_string()))?;
-    let adapter_destination = providers.destination_builder(provider_type)?;
-
-    let (subscription, binding) = connect_binding(
-        state,
-        adapter_destination,
-        provider_type.as_str(),
-        source_id,
-        task_id,
-        external_thread_id,
-        &thread_properties,
-        filter_user_id,
-    )
-    .await?;
-    let thread = crate::bindings::runtime::binding_context(&binding);
-    Ok((subscription.id, thread))
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn connect_binding(
-    state: &AppState,
-    adapter_destination: &dyn AdapterDestinationBuilder,
-    adapter_label: &str,
-    source_id: &str,
-    task_id: &str,
-    external_thread_id: &str,
-    thread_properties: &serde_json::Value,
-    filter_user_id: Option<&str>,
-) -> Result<(SubscriptionMatch, TaskBinding), AdapterError> {
-    let (connection, subscription) = resolve_connection_and_subscription(
-        state,
-        adapter_destination,
-        source_id,
-        thread_properties,
-    )
-    .await?;
-
-    let binding = write_binding(
-        state,
-        adapter_destination,
-        &connection,
-        Some(&subscription),
-        source_id,
-        task_id,
-        external_thread_id,
-        thread_properties,
-        filter_user_id,
-    )
-    .await?;
-
-    info!(
-        subscription_id = %subscription.id,
-        task_id,
-        binding_id = %binding.id,
-        subject_key = %binding.subject_key,
-        adapter = adapter_label,
-        "Task connected to Adapter binding"
-    );
-
-    Ok((subscription, binding))
-}
-
-/// Like [`connect_binding`], but does not require a matching Subscription.
+/// Wires a task to an external Adapter subject: resolves the connection and
+/// (optionally) the Subscription, then upserts the canonical task binding.
 ///
-/// Used for outbound binds — e.g. a PR opened by the agent via
-/// `moat gh pr create` — where the connection alone is enough to persist the
-/// task↔thread binding so it appears under the task's Connections. Inbound
-/// delivery still finds the binding by its subject key
-/// (`route_inbound_message` looks up bindings via `find_by_subject`, not by
-/// `loop_id`). A Subscription that resolves to a different connection is ignored
-/// rather than treated as an error.
-#[allow(clippy::too_many_arguments)]
-async fn connect_binding_optional_subscription(
-    state: &AppState,
-    adapter_destination: &dyn AdapterDestinationBuilder,
-    adapter_label: &str,
-    source_id: &str,
-    task_id: &str,
-    external_thread_id: &str,
-    thread_properties: &serde_json::Value,
-    filter_user_id: Option<&str>,
-) -> Result<(Option<SubscriptionMatch>, TaskBinding), AdapterError> {
-    let connection =
-        resolve_connection(state, adapter_destination, source_id, thread_properties).await?;
-    let subscription = resolve_optional_subscription(
-        state,
-        adapter_destination,
-        source_id,
-        thread_properties,
-        &connection,
-    )
-    .await?;
-
-    let binding = write_binding(
-        state,
-        adapter_destination,
-        &connection,
-        subscription.as_ref(),
-        source_id,
-        task_id,
-        external_thread_id,
-        thread_properties,
-        filter_user_id,
-    )
-    .await?;
-
-    info!(
-        subscription_id = subscription.as_ref().map_or("<none>", |r| r.id.as_str()),
-        task_id,
-        binding_id = %binding.id,
-        subject_key = %binding.subject_key,
-        adapter = adapter_label,
-        "Task connected to Adapter binding (outbound, Subscription optional)"
-    );
-
-    Ok((subscription, binding))
-}
-
-/// Build the Adapter destination and upsert the canonical task binding.
+/// Holds the three ports this module reads as typed fields — the adapter
+/// registry (`adapters`), the adapter-connection DAO (`adapter_connections`),
+/// and the Loop DAO (`loops`). Read ports through those fields, never through
+/// `app_state`.
 ///
-/// `subscription` is optional: outbound binds may have no matching Subscription,
-/// in which case `upsert_binding` writes a `NULL` `loop_id`.
-#[allow(clippy::too_many_arguments)]
-async fn write_binding(
-    state: &AppState,
-    adapter_destination: &dyn AdapterDestinationBuilder,
-    connection: &AdapterConnection,
-    subscription: Option<&SubscriptionMatch>,
-    source_id: &str,
-    task_id: &str,
-    external_thread_id: &str,
-    thread_properties: &serde_json::Value,
-    filter_user_id: Option<&str>,
-) -> Result<TaskBinding, AdapterError> {
-    let resolved_filter_uid = filter_user_id
-        .map(str::to_string)
-        .or_else(|| subscription.map(|s| s.effective_user_id().to_string()));
-    let filter_user_id = resolved_filter_uid.as_deref().filter(|s| !s.is_empty());
-
-    let destination = adapter_destination.binding_destination_from_existing_thread(
-        source_id,
-        external_thread_id,
-        thread_properties,
-        filter_user_id,
-    )?;
-
-    crate::bindings::runtime::upsert_binding(
-        state,
-        connection,
-        subscription,
-        task_id,
-        adapter_destination.connection_provider_key(),
-        destination.subject_kind,
-        &destination.subject_key,
-        destination.destination_config,
-        crate::bindings::runtime::ORIGIN_CONNECTED_THREAD,
-        destination.last_external_event_id,
-    )
-    .await
+/// `app_state` is retained solely for [`Connector::write_binding`]'s call into
+/// [`crate::bindings::runtime::upsert_binding`], which still takes the whole
+/// AppState. Decomposing that function retires this field and takes this module
+/// off the composition-root baseline.
+pub struct Connector {
+    adapters: Option<Arc<Adapters>>,
+    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    loops: Arc<LoopDao>,
+    app_state: AppState,
 }
 
-/// Resolve the Adapter connection for a source. Errors when none exists.
-async fn resolve_connection(
-    state: &AppState,
-    adapter_destination: &dyn AdapterDestinationBuilder,
-    source_id: &str,
-    thread_properties: &serde_json::Value,
-) -> Result<AdapterConnection, AdapterError> {
-    let adapter_key = adapter_destination.connection_provider_key();
-    let scope_value = adapter_destination
-        .connection_scope_value_from_existing_thread(source_id, thread_properties)?;
-
-    let connection_repo = state.adapter_connections.clone();
-    let mut connection = connection_repo
-        .find_by_scope_value(adapter_key, &scope_value)
-        .await?;
-    if connection.is_none()
-        && adapter_destination.allow_default_connection_fallback()
-        && scope_value != "default"
-    {
-        connection = connection_repo
-            .find_by_scope_value(adapter_key, "default")
-            .await?;
-    }
-    connection.ok_or_else(|| {
-        AdapterError::BadRequest(format!(
-            "No {adapter_key} Adapter connection for scope '{scope_value}'"
-        ))
-    })
-}
-
-/// Resolve the Subscription for a source, returning `None` when no Subscription matches.
-///
-/// A Subscription belonging to a different connection is treated as absent (and
-/// logged) so callers that tolerate a missing Subscription still succeed.
-async fn resolve_optional_subscription(
-    state: &AppState,
-    adapter_destination: &dyn AdapterDestinationBuilder,
-    source_id: &str,
-    thread_properties: &serde_json::Value,
-    connection: &AdapterConnection,
-) -> Result<Option<SubscriptionMatch>, AdapterError> {
-    let adapter_key = adapter_destination.connection_provider_key();
-    let source_matcher = adapter_destination
-        .trigger_source_matcher_from_existing_thread(source_id, thread_properties)?;
-    let subscription_repo = state.loops.clone();
-    let mut subscription = subscription_repo
-        .find_subscription_by_source_matcher(adapter_key, &source_matcher)
-        .await?;
-    if subscription.is_none() && adapter_destination.allow_wildcard_trigger_fallback() {
-        subscription = subscription_repo
-            .find_subscription_wildcard(adapter_key)
-            .await?;
-    }
-
-    if let Some(subscription) = &subscription {
-        if subscription.connection_id != connection.id {
-            warn!(
-                subscription_id = %subscription.id,
-                connection_id = %connection.id,
-                "Ignoring Subscription that belongs to a different connection"
-            );
-            return Ok(None);
+impl Connector {
+    pub fn new(app_state: AppState) -> Self {
+        Self {
+            adapters: app_state.adapters.clone(),
+            adapter_connections: app_state.adapter_connections.clone(),
+            loops: app_state.loops.clone(),
+            app_state,
         }
     }
 
-    Ok(subscription)
-}
-
-async fn resolve_connection_and_subscription(
-    state: &AppState,
-    adapter_destination: &dyn AdapterDestinationBuilder,
-    source_id: &str,
-    thread_properties: &serde_json::Value,
-) -> Result<(AdapterConnection, SubscriptionMatch), AdapterError> {
-    let connection =
-        resolve_connection(state, adapter_destination, source_id, thread_properties).await?;
-
-    let adapter_key = adapter_destination.connection_provider_key();
-    let source_matcher = adapter_destination
-        .trigger_source_matcher_from_existing_thread(source_id, thread_properties)?;
-    let subscription_repo = state.loops.clone();
-    let mut subscription = subscription_repo
-        .find_subscription_by_source_matcher(adapter_key, &source_matcher)
-        .await?;
-    if subscription.is_none() && adapter_destination.allow_wildcard_trigger_fallback() {
-        subscription = subscription_repo
-            .find_subscription_wildcard(adapter_key)
+    /// Resolve the connection and its optional Subscription, then upsert the
+    /// binding — a missing or mismatched Subscription is tolerated rather than
+    /// treated as an error.
+    ///
+    /// Used for outbound binds — e.g. a PR opened by the agent via
+    /// `moat gh pr create` — where the connection alone is enough to persist the
+    /// task↔thread binding so it appears under the task's Connections. Inbound
+    /// delivery still finds the binding by its subject key
+    /// (`route_inbound_message` looks up bindings via `find_by_subject`, not by
+    /// `loop_id`). A Subscription that resolves to a different connection is
+    /// ignored rather than treated as an error.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "eight against the threshold of seven: the &self receiver plus seven \
+                  data parameters, no ports. adapter_label and task_id are read for \
+                  the completion log; adapter_destination, source_id, \
+                  external_thread_id, thread_properties, and filter_user_id are \
+                  forwarded to resolve_connection, resolve_optional_subscription, and \
+                  write_binding. The three ports live on Connector's fields, so this \
+                  width is the binding's own identity threaded to its three helpers, \
+                  with no frame above connect_github_binding to hoist a data argument \
+                  to."
+    )]
+    async fn connect_binding_optional_subscription(
+        &self,
+        adapter_destination: &dyn AdapterDestinationBuilder,
+        adapter_label: &str,
+        source_id: &str,
+        task_id: &str,
+        external_thread_id: &str,
+        thread_properties: &serde_json::Value,
+        filter_user_id: Option<&str>,
+    ) -> Result<(Option<SubscriptionMatch>, TaskBinding), AdapterError> {
+        let connection = self
+            .resolve_connection(adapter_destination, source_id, thread_properties)
             .await?;
+        let subscription = self
+            .resolve_optional_subscription(
+                adapter_destination,
+                source_id,
+                thread_properties,
+                &connection,
+            )
+            .await?;
+
+        let binding = self
+            .write_binding(
+                adapter_destination,
+                &connection,
+                subscription.as_ref(),
+                source_id,
+                task_id,
+                external_thread_id,
+                thread_properties,
+                filter_user_id,
+            )
+            .await?;
+
+        info!(
+            subscription_id = subscription.as_ref().map_or("<none>", |r| r.id.as_str()),
+            task_id,
+            binding_id = %binding.id,
+            subject_key = %binding.subject_key,
+            adapter = adapter_label,
+            "Task connected to Adapter binding (outbound, Subscription optional)"
+        );
+
+        Ok((subscription, binding))
     }
-    let subscription = subscription.ok_or_else(|| {
-        AdapterError::BadRequest(format!(
-            "No Subscription for {adapter_key} source '{source_matcher}'"
-        ))
-    })?;
 
-    if subscription.connection_id != connection.id {
-        return Err(AdapterError::BadRequest(format!(
-            "Subscription {} belongs to a different connection",
-            subscription.id
-        )));
+    /// Build the Adapter destination and upsert the canonical task binding.
+    ///
+    /// `subscription` is optional: outbound binds may have no matching
+    /// Subscription, in which case `upsert_binding` writes a `NULL` `loop_id`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "nine against the threshold of seven: the &self receiver plus eight \
+                  data parameters, no ports. This method builds one binding \
+                  destination and upserts it. adapter_destination and filter_user_id \
+                  are read (the destination builder; the effective-user resolution at \
+                  the top); subscription is read for its effective user and then \
+                  forwarded; connection, source_id, task_id, external_thread_id, and \
+                  thread_properties are forwarded to the destination builder or to \
+                  bindings::runtime::upsert_binding. The three ports this file reads \
+                  now live on Connector's fields, so the width here is the binding's \
+                  own identity, with no frame above to hoist a data argument to."
+    )]
+    async fn write_binding(
+        &self,
+        adapter_destination: &dyn AdapterDestinationBuilder,
+        connection: &AdapterConnection,
+        subscription: Option<&SubscriptionMatch>,
+        source_id: &str,
+        task_id: &str,
+        external_thread_id: &str,
+        thread_properties: &serde_json::Value,
+        filter_user_id: Option<&str>,
+    ) -> Result<TaskBinding, AdapterError> {
+        let resolved_filter_uid = filter_user_id
+            .map(str::to_string)
+            .or_else(|| subscription.map(|s| s.effective_user_id().to_string()));
+        let filter_user_id = resolved_filter_uid.as_deref().filter(|s| !s.is_empty());
+
+        let destination = adapter_destination.binding_destination_from_existing_thread(
+            source_id,
+            external_thread_id,
+            thread_properties,
+            filter_user_id,
+        )?;
+
+        crate::bindings::runtime::upsert_binding(
+            &self.app_state,
+            connection,
+            subscription,
+            task_id,
+            adapter_destination.connection_provider_key(),
+            destination.subject_kind,
+            &destination.subject_key,
+            destination.destination_config,
+            crate::bindings::runtime::ORIGIN_CONNECTED_THREAD,
+            destination.last_external_event_id,
+        )
+        .await
     }
 
-    Ok((connection, subscription))
-}
+    /// Resolve the Adapter connection for a source. Errors when none exists.
+    async fn resolve_connection(
+        &self,
+        adapter_destination: &dyn AdapterDestinationBuilder,
+        source_id: &str,
+        thread_properties: &serde_json::Value,
+    ) -> Result<AdapterConnection, AdapterError> {
+        let adapter_key = adapter_destination.connection_provider_key();
+        let scope_value = adapter_destination
+            .connection_scope_value_from_existing_thread(source_id, thread_properties)?;
 
-/// Connect a task to a GitHub PR via the connection/Subscription/binding model.
-///
-/// Compatibility wrapper for callers that already parse GitHub PR details.
-pub async fn connect_github_binding(
-    state: &AppState,
-    source_id: &str,
-    task_id: &str,
-    thread_properties: serde_json::Value,
-    filter_user_id: Option<&str>,
-) -> Result<(Option<SubscriptionMatch>, TaskBinding), AdapterError> {
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
-    let adapter_destination = providers.destination_builder(AdapterKind::GithubPr)?;
-    connect_binding_optional_subscription(
-        state,
-        adapter_destination,
-        AdapterKind::GithubPr.as_str(),
-        source_id,
-        task_id,
-        "",
-        &thread_properties,
-        filter_user_id,
-    )
-    .await
+        let connection_repo = self.adapter_connections.clone();
+        let mut connection = connection_repo
+            .find_by_scope_value(adapter_key, &scope_value)
+            .await?;
+        if connection.is_none()
+            && adapter_destination.allow_default_connection_fallback()
+            && scope_value != "default"
+        {
+            connection = connection_repo
+                .find_by_scope_value(adapter_key, "default")
+                .await?;
+        }
+        connection.ok_or_else(|| {
+            AdapterError::BadRequest(format!(
+                "No {adapter_key} Adapter connection for scope '{scope_value}'"
+            ))
+        })
+    }
+
+    /// Resolve the Subscription for a source, returning `None` when no
+    /// Subscription matches.
+    ///
+    /// A Subscription belonging to a different connection is treated as absent
+    /// (and logged) so callers that tolerate a missing Subscription still
+    /// succeed.
+    async fn resolve_optional_subscription(
+        &self,
+        adapter_destination: &dyn AdapterDestinationBuilder,
+        source_id: &str,
+        thread_properties: &serde_json::Value,
+        connection: &AdapterConnection,
+    ) -> Result<Option<SubscriptionMatch>, AdapterError> {
+        let adapter_key = adapter_destination.connection_provider_key();
+        let source_matcher = adapter_destination
+            .trigger_source_matcher_from_existing_thread(source_id, thread_properties)?;
+        let subscription_repo = self.loops.clone();
+        let mut subscription = subscription_repo
+            .find_subscription_by_source_matcher(adapter_key, &source_matcher)
+            .await?;
+        if subscription.is_none() && adapter_destination.allow_wildcard_trigger_fallback() {
+            subscription = subscription_repo
+                .find_subscription_wildcard(adapter_key)
+                .await?;
+        }
+
+        if let Some(subscription) = &subscription {
+            if subscription.connection_id != connection.id {
+                warn!(
+                    subscription_id = %subscription.id,
+                    connection_id = %connection.id,
+                    "Ignoring Subscription that belongs to a different connection"
+                );
+                return Ok(None);
+            }
+        }
+
+        Ok(subscription)
+    }
+
+    /// Connect a task to a GitHub PR via the connection/Subscription/binding
+    /// model.
+    ///
+    /// Compatibility wrapper for callers that already parse GitHub PR details.
+    pub async fn connect_github_binding(
+        &self,
+        source_id: &str,
+        task_id: &str,
+        thread_properties: serde_json::Value,
+        filter_user_id: Option<&str>,
+    ) -> Result<(Option<SubscriptionMatch>, TaskBinding), AdapterError> {
+        let providers = self
+            .adapters
+            .as_ref()
+            .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
+        let adapter_destination = providers.destination_builder(AdapterKind::GithubPr)?;
+        self.connect_binding_optional_subscription(
+            adapter_destination,
+            AdapterKind::GithubPr.as_str(),
+            source_id,
+            task_id,
+            "",
+            &thread_properties,
+            filter_user_id,
+        )
+        .await
+    }
 }

@@ -1,9 +1,13 @@
 //! Inbound message processing — unified message → task flow.
 
+use std::sync::Arc;
+
 use crate::adapters::models::LoopContext;
+use crate::adapters::Adapters;
 use crate::shared_models::AgentType;
-use crate::state::AppState;
-use crate::task::creation::{FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome};
+use crate::task::creation::{
+    FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome, TaskCreationService,
+};
 use crate::task::models::Visibility;
 use crate::task::relations::RelatedTask;
 
@@ -26,7 +30,7 @@ use crate::adapters::models::InboundMessage;
 /// firing-time prompt-assembly function shared by every Subscription firing
 /// path; a path opts into a prelude purely via the `origin_prelude` argument.
 pub(crate) fn assemble_firing_prompt(
-    state: &AppState,
+    adapters: Option<&Arc<Adapters>>,
     adapter_label: &str,
     prompt_template: Option<&str>,
     origin_prelude: Option<&str>,
@@ -38,7 +42,7 @@ pub(crate) fn assemble_firing_prompt(
     if let Some(tpl) = prompt_template {
         parts.push(tpl.to_string());
     }
-    if let Some(providers) = state.adapters.as_ref() {
+    if let Some(providers) = adapters {
         if let Some(presentation) = providers.inbound_presentation_by_name(adapter_label) {
             if let Some(extra) = presentation.reply_instructions() {
                 parts.push(extra);
@@ -86,12 +90,13 @@ pub(crate) struct CreateTaskParams<'a> {
 ///
 /// [`TaskCreationService`]: crate::task::creation::TaskCreationService
 pub(crate) async fn create_task_from_loop(
-    state: &AppState,
+    adapters: Option<&Arc<Adapters>>,
+    task_creation: &TaskCreationService,
     config: &LoopContext,
     params: CreateTaskParams<'_>,
 ) -> Result<TaskCreationOutcome, TaskCreationError> {
     let append_system_prompt = assemble_firing_prompt(
-        state,
+        adapters,
         &config.adapter_kind,
         config.prompt_template.as_deref(),
         params.origin_prelude,
@@ -131,8 +136,7 @@ pub(crate) async fn create_task_from_loop(
     };
 
     let metadata = params.event_metadata;
-    let outcome = state
-        .task_creation
+    let outcome = task_creation
         .create(
             req,
             move |_task| async move { metadata },
@@ -150,13 +154,15 @@ pub(crate) async fn create_task_from_loop(
 /// event metadata. `related_to` carries the optional peer relation the bindings
 /// path computes; the schedule runner passes `None`.
 pub(crate) async fn create_task_for_external_message(
-    state: &AppState,
+    adapters: Option<&Arc<Adapters>>,
+    task_creation: &TaskCreationService,
     config: &LoopContext,
     msg: &InboundMessage,
     related_to: Option<RelatedTask>,
 ) -> Result<TaskCreationOutcome, TaskCreationError> {
     create_task_from_loop(
-        state,
+        adapters,
+        task_creation,
         config,
         CreateTaskParams {
             name: config.task_name.clone(),

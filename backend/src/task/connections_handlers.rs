@@ -8,6 +8,7 @@
 //! live status refresh.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
@@ -21,13 +22,15 @@ use moatless_api_schemas::task_connections::{
 };
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
-use crate::adapters::AdapterBindingStatus;
+use crate::adapters::{AdapterBindingStatus, Adapters};
+use crate::auth::users::UserDao;
+use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
-use crate::message::dao::ConnectionMessageCount;
-use crate::state::AppState;
+use crate::message::dao::{ConnectionMessageCount, MessageDao};
+use crate::repository::dao::RepositoryDao;
 
-use super::dao::TaskFilter;
+use super::dao::{TaskDao, TaskFilter};
 use super::error::TaskError;
 
 /// Live-refresh a connection's status only when its persisted status is older
@@ -48,8 +51,17 @@ const REFRESH_CONCURRENCY: usize = 8;
         (status = 403, description = "Admin role required", body = crate::error::ErrorBody)
     )
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "six ports: four are read here to assemble each row (tasks, users, repositories, messages); task_bindings is read and also passed to the staleness refresh; adapters is only passed on, to refresh_stale_statuses and binding_status_for. Those two helpers are private to this file and called from both handlers in it, so adapters is a port of the file, and there is no frame above a handler to hoist it to."
+)]
 pub async fn list_task_connections(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(users): State<Arc<dyn UserDao>>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(messages): State<Arc<dyn MessageDao>>,
+    State(adapters): State<Option<Arc<Adapters>>>,
     auth: AuthUser,
     Query(query): Query<ListTaskConnectionsQuery>,
 ) -> Result<Json<TaskConnectionsResponse>, TaskError> {
@@ -77,7 +89,7 @@ pub async fn list_task_connections(
         followed_by: None,
     };
 
-    let (rows, total) = state.tasks.list_tasks(&filter).await?;
+    let (rows, total) = tasks.list_tasks(&filter).await?;
     let task_ids: Vec<String> = rows.iter().map(|r| r.task_id.clone()).collect();
 
     // Batch resolve owner display names (mirrors `list_tasks`'
@@ -94,7 +106,7 @@ pub async fn list_task_connections(
     } else {
         let owner_uuids: Vec<uuid::Uuid> =
             owner_ids.iter().filter_map(|id| id.parse().ok()).collect();
-        match state.users.get_users_by_ids(&owner_uuids).await {
+        match users.get_users_by_ids(&owner_uuids).await {
             Ok(users) => users
                 .into_iter()
                 .map(|u| (u.id.to_string(), u.name.unwrap_or(u.login)))
@@ -113,8 +125,7 @@ pub async fn list_task_connections(
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let repo_names: HashMap<String, String> = state
-        .repositories
+    let repo_names: HashMap<String, String> = repositories
         .find_names_by_ids(&repo_ids)
         .await
         .unwrap_or_else(|e| {
@@ -125,8 +136,7 @@ pub async fn list_task_connections(
         .collect();
 
     // Batch resolve bindings (full rows, incl. destination_config + status).
-    let mut bindings = state
-        .task_bindings
+    let mut bindings = task_bindings
         .find_by_task_ids(&task_ids)
         .await
         .unwrap_or_else(|e| {
@@ -135,8 +145,7 @@ pub async fn list_task_connections(
         });
 
     // Batch resolve per-connection message counts.
-    let counts = state
-        .messages
+    let counts = messages
         .get_connection_message_counts(&task_ids)
         .await
         .unwrap_or_else(|e| {
@@ -145,7 +154,13 @@ pub async fn list_task_connections(
         });
 
     if refresh {
-        refresh_stale_statuses(&state, &rows, &mut bindings).await;
+        refresh_stale_statuses(
+            adapters.as_ref(),
+            task_bindings.as_ref(),
+            &rows,
+            &mut bindings,
+        )
+        .await;
     }
 
     // Index counts and bindings by task for O(1) assembly.
@@ -166,7 +181,7 @@ pub async fn list_task_connections(
                 .iter()
                 .map(|b| {
                     decode_connection(
-                        binding_status_for(&state, &b.adapter_kind),
+                        binding_status_for(adapters.as_ref(), &b.adapter_kind),
                         b,
                         &count_by_binding,
                     )
@@ -222,22 +237,23 @@ pub async fn list_task_connections(
     )
 )]
 pub async fn get_task_connections(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(messages): State<Arc<dyn MessageDao>>,
+    State(adapters): State<Option<Arc<Adapters>>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Query(query): Query<GetTaskConnectionsQuery>,
 ) -> Result<Json<Vec<Connection>>, TaskError> {
     // Access check mirrors `get_task`: scope-checked, not admin-gated.
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
     let task_ids = [task_id.clone()];
 
-    let mut bindings = state
-        .task_bindings
+    let mut bindings = task_bindings
         .find_by_task_ids(&task_ids)
         .await
         .unwrap_or_else(|e| {
@@ -245,8 +261,7 @@ pub async fn get_task_connections(
             vec![]
         });
 
-    let counts = state
-        .messages
+    let counts = messages
         .get_connection_message_counts(&task_ids)
         .await
         .unwrap_or_else(|e| {
@@ -258,7 +273,13 @@ pub async fn get_task_connections(
         // `refresh_stale_statuses` has its own 300s staleness guard and skips
         // finished subjects entirely, so this stays cheap and bounded even when
         // called per-request.
-        refresh_stale_statuses(&state, std::slice::from_ref(&row), &mut bindings).await;
+        refresh_stale_statuses(
+            adapters.as_ref(),
+            task_bindings.as_ref(),
+            std::slice::from_ref(&row),
+            &mut bindings,
+        )
+        .await;
     }
 
     let binding_refs: Vec<&TaskBinding> = bindings.iter().collect();
@@ -269,7 +290,7 @@ pub async fn get_task_connections(
         .iter()
         .map(|b| {
             decode_connection(
-                binding_status_for(&state, &b.adapter_kind),
+                binding_status_for(adapters.as_ref(), &b.adapter_kind),
                 b,
                 &count_by_binding,
             )
@@ -284,7 +305,8 @@ pub async fn get_task_connections(
 /// terminal. Mutates `bindings` in place with the freshly fetched status.
 /// Bounded concurrency.
 async fn refresh_stale_statuses(
-    state: &AppState,
+    adapters: Option<&Arc<Adapters>>,
+    task_bindings: &dyn TaskBindingDao,
     rows: &[crate::task::models::Task],
     bindings: &mut [TaskBinding],
 ) {
@@ -296,7 +318,7 @@ async fn refresh_stale_statuses(
     let now = chrono::Utc::now();
     let cutoff = now - chrono::Duration::seconds(STATUS_STALE_SECS);
 
-    let Some(adapters) = state.adapters.as_ref() else {
+    let Some(adapters) = adapters else {
         return;
     };
 
@@ -318,12 +340,11 @@ async fn refresh_stale_statuses(
 
     let fetched: HashMap<String, ExternalStatus> = stream::iter(targets)
         .map(|binding| {
-            let state = state.clone();
             let creator = created_by
                 .get(binding.task_id.as_str())
                 .map_or_else(String::new, |c| (*c).to_string());
             async move {
-                status_service::get_or_fetch(&state, &binding, &creator)
+                status_service::get_or_fetch(Some(adapters), task_bindings, &binding, &creator)
                     .await
                     .map(|status| (binding.id.clone(), status))
             }
@@ -435,10 +456,10 @@ fn match_counts(
 
 /// The adapter that owns a binding's provider, if one is configured.
 fn binding_status_for<'a>(
-    state: &'a AppState,
+    adapters: Option<&'a Arc<Adapters>>,
     provider: &str,
 ) -> Option<&'a dyn AdapterBindingStatus> {
-    state.adapters.as_ref()?.binding_status_by_name(provider)
+    adapters?.binding_status_by_name(provider)
 }
 
 /// Decode a binding's `destination_config` + persisted status into a typed

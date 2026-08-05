@@ -42,8 +42,10 @@ use crate::secret::service::SecretService;
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
 use crate::tag::dao::TagDao;
+use crate::task::closer::TaskCloser;
 use crate::task::creation::{PreflightPort, RealPreflight, TaskCreationService};
 use crate::task::dao::TaskDao;
+use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
@@ -191,6 +193,11 @@ pub struct AppState {
     /// The message-send flows over the ports they read; holds the self-echo
     /// dedup filter so the message domain no longer names the adapter registry.
     pub message_send: Arc<MessageSendService>,
+    /// Presents a task row as a `TaskResponse`; holds the eight ports the
+    /// response is assembled from so presenting handlers name one service
+    /// instead of eight DAOs.
+    pub task_presenter: Arc<TaskPresenter>,
+    pub task_closer: Arc<TaskCloser>,
     /// Skill discovery service — reads `.claude/skills/` from workspace
     /// and plugins, parses frontmatter, caches results.
     pub skills: Arc<SkillService>,
@@ -312,6 +319,26 @@ impl AppState {
             SelfEchoFilter::new(recently_sent.clone(), adapters.clone()),
         ));
 
+        let task_presenter = Arc::new(TaskPresenter {
+            tags: tags.clone(),
+            repositories: repositories.clone(),
+            workspaces: workspaces.clone(),
+            users: users.clone(),
+            task_bindings: task_bindings.clone(),
+            loops: loops.clone(),
+            task_relations: task_relations.clone(),
+            tasks: tasks.clone(),
+        });
+
+        let task_closer = Arc::new(TaskCloser {
+            tasks: tasks.clone(),
+            task_relations: task_relations.clone(),
+            config: config.clone(),
+            sandbox: lifecycle.clone(),
+            task_bindings: task_bindings.clone(),
+            events: events.clone(),
+        });
+
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("moatless-vibe-backend")
@@ -417,6 +444,8 @@ impl AppState {
             git_sync,
             loop_sync,
             message_send,
+            task_presenter,
+            task_closer,
             skills,
             adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
             db: pool,
@@ -599,6 +628,96 @@ impl axum::extract::FromRef<AppState> for Arc<GitHubAppRegistry> {
 impl axum::extract::FromRef<AppState> for Arc<CredentialService> {
     fn from_ref(state: &AppState) -> Self {
         state.credentials_svc.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<Config> {
+    fn from_ref(state: &AppState) -> Self {
+        state.config.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<Lifecycle> {
+    fn from_ref(state: &AppState) -> Self {
+        state.sandbox.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Option<Arc<dyn EventPublisher>> {
+    fn from_ref(state: &AppState) -> Self {
+        state.events.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Option<Arc<Adapters>> {
+    fn from_ref(state: &AppState) -> Self {
+        state.adapters.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<TaskCreationService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_creation.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn PreflightPort> {
+    fn from_ref(state: &AppState) -> Self {
+        state.preflight.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn TaskRelationDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_relations.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn TaskBindingDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_bindings.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<LoopDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.loops.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn MessageDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.messages.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn UserDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.users.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<dyn TaskTurnDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_turns.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<MessageSendService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.message_send.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<TaskPresenter> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_presenter.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<TaskCloser> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_closer.clone()
     }
 }
 

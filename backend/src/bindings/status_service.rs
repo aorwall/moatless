@@ -7,15 +7,15 @@
 //! on the binding warm, and the decision of whether a binding is worth polling
 //! at all.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
 use crate::adapters::models::{ExternalStatus, TaskBinding};
-use crate::adapters::AdapterBindingStatus;
-use crate::state::AppState;
+use crate::adapters::{AdapterBindingStatus, Adapters};
+use crate::bindings::dao::TaskBindingDao;
 
 /// Whether a binding's live external status is worth fetching again.
 ///
@@ -87,14 +87,12 @@ fn cache() -> &'static Cache<String, ExternalStatus> {
 /// `created_by` is the owning task's creator, used by adapters that resolve a
 /// per-user token.
 pub async fn get_or_fetch(
-    state: &AppState,
+    adapters: Option<&Arc<Adapters>>,
+    task_bindings: &dyn TaskBindingDao,
     binding: &TaskBinding,
     created_by: &str,
 ) -> Option<ExternalStatus> {
-    let status = state
-        .adapters
-        .as_ref()?
-        .binding_status_by_name(&binding.adapter_kind)?;
+    let status = adapters?.binding_status_by_name(&binding.adapter_kind)?;
     let key = status.binding_status_key(binding)?;
     if let Some(cached) = cache().get(&key).await {
         return Some(cached);
@@ -105,8 +103,7 @@ pub async fn get_or_fetch(
     cache().insert(key, fetched.clone()).await;
 
     // Write-through so the persisted value stays warm for DB-only reads.
-    if let Err(e) = state
-        .task_bindings
+    if let Err(e) = task_bindings
         .update_external_status(
             &binding.id,
             fetched.status.as_deref(),

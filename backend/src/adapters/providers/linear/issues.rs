@@ -559,7 +559,8 @@ pub(super) async fn insert_event_task(
     // open for a task that never got a binding.
     let config = crate::bindings::runtime::subscription_context(rule, ADAPTER_LABEL);
     let outcome = crate::loops::firing::inbound::create_task_from_loop(
-        state,
+        state.adapters.as_ref(),
+        &state.task_creation,
         &config,
         crate::loops::firing::inbound::CreateTaskParams {
             name: rule

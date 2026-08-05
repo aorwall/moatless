@@ -149,8 +149,13 @@ impl AppStateBoundPullRequests {
         binding: &TaskBinding,
     ) -> Option<TaskBinding> {
         let created_by = self.task_creator(task_id).await?;
-        let status =
-            crate::bindings::status_service::get_or_fetch(&self.0, binding, &created_by).await?;
+        let status = crate::bindings::status_service::get_or_fetch(
+            self.0.adapters.as_ref(),
+            self.0.task_bindings.as_ref(),
+            binding,
+            &created_by,
+        )
+        .await?;
         let mut refreshed = binding.clone();
         refreshed.external_status = status.status.clone();
         refreshed.external_state_kind = status.state_kind.clone();
@@ -282,14 +287,14 @@ async fn bind_thread_to_open_pr(
         "repo": repo,
         "pr_number": pr.number,
     });
-    match crate::loops::firing::listen::connect_github_binding(
-        state,
-        &source_id,
-        task_id,
-        thread_properties,
-        Some(&viewer.user_id),
-    )
-    .await
+    match crate::loops::firing::listen::Connector::new(state.clone())
+        .connect_github_binding(
+            &source_id,
+            task_id,
+            thread_properties,
+            Some(&viewer.user_id),
+        )
+        .await
     {
         Ok((_, binding)) => tracing::info!(
             task_id,
@@ -506,9 +511,23 @@ impl ThreadCommandSink for AppStateCommands {
         // minted, so that id has to be the one persisted.
         intent.first_message_uuid = thread.first_message.map(|m| m.message_uuid);
 
-        task_service::create_task(&self.0, viewer, &viewer.user_id, intent, |_| async {
-            serde_json::Value::Null
-        })
+        let new_task = task_service::normalize(
+            self.0.workspaces.as_ref(),
+            self.0.repositories.as_ref(),
+            &self.0.credentials_svc,
+            &self.0.config,
+            viewer,
+            &viewer.user_id,
+            intent,
+        )
+        .await
+        .map_err(|e| create_refusal(&thread.task_id, e))?;
+        task_service::create_task(
+            &self.0.task_creation,
+            self.0.message_send.clone(),
+            new_task,
+            |_| async { serde_json::Value::Null },
+        )
         .await
         .map_err(|e| create_refusal(&thread.task_id, e))?;
 
@@ -559,21 +578,34 @@ impl ThreadCommandSink for AppStateCommands {
     }
 
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
-        task_service::stop_task(&self.0, viewer, task_id)
-            .await
-            .map_err(|e| create_refusal(task_id, e))
+        task_service::stop_task(
+            self.0.tasks.as_ref(),
+            &self.0.sandbox,
+            self.0.events.as_deref(),
+            viewer,
+            task_id,
+        )
+        .await
+        .map_err(|e| create_refusal(task_id, e))
     }
 
     async fn archive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
-        task_handlers::close_task_for(&self.0, viewer, task_id)
+        self.0
+            .task_closer
+            .close_for(viewer, task_id)
             .await
             .map_err(|e| create_refusal(task_id, e))
     }
 
     async fn unarchive(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
-        task_handlers::reopen_task_for(&self.0, viewer, task_id)
-            .await
-            .map_err(|e| create_refusal(task_id, e))
+        task_handlers::reopen_task_for(
+            self.0.tasks.as_ref(),
+            self.0.events.as_deref(),
+            viewer,
+            task_id,
+        )
+        .await
+        .map_err(|e| create_refusal(task_id, e))
     }
 
     async fn settle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
@@ -590,7 +622,15 @@ impl ThreadCommandSink for AppStateCommands {
         // neither case is a reason to report the settle as refused. New
         // activity clears the settlement (`clear_settled_for_all_followers`)
         // and the next turn starts the sandbox again.
-        if let Err(error) = task_service::stop_task(&self.0, viewer, task_id).await {
+        if let Err(error) = task_service::stop_task(
+            self.0.tasks.as_ref(),
+            &self.0.sandbox,
+            self.0.events.as_deref(),
+            viewer,
+            task_id,
+        )
+        .await
+        {
             tracing::warn!(%error, task_id, "Sandbox stop on settle failed");
         }
         Ok(())

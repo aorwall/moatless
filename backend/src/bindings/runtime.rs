@@ -254,7 +254,15 @@ pub async fn route_inbound_message(
         let config = subscription_context(subscription, adapter_label);
         // The creation service records the `related_to` relation and provisions
         // the sandbox as part of the owned sequence.
-        match inbound::create_task_for_external_message(state, &config, &msg, related).await {
+        match inbound::create_task_for_external_message(
+            state.adapters.as_ref(),
+            &state.task_creation,
+            &config,
+            &msg,
+            related,
+        )
+        .await
+        {
             Ok(outcome) => {
                 let task_id = outcome.task.task_id;
                 if subscription.routing_mode == RoutingMode::Ongoing {

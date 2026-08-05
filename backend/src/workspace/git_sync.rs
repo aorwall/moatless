@@ -386,6 +386,72 @@ impl GitSyncService {
 
         Ok(summary)
     }
+
+    /// Best-effort auto-sync of a repo's workspace config when a task starts.
+    /// Gated on the repo actually shipping a `.moatless/` directory so we don't
+    /// hit the provider API for repos that don't use it. Every failure is logged
+    /// and swallowed — this must never block or fail a task start. Loops are
+    /// never synchronized as a side effect of task start.
+    pub async fn sync_repo_config_on_start(&self, auth: &AuthUser, repo: &Repository) {
+        let Some(remote_url) = repo.remote_url.as_deref() else {
+            return;
+        };
+        let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
+
+        // Resolve a token for the existence probe; fall back to an unauthenticated
+        // probe (works for public repos) if we can't load one.
+        let token = if provider == RepositoryProvider::Github {
+            self.repo_token_resolver
+                .resolve(repo, remote_url)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to resolve GitHub token; probing unauthenticated");
+                    None
+                })
+        } else {
+            match self
+                .provider_tokens
+                .find_provider_token(&auth.user_id.to_string(), provider.as_str())
+                .await
+            {
+                Ok(token) => token.map(|t| t.access_token),
+                Err(e) => {
+                    warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to load provider token; probing unauthenticated");
+                    None
+                }
+            }
+        };
+
+        let token_str = token.as_deref();
+        let branch = repo.default_branch.as_deref();
+
+        if !crate::repository::config_reader::moatless_dir_exists(
+            remote_url, branch, token_str, provider,
+        )
+        .await
+        {
+            debug!(repository_id = %repo.id, "Config auto-sync: no .moatless directory, skipping");
+            return;
+        }
+
+        // Automatic sync: workspaces the user overrode from the UI/CLI stay
+        // overridden — only an explicit sync-config or reset-git reclaims them.
+        let force = SyncForce::RespectOverrides;
+        match self.sync_repo_workspaces(repo, auth, &force).await {
+            Ok(workspaces) => {
+                info!(
+                    repository_id = %repo.id,
+                    workspaces_created = workspaces.created,
+                    workspaces_updated = workspaces.updated,
+                    workspaces_overridden = workspaces.skipped.len(),
+                    "Workspace config auto-sync on task start complete"
+                );
+            }
+            Err(e) => {
+                warn!(repository_id = %repo.id, error = %e, "Workspace config auto-sync on task start failed");
+            }
+        }
+    }
 }
 
 /// Fold one upsert outcome into the running summary.

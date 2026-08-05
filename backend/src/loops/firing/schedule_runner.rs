@@ -202,7 +202,11 @@ async fn create_scheduled_task(
     // Provisioning now happens inside the creation service. Preserve the
     // `provision_failed` metric using the provision outcome it reports back.
     let outcome = match crate::loops::firing::inbound::create_task_for_external_message(
-        state, config, msg, None,
+        state.adapters.as_ref(),
+        &state.task_creation,
+        config,
+        msg,
+        None,
     )
     .await
     {

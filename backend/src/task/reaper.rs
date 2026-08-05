@@ -25,6 +25,7 @@ use tracing::{debug, info, warn};
 
 use super::dao::{TaskDao, TaskPatch};
 use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use crate::bindings::dao::TaskBindingDao;
 use crate::config::Config;
 use crate::event_handler::agent_handlers;
 use crate::event_handler::models::AgentEvent;
@@ -32,8 +33,10 @@ use crate::events::EventPublisher;
 use crate::message::dao::MessageDao;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
-use crate::sandbox::lifecycle::ArchiveRetention;
+use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
 use crate::state::AppState;
+use crate::task_event::dao::TaskEventDao;
+use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use moatless_backend_core::scope::ScopeContext;
 use moatless_events::EventType;
@@ -54,151 +57,169 @@ enum ReaperError {
     Db(#[from] sqlx::Error),
 }
 
-/// Spawn the unified task reaper as a background tokio task.
+/// The unified task reaper's ports — one background job reads all of them, so
+/// the struct is the explicit manifest of what a reap cycle touches.
 ///
-/// The reaper runs in a loop:
-/// 1. Try to acquire leadership via K8s Lease (`"moatless-task-reaper"`).
-/// 2. If leader, run a reap cycle (idle-sandbox stop + inactive-task close).
-/// 3. Sleep for `config.sandbox.idle_check_interval_secs` before the next cycle.
-#[allow(clippy::too_many_arguments)]
-pub fn spawn_task_reaper(
-    app_state: AppState,
+/// `app_state` is retained for a single un-decomposed downstream: the
+/// orphaned-turn error path forwards the whole state to
+/// [`agent_handlers::handle_agent_error`], which is not yet split into ports.
+/// Every other read goes through a named field; that one call is the sole
+/// coupling that keeps the reaper on the composition-root baseline until
+/// agent_handlers is decomposed.
+pub struct TaskReaper {
     agent_status: Arc<dyn AgentStatusPort>,
     k8s: K8sClient,
     messages: Arc<dyn MessageDao>,
     tasks: Arc<dyn TaskDao>,
+    task_turns: Arc<dyn TaskTurnDao>,
+    task_events: Arc<dyn TaskEventDao>,
+    sandbox: Arc<Lifecycle>,
+    task_bindings: Arc<dyn TaskBindingDao>,
     events: Option<Arc<dyn EventPublisher>>,
     config: Arc<Config>,
-    cancel: CancellationToken,
-) -> JoinHandle<()> {
-    metrics::describe_counter!(
-        "task_turns_reconciled_total",
-        "Active task turns force-closed by the reaper after a lost terminal event"
-    );
-    let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
-    let interval = Duration::from_secs(config.sandbox.idle_check_interval_secs);
-    let default_ttl_minutes = config.sandbox.idle_timeout_minutes as i32;
-    let default_inactive_ttl_days = config.sandbox.inactive_task_timeout_days as i32;
-    let orphan_gc_enabled = config.sandbox.orphan_gc_enabled;
+    app_state: AppState,
+}
 
-    tokio::spawn(async move {
-        // Lease duration must exceed the check interval so the lease
-        // doesn't expire between cycles. Use 2x the interval as buffer.
-        let lease_duration_secs = (config.sandbox.idle_check_interval_secs * 2) as i32;
-        let leader_election = LeaderElection::new_with_name(
-            &k8s,
-            identity.clone(),
-            "moatless-task-reaper".to_string(),
-        )
-        .with_lease_duration(lease_duration_secs);
+impl TaskReaper {
+    /// Assemble the reaper at the composition root. Its ports are the state's;
+    /// `app_state` is kept only for the [`agent_handlers::handle_agent_error`]
+    /// leak (see the struct doc).
+    pub fn new(
+        app_state: AppState,
+        agent_status: Arc<dyn AgentStatusPort>,
+        k8s: K8sClient,
+    ) -> Self {
+        Self {
+            agent_status,
+            k8s,
+            messages: app_state.messages.clone(),
+            tasks: app_state.tasks.clone(),
+            task_turns: app_state.task_turns.clone(),
+            task_events: app_state.task_events.clone(),
+            sandbox: app_state.sandbox.clone(),
+            task_bindings: app_state.task_bindings.clone(),
+            events: app_state.events.clone(),
+            config: app_state.config.clone(),
+            app_state,
+        }
+    }
 
-        loop {
-            if cancel.is_cancelled() {
-                info!("Task reaper shutting down (cancellation)");
-                return;
-            }
+    /// Spawn the unified task reaper as a background tokio task.
+    ///
+    /// The reaper runs in a loop:
+    /// 1. Try to acquire leadership via K8s Lease (`"moatless-task-reaper"`).
+    /// 2. If leader, run a reap cycle (idle-sandbox stop + inactive-task close).
+    /// 3. Sleep for `config.sandbox.idle_check_interval_secs` before the next cycle.
+    pub fn spawn(self, cancel: CancellationToken) -> JoinHandle<()> {
+        metrics::describe_counter!(
+            "task_turns_reconciled_total",
+            "Active task turns force-closed by the reaper after a lost terminal event"
+        );
+        let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+        let interval = Duration::from_secs(self.config.sandbox.idle_check_interval_secs);
+        let default_ttl_minutes = self.config.sandbox.idle_timeout_minutes as i32;
+        let default_inactive_ttl_days = self.config.sandbox.inactive_task_timeout_days as i32;
+        let orphan_gc_enabled = self.config.sandbox.orphan_gc_enabled;
+        // Lease duration must exceed the check interval so the lease doesn't
+        // expire between cycles. Use 2x the interval as buffer.
+        let lease_duration_secs = (self.config.sandbox.idle_check_interval_secs * 2) as i32;
 
-            match leader_election.try_acquire_or_renew().await {
-                Ok(true) => {
-                    debug!(identity = %identity, "Task reaper is leader, running reap cycle");
-                    if let Err(e) = run_reap_cycle(
-                        &app_state,
-                        agent_status.as_ref(),
-                        &k8s,
-                        &messages,
-                        &tasks,
-                        &events,
-                        default_ttl_minutes,
-                        default_inactive_ttl_days,
-                        orphan_gc_enabled,
-                    )
-                    .await
-                    {
-                        warn!(error = %e, "Task reaper cycle failed");
-                    }
-                }
-                Ok(false) => {
-                    debug!(identity = %identity, "Task reaper not leader, skipping cycle");
-                }
-                Err(e) => {
-                    warn!(error = %e, "Task reaper leader election error");
-                }
-            }
+        tokio::spawn(async move {
+            let leader_election = LeaderElection::new_with_name(
+                &self.k8s,
+                identity.clone(),
+                "moatless-task-reaper".to_string(),
+            )
+            .with_lease_duration(lease_duration_secs);
 
-            tokio::select! {
-                () = cancel.cancelled() => {
+            loop {
+                if cancel.is_cancelled() {
                     info!("Task reaper shutting down (cancellation)");
                     return;
                 }
-                () = tokio::time::sleep(interval) => {}
+
+                match leader_election.try_acquire_or_renew().await {
+                    Ok(true) => {
+                        debug!(identity = %identity, "Task reaper is leader, running reap cycle");
+                        if let Err(e) = self
+                            .run_reap_cycle(
+                                default_ttl_minutes,
+                                default_inactive_ttl_days,
+                                orphan_gc_enabled,
+                            )
+                            .await
+                        {
+                            warn!(error = %e, "Task reaper cycle failed");
+                        }
+                    }
+                    Ok(false) => {
+                        debug!(identity = %identity, "Task reaper not leader, skipping cycle");
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Task reaper leader election error");
+                    }
+                }
+
+                tokio::select! {
+                    () = cancel.cancelled() => {
+                        info!("Task reaper shutting down (cancellation)");
+                        return;
+                    }
+                    () = tokio::time::sleep(interval) => {}
+                }
             }
-        }
-    })
-}
-
-/// Run one reap cycle: stop idle sandboxes, then close inactive Open tasks.
-#[allow(clippy::too_many_arguments)]
-async fn run_reap_cycle(
-    app_state: &AppState,
-    agent_status: &dyn AgentStatusPort,
-    k8s: &K8sClient,
-    messages: &Arc<dyn MessageDao>,
-    tasks: &Arc<dyn TaskDao>,
-    events: &Option<Arc<dyn EventPublisher>>,
-    default_ttl_minutes: i32,
-    default_inactive_ttl_days: i32,
-    orphan_gc_enabled: bool,
-) -> Result<(), ReaperError> {
-    // One cluster-wide Deployments LIST supplies the running Sandbox set.
-    let deployments = list_sandbox_deployments(k8s).await?;
-    let sandbox_ids: Vec<String> = deployments
-        .iter()
-        .filter(|d| d.desired_replicas > 0)
-        .map(|d| d.task_id.clone())
-        .collect();
-
-    // Tasks whose latest turn is stuck `active` past the floor.
-    let cutoff = Utc::now() - chrono::Duration::seconds(RECONCILE_STUCK_TURN_THRESHOLD_SECS);
-    let stuck_turns = match app_state
-        .task_turns
-        .list_unclosed_active_turns(cutoff)
-        .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            warn!(error = %e, "reconcile: failed to list unclosed active turns");
-            Vec::new()
-        }
-    };
-
-    // Close turns left stuck `active` by a lost terminal event.
-    // Independent of the idle/close passes below and best-effort, so a failure
-    // here never blocks them.
-    reconcile_orphaned_turns(app_state, agent_status, &sandbox_ids, &stuck_turns).await;
-
-    // Orphan-GC deletes only taskless resources. Desired Removed convergence
-    // for existing Tasks belongs to the Sandbox reconciler.
-    if orphan_gc_enabled {
-        gc_orphaned_resources(k8s, tasks).await;
+        })
     }
 
-    let Some(snapshot) = load_reaper_snapshot(
-        app_state,
-        messages,
-        tasks,
-        &sandbox_ids,
-        default_ttl_minutes,
-        default_inactive_ttl_days,
-    )
-    .await?
-    else {
-        return Ok(());
-    };
+    /// Run one reap cycle: stop idle sandboxes, then close inactive Open tasks.
+    async fn run_reap_cycle(
+        &self,
+        default_ttl_minutes: i32,
+        default_inactive_ttl_days: i32,
+        orphan_gc_enabled: bool,
+    ) -> Result<(), ReaperError> {
+        // One cluster-wide Deployments LIST supplies the running Sandbox set.
+        let deployments = list_sandbox_deployments(&self.k8s).await?;
+        let sandbox_ids: Vec<String> = deployments
+            .iter()
+            .filter(|d| d.desired_replicas > 0)
+            .map(|d| d.task_id.clone())
+            .collect();
 
-    let stats = apply_reaper_decisions(app_state, agent_status, tasks, events, snapshot).await;
-    log_reaper_stats(stats);
+        // Tasks whose latest turn is stuck `active` past the floor.
+        let cutoff = Utc::now() - chrono::Duration::seconds(RECONCILE_STUCK_TURN_THRESHOLD_SECS);
+        let stuck_turns = match self.task_turns.list_unclosed_active_turns(cutoff).await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(error = %e, "reconcile: failed to list unclosed active turns");
+                Vec::new()
+            }
+        };
 
-    Ok(())
+        // Close turns left stuck `active` by a lost terminal event.
+        // Independent of the idle/close passes below and best-effort, so a
+        // failure here never blocks them.
+        self.reconcile_orphaned_turns(&sandbox_ids, &stuck_turns)
+            .await;
+
+        // Orphan-GC deletes only taskless resources. Desired Removed convergence
+        // for existing Tasks belongs to the Sandbox reconciler.
+        if orphan_gc_enabled {
+            gc_orphaned_resources(&self.k8s, &self.tasks).await;
+        }
+
+        let Some(snapshot) = self
+            .load_reaper_snapshot(&sandbox_ids, default_ttl_minutes, default_inactive_ttl_days)
+            .await?
+        else {
+            return Ok(());
+        };
+
+        let stats = self.apply_reaper_decisions(snapshot).await;
+        log_reaper_stats(stats);
+
+        Ok(())
+    }
 }
 
 struct ReaperSnapshot {
@@ -220,108 +241,106 @@ struct ReaperStats {
     closed_count: u32,
 }
 
-async fn load_reaper_snapshot(
-    app_state: &AppState,
-    messages: &Arc<dyn MessageDao>,
-    tasks: &Arc<dyn TaskDao>,
-    sandbox_ids: &[String],
-    default_ttl_minutes: i32,
-    default_inactive_ttl_days: i32,
-) -> Result<Option<ReaperSnapshot>, ReaperError> {
-    let open_ids = match tasks.list_open_task_ids().await {
-        Ok(ids) => ids,
-        Err(e) => {
-            warn!(error = %e, "Failed to list open tasks, skipping inactive-task close");
-            Vec::new()
+// The reaper's methods are split across several `impl` blocks so each stays next
+// to the free helpers between them that it calls (the decision fns, the DAO-thin
+// loaders, the agent-status port). The blocks collapse into one if those helpers
+// ever become methods.
+impl TaskReaper {
+    async fn load_reaper_snapshot(
+        &self,
+        sandbox_ids: &[String],
+        default_ttl_minutes: i32,
+        default_inactive_ttl_days: i32,
+    ) -> Result<Option<ReaperSnapshot>, ReaperError> {
+        let open_ids = match self.tasks.list_open_task_ids().await {
+            Ok(ids) => ids,
+            Err(e) => {
+                warn!(error = %e, "Failed to list open tasks, skipping inactive-task close");
+                Vec::new()
+            }
+        };
+
+        // Union the two sets so we fetch activity timestamps for everything we may act on.
+        let mut all_ids_set: HashSet<String> =
+            HashSet::with_capacity(sandbox_ids.len() + open_ids.len());
+        all_ids_set.extend(sandbox_ids.iter().cloned());
+        all_ids_set.extend(open_ids.iter().cloned());
+
+        if all_ids_set.is_empty() {
+            debug!("No running sandboxes and no open tasks");
+            return Ok(None);
         }
-    };
 
-    // Union the two sets so we fetch activity timestamps for everything we may act on.
-    let mut all_ids_set: HashSet<String> =
-        HashSet::with_capacity(sandbox_ids.len() + open_ids.len());
-    all_ids_set.extend(sandbox_ids.iter().cloned());
-    all_ids_set.extend(open_ids.iter().cloned());
+        let all_ids: Vec<String> = all_ids_set.iter().cloned().collect();
+        debug!(
+            sandbox_count = sandbox_ids.len(),
+            open_count = open_ids.len(),
+            unique_count = all_ids.len(),
+            "Task reaper considering tasks"
+        );
 
-    if all_ids_set.is_empty() {
-        debug!("No running sandboxes and no open tasks");
-        return Ok(None);
+        let latest_times = self.load_latest_activity_times(&all_ids).await?;
+        let ttl_map = load_ttl_map(&self.tasks, &all_ids).await;
+        let inactive_map = load_inactive_ttl_map(&self.tasks, &all_ids).await;
+        let agent_lifecycle = self.load_agent_lifecycle(sandbox_ids).await;
+
+        Ok(Some(ReaperSnapshot {
+            all_ids,
+            sandbox_ids: sandbox_ids.to_vec(),
+            open_ids,
+            latest_times,
+            ttl_map,
+            inactive_map,
+            agent_lifecycle,
+            default_ttl_minutes,
+            default_inactive_ttl_days,
+            now: Utc::now(),
+        }))
     }
 
-    let all_ids: Vec<String> = all_ids_set.iter().cloned().collect();
-    debug!(
-        sandbox_count = sandbox_ids.len(),
-        open_count = open_ids.len(),
-        unique_count = all_ids.len(),
-        "Task reaper considering tasks"
-    );
+    async fn load_latest_activity_times(
+        &self,
+        all_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, ReaperError> {
+        let mut latest_times = self.messages.get_latest_message_times(all_ids).await?;
 
-    let latest_times = load_latest_activity_times(app_state, messages, tasks, &all_ids).await?;
-    let ttl_map = load_ttl_map(tasks, &all_ids).await;
-    let inactive_map = load_inactive_ttl_map(tasks, &all_ids).await;
-    let agent_lifecycle = load_agent_lifecycle(app_state, sandbox_ids).await;
-
-    Ok(Some(ReaperSnapshot {
-        all_ids,
-        sandbox_ids: sandbox_ids.to_vec(),
-        open_ids,
-        latest_times,
-        ttl_map,
-        inactive_map,
-        agent_lifecycle,
-        default_ttl_minutes,
-        default_inactive_ttl_days,
-        now: Utc::now(),
-    }))
-}
-
-async fn load_latest_activity_times(
-    app_state: &AppState,
-    messages: &Arc<dyn MessageDao>,
-    tasks: &Arc<dyn TaskDao>,
-    all_ids: &[String],
-) -> Result<HashMap<String, DateTime<Utc>>, ReaperError> {
-    let mut latest_times = messages.get_latest_message_times(all_ids).await?;
-
-    // A single long turn emits no new conversation message and no lifecycle
-    // transition, so agent activity keeps the idle floor fresh during tool calls.
-    match app_state
-        .task_events
-        .get_latest_agent_activity(all_ids)
-        .await
-    {
-        Ok(activity_times) => merge_newest(&mut latest_times, activity_times),
-        Err(e) => {
-            warn!(error = %e, "Failed to fetch agent activity times, idle floor omits tool-call activity");
+        // A single long turn emits no new conversation message and no lifecycle
+        // transition, so agent activity keeps the idle floor fresh during tool calls.
+        match self.task_events.get_latest_agent_activity(all_ids).await {
+            Ok(activity_times) => merge_newest(&mut latest_times, activity_times),
+            Err(e) => {
+                warn!(error = %e, "Failed to fetch agent activity times, idle floor omits tool-call activity");
+            }
         }
-    }
 
-    match tasks.get_sandbox_started_times(all_ids).await {
-        Ok(started_times) => merge_newest(&mut latest_times, started_times),
-        Err(e) => {
-            warn!(error = %e, "Failed to fetch sandbox start times, using message times only");
+        match self.tasks.get_sandbox_started_times(all_ids).await {
+            Ok(started_times) => merge_newest(&mut latest_times, started_times),
+            Err(e) => {
+                warn!(error = %e, "Failed to fetch sandbox start times, using message times only");
+            }
         }
-    }
 
-    let no_activity_ids: Vec<String> = all_ids
-        .iter()
-        .filter(|id| !latest_times.contains_key(*id))
-        .cloned()
-        .collect();
+        let no_activity_ids: Vec<String> = all_ids
+            .iter()
+            .filter(|id| !latest_times.contains_key(*id))
+            .cloned()
+            .collect();
 
-    if !no_activity_ids.is_empty() {
-        match tasks.get_created_times(&no_activity_ids).await {
-            Ok(created_times) => {
-                for (task_id, created_at) in created_times {
-                    latest_times.entry(task_id).or_insert(created_at);
+        if !no_activity_ids.is_empty() {
+            match self.tasks.get_created_times(&no_activity_ids).await {
+                Ok(created_times) => {
+                    for (task_id, created_at) in created_times {
+                        latest_times.entry(task_id).or_insert(created_at);
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to fetch task creation times, skipping no-activity tasks");
                 }
             }
-            Err(e) => {
-                warn!(error = %e, "Failed to fetch task creation times, skipping no-activity tasks");
-            }
         }
-    }
 
-    Ok(latest_times)
+        Ok(latest_times)
+    }
 }
 
 fn merge_newest(
@@ -360,160 +379,148 @@ async fn load_inactive_ttl_map(
         })
 }
 
-async fn load_agent_lifecycle(
-    app_state: &AppState,
-    sandbox_ids: &[String],
-) -> HashMap<String, (String, DateTime<Utc>)> {
-    // Latest agent run-state per sandbox task, used to date the idle-stop floor
-    // from when the agent last stopped (and to never reap a running agent).
-    // Only sandbox tasks reach the reap branch, so query just those. Falls back
-    // to the activity floor on error.
-    app_state
-        .task_events
+impl TaskReaper {
+    async fn load_agent_lifecycle(
+        &self,
+        sandbox_ids: &[String],
+    ) -> HashMap<String, (String, DateTime<Utc>)> {
+        // Latest agent run-state per sandbox task, used to date the idle-stop floor
+        // from when the agent last stopped (and to never reap a running agent).
+        // Only sandbox tasks reach the reap branch, so query just those. Falls back
+        // to the activity floor on error.
+        self.task_events
         .get_latest_agent_lifecycle(sandbox_ids)
         .await
         .unwrap_or_else(|e| {
             warn!(error = %e, "Failed to fetch agent lifecycle events, reaper falls back to activity floor");
             HashMap::new()
         })
-}
+    }
 
-async fn apply_reaper_decisions(
-    app_state: &AppState,
-    agent_status: &dyn AgentStatusPort,
-    tasks: &Arc<dyn TaskDao>,
-    events: &Option<Arc<dyn EventPublisher>>,
-    snapshot: ReaperSnapshot,
-) -> ReaperStats {
-    let sandbox_set: HashSet<&str> = snapshot.sandbox_ids.iter().map(String::as_str).collect();
-    let open_set: HashSet<&str> = snapshot.open_ids.iter().map(String::as_str).collect();
+    async fn apply_reaper_decisions(&self, snapshot: ReaperSnapshot) -> ReaperStats {
+        let sandbox_set: HashSet<&str> = snapshot.sandbox_ids.iter().map(String::as_str).collect();
+        let open_set: HashSet<&str> = snapshot.open_ids.iter().map(String::as_str).collect();
 
-    let mut stats = ReaperStats {
-        stopped_count: 0,
-        closed_count: 0,
-    };
+        let mut stats = ReaperStats {
+            stopped_count: 0,
+            closed_count: 0,
+        };
 
-    for task_id in &snapshot.all_ids {
-        let latest_at = snapshot.latest_times.get(task_id).copied();
-        let inactive_ttl_days = snapshot
-            .inactive_map
-            .get(task_id)
-            .copied()
-            .unwrap_or(snapshot.default_inactive_ttl_days);
+        for task_id in &snapshot.all_ids {
+            let latest_at = snapshot.latest_times.get(task_id).copied();
+            let inactive_ttl_days = snapshot
+                .inactive_map
+                .get(task_id)
+                .copied()
+                .unwrap_or(snapshot.default_inactive_ttl_days);
 
-        // Close supersedes stop — `auto_close_task` calls `cleanup`, which
-        // tears down the Deployment regardless of whether it was scaled to 0.
-        if open_set.contains(task_id.as_str())
-            && decide_close(inactive_ttl_days, latest_at, snapshot.now) == CloseDecision::Close
-        {
-            info!(
-                task_id = %task_id,
-                inactive_ttl_days,
-                last_activity = ?latest_at,
-                "Auto-closing inactive task"
-            );
-            auto_close_task(app_state, task_id, tasks, events).await;
-            stats.closed_count += 1;
-            continue;
-        }
-
-        if !sandbox_set.contains(task_id.as_str()) {
-            continue;
-        }
-
-        // Fold the agent run-state into the idle-stop floor so a running agent
-        // is never reaped and a stopped agent's TTL counts from when it stopped.
-        let reap_floor = compute_reap_floor(
-            snapshot.agent_lifecycle.get(task_id),
-            latest_at,
-            snapshot.now,
-        );
-
-        let ttl_minutes = snapshot
-            .ttl_map
-            .get(task_id)
-            .copied()
-            .unwrap_or(snapshot.default_ttl_minutes);
-        match decide_reap(ttl_minutes, reap_floor, snapshot.now) {
-            ReapDecision::Skip(reason) => {
-                debug!(task_id = %task_id, reason, "Skipping sandbox reap");
+            // Close supersedes stop — `auto_close_task` calls `cleanup`, which
+            // tears down the Deployment regardless of whether it was scaled to 0.
+            if open_set.contains(task_id.as_str())
+                && decide_close(inactive_ttl_days, latest_at, snapshot.now) == CloseDecision::Close
+            {
+                info!(
+                    task_id = %task_id,
+                    inactive_ttl_days,
+                    last_activity = ?latest_at,
+                    "Auto-closing inactive task"
+                );
+                self.auto_close_task(task_id).await;
+                stats.closed_count += 1;
+                continue;
             }
-            ReapDecision::Keep => {}
-            ReapDecision::Stop => {
-                if stop_idle_sandbox(
-                    app_state,
-                    agent_status,
-                    task_id,
-                    ttl_minutes,
-                    latest_at,
-                    reap_floor,
-                )
-                .await
-                {
-                    stats.stopped_count += 1;
+
+            if !sandbox_set.contains(task_id.as_str()) {
+                continue;
+            }
+
+            // Fold the agent run-state into the idle-stop floor so a running agent
+            // is never reaped and a stopped agent's TTL counts from when it stopped.
+            let reap_floor = compute_reap_floor(
+                snapshot.agent_lifecycle.get(task_id),
+                latest_at,
+                snapshot.now,
+            );
+
+            let ttl_minutes = snapshot
+                .ttl_map
+                .get(task_id)
+                .copied()
+                .unwrap_or(snapshot.default_ttl_minutes);
+            match decide_reap(ttl_minutes, reap_floor, snapshot.now) {
+                ReapDecision::Skip(reason) => {
+                    debug!(task_id = %task_id, reason, "Skipping sandbox reap");
+                }
+                ReapDecision::Keep => {}
+                ReapDecision::Stop => {
+                    if self
+                        .stop_idle_sandbox(task_id, ttl_minutes, latest_at, reap_floor)
+                        .await
+                    {
+                        stats.stopped_count += 1;
+                    }
                 }
             }
         }
+
+        stats
     }
 
-    stats
-}
-
-async fn stop_idle_sandbox(
-    app_state: &AppState,
-    agent_status: &dyn AgentStatusPort,
-    task_id: &str,
-    ttl_minutes: i32,
-    latest_at: Option<DateTime<Utc>>,
-    reap_floor: Option<DateTime<Utc>>,
-) -> bool {
-    // Defense in depth: the activity floor can go stale, so ask the agent
-    // itself before pulling the plug. An unreadable status falls through.
-    if let Some(status) = agent_status_snapshot(agent_status, task_id).await {
-        if agent_holds_the_sandbox(&status.status) {
-            info!(
-                task_id = %task_id,
-                ttl_minutes,
-                last_activity = ?latest_at,
-                "Idle floor expired but agent reports running, skipping stop"
-            );
-            return false;
+    async fn stop_idle_sandbox(
+        &self,
+        task_id: &str,
+        ttl_minutes: i32,
+        latest_at: Option<DateTime<Utc>>,
+        reap_floor: Option<DateTime<Utc>>,
+    ) -> bool {
+        // Defense in depth: the activity floor can go stale, so ask the agent
+        // itself before pulling the plug. An unreadable status falls through.
+        if let Some(status) = agent_status_snapshot(self.agent_status.as_ref(), task_id).await {
+            if agent_holds_the_sandbox(&status.status) {
+                info!(
+                    task_id = %task_id,
+                    ttl_minutes,
+                    last_activity = ?latest_at,
+                    "Idle floor expired but agent reports running, skipping stop"
+                );
+                return false;
+            }
+            if status.busy_processes
+                && busy_extension_active(
+                    reap_floor,
+                    Utc::now(),
+                    self.config.sandbox.busy_extension_max_hours,
+                )
+            {
+                info!(
+                    task_id = %task_id,
+                    ttl_minutes,
+                    last_activity = ?latest_at,
+                    "Idle floor expired but sandbox reports live background processes, deferring stop"
+                );
+                return false;
+            }
         }
-        if status.busy_processes
-            && busy_extension_active(
-                reap_floor,
-                Utc::now(),
-                app_state.config.sandbox.busy_extension_max_hours,
-            )
+
+        info!(
+            task_id = %task_id,
+            ttl_minutes,
+            last_activity = ?latest_at,
+            "Stopping idle sandbox"
+        );
+        match self
+            .sandbox
+            .stop(task_id, SandboxStopReason::IdleReaper)
+            .await
         {
-            info!(
-                task_id = %task_id,
-                ttl_minutes,
-                last_activity = ?latest_at,
-                "Idle floor expired but sandbox reports live background processes, deferring stop"
-            );
-            return false;
-        }
-    }
-
-    info!(
-        task_id = %task_id,
-        ttl_minutes,
-        last_activity = ?latest_at,
-        "Stopping idle sandbox"
-    );
-    match app_state
-        .sandbox
-        .stop(task_id, SandboxStopReason::IdleReaper)
-        .await
-    {
-        Ok(_) => {
-            info!(task_id = %task_id, "Idle sandbox stopped successfully");
-            true
-        }
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "Failed to stop idle sandbox");
-            false
+            Ok(_) => {
+                info!(task_id = %task_id, "Idle sandbox stopped successfully");
+                true
+            }
+            Err(e) => {
+                warn!(task_id = %task_id, error = %e, "Failed to stop idle sandbox");
+                false
+            }
         }
     }
 }
@@ -550,53 +557,54 @@ fn log_reaper_stats(stats: ReaperStats) {
 /// Deployment is gone (not in `running_sandbox_ids`) or its agent reports
 /// `idle`/`stopped`. A turn whose agent is still `running`, or whose status
 /// can't be determined, is left alone so a slow-but-live turn is never killed.
-async fn reconcile_orphaned_turns(
-    app_state: &AppState,
-    agent_status: &dyn AgentStatusPort,
-    running_sandbox_ids: &[String],
-    stuck: &[UnclosedTurn],
-) {
-    if stuck.is_empty() {
-        return;
-    }
-
-    let running: HashSet<&str> = running_sandbox_ids.iter().map(String::as_str).collect();
-
-    for turn in stuck {
-        if !task_desires_running(app_state, &turn.task_id).await {
-            debug!(
-                task_id = %turn.task_id,
-                "reconcile: task does not desire a running sandbox, leaving turn for retry"
-            );
-            continue;
-        }
-        let orphaned = if running.contains(turn.task_id.as_str()) {
-            // Sandbox is up — only orphaned if the agent has gone terminal.
-            // Unknown status ⇒ conservative skip (treat as possibly live).
-            matches!(
-                agent_is_terminal(agent_status, &turn.task_id).await,
-                Some(true)
-            )
-        } else {
-            // No running Deployment ⇒ nothing can still be driving the turn.
-            true
-        };
-
-        if !orphaned {
-            debug!(task_id = %turn.task_id, "reconcile: turn still live, skipping");
-            continue;
+impl TaskReaper {
+    async fn reconcile_orphaned_turns(
+        &self,
+        running_sandbox_ids: &[String],
+        stuck: &[UnclosedTurn],
+    ) {
+        if stuck.is_empty() {
+            return;
         }
 
-        close_orphaned_turn(app_state, turn).await;
-    }
-}
+        let running: HashSet<&str> = running_sandbox_ids.iter().map(String::as_str).collect();
 
-async fn task_desires_running(app_state: &AppState, task_id: &str) -> bool {
-    match app_state.sandbox.desired_state(task_id).await {
-        Ok(desired) => desired == SandboxDesiredState::Running,
-        Err(e) => {
-            warn!(task_id, error = %e, "reconcile: desired-state lookup failed");
-            false
+        for turn in stuck {
+            if !self.task_desires_running(&turn.task_id).await {
+                debug!(
+                    task_id = %turn.task_id,
+                    "reconcile: task does not desire a running sandbox, leaving turn for retry"
+                );
+                continue;
+            }
+            let orphaned = if running.contains(turn.task_id.as_str()) {
+                // Sandbox is up — only orphaned if the agent has gone terminal.
+                // Unknown status ⇒ conservative skip (treat as possibly live).
+                matches!(
+                    agent_is_terminal(self.agent_status.as_ref(), &turn.task_id).await,
+                    Some(true)
+                )
+            } else {
+                // No running Deployment ⇒ nothing can still be driving the turn.
+                true
+            };
+
+            if !orphaned {
+                debug!(task_id = %turn.task_id, "reconcile: turn still live, skipping");
+                continue;
+            }
+
+            self.close_orphaned_turn(turn).await;
+        }
+    }
+
+    async fn task_desires_running(&self, task_id: &str) -> bool {
+        match self.sandbox.desired_state(task_id).await {
+            Ok(desired) => desired == SandboxDesiredState::Running,
+            Err(e) => {
+                warn!(task_id, error = %e, "reconcile: desired-state lookup failed");
+                false
+            }
         }
     }
 }
@@ -692,126 +700,128 @@ fn busy_extension_active(
 /// reconcile cycles (e.g. while Redis is still down and the terminal event
 /// hasn't yet round-tripped into `task_events`) upsert the same message row
 /// instead of stacking duplicates.
-async fn close_orphaned_turn(app_state: &AppState, turn: &UnclosedTurn) {
-    // False-negative guard: if the agent already delivered its final reply for
-    // this turn, the terminal event was merely lost — not the result. Closing
-    // such a turn as `error` surfaces a misleading "stopped without reporting a
-    // result" message even though the answer is right there in the chat. Close
-    // it as `completed` instead.
-    match app_state
-        .messages
-        .last_message_is_completed_reply(&turn.task_id, turn.turn_number)
-        .await
-    {
-        Ok(true) => {
-            close_orphaned_turn_as_completed(app_state, turn).await;
-            return;
+impl TaskReaper {
+    async fn close_orphaned_turn(&self, turn: &UnclosedTurn) {
+        // False-negative guard: if the agent already delivered its final reply for
+        // this turn, the terminal event was merely lost — not the result. Closing
+        // such a turn as `error` surfaces a misleading "stopped without reporting a
+        // result" message even though the answer is right there in the chat. Close
+        // it as `completed` instead.
+        match self
+            .messages
+            .last_message_is_completed_reply(&turn.task_id, turn.turn_number)
+            .await
+        {
+            Ok(true) => {
+                self.close_orphaned_turn_as_completed(turn).await;
+                return;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                warn!(
+                    task_id = %turn.task_id,
+                    error = %e,
+                    "reconcile: failed to inspect last message; closing turn as error"
+                );
+            }
         }
-        Ok(false) => {}
-        Err(e) => {
-            warn!(
-                task_id = %turn.task_id,
-                error = %e,
-                "reconcile: failed to inspect last message; closing turn as error"
-            );
-        }
+
+        let turn_label = turn
+            .turn_number
+            .map_or_else(|| "unknown".to_string(), |n| n.to_string());
+        let event_id = format!("reconcile-{}-{}", turn.task_id, turn_label);
+        let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+        let event = AgentEvent {
+            event_id,
+            event_type: EventType::Agent,
+            sub_type: "error".to_string(),
+            task_id: turn.task_id.clone(),
+            timestamp,
+            is_error: true,
+            agent_type: turn.agent_type.clone(),
+            turn_number: turn.turn_number,
+            payload: serde_json::json!({
+                "error": "The agent stopped without reporting a result. The backend closed this turn so you can continue.",
+                "reason": "reconciled_orphaned_turn",
+            }),
+        };
+
+        agent_handlers::handle_agent_error(&self.app_state, &event).await;
+        metrics::counter!("task_turns_reconciled_total").increment(1);
+        info!(
+            task_id = %turn.task_id,
+            turn_number = ?turn.turn_number,
+            "Reconciled orphaned active turn"
+        );
     }
 
-    let turn_label = turn
-        .turn_number
-        .map_or_else(|| "unknown".to_string(), |n| n.to_string());
-    let event_id = format!("reconcile-{}-{}", turn.task_id, turn_label);
-    let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    /// Close a stuck turn whose agent had already delivered its final reply — its
+    /// terminal event was lost, not its result. Projects the turn to `completed`,
+    /// returns the task to Open, and emits `taskTurn/completed` so the UI unblocks,
+    /// all without appending a spurious error message.
+    ///
+    /// The turn is projected directly (rather than relying solely on the published
+    /// event round-tripping) because a lost terminal event is the very failure this
+    /// path guards against — if the reconcile event were also lost the turn would
+    /// otherwise stay `active` and be reconciled again on the next cycle.
+    async fn close_orphaned_turn_as_completed(&self, turn: &UnclosedTurn) {
+        if let Some(turn_number) = turn.turn_number {
+            if let Err(e) = self
+                .task_turns
+                .project_turn(
+                    &turn.task_id,
+                    turn_number,
+                    turn.agent_type.clone(),
+                    TurnTransition::Terminal(TurnStatus::Completed),
+                    Utc::now(),
+                )
+                .await
+            {
+                warn!(
+                    task_id = %turn.task_id,
+                    error = %e,
+                    "reconcile: failed to project orphaned turn as completed"
+                );
+            }
+        }
 
-    let event = AgentEvent {
-        event_id,
-        event_type: EventType::Agent,
-        sub_type: "error".to_string(),
-        task_id: turn.task_id.clone(),
-        timestamp,
-        is_error: true,
-        agent_type: turn.agent_type.clone(),
-        turn_number: turn.turn_number,
-        payload: serde_json::json!({
-            "error": "The agent stopped without reporting a result. The backend closed this turn so you can continue.",
-            "reason": "reconciled_orphaned_turn",
-        }),
-    };
-
-    agent_handlers::handle_agent_error(app_state, &event).await;
-    metrics::counter!("task_turns_reconciled_total").increment(1);
-    info!(
-        task_id = %turn.task_id,
-        turn_number = ?turn.turn_number,
-        "Reconciled orphaned active turn"
-    );
-}
-
-/// Close a stuck turn whose agent had already delivered its final reply — its
-/// terminal event was lost, not its result. Projects the turn to `completed`,
-/// returns the task to Open, and emits `taskTurn/completed` so the UI unblocks,
-/// all without appending a spurious error message.
-///
-/// The turn is projected directly (rather than relying solely on the published
-/// event round-tripping) because a lost terminal event is the very failure this
-/// path guards against — if the reconcile event were also lost the turn would
-/// otherwise stay `active` and be reconciled again on the next cycle.
-async fn close_orphaned_turn_as_completed(app_state: &AppState, turn: &UnclosedTurn) {
-    if let Some(turn_number) = turn.turn_number {
-        if let Err(e) = app_state
-            .task_turns
-            .project_turn(
-                &turn.task_id,
-                turn_number,
-                turn.agent_type.clone(),
-                TurnTransition::Terminal(TurnStatus::Completed),
-                Utc::now(),
-            )
+        // Return the task to Open unless it was closed mid-run (mirrors the agent
+        // terminal handlers — a Closed task is never resurrected by automation).
+        // reason: reaper reconciles orphaned turns across all task owners; system ctx required.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        if let Err(e) = self
+            .tasks
+            .update_status_if_not_closed(&turn.task_id, TaskStatus::Open, &sys_ctx)
             .await
         {
             warn!(
                 task_id = %turn.task_id,
                 error = %e,
-                "reconcile: failed to project orphaned turn as completed"
+                "reconcile: failed to reopen task after completed reconcile"
             );
         }
-    }
 
-    // Return the task to Open unless it was closed mid-run (mirrors the agent
-    // terminal handlers — a Closed task is never resurrected by automation).
-    // reason: reaper reconciles orphaned turns across all task owners; system ctx required.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-    if let Err(e) = app_state
-        .tasks
-        .update_status_if_not_closed(&turn.task_id, TaskStatus::Open, &sys_ctx)
-        .await
-    {
-        warn!(
+        if let Some(ref events) = self.events {
+            events
+                .publish_task_turn_event(
+                    &turn.task_id,
+                    TaskTurnSubType::Completed,
+                    turn.agent_type.as_deref(),
+                    turn.turn_number,
+                    serde_json::json!({ "reason": "reconciled_orphaned_turn_completed" }),
+                )
+                .await;
+        }
+
+        metrics::counter!("task_turns_reconciled_total").increment(1);
+        info!(
             task_id = %turn.task_id,
-            error = %e,
-            "reconcile: failed to reopen task after completed reconcile"
+            turn_number = ?turn.turn_number,
+            "Reconciled orphaned active turn as completed (agent had already replied)"
         );
     }
-
-    if let Some(ref events) = app_state.events {
-        events
-            .publish_task_turn_event(
-                &turn.task_id,
-                TaskTurnSubType::Completed,
-                turn.agent_type.as_deref(),
-                turn.turn_number,
-                serde_json::json!({ "reason": "reconciled_orphaned_turn_completed" }),
-            )
-            .await;
-    }
-
-    metrics::counter!("task_turns_reconciled_total").increment(1);
-    info!(
-        task_id = %turn.task_id,
-        turn_number = ?turn.turn_number,
-        "Reconciled orphaned active turn as completed (agent had already replied)"
-    );
 }
 
 /// Outcome of evaluating a sandbox for the idle-stop branch.
@@ -915,76 +925,78 @@ fn decide_close(
     }
 }
 
-/// Mirror of [`crate::task::handlers::close_task`] for unattended use.
-///
-/// Best-effort: every step is logged on failure but never propagates — the
-/// reaper loop must never panic.
-async fn auto_close_task(
-    app_state: &AppState,
-    task_id: &str,
-    tasks: &Arc<dyn TaskDao>,
-    events: &Option<Arc<dyn EventPublisher>>,
-) {
-    // reason: reaper acts across all task owners; system ctx bypasses per-user scope.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
+impl TaskReaper {
+    /// Mirror of [`crate::task::handlers::close_task`] for unattended use.
+    ///
+    /// Best-effort: every step is logged on failure but never propagates — the
+    /// reaper loop must never panic.
+    ///
+    /// Not [`crate::task::closer::TaskCloser::close_single`]: that path carries an
+    /// already-Closed idempotence guard this one does not, so they are not yet
+    /// interchangeable.
+    async fn auto_close_task(&self, task_id: &str) {
+        // reason: reaper acts across all task owners; system ctx bypasses per-user scope.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
 
-    let agent_type = match tasks.find_by_id(task_id, &sys_ctx).await {
-        Ok(Some(row)) => Some(row.agent_type),
-        Ok(None) => {
-            warn!(task_id, "auto-close: task vanished mid-cycle");
-            return;
-        }
-        Err(e) => {
-            warn!(task_id, error = %e, "auto-close: find_by_id failed");
-            return;
-        }
-    };
+        let agent_type = match self.tasks.find_by_id(task_id, &sys_ctx).await {
+            Ok(Some(row)) => Some(row.agent_type),
+            Ok(None) => {
+                warn!(task_id, "auto-close: task vanished mid-cycle");
+                return;
+            }
+            Err(e) => {
+                warn!(task_id, error = %e, "auto-close: find_by_id failed");
+                return;
+            }
+        };
 
-    // Commit `Closed` BEFORE the teardown (the original order cleaned up first,
-    // then wrote the status). With `Closed` persisted first, any concurrent
-    // `auto_provision` / `get_pending_messages` (gated by Fix B) sees `Closed`
-    // and bails. A teardown failure below can't leave the task non-terminal.
-    if let Err(e) = tasks
-        .update_task(
-            task_id,
-            &TaskPatch {
-                status: Some(TaskStatus::Closed),
-                ..Default::default()
-            },
-            &sys_ctx,
-        )
-        .await
-    {
-        warn!(task_id, error = %e, "auto-close: update_task failed");
-        return;
-    }
-
-    // Remove the sandbox (best-effort; `Closed` already persisted). Lifecycle
-    // issues the graceful agent stop and retains S3 archives per config so an
-    // auto-closed task stays revivable.
-    let retention = ArchiveRetention::on_close(app_state.config.sandbox.retain_storage_on_close);
-    if let Err(e) = app_state.sandbox.remove(task_id, retention).await {
-        warn!(task_id, error = %e, "auto-close: sandbox remove failed (continuing)");
-    }
-
-    // A closed task is terminal — deactivate its bindings so inbound comments
-    // don't resurrect it. Best-effort; the runtime guards are the backstop.
-    if let Err(e) = app_state.task_bindings.deactivate_by_task(task_id).await {
-        warn!(task_id, error = %e, "auto-close: failed to deactivate bindings");
-    }
-
-    if let (Some(events), Some(at)) = (events, agent_type) {
-        events
-            .publish_task_event(
+        // Commit `Closed` BEFORE the teardown (the original order cleaned up first,
+        // then wrote the status). With `Closed` persisted first, any concurrent
+        // `auto_provision` / `get_pending_messages` (gated by Fix B) sees `Closed`
+        // and bails. A teardown failure below can't leave the task non-terminal.
+        if let Err(e) = self
+            .tasks
+            .update_task(
                 task_id,
-                TaskSubType::Closed,
-                Some(at.as_str()),
-                serde_json::json!({}),
+                &TaskPatch {
+                    status: Some(TaskStatus::Closed),
+                    ..Default::default()
+                },
+                &sys_ctx,
             )
-            .await;
+            .await
+        {
+            warn!(task_id, error = %e, "auto-close: update_task failed");
+            return;
+        }
+
+        // Remove the sandbox (best-effort; `Closed` already persisted). Lifecycle
+        // issues the graceful agent stop and retains S3 archives per config so an
+        // auto-closed task stays revivable.
+        let retention = ArchiveRetention::on_close(self.config.sandbox.retain_storage_on_close);
+        if let Err(e) = self.sandbox.remove(task_id, retention).await {
+            warn!(task_id, error = %e, "auto-close: sandbox remove failed (continuing)");
+        }
+
+        // A closed task is terminal — deactivate its bindings so inbound comments
+        // don't resurrect it. Best-effort; the runtime guards are the backstop.
+        if let Err(e) = self.task_bindings.deactivate_by_task(task_id).await {
+            warn!(task_id, error = %e, "auto-close: failed to deactivate bindings");
+        }
+
+        if let (Some(events), Some(at)) = (&self.events, agent_type) {
+            events
+                .publish_task_event(
+                    task_id,
+                    TaskSubType::Closed,
+                    Some(at.as_str()),
+                    serde_json::json!({}),
+                )
+                .await;
+        }
+        info!(task_id, "Task auto-closed (inactive past TTL)");
     }
-    info!(task_id, "Task auto-closed (inactive past TTL)");
 }
 
 /// Outcome of evaluating a labeled sandbox resource for orphan GC.

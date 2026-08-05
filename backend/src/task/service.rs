@@ -16,20 +16,28 @@
 //! two places to keep a credential check and an access check correct.
 
 use std::future::Future;
+use std::sync::Arc;
 
 use moatless_events::TaskSubType;
 
-use super::creation::{FirstMessage, NewTaskRequest, TaskCreationOutcome};
+use super::creation::{FirstMessage, NewTaskRequest, TaskCreationOutcome, TaskCreationService};
+use super::dao::TaskDao;
 use super::error::TaskError;
 use super::models::Task;
 use super::relations::CreatedByParent;
 use super::schemas::CreateTaskRequest;
 use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create};
 use crate::agent::catalog;
+use crate::config::Config;
+use crate::credentials::CredentialService;
+use crate::events::EventPublisher;
+use crate::message::send::MessageSendService;
+use crate::repository::dao::RepositoryDao;
 use crate::repository::models::RepositoryKind;
+use crate::sandbox::lifecycle::Lifecycle;
 use crate::shared_models::AgentType;
-use crate::state::AppState;
 use crate::task::models::Visibility;
+use crate::workspace::dao::WorkspaceDao;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource};
 
 /// A create request plus the two things only an internal caller supplies.
@@ -57,29 +65,30 @@ impl CreateTaskIntent {
     }
 }
 
-/// Create a task for `user_id`, resolving repository, access and scope first.
+/// Create a task from an already-[`normalize`]d request.
+///
+/// [`normalize`] resolves the repository, access and scope; this runs the
+/// creation and delivers the first message. The two are split so each names
+/// only the ports it reads — `normalize` the four resolution DAOs, this the
+/// `task_creation` service and `message_send` — and every caller runs them in
+/// order.
 ///
 /// `build_event_payload` is the caller's, because what belongs in a task event
 /// differs by caller and the HTTP path enriches the row for it. The first
 /// message, when there is one, is always delivered the same way and is this
 /// function's own.
 pub async fn create_task<EvFut>(
-    state: &AppState,
-    scope_ctx: &ScopeContext,
-    user_id: &str,
-    intent: CreateTaskIntent,
+    task_creation: &TaskCreationService,
+    message_send: Arc<MessageSendService>,
+    new_task: NewTaskRequest,
     build_event_payload: impl FnOnce(Task) -> EvFut + Send,
 ) -> Result<TaskCreationOutcome, TaskError>
 where
     EvFut: Future<Output = serde_json::Value> + Send,
 {
-    let new_task = normalize(state, scope_ctx, user_id, intent).await?;
-
-    let state_msg = state.clone();
-    let outcome = state
-        .task_creation
+    let outcome = task_creation
         .create(new_task, build_event_payload, move |task_id, fm| async move {
-            if let Err(e) = state_msg.message_send.send_message_flow(
+            if let Err(e) = message_send.send_message_flow(
                 &task_id,
                 &fm.text,
                 fm.model.as_deref(),
@@ -111,12 +120,13 @@ where
 /// `agent.stopped` the sandbox publishes in response, so the stop still lands
 /// cleanly when the sandbox is already gone.
 pub async fn stop_task(
-    state: &AppState,
+    tasks: &dyn TaskDao,
+    sandbox: &Lifecycle,
+    events: Option<&dyn EventPublisher>,
     scope_ctx: &ScopeContext,
     task_id: &str,
 ) -> Result<(), TaskError> {
-    let task = state
-        .tasks
+    let task = tasks
         .find_by_id(task_id, scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
@@ -129,12 +139,11 @@ pub async fn stop_task(
         return Err(TaskError::NotFound(task_id.to_string()));
     }
 
-    state
-        .sandbox
+    sandbox
         .stop(task_id, crate::task::models::SandboxStopReason::User)
         .await?;
 
-    if let Some(ref events) = state.events {
+    if let Some(events) = events {
         events
             .publish_agent_event(
                 task_id,
@@ -153,11 +162,15 @@ pub async fn stop_task(
 
 /// Turn a create request into the normalised form the creation service takes.
 ///
-/// Kept separate so the resolution rules are readable on their own and so a
-/// caller that needs the resolved request without creating anything can reach
-/// them.
-async fn normalize(
-    state: &AppState,
+/// The repository, access and scope resolution lives here, apart from
+/// [`create_task`], so each caller runs it as the first of the two create
+/// calls and hands the [`NewTaskRequest`] on. A caller that needs the resolved
+/// request without creating anything stops here.
+pub async fn normalize(
+    workspaces: &dyn WorkspaceDao,
+    repositories: &dyn RepositoryDao,
+    credentials_svc: &CredentialService,
+    config: &Config,
     scope_ctx: &ScopeContext,
     user_id: &str,
     intent: CreateTaskIntent,
@@ -177,8 +190,7 @@ async fn normalize(
     // derived downstream. At least one of the two is required.
     let workspace = match req.workspace_id.as_deref() {
         Some(workspace_id) => {
-            let workspace = state
-                .workspaces
+            let workspace = workspaces
                 .find_by_id(workspace_id, scope_ctx)
                 .await?
                 .ok_or_else(|| TaskError::NotFound(format!("workspace {workspace_id}")))?;
@@ -194,8 +206,7 @@ async fn normalize(
 
     let repository_id = match &workspace {
         Some(ws) => {
-            state
-                .workspaces
+            workspaces
                 .find_primary_repo(&ws.id)
                 .await?
                 .ok_or_else(|| {
@@ -209,8 +220,7 @@ async fn normalize(
     };
 
     // Validate repository exists and is usable by this caller.
-    let repo = state
-        .repositories
+    let repo = repositories
         .find_by_id(&repository_id, scope_ctx)
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(repository_id.clone()))?;
@@ -241,10 +251,8 @@ async fn normalize(
     // outage) do NOT block creation — the sandbox retries with the stored
     // blob.
     if agent_type.as_str() == "codex" {
-        if let Err(crate::credentials::CredentialError::NotFound(reason)) = state
-            .credentials_svc
-            .ensure_fresh_codex_for(user_id, None)
-            .await
+        if let Err(crate::credentials::CredentialError::NotFound(reason)) =
+            credentials_svc.ensure_fresh_codex_for(user_id, None).await
         {
             tracing::info!(
                 user_id = %user_id,
@@ -278,8 +286,8 @@ async fn normalize(
         },
         vibe: if is_template { Some(true) } else { None },
         append_system_prompt: None,
-        ttl_minutes: state.config.sandbox.idle_timeout_minutes as i32,
-        inactive_ttl_days: state.config.sandbox.inactive_task_timeout_days as i32,
+        ttl_minutes: config.sandbox.idle_timeout_minutes as i32,
+        inactive_ttl_days: config.sandbox.inactive_task_timeout_days as i32,
         tag_ids: vec![],
         parent: req.parent_task_id.as_deref().map(|p| CreatedByParent {
             parent_task_id: p.to_string(),

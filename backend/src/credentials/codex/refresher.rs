@@ -2,7 +2,7 @@
 //!
 //! Leader-elected sweep that periodically pre-refreshes Codex tokens before
 //! they hit the 8-day refresh-token TTL. Mirrors the shape of
-//! [`crate::task::reaper::spawn_task_reaper`] so a single replica owns the
+//! [`crate::task::reaper::TaskReaper::spawn`] so a single replica owns the
 //! sweep at any time.
 //!
 //! The actual refresh decision and HTTP call live in

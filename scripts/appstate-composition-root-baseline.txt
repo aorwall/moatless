@@ -55,11 +55,9 @@ backend/src/bindings/handlers.rs
 backend/src/bindings/outbound.rs
 backend/src/bindings/reply.rs
 backend/src/bindings/runtime.rs
-backend/src/bindings/status_service.rs
 backend/src/event_handler/agent_handlers.rs
 backend/src/event_handler/consumer.rs
 backend/src/event_handler/mod.rs
-backend/src/loops/firing/inbound.rs
 backend/src/loops/firing/listen.rs
 backend/src/loops/firing/schedule_runner.rs
 backend/src/loops/http/handlers.rs
@@ -68,7 +66,4 @@ backend/src/message/hooks.rs
 backend/src/message/service.rs
 backend/src/sandbox/notify.rs
 backend/src/t3code/backend.rs
-backend/src/task/connections_handlers.rs
-backend/src/task/handlers.rs
 backend/src/task/reaper.rs
-backend/src/task/service.rs

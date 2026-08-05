@@ -200,14 +200,9 @@ async fn handle_gh_pr_create(
         "pr_number": pr.number,
     });
 
-    match crate::loops::firing::listen::connect_github_binding(
-        state,
-        &source_id,
-        task_id,
-        thread_properties,
-        None,
-    )
-    .await
+    match crate::loops::firing::listen::Connector::new(state.clone())
+        .connect_github_binding(&source_id, task_id, thread_properties, None)
+        .await
     {
         Ok((rule, binding)) => {
             info!(

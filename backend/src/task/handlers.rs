@@ -8,21 +8,32 @@ use axum::Json;
 
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
-use super::dao::{TaskFilter, TaskPatch};
+use super::creation::{PreflightPort, TaskCreationService};
+use super::dao::{TaskDao, TaskFilter, TaskPatch};
 use super::models::Task;
-use super::relations::TaskRelationType;
+use super::relations::{TaskRelationDao, TaskRelationType};
+use crate::config::Config;
+use crate::credentials::CredentialService;
+use crate::db::DbPool;
+use crate::events::EventPublisher;
 use crate::extractors::AuthUser;
-use crate::sandbox::lifecycle::ArchiveRetention;
-use crate::state::AppState;
+use crate::message::dao::MessageDao;
+use crate::message::send::MessageSendService;
+use crate::repository::dao::RepositoryDao;
+use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
+use crate::tag::dao::TagDao;
 use crate::task::models::{SandboxIntentView, TaskStatus};
+use crate::task_turn::dao::TaskTurnDao;
+use crate::workspace::dao::WorkspaceDao;
+use crate::workspace::git_sync::GitSyncService;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
-
-use crate::repository::models::RepositoryProvider;
 
 use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingDao};
 use crate::bindings::schemas::TaskBindingSummary;
 
+use super::closer::TaskCloser;
 use super::error::TaskError;
+use super::presenter::{build_task_response, ResolvedNames, TaskPresenter};
 use super::schemas::*;
 use super::service;
 
@@ -39,8 +50,18 @@ use super::service;
         (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
     )
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "seven ports, all forwarded: this handler is the outermost caller of a two-stage service pipeline — four to service::normalize, two to service::create_task, one to the presenter closure. Unlike the service-layer create_task this was split out of, there is no caller above a handler to hoist them to, so the width cannot move anywhere it would be narrower."
+)]
 pub async fn create_task(
-    State(state): State<AppState>,
+    State(workspaces): State<Arc<dyn WorkspaceDao>>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(credentials_svc): State<Arc<CredentialService>>,
+    State(config): State<Arc<Config>>,
+    State(task_creation): State<Arc<TaskCreationService>>,
+    State(message_send): State<Arc<MessageSendService>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, TaskError> {
@@ -51,16 +72,25 @@ pub async fn create_task(
     let user_id = auth.user_id.to_string();
     let enriched: Arc<Mutex<Option<TaskResponse>>> = Arc::new(Mutex::new(None));
 
-    let state_ev = state.clone();
+    let presenter_ev = task_presenter.clone();
     let uid_ev = user_id.clone();
     let enriched_ev = enriched.clone();
-    let outcome = service::create_task(
-        &state,
+    let new_task = service::normalize(
+        workspaces.as_ref(),
+        repositories.as_ref(),
+        &credentials_svc,
+        &config,
         &auth.scope_context(),
         &user_id,
         service::CreateTaskIntent::new(req),
+    )
+    .await?;
+    let outcome = service::create_task(
+        &task_creation,
+        message_send,
+        new_task,
         move |task| async move {
-            match enrich_task(&task, &state_ev, &uid_ev).await {
+            match presenter_ev.enrich_task(&task, &uid_ev).await {
                 Ok(resp) => {
                     let payload = serde_json::json!({ "task": resp });
                     if let Ok(mut cell) = enriched_ev.lock() {
@@ -99,7 +129,7 @@ pub async fn create_task(
     let stashed = enriched.lock().ok().and_then(|mut cell| cell.take());
     let task_response = match stashed {
         Some(resp) => resp,
-        None => enrich_task(&outcome.task, &state, &user_id).await?,
+        None => task_presenter.enrich_task(&outcome.task, &user_id).await?,
     };
     Ok(Json(CreateTaskResponse {
         task_id: outcome.task.task_id.clone(),
@@ -119,7 +149,12 @@ pub async fn create_task(
     )
 )]
 pub async fn list_tasks(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tags): State<Arc<dyn TagDao>>,
+    // Batch binding lookup reads the pool directly (get_bindings_for_tasks has
+    // no DAO seam yet); the raw DbPool residue lives here until it grows one.
+    State(db): State<DbPool>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<ListTasksResponse>, TaskError> {
@@ -139,15 +174,14 @@ pub async fn list_tasks(
         followed_by: query.followed_by.clone(),
     };
 
-    let (rows, total) = state.tasks.list_tasks(&filter).await?;
+    let (rows, total) = tasks.list_tasks(&filter).await?;
 
     let task_ids: Vec<String> = rows.iter().map(|r| r.task_id.clone()).collect();
-    let all_tags = state.tags.get_tags_for_tasks(&task_ids).await?;
+    let all_tags = tags.get_tags_for_tasks(&task_ids).await?;
 
     // Durable Sandbox state comes from the `sandboxes` table; absent rows fall
     // back to the lazy converged-Stopped default in the loop below.
-    let sandbox_intents = state
-        .tasks
+    let sandbox_intents = tasks
         .get_sandbox_intents(&task_ids)
         .await
         .unwrap_or_else(|e| {
@@ -162,7 +196,9 @@ pub async fn list_tasks(
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let user_names = resolve_user_display_names_batch(&state, &creator_ids).await;
+    let user_names = task_presenter
+        .resolve_user_display_names_batch(&creator_ids)
+        .await;
 
     // Batch resolve repository names (single query instead of N+1)
     let repo_ids: Vec<String> = rows
@@ -171,7 +207,7 @@ pub async fn list_tasks(
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let repo_names = resolve_repo_names_batch(&state, &repo_ids).await;
+    let repo_names = task_presenter.resolve_repo_names_batch(&repo_ids).await;
 
     // Batch resolve workspace names for the tasks that have a workspace.
     let workspace_ids: Vec<String> = rows
@@ -180,13 +216,17 @@ pub async fn list_tasks(
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let workspace_names = resolve_workspace_names_batch(&state, &workspace_ids).await;
+    let workspace_names = task_presenter
+        .resolve_workspace_names_batch(&workspace_ids)
+        .await;
 
     // Batch resolve outgoing relations for tasks (single query instead of N+1).
-    let all_relations = load_outgoing_relations_batch(&state, &task_ids).await;
+    let all_relations = task_presenter
+        .load_outgoing_relations_batch(&task_ids)
+        .await;
 
     // Batch resolve external bindings for tasks (single query instead of N+1)
-    let all_bindings = get_bindings_for_tasks(&state.db, &task_ids)
+    let all_bindings = get_bindings_for_tasks(&db, &task_ids)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "Failed to batch resolve task bindings");
@@ -195,8 +235,7 @@ pub async fn list_tasks(
 
     // Batch resolve the requesting user's read markers (single query). Drives
     // the unread indicator; best-effort — empty on error.
-    let read_receipts = state
-        .tasks
+    let read_receipts = tasks
         .get_read_receipts(&auth.user_id.to_string(), &task_ids)
         .await
         .unwrap_or_else(|e| {
@@ -206,8 +245,7 @@ pub async fn list_tasks(
 
     // Batch resolve which of these tasks the requesting user follows (single
     // query). Drives the follow indicator; best-effort — empty on error.
-    let followed = state
-        .tasks
+    let followed = tasks
         .get_followed(&auth.user_id.to_string(), &task_ids)
         .await
         .unwrap_or_else(|e| {
@@ -308,17 +346,19 @@ pub async fn list_tasks(
     )
 )]
 pub async fn get_task(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
+    let resp = task_presenter
+        .enrich_task(&row, &auth.user_id.to_string())
+        .await?;
     Ok(Json(resp))
 }
 
@@ -336,19 +376,19 @@ pub async fn get_task(
     )
 )]
 pub async fn get_task_statistics(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(messages_dao): State<Arc<dyn MessageDao>>,
+    State(task_turns): State<Arc<dyn TaskTurnDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskStatisticsResponse>, TaskError> {
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let (messages, _, activities) = state.messages.get_all(&task_id).await?;
-    let turn_metrics = state
-        .task_turns
+    let (messages, _, activities) = messages_dao.get_all(&task_id).await?;
+    let turn_metrics = task_turns
         .list_turn_metrics(&task_id)
         .await
         .unwrap_or_default();
@@ -375,7 +415,9 @@ pub async fn get_task_statistics(
     )
 )]
 pub async fn update_task_metadata(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(events): State<Option<Arc<dyn EventPublisher>>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<UpdateTaskMetadataRequest>,
@@ -385,8 +427,7 @@ pub async fn update_task_metadata(
     }
 
     let scope_ctx = auth.scope_context();
-    let updated = state
-        .tasks
+    let updated = tasks
         .update_task(
             &task_id,
             &TaskPatch {
@@ -402,13 +443,12 @@ pub async fn update_task_metadata(
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task metadata updated");
 
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    if let Some(ref events) = state.events {
+    if let Some(ref events) = events {
         events
             .publish_task_event(
                 &task_id,
@@ -422,7 +462,9 @@ pub async fn update_task_metadata(
             .await;
     }
 
-    let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
+    let resp = task_presenter
+        .enrich_task(&row, &auth.user_id.to_string())
+        .await?;
     Ok(Json(resp))
 }
 
@@ -434,7 +476,7 @@ pub async fn update_task_metadata(
 /// sandbox and resurrect the task. Logs on failure but never blocks the
 /// close/delete; the runtime guards in `ensure_sandbox_and_notify` and
 /// `send_message_flow` are the backstop if this doesn't run.
-async fn deactivate_task_bindings(bindings: &dyn TaskBindingDao, task_id: &str) {
+pub(crate) async fn deactivate_task_bindings(bindings: &dyn TaskBindingDao, task_id: &str) {
     match bindings.deactivate_by_task(task_id).await {
         Ok(0) => {}
         Ok(n) => tracing::info!(task_id, deactivated = n, "Deactivated task bindings"),
@@ -458,7 +500,9 @@ async fn deactivate_task_bindings(bindings: &dyn TaskBindingDao, task_id: &str) 
     )
 )]
 pub async fn delete_task(
-    State(state): State<AppState>,
+    State(sandbox): State<Arc<Lifecycle>>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
@@ -468,16 +512,15 @@ pub async fn delete_task(
     // deleted only on success. The lifecycle handle owns the graceful agent stop
     // and awaits observed absence; on failure the typed error surfaces, the row
     // survives with `Removed` intent, and the reconciler keeps retrying.
-    state
-        .sandbox
+    sandbox
         .remove(&task_id, ArchiveRetention::DeleteArchives)
         .await?;
 
     // Stop external listeners. `task_bindings.task_id` is not an FK, so rows
     // don't cascade on delete — deactivate them so inbound routing stops.
-    deactivate_task_bindings(state.task_bindings.as_ref(), &task_id).await;
+    deactivate_task_bindings(task_bindings.as_ref(), &task_id).await;
 
-    let deleted = state.tasks.delete_task(&task_id, &scope_ctx).await?;
+    let deleted = tasks.delete_task(&task_id, &scope_ctx).await?;
     if !deleted {
         return Err(TaskError::NotFound(task_id.clone()));
     }
@@ -502,19 +545,17 @@ pub async fn delete_task(
     )
 )]
 pub async fn mark_task_read(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
     // Ensure the task exists and is visible to the user before recording a read.
-    state
-        .tasks
+    tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state
-        .tasks
+    tasks
         .mark_task_read(&auth.user_id.to_string(), &task_id, chrono::Utc::now())
         .await?;
 
@@ -536,19 +577,17 @@ pub async fn mark_task_read(
     )
 )]
 pub async fn follow_task(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<FollowTaskResponse>, TaskError> {
     // Ensure the task exists and is visible to the user before following.
-    state
-        .tasks
+    tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state
-        .tasks
+    tasks
         .follow_task(&auth.user_id.to_string(), &task_id)
         .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task followed");
@@ -571,19 +610,17 @@ pub async fn follow_task(
     )
 )]
 pub async fn unfollow_task(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<FollowTaskResponse>, TaskError> {
     // Ensure the task exists and is visible to the user before unfollowing.
-    state
-        .tasks
+    tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    state
-        .tasks
+    tasks
         .unfollow_task(&auth.user_id.to_string(), &task_id)
         .await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task unfollowed");
@@ -607,7 +644,10 @@ pub async fn unfollow_task(
     )
 )]
 pub async fn close_task(
-    State(state): State<AppState>,
+    State(task_closer): State<Arc<TaskCloser>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_relations): State<Arc<dyn TaskRelationDao>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     req: Option<Json<CloseTaskRequest>>,
@@ -617,8 +657,7 @@ pub async fn close_task(
     // Read-check + control-check: find_by_id uses access_filter (visibility);
     // the inline can_control check enforces owner/admin policy without the
     // deleted ensure_can_control_task helper.
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
@@ -626,8 +665,7 @@ pub async fn close_task(
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 
-    let children = state
-        .task_relations
+    let children = task_relations
         .list_incoming(&task_id, Some(TaskRelationType::CreatedBy))
         .await
         .map_err(TaskError::Db)?;
@@ -640,118 +678,21 @@ pub async fn close_task(
 
     if req.close_children == Some(true) {
         let mut visited = HashSet::new();
-        close_task_tree(&state, &task_id, &mut visited).await?;
+        task_closer.close_tree(&task_id, &mut visited).await?;
     } else {
-        close_single_task(&state, &task_id).await?;
+        task_closer.close_single(&task_id).await?;
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
 
-    let updated = state
-        .tasks
+    let updated = tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&updated, &state, &auth.user_id.to_string()).await?;
-    Ok(Json(resp))
-}
-
-async fn close_task_tree(
-    state: &AppState,
-    task_id: &str,
-    visited: &mut HashSet<String>,
-) -> Result<(), TaskError> {
-    let mut stack = vec![task_id.to_string()];
-    let mut close_order = Vec::new();
-
-    while let Some(current_task_id) = stack.pop() {
-        if !visited.insert(current_task_id.clone()) {
-            continue;
-        }
-
-        match state
-            .task_relations
-            .list_incoming(&current_task_id, Some(TaskRelationType::CreatedBy))
-            .await
-        {
-            Ok(relations) => {
-                for relation in relations {
-                    stack.push(relation.from_task_id);
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    task_id = %current_task_id,
-                    error = %e,
-                    "Failed to list child tasks during close cascade"
-                );
-                return Err(TaskError::Db(e));
-            }
-        }
-
-        close_order.push(current_task_id);
-    }
-
-    for current_task_id in close_order.into_iter().rev() {
-        close_single_task(state, &current_task_id).await?;
-    }
-
-    Ok(())
-}
-
-async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskError> {
-    // reason: close cascade reaches child tasks owned by other users; system ctx
-    // is required to traverse the full tree without re-checking per-child ownership.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-
-    let Some(row) = state.tasks.find_by_id(task_id, &sys_ctx).await? else {
-        tracing::warn!(task_id, "close cascade: task vanished mid-close");
-        return Ok(());
-    };
-
-    if row.status == TaskStatus::Closed {
-        return Ok(());
-    }
-
-    // Persist `Closed` before removing the sandbox — the Closed guard permits
-    // remove, and lifecycle owns the sandbox intent plus the graceful agent stop.
-    state
-        .tasks
-        .update_task(
-            task_id,
-            &TaskPatch {
-                status: Some(TaskStatus::Closed),
-                ..Default::default()
-            },
-            &sys_ctx,
-        )
+    let resp = task_presenter
+        .enrich_task(&updated, &auth.user_id.to_string())
         .await?;
-
-    // Remove the sandbox (best-effort on close). Preserve S3 archives when
-    // configured so the task can later be revived via reopen; a failure leaves
-    // the `Removed` intent for the reconciler.
-    let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
-    if let Err(e) = state.sandbox.remove(task_id, retention).await {
-        tracing::warn!(task_id, error = %e, "Failed to remove sandbox on close");
-    }
-
-    // A closed task is terminal — stop its external listeners so inbound
-    // comments don't resurrect it.
-    deactivate_task_bindings(state.task_bindings.as_ref(), task_id).await;
-
-    if let Some(ref events) = state.events {
-        events
-            .publish_task_event(
-                task_id,
-                TaskSubType::Closed,
-                Some(row.agent_type.as_str()),
-                serde_json::json!({}),
-            )
-            .await;
-    }
-
-    Ok(())
+    Ok(Json(resp))
 }
 
 /// Reopen a previously closed task.
@@ -777,44 +718,29 @@ async fn close_single_task(state: &AppState, task_id: &str) -> Result<(), TaskEr
     )
 )]
 pub async fn reopen_task(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(events): State<Option<Arc<dyn EventPublisher>>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskResponse>, TaskError> {
-    reopen_task_for(&state, &auth.scope_context(), &task_id).await?;
+    reopen_task_for(
+        tasks.as_ref(),
+        events.as_deref(),
+        &auth.scope_context(),
+        &task_id,
+    )
+    .await?;
 
-    let updated = state
-        .tasks
+    let updated = tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&updated, &state, &auth.user_id.to_string()).await?;
+    let resp = task_presenter
+        .enrich_task(&updated, &auth.user_id.to_string())
+        .await?;
     Ok(Json(resp))
-}
-
-/// Close one task on `scope_ctx`'s behalf, leaving any children open.
-///
-/// The close a caller with no way to ask about children makes — the T3
-/// compatibility surface, where archiving a thread is this. The HTTP route
-/// above makes that choice explicit instead, and cascades when it is `true`.
-pub async fn close_task_for(
-    state: &AppState,
-    scope_ctx: &ScopeContext,
-    task_id: &str,
-) -> Result<(), TaskError> {
-    let row = state
-        .tasks
-        .find_by_id(task_id, scope_ctx)
-        .await?
-        .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-    if !scope_ctx.can_control(&task_resource(&row)) {
-        return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
-    }
-
-    close_single_task(state, task_id).await?;
-    tracing::info!(task_id, user_id = %scope_ctx.user_id, "Task closed");
-    Ok(())
 }
 
 /// Reopen one closed task on `scope_ctx`'s behalf.
@@ -822,12 +748,12 @@ pub async fn close_task_for(
 /// The status check is what makes this safe to offer as an undo: a task that
 /// was never closed is refused rather than quietly rewritten.
 pub async fn reopen_task_for(
-    state: &AppState,
+    tasks: &dyn TaskDao,
+    events: Option<&dyn EventPublisher>,
     scope_ctx: &ScopeContext,
     task_id: &str,
 ) -> Result<(), TaskError> {
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(task_id, scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
@@ -842,8 +768,7 @@ pub async fn reopen_task_for(
         )));
     }
 
-    let updated = state
-        .tasks
+    let updated = tasks
         .update_task(
             task_id,
             &TaskPatch {
@@ -859,7 +784,7 @@ pub async fn reopen_task_for(
 
     tracing::info!(task_id, user_id = %scope_ctx.user_id, "Task reopened");
 
-    if let Some(ref events) = state.events {
+    if let Some(events) = events {
         events
             .publish_task_event(
                 task_id,
@@ -887,14 +812,22 @@ pub async fn reopen_task_for(
         (status = 404, description = "Task not found", body = crate::error::ErrorBody)
     )
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "six ports: starting a task touches the task row, its repository, preflight, events, the sandbox and git-sync; each is read here, none forwarded"
+)]
 pub async fn start_task(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(repositories): State<Arc<dyn RepositoryDao>>,
+    State(preflight): State<Arc<dyn PreflightPort>>,
+    State(events): State<Option<Arc<dyn EventPublisher>>>,
+    State(sandbox): State<Arc<Lifecycle>>,
+    State(git_sync): State<Arc<GitSyncService>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
     let scope_ctx = auth.scope_context();
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
@@ -914,17 +847,15 @@ pub async fn start_task(
     // Pre-flight: validate the GitHub token + repo access before any
     // sandbox resources are created. On failure: mark Error, publish a
     // sandbox.error event, and return 400.
-    let repo = state
-        .repositories
+    let repo = repositories
         .find_by_id(&row.repository_id, &auth.scope_context())
         .await?
         .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
 
-    if let Err(e) = state.preflight.validate(&row, &repo).await {
+    if let Err(e) = preflight.validate(&row, &repo).await {
         let msg = e.user_message();
         tracing::warn!(task_id = %task_id, error = %e, "Start preflight failed");
-        if let Err(db_err) = state
-            .tasks
+        if let Err(db_err) = tasks
             .update_task(
                 &task_id,
                 &TaskPatch {
@@ -941,7 +872,7 @@ pub async fn start_task(
                 "Failed to mark task Error after preflight failure"
             );
         }
-        if let Some(ref events) = state.events {
+        if let Some(ref events) = events {
             events
                 .publish_sandbox_event_with_payload(
                     &task_id,
@@ -961,85 +892,12 @@ pub async fn start_task(
     // Best-effort: if the repo ships a `.moatless/` directory, reconcile its
     // workspace config before provisioning. Loops are never synchronized as a
     // side effect of task start.
-    maybe_sync_repo_config_on_start(&state, &auth, &repo).await;
+    git_sync.sync_repo_config_on_start(&auth, &repo).await;
 
-    state.sandbox.start(&task_id).await?;
+    sandbox.start(&task_id).await?;
 
     tracing::info!(task_id = %task_id, "Sandbox start initiated (initializing)");
     Ok(axum::http::StatusCode::NO_CONTENT)
-}
-
-/// Best-effort auto-sync of a repo's workspace config when a task
-/// starts. Gated on the repo actually shipping a `.moatless/` directory so we
-/// don't hit the provider API for repos that don't use it. Every failure is
-/// logged and swallowed — this must never block or fail a task start.
-async fn maybe_sync_repo_config_on_start(
-    state: &AppState,
-    auth: &AuthUser,
-    repo: &crate::repository::models::Repository,
-) {
-    let Some(remote_url) = repo.remote_url.as_deref() else {
-        return;
-    };
-    let provider = repo.provider.unwrap_or(RepositoryProvider::Github);
-
-    // Resolve a token for the existence probe; fall back to an unauthenticated
-    // probe (works for public repos) if we can't load one.
-    let token = if provider == RepositoryProvider::Github {
-        state
-            .repo_token_resolver
-            .resolve(repo, remote_url)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to resolve GitHub token; probing unauthenticated");
-                None
-            })
-    } else {
-        match state
-            .provider_tokens
-            .find_provider_token(&auth.user_id.to_string(), provider.as_str())
-            .await
-        {
-            Ok(token) => token.map(|t| t.access_token),
-            Err(e) => {
-                tracing::warn!(repository_id = %repo.id, error = %e, "Config auto-sync: failed to load provider token; probing unauthenticated");
-                None
-            }
-        }
-    };
-    let token_str = token.as_deref();
-    let branch = repo.default_branch.as_deref();
-
-    if !crate::repository::config_reader::moatless_dir_exists(
-        remote_url, branch, token_str, provider,
-    )
-    .await
-    {
-        tracing::debug!(repository_id = %repo.id, "Config auto-sync: no .moatless directory, skipping");
-        return;
-    }
-
-    // Automatic sync: workspaces the user overrode from the UI/CLI stay
-    // overridden — only an explicit sync-config or reset-git reclaims them.
-    let force = crate::workspace::git_sync::SyncForce::RespectOverrides;
-    match state
-        .git_sync
-        .sync_repo_workspaces(repo, auth, &force)
-        .await
-    {
-        Ok(workspaces) => {
-            tracing::info!(
-                repository_id = %repo.id,
-                workspaces_created = workspaces.created,
-                workspaces_updated = workspaces.updated,
-                workspaces_overridden = workspaces.skipped.len(),
-                "Workspace config auto-sync on task start complete"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(repository_id = %repo.id, error = %e, "Workspace config auto-sync on task start failed");
-        }
-    }
 }
 
 /// Stop the agent running on a task.
@@ -1056,11 +914,20 @@ async fn maybe_sync_repo_config_on_start(
     )
 )]
 pub async fn stop_task(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(sandbox): State<Arc<Lifecycle>>,
+    State(events): State<Option<Arc<dyn EventPublisher>>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    service::stop_task(&state, &auth.scope_context(), &task_id).await?;
+    service::stop_task(
+        tasks.as_ref(),
+        &sandbox,
+        events.as_deref(),
+        &auth.scope_context(),
+        &task_id,
+    )
+    .await?;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -1080,14 +947,14 @@ pub async fn stop_task(
     )
 )]
 pub async fn set_task_tags(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(tags_dao): State<Arc<dyn TagDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<SetTagsRequest>,
 ) -> Result<Json<Vec<TagResponse>>, TaskError> {
     let scope_ctx = auth.scope_context();
-    let existing = state
-        .tasks
+    let existing = tasks
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
@@ -1095,9 +962,9 @@ pub async fn set_task_tags(
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 
-    let tags = state.tags.find_or_create_tags(&req.tags).await?;
+    let tags = tags_dao.find_or_create_tags(&req.tags).await?;
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
-    state.tags.set_task_tags(&task_id, &tag_ids).await?;
+    tags_dao.set_task_tags(&task_id, &tag_ids).await?;
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, tag_count = tags.len(), "Task tags updated");
 
     let response: Vec<TagResponse> = tags
@@ -1127,14 +994,14 @@ pub async fn set_task_tags(
     )
 )]
 pub async fn update_visibility(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<UpdateVisibilityRequest>,
 ) -> Result<Json<TaskResponse>, TaskError> {
     let scope_ctx = auth.scope_context();
-    let updated = state
-        .tasks
+    let updated = tasks
         .update_task(
             &task_id,
             &TaskPatch {
@@ -1149,13 +1016,14 @@ pub async fn update_visibility(
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, visibility = %req.visibility, "Task visibility updated");
 
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
+    let resp = task_presenter
+        .enrich_task(&row, &auth.user_id.to_string())
+        .await?;
     Ok(Json(resp))
 }
 
@@ -1178,7 +1046,8 @@ pub async fn update_visibility(
     )
 )]
 pub async fn update_ttl(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<UpdateTaskTtlRequest>,
@@ -1200,8 +1069,7 @@ pub async fn update_ttl(
     }
 
     let scope_ctx = auth.scope_context();
-    let updated = state
-        .tasks
+    let updated = tasks
         .update_task(
             &task_id,
             &TaskPatch {
@@ -1223,13 +1091,14 @@ pub async fn update_ttl(
         "Task TTL updated"
     );
 
-    let row = state
-        .tasks
+    let row = tasks
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
 
-    let resp = enrich_task(&row, &state, &auth.user_id.to_string()).await?;
+    let resp = task_presenter
+        .enrich_task(&row, &auth.user_id.to_string())
+        .await?;
     Ok(Json(resp))
 }
 
@@ -1237,355 +1106,8 @@ pub async fn update_ttl(
 // Helpers
 // =========================================================================
 
-/// Enrich a single task row into a full response with tags, repo name, display name, sandbox snapshot.
-async fn enrich_task(
-    row: &Task,
-    state: &AppState,
-    user_id: &str,
-) -> Result<TaskResponse, TaskError> {
-    let tags = state.tags.get_tags_for_task(&row.task_id).await?;
-    let tag_responses: Vec<TagResponse> = tags
-        .iter()
-        .map(|t| TagResponse {
-            tag_id: t.tag_id.clone(),
-            name: t.name.clone(),
-        })
-        .collect();
-
-    // reason: display enrichment of a task the caller already read; the
-    // task's configured repository name is part of that task's own data.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-    let repo_name = state
-        .repositories
-        .find_by_id(&row.repository_id, &sys_ctx)
-        .await?
-        .map(|r| r.name);
-
-    // Same reasoning as `repo_name` above — labelling the workspace the caller
-    // already has access to via the task.
-    let workspace_name = match &row.workspace_id {
-        Some(wid) => state
-            .workspaces
-            .find_names_by_ids(std::slice::from_ref(wid))
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(error = %e, workspace_id = %wid, "Failed to resolve workspace name");
-                Vec::new()
-            })
-            .into_iter()
-            .next()
-            .map(|(_, name)| name),
-        None => None,
-    };
-
-    let display_name = if let Some(ref uid) = row.created_by {
-        resolve_single_user_display_name(state, uid).await
-    } else {
-        None
-    };
-
-    // Resolve external bindings for this task.
-    let bindings = resolve_task_bindings(state, &row.task_id).await;
-
-    // Resolve outgoing relations for this task (best-effort — empty on error).
-    let relations = match state.task_relations.list_outgoing(&row.task_id).await {
-        Ok(rows) => relations_to_dtos(rows),
-        Err(e) => {
-            tracing::warn!(error = %e, task_id = %row.task_id, "Failed to load task relations");
-            Vec::new()
-        }
-    };
-
-    // Durable Sandbox state comes from the `sandboxes` table; absence is the
-    // lazy converged-Stopped default.
-    let sandbox = match state
-        .tasks
-        .get_sandbox_intents(std::slice::from_ref(&row.task_id))
-        .await
-    {
-        Ok(mut intents) => intents.remove(&row.task_id).unwrap_or_default(),
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                task_id = %row.task_id,
-                "Failed to load Sandbox lifecycle intent for task response"
-            );
-            SandboxIntentView::default()
-        }
-    };
-    let mut resp = build_task_response(
-        row,
-        &sandbox,
-        tag_responses,
-        ResolvedNames {
-            creator: display_name,
-            repository: repo_name,
-            workspace: workspace_name,
-        },
-        bindings,
-        relations,
-    );
-
-    // Resolve the requesting user's read marker (best-effort — leave None on
-    // failure). Drives the unread indicator in clients.
-    match state
-        .tasks
-        .get_read_receipts(user_id, std::slice::from_ref(&row.task_id))
-        .await
-    {
-        Ok(receipts) => {
-            resp.last_read_at = receipts.get(&row.task_id).map(chrono::DateTime::to_rfc3339);
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, task_id = %row.task_id, "Failed to load read receipt");
-        }
-    }
-
-    // Resolve whether the requesting user follows this task (best-effort —
-    // leave None on failure). Drives the follow/unfollow toggle in clients.
-    match state
-        .tasks
-        .get_followed(user_id, std::slice::from_ref(&row.task_id))
-        .await
-    {
-        Ok(followed) => {
-            resp.is_following = Some(followed.contains(&row.task_id));
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, task_id = %row.task_id, "Failed to load follow state");
-        }
-    }
-
-    Ok(resp)
-}
-
-/// Build a TaskResponse from a row plus pre-resolved tags, names, bindings,
-/// and outgoing relations. `parent_task_id` is derived from the first
-/// `created_by` relation in `relations` for backward compatibility with
-/// clients that pre-date the relations field.
-/// Display names resolved for the foreign keys on a task row, so the response
-/// can label them without the client re-querying. Each is `None` when the
-/// referenced row is absent or its lookup failed; clients fall back to the id.
-#[derive(Default)]
-struct ResolvedNames {
-    creator: Option<String>,
-    repository: Option<String>,
-    workspace: Option<String>,
-}
-
-fn build_task_response(
-    row: &Task,
-    sandbox: &SandboxIntentView,
-    tags: Vec<TagResponse>,
-    names: ResolvedNames,
-    bindings: Vec<TaskBindingSummary>,
-    relations: Vec<TaskRelationDto>,
-) -> TaskResponse {
-    let title = derive_title(row);
-
-    let parent_task_id = relations
-        .iter()
-        .find(|r| matches!(r.relation_type, TaskRelationType::CreatedBy))
-        .map(|r| r.to_task_id.clone());
-
-    TaskResponse {
-        task_id: row.task_id.clone(),
-        short_id: row.short_id.clone(),
-        title,
-        name: row.name.clone(),
-        description: row.description.clone(),
-        status: row.status,
-        agent_type: row.agent_type.clone(),
-        repository_id: row.repository_id.clone(),
-        repository_name: names.repository,
-        workspace_id: row.workspace_id.clone(),
-        workspace_name: names.workspace,
-        branch: row.branch.clone(),
-        model: row.model.clone(),
-        created_at: row.created_at.clone(),
-        last_message_at: row.last_message_at.clone(),
-        total_cost_usd: row.total_cost_usd,
-        site_url: row.site_url.clone(),
-        template_id: row.template_id.clone(),
-        vibe: row.vibe,
-        created_by: row.created_by.clone(),
-        created_by_display_name: names.creator,
-        visibility: row.visibility,
-        scope: row.scope,
-        owner_user_id: row.owner_user_id.clone(),
-        parent_task_id,
-        relations,
-        append_system_prompt: row.append_system_prompt.clone(),
-        tags,
-        bindings,
-        ttl_minutes: row.ttl_minutes,
-        inactive_ttl_days: row.inactive_ttl_days,
-        sandbox_started_at: sandbox.started_at.map(|t| t.to_rfc3339()),
-        sandbox_desired_state: sandbox.desired_state,
-        sandbox_stop_reason: sandbox.stop_reason,
-        sandbox_desired_state_updated_at: sandbox.desired_state_updated_at.to_rfc3339(),
-        // Populated per-request by callers that know the requesting user.
-        last_read_at: None,
-        is_following: None,
-    }
-}
-
-/// Best-effort batch load of outgoing relations for many task ids, grouped
-/// into a `task_id -> Vec<TaskRelationDto>` map. Failures are logged and
-/// produce an empty map (callers fall back to empty `relations`).
-async fn load_outgoing_relations_batch(
-    state: &AppState,
-    task_ids: &[String],
-) -> std::collections::HashMap<String, Vec<TaskRelationDto>> {
-    use std::collections::HashMap;
-    if task_ids.is_empty() {
-        return HashMap::new();
-    }
-    let mut out: HashMap<String, Vec<TaskRelationDto>> = HashMap::new();
-    for tid in task_ids {
-        match state.task_relations.list_outgoing(tid).await {
-            Ok(rows) => {
-                if !rows.is_empty() {
-                    out.insert(tid.clone(), relations_to_dtos(rows));
-                }
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, task_id = %tid, "Failed to load relations for task");
-            }
-        }
-    }
-    out
-}
-
-/// Translate domain TaskRelation rows into wire DTOs.
-fn relations_to_dtos(rows: Vec<crate::task::relations::TaskRelation>) -> Vec<TaskRelationDto> {
-    rows.into_iter()
-        .map(|r| TaskRelationDto {
-            id: r.id,
-            from_task_id: r.from_task_id,
-            to_task_id: r.to_task_id,
-            relation_type: r.relation_type,
-            context: r.context,
-            created_at: r.created_at.to_rfc3339(),
-        })
-        .collect()
-}
-
-fn task_resource(row: &Task) -> ScopedResource {
+pub(crate) fn task_resource(row: &Task) -> ScopedResource {
     row.scoped_resource()
-}
-
-/// Derive task title: name > description first line > agent_type > "Task"
-fn derive_title(row: &Task) -> String {
-    if let Some(ref name) = row.name {
-        if !name.is_empty() {
-            return name.clone();
-        }
-    }
-    if let Some(ref desc) = row.description {
-        if !desc.is_empty() {
-            return desc.lines().next().unwrap_or("Task").to_string();
-        }
-    }
-    row.agent_type.to_string()
-}
-
-/// Resolve display names for multiple user IDs in a single batch query.
-async fn resolve_user_display_names_batch(
-    state: &AppState,
-    user_ids: &[String],
-) -> std::collections::HashMap<String, String> {
-    if user_ids.is_empty() {
-        return std::collections::HashMap::new();
-    }
-    let uuids: Vec<uuid::Uuid> = user_ids.iter().filter_map(|id| id.parse().ok()).collect();
-    match state.users.get_users_by_ids(&uuids).await {
-        Ok(users) => users
-            .into_iter()
-            .map(|u| {
-                let display_name = u.name.unwrap_or(u.login);
-                (u.id.to_string(), display_name)
-            })
-            .collect(),
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to batch resolve user display names");
-            std::collections::HashMap::new()
-        }
-    }
-}
-
-/// Resolve a single user's display name.
-async fn resolve_single_user_display_name(state: &AppState, user_id: &str) -> Option<String> {
-    let uid = user_id.parse::<uuid::Uuid>().ok()?;
-    match state.users.get_user(&uid).await {
-        Ok(Some(user)) => Some(user.name.unwrap_or(user.login)),
-        _ => None,
-    }
-}
-
-/// Resolve external bindings for a single task (used by enrich_task).
-async fn resolve_task_bindings(state: &AppState, task_id: &str) -> Vec<TaskBindingSummary> {
-    let bindings = match state.task_bindings.find_by_task_id(task_id).await {
-        Ok(bindings) => bindings,
-        Err(e) => {
-            tracing::warn!(error = %e, task_id = %task_id, "Failed to resolve task bindings");
-            return vec![];
-        }
-    };
-
-    let mut summaries = Vec::new();
-    for binding in &bindings {
-        let trigger = if let Some(ref loop_id) = binding.loop_id {
-            state
-                .loops
-                .find_subscription_by_id(loop_id)
-                .await
-                .ok()
-                .flatten()
-        } else {
-            None
-        };
-        summaries.push(crate::bindings::schemas::task_binding_summary_from_binding(
-            binding,
-            trigger.as_ref(),
-        ));
-    }
-    summaries
-}
-
-/// Resolve workspace names for multiple workspace IDs in a single batch query.
-async fn resolve_workspace_names_batch(
-    state: &AppState,
-    workspace_ids: &[String],
-) -> std::collections::HashMap<String, String> {
-    if workspace_ids.is_empty() {
-        return std::collections::HashMap::new();
-    }
-    match state.workspaces.find_names_by_ids(workspace_ids).await {
-        Ok(pairs) => pairs.into_iter().collect(),
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to batch resolve workspace names");
-            std::collections::HashMap::new()
-        }
-    }
-}
-
-/// Resolve repository names for multiple repo IDs in a single batch query.
-async fn resolve_repo_names_batch(
-    state: &AppState,
-    repo_ids: &[String],
-) -> std::collections::HashMap<String, String> {
-    if repo_ids.is_empty() {
-        return std::collections::HashMap::new();
-    }
-    match state.repositories.find_names_by_ids(repo_ids).await {
-        Ok(pairs) => pairs.into_iter().collect(),
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to batch resolve repository names");
-            std::collections::HashMap::new()
-        }
-    }
 }
 
 #[cfg(test)]

@@ -977,16 +977,7 @@ fn spawn_task_reaper(
         info!("Task reaper disabled");
         return None;
     }
-    let handle = task::reaper::spawn_task_reaper(
-        app_state.clone(),
-        agent_status,
-        k8s,
-        app_state.messages.clone(),
-        app_state.tasks.clone(),
-        app_state.events.clone(),
-        Arc::clone(&app_state.config),
-        cancel,
-    );
+    let handle = task::reaper::TaskReaper::new(app_state.clone(), agent_status, k8s).spawn(cancel);
     info!(
         idle_timeout_minutes = app_state.config.sandbox.idle_timeout_minutes,
         check_interval_secs = app_state.config.sandbox.idle_check_interval_secs,
