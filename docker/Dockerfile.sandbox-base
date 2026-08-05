@@ -303,10 +303,20 @@ RUN apt-get update \
 #
 # This is delivery only: the project still adds `inspectorPlugin()` to its Vite
 # config. Nothing is injected into a project that did not ask for it.
-# renovate: datasource=npm depName=@moatless/inspector
-ARG INSPECTOR_VERSION=0.3.0
-RUN npm install --prefix /opt/moatless-inspector --install-strategy=nested \
-        --no-audit --no-fund "@moatless/inspector@${INSPECTOR_VERSION}" \
+#
+# Built from packages/inspector in this checkout, so the image ships the version
+# in the tree. `npm pack` first because npm symlinks a directory install but
+# extracts a tarball, and the nested strategy below has to apply to a real tree.
+# The package's own tsconfig extends the root one, hence both copies.
+COPY tsconfig.json /tmp/inspector-build/tsconfig.json
+COPY packages/inspector /tmp/inspector-build/packages/inspector
+RUN cd /tmp/inspector-build/packages/inspector \
+    && bun install \
+    && bun run build \
+    && npm pack --pack-destination /tmp \
+    && npm install --prefix /opt/moatless-inspector --install-strategy=nested \
+        --no-audit --no-fund /tmp/moatless-inspector-*.tgz \
+    && rm -rf /tmp/inspector-build /tmp/moatless-inspector-*.tgz \
     && ln -s /opt/moatless-inspector/node_modules /opt/node_modules \
     && chmod -R a+rX /opt/moatless-inspector \
     && test -f /opt/node_modules/@moatless/inspector/dist/client.js \

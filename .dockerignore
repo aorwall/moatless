@@ -54,7 +54,10 @@
 !packages/messaging/dist/
 !packages/sandbox-api-contract/dist/
 !packages/sandbox-schemas/dist/
-!packages/inspector/dist/
+!packages/inspector/
+# Re-excluded: the blanket node_modules rule sits above this line, and
+# last match wins.
+packages/inspector/node_modules/
 !packages/shell-utils/dist/
 !packages/types/dist/
 !dev-browser/

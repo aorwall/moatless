@@ -137,6 +137,9 @@ jobs:
               - 'docker/cli-versions.env'
               - '.github/scripts/install-mold.sh'
               - '.github/workflows/ci.yml'
+              # Built into the image, so a change here has to rebuild it.
+              - 'packages/inspector/**'
+              - 'tsconfig.json'
             sandbox-image:
               - 'docker/Dockerfile.sandbox'
               - '.github/workflows/ci.yml'
