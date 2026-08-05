@@ -1416,9 +1416,11 @@ impl Config {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "db-tests"))]
 impl Config {
-    /// Minimal valid config for unit tests across the crate.
+    /// Minimal valid config for unit tests across the crate, and for the gRPC
+    /// service's db-backed test constructors (which need a `Config` value but
+    /// never read it).
     pub(crate) fn test_minimal() -> Self {
         Config {
             server: ServerConfig {

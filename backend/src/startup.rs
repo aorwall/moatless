@@ -414,16 +414,9 @@ pub fn spawn_grpc_server(
     connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
-    let messages = ports.map(|p| p.messages.clone());
-    let files = ports.map(|p| p.files.clone());
-    let provider_tokens = ports.map(|p| p.provider_tokens.clone());
+    // `tasks` and `users` are read by the authorizer's control gate; the request
+    // handlers reach them (and the rest of the db-backed set) through `handlers`.
     let tasks = ports.map(|p| p.tasks.clone());
-    let task_turns = ports.map(|p| p.task_turns.clone());
-    let grpc_task_events = ports.map(|p| p.task_events.clone());
-    let ingress_outbox = ports.map(|p| p.ingress_outbox.clone());
-    let task_relations = ports.map(|p| p.task_relations.clone());
-    let repositories = ports.map(|p| p.repositories.clone());
-    let grpc_workspaces = ports.map(|p| p.workspaces.clone());
     let users = ports.map(|p| p.users.clone());
     let backend_config = Arc::new(config.clone());
     let port = config.server.grpc_port;
@@ -443,8 +436,6 @@ pub fn spawn_grpc_server(
         ),
     };
     let github_app_service = github_apps.default_service();
-    let provider_token_auth = ports.map(|p| p.provider_token_auth.clone());
-    let secrets = ports.map(|p| p.secrets.clone());
 
     let codex_http = Arc::new(
         reqwest::Client::builder()
@@ -458,23 +449,41 @@ pub fn spawn_grpc_server(
                 reqwest::Client::new()
             }),
     );
-    let credentials_svc = provider_tokens.as_ref().map(|tokens| {
-        let mut svc = CredentialService::new(
-            tokens.clone(),
-            provider_token_auth.clone(),
-            github_app_service.clone(),
-            tasks.as_ref().map(|t| BroadcastContext {
-                connector: Arc::clone(&connector),
-                tasks: t.clone(),
-            }),
+    // The db-backed ports resolve as two present-together values off the one
+    // `ports` gate: the durable-admission writers and the handler set. Both are
+    // `None` databaseless.
+    let ingress = ports.map(|p| crate::sandbox::grpc_server::IngressPorts {
+        task_turns: p.task_turns.clone(),
+        task_events: p.task_events.clone(),
+        ingress_outbox: p.ingress_outbox.clone(),
+    });
+    let handlers = ports.map(|p| {
+        let credentials_svc = Arc::new(
+            CredentialService::new(
+                p.provider_tokens.clone(),
+                Some(p.provider_token_auth.clone()),
+                github_app_service.clone(),
+                Some(BroadcastContext {
+                    connector: Arc::clone(&connector),
+                    tasks: p.tasks.clone(),
+                }),
+            )
+            .with_codex_refresh(p.pool.clone(), codex_http.clone())
+            .with_secrets(p.secrets.clone()),
         );
-        if let Some(ports) = ports {
-            svc = svc.with_codex_refresh(ports.pool.clone(), codex_http.clone());
+        crate::sandbox::grpc_server::HandlerDbPorts {
+            messages: p.messages.clone(),
+            provider_tokens: p.provider_tokens.clone(),
+            tasks: p.tasks.clone(),
+            task_relations: p.task_relations.clone(),
+            provider_token_auth: p.provider_token_auth.clone(),
+            secrets: p.secrets.clone(),
+            credentials_svc,
+            repositories: p.repositories.clone(),
+            workspaces: p.workspaces.clone(),
+            files: p.files.clone(),
+            users: p.users.clone(),
         }
-        if let Some(ref secrets) = secrets {
-            svc = svc.with_secrets(secrets.clone());
-        }
-        Arc::new(svc)
     });
 
     // The single verification layer. `Some(secret)` → enforcing, `None` → the
@@ -490,30 +499,18 @@ pub fn spawn_grpc_server(
     tokio::spawn(async move {
         let svc = BackendSandboxServiceImpl {
             events: event_publisher,
-            messages,
-            provider_tokens,
-            tasks,
-            task_turns,
-            task_events: grpc_task_events,
-            ingress_outbox,
-            task_relations,
+            handlers,
+            ingress,
             task_token_secret: token_secret,
             authorizer,
             github_app_service,
             github_apps,
-            provider_token_auth,
-            secrets,
-            credentials_svc,
-            repositories,
-            workspaces: grpc_workspaces,
-            backend_config: Some(backend_config),
+            backend_config,
             s3,
-            files,
             s3_bucket,
             s3_key_prefix,
             transcript_s3_prefix,
             workspace_s3_prefix,
-            users,
             event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
         };
         let addr = SocketAddr::from(([0, 0, 0, 0], port));

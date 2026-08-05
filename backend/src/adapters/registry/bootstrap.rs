@@ -9,7 +9,9 @@ use super::Adapters;
 impl Adapters {
     /// Build adapters from application config and the composed ports.
     ///
-    /// Returns `None` when no providers are configured.
+    /// Every provider (Slack, Webhook, Telegram, GitHub PR, Linear) is registered
+    /// unconditionally — their per-workspace config is resolved per subscription,
+    /// not at registration — so the registry is always populated.
     ///
     /// `ports.github_apps` is the shared App registry, so the `GithubPrAdapter`
     /// and `AppState` hit the same token cache. The `GithubPrAdapter` resolves
@@ -17,7 +19,7 @@ impl Adapters {
     /// registry to mint installation tokens for bot users (`auth_method =
     /// 'github_app_installation'`). Slack, Telegram and Linear read their own
     /// per-workspace rows straight off `ports.pool`.
-    pub async fn from_config(config: &crate::config::Config, ports: &Ports) -> Option<Self> {
+    pub async fn from_config(config: &crate::config::Config, ports: &Ports) -> Self {
         let mut providers = Self::new();
 
         let db = ports.pool.clone();
@@ -78,6 +80,6 @@ impl Adapters {
             tracing::info!("Linear adapter configured");
         }
 
-        Some(providers)
+        providers
     }
 }

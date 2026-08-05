@@ -411,7 +411,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_notify.clone(),
             event_publisher,
             s3_client,
-            adapter_registry.map(Arc::new),
+            Some(Arc::new(adapter_registry)),
         );
 
         // The browser tabs open on each Task. Built at the composition root

@@ -101,26 +101,65 @@ fn sandbox_key(prefix: &str, task_id: &str) -> String {
 /// on a slow link.
 const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_mins(15);
 
-/// gRPC server state — holds event publisher, DAO trait objects, and JWT secret.
-pub struct BackendSandboxServiceImpl {
-    pub events: Option<Arc<dyn EventPublisher>>,
-    pub messages: Option<Arc<dyn MessageDao>>,
-    pub provider_tokens: Option<Arc<dyn ProviderTokenDao>>,
-    pub tasks: Option<Arc<dyn TaskDao>>,
+/// Database-backed ports the request handlers read — the databaseless gate's set
+/// minus the durable-admission writers ([`IngressPorts`]). Present-together as
+/// one value because the single `ports` gate (a database connection) builds them
+/// all at once; `None` as a whole when the backend runs databaseless.
+pub struct HandlerDbPorts {
+    pub messages: Arc<dyn MessageDao>,
+    pub provider_tokens: Arc<dyn ProviderTokenDao>,
+    pub tasks: Arc<dyn TaskDao>,
+    pub task_relations: Arc<dyn TaskRelationDao>,
+    /// Provider token auth persistence for persisting refreshed tokens.
+    pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
+    /// Scoped secret resolver for global/team/user secrets.
+    pub secrets: Arc<SecretService>,
+    /// Generic credential service — used to route sandbox-pushed rotations
+    /// through `store(.., WriteSource::SandboxRotation)` so the broadcast
+    /// fan-out picks them up automatically.
+    pub credentials_svc: Arc<CredentialService>,
+    /// Repository DAO — used to resolve a task's repo owner for credentials.
+    pub repositories: Arc<dyn RepositoryDao>,
+    /// Workspace DAO — used to load the workspace's `system_prompt` and `servers`
+    /// when assembling the agent's append system prompt.
+    pub workspaces: Arc<dyn WorkspaceDao>,
+    /// File metadata repository — supplies filename and mime type when
+    /// fulfilling `download_upload` requests.
+    pub files: Arc<dyn FileDao>,
+    /// User repository — used to render `<sent_by>` headers on pending
+    /// messages so the agent sees the inbound sender's moatless login.
+    pub users: Arc<dyn UserDao>,
+}
+
+/// Durable-admission writers (commit-before-fan-out): the turn/event/outbox rows
+/// the ingress path commits to Postgres before publishing to Redis. Present-
+/// together off the same `ports` gate as [`HandlerDbPorts`], but a distinct value
+/// because the ingress test harness ([`BackendSandboxServiceImpl::for_ingress_tests`])
+/// wires exactly these three without the handler set.
+pub struct IngressPorts {
     /// Authoritative turn-state writer. State-bearing events commit their turn /
     /// task-status / event rows here transactionally before being published to
     /// Redis (commit-before-fan-out ordering).
-    pub task_turns: Option<Arc<dyn TaskTurnDao>>,
+    pub task_turns: Arc<dyn TaskTurnDao>,
     /// Event-row writer for events that bear no turn state. Commits before the
     /// Redis publish so Postgres holds the full payload even when the live tail
     /// carries a truncated stub.
-    pub task_events: Option<Arc<dyn TaskEventDao>>,
+    pub task_events: Arc<dyn TaskEventDao>,
     /// Durable spool for the one payload kind `task_events` cannot hold in full:
     /// `agent.message` content, which the agent.message skeleton reduces to a skeleton there. A
     /// record is admitted here before the gRPC ack and deleted once the consumer
     /// commits `task_messages` (the durable-ingress decision).
-    pub ingress_outbox: Option<Arc<dyn IngressOutbox>>,
-    pub task_relations: Option<Arc<dyn TaskRelationDao>>,
+    pub ingress_outbox: Arc<dyn IngressOutbox>,
+}
+
+/// gRPC server state — holds event publisher, DAO trait objects, and JWT secret.
+pub struct BackendSandboxServiceImpl {
+    pub events: Option<Arc<dyn EventPublisher>>,
+    /// Database-backed ports the request handlers read; `None` databaseless.
+    pub handlers: Option<HandlerDbPorts>,
+    /// Durable-admission writers; `None` databaseless, `Some` on its own in the
+    /// ingress test harness.
+    pub ingress: Option<IngressPorts>,
     /// JWT signing key for *minting* the user token delivered over
     /// `GetCredentials`. Token *verification* lives entirely in `authorizer`.
     pub task_token_secret: Option<String>,
@@ -134,27 +173,14 @@ pub struct BackendSandboxServiceImpl {
     /// Registry of all configured GitHub Apps — used to resolve installation
     /// tokens and bot identities for bot-user `provider_tokens` rows.
     pub github_apps: Arc<GitHubAppRegistry>,
-    /// Provider token auth persistence for persisting refreshed tokens.
-    pub provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
-    /// Scoped secret resolver for global/team/user secrets.
-    pub secrets: Option<Arc<SecretService>>,
-    /// Generic credential service — used to route sandbox-pushed rotations
-    /// through `store(.., WriteSource::SandboxRotation)` so the broadcast
-    /// fan-out picks them up automatically.
-    pub credentials_svc: Option<Arc<CredentialService>>,
-    /// Repository DAO — used to resolve a task's repo owner for credentials.
-    pub repositories: Option<Arc<dyn RepositoryDao>>,
-    /// Workspace DAO — used to load the workspace's `system_prompt` and `servers`
-    /// when assembling the agent's append system prompt.
-    pub workspaces: Option<Arc<dyn WorkspaceDao>>,
-    /// Backend config — supplies `frontend_url`, `proxy.domain`, `proxy.protocol`
-    /// for the agent's append system prompt.
-    pub backend_config: Option<Arc<Config>>,
+    /// Backend config. Read here once (`sandbox.user_token_ttl_secs` when minting
+    /// the user auth token) and forwarded whole to the two prompt builders, which
+    /// read `frontend_url` / `proxy.*` / `file_mount_path` from it. This service
+    /// is the outermost caller of both builders, so there is no frame above to
+    /// narrow the forward to; narrowing the builders belongs to their own module.
+    pub backend_config: Arc<Config>,
     /// S3 handle used by `download_upload` and workspace sync.
     pub s3: Option<Arc<crate::file_storage::s3::S3Storage>>,
-    /// File metadata repository — supplies filename and mime type when
-    /// fulfilling `download_upload` requests.
-    pub files: Option<Arc<dyn FileDao>>,
     /// S3 bucket name (`config.s3.bucket_name`).
     pub s3_bucket: Option<String>,
     /// S3 key prefix for uploaded files (`config.s3.key_prefix`).
@@ -166,9 +192,6 @@ pub struct BackendSandboxServiceImpl {
     /// Objects land at `<prefix>/<task_id>/workspace.tar` in the same bucket;
     /// the sandbox uploads/downloads them directly via presigned URLs.
     pub workspace_s3_prefix: String,
-    /// User repository — used to render `<sent_by>` headers on pending
-    /// messages so the agent sees the inbound sender's moatless login.
-    pub users: Option<Arc<dyn UserDao>>,
     /// Ingress dedup for sandbox-published events. The sandbox outbox delivers
     /// at-least-once (retries reuse the same `event_id`); this drops retried
     /// duplicates before they reach Redis so SSE consumers don't see them twice.
@@ -471,31 +494,23 @@ impl BackendSandboxServiceImpl {
     ) -> Self {
         Self {
             events,
-            task_turns: Some(task_turns),
-            task_events: Some(task_events),
-            ingress_outbox: Some(ingress_outbox),
+            handlers: None,
+            ingress: Some(IngressPorts {
+                task_turns,
+                task_events,
+                ingress_outbox,
+            }),
             authorizer: SandboxAuthorizer::dev_unauthenticated(None, None),
             github_apps: Arc::new(GitHubAppRegistry::default()),
             event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
-            messages: None,
-            provider_tokens: None,
-            tasks: None,
-            task_relations: None,
             task_token_secret: None,
             github_app_service: None,
-            provider_token_auth: None,
-            secrets: None,
-            credentials_svc: None,
-            repositories: None,
-            workspaces: None,
-            backend_config: None,
+            backend_config: Arc::new(Config::test_minimal()),
             s3: None,
-            files: None,
             s3_bucket: None,
             s3_key_prefix: String::new(),
             transcript_s3_prefix: String::new(),
             workspace_s3_prefix: String::new(),
-            users: None,
         }
     }
 }
@@ -510,10 +525,7 @@ impl BackendSandboxServiceImpl {
     /// sandbox then falls back to whatever token it already holds.
     fn mint_user_auth_token(&self, user_id: &str, login: &str, task_id: &str) -> Option<String> {
         let secret = self.task_token_secret.as_ref()?;
-        let ttl = self
-            .backend_config
-            .as_ref()
-            .map_or(7 * 24 * 3600, |c| c.sandbox.user_token_ttl_secs);
+        let ttl = self.backend_config.sandbox.user_token_ttl_secs;
         match jwt::generate_user_auth_token(user_id, login, task_id, secret, ttl) {
             Ok(token) => Some(token),
             Err(e) => {
@@ -533,7 +545,7 @@ impl BackendSandboxServiceImpl {
     /// Events published outside a run carry no id and bear no turn state; they
     /// fall back to the task's latest turn.
     async fn resolve_turn_for_event(&self, task_id: &str, run_id: &str) -> Option<i32> {
-        let turns = self.task_turns.as_ref()?;
+        let turns = &self.ingress.as_ref()?.task_turns;
         if run_id.is_empty() {
             return None;
         }
@@ -554,8 +566,9 @@ impl BackendSandboxServiceImpl {
     /// The task's latest turn — the fallback for a state-bearing event that
     /// reached the ingress without a run id.
     async fn latest_turn(&self, task_id: &str) -> Option<i32> {
-        self.task_turns
+        self.ingress
             .as_ref()?
+            .task_turns
             .latest_turn_number(task_id)
             .await
             .unwrap_or_else(|e| {
@@ -569,8 +582,9 @@ impl BackendSandboxServiceImpl {
         // reason: event ingress reads the agent type for turn attribution across all owners
         #[allow(clippy::disallowed_methods)]
         let ctx = ScopeContext::system();
-        self.tasks
+        self.handlers
             .as_ref()?
+            .tasks
             .find_by_id(task_id, &ctx)
             .await
             .ok()
@@ -753,10 +767,11 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         };
 
         let request = self.build_admission(&event, event_type_str, payload).await;
+        let ingress = self.ingress.as_ref();
         let admission = EventAdmission {
-            task_turns: self.task_turns.as_ref(),
-            task_events: self.task_events.as_ref(),
-            ingress_outbox: self.ingress_outbox.as_ref(),
+            task_turns: ingress.map(|i| &i.task_turns),
+            task_events: ingress.map(|i| &i.task_events),
+            ingress_outbox: ingress.map(|i| &i.ingress_outbox),
             publisher: self.events.as_ref(),
         };
 
@@ -801,13 +816,13 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let req = request.into_inner();
         tracing::Span::current().record("task_id", req.task_id.as_str());
 
-        let Some(ref messages) = self.messages else {
+        let Some(messages) = self.handlers.as_ref().map(|h| &h.messages) else {
             return Ok(Response::new(GetPendingMessagesResponse {
                 deliveries: vec![],
             }));
         };
 
-        let task = if let Some(ref tasks) = self.tasks {
+        let task = if let Some(tasks) = self.handlers.as_ref().map(|h| &h.tasks) {
             // reason: pending-message gate reads task status across all owners (no user ctx)
             #[allow(clippy::disallowed_methods)]
             let sys = ScopeContext::system();
@@ -855,7 +870,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // rather than `--resume` into a transcript ending on an unanswered tool
         // call. Turn state is authoritative here: routine stops leave no result
         // row behind (see `message::models::stop_is_reported`).
-        let cut_off = match self.task_turns.as_ref() {
+        let cut_off = match self.ingress.as_ref().map(|i| &i.task_turns) {
             Some(turns) => match turns.latest_closed_turn_status(&req.task_id).await {
                 Ok(status) => status.is_some_and(TurnStatus::cut_off_session),
                 Err(e) => {
@@ -905,7 +920,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // headers instead and don't need a sender lookup.
         let mut login_cache: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
-        if let Some(ref users) = self.users {
+        if let Some(users) = self.handlers.as_ref().map(|h| &h.users) {
             let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
             for row in &pending {
                 if row.external_event_id.is_some() {
@@ -949,8 +964,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             });
 
         let builder = crate::message::enricher::AgentPromptBuilder::new(
-            self.files.as_ref().map(std::convert::AsRef::as_ref),
-            self.backend_config.as_deref(),
+            self.handlers.as_ref().map(|h| h.files.as_ref()),
+            Some(self.backend_config.as_ref()),
             task_agent_type,
             task_model,
             task_resume_session_id,
@@ -1001,7 +1016,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let req = request.into_inner();
 
-        let Some(ref messages) = self.messages else {
+        let Some(messages) = self.handlers.as_ref().map(|h| &h.messages) else {
             return Ok(Response::new(AcknowledgeMessagesResponse {}));
         };
 
@@ -1041,7 +1056,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     crate::message::hooks::emit_message_upsert_from_daos(
                         self.events.as_ref(),
                         messages,
-                        self.files.as_ref(),
+                        self.handlers.as_ref().map(|h| &h.files),
                         &req.task_id,
                         uuid,
                     )
@@ -1109,23 +1124,24 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             "GetCredentials request"
         );
 
+        let handlers = self.handlers.as_ref();
         let repository = resolve_task_repository(
-            self.tasks.as_ref(),
-            self.repositories.as_ref(),
+            handlers.map(|h| &h.tasks),
+            handlers.map(|h| &h.repositories),
             &req.task_id,
         )
         .await;
         let mut credentials = resolve_task_credentials(TaskCredentialInputs {
             task_id: &req.task_id,
             user_id: &grant.ctx.user_id,
-            secrets: self.secrets.as_ref(),
-            provider_tokens: self.provider_tokens.as_ref(),
+            secrets: handlers.map(|h| &h.secrets),
+            provider_tokens: handlers.map(|h| &h.provider_tokens),
             github_app_service: self.github_app_service.as_ref(),
-            provider_token_auth: self.provider_token_auth.as_ref(),
+            provider_token_auth: handlers.map(|h| &h.provider_token_auth),
             github_apps: Some(&self.github_apps),
             repository: repository.as_ref(),
-            users: self.users.as_ref(),
-            credentials_svc: self.credentials_svc.as_ref(),
+            users: handlers.map(|h| &h.users),
+            credentials_svc: handlers.map(|h| &h.credentials_svc),
         })
         .await;
 
@@ -1137,8 +1153,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         {
             credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
         }
-        let server_env = resolve_server_env(&grant.ctx.user_id, self.secrets.as_ref()).await;
-        let ssh_keys = resolve_task_ssh_keys(self.secrets.as_ref(), &grant.ctx.user_id).await;
+        let server_env = resolve_server_env(&grant.ctx.user_id, handlers.map(|h| &h.secrets)).await;
+        let ssh_keys =
+            resolve_task_ssh_keys(handlers.map(|h| &h.secrets), &grant.ctx.user_id).await;
 
         info!(
             task_id = %req.task_id,
@@ -1203,7 +1220,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             )));
         };
 
-        let Some(ref provider_tokens) = self.provider_tokens else {
+        let Some(provider_tokens) = self.handlers.as_ref().map(|h| &h.provider_tokens) else {
             return Err(Status::failed_precondition(
                 "Provider token repository not configured",
             ));
@@ -1212,8 +1229,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // Route through the credential service (production path) so the broadcast
         // fan-out fires for every running sandbox the user owns — minus the
         // originating one (race-loop guard).
-        let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = if let Some(ref svc) =
-            self.credentials_svc
+        let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = if let Some(svc) =
+            self.handlers.as_ref().map(|h| &h.credentials_svc)
         {
             // Routes GITHUB_TOKEN into the encrypted store instead of writing
             // it plaintext to `provider_tokens.access_token`.
@@ -1284,8 +1301,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let req = request.into_inner();
 
         // Load the task for prompt assembly through the caller's scope context.
-        let task = match self.tasks {
-            Some(ref tasks) => tasks
+        let task = match self.handlers.as_ref().map(|h| &h.tasks) {
+            Some(tasks) => tasks
                 .find_by_id(&req.task_id, &grant.ctx)
                 .await
                 .ok()
@@ -1296,9 +1313,9 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let system_prompt = prompt::build_for_task(
             &req.task_id,
             task.as_ref(),
-            self.workspaces.as_ref(),
-            self.task_relations.as_ref(),
-            self.backend_config.as_ref(),
+            self.handlers.as_ref().map(|h| &h.workspaces),
+            self.handlers.as_ref().map(|h| &h.task_relations),
+            Some(&self.backend_config),
         )
         .await;
 
@@ -1329,12 +1346,12 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         let Some(ref bucket) = self.s3_bucket else {
             return Err(Status::failed_precondition("S3 bucket not configured"));
         };
-        let Some(ref files) = self.files else {
+        let Some(files) = self.handlers.as_ref().map(|h| &h.files) else {
             return Err(Status::failed_precondition(
                 "File repository not configured",
             ));
         };
-        let Some(ref messages) = self.messages else {
+        let Some(messages) = self.handlers.as_ref().map(|h| &h.messages) else {
             return Err(Status::failed_precondition(
                 "Message repository not configured",
             ));
@@ -1558,7 +1575,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         );
 
         if req.ok && req.direction == "upload" {
-            if let Some(ref task_events) = self.task_events {
+            if let Some(task_events) = self.ingress.as_ref().map(|i| &i.task_events) {
                 let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
                 let event = InsertTaskEvent {
                     event_id: uuid::Uuid::new_v4().to_string(),
@@ -1628,7 +1645,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
         let req = request.into_inner();
 
-        let Some(ref messages) = self.messages else {
+        let Some(messages) = self.handlers.as_ref().map(|h| &h.messages) else {
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
         };
 
@@ -1638,7 +1655,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // Placed before `find_interrupted_turn` / `increment_recovery_attempts`.
         // Fail open on unknown (None / DB-error): only confirmed terminal or
         // stopped intent is gated.
-        let task = if let Some(ref tasks) = self.tasks {
+        let task = if let Some(tasks) = self.handlers.as_ref().map(|h| &h.tasks) {
             // reason: recovery gate reads task status across all owners (no user ctx)
             #[allow(clippy::disallowed_methods)]
             let sys = ScopeContext::system();
@@ -1655,7 +1672,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         }
         // No Sandbox row means the Task never requested runtime resources;
         // only explicit Stopped or Removed intent gates recovery.
-        let sandbox_desired_state = if let Some(ref tasks) = self.tasks {
+        let sandbox_desired_state = if let Some(tasks) = self.handlers.as_ref().map(|h| &h.tasks) {
             match tasks
                 .get_sandbox_intents(std::slice::from_ref(&req.task_id))
                 .await
@@ -1730,7 +1747,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
         }
 
-        let Some(ref task_turns) = self.task_turns else {
+        let Some(task_turns) = self.ingress.as_ref().map(|i| &i.task_turns) else {
             warn!(task_id = %req.task_id, "Cannot record a recovery attempt without task_turns");
             return Ok(Response::new(RecoverInterruptedRunResponse { turn: None }));
         };
@@ -2009,33 +2026,18 @@ mod tests {
         let users: Arc<dyn UserDao> = Arc::new(users);
         BackendSandboxServiceImpl {
             events: None,
-            messages: None,
-            provider_tokens: None,
-            tasks: Some(tasks.clone()),
-            task_turns: None,
-            task_events: None,
-            ingress_outbox: None,
-            task_relations: None,
+            handlers: None,
+            ingress: None,
             task_token_secret: None,
-            authorizer: SandboxAuthorizer::dev_unauthenticated(
-                Some(tasks.clone()),
-                Some(users.clone()),
-            ),
+            authorizer: SandboxAuthorizer::dev_unauthenticated(Some(tasks), Some(users)),
             github_app_service: None,
             github_apps: Arc::new(GitHubAppRegistry::default()),
-            provider_token_auth: None,
-            secrets: None,
-            credentials_svc: None,
-            repositories: None,
-            workspaces: None,
-            backend_config: None,
+            backend_config: Arc::new(Config::test_minimal()),
             s3: None,
-            files: None,
             s3_bucket: None,
             s3_key_prefix: String::new(),
             transcript_s3_prefix: String::new(),
             workspace_s3_prefix: String::new(),
-            users: Some(users),
             event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::default()),
         }
     }

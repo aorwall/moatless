@@ -143,7 +143,8 @@ pub struct AuthState {
     /// Encrypted secret store — holds the OAuth token stashed behind a PAT
     /// override, and the validated PAT itself.
     pub secrets: Arc<SecretService>,
-    pub tasks: Option<Arc<dyn crate::task::dao::TaskDao>>,
+    /// Task DAO — resolves preview-URL host access in the session gate.
+    pub tasks: Arc<dyn crate::task::dao::TaskDao>,
     /// Adapter connections (`adapter_connections`). The Linear OAuth
     /// callback mirrors the authorized workspace into this table so inbound
     /// Linear webhooks resolve a connection.
@@ -170,7 +171,7 @@ impl AuthState {
             secrets: ports.secrets.clone(),
             providers: Arc::new(providers),
             cache,
-            tasks: Some(ports.tasks.clone()),
+            tasks: ports.tasks.clone(),
             db: ports.pool.clone(),
             config,
         }
@@ -786,18 +787,17 @@ async fn verify_handler(
         .and_then(|v| v.to_str().ok());
     if let Some(host) = forwarded_host {
         if let Some(task_id) = extract_task_id_from_hostname(host) {
-            if let Some(ref tasks) = state.tasks {
-                let scope_ctx = ScopeContext {
-                    user_id: identity.user_id.to_string(),
-                    is_admin: identity.role == UserRole::Admin,
-                };
-                let task = tasks
-                    .find_by_id(task_id, &scope_ctx)
-                    .await
-                    .map_err(|_| AuthError::Forbidden)?;
-                if task.is_none() {
-                    return Err(AuthError::Forbidden);
-                }
+            let scope_ctx = ScopeContext {
+                user_id: identity.user_id.to_string(),
+                is_admin: identity.role == UserRole::Admin,
+            };
+            let task = state
+                .tasks
+                .find_by_id(task_id, &scope_ctx)
+                .await
+                .map_err(|_| AuthError::Forbidden)?;
+            if task.is_none() {
+                return Err(AuthError::Forbidden);
             }
         }
     }
