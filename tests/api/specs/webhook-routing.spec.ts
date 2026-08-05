@@ -60,7 +60,9 @@ test.describe('Chain 2: Webhook by_subject routing without thread', () => {
     expect(result.config.routingMode).toBe('by_subject')
 
     ctx.set('triggerId', result.triggerId)
-    ctx.set('sourceId', sourceId)
+    // The backend keys a binding on the stored source matcher, which the
+    // fixture scopes for run isolation — poll on that, not the raw label.
+    ctx.set('sourceId', result.config.sourceId)
     ctx.set('taskIds', [])
   })
 
@@ -265,7 +267,7 @@ test.describe('Chain 4: Webhook by_subject routing with thread', () => {
     expect(result.config.routingMode).toBe('by_subject')
 
     ctx.set('triggerId', result.triggerId)
-    ctx.set('sourceId', sourceId)
+    ctx.set('sourceId', result.config.sourceId)
     ctx.set('taskIds', [])
   })
 
@@ -364,7 +366,7 @@ test.describe('Chain 5: Webhook delivery admission', () => {
     )
 
     ctx.set('triggerId', result.triggerId)
-    ctx.set('sourceId', sourceId)
+    ctx.set('sourceId', result.config.sourceId)
     ctx.set('taskIds', [])
   })
 
@@ -425,9 +427,12 @@ test('INT-34: A reply after close starts a new task', async ({ api }) => {
   const repo = await api.ensureTemplateRepository()
   const suffix = Date.now()
   const sourceId = `closed-${suffix}`
-  const { triggerId } = await createWebhookTriggerFixtureWithRouting(api, repo.id, 'by_subject', {
-    sourceId,
-  })
+  const { triggerId, config } = await createWebhookTriggerFixtureWithRouting(
+    api,
+    repo.id,
+    'by_subject',
+    { sourceId },
+  )
   const thread = `thread-closed-${suffix}`
   const created: string[] = []
 
@@ -439,7 +444,7 @@ test('INT-34: A reply after close starts a new task', async ({ api }) => {
     const firstTaskId = await waitForLoopTaskWithSubject(
       api,
       triggerId,
-      webhookSubjectKey(sourceId, thread),
+      webhookSubjectKey(config.sourceId, thread),
     )
     created.push(firstTaskId)
 

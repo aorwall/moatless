@@ -106,7 +106,7 @@ export async function setupDockerSandbox(): Promise<DockerSandboxContext> {
  * Get the sandbox Docker image to use
  */
 export function getSandboxImage(): string {
-  return process.env['SANDBOX_DOCKER_IMAGE'] || 'aorwall/moatless-vibe-sandbox-js:latest'
+  return process.env['SANDBOX_DOCKER_IMAGE'] || 'aorwall/moatless-sandbox:latest'
 }
 
 /**

@@ -1058,7 +1058,7 @@ impl Config {
 
             sandbox: SandboxConfig {
                 namespace: sandbox_namespace.clone(),
-                image: env_str("SANDBOX_IMAGE", "aorwall/moatless-vibe-sandbox:latest"),
+                image: env_str("SANDBOX_IMAGE", "aorwall/moatless-sandbox:latest"),
                 image_pull_policy: env_str("SANDBOX_IMAGE_PULL_POLICY", "Always"),
                 grpc_port: env_or("SANDBOX_GRPC_PORT", 50052),
                 resources_cpu_limit: env_str("SERVER_RESOURCES_CPU_LIMIT", "1000m"),
@@ -1156,10 +1156,7 @@ impl Config {
 
             docker: DockerConfig {
                 network: env_str("DOCKER_NETWORK", "moatless"),
-                image: env_str(
-                    "DOCKER_SANDBOX_IMAGE",
-                    "aorwall/moatless-vibe-sandbox-js:latest",
-                ),
+                image: env_str("DOCKER_SANDBOX_IMAGE", "aorwall/moatless-sandbox:latest"),
                 data_dir: env_str("DATA_DIR", "/data"),
                 container_data_dir: env_str("CONTAINER_DATA_DIR", "/data"),
                 backend_hostname: env_str("DOCKER_BACKEND_HOSTNAME", "moatless-backend"),

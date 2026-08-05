@@ -110,7 +110,7 @@ export APP_IMAGE="aorwall/moatless-vibe-backend:latest"
 # Must match docker/build-app.sh's output image (${REGISTRY_ORG:-aorwall}/moatless-frontend)
 # so `--suite ui` runs the freshly built frontend, not a stale published tag.
 export FRONTEND_IMAGE="${FRONTEND_IMAGE:-${REGISTRY_ORG:-aorwall}/moatless-frontend:latest}"
-export SANDBOX_IMAGE="${SANDBOX_IMAGE:-aorwall/moatless-vibe-sandbox-js:latest}"
+export SANDBOX_IMAGE="${SANDBOX_IMAGE:-aorwall/moatless-sandbox:latest}"
 export E2E_SUITE="$SUITE"
 export E2E_WORKERS="${E2E_WORKERS:-}"
 
@@ -187,11 +187,33 @@ until curl -sf "http://localhost:${BACKEND_PORT:-8080}/health" &>/dev/null; do
 done
 echo -e "\n${GREEN}Backend is healthy!${NC}"
 
+# ── Sandbox image ──────────────────────────────────────────────────────────
+# The docker sandbox provider never pulls — it has no pull call, and
+# image_pull_policy is honoured only on the k8s path — so the image must already
+# be on the daemon or a task's container create fails instantly. Honour a locally
+# built image if one is loaded; otherwise fetch the published one.
+echo -e "${BLUE}=== Ensuring sandbox image: $SANDBOX_IMAGE ===${NC}"
+docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1 || docker pull "$SANDBOX_IMAGE"
+
 # ── Run Playwright suite ───────────────────────────────────────────────────
 echo -e "${BLUE}=== Running Playwright suite: $SUITE ===${NC}"
 TEST_EXIT_CODE=0
 # shellcheck disable=SC2086
 docker compose $COMPOSE_FILES run --rm e2e ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} || TEST_EXIT_CODE=$?
+
+# ── Backend logs on failure ────────────────────────────────────────────────
+# Teardown removes the stack, so capture the backend log first — a provisioning
+# failure only shows there, not in the suite. Write to the checkout root, which
+# the runner user owns: test-results/ is created by the e2e container's bind
+# mount and is root-owned, so the host user cannot write into it. e2e.yml's
+# upload step lists both paths.
+if [ $TEST_EXIT_CODE -ne 0 ]; then
+  if docker compose $COMPOSE_FILES logs --no-color --tail=2000 backend > backend.log 2>&1; then
+    echo -e "${YELLOW}Backend log saved to backend.log${NC}"
+  else
+    echo -e "${RED}Failed to capture backend log${NC}"
+  fi
+fi
 
 # ── Teardown ───────────────────────────────────────────────────────────────
 if [ "$KEEP_RUNNING" = true ]; then

@@ -871,7 +871,7 @@ mod tests {
         }
     }
 
-    const TEST_SANDBOX_IMAGE: &str = "aorwall/moatless-vibe-sandbox:latest";
+    const TEST_SANDBOX_IMAGE: &str = "aorwall/moatless-sandbox:latest";
 
     #[test]
     fn server_config_uses_sandbox_image_fallback() {

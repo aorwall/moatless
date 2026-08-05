@@ -33,7 +33,7 @@ export function CodeExecutionGroup({
         <ConfigurationInput
           value={formData.dockerImage || ''}
           onChange={(e) => updateField('dockerImage', e.target.value || null)}
-          placeholder="aorwall/moatless-vibe-sandbox-js:latest"
+          placeholder="aorwall/moatless-sandbox:latest"
           disabled={disabled}
         />
       </ConfigurationItem>

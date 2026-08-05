@@ -284,10 +284,16 @@ pub async fn update_repository(
         ..Default::default()
     };
 
-    repositories
+    let applied = repositories
         .update(&repository_id, &patch, &ctx)
         .await
         .map_err(|error| RepositoryError::from_write_error(error, target_remote_url.as_deref()))?;
+    if !applied {
+        // control_filter matched no row: the caller may read this repository
+        // but not control it (e.g. a global repo owned by someone else). Surface
+        // NotFound so a denied write confirms no more than the read already did.
+        return Err(RepositoryError::NotFound(repository_id));
+    }
 
     // Re-fetch updated row
     let updated = repositories

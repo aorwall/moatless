@@ -26,8 +26,10 @@ pub enum RepoAction {
         /// Clone URL. HTTPS (https://github.com/org/repo) or SSH
         /// (git@host:org/repo.git or ssh://…). SSH remotes authenticate with an
         /// ssh_key secret materialized into the sandbox ~/.ssh — no provider token.
+        /// Optional — a repository need not have a remote to clone (a template
+        /// starter has none); the backend imposes no per-kind requirement.
         #[arg(long)]
-        git_url: String,
+        git_url: Option<String>,
         #[arg(long, default_value = "main")]
         branch: String,
         /// Hosting provider (github, gitlab, gitness). Ignored for SSH clone URLs,
@@ -103,7 +105,7 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
             let req = CreateRepositoryRequest {
                 name,
                 kind: parse_repo_kind(&kind),
-                remote_url: Some(git_url),
+                remote_url: git_url,
                 default_branch: Some(branch),
                 provider: parse_repo_provider(&provider),
                 description,

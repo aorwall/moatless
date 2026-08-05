@@ -53,6 +53,9 @@ export interface TaskLoopFixtureConfig {
   connectionKind?: string
   /** What inbound events are matched on, when it is not the source id. */
   sourceMatcher?: string
+  /** The user an activated Loop impersonates when it spawns tasks. Defaults to
+   * the authenticated caller; the backend rejects an active Loop without one. */
+  runAsUserId?: string
 }
 
 export interface LoopConfigResponse {

@@ -16,7 +16,11 @@ import { missingCapability } from '../../shared/profile'
 import { expect, test } from '../fixtures/api-fixtures'
 import { psql } from '../helpers/psql'
 import { discardTask } from '../helpers/teardown'
-import { createWebhookTriggerFixture } from '../steps'
+import {
+  createWebhookTriggerFixture,
+  waitForLoopTaskWithSubject,
+  webhookSubjectKey,
+} from '../steps'
 
 // ─── INT-45: A schedule loop's tasks are listed, with no binding ────────
 
@@ -66,24 +70,30 @@ test.describe('Standalone: Schedule loop recent tasks', () => {
 
 test("INT-46: A subscription loop's tasks are listed with their binding", async ({ api }) => {
   const repo = await api.ensureTemplateRepository()
-  const { loopId } = await createWebhookTriggerFixture(api, repo.id, {
-    sourceId: `recent-tasks-adapter-${Date.now()}`,
+  const suffix = Date.now()
+  const threadId = `recent-tasks-thread-${suffix}`
+  const { loopId, config } = await createWebhookTriggerFixture(api, repo.id, {
+    sourceId: `recent-tasks-adapter-${suffix}`,
   })
 
   const inbound = await api.sendWebhookMessage(loopId, {
     text: 'trigger-recent-binding-test',
+    threadId,
   })
   expect(inbound.status).toBe(200)
-  const taskId = (inbound.body as { taskId: string }).taskId
+
+  // The route answers with the delivery, not the task. Task creation and its
+  // binding are separate steps, so the task can surface in the recent-tasks
+  // view a beat before its binding — wait for the binding by its subject.
+  const subjectKey = webhookSubjectKey(config.sourceId, threadId)
+  const taskId = await waitForLoopTaskWithSubject(api, loopId, subjectKey)
 
   try {
-    const items = await api.listLoopRecentTasks(loopId)
-
-    const item = items.find((entry) => entry.task.taskId === taskId)
-    expect(item).toBeDefined()
+    const [item] = await api.listLoopRecentTasks(loopId, 50)
+    expect(item?.task.taskId).toBe(taskId)
     // An inbound event does create a binding, and it is reported.
     expect(item?.binding?.id).toBeTruthy()
-    expect(item?.binding?.subjectKey).toBeTruthy()
+    expect(item?.binding?.subjectKey).toBe(subjectKey)
   } finally {
     await discardTask(api, taskId)
     await api.deleteLoop(loopId).catch(() => {})

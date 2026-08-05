@@ -714,6 +714,12 @@ jobs:
       - name: Type check
         run: bun run type:check
 
+      # Playwright transpiles the E2E suite without type-checking, so a drift
+      # between the suite and the generated client is invisible until a run.
+      # This is the check that catches it; it needs the restored client above.
+      - name: Type check E2E suite
+        run: bun run type:check:e2e
+
       # Leaves the bundle at apps/frontend/dist, which is exactly where
       # docker/Dockerfile.app expects it — no artifact hop needed.
       - name: Build frontend

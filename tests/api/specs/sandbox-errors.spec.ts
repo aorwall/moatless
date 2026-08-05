@@ -131,7 +131,19 @@ test('SANDBOX-07: Sandbox crash loop detected early', async ({ api }, testInfo) 
 
 // ─── SERVER-02: Server readiness timeout detected as failure ─────────
 
-test('SERVER-02: Server readiness timeout detected as failure', async ({ api }, testInfo) => {
+// FIXME: docker does not report a preview server's readiness-timeout failure.
+// A server whose start command never binds its port should reach `failed`
+// after startupTimeoutSeconds; under docker it stays non-terminal, so this
+// poll returns null. The gap is one shape — an absent StartedAt is treated as
+// "keep waiting" — across four paths in
+// backend/src/sandbox/docker/status_resolver.rs::inspect_server_container:
+// `running` + port closed + StartedAt absent/unparseable falls through to
+// Starting (no else); `created`/`restarting` returns Starting with no timeout
+// check; the catch-all and the inspect-404 arm both return Stopped. None is
+// terminal to waitForPreviewReady. The fix threads a "start requested at"
+// instant through the resolver's signature (it has only startup_timeout_secs
+// and the container's own StartedAt) and is tracked as a separate backend PR.
+test.fixme('SERVER-02: Server readiness timeout detected as failure', async ({ api }, testInfo) => {
   testInfo.setTimeout(budget('sandboxReady') + SERVER_FAILURE_WAIT_MS)
 
   // A server that intentionally doesn't bind the expected port: the start

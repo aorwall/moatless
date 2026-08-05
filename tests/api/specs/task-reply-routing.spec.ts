@@ -19,7 +19,11 @@ import type { ReplyTargetDescriptor } from '@moatless/api-client/sandbox/model'
 import type { MoatApi } from '../../shared/moat-api'
 import { expect, test } from '../fixtures/api-fixtures'
 import { discardTask } from '../helpers/teardown'
-import { createWebhookTriggerFixture } from '../steps'
+import {
+  createWebhookTriggerFixture,
+  waitForLoopTaskWithSubject,
+  webhookSubjectKey,
+} from '../steps'
 
 /** A task with a message and no binding of any kind. */
 async function bareTask(api: MoatApi): Promise<string> {
@@ -60,19 +64,26 @@ test('INT-40: Replying to a task with no binding answers 404', async ({ api }) =
 test('INT-41: Replying to a task with one binding sends to it', async ({ api }) => {
   const repo = await api.ensureTemplateRepository()
   const suffix = Date.now()
-  const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
-    sourceId: `reply-single-${suffix}`,
+  const sourceId = `reply-single-${suffix}`
+  const threadId = `thread-${suffix}`
+  const { triggerId, config } = await createWebhookTriggerFixture(api, repo.id, {
+    sourceId,
   })
 
   // The inbound message is what creates both the task and its one binding —
   // which is the case worth testing, since it is how a real reply target
-  // comes to exist.
+  // comes to exist. The route answers with the delivery, not the task, so the
+  // task id is read afterwards from the loop's recent-tasks view.
   const inbound = await api.sendWebhookMessage(triggerId, {
     text: 'seed one binding',
-    threadId: `thread-${suffix}`,
+    threadId,
   })
   expect(inbound.status).toBe(200)
-  const taskId = (inbound.body as { taskId: string }).taskId
+  const taskId = await waitForLoopTaskWithSubject(
+    api,
+    triggerId,
+    webhookSubjectKey(config.sourceId, threadId),
+  )
 
   try {
     const bindings = await api.listTaskBindings(taskId)
@@ -110,7 +121,7 @@ test('INT-42: Replying to a task with several bindings answers 400 and lists the
       await api.createTaskBinding(taskId, {
         adapterKind: 'webhook',
         connectionId: config.connectionId,
-        triggerId,
+        loopId: triggerId,
         subjectKind: 'webhook_thread',
         subjectKey: `manual-${suffix}-${index}`,
         destinationConfig: {},
@@ -151,7 +162,7 @@ test('INT-43: Naming the binding explicitly sends to it', async ({ api }) => {
     const binding = await api.createTaskBinding(taskId, {
       adapterKind: 'webhook',
       connectionId: config.connectionId,
-      triggerId,
+      loopId: triggerId,
       subjectKind: 'webhook_thread',
       subjectKey: `manual-${suffix}`,
       destinationConfig: {},

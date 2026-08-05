@@ -123,11 +123,11 @@ export class MoatApi {
 
   /** The authenticated user's server-assigned id. */
   async userId(): Promise<string> {
-    const me = await this.moat.json<{ id: string }>(['whoami'])
-    if (!me?.id) {
+    const me = await this.moat.json<{ user?: { id?: string } }>(['whoami'])
+    if (!me?.user?.id) {
       throw new Error('Not authenticated — no user id available')
     }
-    return me.id
+    return me.user.id
   }
 
   // =========================================================================
@@ -240,7 +240,7 @@ export class MoatApi {
   }
 
   async updateWorkspaceRaw(id: string, data: UpdateWorkspaceRequest): Promise<RawResponse> {
-    return this.moat.raw('PUT', `/api/v1/workspaces/${id}`, data)
+    return this.moat.raw('PATCH', `/api/v1/workspaces/${id}`, data)
   }
 
   async updateWorkspace(id: string, data: UpdateWorkspaceRequest): Promise<WorkspaceResponse> {
@@ -258,12 +258,12 @@ export class MoatApi {
     data: UpdateWorkspaceRequest = {},
   ): Promise<WorkspaceResponse> {
     return this.expect<WorkspaceResponse>(
-      await this.moat.raw('POST', `/api/v1/workspaces/${id}/override`, data),
+      await this.moat.raw('PATCH', `/api/v1/workspaces/${id}/override`, data),
     )
   }
 
   async resetGitWorkspaceRaw(id: string): Promise<RawResponse> {
-    return this.moat.raw('POST', `/api/v1/workspaces/${id}/reset`)
+    return this.moat.raw('POST', `/api/v1/workspaces/${id}/reset-git`)
   }
 
   async resetGitWorkspace(id: string): Promise<ResetGitWorkspaceResponse> {
@@ -641,7 +641,7 @@ export class MoatApi {
       '--subject-key',
       config.subjectKey,
     ]
-    if (config.triggerId) args.push('--trigger-id', config.triggerId)
+    if (config.loopId) args.push('--loop-id', config.loopId)
     if (config.destinationConfig)
       args.push('--destination-config', JSON.stringify(config.destinationConfig))
     if (config.metadata) args.push('--metadata', JSON.stringify(config.metadata))
@@ -954,6 +954,9 @@ export class MoatApi {
     // matcher and the name carry the run, so the sweep can find it.
     const sourceId = scopedSlug(config.sourceId)
     const sourceName = scopedName(config.sourceName ?? config.sourceId)
+    // An active Loop impersonates a real user when it spawns tasks; the backend
+    // rejects activation without one. Default to the authenticated caller.
+    const runAsUserId = config.runAsUserId ?? (await this.userId())
     const connection = this.expect<AdapterConnectionResponse>(
       await this.moat.raw('POST', '/api/v1/adapters/connections', {
         adapterKind,
@@ -974,6 +977,7 @@ export class MoatApi {
         routingMode: normalizeRoutingMode(config.routingMode),
         prompt: config.promptTemplate ?? null,
         taskName: config.taskName ?? null,
+        runAsUserId,
       },
       source: {
         adapterKind,
@@ -1006,9 +1010,21 @@ export class MoatApi {
     },
   ): Promise<TaskLoopFixtureResponse> {
     const current = await this.getTaskTriggerFixture(id)
+    // Activation is not part of the loop update contract — it moves through the
+    // dedicated activate/pause endpoints (activation must name a run-as user).
+    if (data.active !== undefined && data.active !== current.active) {
+      if (data.active) {
+        this.expect(
+          await this.moat.raw('POST', `/api/v1/loops/${id}/activate`, {
+            runAsUserId: await this.userId(),
+          }),
+        )
+      } else {
+        this.expect(await this.moat.raw('POST', `/api/v1/loops/${id}/pause`))
+      }
+    }
     const loop = this.expect<LoopResponse>(
       await this.moat.raw('PUT', `/api/v1/loops/${id}`, {
-        active: data.active ?? current.active,
         config: {
           routingMode: data.routingMode
             ? normalizeRoutingMode(data.routingMode)

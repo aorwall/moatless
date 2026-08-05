@@ -19,6 +19,15 @@ services:
       CONTAINER_DATA_DIR: /data
       # Use locally built sandbox image
       DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE}
+      # This stack comes up under compose project `docker-compose` (the files
+      # live in docker-compose/, which sets the default project name), so the
+      # network it creates is `docker-compose_moatless`. The backend attaches
+      # sandbox containers to DOCKER_NETWORK, whose base default assumes the
+      # `moat docker install` project (moatless_moatless) — point it at the
+      # network this flow makes, or every sandbox start 404s. Set here so both
+      # entry points (playwright-runner.sh and a directly-brought-up stack) get
+      # it from one source.
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-docker-compose_moatless}
       # GitHub token for cloning repositories
       GITHUB_PAT: ${GITHUB_PAT}
       # GitHub proxy E2E (github_proxy test): point GithubPrApi at the

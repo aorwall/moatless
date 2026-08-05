@@ -25,7 +25,7 @@ test('INT-50: Webhook to non-existent config returns error', async ({ api }) => 
 
 // ─── INT-51: Webhook to inactive config ──────────────────────────────
 
-test('INT-51: Webhook to inactive config is ignored', async ({ api }) => {
+test('INT-51: Webhook to inactive config is rejected', async ({ api }) => {
   const repo = await api.ensureTemplateRepository()
 
   const { triggerId } = await createWebhookTriggerFixture(api, repo.id, {
@@ -35,12 +35,13 @@ test('INT-51: Webhook to inactive config is ignored', async ({ api }) => {
   // Deactivate the config
   await api.updateTaskTriggerFixture(triggerId, { active: false })
 
-  // Send message — should be accepted but ignored
+  // A deactivated loop is rejected before admission — its inbound endpoint
+  // resolves no runnable subscription, so the delivery is refused, not owned.
   const response = await api.sendWebhookMessage(triggerId, {
-    text: 'This should be ignored',
+    text: 'This should be rejected',
   })
 
-  expect(response.status).toBe(200)
+  expect(response.status).toBe(404)
 
   // Cleanup
   await api.deleteTaskTriggerFixture(triggerId).catch(() => {})
