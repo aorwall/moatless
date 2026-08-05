@@ -48,7 +48,8 @@ Options:
   -h, --help             Show this help message
 
 Environment variables (passthrough):
-  GITHUB_PAT             Required — tests/api validates it via the gh CLI
+  GITHUB_PAT             Optional — chains that create real GitHub repositories
+                         skip without it; the rest of tests/api runs
   ADMIN_PASSWORD         Admin password the suites log in with
                          (default: ci-admin-password-1234, matching docker-compose.ci.yml)
   TASK_TOKEN_SECRET      Auto-generated if unset
@@ -102,7 +103,7 @@ export ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 export ADMIN_PASSWORD="${ADMIN_PASSWORD:-ci-admin-password-1234}"
 
 if [ -z "${GITHUB_PAT:-}" ]; then
-  echo -e "${YELLOW}Warning: GITHUB_PAT is unset — tests/api/global-setup.ts will fail fast.${NC}"
+  echo -e "${YELLOW}Warning: GITHUB_PAT is unset — the Repository CRUD chain will skip, and the backend clones the template unauthenticated.${NC}"
 fi
 
 export APP_IMAGE="aorwall/moatless-vibe-backend:latest"
