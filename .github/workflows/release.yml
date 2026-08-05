@@ -46,8 +46,6 @@ jobs:
   # ── Retag images from CI commit SHA to release version ───────
   retag-images:
     needs: version
-    # Fork (soaplabs/moatless-vibe) publishes to ECR via cd-ecr.yml on
-    # fp-v* tags, not Docker Hub. Gate keeps this job upstream-only.
     if: github.repository_owner == 'aorwall'
     # Stays GitHub-hosted: the gate above means this only ever runs under
     # aorwall, where the soaplabs ARC runner pools don't exist —
@@ -93,7 +91,6 @@ jobs:
   # ── Helm chart + changelog ────────────────────────────────────
   publish-helm:
     needs: [version, retag-images]
-    # Fork-side: publish-helm runs in cd-ecr.yml against ECR.
     if: github.repository_owner == 'aorwall'
     # Stays GitHub-hosted for the same reason as retag-images above.
     runs-on: ubuntu-latest

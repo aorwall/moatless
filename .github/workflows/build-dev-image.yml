@@ -7,7 +7,7 @@
 # See scripts/shadow/README.md.
 #
 # This is intentionally a SEPARATE, manual job — NOT part of the push-to-main
-# cd-ecr.yml flow — because the dev image is a heavy (multi-GB) build used only
+# ci.yml flow — because the dev image is a heavy (multi-GB) build used only
 # by the opt-in shadow repo. Run it by hand from the Actions tab when the base
 # sandbox image or the shadow-dev dependency set has meaningfully changed. It
 # publishes mutable `:dev` and `:latest` tags, which the shadow workspace's

@@ -843,9 +843,11 @@ jobs:
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
             TASK_VERSION=${{ env.TASK_VERSION }}
-            INSPECTOR_VERSION=${{ env.INSPECTOR_VERSION }}
-          cache-from: type=gha,scope=sandbox-base
-          cache-to: type=gha,mode=max,scope=sandbox-base
+          # Registry cache — a mode=max export of this image does not fit the
+          # repo's Actions-cache budget (docker/AGENTS.md). image-manifest and
+          # oci-mediatypes make it an ordinary manifest, which Docker Hub accepts.
+          cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
   # ── Build and push the sandbox-tools image (binaries only) ──
   build-sandbox-tools:

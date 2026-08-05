@@ -126,37 +126,21 @@ Avoid the next collision:
   over editing upstream defaults. Easier to merge, easier to audit, easier to
   rip out if we ever close the fork.
 
-## ECR publishing flow
+## Image publishing flow
 
-The fork publishes to platform ECR (`111111111111.dkr.ecr.eu-north-1.amazonaws.com`)
-via `.github/workflows/cd-ecr.yml`. See that file's header comment for the
-full design. Short version:
+`ci.yml` builds and pushes every image to Docker Hub under `REGISTRY_ORG`
+(repo variable, default `aorwall`), and `publish-helm-dev` pushes the chart to
+the same org as an OCI artifact. The deployment pulls from there —
+`sandboxImage.repository` in the Helm values names `aorwall/moatless-sandbox`.
 
-| Source image | ECR repo | Dockerfile | Trigger |
-|---|---|---|---|
-| frontend | `moatless-frontend` | `docker/Dockerfile.app` | push main, tag `fp-v*` |
-| backend | `moatless-backend` | `docker/Dockerfile.backend-cross` | push main, tag `fp-v*` |
-| sandbox | `moatless-sandbox` | `docker/Dockerfile.sandbox` | push main, tag `fp-v*` |
-| helm chart | `helm-charts/moatless` | `k8s/helm/moatless-vibe/` | tag `fp-v*` only |
-
-`sandbox-base`, `sandbox-tools`, `sandbox-js`, `sandbox-java` are **not** built
-or pushed by the fork — we pull `aorwall/moatless-sandbox-{base,tools}` from
-Docker Hub.
-
-OIDC role: `GHA-ECRPush-moatless` (defined in `soaplabs/soap-infra`
-`environments/terraform/platform/ecr/services.yaml`, `moatless` entry).
-Trust is pinned to `repo:soaplabs/moatless-vibe:*` AND
-`job_workflow_ref = soaplabs/soap-platform-ci/.github/workflows/build-push-ecr.yml@refs/heads/main`.
-
-### Debugging a failed publish
-
-| Symptom | Likely cause | Fix |
+| Image | Dockerfile | Trigger |
 |---|---|---|
-| OIDC token-exchange fails | `services.yaml` `moatless` entry's `trust_repos` doesn't include `moatless-vibe`, or workflow wasn't called from `soaplabs/soap-platform-ci@main` | Verify in soap-infra; re-apply if needed |
-| `denied: ... not authorized` | ECR repo not in `services.yaml` `ecr_repos` list | Add to soap-infra and re-apply |
-| `cargo build` fails in `build-binaries` job | Toolchain drift in `rust:1.91-bookworm` | Update the container image tag in `cd-ecr.yml` |
-| Sandbox image missing `sandbox` binary | `binary-context-name: binaries` not matching `Dockerfile.sandbox`'s `--from=binaries` | Re-check `cd-ecr.yml` `publish-sandbox` job |
-| Helm push fails on tag | Chart name in `Chart.yaml` doesn't match what `publish-helm-ecr.yml` expects | Chart name is `moatless-vibe` (intentionally not renamed); ECR target subpath is `helm-charts/moatless` |
+| `moatless-frontend` | `docker/Dockerfile.app` | push main, paths filter |
+| `moatless-backend` | `docker/Dockerfile.backend-cross` | push main, paths filter |
+| `moatless-sandbox` (+ `-js` alias) | `docker/Dockerfile.sandbox` | push main, paths filter |
+| `moatless-sandbox-base` | `docker/Dockerfile.sandbox-base` | push main, paths filter |
+| `moatless-sandbox-tools` | `docker/Dockerfile.sandbox-tools` | push main, paths filter |
+| `moatless-sandbox-java:{21,25}` | `docker/Dockerfile.sandbox-java` | push main, paths filter |
 
 ### Local sandbox build (for testing)
 
@@ -173,8 +157,5 @@ The fork's image-name segments are `moatless-*` (no `-vibe`); upstream uses
 
 | Need | Repo | Path |
 |---|---|---|
-| Add a new ECR repo for the fork | soap-infra | `environments/terraform/platform/ecr/{ecr-repositories.tf,services.yaml}` |
-| Change the publish workflow API | soap-platform-ci | `.github/workflows/{build-push-ecr,publish-helm-ecr}.yml` |
-| Change what gets published or how | moatless-vibe | `.github/workflows/cd-ecr.yml` |
 | Add an upstream-bound feature | moatless-vibe (this repo) | `upstream/<name>` branch off `upstream/main`, push to `aorwall` |
 | Add a fork-only feature | moatless-vibe (this repo) | `feat/<name>` branch off `soaplabs/main` |

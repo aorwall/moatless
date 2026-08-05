@@ -1,6 +1,0 @@
-# syntax=docker/dockerfile:1.7
-
-# Pass-through Dockerfile used by cd-ecr.yml to publish the current release tag
-# for an unchanged image without rebuilding application assets.
-ARG SOURCE_IMAGE
-FROM ${SOURCE_IMAGE}
