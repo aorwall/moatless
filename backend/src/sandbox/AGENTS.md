@@ -23,6 +23,7 @@ Docker sandboxes. It runs inside `moatless-vibe-backend`.
 - The reconciler is the desired-vs-actual recovery owner. It handles woken-ready pending messages, removed-intent orphans, abandoned edges, and matching replacement generations.
 - Native provider operations must prove observed absence before strict success and surface lingering resources as `RuntimeError::NotAbsent`.
 - Server containers are data-driven from `ServerConfig`; do not hardcode server names or ports outside explicit config parsing.
+- Every sandbox and server container carries CPU and memory requests + limits. `ResourceConfig` doubles as the storage config, so a per-repo override merges per key onto the `K8S_RESOURCE_*` defaults rather than replacing the block — a storage-only or memory-only override must not leave the container BestEffort.
 - Kubernetes status reads direct from Deployments and Pods. Do not reintroduce Redis status caching.
 - The pod watcher tracks pods by `pod_name`, not only `task_id`, so superseded generations are distinguishable from replacement crashes.
 - Keep generated Kubernetes/Docker names and labels deterministic from `task_id`; preserve the 63-character Kubernetes cap in `k8s/naming.rs`.

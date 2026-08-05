@@ -845,6 +845,51 @@ fn build_dind_container(config: &Config) -> Container {
     }
 }
 
+/// Overlay a per-repo resource override onto the configured defaults, key by key.
+///
+/// An override replaces only the `cpu`/`memory` entries it names; every other
+/// key keeps its default. `ResourceConfig` also carries the storage fields
+/// (`storage`, `buildCache`, `storageMode`, ...), so a repo that configures only
+/// storage — or only memory — still gets a fully bounded container instead of a
+/// BestEffort one.
+fn merge_resources(
+    override_cfg: Option<&crate::repository::models::ResourceConfig>,
+    default_cpu_request: &str,
+    default_memory_request: &str,
+    default_cpu_limit: &str,
+    default_memory_limit: &str,
+) -> ResourceRequirements {
+    let mut requests = BTreeMap::from([
+        ("cpu".to_string(), Quantity(default_cpu_request.to_string())),
+        (
+            "memory".to_string(),
+            Quantity(default_memory_request.to_string()),
+        ),
+    ]);
+    let mut limits = BTreeMap::from([
+        ("cpu".to_string(), Quantity(default_cpu_limit.to_string())),
+        (
+            "memory".to_string(),
+            Quantity(default_memory_limit.to_string()),
+        ),
+    ]);
+
+    if let Some(cfg) = override_cfg {
+        if let Some(r) = cfg.requests.as_ref() {
+            requests.extend(r.iter().map(|(k, v)| (k.clone(), Quantity(v.clone()))));
+        }
+        if let Some(l) = cfg.limits.as_ref() {
+            limits.extend(l.iter().map(|(k, v)| (k.clone(), Quantity(v.clone()))));
+        }
+    }
+
+    ResourceRequirements {
+        limits: Some(limits),
+        requests: Some(requests),
+        ..Default::default()
+    }
+}
+
 /// Build the main sandbox container.
 #[allow(clippy::unnecessary_wraps)] // Result for consistency with build_server_containers
 fn build_sandbox_container(
@@ -1109,48 +1154,16 @@ fn build_sandbox_container(
     }
 
     // Resource requests + limits for the agent container. A per-repo override
-    // takes precedence; otherwise the global `K8S_RESOURCE_*` config applies.
-    // Without this the sandbox container is BestEffort and the first OOM/eviction
-    // target on spot nodes — see the `sandbox_resources_*` config fields.
-    let resources = if let Some(ref res) = plan.repo_config.resources {
-        ResourceRequirements {
-            limits: res.limits.as_ref().map(|l| {
-                l.iter()
-                    .map(|(k, v)| (k.clone(), Quantity(v.clone())))
-                    .collect()
-            }),
-            requests: res.requests.as_ref().map(|r| {
-                r.iter()
-                    .map(|(k, v)| (k.clone(), Quantity(v.clone())))
-                    .collect()
-            }),
-            ..Default::default()
-        }
-    } else {
-        ResourceRequirements {
-            limits: Some(BTreeMap::from([
-                (
-                    "cpu".to_string(),
-                    Quantity(config.sandbox.sandbox_resources_cpu_limit.clone()),
-                ),
-                (
-                    "memory".to_string(),
-                    Quantity(config.sandbox.sandbox_resources_memory_limit.clone()),
-                ),
-            ])),
-            requests: Some(BTreeMap::from([
-                (
-                    "cpu".to_string(),
-                    Quantity(config.sandbox.sandbox_resources_cpu_request.clone()),
-                ),
-                (
-                    "memory".to_string(),
-                    Quantity(config.sandbox.sandbox_resources_memory_request.clone()),
-                ),
-            ])),
-            ..Default::default()
-        }
-    };
+    // replaces the keys it names; the rest fall back to the global
+    // `K8S_RESOURCE_*` config. Every sandbox container is bounded — a BestEffort
+    // one is the first OOM/eviction target on spot nodes.
+    let resources = merge_resources(
+        plan.repo_config.resources.as_ref(),
+        &config.sandbox.sandbox_resources_cpu_request,
+        &config.sandbox.sandbox_resources_memory_request,
+        &config.sandbox.sandbox_resources_cpu_limit,
+        &config.sandbox.sandbox_resources_memory_limit,
+    );
 
     Ok(Container {
         name: "sandbox".to_string(),
@@ -1287,45 +1300,13 @@ fn build_server_containers(
             .resources
             .as_ref()
             .or(plan.repo_config.resources.as_ref());
-        let resources = if let Some(res) = server_resources {
-            ResourceRequirements {
-                limits: res.limits.as_ref().map(|l| {
-                    l.iter()
-                        .map(|(k, v)| (k.clone(), Quantity(v.clone())))
-                        .collect()
-                }),
-                requests: res.requests.as_ref().map(|r| {
-                    r.iter()
-                        .map(|(k, v)| (k.clone(), Quantity(v.clone())))
-                        .collect()
-                }),
-                ..Default::default()
-            }
-        } else {
-            ResourceRequirements {
-                limits: Some(BTreeMap::from([
-                    (
-                        "cpu".to_string(),
-                        Quantity(config.sandbox.resources_cpu_limit.clone()),
-                    ),
-                    (
-                        "memory".to_string(),
-                        Quantity(config.sandbox.resources_memory_limit.clone()),
-                    ),
-                ])),
-                requests: Some(BTreeMap::from([
-                    (
-                        "cpu".to_string(),
-                        Quantity(config.sandbox.resources_cpu_request.clone()),
-                    ),
-                    (
-                        "memory".to_string(),
-                        Quantity(config.sandbox.resources_memory_request.clone()),
-                    ),
-                ])),
-                ..Default::default()
-            }
-        };
+        let resources = merge_resources(
+            server_resources,
+            &config.sandbox.resources_cpu_request,
+            &config.sandbox.resources_memory_request,
+            &config.sandbox.resources_cpu_limit,
+            &config.sandbox.resources_memory_limit,
+        );
 
         containers.push(Container {
             name: container_name,
@@ -1974,10 +1955,49 @@ mod tests {
         assert_eq!(limits.get("cpu").map(|q| q.0.as_str()), Some("4"));
     }
 
+    /// `(cpu_request, memory_request, cpu_limit, memory_limit)` off a container.
+    fn resource_quantities(container: &Container) -> (&str, &str, &str, &str) {
+        let resources = container.resources.as_ref().expect("resources are set");
+        let requests = resources.requests.as_ref().expect("requests are set");
+        let limits = resources.limits.as_ref().expect("limits are set");
+        (
+            requests["cpu"].0.as_str(),
+            requests["memory"].0.as_str(),
+            limits["cpu"].0.as_str(),
+            limits["memory"].0.as_str(),
+        )
+    }
+
     #[test]
     fn sandbox_container_honors_per_repo_resource_override() {
         use crate::repository::models::ResourceConfig;
 
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(ResourceConfig {
+            requests: Some(HashMap::from([
+                ("cpu".to_string(), "500m".to_string()),
+                ("memory".to_string(), "4Gi".to_string()),
+            ])),
+            limits: Some(HashMap::from([
+                ("cpu".to_string(), "6".to_string()),
+                ("memory".to_string(), "16Gi".to_string()),
+            ])),
+            ..Default::default()
+        });
+
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        assert_eq!(
+            resource_quantities(&container),
+            ("500m", "4Gi", "6", "16Gi")
+        );
+    }
+
+    #[test]
+    fn sandbox_container_keeps_defaults_for_keys_the_override_omits() {
+        use crate::repository::models::ResourceConfig;
+
+        // A memory-only override must not drop the configured CPU request/limit.
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.resources = Some(ResourceConfig {
@@ -1987,23 +2007,28 @@ mod tests {
         });
 
         let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
-        let resources = container.resources.as_ref().unwrap();
-        assert_eq!(
-            resources
-                .requests
-                .as_ref()
-                .and_then(|r| r.get("memory"))
-                .map(|q| q.0.as_str()),
-            Some("4Gi")
-        );
-        assert_eq!(
-            resources
-                .limits
-                .as_ref()
-                .and_then(|l| l.get("memory"))
-                .map(|q| q.0.as_str()),
-            Some("16Gi")
-        );
+        assert_eq!(resource_quantities(&container), ("1", "4Gi", "4", "16Gi"));
+    }
+
+    #[test]
+    fn sandbox_container_stays_bounded_with_a_storage_only_override() {
+        use crate::repository::models::ResourceConfig;
+
+        // `ResourceConfig` doubles as the storage config. A repo that sets only
+        // storage fields must keep the global CPU/memory bounds — an empty
+        // `resources` block makes the container BestEffort and first to be
+        // evicted.
+        let config = test_config();
+        let mut plan = test_plan();
+        plan.repo_config.resources = Some(ResourceConfig {
+            storage: Some("20Gi".to_string()),
+            storage_mode: Some("node".to_string()),
+            build_cache: Some("40Gi".to_string()),
+            ..Default::default()
+        });
+
+        let container = build_sandbox_container(&config, "task-1", &plan, None).unwrap();
+        assert_eq!(resource_quantities(&container), ("1", "2Gi", "4", "8Gi"));
     }
 
     #[test]
