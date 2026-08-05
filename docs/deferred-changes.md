@@ -1,0 +1,135 @@
+# Deferred changes
+
+Changes we found while doing something else, decided not to make at the time, and
+do not want to rediscover. Every entry names the condition that makes it worth
+doing — an entry with no condition is an opinion, not a deferral, and does not
+belong here.
+
+This is not a backlog of ideas and not a place to park work nobody has looked at.
+Each entry below was reached by reading the code it points at.
+
+## Working rules
+
+The repository has deleted unmaintained markdown before. These rules are what
+keep this file from becoming that:
+
+- **Anchor by file and symbol, not line number.** Line numbers rot in a week;
+  `workspace/handlers.rs::add_workspace_repo` survives a refactor.
+- **Delete an entry when it is done.** Do not mark it done. `git log` is the
+  history; a file of crossed-out entries is noise.
+- **Delete an entry whose anchor no longer exists.** If the code moved and the
+  concern survived, re-anchor it in the same change. If the concern went away
+  with the code, it is gone — say nothing.
+- **Link reasoning, never copy it.** Where another document owns the argument,
+  point at it. Two copies disagree eventually and the reader cannot tell which
+  one is current.
+
+## Layering — the ports-and-crates program
+
+`.plans/backend-ports-and-crates.md` is authoritative for all of these: it holds
+the argument, the pricing, and the step each one blocks. Listed here only so a
+reader outside that program can see them.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| `AgentErrorSink` has one production implementation | `task/reaper.rs::AgentErrorSink`, implemented for `AppState` in `event_handler/agent_handlers.rs` | Step 10d — see below |
+| The reaper's invocation of the sink is untested | `task/reaper.rs::close_orphaned_turn` calls `close_orphaned_turn_as_error`; only the helper is covered | Step 10d, when `TaskReaper` becomes constructible from fakes |
+| `TaskReaper`'s two above-band concrete fields | `task/reaper.rs::TaskReaper::new` — `k8s: K8sClient`, `sandbox: Arc<Lifecycle>` | Step 10d — a precondition of the crate compiling, not a cleanup |
+| Credential broadcast fan-out reaches `tasks` | `credentials::CredentialService::store` auto-invokes `broadcast_to_scope` | Step 10c, and it must land with the fan-out test that does not exist |
+| `sync_config`'s body spans two bands | `repository/handlers.rs::sync_repo_config` runs a loop sync and a workspace sync | Step 10g, as a server-band composition |
+| The error-type knot | `error.rs` split, 7c's registry inversion, 8b's remainder, 8d's error half | One knot, one entry condition, recorded in the plan |
+| `AuthUser` placement | `extractors.rs::AuthUser` — Step 5's open question, recorded as 8g | Recorded in the plan |
+| `SetupRequirementCheck` is a single-implementation trait | `setup/evaluator.rs::SetupRequirementCheck` — `checks()` returns `vec![Box::new(GithubTokenRequirement)]`; recorded as 8h | When it earns a second implementation, or is collapsed into `evaluate_setup` |
+
+**On `AgentErrorSink` specifically.** It is a consumer-owned port with exactly one
+production implementation, created so the reaper stops naming `AppState` and comes
+off `scripts/appstate-composition-root-baseline.txt`. It clears the repository's
+"no trait with a single implementation" bar only because a test uses the recording
+mock. That is a real cost paid for a real edge, but it is worth revisiting rather
+than treating as settled: once 10d inverts `k8s` and `sandbox` to ports, the
+reaper's dependencies are uniform, and the question becomes whether the sink is
+still the right shape or whether the error-close path should move instead. Decide
+it then, with the whole constructor visible, rather than defending the port
+because it exists.
+
+## Correctness
+
+Two defects found by reading, both real, neither urgent enough to have been fixed
+in the change that found them.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Control-scoped writes discard the bool that denies them | `workspace/handlers.rs` — `create_workspace`, `update_workspace`, `override_workspace`, `add_workspace_repo`, `remove_workspace_repo`, `set_workspace_primary_repo` (nine call sites) | Needs a design decision plus a new test; see below |
+| The docker preview-server readiness timeout never fires | `sandbox/docker/status_resolver.rs::inspect_server_container` | Tracked by the `test.fixme` on SERVER-02 in `tests/api/specs/sandbox-errors.spec.ts` |
+
+**Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
+`remove_repo` and `set_primary` all return `bool`, and the trait documents it:
+*"Returns `false` when nothing changed, row is missing, or caller cannot control
+the row."* Nine call sites across six handlers discard it, then re-fetch under the
+**read** filter and return 200 — so a caller who may read a workspace but not
+control it gets a success response for a write that did nothing.
+`delete_workspace` in the same file already does it right
+(`let deleted = …; if !deleted { NotFound }`) and is the precedent to follow.
+
+`override_workspace` is the sharpest case: its own comment states that
+*"the DAO `control_filter` ensures only the owner/admin can do this"*, and it
+then discards the only signal that `control_filter` matched nothing. The code
+documents a guarantee it does not check.
+
+The fix does not transfer from the repository equivalent, which is why it is
+deferred rather than copied. `PgRepositoryDao::update` always binds `updated_at`,
+so `rows_affected() > 0` holds for any authorized caller and `false` means
+control-miss alone. `PgWorkspaceDao::update` returns `Ok(false)` for an empty
+patch *before* reaching the control filter, so a naive `if !applied { NotFound }`
+would 404 an authorized no-op `PATCH` — a new bug shipped as a security fix. Pick
+one of: short-circuit the empty patch in the handler, give the DAO a return type
+that separates "nothing to do" from "you may not", or always push `updated_at`.
+Whichever is chosen, the empty-patch path needs a test; nothing covers it today.
+
+**Preview-server readiness.** A server whose start command never binds its port
+should reach `failed` after `startupTimeoutSeconds`. Under docker it stays
+non-terminal. The gap is one shape — an absent `StartedAt` is treated as "keep
+waiting" — across four paths: `running` with the port closed and `StartedAt`
+absent or unparseable falls through to `Starting` with no `else`; `created` and
+`restarting` return `Starting` with no timeout check at all; the catch-all and
+the inspect-404 arm both return `Stopped`. None is terminal to the poll.
+
+Fixing the match arms alone is not enough and cannot be written as such: the
+function receives only the container name, port and timeout, so on the arms where
+the container never started there is no timestamp to measure elapsed time
+against. The fix threads a "start requested at" instant through the signature.
+The doc comment on that function is accurate — it scopes its guarantee to
+`running` — so this is a design gap, not a stale comment; update it when the
+behaviour widens.
+
+## Test and CI structure
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| The E2E client hand-writes routes it could generate | `tests/shared/moat-api.ts` — 65 raw `(method, path)` literals | When route drift next costs a run, or alongside any broad route change |
+| `E2E_GITHUB_PAT` is unset on the repository | `tests/shared/profile.ts` gates `githubRepositories` on it | A repository-settings change; un-skips 7 tests |
+| No `cargo fmt --all --check` gate | `ci.yml`; a standing diff in `adapters/providers/github_pr/api.rs` | Sweep and gate together, so the gate starts green |
+| Nothing alerts when `main` goes red | `ci.yml` | Pairs with a nightly build for the image tier |
+
+**Route literals.** The suite already imports generated *types* from
+`@moatless/api-client` (`tests/shared/types.ts`, `tests/shared/wait-helpers.ts`),
+and `bun run type:check:e2e` now runs in CI, so type drift fails at the commit.
+Route and method drift is caught by nothing until a run. That asymmetry is why a
+single upstream change fans out into a cluster of red tests rather than one
+compile error — `PUT` vs `PATCH` and `/reset` vs `/reset-git` both reached CI
+this way. Driving the routes off the generated client is the change; it is
+sizeable and belongs on its own.
+
+## Dead or misleading
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| `MOATLESS_DEFAULT_RUN_AS_USER_ID` is read by nothing | `config.rs::default_run_as_user_id` — declared, populated from env, never consumed | Decide whether it is an unfinished feature or removable |
+| The sandbox images are documented as two products | `docs/docker-builds.md`, `docs/sandbox-architecture.md`, `docker-compose/README.md`, the `docker-install` and `docker-testing` skills, and the commented alternative in both `.env.example` files | Any pass over the sandbox image docs |
+
+**Sandbox image docs.** These describe a slim JavaScript image and an alternative
+full-polyglot image as two things you can choose between. CI builds one image
+from `docker/Dockerfile.sandbox` and pushes it under two repository names —
+`moatless-sandbox` and the back-compat `moatless-sandbox-js` alias — while
+`Dockerfile.sandbox-full` is local-only and published nowhere. The "alternative"
+the docs offer is an image nobody builds.

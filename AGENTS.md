@@ -116,6 +116,7 @@ Conventional commits, enforced by commitlint; header ≤100 chars. Types: `feat 
 ## Architecture & conventions
 - Domain glossary: `CONTEXT.md`. Historical markdown specs and ADRs were removed because they were not maintained; use current code/tests as authority and docs only as routing aids. Read `.plans/` only when asked to implement or review that specific plan.
 - Durable local guidelines and decisions go in the nearest relevant `AGENTS.md`. When editing a path, read the `AGENTS.md` files in that directory and its parents.
+- Found a real problem you are deliberately not fixing now? Record it in `docs/deferred-changes.md` with an anchor and the condition that makes it worth doing. Check that file before starting work in an area — it is where the known gaps are, and its own rules keep it from rotting.
 - The repo owns its own agent-config compatibility: every `AGENTS.md` has a committed `CLAUDE.md` symlink beside it, and `.claude/skills` is a committed symlink to `.agents/skills`. Nothing creates these at runtime — add a new `AGENTS.md` → commit `ln -s AGENTS.md CLAUDE.md` alongside it.
 - Keep local `AGENTS.md` guidance concise and operational: what future agents must do, what they must not do, and the current reason when it is not obvious. Do not add history dumps, plan transcripts, or long rejected-option writeups.
 - Do not write essays in code comments. Comments should explain local intent, invariants, or non-obvious mechanics; durable rationale and cross-cutting decisions belong in the nearest relevant `AGENTS.md`.
