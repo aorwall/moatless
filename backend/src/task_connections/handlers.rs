@@ -3,7 +3,7 @@
 //! Lists tasks with their external connections (GitHub PR / Linear issue /
 //! Slack thread), each connection's persisted external status, and
 //! per-connection inbound/outgoing message counts. Modeled on
-//! [`super::handlers::list_tasks`]: list tasks → batch bindings → batch message
+//! [`crate::task::handlers::list_tasks`]: list tasks → batch bindings → batch message
 //! counts → ask each binding's adapter to name and link its subject → optional
 //! live status refresh.
 
@@ -21,7 +21,8 @@ use moatless_api_schemas::task_connections::{
     TaskConnectionsResponse,
 };
 
-use crate::adapters::models::{ExternalStatus, TaskBinding};
+use moatless_adapter_model::models::{ExternalStatus, TaskBinding};
+
 use crate::adapters::{AdapterBindingStatus, Adapters};
 use crate::auth::users::UserDao;
 use crate::bindings::dao::TaskBindingDao;
@@ -29,9 +30,8 @@ use crate::bindings::status_service;
 use crate::extractors::AuthUser;
 use crate::message::dao::{ConnectionMessageCount, MessageDao};
 use crate::repository::dao::RepositoryDao;
-
-use super::dao::{TaskDao, TaskFilter};
-use super::error::TaskError;
+use crate::task::dao::{TaskDao, TaskFilter};
+use crate::task::error::TaskError;
 
 /// Live-refresh a connection's status only when its persisted status is older
 /// than this (or never set).
@@ -221,7 +221,7 @@ pub async fn list_task_connections(
 /// Get a single task's external connections, statuses, and message counts.
 ///
 /// Per-task counterpart to [`list_task_connections`]. Unlike the admin list,
-/// this is scope-checked like [`super::handlers::get_task`] (not admin-gated),
+/// this is scope-checked like [`crate::task::handlers::get_task`] (not admin-gated),
 /// so any user who can see the task can see its connections.
 #[utoipa::path(
     get,

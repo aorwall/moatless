@@ -756,6 +756,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::skill::routes::SkillApiDoc;
     use crate::tag::routes::TagApiDoc;
     use crate::task::routes::TaskApiDoc;
+    use crate::task_connections::routes::TaskConnectionsApiDoc;
     use crate::task_event::routes::TaskEventApiDoc;
     use crate::team::routes::TeamApiDoc;
     use crate::workspace::routes::WorkspaceApiDoc;
@@ -814,6 +815,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(AgentApiDoc::openapi());
     merged.merge(AuthApiDoc::openapi());
     merged.merge(TaskApiDoc::openapi());
+    merged.merge(TaskConnectionsApiDoc::openapi());
     merged.merge(MessageApiDoc::openapi());
     merged.merge(FeedbackApiDoc::openapi());
     merged.merge(FileStorageApiDoc::openapi());
@@ -840,4 +842,29 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
         .build();
 
     merged
+}
+
+#[cfg(test)]
+mod openapi_dump_tests {
+    use super::build_merged_openapi;
+
+    /// The `--dump-openapi` builder feeds CI's TS-client generation and is a
+    /// second, independent assembly site from the runtime router. A router
+    /// whose ApiDoc is not merged here compiles clean but silently drops its
+    /// endpoints from the generated client. Pin the task-connection endpoints,
+    /// which live in their own ApiDoc rather than the task router's.
+    #[test]
+    fn dump_includes_task_connection_endpoints() {
+        let spec = serde_json::to_value(build_merged_openapi()).unwrap();
+        let paths = &spec["paths"];
+        for p in [
+            "/api/v1/admin/task-connections",
+            "/api/v1/tasks/{task_id}/connections",
+        ] {
+            assert!(
+                paths.get(p).is_some(),
+                "build_merged_openapi() is missing {p}; its ApiDoc is not merged into the dump builder"
+            );
+        }
+    }
 }
