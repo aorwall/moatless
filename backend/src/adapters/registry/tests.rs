@@ -189,16 +189,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
 }
 
 #[tokio::test]
-async fn registry_keeps_typed_provider_handles() {
-    let providers = registry_with_all_current_adapters();
-
-    assert!(providers.github_pr().is_some());
-    assert!(providers.linear().is_some());
-    assert!(providers.slack().is_some());
-    assert!(providers.telegram().is_some());
-}
-
-#[tokio::test]
 async fn direct_message_registration_requires_direct_destination_send() {
     let providers = registry_with_all_current_adapters();
 

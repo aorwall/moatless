@@ -183,8 +183,12 @@ async fn emit_linear_close_response(
     }
     // Append the `Moatless task:` footer so the inbound echo filter drops the
     // resulting webhook instead of forwarding it back into the task.
-    if let Some(footer) =
-        crate::adapters::footer::task_comment_footer(state, &binding.task_id).await
+    if let Some(footer) = crate::bindings::footer::task_comment_footer(
+        state.tasks.as_ref(),
+        &state.config.auth.frontend_url,
+        &binding.task_id,
+    )
+    .await
     {
         text.push_str(&footer);
     }

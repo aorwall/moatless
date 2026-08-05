@@ -36,13 +36,12 @@ use moatless_vibe_backend::adapters::linear::ingress::{
 };
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::adapters::test_support::ProviderStub;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 
 use common::{
-    linear_config, make_repository_row, seed_linear_app, seed_team, test_app_state_with_config,
+    linear_config, make_repository_row, seed_linear_app, seed_team, test_app_state_with_linear,
     test_config, USER_1,
 };
 
@@ -74,11 +73,10 @@ async fn linear_stub() -> ProviderStub {
 }
 
 fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
-    let mut adapters = Adapters::new();
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), Some(stub.base_url()));
-    adapters.register_linear(Arc::new(LinearAdapter::new(&config.linear, pool.clone())));
-    test_app_state_with_config(pool.clone(), Some(Arc::new(adapters)), config)
+    let linear = Arc::new(LinearAdapter::new(&config.linear, pool.clone()));
+    test_app_state_with_linear(pool.clone(), linear, config)
 }
 
 /// Call `receive` the way the route does, minus the route.
@@ -100,10 +98,9 @@ async fn deliver_signed_bytes(
         String::new()
     };
     let provider = state
-        .adapters
+        .provider_handles
+        .linear
         .as_ref()
-        .expect("adapters registered")
-        .linear()
         .expect("Linear adapter registered");
     receive(state, provider, &signature, &body).await
 }
@@ -585,10 +582,9 @@ async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgP
 
     let body = serde_json::to_vec(&comment_envelope("create", "c-1")).expect("serialize");
     let provider = state
-        .adapters
+        .provider_handles
+        .linear
         .as_ref()
-        .expect("adapters registered")
-        .linear()
         .expect("Linear adapter registered");
     let rejection = receive(&state, provider, "00ff", &body)
         .await

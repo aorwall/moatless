@@ -5,7 +5,7 @@ use sqlx::AssertSqlSafe;
 
 use crate::db::DbPool;
 
-use crate::adapters::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+use moatless_adapter_model::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 
 #[async_trait::async_trait]
 pub trait TaskBindingDao: Send + Sync {

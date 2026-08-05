@@ -86,11 +86,7 @@ pub(super) async fn execute(
         return Ok(());
     }
 
-    let Some(adapter) = state
-        .adapters
-        .as_ref()
-        .and_then(|adapters| adapters.github_pr())
-    else {
+    let Some(adapter) = state.provider_handles.github_pr.as_ref() else {
         return Ok(());
     };
 

@@ -73,7 +73,7 @@ impl AdapterBindingReply for SlackAdapter {
         let app_key =
             crate::adapter_apps::app_key_from_transport_config(&_connection.transport_config);
         let app = self.app(app_key).await?;
-        let thread = crate::bindings::runtime::binding_context(binding);
+        let thread = moatless_adapter_model::models::binding_context(binding);
         let _config = rule.map_or_else(
             || LoopContext {
                 id: binding.loop_id.clone().unwrap_or_default(),
@@ -100,7 +100,7 @@ impl AdapterBindingReply for SlackAdapter {
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
             },
-            |r| crate::bindings::runtime::subscription_context(r, "slack"),
+            |r| moatless_adapter_model::models::subscription_context(r, "slack"),
         );
         let coordinates = subject::thread_coordinates(&thread.destination_config);
         let channel = coordinates

@@ -14,19 +14,28 @@ use moatless_api_schemas::enums::AdapterKind;
 
 mod bootstrap;
 
+/// The concrete per-provider handles the composition root owns, projected to a
+/// provider's own handlers by `FromRef<AppState>`.
+///
+/// A provider's handlers need methods its concrete adapter has and the `Adapter`
+/// trait does not, so they take `State(p): State<Option<Arc<ConcreteAdapter>>>`
+/// off the root rather than reaching back through the registry that holds the
+/// trait object. Each is `Some` exactly when the registry has that provider;
+/// `from_config` fills all four, and a build with no adapters leaves all four
+/// `None`.
+#[derive(Clone, Default)]
+pub struct ProviderHandles {
+    pub github_pr: Option<Arc<super::github_pr::adapter::GithubPrAdapter>>,
+    pub linear: Option<Arc<super::linear::adapter::LinearAdapter>>,
+    pub slack: Option<Arc<super::slack::adapter::SlackAdapter>>,
+    pub telegram: Option<Arc<super::telegram::adapter::TelegramAdapter>>,
+}
+
 /// Registry of external adapters keyed by AdapterKind.
 ///
-/// Alongside the trait-object map, the registry keeps a typed handle for each
-/// adapter that has concrete-only methods, so code inside an adapter's own
-/// module reaches it without downcasting.
-///
-/// For those four kinds the typed registrar is the only way in: it sets the
-/// handle and inserts into the map in one call. The trait-object insert is
-/// private to this module, so no caller can add one of them to the map and
-/// leave its handle unset. Apart from those registrars, the only callers that
-/// reach it — and so the only ones that insert without a handle — are
-/// `register_webhook`, whose adapter has no concrete-only methods and hence no
-/// handle, and the tests.
+/// The trait-object map is the whole registry: cross-provider code dispatches
+/// through it, and each provider's concrete handle lives on the composition root
+/// (`ProviderHandles`), not here.
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
@@ -40,10 +49,6 @@ pub struct Adapters {
     reactions: HashMap<AdapterKind, Arc<dyn AdapterReactions>>,
     inbound_presentations: HashMap<AdapterKind, Arc<dyn AdapterInboundPresentation>>,
     binding_statuses: HashMap<AdapterKind, Arc<dyn AdapterBindingStatus>>,
-    github_pr: Option<Arc<super::github_pr::adapter::GithubPrAdapter>>,
-    linear: Option<Arc<super::linear::adapter::LinearAdapter>>,
-    slack: Option<Arc<super::slack::adapter::SlackAdapter>>,
-    telegram: Option<Arc<super::telegram::adapter::TelegramAdapter>>,
 }
 
 impl Default for Adapters {
@@ -66,10 +71,6 @@ impl Adapters {
             reactions: HashMap::new(),
             inbound_presentations: HashMap::new(),
             binding_statuses: HashMap::new(),
-            github_pr: None,
-            linear: None,
-            slack: None,
-            telegram: None,
         }
     }
 
@@ -139,8 +140,9 @@ impl Adapters {
         self.binding_statuses.insert(kind, provider);
     }
 
-    /// The Webhook adapter has no concrete-only methods, so it has no typed
-    /// handle and lives in the map alone.
+    /// The Webhook adapter has no concrete-only methods, so no handler needs a
+    /// concrete handle to it: it has no `ProviderHandles` entry and lives only
+    /// as a trait object.
     pub fn register_webhook(&mut self, provider: Arc<super::webhook::adapter::WebhookAdapter>) {
         self.register_trait_object(provider.clone());
         self.register_binding_reply(provider.clone());
@@ -158,8 +160,7 @@ impl Adapters {
         self.register_message_reply(provider.clone());
         self.register_reactions(provider.clone());
         self.register_inbound_presentation(kind, provider.clone());
-        self.register_binding_status(kind, provider.clone());
-        self.github_pr = Some(provider);
+        self.register_binding_status(kind, provider);
     }
 
     pub fn register_linear(&mut self, provider: Arc<super::linear::adapter::LinearAdapter>) {
@@ -170,8 +171,7 @@ impl Adapters {
         self.register_direct_destination(provider.clone());
         self.register_post_binding_followup(provider.clone());
         self.register_inbound_presentation(kind, provider.clone());
-        self.register_binding_status(kind, provider.clone());
-        self.linear = Some(provider);
+        self.register_binding_status(kind, provider);
     }
 
     pub(crate) fn register_slack(&mut self, provider: Arc<super::slack::adapter::SlackAdapter>) {
@@ -184,8 +184,7 @@ impl Adapters {
         self.register_direct_message(provider.clone());
         self.register_new_thread(provider.clone());
         self.register_reactions(provider.clone());
-        self.register_inbound_presentation(kind, provider.clone());
-        self.slack = Some(provider);
+        self.register_inbound_presentation(kind, provider);
     }
 
     pub(crate) fn register_telegram(
@@ -199,28 +198,7 @@ impl Adapters {
         self.register_message_reply(provider.clone());
         self.register_new_thread(provider.clone());
         self.register_reactions(provider.clone());
-        self.register_inbound_presentation(kind, provider.clone());
-        self.telegram = Some(provider);
-    }
-
-    /// Typed handle to the GitHub PR adapter, for code inside its own module.
-    pub(crate) fn github_pr(&self) -> Option<&super::github_pr::adapter::GithubPrAdapter> {
-        self.github_pr.as_deref()
-    }
-
-    /// Typed handle to the Linear adapter, for code inside its own module.
-    pub fn linear(&self) -> Option<&super::linear::adapter::LinearAdapter> {
-        self.linear.as_deref()
-    }
-
-    /// Typed handle to the Slack adapter, for code inside its own module.
-    pub fn slack(&self) -> Option<&super::slack::adapter::SlackAdapter> {
-        self.slack.as_deref()
-    }
-
-    /// Typed handle to the Telegram adapter, for code inside its own module.
-    pub(crate) fn telegram(&self) -> Option<&super::telegram::adapter::TelegramAdapter> {
-        self.telegram.as_deref()
+        self.register_inbound_presentation(kind, provider);
     }
 
     pub fn get(&self, adapter_kind: AdapterKind) -> Option<&Arc<dyn Adapter>> {

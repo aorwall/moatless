@@ -7,11 +7,11 @@ pub use moatless_api_schemas::adapters::*;
 pub use moatless_api_schemas::bindings::*;
 pub use moatless_api_schemas::loops::*;
 
-use crate::adapters::common::parse_adapter_kind;
+use moatless_adapter_model::models::parse_adapter_kind;
 
 pub fn task_binding_summary_from_binding(
-    binding: &crate::adapters::models::TaskBinding,
-    subscription: Option<&crate::adapters::models::SubscriptionMatch>,
+    binding: &moatless_adapter_model::models::TaskBinding,
+    subscription: Option<&moatless_adapter_model::models::SubscriptionMatch>,
 ) -> TaskBindingSummary {
     let source_id = subscription.map_or_else(
         || binding.subject_key.clone(),

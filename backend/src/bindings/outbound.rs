@@ -7,9 +7,9 @@ use crate::state::AppState;
 use crate::task_activities::mapping::ConversationWrite;
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{OutboundFile, OutboundReply};
 use crate::adapters::Adapters;
 use crate::bindings::metrics::record_outbound;
+use moatless_adapter_model::models::{OutboundFile, OutboundReply};
 use moatless_backend_core::scope::ScopeContext;
 
 /// Send a message directly through a subscription loop.
@@ -76,7 +76,7 @@ pub async fn direct_send_to_rule(
         is_error: false,
         files,
     };
-    let config = crate::bindings::runtime::subscription_context(&rule, adapter_label);
+    let config = moatless_adapter_model::models::subscription_context(&rule, adapter_label);
     let thread_info = match provider.send_message(&config, &reply).await {
         Ok(info) => info,
         Err(e) => {
@@ -134,7 +134,12 @@ pub(crate) async fn maybe_task_comment_footer(
 ) -> Option<String> {
     match adapter_kind {
         crate::adapters::AdapterKind::GithubPr | crate::adapters::AdapterKind::Linear => {
-            crate::adapters::footer::task_comment_footer(state, task_id).await
+            crate::bindings::footer::task_comment_footer(
+                state.tasks.as_ref(),
+                &state.config.auth.frontend_url,
+                task_id,
+            )
+            .await
         }
         _ => None,
     }
@@ -377,7 +382,7 @@ pub(crate) async fn persist_outbound_stub_for_binding(
     state: &AppState,
     task_id: &str,
     text: &str,
-    binding: &crate::adapters::models::TaskBinding,
+    binding: &moatless_adapter_model::models::TaskBinding,
     adapter_label: &str,
 ) -> Option<String> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);

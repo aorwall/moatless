@@ -9,6 +9,7 @@ mod common;
 
 mod adapter_connection_delete_test;
 mod adapter_delivery_github_linear_test;
+mod adapter_from_config_test;
 mod adapter_inbound_delivery_test;
 mod agent_handlers_hooks_test;
 mod agent_handlers_per_block_test;

@@ -16,7 +16,7 @@
 //! Identity plays no part: the resolver is never given a user identity. A task
 //! is passed over only where it can be *named* as the author of what arrived.
 
-use crate::adapters::models::{Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+use moatless_adapter_model::models::{Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 
 /// What the event says about who wrote it, resolved before the resolver runs.
 ///
@@ -101,7 +101,7 @@ fn or_everyone<'b>(
 ///
 /// Stated as the negation of the responder direction, which is deliberate and
 /// is the taxonomy's own rule — see the origin constants in
-/// [`crate::adapters::models`]. The responder has exactly one origin, the one
+/// [`moatless_adapter_model::models`]. The responder has exactly one origin, the one
 /// the router writes from an inbound event; every other origin means the task
 /// reached out first. Matching a list of producers instead is what went stale
 /// once, when `task_owned` existed but was not declared, and every Linear
@@ -113,11 +113,11 @@ fn is_producer(binding: &TaskBinding) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{resolve_recipients, EventProvenance};
-    use crate::adapters::models::{
+    use chrono::Utc;
+    use moatless_adapter_model::models::{
         Audience, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
         TASK_OWNED_BINDING_ORIGIN,
     };
-    use chrono::Utc;
 
     /// A binding is identified in these tests by its task id; every other column
     /// is scenery. `origin` is the only field the resolver reads besides

@@ -1,11 +1,10 @@
 //! Persistence helpers for `adapter_connections`.
 
-use sqlx::AssertSqlSafe;
+use sqlx::{AssertSqlSafe, PgPool};
 
-use crate::db::DbPool;
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
 
-use crate::adapters::models::AdapterConnection;
+use crate::models::AdapterConnection;
 
 #[async_trait::async_trait]
 pub trait AdapterConnectionDao: Send + Sync {
@@ -55,14 +54,14 @@ pub trait AdapterConnectionDao: Send + Sync {
     async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error>;
 }
 
-pub struct PgAdapterConnectionDao(DbPool);
+pub struct PgAdapterConnectionDao(PgPool);
 
 impl PgAdapterConnectionDao {
     /// Construct over a pool. The only way to build one — ad-hoc construction
     /// at use sites is what the composition-root invariant bans, so the field
     /// is private and callers take an `Arc<dyn AdapterConnectionDao>` port
     /// instead.
-    pub fn new(pool: DbPool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self(pool)
     }
 }

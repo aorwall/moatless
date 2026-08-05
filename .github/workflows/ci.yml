@@ -180,6 +180,19 @@ jobs:
       - name: AppState is named only by the composition root and the routing tables
         run: ./scripts/check-appstate-composition-root.sh
 
+  # Step 7 invariant — bindings does not reach up into adapters. A shrinking
+  # baseline (scripts/bindings-adapters-baseline.txt) tracks the bindings files
+  # still naming `crate::adapters` while the cycle is untangled; each slice
+  # deletes its own entries. Same string/comment-blanking tokenizer as the
+  # AppState check, no Rust build.
+  bindings-adapters-baseline:
+    name: bindings->adapters untangle baseline
+    runs-on: staging-runners
+    steps:
+      - uses: actions/checkout@v6
+      - name: bindings names crate::adapters only in the shrinking baseline
+        run: ./scripts/check-bindings-adapters-baseline.sh
+
   toolchain-drift:
     name: Sandbox toolchain drift
     runs-on: staging-runners

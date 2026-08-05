@@ -123,6 +123,8 @@ moatless-api-schemas = { path = "../crates/api-schemas", features = ["openapi", 
 
 # Pure backend access-control policy and scope types
 moatless-backend-core = { path = "../crates/backend-core", features = ["database", "openapi"] }
+# Adapter domain types + adapter_connections persistence (lifted out of adapters/)
+moatless-adapter-model = { path = "../crates/adapter-model" }
 moatless-t3code = { path = "../crates/t3code" }
 
 # Claude agent SDK types (for OpenAPI schema generation)

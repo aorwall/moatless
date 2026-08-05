@@ -11,6 +11,9 @@ use serde::Deserialize;
 use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
+// `parse_adapter_kind` now lives in `moatless-adapter-model`; re-exported so the
+// handler-support callers here and in `loops`/`task` keep their path unchanged.
+pub(crate) use crate::adapters::models::parse_adapter_kind;
 use crate::loops::dao::{LoopRecord, LoopSourceRow};
 use crate::state::AppState;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
@@ -26,10 +29,6 @@ pub struct AdapterFilter {
 pub struct LoopFilter {
     pub kind: Option<LoopKind>,
     pub adapter_kind: Option<AdapterKind>,
-}
-
-pub(crate) fn parse_adapter_kind(adapter_kind: &str) -> AdapterKind {
-    AdapterKind::parse(adapter_kind).unwrap_or(AdapterKind::Webhook)
 }
 
 pub(crate) fn adapter_connection_response(row: &AdapterConnection) -> AdapterConnectionResponse {

@@ -7,6 +7,8 @@
 //! file, which is what lets a test drive the whole path without building a
 //! `Request`.
 
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -16,6 +18,7 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
+use super::adapter::LinearAdapter;
 use super::ingress::{IngressError, Outcome};
 
 #[utoipa::path(
@@ -27,24 +30,19 @@ use super::ingress::{IngressError, Outcome};
 )]
 pub async fn linear_webhook(
     State(state): State<AppState>,
+    State(linear_provider): State<Option<Arc<LinearAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, AdapterError> {
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
-
-    let linear_provider = providers
-        .linear()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
+    let linear_provider =
+        linear_provider.ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
 
     let signature = headers
         .get("linear-signature")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    match super::ingress::receive(&state, linear_provider, signature, &body).await {
+    match super::ingress::receive(&state, &linear_provider, signature, &body).await {
         Ok(Outcome::Admitted { event_type, .. }) => {
             record_webhook("linear", "success", "", &event_type, "", "");
         }

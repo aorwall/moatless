@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -9,6 +11,7 @@ use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
+use super::adapter::SlackAdapter;
 use super::ingress::{Received, WebhookRequest};
 
 #[utoipa::path(
@@ -20,17 +23,12 @@ use super::ingress::{Received, WebhookRequest};
 )]
 pub async fn slack_webhook(
     State(state): State<AppState>,
+    State(slack_provider): State<Option<Arc<SlackAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, AdapterError> {
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("slack".into()))?;
-
-    let slack_provider = providers
-        .slack()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("slack".into()))?;
+    let slack_provider =
+        slack_provider.ok_or_else(|| AdapterError::AdapterNotConfigured("slack".into()))?;
 
     let request = WebhookRequest {
         timestamp: header_value(&headers, "x-slack-request-timestamp"),
@@ -38,7 +36,7 @@ pub async fn slack_webhook(
         body: &body,
     };
 
-    match super::ingress::receive(&state, slack_provider, request).await {
+    match super::ingress::receive(&state, &slack_provider, request).await {
         // Slack's endpoint check wants the challenge echoed in the body.
         Ok(Received::Challenge(challenge)) => Ok((StatusCode::OK, challenge).into_response()),
         // No metric: the delivery worker records the outcome of the work that

@@ -40,7 +40,6 @@ use sqlx::PgPool;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::Scope;
 use moatless_vibe_backend::state::AppState;
@@ -48,7 +47,7 @@ use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{
     drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row, seed_team,
-    test_app_state_with_config, test_config, USER_1,
+    test_app_state_with_linear, test_config, USER_1,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -65,11 +64,10 @@ type HmacSha256 = Hmac<Sha256>;
 /// between deliveries, so two of these stand in for two pods — and for one pod
 /// restarted between them.
 fn replica(pool: &PgPool) -> AppState {
-    let mut adapters = Adapters::new();
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), None);
-    adapters.register_linear(Arc::new(LinearAdapter::new(&config.linear, pool.clone())));
-    test_app_state_with_config(pool.clone(), Some(Arc::new(adapters)), config)
+    let linear = Arc::new(LinearAdapter::new(&config.linear, pool.clone()));
+    test_app_state_with_linear(pool.clone(), linear, config)
 }
 
 /// Deliver a signed envelope the way Linear does, and return the status the
@@ -84,9 +82,14 @@ async fn deliver(state: &AppState, envelope: &serde_json::Value) -> StatusCode {
     let mut headers = HeaderMap::new();
     headers.insert("linear-signature", signature.parse().expect("header value"));
 
-    linear_webhook(State(state.clone()), headers, Bytes::from(body))
-        .await
-        .expect("Linear is acknowledged")
+    linear_webhook(
+        State(state.clone()),
+        State(state.provider_handles.linear.clone()),
+        headers,
+        Bytes::from(body),
+    )
+    .await
+    .expect("Linear is acknowledged")
 }
 
 /// Run the real worker until every admitted record is terminal, then stop it,

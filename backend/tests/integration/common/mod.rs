@@ -341,7 +341,11 @@ pub fn test_config() -> Config {
 /// Build an AppState with a real PgPool and mock sandbox capabilities.
 #[allow(dead_code)]
 pub fn test_app_state(pool: PgPool) -> AppState {
-    test_app_state_with_adapters(pool, None)
+    test_app_state_with_adapters(
+        pool,
+        None,
+        moatless_vibe_backend::adapters::ProviderHandles::default(),
+    )
 }
 
 /// Build an AppState carrying an adapter registry, for tests that drive an
@@ -355,8 +359,40 @@ pub fn test_app_state(pool: PgPool) -> AppState {
 pub fn test_app_state_with_adapters(
     pool: PgPool,
     adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
+    provider_handles: moatless_vibe_backend::adapters::ProviderHandles,
 ) -> AppState {
-    test_app_state_with_config(pool, adapters, test_config())
+    test_app_state_with_config(pool, adapters, provider_handles, test_config())
+}
+
+/// Build an AppState carrying one Linear adapter, for tests that drive an
+/// inbound Linear route. The one `Arc` derives both places the adapter has to
+/// appear and be the same instance: the migrated webhook handler resolves it
+/// through the concrete handle (`state.provider_handles.linear`), and the
+/// delivery worker finds it as a trait object in `state.adapters`. Taking the
+/// `Arc` rather than a whole `ProviderHandles` is what makes the two agree by
+/// construction — there is no way to pass a handle the registry does not get.
+/// Linear is the only provider any test builds by hand; the rest reach the
+/// registry through `Adapters::from_config`.
+#[allow(
+    dead_code,
+    reason = "this module is compiled into every test binary; each one uses a subset of it"
+)]
+pub fn test_app_state_with_linear(
+    pool: PgPool,
+    linear: Arc<moatless_vibe_backend::adapters::linear::adapter::LinearAdapter>,
+    config: Config,
+) -> AppState {
+    let mut registry = moatless_vibe_backend::adapters::Adapters::new();
+    registry.register_linear(linear.clone());
+    test_app_state_with_config(
+        pool,
+        Some(Arc::new(registry)),
+        moatless_vibe_backend::adapters::ProviderHandles {
+            linear: Some(linear),
+            ..Default::default()
+        },
+        config,
+    )
 }
 
 /// [`test_app_state_with_adapters`] with the config chosen by the caller.
@@ -373,6 +409,7 @@ pub fn test_app_state_with_adapters(
 pub fn test_app_state_with_config(
     pool: PgPool,
     adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
+    provider_handles: moatless_vibe_backend::adapters::ProviderHandles,
     config: Config,
 ) -> AppState {
     let ports = compose(pool.clone(), &config);
@@ -401,6 +438,7 @@ pub fn test_app_state_with_config(
         None, // events
         None, // s3
         adapters,
+        provider_handles,
     )
 }
 

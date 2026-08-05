@@ -116,7 +116,7 @@ pub(super) async fn receive(
         verify_secret(&subscription, secret_header).map_err(IngressError::Ingress)?;
     }
 
-    let config = crate::bindings::runtime::subscription_context(&subscription, "telegram");
+    let config = moatless_adapter_model::models::subscription_context(&subscription, "telegram");
     let tg_config = TelegramAdapterConfig::from_config(&config);
     let api = adapter
         .app_api(crate::adapter_apps::app_key_from_transport_config(

@@ -9,22 +9,23 @@
 //! agent's own comment back via webhook, [`parse_task_id_from_body`] recovers
 //! the authoring task id from the footer URL so we can drop only that task's
 //! own echo (no hidden HTML marker required).
-
-use crate::state::AppState;
-use moatless_backend_core::scope::ScopeContext;
+//!
+//! This is the pure render/parse layer. The wrapper that loads a task's name
+//! through a DAO before rendering lives in the binding runtime
+//! (`bindings::footer::task_comment_footer`), where the port belongs.
 
 /// Footer marker so we can detect if the URL was already appended (and skip
 /// re-appending on retries). Stable across runs. Shared with the GitHub PR-body
 /// footer (`adapters::github_pr::shell_reconcile::compose_footer` and the typed
 /// `/api/v1/github/*` endpoints), which embed the same marker.
-pub(crate) const FOOTER_MARKER: &str = "Moatless task:";
+pub const FOOTER_MARKER: &str = "Moatless task:";
 
 /// Format the footer suffix from already-resolved inputs. Returns `None` when
 /// `frontend_url` is empty (matches the PR-body footer behaviour in
 /// `adapters::github_pr::shell_reconcile`). The string includes the leading
 /// separator, e.g.
 /// `"\n\n---\nMoatless task: [My task](https://app/tasks/abc)"`.
-fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> Option<String> {
+pub fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> Option<String> {
     let base = frontend_url.trim_end_matches('/');
     if base.is_empty() {
         return None;
@@ -40,7 +41,7 @@ fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> Optio
 /// Extract the moatless task id from a comment body that contains our footer
 /// link `<frontend_url>/tasks/<id>`. Handles both the bare-URL and
 /// `[name](url)` markdown forms. None when frontend_url is empty or absent.
-pub(crate) fn parse_task_id_from_body(frontend_url: &str, body: &str) -> Option<String> {
+pub fn parse_task_id_from_body(frontend_url: &str, body: &str) -> Option<String> {
     let base = frontend_url.trim_end_matches('/');
     if base.is_empty() {
         return None;
@@ -52,24 +53,6 @@ pub(crate) fn parse_task_id_from_body(frontend_url: &str, body: &str) -> Option<
         .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
         .collect();
     (!id.is_empty()).then_some(id)
-}
-
-/// Build the footer suffix appended to an outbound comment body, or `None` when
-/// no frontend URL is configured. Loads the task name (best effort) to use as
-/// the link text.
-pub(crate) async fn task_comment_footer(state: &AppState, task_id: &str) -> Option<String> {
-    #[allow(clippy::disallowed_methods)]
-    // reason: footer lookup is a background formatting step with no caller identity
-    let sys = ScopeContext::system();
-    let name = match state.tasks.find_by_id(task_id, &sys).await {
-        Ok(Some(task)) => task.name,
-        Ok(None) => None,
-        Err(e) => {
-            tracing::warn!(task_id, error = %e, "Failed to load task name for comment footer");
-            None
-        }
-    };
-    render_footer(&state.config.auth.frontend_url, task_id, name.as_deref())
 }
 
 #[cfg(test)]

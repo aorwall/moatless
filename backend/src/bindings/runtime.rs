@@ -5,75 +5,22 @@ use chrono::Utc;
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{
-    AdapterConnection, Audience, BindingContext, InboundMessage, LoopContext, RoutingMode,
-    SubscriptionMatch, TaskBinding,
-};
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{resolve_recipients, EventProvenance};
 use crate::loops::firing::inbound;
 use crate::state::AppState;
 use crate::task::creation::TaskCreationError;
 use crate::task::models::TaskStatus;
+use moatless_adapter_model::models::{
+    binding_context, subscription_context, AdapterConnection, Audience, InboundMessage,
+    RoutingMode, SubscriptionMatch, TaskBinding,
+};
 use moatless_backend_core::scope::ScopeContext;
 
-pub use crate::adapters::models::{
+pub use moatless_adapter_model::models::{
     ADAPTER_EVENT_BINDING_ORIGIN as ORIGIN_ADAPTER_EVENT,
     CONNECTED_THREAD_BINDING_ORIGIN as ORIGIN_CONNECTED_THREAD,
 };
-
-/// Build a synthetic `LoopContext` from a subscription view for adapter
-/// trait methods that still accept a config-shaped value.
-pub fn subscription_context(subscription: &SubscriptionMatch, adapter_label: &str) -> LoopContext {
-    LoopContext {
-        id: subscription.id.clone(),
-        adapter_kind: adapter_label.to_string(),
-        source_id: subscription.source_matcher.clone(),
-        source_name: subscription.source_name.clone(),
-        repository_id: subscription.repository_id.clone(),
-        routing_mode: subscription.routing_mode,
-        prompt_template: subscription.prompt_template.clone(),
-        active: subscription.active,
-        allow_direct_send: subscription.allow_direct_send,
-        adapter_config: subscription.adapter_config.clone(),
-        ongoing_task_id: subscription.ongoing_task_id.clone(),
-        scope: subscription.scope,
-        task_name: subscription.task_name.clone(),
-        tag_ids: subscription.tag_ids.clone(),
-        run_as_user_id: subscription.run_as_user_id.clone(),
-        agent_type: subscription.agent_type.clone(),
-        inactive_ttl_days: subscription.inactive_ttl_days,
-        created_by: subscription.created_by.clone(),
-        created_at: subscription.created_at,
-        updated_at: subscription.updated_at,
-    }
-}
-
-/// Build a provider binding context from a task binding. Never persist this row.
-pub fn binding_context(binding: &TaskBinding) -> BindingContext {
-    let mut destination_config = binding.destination_config.clone();
-    if let Some(obj) = destination_config.as_object_mut() {
-        if let Some(ext_id) = binding.last_external_event_id.as_ref() {
-            obj.insert("last_external_event_id".into(), serde_json::json!(ext_id));
-        }
-        if let Some(filter_uid) = binding.metadata.get("filter_user_id").cloned() {
-            obj.insert("filter_user_id".into(), filter_uid);
-        }
-    }
-
-    BindingContext {
-        binding_id: binding.id.clone(),
-        loop_id: binding.loop_id.clone(),
-        task_id: binding.task_id.clone(),
-        subject_kind: binding.subject_kind.clone(),
-        subject_key: binding.subject_key.clone(),
-        destination_config,
-        metadata: binding.metadata.clone(),
-        last_external_event_id: binding.last_external_event_id.clone(),
-        last_message_at: binding.last_event_at,
-        created_at: binding.created_at,
-    }
-}
 
 pub async fn resolve_chat_provider_event(
     state: &AppState,

@@ -5,11 +5,11 @@ use crate::adapters::common::{
     binding_descriptor, ensure_task_access, load_adapter_connection_for_auth,
 };
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{OutboundReply, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 use crate::bindings::outbound;
 use crate::message::models::{MessageRole, MessageType, TaskMessage};
 use crate::state::AppState;
 use crate::task_activities::mapping::ConversationWrite;
+use moatless_adapter_model::models::{OutboundReply, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
 use moatless_backend_core::scope::ScopeContext;
 
 pub struct ExternalReplyService<'a> {

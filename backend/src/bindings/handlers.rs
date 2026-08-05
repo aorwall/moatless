@@ -13,10 +13,10 @@ use crate::adapters::common::{
     ensure_task_access, load_adapter_connection_for_auth, load_loop_for_auth, task_binding_response,
 };
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::TaskBinding;
 use crate::bindings::reply::{resolve_message_target, ExternalReplyService};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
+use moatless_adapter_model::models::TaskBinding;
 
 #[utoipa::path(
     get,
@@ -159,7 +159,7 @@ pub async fn add_message_reaction(
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
     let adapter = providers.reactions_by_name(&provider_key)?;
-    let binding_ctx = crate::bindings::runtime::binding_context(&binding);
+    let binding_ctx = moatless_adapter_model::models::binding_context(&binding);
     let external_id = adapter
         .add_reaction(&binding_ctx, &ext_id, &req.emoji)
         .await?;
@@ -191,7 +191,7 @@ pub async fn remove_message_reaction(
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
     let adapter = providers.reactions_by_name(&provider_key)?;
-    let binding_ctx = crate::bindings::runtime::binding_context(&binding);
+    let binding_ctx = moatless_adapter_model::models::binding_context(&binding);
     adapter
         .remove_reaction(&binding_ctx, &ext_id, &emoji)
         .await?;

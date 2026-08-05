@@ -557,7 +557,7 @@ pub(super) async fn insert_event_task(
     // it as `AccessDenied` so callers can post the reason back to Linear — the
     // service's error event alone stays invisible there because no turn gate is
     // open for a task that never got a binding.
-    let config = crate::bindings::runtime::subscription_context(rule, ADAPTER_LABEL);
+    let config = moatless_adapter_model::models::subscription_context(rule, ADAPTER_LABEL);
     let outcome = crate::loops::firing::inbound::create_task_from_loop(
         state.adapters.as_ref(),
         &state.task_creation,

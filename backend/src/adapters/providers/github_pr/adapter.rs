@@ -12,7 +12,7 @@ use crate::secret::service::SecretService;
 use super::auth::GithubPrAuth;
 
 /// GitHub PR adapter.
-pub(crate) struct GithubPrAdapter {
+pub struct GithubPrAdapter {
     /// Global webhook secret from env (`GITHUB_CHANNEL_WEBHOOK_SECRET`).
     /// Used as a fallback when the org connection has no `webhook_secret` set.
     global_webhook_secret: Option<String>,

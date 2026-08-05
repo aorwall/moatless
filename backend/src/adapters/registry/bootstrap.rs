@@ -4,14 +4,17 @@ use std::sync::Arc;
 
 use crate::compose::Ports;
 
-use super::Adapters;
+use super::{Adapters, ProviderHandles};
 
 impl Adapters {
-    /// Build adapters from application config and the composed ports.
+    /// Build adapters from application config and the composed ports, returning
+    /// the trait-object registry and the concrete per-provider handles the root
+    /// hands to each provider's own handlers.
     ///
     /// Every provider (Slack, Webhook, Telegram, GitHub PR, Linear) is registered
     /// unconditionally — their per-workspace config is resolved per subscription,
-    /// not at registration — so the registry is always populated.
+    /// not at registration — so the registry is always populated, and every
+    /// concrete-handle field of the returned `ProviderHandles` is `Some`.
     ///
     /// `ports.github_apps` is the shared App registry, so the `GithubPrAdapter`
     /// and `AppState` hit the same token cache. The `GithubPrAdapter` resolves
@@ -19,7 +22,10 @@ impl Adapters {
     /// registry to mint installation tokens for bot users (`auth_method =
     /// 'github_app_installation'`). Slack, Telegram and Linear read their own
     /// per-workspace rows straight off `ports.pool`.
-    pub async fn from_config(config: &crate::config::Config, ports: &Ports) -> Self {
+    pub async fn from_config(
+        config: &crate::config::Config,
+        ports: &Ports,
+    ) -> (Self, ProviderHandles) {
         let mut providers = Self::new();
 
         let db = ports.pool.clone();
@@ -32,11 +38,11 @@ impl Adapters {
         let secrets = ports.secrets.clone();
 
         let runtime_config = Arc::new(config.clone());
-        let slack = crate::adapters::slack::adapter::SlackAdapter::from_db(
+        let slack = Arc::new(crate::adapters::slack::adapter::SlackAdapter::from_db(
             runtime_config.clone(),
             db.clone(),
-        );
-        providers.register_slack(Arc::new(slack));
+        ));
+        providers.register_slack(slack.clone());
         tracing::info!("Slack adapter registered");
 
         // Webhook adapter is always available (config is per subscription).
@@ -45,16 +51,18 @@ impl Adapters {
         ));
         tracing::info!("Webhook adapter configured");
 
-        let telegram = crate::adapters::telegram::adapter::TelegramAdapter::from_db(
-            runtime_config,
-            db.clone(),
+        let telegram = Arc::new(
+            crate::adapters::telegram::adapter::TelegramAdapter::from_db(
+                runtime_config,
+                db.clone(),
+            ),
         );
-        providers.register_telegram(Arc::new(telegram));
+        providers.register_telegram(telegram.clone());
         tracing::info!("Telegram adapter registered");
 
         // GitHub PR adapter is always available; config is per subscription.
-        {
-            let github_pr = crate::adapters::github_pr::adapter::GithubPrAdapter::new(
+        let github_pr = Arc::new(
+            crate::adapters::github_pr::adapter::GithubPrAdapter::new(
                 config.github_pr.webhook_secret.clone(),
                 config.github_pr.bot_token.clone(),
                 config.auth.frontend_url.clone(),
@@ -63,23 +71,27 @@ impl Adapters {
                 github_app_service.clone(),
                 github_apps.clone(),
             )
-            .with_secrets(secrets.clone());
-            providers.register_github_pr(Arc::new(github_pr));
-            tracing::info!("GitHub PR adapter configured");
-        }
+            .with_secrets(secrets.clone()),
+        );
+        providers.register_github_pr(github_pr.clone());
+        tracing::info!("GitHub PR adapter configured");
 
         // Linear adapter — workspace tokens come from the OAuth install
         // flow (provider_tokens, team_id=<linear org uuid>). OAuth client
         // credentials are needed to refresh expired access tokens.
-        {
-            let linear = crate::adapters::linear::adapter::LinearAdapter::from_db(
-                Arc::new(config.clone()),
-                db,
-            );
-            providers.register_linear(Arc::new(linear));
-            tracing::info!("Linear adapter configured");
-        }
+        let linear = Arc::new(crate::adapters::linear::adapter::LinearAdapter::from_db(
+            Arc::new(config.clone()),
+            db,
+        ));
+        providers.register_linear(linear.clone());
+        tracing::info!("Linear adapter configured");
 
-        providers
+        let handles = ProviderHandles {
+            github_pr: Some(github_pr),
+            linear: Some(linear),
+            slack: Some(slack),
+            telegram: Some(telegram),
+        };
+        (providers, handles)
     }
 }

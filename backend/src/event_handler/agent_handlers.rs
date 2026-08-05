@@ -275,7 +275,13 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
     // answers, `agent.completed` fires again, and the task loops forever. This
     // mirrors the footer that `send_reply_for_binding` appends on the explicit
     // reply path (`build_comment_body`).
-    if let Some(footer) = crate::adapters::footer::task_comment_footer(state, task_id).await {
+    if let Some(footer) = crate::bindings::footer::task_comment_footer(
+        state.tasks.as_ref(),
+        &state.config.auth.frontend_url,
+        task_id,
+    )
+    .await
+    {
         body.push_str(&footer);
     }
 

@@ -1,7 +1,7 @@
 //! Task bindings and outbound replies to external subjects.
 
 pub mod dao;
-pub mod direct_send;
+pub mod footer;
 pub mod handlers;
 pub mod metrics;
 pub mod outbound;

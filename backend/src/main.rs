@@ -391,7 +391,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Domain routes (need DB)
     if let Some(ports) = ports {
-        let adapter_registry = adapters::Adapters::from_config(&config, &ports).await;
+        let (adapter_registry, provider_handles) =
+            adapters::Adapters::from_config(&config, &ports).await;
         // The shared lifecycle was built above; it is present whenever the DB is.
         let lifecycle = lifecycle
             .ok_or("lifecycle handle required to build AppState (missing database pool)")?;
@@ -412,6 +413,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             event_publisher,
             s3_client,
             Some(Arc::new(adapter_registry)),
+            provider_handles,
         );
 
         // The browser tabs open on each Task. Built at the composition root
@@ -676,7 +678,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Schedule runner and long-polling adapters (when configured).
-        if let Some(ref adapter_registry) = app_state.adapters {
+        if app_state.adapters.is_some() {
             if config.sandbox.cron_scheduler_enabled {
                 supervisor.supervise(
                     "cron-scheduler",
@@ -694,17 +696,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Telegram long-polling (when webhook mode is not available)
             if config.telegram.bot_token.is_some() && config.telegram.mode == "polling" {
-                supervisor.supervise(
-                    "telegram-poller",
-                    // Optional: losing it degrades the Telegram channel alone,
-                    // and its own early-exit branches already log the reason.
-                    Criticality::Optional,
-                    adapters::telegram::spawn_telegram_poller(
-                        app_state.clone(),
-                        adapter_registry.clone(),
-                        cancel.clone(),
-                    ),
-                );
+                if let Some(telegram) = app_state.provider_handles.telegram.clone() {
+                    supervisor.supervise(
+                        "telegram-poller",
+                        // Optional: losing it degrades the Telegram channel alone,
+                        // and its own early-exit branches already log the reason.
+                        Criticality::Optional,
+                        adapters::telegram::spawn_telegram_poller(
+                            app_state.clone(),
+                            telegram,
+                            cancel.clone(),
+                        ),
+                    );
+                }
             }
         }
     } else {

@@ -41,10 +41,9 @@ use sqlx::PgPool;
 use moatless_vibe_backend::adapters::error::AdapterError;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::state::AppState;
 
-use common::{linear_config, test_app_state_with_config, test_config, USER_1};
+use common::{linear_config, test_app_state_with_linear, test_config, USER_1};
 
 const SECRET: &str = "linear-webhook-secret";
 const ORG: &str = "org-1";
@@ -66,14 +65,13 @@ type HmacSha256 = Hmac<Sha256>;
 /// the point the metric assertions rest on: the outcome label does not depend
 /// on whether Linear answered, because the heartbeat is best-effort.
 fn replica(pool: &PgPool) -> AppState {
-    let mut adapters = Adapters::new();
     let mut config = test_config();
     config.linear = linear_config(
         Some(SECRET),
         Some(moatless_vibe_backend::adapters::test_support::UNREACHABLE_BASE),
     );
-    adapters.register_linear(Arc::new(LinearAdapter::new(&config.linear, pool.clone())));
-    test_app_state_with_config(pool.clone(), Some(Arc::new(adapters)), config)
+    let linear = Arc::new(LinearAdapter::new(&config.linear, pool.clone()));
+    test_app_state_with_linear(pool.clone(), linear, config)
 }
 
 async fn seed_connection(pool: &PgPool) {
@@ -117,7 +115,13 @@ async fn deliver_bytes(
         let signature = hex::encode(mac.finalize().into_bytes());
         headers.insert("linear-signature", signature.parse().expect("header value"));
     }
-    linear_webhook(State(state.clone()), headers, Bytes::from(body)).await
+    linear_webhook(
+        State(state.clone()),
+        State(state.provider_handles.linear.clone()),
+        headers,
+        Bytes::from(body),
+    )
+    .await
 }
 
 // =========================================================================
@@ -470,7 +474,13 @@ async fn a_bad_signature_is_error_delivery_failed_with_its_event_type(pool: PgPo
     let deliver_wrong_signature = async {
         let mut headers = HeaderMap::new();
         headers.insert("linear-signature", "00ff".parse().expect("header value"));
-        linear_webhook(State(state.clone()), headers, Bytes::from(body)).await
+        linear_webhook(
+            State(state.clone()),
+            State(state.provider_handles.linear.clone()),
+            headers,
+            Bytes::from(body),
+        )
+        .await
     };
     let (status, rows) = captured(deliver_wrong_signature).await;
 

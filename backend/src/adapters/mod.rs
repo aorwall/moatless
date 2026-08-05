@@ -1,14 +1,11 @@
 //! Adapter trait, registry, connection storage, and webhook routes.
 pub mod common;
-pub mod dao;
 pub mod delivery;
 pub mod error;
-pub mod footer;
 pub mod handlers;
 pub(crate) mod inbound_delivery;
 pub(crate) mod ingress;
 pub mod metrics;
-pub mod models;
 pub mod providers;
 pub mod routes;
 pub mod signature;
@@ -29,8 +26,19 @@ mod registry;
 
 pub use capabilities::{BindingDestination, DestinationPostResult};
 pub use moatless_api_schemas::enums::AdapterKind;
+
+// Adapter domain types, `adapter_connections` persistence, and the pure footer
+// render/parse layer live in the `moatless-adapter-model` crate. This facade
+// lets the call sites in `adapters` and `providers` keep naming them through
+// `crate::adapters::{models, dao, footer}`, where reaching them through the
+// adapters namespace is natural. Transitional: it comes out when `adapters`
+// itself becomes its own crate (Steps 8–11), at which point those call sites
+// move with it. `bindings` names the crate directly and does not route through
+// this facade. The footer's DAO-loading wrapper `task_comment_footer` is not
+// here — it lives in `bindings::footer`, where the port belongs.
+pub use moatless_adapter_model::{dao, footer, models};
 pub use providers::{github_pr, linear, slack, telegram, webhook};
-pub use registry::Adapters;
+pub use registry::{Adapters, ProviderHandles};
 
 pub(crate) use capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,

@@ -58,7 +58,7 @@ pub async fn webhook_inbound(
     let signature = headers
         .get("x-webhook-signature")
         .and_then(|v| v.to_str().ok());
-    let config = crate::bindings::runtime::subscription_context(&subscription, ADAPTER);
+    let config = moatless_adapter_model::models::subscription_context(&subscription, ADAPTER);
     let delivery = WebhookAdapter::parse_inbound(&config, &body, signature)?;
     let message = delivery.message;
     let thread_id = message

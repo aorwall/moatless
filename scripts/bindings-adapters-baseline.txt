@@ -1,0 +1,37 @@
+# Baseline for scripts/check-bindings-adapters-baseline.sh (Step 7).
+#
+# Each path is a file under backend/src/bindings/ that still names
+# `crate::adapters` in non-test code — the bindings->adapters up-edge Step 7
+# is untangling. This list is a ratchet in the shape of the repo's lint
+# baseline (AGENTS.md: "the baseline only shrinks"): every slice DELETES the
+# entries it clears, the check fails on a baseline entry that no longer names
+# `crate::adapters` (you cleared it — remove its line) and on any bindings file
+# that names `crate::adapters` without being listed here. When this file is
+# empty the untangle is complete and no bindings file reaches up into adapters.
+#
+# The data half is already enforced: no bindings file names
+# `crate::adapters::models` or `crate::adapters::dao` — those moved to the
+# moatless-adapter-model crate in 7a, and this ratchet is what keeps them gone
+# despite the transitional facade in adapters/mod.rs that still re-exports them.
+#
+# The five remaining reaches, and what each waits on (see the deferral notes in
+# .plans/backend-ports-and-crates.md Step 7):
+#   - the AdapterError type (the deferred error-split step) — every entry, and
+#     it alone is what clears runtime.rs, whose only counted reach is line 7's
+#     `use crate::adapters::error::AdapterError`;
+#   - the crate::adapters::common helpers (a later sweep) — handlers, reply;
+#   - the concrete crate::adapters::Adapters registry (the registry inversion,
+#     folded into the error-split step) — outbound, status_service.
+#
+# runtime.rs also carries a cfg(test) error_source_tests module that names
+# crate::adapters, but this check drops cfg(test) mod blocks and does not count
+# it: that module moves with the error step for its own reasons, not to clear
+# this entry.
+#
+# Do not add entries to grow coverage — the baseline only shrinks. Order is the
+# `find | sort` order the check walks, so a regenerated list diffs cleanly.
+backend/src/bindings/handlers.rs
+backend/src/bindings/outbound.rs
+backend/src/bindings/reply.rs
+backend/src/bindings/runtime.rs
+backend/src/bindings/status_service.rs

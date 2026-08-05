@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -8,6 +10,7 @@ use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
+use super::adapter::GithubPrAdapter;
 use super::ingress::WebhookRequest;
 
 #[utoipa::path(
@@ -19,17 +22,12 @@ use super::ingress::WebhookRequest;
 )]
 pub async fn github_webhook(
     State(state): State<AppState>,
+    State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, AdapterError> {
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
-
-    let github_pr_provider = providers
-        .github_pr()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
+    let github_pr_provider =
+        github_pr_provider.ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
 
     let event_type = header_value(&headers, "x-github-event");
     let request = WebhookRequest::new(
@@ -39,7 +37,7 @@ pub async fn github_webhook(
         &body,
     );
 
-    match super::ingress::receive(&state, github_pr_provider, request).await {
+    match super::ingress::receive(&state, &github_pr_provider, request).await {
         Ok(Outcome::Processed { event_type }) => {
             record_webhook("github_pr", "success", "", &event_type, "", "");
         }

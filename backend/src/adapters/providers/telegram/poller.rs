@@ -9,9 +9,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::adapters::ingress::IngressError;
-use crate::adapters::Adapters;
 use crate::state::AppState;
 
+use super::adapter::TelegramAdapter;
 use super::ingress::{self, Transport};
 
 const POLL_TIMEOUT_SECS: u32 = 30;
@@ -77,16 +77,11 @@ async fn back_off(cancel: &CancellationToken, backoff: &mut Duration) -> bool {
 /// Telegram alone and is logged rather than failing the process.
 pub fn spawn_telegram_poller(
     state: AppState,
-    providers: Arc<Adapters>,
+    telegram_provider: Arc<TelegramAdapter>,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         info!("Telegram poller started");
-
-        let Some(telegram_provider) = providers.telegram() else {
-            error!("Telegram poller: provider not registered");
-            return;
-        };
 
         let api = match telegram_provider
             .app_api(crate::adapter_apps::DEFAULT_APP_KEY)
@@ -155,7 +150,7 @@ pub fn spawn_telegram_poller(
 
                         // Long polling carries no secret, so there is nothing
                         // for this transport to verify.
-                        match ingress::receive(&state, telegram_provider, &body, Transport::Poll)
+                        match ingress::receive(&state, &telegram_provider, &body, Transport::Poll)
                             .await
                         {
                             Ok(_) => {}

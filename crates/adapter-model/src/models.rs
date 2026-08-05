@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use moatless_api_schemas::enums::AdapterKind;
 use moatless_backend_core::scope::Scope;
 
 /// Every `task_bindings.origin` value the system writes, and the whole of the
@@ -13,7 +14,7 @@ use moatless_backend_core::scope::Scope;
 /// the router writes from an inbound event. **Every other origin is a producer**
 /// by direction: the task existed first and reached out. Routing decides the
 /// role by negating the responder rather than matching a list of producers
-/// (`crate::bindings::recipients`), so a fourth origin added here is classified
+/// (`recipients`, in the binding layer), so a fourth origin added here is classified
 /// correctly the day it is written rather than the day someone remembers to
 /// update a match. That is not hypothetical: `task_owned` lived as a private
 /// string inside the Linear API routes, and the recipient resolver — written
@@ -303,11 +304,70 @@ pub struct Schedule {
 
 pub use moatless_api_schemas::enums::RoutingMode;
 
+/// Normalize a stored `adapter_kind` string to its enum, treating an unknown
+/// value as `Webhook`.
+pub fn parse_adapter_kind(adapter_kind: &str) -> AdapterKind {
+    AdapterKind::parse(adapter_kind).unwrap_or(AdapterKind::Webhook)
+}
+
+/// Build a synthetic `LoopContext` from a subscription view for adapter
+/// trait methods that still accept a config-shaped value.
+pub fn subscription_context(subscription: &SubscriptionMatch, adapter_label: &str) -> LoopContext {
+    LoopContext {
+        id: subscription.id.clone(),
+        adapter_kind: adapter_label.to_string(),
+        source_id: subscription.source_matcher.clone(),
+        source_name: subscription.source_name.clone(),
+        repository_id: subscription.repository_id.clone(),
+        routing_mode: subscription.routing_mode,
+        prompt_template: subscription.prompt_template.clone(),
+        active: subscription.active,
+        allow_direct_send: subscription.allow_direct_send,
+        adapter_config: subscription.adapter_config.clone(),
+        ongoing_task_id: subscription.ongoing_task_id.clone(),
+        scope: subscription.scope,
+        task_name: subscription.task_name.clone(),
+        tag_ids: subscription.tag_ids.clone(),
+        run_as_user_id: subscription.run_as_user_id.clone(),
+        agent_type: subscription.agent_type.clone(),
+        inactive_ttl_days: subscription.inactive_ttl_days,
+        created_by: subscription.created_by.clone(),
+        created_at: subscription.created_at,
+        updated_at: subscription.updated_at,
+    }
+}
+
+/// Build a provider binding context from a task binding. Never persist this row.
+pub fn binding_context(binding: &TaskBinding) -> BindingContext {
+    let mut destination_config = binding.destination_config.clone();
+    if let Some(obj) = destination_config.as_object_mut() {
+        if let Some(ext_id) = binding.last_external_event_id.as_ref() {
+            obj.insert("last_external_event_id".into(), serde_json::json!(ext_id));
+        }
+        if let Some(filter_uid) = binding.metadata.get("filter_user_id").cloned() {
+            obj.insert("filter_user_id".into(), filter_uid);
+        }
+    }
+
+    BindingContext {
+        binding_id: binding.id.clone(),
+        loop_id: binding.loop_id.clone(),
+        task_id: binding.task_id.clone(),
+        subject_kind: binding.subject_kind.clone(),
+        subject_key: binding.subject_key.clone(),
+        destination_config,
+        metadata: binding.metadata.clone(),
+        last_external_event_id: binding.last_external_event_id.clone(),
+        last_message_at: binding.last_event_at,
+        created_at: binding.created_at,
+    }
+}
+
 /// Inbound message produced by an Adapter-specific parser.
 ///
 /// Serialized only into `adapter_delivery.payload`, never into an API response:
 /// an Adapter that routes inbound messages through the durable Adapter delivery
-/// seam (`crate::adapters::delivery`) stores the parsed message in the record's
+/// seam (`delivery`) stores the parsed message in the record's
 /// payload, so the record carries everything needed to redo the routing after a
 /// restart.
 /// Re-deriving it would mean re-parsing a webhook body the process no longer
@@ -316,7 +376,7 @@ pub use moatless_api_schemas::enums::RoutingMode;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InboundMessage {
     /// Adapter type.
-    pub adapter_kind: crate::adapters::AdapterKind,
+    pub adapter_kind: AdapterKind,
     /// Source identifier (Slack channelId, email address).
     pub source_id: String,
     /// Thread ID if this is a reply (Slack thread_ts, Email In-Reply-To).
@@ -378,7 +438,7 @@ pub fn author_handle(handle: &str) -> Option<String> {
 /// Classification stays with the adapter because only the adapter knows its own
 /// event shapes — it is a match over values the adapter already owns. Turning
 /// an audience into the bindings that receive the event is the router's job,
-/// through [`crate::bindings::recipients::resolve_recipients`]. An adapter with
+/// through the binding layer's `resolve_recipients`. An adapter with
 /// no audience distinction to make states [`Audience::Everyone`] for every
 /// event, which is what it already does.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -423,7 +483,7 @@ pub struct OutboundReply {
     pub task_url: Option<String>,
     /// Footer suffix appended to comment bodies by the Linear/GitHub adapters
     /// (e.g. `"\n\n---\nMoatless task: [Task name](https://app/tasks/<id>)"`).
-    /// Built by [`crate::adapters::footer::task_comment_footer`]. The footer URL
+    /// Built by the binding layer's `task_comment_footer`. The footer URL
     /// doubles as the inbound echo-filter source. `None` for providers that
     /// don't carry a footer.
     pub footer: Option<String>,

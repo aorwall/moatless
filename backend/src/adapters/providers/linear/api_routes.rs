@@ -339,7 +339,13 @@ pub async fn create_comment(
 
     let body = match req.task_id.as_deref() {
         Some(task_id) => {
-            match crate::adapters::footer::task_comment_footer(&state, task_id).await {
+            match crate::bindings::footer::task_comment_footer(
+                state.tasks.as_ref(),
+                &state.config.auth.frontend_url,
+                task_id,
+            )
+            .await
+            {
                 Some(footer) => format!("{}{}", req.body, footer),
                 None => req.body.clone(),
             }
@@ -523,12 +529,10 @@ async fn resolve_linear_api(
     connection_id: Option<&str>,
 ) -> Result<(AdapterConnection, LinearAgentApi), AdapterError> {
     let connection = resolve_connection(state, ctx, AdapterKind::Linear, connection_id).await?;
-    let providers = state
-        .adapters
+    let linear = state
+        .provider_handles
+        .linear
         .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
-    let linear = providers
-        .linear()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
     let api = linear.agent_api_for_connection(&connection).await?;
     Ok((connection, api))

@@ -178,7 +178,7 @@ async fn resolve(
     };
 
     Ok(Routing::Verifiable(Verifiable::Routed(Box::new(Routed {
-        config: crate::bindings::runtime::subscription_context(&subscription, "slack"),
+        config: moatless_adapter_model::models::subscription_context(&subscription, "slack"),
         source_id: source_id.to_string(),
         connection_id: connection.id,
         app_key: crate::adapter_apps::app_key_from_transport_config(&connection.transport_config)

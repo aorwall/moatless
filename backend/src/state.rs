@@ -98,6 +98,11 @@ pub struct AppState {
     pub s3: Option<crate::file_storage::s3::S3Storage>,
     /// Optional external adapters.
     pub adapters: Option<Arc<Adapters>>,
+    /// The concrete per-provider adapter handles, projected to each provider's
+    /// own handlers by `FromRef<AppState>`. Each field is `Some` exactly when
+    /// `adapters` holds that provider; all four are `None` when there are no
+    /// adapters. See [`crate::adapters::ProviderHandles`].
+    pub provider_handles: crate::adapters::ProviderHandles,
     /// Optional GitHub App service for installation tokens and user token refresh.
     ///
     /// Convenience handle to the default (user-auth) App. Equivalent to
@@ -215,10 +220,17 @@ impl AppState {
     /// The services wired here are the ones that need a runtime handle the
     /// composition root does not have — the sandbox connector and the lifecycle
     /// handle — so they are assembled from `ports` rather than in it.
-    // reason: independent infrastructure handles (ports, config, lifecycle,
-    // connector, events, s3, adapters); bundling them behind a one-use struct
-    // only shuffles the same fields.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "nine independent infrastructure handles — ports, config, \
+                  lifecycle, connector, sandbox_notify, events, s3, adapters, \
+                  provider_handles — each wired in from the composition root; \
+                  bundling them behind a one-use struct only shuffles the same \
+                  fields. provider_handles is itself a bundle, but not that \
+                  shuffle: each of its four fields has a FromRef consumer that \
+                  takes exactly one, which earns it a struct where a \
+                  hypothetical AppStateNewArgs would not."
+    )]
     pub fn new(
         ports: &Ports,
         config: Arc<Config>,
@@ -228,6 +240,7 @@ impl AppState {
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<crate::file_storage::s3::S3Storage>,
         adapters: Option<Arc<Adapters>>,
+        provider_handles: crate::adapters::ProviderHandles,
     ) -> Self {
         let Ports {
             pool,
@@ -460,6 +473,7 @@ impl AppState {
             events,
             s3,
             adapters,
+            provider_handles,
             github_app_service,
             github_apps,
             credentials_svc,
@@ -729,5 +743,40 @@ impl axum::extract::FromRef<AppState> for Arc<TaskCloser> {
 impl axum::extract::FromRef<AppState> for DbPool {
     fn from_ref(state: &AppState) -> Self {
         state.db.clone()
+    }
+}
+
+// Concrete per-provider handles. Each provider's own handlers name the one they
+// need; `None` when there are no adapters, which those handlers answer with
+// `AdapterNotConfigured`.
+impl axum::extract::FromRef<AppState>
+    for Option<Arc<crate::adapters::github_pr::adapter::GithubPrAdapter>>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.provider_handles.github_pr.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState>
+    for Option<Arc<crate::adapters::linear::adapter::LinearAdapter>>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.provider_handles.linear.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState>
+    for Option<Arc<crate::adapters::slack::adapter::SlackAdapter>>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.provider_handles.slack.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState>
+    for Option<Arc<crate::adapters::telegram::adapter::TelegramAdapter>>
+{
+    fn from_ref(state: &AppState) -> Self {
+        state.provider_handles.telegram.clone()
     }
 }

@@ -1,6 +1,8 @@
 //! The webhook route. Transport only: read the request, hand the body and the
 //! secret header to [`super::ingress::receive`], turn the outcome into a status.
 
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -11,6 +13,7 @@ use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
+use super::adapter::TelegramAdapter;
 use super::ingress::{self, Transport};
 
 #[utoipa::path(
@@ -22,17 +25,12 @@ use super::ingress::{self, Transport};
 )]
 pub async fn telegram_webhook(
     State(state): State<AppState>,
+    State(telegram_provider): State<Option<Arc<TelegramAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, AdapterError> {
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("telegram".into()))?;
-
-    let telegram_provider = providers
-        .telegram()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("telegram".into()))?;
+    let telegram_provider =
+        telegram_provider.ok_or_else(|| AdapterError::AdapterNotConfigured("telegram".into()))?;
 
     info!("Telegram webhook received");
 
@@ -42,7 +40,7 @@ pub async fn telegram_webhook(
             .and_then(|v| v.to_str().ok()),
     };
 
-    match ingress::receive(&state, telegram_provider, &body, transport).await {
+    match ingress::receive(&state, &telegram_provider, &body, transport).await {
         // Routing is durably owned now; its outcome is recorded by the work
         // handler when it actually runs. Recording "success" here would count
         // an outcome this path no longer knows.

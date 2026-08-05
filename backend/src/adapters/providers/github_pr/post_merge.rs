@@ -147,7 +147,7 @@ pub(super) async fn execute(
     rule: &SubscriptionMatch,
     execution: &Execution,
 ) -> Result<(), AdapterError> {
-    let Some(adapter) = state.adapters.as_ref().and_then(|a| a.github_pr()) else {
+    let Some(adapter) = state.provider_handles.github_pr.as_ref() else {
         return Ok(());
     };
 

@@ -3141,6 +3141,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-adapter-model"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "moatless-api-schemas",
+ "moatless-backend-core",
+ "serde",
+ "serde_json",
+ "sqlx",
+]
+
+[[package]]
 name = "moatless-api-client"
 version = "0.1.0"
 dependencies = [
@@ -3321,6 +3334,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
+ "moatless-adapter-model",
  "moatless-api-schemas",
  "moatless-backend-core",
  "moatless-events",

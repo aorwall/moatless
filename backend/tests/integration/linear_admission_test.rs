@@ -34,11 +34,10 @@ use moatless_vibe_backend::adapters::error::AdapterError;
 use moatless_vibe_backend::adapters::linear;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::state::AppState;
 
 use common::{
-    drain_linear_adapter_delivery, linear_config, test_app_state_with_config, test_config, USER_1,
+    drain_linear_adapter_delivery, linear_config, test_app_state_with_linear, test_config, USER_1,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -52,11 +51,10 @@ type HmacSha256 = Hmac<Sha256>;
 /// A backend replica with the Linear adapter installed. It holds no state
 /// between deliveries — everything that survives one is in the database.
 fn replica(pool: &PgPool) -> AppState {
-    let mut adapters = Adapters::new();
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), None);
-    adapters.register_linear(Arc::new(LinearAdapter::new(&config.linear, pool.clone())));
-    test_app_state_with_config(pool.clone(), Some(Arc::new(adapters)), config)
+    let linear = Arc::new(LinearAdapter::new(&config.linear, pool.clone()));
+    test_app_state_with_linear(pool.clone(), linear, config)
 }
 
 /// Deliver a signed envelope the way Linear does, and return whatever the
@@ -75,7 +73,13 @@ async fn deliver(
     let mut headers = HeaderMap::new();
     headers.insert("linear-signature", signature.parse().expect("header value"));
 
-    linear_webhook(State(state.clone()), headers, Bytes::from(body)).await
+    linear_webhook(
+        State(state.clone()),
+        State(state.provider_handles.linear.clone()),
+        headers,
+        Bytes::from(body),
+    )
+    .await
 }
 
 /// The Linear connection the envelope's `organizationId` resolves to. The only

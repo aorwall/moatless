@@ -539,7 +539,14 @@ fn build_pr_body(body: &str, task_url: Option<&str>) -> String {
 /// for the footer so the total stays within `MAX_COMMENT_LENGTH`.
 async fn body_with_task_footer(state: &AppState, task_id: Option<&str>, body: &str) -> String {
     let footer = match task_id {
-        Some(tid) => crate::adapters::footer::task_comment_footer(state, tid).await,
+        Some(tid) => {
+            crate::bindings::footer::task_comment_footer(
+                state.tasks.as_ref(),
+                &state.config.auth.frontend_url,
+                tid,
+            )
+            .await
+        }
         None => None,
     };
     match footer {

@@ -581,7 +581,7 @@ async fn create_provider_event_task(
     // `source_matcher` event metadata; `related_to` is recorded by the caller
     // after creation succeeds, and the first message is delivered through the
     // binding.
-    let config = crate::bindings::runtime::subscription_context(rule, ADAPTER_LABEL);
+    let config = moatless_adapter_model::models::subscription_context(rule, ADAPTER_LABEL);
     let outcome = crate::loops::firing::inbound::create_task_from_loop(
         state.adapters.as_ref(),
         &state.task_creation,

@@ -58,7 +58,7 @@ impl AdapterBindingReply for TelegramAdapter {
         rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        let thread = crate::bindings::runtime::binding_context(binding);
+        let thread = moatless_adapter_model::models::binding_context(binding);
         let app_key =
             crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
         let api = self.app_api(app_key).await?;
@@ -90,7 +90,7 @@ impl AdapterBindingReply for TelegramAdapter {
                 created_at: binding.created_at,
                 updated_at: binding.last_event_at,
             },
-            |r| crate::bindings::runtime::subscription_context(r, "telegram"),
+            |r| moatless_adapter_model::models::subscription_context(r, "telegram"),
         );
         let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
         api.send_message(
@@ -323,7 +323,7 @@ mod tests {
     #[tokio::test]
     async fn a_binding_reply_is_one_send_message_onto_the_thread() {
         let (provider, stub) = provider_with_stub().await;
-        let thread = crate::bindings::runtime::binding_context(&binding(serde_json::json!({
+        let thread = moatless_adapter_model::models::binding_context(&binding(serde_json::json!({
             "chat_id": "999",
             "message_id": 42,
             "forum_topic_id": 7,

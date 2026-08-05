@@ -9,6 +9,7 @@ members = [
     "crates/api-client",
     "crates/api-schemas",
     "crates/backend-core",
+    "crates/adapter-model",
     "crates/t3code",
     # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
 ]

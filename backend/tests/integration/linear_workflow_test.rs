@@ -54,7 +54,6 @@ use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
 use moatless_vibe_backend::adapters::test_support::ProviderStub;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::Scope;
 use moatless_vibe_backend::state::AppState;
@@ -62,7 +61,7 @@ use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{
     drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
-    seed_linear_app, seed_team, test_app_state_with_config, test_config, USER_1,
+    seed_linear_app, seed_team, test_app_state_with_linear, test_config, USER_1,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -124,11 +123,10 @@ async fn linear_stub() -> ProviderStub {
 /// other seam through which a workflow's calls can be redirected, and a
 /// workflow that cannot be redirected cannot be budgeted.
 fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
-    let mut adapters = Adapters::new();
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), Some(stub.base_url()));
-    adapters.register_linear(Arc::new(LinearAdapter::new(&config.linear, pool.clone())));
-    test_app_state_with_config(pool.clone(), Some(Arc::new(adapters)), config)
+    let linear = Arc::new(LinearAdapter::new(&config.linear, pool.clone()));
+    test_app_state_with_linear(pool.clone(), linear, config)
 }
 
 // =========================================================================
@@ -143,9 +141,14 @@ async fn deliver(state: &AppState, envelope: &serde_json::Value) -> StatusCode {
     let mut headers = HeaderMap::new();
     headers.insert("linear-signature", signature.parse().expect("header value"));
 
-    linear_webhook(State(state.clone()), headers, Bytes::from(body))
-        .await
-        .expect("Linear is acknowledged")
+    linear_webhook(
+        State(state.clone()),
+        State(state.provider_handles.linear.clone()),
+        headers,
+        Bytes::from(body),
+    )
+    .await
+    .expect("Linear is acknowledged")
 }
 
 /// Run the real worker until every admitted record is terminal.
