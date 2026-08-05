@@ -85,9 +85,10 @@ pub use types::{
     RuntimeEffect,
 };
 
-// The desired-state reconciler and its production fleet-observer adapters,
-// assembled by `compose::Ports::build_reconciler` and spawned by `main`.
-pub use observe::{DockerFleetObserver, GrpcNotify, K8sFleetObserver};
+// The desired-state reconciler and its gRPC notifier, assembled by
+// `compose::Ports::build_reconciler` and spawned by `main`. The provider
+// fleet-observer adapters live in `sandbox::k8s` and `sandbox::docker`.
+pub use observe::GrpcNotify;
 pub use reconciler::{FleetObserver, NotifyPort, Reconciler, ReconcilerConfig, RuntimeObservation};
 
 // The system clock the composition root hands to the `Lifecycle` and

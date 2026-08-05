@@ -106,8 +106,24 @@ fn main() {
     let baseline = build_baseline(&records);
 
     let out_dir = repo_root.join("scripts");
-    write_file(&out_dir.join("crate-census-baseline.txt"), &baseline);
-    write_file(&out_dir.join("crate-census-report.txt"), &report);
+    let baseline_path = out_dir.join("crate-census-baseline.txt");
+    let report_path = out_dir.join("crate-census-report.txt");
+
+    // `--check` regenerates in memory and compares against the committed files
+    // without writing them, so the CI ratchet needs no git repository (see
+    // scripts/check-crate-census.sh). Default mode writes the files.
+    if std::env::args().any(|a| a == "--check") {
+        let mut ok = report_parse_failures(&parse_failures);
+        ok &= check_current(&baseline_path, &baseline);
+        ok &= check_current(&report_path, &report);
+        if !ok {
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    write_file(&baseline_path, &baseline);
+    write_file(&report_path, &report);
 
     // A parse failure means every reference in that file was silently dropped, so
     // the baseline it just wrote undercounts. Exit non-zero (the report names the
@@ -115,6 +131,40 @@ fn main() {
     if !parse_failures.is_empty() {
         std::process::exit(1);
     }
+}
+
+/// Under `--check`: true when the committed file matches what we just generated;
+/// otherwise names the stale file and returns false.
+fn check_current(path: &Path, generated: &str) -> bool {
+    if std::fs::read_to_string(path).unwrap_or_default() == generated {
+        return true;
+    }
+    report_stale(&format!(
+        "{} is stale — regenerate with `cargo run -p crate-census` and commit it.",
+        path.display()
+    ));
+    false
+}
+
+/// Under `--check`: true when no file failed to parse; otherwise names the count
+/// (the report lists the files) and returns false, so a partial scan cannot pass.
+fn report_parse_failures(failures: &[PathBuf]) -> bool {
+    if failures.is_empty() {
+        return true;
+    }
+    report_stale(&format!(
+        "{} file(s) failed to parse; the census is partial (see the report).",
+        failures.len()
+    ));
+    false
+}
+
+#[expect(
+    clippy::print_stderr,
+    reason = "census --check: the stale artifact or parse failure must be named on stderr"
+)]
+fn report_stale(msg: &str) {
+    eprintln!("crate-census: {msg}");
 }
 
 /// A reference collected in pass 1, before resolution.
@@ -692,24 +742,15 @@ fn pin_for(src: &str, dst: &str, path: &str) -> &'static str {
     if path.contains("jwt::verify_user_auth_token") {
         return "Ruling E — jwt user-token verify -> identity (placement)";
     }
-    // Ruling B — eleven of the eighteen sandbox-control -> provider refs are the
-    // 10f defect repriced: non-Kubernetes helpers (workspace-config parsing,
-    // failure-reason strings, StorageBackend) living under k8s/, moved down to
-    // sandbox-control. The other seven (observe.rs provider concretes) are the
-    // genuine 10e gap and stay unpinned until the parent rules on the shape.
+    // Ruling B — the eleven sandbox-control -> provider refs are the 10f defect
+    // repriced: non-Kubernetes helpers (workspace-config parsing, failure-reason
+    // strings, StorageBackend) that live under k8s/ but belong in sandbox-control.
     if src == "sandbox-control"
         && (path.contains("auto_provision::")
             || path.contains("pod_status::")
             || path.contains("storage::StorageBackend"))
     {
         return "10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control";
-    }
-    // Ruling F — the remaining sandbox-control -> provider refs are the two
-    // FleetObserver provider adapters (K8sFleetObserver/DockerFleetObserver) in
-    // the control-band `observe.rs`. The port already exists in lifecycle; move
-    // each adapter into its provider crate. A placement, pinned to 10f.
-    if src == "sandbox-control" && (dst == "sandbox-k8s" || dst == "sandbox-docker") {
-        return "10f (placement) — FleetObserver provider adapters -> provider crates (Ruling F)";
     }
     // Ruling C — file_storage / secret / task_event each own a handlers.rs, and
     // auth/routes.rs, that reach identity (AuthUser) and tasks (TaskDao). An HTTP

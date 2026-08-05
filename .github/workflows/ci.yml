@@ -222,11 +222,8 @@ jobs:
           workspaces: ". -> target"
           shared-key: crate-census
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # The check runs `git diff`; the container runs as root while the checkout
-      # is owned by another uid, so git rejects the repo as dubious-ownership.
-      # Only this job runs git, so it is the only one that needs this.
-      - name: Mark the checkout safe for git
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # `--check` regenerates in memory and compares against the committed files,
+      # so this job runs no git and needs no dubious-ownership exemption.
       - name: Illegal cross-crate edges stay within the shrinking census baseline
         run: ./scripts/check-crate-census.sh
 

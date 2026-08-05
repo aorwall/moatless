@@ -6,9 +6,11 @@
 # crate::/super::/self::/use/re-export chains — to the crate that defines the
 # symbol, and lists the illegal edges (a lower band naming a higher one) that
 # must go to zero before each Step 10 carve. `scripts/crate-census-baseline.txt`
-# is the ratchet: it only shrinks. This check regenerates it and fails if the
-# committed file is out of date — either a new illegal edge appeared, or a slice
-# cleared one and did not delete its baseline line.
+# is the ratchet: it only shrinks. `--check` regenerates the census in memory
+# and compares it against the committed files, failing if either is out of date
+# — a new illegal edge appeared, or a slice cleared one and did not delete its
+# baseline line. It writes nothing and runs no git, so the CI job needs neither
+# a writable tree nor a checkout marked safe for `git diff`.
 #
 # Unlike the other composition-root checks this one builds a small Rust tool
 # (syn + walkdir only — not the backend closure), because a regex is exactly the
@@ -22,13 +24,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-cargo run -q -p crate-census
-
-if ! git diff --quiet -- scripts/crate-census-baseline.txt; then
-  echo "crate-census baseline is stale." >&2
-  echo "Regenerate with 'cargo run -p crate-census' and commit scripts/crate-census-baseline.txt." >&2
-  git --no-pager diff -- scripts/crate-census-baseline.txt >&2
-  exit 1
-fi
+cargo run -q -p crate-census -- --check
 
 echo "crate-census baseline is current."

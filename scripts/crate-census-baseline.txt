@@ -1,7 +1,7 @@
 # Illegal production Cargo edges: a CODE/ATTR/MACRO reference whose source band
 # is <= its target band. This is the ratcheted count — it only shrinks. Doc paths
 # are excluded (see the section below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 238
+# Illegal edge count: 231
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -150,19 +150,12 @@ loops                  -> server               [CODE] backend/src/loops/firing/l
 loops                  -> server               [CODE] backend/src/loops/firing/schedule_runner.rs:16  crate::state::AppState
 loops                  -> server               [CODE] backend/src/loops/http/handlers.rs:25  crate::state::AppState
 loops                  -> server               [CODE] backend/src/loops/http/mod.rs:8  crate::state::AppState
-sandbox-control        -> sandbox-docker       [CODE] backend/src/sandbox/lifecycle/observe.rs:15  crate::sandbox::docker::client::DockerClient
-sandbox-control        -> sandbox-docker       [CODE] backend/src/sandbox/lifecycle/observe.rs:16  crate::sandbox::docker::container_builder::SANDBOX_SERVICE
-sandbox-control        -> sandbox-docker       [CODE] backend/src/sandbox/lifecycle/observe.rs:16  crate::sandbox::docker::container_builder::SERVICE_LABEL
-sandbox-control        -> sandbox-docker       [CODE] backend/src/sandbox/lifecycle/observe.rs:17  crate::sandbox::docker::naming::generate_container_name
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:33  crate::sandbox::k8s::auto_provision::build_repo_config_from_workspace
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:33  crate::sandbox::k8s::auto_provision::build_server_configs_from_workspace
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:34  crate::sandbox::k8s::auto_provision::filter_disabled_server_list
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:34  crate::sandbox::k8s::auto_provision::filter_disabled_servers
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:34  crate::sandbox::k8s::auto_provision::parse_disabled_servers
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:35  crate::sandbox::k8s::auto_provision::parse_env_vars_from_workspace
-sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/lifecycle/observe.rs:18  crate::sandbox::k8s::client::K8sClient
-sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/lifecycle/observe.rs:54  crate::sandbox::k8s::deployment::list_sandbox_deployment_states
-sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/lifecycle/observe.rs:84  crate::sandbox::k8s::deployment::find_deployment
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/metrics.rs:21  super::k8s::storage::StorageBackend
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/models.rs:12  crate::sandbox::k8s::pod_status::extract_container_observed_statuses
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/models.rs:317  crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS

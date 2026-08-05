@@ -1,17 +1,17 @@
 CRATE-CENSUS REPORT
-files parsed: 641
+files parsed: 643
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3954  illegal  206
+CODE       legal  3989  illegal  199
 ATTRIBUTE  legal   246  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    54  illegal   16   (function-like macro-invocation token streams)
 DOC           52  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1715 point down into the existing crates/* floor
+  of the legal CODE edges, 1719 point down into the existing crates/* floor
 TEST-CONTEXT 2392  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
 
-== ILLEGAL PRODUCTION EDGE CLASSES (31 classes) ==
+== ILLEGAL PRODUCTION EDGE CLASSES (30 classes) ==
 
 adapter-github-pr -> server   x8
     backend/src/adapters/providers/github_pr/api_routes.rs:32  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -197,22 +197,13 @@ loops -> server   x16
     backend/src/loops/http/handlers.rs:25  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/loops/http/mod.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-sandbox-control -> sandbox-docker   x4
-    backend/src/sandbox/lifecycle/observe.rs:15  [CODE] crate::sandbox::docker::client::DockerClient   -> [10f (placement) — FleetObserver provider adapters -> provider crates (Ruling F)]
-    backend/src/sandbox/lifecycle/observe.rs:16  [CODE] crate::sandbox::docker::container_builder::SANDBOX_SERVICE   -> [10f (placement) — FleetObserver provider adapters -> provider crates (Ruling F)]
-    backend/src/sandbox/lifecycle/observe.rs:16  [CODE] crate::sandbox::docker::container_builder::SERVICE_LABEL   -> [10f (placement) — FleetObserver provider adapters -> provider crates (Ruling F)]
-    backend/src/sandbox/lifecycle/observe.rs:17  [CODE] crate::sandbox::docker::naming::generate_container_name   -> [10f (placement) — FleetObserver provider adapters -> provider crates (Ruling F)]
-
-sandbox-control -> sandbox-k8s   x14
+sandbox-control -> sandbox-k8s   x11
     backend/src/sandbox/auto_provision.rs:33  [CODE] crate::sandbox::k8s::auto_provision::build_repo_config_from_workspace   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
     backend/src/sandbox/auto_provision.rs:33  [CODE] crate::sandbox::k8s::auto_provision::build_server_configs_from_workspace   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
     backend/src/sandbox/auto_provision.rs:34  [CODE] crate::sandbox::k8s::auto_provision::filter_disabled_server_list   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
     backend/src/sandbox/auto_provision.rs:34  [CODE] crate::sandbox::k8s::auto_provision::filter_disabled_servers   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
     backend/src/sandbox/auto_provision.rs:34  [CODE] crate::sandbox::k8s::auto_provision::parse_disabled_servers   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
     backend/src/sandbox/auto_provision.rs:35  [CODE] crate::sandbox::k8s::auto_provision::parse_env_vars_from_workspace   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
-    backend/src/sandbox/lifecycle/observe.rs:18  [CODE] crate::sandbox::k8s::client::K8sClient   -> [10f (placement) — FleetObserver provider adapters -> provider crates (Ruling F)]
-    backend/src/sandbox/lifecycle/observe.rs:54  [CODE] crate::sandbox::k8s::deployment::list_sandbox_deployment_states   -> [10f (placement) — FleetObserver provider adapters -> provider crates (Ruling F)]
-    backend/src/sandbox/lifecycle/observe.rs:84  [CODE] crate::sandbox::k8s::deployment::find_deployment   -> [10f (placement) — FleetObserver provider adapters -> provider crates (Ruling F)]
     backend/src/sandbox/metrics.rs:21  [CODE] super::k8s::storage::StorageBackend   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
     backend/src/sandbox/models.rs:12  [CODE] crate::sandbox::k8s::pod_status::extract_container_observed_statuses   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
     backend/src/sandbox/models.rs:317  [CODE] crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
@@ -341,7 +332,7 @@ workspaces -> tasks   x1
   identity           deps: core                                         BLOCKED — 26 illegal outgoing to sandbox-control(x2), server(x5), tasks(x1), workspaces(x18)
   workspaces         deps: core, identity                               BLOCKED — 10 illegal outgoing to loops(x1), sandbox-control(x1), server(x7), tasks(x1)
   tasks              deps: core, identity, workspaces                   BLOCKED — 58 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x9)
-  sandbox-control    deps: core, identity, tasks, workspaces            BLOCKED — 19 illegal outgoing to sandbox-docker(x4), sandbox-k8s(x14), server(x1)
+  sandbox-control    deps: core, identity, tasks, workspaces            BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: core, sandbox-control, tasks, workspaces     WAITING — no illegal outgoing, but its deps are not extracted yet
   sandbox-docker     deps: core, sandbox-control, workspaces            BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)
   loops              deps: core, identity, sandbox-control, tasks, workspaces BLOCKED — 76 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x16)
@@ -353,7 +344,7 @@ workspaces -> tasks   x1
   server             deps: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, core, identity, loops, sandbox-control, sandbox-docker, sandbox-k8s, tasks, workspaces WAITING — no illegal outgoing, but its deps are not extracted yet
 
 == TARJAN SCCs (production target-crate graph) ==
-  full graph (legal + illegal edges): CYCLE (14 crates) workspaces <-> adapter-webhook <-> adapter-telegram <-> adapter-slack <-> server <-> adapter-linear <-> loops <-> tasks <-> sandbox-k8s <-> sandbox-docker <-> sandbox-control <-> identity <-> core <-> adapter-github-pr
+  full graph (legal + illegal edges): CYCLE (14 crates) workspaces <-> sandbox-docker <-> adapter-webhook <-> adapter-telegram <-> adapter-slack <-> server <-> adapter-linear <-> loops <-> tasks <-> sandbox-k8s <-> sandbox-control <-> identity <-> core <-> adapter-github-pr
   legal edges only (illegal removed): DAG — no multi-crate cycle
 
 == macro_rules! INVENTORY (census scope) ==

@@ -203,7 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_connector = adapter.clone();
             cluster_diagnostics = adapter;
             default_sandbox_image = config.sandbox.image.clone();
-            sandbox_fleet_observer = Arc::new(sandbox::lifecycle::K8sFleetObserver::new(
+            sandbox_fleet_observer = Arc::new(sandbox::k8s::fleet_observer::K8sFleetObserver::new(
                 k8s.clone(),
                 sandbox_observer.clone(),
             ));
@@ -234,10 +234,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_connector = adapter.clone();
             cluster_diagnostics = adapter;
             default_sandbox_image = config.docker.image.clone();
-            sandbox_fleet_observer = Arc::new(sandbox::lifecycle::DockerFleetObserver::new(
-                docker_client.clone(),
-                sandbox_observer.clone(),
-            ));
+            sandbox_fleet_observer =
+                Arc::new(sandbox::docker::fleet_observer::DockerFleetObserver::new(
+                    docker_client.clone(),
+                    sandbox_observer.clone(),
+                ));
 
             // The Docker watcher is spawned after lifecycle is assembled so
             // every observation is classified against durable intent.

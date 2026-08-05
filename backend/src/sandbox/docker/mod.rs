@@ -8,6 +8,7 @@
 pub mod client;
 pub mod container_builder;
 pub mod container_watcher;
+pub mod fleet_observer;
 pub mod naming;
 pub mod provider;
 pub mod status_resolver;

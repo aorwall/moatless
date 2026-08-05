@@ -6,6 +6,7 @@
 pub mod auto_provision;
 pub mod client;
 pub mod deployment;
+pub mod fleet_observer;
 pub mod ingress;
 pub mod leader_election;
 pub mod naming;
