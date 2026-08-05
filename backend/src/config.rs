@@ -14,6 +14,20 @@ use serde::Deserialize;
 /// override `DEFAULT_CODEX_MODEL`.
 pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.6-sol";
 
+/// Default GitHub REST API base URL.
+const DEFAULT_API_BASE: &str = "https://api.github.com";
+
+/// Resolve the GitHub API base URL. `GITHUB_API_BASE_URL` overrides the
+/// default — used by E2E tests to point the backend at a mock server (and
+/// usable for GitHub Enterprise hosts). Empty values are treated as unset.
+pub(crate) fn api_base() -> String {
+    env::var("GITHUB_API_BASE_URL")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_API_BASE.to_string())
+}
+
 /// Which sandbox provider implementation to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SandboxProviderType {

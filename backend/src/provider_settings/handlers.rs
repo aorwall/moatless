@@ -39,7 +39,7 @@ use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::{SecretCipher, SecretService};
 
 use super::error::ProviderSettingsError;
-use super::github_client;
+use crate::github_client;
 use super::gitness_client;
 use super::schemas::*;
 

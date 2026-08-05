@@ -95,14 +95,13 @@ pub trait GithubValidator: Send + Sync {
     async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String>;
 }
 
-/// Production validator — delegates to the existing helpers in
-/// `provider_settings::github_client`.
+/// Production validator — delegates to the helpers in `github_client`.
 pub struct RealGithubValidator;
 
 #[async_trait]
 impl GithubValidator for RealGithubValidator {
     async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String> {
-        crate::provider_settings::github_client::check_github_repo_access(token, owner, repo)
+        crate::github_client::check_github_repo_access(token, owner, repo)
             .await
             .map_err(|e| e.to_string())
     }

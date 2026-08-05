@@ -11,7 +11,7 @@ use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::credentials::codex::scope::CodexScope;
 use crate::credentials::{CredentialService, WriteSource};
 use crate::provider_settings::error::ProviderSettingsError;
-use crate::provider_settings::schemas::{CodexConfigResponse, SaveCodexAuthRequest};
+use moatless_api_schemas::provider_settings::{CodexConfigResponse, SaveCodexAuthRequest};
 
 /// Parse the user-supplied Codex `auth.json` body and validate it's a JSON
 /// object. Used by both the user-facing `save_codex_auth` handler and the

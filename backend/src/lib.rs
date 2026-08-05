@@ -29,6 +29,8 @@ pub mod extractors;
 pub mod feature_flags;
 pub mod feedback;
 pub mod file_storage;
+pub mod git_provider;
+pub mod github_client;
 pub mod leader;
 pub mod loops;
 pub mod message;

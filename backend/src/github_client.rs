@@ -1,6 +1,6 @@
 //! GitHub API client helpers for PAT validation and OAuth token exchange.
 
-use super::error::GitProviderError;
+use crate::git_provider::GitProviderError;
 
 /// Validate a GitHub token by calling the user endpoint.
 /// Returns the login (username) on success.
@@ -9,7 +9,7 @@ pub async fn validate_github_token(token: &str) -> Result<String, GitProviderErr
     let resp = client
         .get(format!(
             "{}/user",
-            crate::adapters::github_pr::api::api_base()
+            crate::config::api_base()
         ))
         .header("Authorization", format!("Bearer {token}"))
         .header("User-Agent", "moatless-vibe")
@@ -58,7 +58,7 @@ pub async fn check_github_repo_access(
     let resp = client
         .get(format!(
             "{}/repos/{owner}/{repo}",
-            crate::adapters::github_pr::api::api_base()
+            crate::config::api_base()
         ))
         .header("Authorization", format!("Bearer {token}"))
         .header("User-Agent", "moatless-vibe")

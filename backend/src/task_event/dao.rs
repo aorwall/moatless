@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use super::models::TaskEvent;
+use super::models::{TaskEvent, UnclosedTurn};
 use crate::db::DbPool;
 
 /// Insert parameters for a new task event.
@@ -27,12 +27,6 @@ pub struct WorkspaceSyncUpload {
     pub bytes: i64,
     pub created_at: DateTime<Utc>,
 }
-
-/// A task with an unclosed turn. The authoritative reaper query now lives on
-/// the `task_turns` table ([`crate::task_turn::dao::TaskTurnDao::list_unclosed_active_turns`]);
-/// this module keeps the event-log-derived [`TaskEventDao::active_turn_for_task`]
-/// for the single-task lookup the pod watcher needs. Both share this type.
-pub use crate::task_turn::models::UnclosedTurn;
 
 /// DAO trait for task event persistence.
 #[cfg_attr(test, mockall::automock)]
@@ -74,9 +68,9 @@ pub trait TaskEventDao: Send + Sync {
     /// Yields `Some` only when the task's latest `taskTurn` event is `active`
     /// (no terminal event has superseded it). Used by the pod watcher to attach
     /// turn context to a `turn_interrupted` event and to suppress it when no
-    /// turn is in flight. The reaper's fleet-wide equivalent now reads the
+    /// turn is in flight. The reaper's fleet-wide equivalent reads the
     /// authoritative `task_turns` table via
-    /// [`crate::task_turn::dao::TaskTurnDao::list_unclosed_active_turns`].
+    /// `TaskTurnDao::list_unclosed_active_turns`.
     async fn active_turn_for_task(
         &self,
         task_id: &str,

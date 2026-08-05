@@ -222,7 +222,7 @@ impl GitHubAppService {
             client_id,
             client_secret,
             default_installation_id,
-            api_base: crate::adapters::github_pr::api::api_base(),
+            api_base: crate::config::api_base(),
             http,
             token_cache: RwLock::new(HashMap::new()),
             repository_token_cache: RwLock::new(HashMap::new()),
