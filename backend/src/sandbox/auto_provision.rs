@@ -18,9 +18,9 @@ use crate::plugin::dao::PluginDao;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::models::RepositoryProvider;
 use crate::sandbox::error::SandboxError;
+use crate::repository::models::ServerConfig;
 use crate::sandbox::models::{
     derive_mount_name, sanitize_mount_name, ProvisionRequest, RepoCheckout, RepoConfig,
-    ServerConfig,
 };
 use crate::task::dao::TaskDao;
 use crate::task::models::Task;

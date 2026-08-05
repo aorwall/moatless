@@ -25,16 +25,14 @@ use tracing::{debug, info, warn};
 
 use super::dao::{TaskDao, TaskPatch};
 use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use crate::agent_event::AgentEvent;
 use crate::bindings::dao::TaskBindingDao;
 use crate::config::Config;
-use crate::event_handler::agent_handlers;
-use crate::event_handler::models::AgentEvent;
 use crate::events::EventPublisher;
 use crate::message::dao::MessageDao;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::sandbox::k8s::leader_election::LeaderElection;
 use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
-use crate::state::AppState;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
@@ -58,14 +56,10 @@ enum ReaperError {
 }
 
 /// The unified task reaper's ports — one background job reads all of them, so
-/// the struct is the explicit manifest of what a reap cycle touches.
-///
-/// `app_state` is retained for a single un-decomposed downstream: the
-/// orphaned-turn error path forwards the whole state to
-/// [`agent_handlers::handle_agent_error`], which is not yet split into ports.
-/// Every other read goes through a named field; that one call is the sole
-/// coupling that keeps the reaper on the composition-root baseline until
-/// agent_handlers is decomposed.
+/// the struct is the explicit manifest of what a reap cycle touches. The
+/// orphaned-turn error path delivers a synthetic `agent.error` through the
+/// [`AgentErrorSink`] port rather than reaching into the server-band error
+/// machinery, so the reaper names no server type.
 pub struct TaskReaper {
     agent_status: Arc<dyn AgentStatusPort>,
     k8s: K8sClient,
@@ -77,30 +71,41 @@ pub struct TaskReaper {
     task_bindings: Arc<dyn TaskBindingDao>,
     events: Option<Arc<dyn EventPublisher>>,
     config: Arc<Config>,
-    app_state: AppState,
+    agent_error_sink: Arc<dyn AgentErrorSink>,
 }
 
 impl TaskReaper {
-    /// Assemble the reaper at the composition root. Its ports are the state's;
-    /// `app_state` is kept only for the [`agent_handlers::handle_agent_error`]
-    /// leak (see the struct doc).
+    /// Assemble the reaper at the composition root from its ports — each wired
+    /// from the router-held `AppState` there, so this module names none.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the reaper's ports are its explicit per-cycle manifest; the composition root wires each one"
+    )]
     pub fn new(
-        app_state: AppState,
         agent_status: Arc<dyn AgentStatusPort>,
         k8s: K8sClient,
+        messages: Arc<dyn MessageDao>,
+        tasks: Arc<dyn TaskDao>,
+        task_turns: Arc<dyn TaskTurnDao>,
+        task_events: Arc<dyn TaskEventDao>,
+        sandbox: Arc<Lifecycle>,
+        task_bindings: Arc<dyn TaskBindingDao>,
+        events: Option<Arc<dyn EventPublisher>>,
+        config: Arc<Config>,
+        agent_error_sink: Arc<dyn AgentErrorSink>,
     ) -> Self {
         Self {
             agent_status,
             k8s,
-            messages: app_state.messages.clone(),
-            tasks: app_state.tasks.clone(),
-            task_turns: app_state.task_turns.clone(),
-            task_events: app_state.task_events.clone(),
-            sandbox: app_state.sandbox.clone(),
-            task_bindings: app_state.task_bindings.clone(),
-            events: app_state.events.clone(),
-            config: app_state.config.clone(),
-            app_state,
+            messages,
+            tasks,
+            task_turns,
+            task_events,
+            sandbox,
+            task_bindings,
+            events,
+            config,
+            agent_error_sink,
         }
     }
 
@@ -643,6 +648,14 @@ pub trait AgentStatusPort: Send + Sync {
     async fn agent_status(&self, task_id: &str) -> Option<sandbox_proto::GetAgentStatusResponse>;
 }
 
+/// The reaper's delivery of the synthetic `agent.error` it raises when it closes
+/// an orphaned turn, declared consumer-side so the server-band error machinery
+/// (`AppState` and the agent handlers it reaches) stays off the reaper.
+#[async_trait]
+pub trait AgentErrorSink: Send + Sync {
+    async fn deliver_agent_error(&self, event: &AgentEvent);
+}
+
 /// Satisfies [`AgentStatusPort`] through the task-addressed connector.
 pub struct ConnectorAgentStatus {
     connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>,
@@ -692,14 +705,9 @@ fn busy_extension_active(
     }
 }
 
-/// Force a stuck turn to a terminal state by driving the same close path a real
-/// `agent.error` takes: appends an error result message, flips the task back to
-/// Open, and publishes `taskTurn/error` so the UI unblocks.
-///
-/// The synthetic event id is deterministic per `(task, turn)` so repeated
-/// reconcile cycles (e.g. while Redis is still down and the terminal event
-/// hasn't yet round-tripped into `task_events`) upsert the same message row
-/// instead of stacking duplicates.
+/// Close a stuck turn: if the agent already delivered its final reply the
+/// terminal event was merely lost, so close as `completed`; otherwise deliver a
+/// synthetic `agent.error` through the sink.
 impl TaskReaper {
     async fn close_orphaned_turn(&self, turn: &UnclosedTurn) {
         // False-negative guard: if the agent already delivered its final reply for
@@ -726,34 +734,7 @@ impl TaskReaper {
             }
         }
 
-        let turn_label = turn
-            .turn_number
-            .map_or_else(|| "unknown".to_string(), |n| n.to_string());
-        let event_id = format!("reconcile-{}-{}", turn.task_id, turn_label);
-        let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-
-        let event = AgentEvent {
-            event_id,
-            event_type: EventType::Agent,
-            sub_type: "error".to_string(),
-            task_id: turn.task_id.clone(),
-            timestamp,
-            is_error: true,
-            agent_type: turn.agent_type.clone(),
-            turn_number: turn.turn_number,
-            payload: serde_json::json!({
-                "error": "The agent stopped without reporting a result. The backend closed this turn so you can continue.",
-                "reason": "reconciled_orphaned_turn",
-            }),
-        };
-
-        agent_handlers::handle_agent_error(&self.app_state, &event).await;
-        metrics::counter!("task_turns_reconciled_total").increment(1);
-        info!(
-            task_id = %turn.task_id,
-            turn_number = ?turn.turn_number,
-            "Reconciled orphaned active turn"
-        );
+        close_orphaned_turn_as_error(self.agent_error_sink.as_ref(), turn).await;
     }
 
     /// Close a stuck turn whose agent had already delivered its final reply — its
@@ -822,6 +803,49 @@ impl TaskReaper {
             "Reconciled orphaned active turn as completed (agent had already replied)"
         );
     }
+}
+
+/// Force a stuck turn to `error` by delivering a synthetic `agent.error` through
+/// the sink — the same close path a real `agent.error` takes: appends an error
+/// result message, flips the task back to Open, and publishes `taskTurn/error`
+/// so the UI unblocks.
+///
+/// The synthetic event id is deterministic per `(task, turn)` so repeated
+/// reconcile cycles (e.g. while Redis is still down and the terminal event
+/// hasn't yet round-tripped into `task_events`) upsert the same message row
+/// instead of stacking duplicates.
+///
+/// Free so the reconcile delivery is testable through the [`AgentErrorSink`]
+/// port without constructing a full reaper.
+async fn close_orphaned_turn_as_error(sink: &dyn AgentErrorSink, turn: &UnclosedTurn) {
+    let turn_label = turn
+        .turn_number
+        .map_or_else(|| "unknown".to_string(), |n| n.to_string());
+    let event_id = format!("reconcile-{}-{}", turn.task_id, turn_label);
+    let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+    let event = AgentEvent {
+        event_id,
+        event_type: EventType::Agent,
+        sub_type: "error".to_string(),
+        task_id: turn.task_id.clone(),
+        timestamp,
+        is_error: true,
+        agent_type: turn.agent_type.clone(),
+        turn_number: turn.turn_number,
+        payload: serde_json::json!({
+            "error": "The agent stopped without reporting a result. The backend closed this turn so you can continue.",
+            "reason": "reconciled_orphaned_turn",
+        }),
+    };
+
+    sink.deliver_agent_error(&event).await;
+    metrics::counter!("task_turns_reconciled_total").increment(1);
+    info!(
+        task_id = %turn.task_id,
+        turn_number = ?turn.turn_number,
+        "Reconciled orphaned active turn"
+    );
 }
 
 /// Outcome of evaluating a sandbox for the idle-stop branch.
@@ -1184,6 +1208,62 @@ mod tests {
             self.calls.lock().unwrap().push(task_id.to_string());
             Some(self.response.clone())
         }
+    }
+
+    #[derive(Default)]
+    struct RecordingAgentErrorSink {
+        events: std::sync::Mutex<Vec<AgentEvent>>,
+    }
+
+    #[async_trait]
+    impl AgentErrorSink for RecordingAgentErrorSink {
+        async fn deliver_agent_error(&self, event: &AgentEvent) {
+            self.events.lock().unwrap().push(AgentEvent {
+                event_id: event.event_id.clone(),
+                event_type: event.event_type,
+                sub_type: event.sub_type.clone(),
+                task_id: event.task_id.clone(),
+                timestamp: event.timestamp.clone(),
+                is_error: event.is_error,
+                agent_type: event.agent_type.clone(),
+                turn_number: event.turn_number,
+                payload: event.payload.clone(),
+            });
+        }
+    }
+
+    /// Holds two things about [`close_orphaned_turn_as_error`]: the reconcile
+    /// event's shape, and that the sink is fired exactly once. It does NOT cover
+    /// the reaper's invocation of this helper from `close_orphaned_turn` —
+    /// deleting that call leaves this green while orphaned turns silently stop
+    /// closing. That edge is unguarded because `TaskReaper` has no integration
+    /// harness (it takes eleven collaborators, two of them `K8sClient` and
+    /// `Lifecycle`); see the coverage gap recorded in the Step 9 plan outcome.
+    #[tokio::test]
+    async fn close_orphaned_turn_as_error_delivers_reconcile_event_to_sink() {
+        let sink = RecordingAgentErrorSink::default();
+        let turn = UnclosedTurn {
+            task_id: "task-9".to_string(),
+            turn_number: Some(4),
+            agent_type: Some("claude".to_string()),
+        };
+
+        close_orphaned_turn_as_error(&sink, &turn).await;
+
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1, "the sink must be fired exactly once");
+        let event = &events[0];
+        assert_eq!(event.event_id, "reconcile-task-9-4");
+        assert_eq!(event.event_type, EventType::Agent);
+        assert_eq!(event.sub_type, "error");
+        assert_eq!(event.task_id, "task-9");
+        assert!(event.is_error);
+        assert_eq!(event.agent_type.as_deref(), Some("claude"));
+        assert_eq!(event.turn_number, Some(4));
+        assert_eq!(
+            event.payload.get("reason").and_then(|v| v.as_str()),
+            Some("reconciled_orphaned_turn")
+        );
     }
 
     #[tokio::test]

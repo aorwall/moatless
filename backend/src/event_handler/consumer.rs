@@ -15,7 +15,7 @@ use crate::task_event::dao::InsertTaskEvent;
 use crate::task_turn::models::classify_turn_transition;
 
 use super::agent_handlers;
-use super::models::{AgentEvent, EventKey};
+use crate::agent_event::{AgentEvent, EventKey};
 
 /// Consumer group name — separate from the SSE consumer group.
 const CONSUMER_GROUP: &str = "event-handler";
@@ -610,7 +610,7 @@ impl EventHandlerConsumer {
 ///
 /// Free rather than a method so a test can reach it with a pool and no Redis.
 pub async fn persist_event(state: &AppState, event: &AgentEvent) {
-    if super::skeleton::is_agent_message(event.event_type.as_str(), &event.sub_type) {
+    if crate::agent_event::is_agent_message(event.event_type.as_str(), &event.sub_type) {
         return;
     }
     let insert = InsertTaskEvent {

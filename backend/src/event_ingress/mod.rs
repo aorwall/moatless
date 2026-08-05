@@ -38,7 +38,7 @@ use serde_json::Value;
 use tonic::Status;
 use tracing::warn;
 
-use crate::event_handler::skeleton::is_agent_message;
+use crate::agent_event::is_agent_message;
 use crate::events::EventPublisher;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use crate::task_turn::dao::{TaskTurnDao, TurnStateEvent};

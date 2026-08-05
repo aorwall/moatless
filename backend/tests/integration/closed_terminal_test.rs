@@ -19,7 +19,7 @@ use crate::common;
 use moatless_vibe_backend::event_handler::agent_handlers::{
     handle_agent_completed, handle_agent_error, handle_agent_stopped,
 };
-use moatless_vibe_backend::event_handler::models::AgentEvent;
+use moatless_vibe_backend::agent_event::AgentEvent;
 use moatless_vibe_backend::message::dao as message_dao;
 use moatless_vibe_backend::message::models::{MessageRole, MessageType};
 use moatless_vibe_backend::repository::dao as repository_dao;

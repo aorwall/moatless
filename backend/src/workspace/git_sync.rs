@@ -39,7 +39,7 @@ use crate::repository::dao::{RepositoryDao, RepositoryPatch};
 use crate::repository::error::{is_remote_url_conflict, RepositoryError};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
-use crate::sandbox::models::ServerConfig;
+use crate::repository::models::ServerConfig;
 use crate::workspace::dao::{ensure_shadow_workspace, WorkspaceDao, WorkspacePatch};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};

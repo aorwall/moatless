@@ -35,6 +35,7 @@ use crate::sandbox::lifecycle::runtime::{
 };
 use crate::sandbox::lifecycle::{ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect};
 use crate::sandbox::models::*;
+use crate::repository::models::ServerConfig;
 use crate::sandbox::schemas::*;
 
 /// Docker adapter for lifecycle mutation, observation, and connection.

@@ -1591,7 +1591,8 @@ pub fn admitted_server_ports(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sandbox::models::{RepoConfig, ServerConfig};
+    use crate::repository::models::ServerConfig;
+    use crate::sandbox::models::RepoConfig;
 
     #[test]
     fn admitted_server_ports_drops_reserved_infra_ports() {

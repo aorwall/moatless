@@ -10,7 +10,7 @@ use moatless_backend_core::scope::ScopeContext;
 use tracing::warn;
 
 use crate::config::Config;
-use crate::sandbox::models::ServerConfig;
+use crate::repository::models::ServerConfig;
 use crate::task::models::Task;
 use crate::task::relations::TaskRelationDao;
 use crate::workspace::dao::WorkspaceDao;

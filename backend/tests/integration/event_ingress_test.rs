@@ -34,7 +34,7 @@ use moatless_events::{
 };
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_vibe_backend::event_handler::consumer::persist_event;
-use moatless_vibe_backend::event_handler::models::AgentEvent;
+use moatless_vibe_backend::agent_event::AgentEvent;
 use moatless_vibe_backend::event_ingress::outbox::{IngressOutbox, PgIngressOutbox};
 use moatless_vibe_backend::event_ingress::relay::IngressRelay;
 use moatless_vibe_backend::events::{EventPublisher, PublishError};

@@ -21,7 +21,7 @@ use moatless_vibe_backend::adapters::dao::PgAdapterConnectionDao;
 use moatless_vibe_backend::adapters::models::{AdapterConnection, RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::bindings::dao::PgTaskBindingDao;
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
-use moatless_vibe_backend::event_handler::models::AgentEvent;
+use moatless_vibe_backend::agent_event::AgentEvent;
 use moatless_vibe_backend::loops::dao::LoopDao;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::scope::{Scope, ScopeContext};

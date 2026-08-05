@@ -20,7 +20,7 @@
 use crate::common;
 
 use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
-use moatless_vibe_backend::event_handler::models::AgentEvent;
+use moatless_vibe_backend::agent_event::AgentEvent;
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::transform::{transform_subagent_transcript, transform_to_ui};
 use moatless_vibe_backend::repository::dao as repository_dao;

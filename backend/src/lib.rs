@@ -15,6 +15,7 @@ pub mod access_control;
 pub mod adapter_apps;
 pub mod adapters;
 pub mod agent;
+pub mod agent_event;
 pub mod auth;
 pub mod bindings;
 pub mod compose;

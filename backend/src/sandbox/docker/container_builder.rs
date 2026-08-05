@@ -19,7 +19,8 @@ use super::naming::{
 use crate::config::Config;
 use crate::sandbox::k8s::pod_reader::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
-use crate::sandbox::models::{ProvisionPlan, ServerConfig, WORKSPACE_REPOS_ENV};
+use crate::repository::models::ServerConfig;
+use crate::sandbox::models::{ProvisionPlan, WORKSPACE_REPOS_ENV};
 use crate::sandbox::server_runner::build_server_start_script;
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";

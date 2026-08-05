@@ -6,8 +6,8 @@
 
 use std::collections::HashMap;
 
-use crate::repository::models::ResourceConfig;
-use crate::sandbox::models::{RepoConfig, ServerConfig};
+use crate::repository::models::{ResourceConfig, ServerConfig};
+use crate::sandbox::models::RepoConfig;
 use crate::task::models::Task;
 use crate::workspace::models::Workspace;
 

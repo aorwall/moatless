@@ -19,6 +19,7 @@
 //! It is applied wherever the event is broadcast to clients, and **nowhere** on
 //! the Redis ingestion path the consumer reads to build the conversation.
 
+use crate::agent_event::is_agent_message;
 use serde_json::{json, Value};
 
 /// Project an `agent.message` **inner payload** (the `AgentEventPayload` body:
@@ -55,14 +56,6 @@ pub fn agent_message_skeleton(payload: &Value) -> Value {
         "blockCount": block_count,
         "toolNames": tool_names,
     })
-}
-
-/// Whether an event `(type, sub_type)` is an `agent.message` source event — the
-/// only event this projection slims. The derived `message.upsert` /
-/// `subagentProgress` events (`type = "message"`) are the Chat's content
-/// delivery and are never slimmed.
-pub fn is_agent_message(event_type: &str, sub_type: &str) -> bool {
-    event_type == "agent" && sub_type == "message"
 }
 
 /// Slim a serialized `StreamEvent` envelope for **relay to clients**: when it is

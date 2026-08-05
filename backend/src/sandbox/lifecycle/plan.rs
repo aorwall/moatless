@@ -12,7 +12,8 @@ use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::plugin::dao::PluginDao;
 use crate::repository::dao::RepositoryDao;
 use crate::sandbox::auto_provision::{build_provision_request, get_server_configs_for_task};
-use crate::sandbox::models::{ProvisionRequest, ServerConfig};
+use crate::repository::models::ServerConfig;
+use crate::sandbox::models::ProvisionRequest;
 use crate::task::dao::TaskDao;
 use crate::workspace::dao::WorkspaceDao;
 
