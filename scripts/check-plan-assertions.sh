@@ -23,12 +23,24 @@
 #   <!-- plan-assert: exists   <path> -->
 #   <!-- plan-assert: contains <path> <literal string> -->
 #   <!-- plan-assert: absent   <path> <literal string> -->
+#   <!-- plan-assert: count <n> <path-or-dir> <literal string> -->
 #
 # `contains`/`absent` are fixed-string, whole-file, comments and strings
 # included — this is a staleness tripwire, not a parser, and the sibling checks
 # already own tokenized band analysis. The needle is everything after the path,
 # so it may contain spaces. Failures report the .plans file and line of the
 # assertion, because the document is what needs the edit.
+#
+# `count` exists for a different failure than the other three. They catch a plan
+# that names a symbol the source no longer has. `count` catches a plan whose
+# prose is right and whose ARITHMETIC is not — "the twelve handlers", "six and
+# six", "~460 sites across 62 files". That number is what the next reader budgets
+# and sequences against, and it is the part nobody re-derives, because the
+# itemization beside it looks authoritative. It counts occurrences, not matching
+# lines, and its target may be a directory, since the figures worth pinning are
+# usually sums over a tree. Assert a total only where being wrong would change
+# what someone does; an approximate figure in the prose ("~460") should be
+# written as the exact count in the assertion or left unasserted.
 #
 # An assertion must occupy its whole line. That is what lets a plan document the
 # mechanism in prose — quoting the marker inline, inside backticks — without the
@@ -110,8 +122,38 @@ while IFS= read -r hit; do
         fail=1
       fi
       ;;
+    count)
+      # Grammar is `count <n> <target> <literal>`, so the generic split above put
+      # the expected total in `path` and "<target> <literal>" in `needle`.
+      want=$path
+      target=; literal=
+      if [[ $needle =~ ^([^[:space:]]+)[[:space:]]+(.*)$ ]]; then
+        target=${BASH_REMATCH[1]}
+        literal=${BASH_REMATCH[2]}
+      fi
+      if [[ ! $want =~ ^[0-9]+$ ]]; then
+        echo "FAIL $loc — 'count' needs a number, then a path, then a literal (got '$want')"
+        fail=1
+      elif [[ -z "$target" || -z "$literal" ]]; then
+        echo "FAIL $loc — 'count' needs a number, then a path, then a non-empty literal"
+        fail=1
+      elif [[ ! -e "$target" ]]; then
+        echo "FAIL $loc — asserts $want occurrence(s) of \"$literal\" in '$target'; the path does not exist"
+        fail=1
+      else
+        # `-o` one line per occurrence, `-h` so a filename never becomes a match,
+        # `-r` so a directory target sums over the tree, `-I` so a stray binary is
+        # skipped rather than adding a "Binary file ... matches" line. grep
+        # exits 1 on no match, which is a legitimate 0 here, hence `|| true`.
+        got=$( { grep -rhoIF -- "$literal" "$target" || true; } | wc -l | tr -d '[:space:]' )
+        if [[ "$got" -ne "$want" ]]; then
+          echo "FAIL $loc — asserts $want occurrence(s) of \"$literal\" in '$target'; found $got"
+          fail=1
+        fi
+      fi
+      ;;
     *)
-      echo "FAIL $loc — unknown assertion kind '$kind' (want exists|contains|absent)"
+      echo "FAIL $loc — unknown assertion kind '$kind' (want exists|contains|absent|count)"
       fail=1
       ;;
   esac
