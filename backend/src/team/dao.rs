@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::models::{Team, TeamMember};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// DAO trait for team persistence.
 #[async_trait]

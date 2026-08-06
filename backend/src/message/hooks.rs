@@ -20,7 +20,7 @@ use tracing::{debug, warn};
 use super::models::MessageType;
 use super::schemas::{SubagentStatus, UiMessage};
 use crate::adapters::github_pr::shell_reconcile::reconcile_shell_command;
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 use crate::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 use crate::state::AppState;

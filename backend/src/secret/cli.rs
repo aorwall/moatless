@@ -16,8 +16,8 @@ use super::cli_migrate::{run_migrate_repo_env_vars, MigrateOptions};
 use super::dao::PgSecretDao;
 use super::schemas::PutSecretRequest;
 use super::service::{LocalEnvelopeSecretCipher, SecretService};
-use crate::config::Config;
-use crate::db;
+use moatless_core::config::Config;
+use moatless_core::db;
 use moatless_api_schemas::enums::Scope;
 use moatless_backend_core::scope::ScopeContext;
 

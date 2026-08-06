@@ -82,7 +82,7 @@ pub(crate) fn map_sandbox_error(error: SandboxError) -> RuntimeError {
         | SandboxError::Database { .. }
         | SandboxError::Authorization(_)
         | SandboxError::Lifecycle(_)) => {
-            RuntimeError::Infrastructure(crate::error::causal_chain(&error))
+            RuntimeError::Infrastructure(moatless_core::error::causal_chain(&error))
         }
     }
 }

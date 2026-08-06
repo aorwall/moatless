@@ -15,9 +15,9 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::compose::Ports;
-use crate::config::{AuthProvider, Config};
-use crate::db::DbPool;
-use crate::error::ErrorBody;
+use moatless_core::config::{AuthProvider, Config};
+use moatless_core::db::DbPool;
+use moatless_core::error::ErrorBody;
 use crate::secret::service::SecretService;
 use crate::setup::{evaluate_setup, SetupContext};
 use moatless_backend_core::scope::ScopeContext;

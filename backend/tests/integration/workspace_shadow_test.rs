@@ -17,7 +17,7 @@
 use crate::common;
 
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::scope::{Scope, ScopeContext};
+use moatless_core::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::task::dao as task_dao;
 use moatless_vibe_backend::workspace::dao::{
     ensure_shadow_workspace, PgWorkspaceDao, WorkspaceDao,

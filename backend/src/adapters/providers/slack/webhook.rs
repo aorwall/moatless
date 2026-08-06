@@ -14,7 +14,7 @@ use crate::adapters::models::{
     AccessDecision, Audience, InboundMessage, LoopContext, MessageTrigger,
 };
 use crate::adapters::AdapterKind;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 use super::access::enforce_slack_access;
 use super::api::SlackApi;

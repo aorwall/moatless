@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 use super::provider::OAuthProvider;
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
-use crate::config::Config;
+use moatless_core::config::Config;
 
 pub struct Auth0OAuthProvider {
     domain: String,

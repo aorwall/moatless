@@ -16,7 +16,7 @@ use super::pod_status::{
     check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
     DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
-use crate::config::Config;
+use moatless_core::config::Config;
 use moatless_backend_core::sandbox::SandboxConnector;
 use crate::sandbox::live_status::{derive_live_status, AgentStatus, LiveStatus};
 use crate::sandbox::models::*;

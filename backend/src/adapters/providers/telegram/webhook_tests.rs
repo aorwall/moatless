@@ -16,7 +16,7 @@ use axum::http::StatusCode;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{InboundMessage, LoopContext};
 use crate::adapters::test_support::stub_provider;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 use super::adapter::TelegramAdapter;
 use super::api::TelegramApi;

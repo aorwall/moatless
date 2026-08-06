@@ -37,7 +37,7 @@ use moatless_vibe_backend::adapters::routes::adapter_router;
 use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::compose::compose;
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::scope::Scope;
+use moatless_core::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 use sqlx::{PgPool, Row};
 use tower::ServiceExt;

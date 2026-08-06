@@ -348,6 +348,11 @@ fn build_baseline(records: &[RefRecord]) -> String {
 /// Row label for a top-level module that no arm of `crate_of_backend_mod` names.
 const UNASSIGNED: &str = "UNASSIGNED";
 
+/// Row label for a `#[cfg(test)]`-only backend-local module that ships in no target
+/// crate (test scaffolding). Distinct from `UNASSIGNED`: it has no target crate
+/// because it is test-only, which is a different fact from nobody having classified it.
+const TEST_SCAFFOLD: &str = "TEST-SCAFFOLD (cfg(test), not carved)";
+
 /// Per-crate membership of `backend/src`, generated from `bands.rs`: the top-level
 /// modules each target crate owns and their combined line count. A module that
 /// `crate_of_backend_mod` does not name lands in the `UNASSIGNED` row instead of
@@ -372,6 +377,7 @@ fn build_membership(files: &[DiscoveredFile]) -> Membership {
         }
         let crate_id = match crate_of_backend_mod(&f.base_mod) {
             CrateAssignment::Explicit(id) => id.to_string(),
+            CrateAssignment::TestScaffold => TEST_SCAFFOLD.to_string(),
             CrateAssignment::Fallthrough => UNASSIGNED.to_string(),
         };
         let lines = std::fs::read_to_string(&f.abs)
@@ -391,6 +397,7 @@ fn build_membership(files: &[DiscoveredFile]) -> Membership {
     for (_step, crate_id) in CARVE_ORDER {
         take(&mut acc, crate_id);
     }
+    take(&mut acc, TEST_SCAFFOLD);
     take(&mut acc, UNASSIGNED);
     for (crate_id, (modules, lines, files)) in acc {
         rows.push(MemberRow { crate_id, modules, lines, files });
@@ -423,10 +430,13 @@ fn membership_module_name(rel: &str) -> String {
 
 fn write_membership(s: &mut String, m: &Membership) {
     let _ = writeln!(s, "== CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==");
-    let _ = writeln!(s, "  Line counts are newline counts (wc -l). adapter-model is a crates/* crate, not");
-    let _ = writeln!(s, "  carved from backend/src, so it has no row here. UNASSIGNED collects any top-level");
-    let _ = writeln!(s, "  module crate_of_backend_mod does not name — a finding to resolve in bands.rs, not");
-    let _ = writeln!(s, "  a --check failure; it is empty when every module is placed.");
+    let _ = writeln!(s, "  Line counts are newline counts (wc -l). This table and its TOTAL count what has");
+    let _ = writeln!(s, "  NOT yet been carved: a crate already extracted (core, adapter-model) has left");
+    let _ = writeln!(s, "  backend/src and has no row here, so a shrinking TOTAL is carve progress, not loss.");
+    let _ = writeln!(s, "  TEST-SCAFFOLD collects cfg(test)-only backend-local modules that ship in no crate");
+    let _ = writeln!(s, "  and are never carved. UNASSIGNED collects any top-level module crate_of_backend_mod");
+    let _ = writeln!(s, "  does not name — a finding to resolve in bands.rs, not a --check failure; it is empty");
+    let _ = writeln!(s, "  when every module is placed.");
     let mut total = 0usize;
     for row in &m.rows {
         total += row.lines;
@@ -612,7 +622,8 @@ fn build_report(
 
 /// The band order carve sequence (10a-10i) and the crate each step extracts.
 const CARVE_ORDER: &[(&str, &str)] = &[
-    ("10a", "core"),
+    // 10a/core is carved (crates/core); it is scored via external_crate now, not
+    // carried here, so the frontier advances to identity.
     ("10b", "identity"),
     ("10c", "workspaces"),
     ("10d", "tasks"),

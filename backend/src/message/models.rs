@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::shared_models::AgentMode;
+use moatless_core::shared_models::AgentMode;
 
 pub use moatless_api_schemas::enums::{MessageRole, MessageType};
 

@@ -21,8 +21,8 @@
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
-use crate::config::LinearConfig;
-use crate::db::DbPool;
+use moatless_core::config::LinearConfig;
+use moatless_core::db::DbPool;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
 

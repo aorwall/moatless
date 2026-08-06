@@ -145,7 +145,7 @@ pub(crate) fn log_admission(
 mod tests {
     use super::{admit_delivery, IngressError};
     use crate::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore, AdmitError};
-    use crate::db::DbPool;
+    use moatless_core::db::DbPool;
 
     /// A store whose database is not there, so `admit` fails for a reason no
     /// mock has to be talked into.

@@ -6,7 +6,7 @@ use axum::Json;
 use moatless_api_schemas::bindings::{MultipleTargetsErrorBody, ReplyTargetDescriptor};
 
 use moatless_backend_core::access_control::AccessControlError;
-use crate::error::error_response;
+use moatless_core::error::error_response;
 
 /// Why a provider's response body could not be turned into a value we can use.
 ///

@@ -25,11 +25,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use crate::compose::{github_app_registry, Ports};
-use crate::config::{Config, OtelConfig};
+use moatless_core::config::{Config, OtelConfig};
 use crate::credentials::{BroadcastContext, CredentialService};
-use crate::db::{self, DbPool};
-use crate::events::{EventPublisher, RedisEventPublisher};
-use crate::metrics;
+use moatless_core::db::{self, DbPool};
+use moatless_core::events::{EventPublisher, RedisEventPublisher};
+use moatless_core::metrics;
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::secret::service::LocalEnvelopeSecretCipher;
@@ -206,7 +206,7 @@ where
 /// process-level failure the old `expect` was reaching for.
 pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<()> {
     let handle = metrics::init_metrics();
-    crate::events::describe_event_metrics();
+    moatless_core::events::describe_event_metrics();
     crate::event_ingress::describe_ingress_metrics();
     crate::adapters::metrics::describe_adapter_metrics();
     crate::adapters::delivery::describe_adapter_delivery_metrics();
@@ -348,7 +348,7 @@ pub async fn init_sse(
         let client = redis::Client::open(redis_url.as_str())?;
         let conn = redis::aio::ConnectionManager::new_with_config(
             client,
-            crate::events::redis_manager_config(),
+            moatless_core::events::redis_manager_config(),
         )
         .await?;
         let consumer = RedisStreamConsumer::new(
@@ -743,7 +743,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::adapters::routes::AdapterApiDoc;
     use crate::agent::routes::AgentApiDoc;
     use crate::auth::routes::AuthApiDoc;
-    use crate::feature_flags::{FeatureFlagsResponse, SlackConfig};
+    use moatless_core::feature_flags::{FeatureFlagsResponse, SlackConfig};
     use crate::feedback::routes::FeedbackApiDoc;
     use crate::file_storage::routes::FileStorageApiDoc;
     use crate::loops::http::LoopsApiDoc;
@@ -754,7 +754,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::sandbox::routes::SandboxApiDoc;
     use crate::secret::routes::SecretApiDoc;
     use crate::skill::routes::SkillApiDoc;
-    use crate::tag::routes::TagApiDoc;
+    use moatless_core::tag::routes::TagApiDoc;
     use crate::task::routes::TaskApiDoc;
     use crate::task_connections::routes::TaskConnectionsApiDoc;
     use crate::task_event::routes::TaskEventApiDoc;
@@ -806,7 +806,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
 
     #[derive(OpenApi)]
     #[openapi(
-        paths(crate::feature_flags::get_feature_flags),
+        paths(moatless_core::feature_flags::get_feature_flags),
         components(schemas(FeatureFlagsResponse, SlackConfig))
     )]
     struct FeatureFlagsApiDoc;

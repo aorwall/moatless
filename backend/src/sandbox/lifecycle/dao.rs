@@ -11,7 +11,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::task::models::{
     sandbox_intent_epoch, SandboxDesiredState, SandboxIntentView, SandboxStopReason, TaskStatus,
 };
@@ -294,7 +294,7 @@ impl LifecycleDao for PgLifecycleDao {
             crate::task_activities::record_session_change(&mut tx, task_id)
                 .await
                 .map_err(|e| StoreError::with_source("record conversation change for intent", e))?;
-            crate::task_listing::record_change(&mut tx, task_id)
+            moatless_core::task_listing::record_change(&mut tx, task_id)
                 .await
                 .map_err(|e| StoreError::with_source("record listing change for intent", e))?;
         }
@@ -801,7 +801,7 @@ mod db_tests {
             IntentEffect::Changed
         );
 
-        let changes = crate::task_listing::changes_after(&pool, 0, 10)
+        let changes = moatless_core::task_listing::changes_after(&pool, 0, 10)
             .await
             .unwrap();
         assert_eq!(
@@ -811,9 +811,9 @@ mod db_tests {
         );
         assert_eq!(
             changes[0].subject(),
-            Some(crate::task_listing::ChangeSubject::Task("t1"))
+            Some(moatless_core::task_listing::ChangeSubject::Task("t1"))
         );
-        let after_move = crate::task_listing::current_position(&pool).await.unwrap();
+        let after_move = moatless_core::task_listing::current_position(&pool).await.unwrap();
 
         // Same intent, a fresh marker: the correlation churn every operation
         // writes, and nothing a sidebar carries.
@@ -826,7 +826,7 @@ mod db_tests {
             IntentEffect::Unchanged
         );
         assert_eq!(
-            crate::task_listing::current_position(&pool).await.unwrap(),
+            moatless_core::task_listing::current_position(&pool).await.unwrap(),
             after_move,
             "rewriting the marker advanced the deployment's position counter"
         );
@@ -879,7 +879,7 @@ mod db_tests {
         let mut unrelated = pool.begin().await.unwrap();
         tokio::time::timeout(
             Duration::from_secs(3),
-            crate::task_listing::record_change(&mut unrelated, "t2"),
+            moatless_core::task_listing::record_change(&mut unrelated, "t2"),
         )
         .await
         .expect(

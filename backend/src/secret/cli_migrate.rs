@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use super::models::{looks_like_secret_key, SecretKind};
 use super::schemas::PutSecretRequest;
 use super::service::SecretService;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use moatless_api_schemas::enums::Scope;
 use moatless_backend_core::scope::ScopeContext;
 

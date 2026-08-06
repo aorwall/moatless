@@ -29,8 +29,8 @@ use crate::extractors::AuthUser;
     ),
     responses(
         (status = 200, description = "List of skills", body = ListSkillsResponse),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody),
-        (status = 502, description = "Failed to fetch a git repository", body = crate::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody),
+        (status = 502, description = "Failed to fetch a git repository", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn list_repository_skills(

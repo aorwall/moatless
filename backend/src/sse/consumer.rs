@@ -96,7 +96,7 @@ impl RedisStreamConsumer {
                     }
                     failures = failures.saturating_add(1);
                     self.recover_pending = true;
-                    let delay = crate::events::reconnect_backoff_delay(failures);
+                    let delay = moatless_core::events::reconnect_backoff_delay(failures);
                     warn!(
                         error = %e,
                         failures,

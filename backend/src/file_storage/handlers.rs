@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use super::models::FileMetadata;
 use moatless_backend_core::access_control::resolve_scope_for_create;
-use crate::config::S3Config;
+use moatless_core::config::S3Config;
 use crate::extractors::AuthUser;
 use moatless_backend_core::scope::ScopedResource;
 
@@ -28,8 +28,8 @@ use super::schemas::UploadResponse;
     request_body(content_type = "multipart/form-data", content = super::schemas::UploadFileBody),
     responses(
         (status = 200, description = "File uploaded successfully", body = UploadResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn upload_file(
@@ -130,7 +130,7 @@ pub async fn upload_file(
     ),
     responses(
         (status = 200, description = "File content", content_type = "application/octet-stream"),
-        (status = 404, description = "File not found", body = crate::error::ErrorBody)
+        (status = 404, description = "File not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn download_file(

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
 use super::models::{Repository, RepositoryKind, RepositoryProvider};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 /// Patch struct for partial updates.

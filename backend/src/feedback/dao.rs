@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 
 use super::models::Feedback;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// DAO trait for feedback persistence.
 #[cfg_attr(test, mockall::automock)]

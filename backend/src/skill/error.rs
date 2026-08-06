@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::error::error_response;
+use moatless_core::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SkillError {
@@ -57,7 +57,7 @@ impl IntoResponse for SkillError {
             }
             SkillError::Db(_) | SkillError::RepositoryToken(_) | SkillError::UserToken(_) => {
                 tracing::error!(
-                    error = %crate::error::causal_chain(&self),
+                    error = %moatless_core::error::causal_chain(&self),
                     "Internal error in skill handler"
                 );
                 (

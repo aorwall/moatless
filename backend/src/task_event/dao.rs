@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use super::models::{TaskEvent, UnclosedTurn};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// Insert parameters for a new task event.
 pub struct InsertTaskEvent {

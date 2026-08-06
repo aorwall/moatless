@@ -122,7 +122,7 @@ impl GithubPrApi {
         Self {
             client: Client::new(),
             token: token.to_string(),
-            base_url: crate::config::api_base(),
+            base_url: moatless_core::config::api_base(),
         }
     }
 

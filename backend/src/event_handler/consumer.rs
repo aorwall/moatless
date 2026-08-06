@@ -83,7 +83,7 @@ impl EventHandlerConsumer {
                     // Recover the PEL on the next successful cycle — entries
                     // delivered but not ACKed before this drop must be reclaimed.
                     self.recover_pending = true;
-                    let delay = crate::events::reconnect_backoff_delay(failures);
+                    let delay = moatless_core::events::reconnect_backoff_delay(failures);
                     warn!(
                         error = %e,
                         failures,

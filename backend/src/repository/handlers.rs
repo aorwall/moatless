@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use moatless_backend_core::access_control::resolve_scope_for_create;
 use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::extractors::AuthUser;
 use crate::loops::sync::LoopSyncService;
 use crate::secret::models::looks_like_secret_key;
@@ -53,7 +53,7 @@ pub(crate) fn validate_non_secret_env_vars(
     request_body = CreateRepositoryRequest,
     responses(
         (status = 201, description = "Repository created", body = RepositoryResponse),
-        (status = 409, description = "Repository already exists", body = crate::error::ErrorBody)
+        (status = 409, description = "Repository already exists", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn create_repository(
@@ -189,7 +189,7 @@ pub async fn list_repositories(
     ),
     responses(
         (status = 200, description = "Repository details", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_repository(
@@ -216,8 +216,8 @@ pub async fn get_repository(
     request_body = UpdateRepositoryRequest,
     responses(
         (status = 200, description = "Repository updated", body = RepositoryResponse),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody),
-        (status = 409, description = "Repository URL already exists", body = crate::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody),
+        (status = 409, description = "Repository URL already exists", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn update_repository(
@@ -347,9 +347,9 @@ fn preserved_user_scope(existing: &Repository) -> Result<String, RepositoryError
     ),
     responses(
         (status = 200, description = "Repository access checked", body = RepositoryResponse),
-        (status = 400, description = "Repository cannot be verified", body = crate::error::ErrorBody),
-        (status = 403, description = "Write access required", body = crate::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
+        (status = 400, description = "Repository cannot be verified", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Write access required", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn verify_access(
@@ -434,7 +434,7 @@ async fn persist_access_verification(
     ),
     responses(
         (status = 204, description = "Repository deleted"),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn delete_repository(
@@ -473,7 +473,7 @@ pub async fn delete_repository(
 /// `UPDATE` has taken every `workspaces` row lock: `record_change`'s "call this
 /// last".
 async fn delete_declared_workspaces(
-    db: &crate::db::DbPool,
+    db: &moatless_core::db::DbPool,
     repository_id: &str,
 ) -> Result<(), sqlx::Error> {
     let mut tx = db.begin().await?;
@@ -488,7 +488,7 @@ async fn delete_declared_workspaces(
     .await?;
 
     for workspace_id in &deleted {
-        crate::task_listing::record_workspace_change(&mut tx, workspace_id).await?;
+        moatless_core::task_listing::record_workspace_change(&mut tx, workspace_id).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -504,8 +504,8 @@ async fn delete_declared_workspaces(
     ),
     responses(
         (status = 200, description = "Repository converted to template", body = RepositoryResponse),
-        (status = 400, description = "Cannot convert", body = crate::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
+        (status = 400, description = "Cannot convert", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn convert_to_template(
@@ -551,9 +551,9 @@ pub async fn convert_to_template(
     ),
     responses(
         (status = 200, description = "Branch list", body = BranchListResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
-        (status = 403, description = "Access denied - token lacks permissions", body = crate::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Access denied - token lacks permissions", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_branches(
@@ -1087,8 +1087,8 @@ async fn fetch_gitness_branches(
     ),
     responses(
         (status = 200, description = "Config + loops synced", body = SyncConfigResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
-        (status = 404, description = "Repository not found", body = crate::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Repository not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn sync_config(

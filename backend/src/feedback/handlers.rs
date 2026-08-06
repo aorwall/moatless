@@ -25,8 +25,8 @@ use super::schemas::{
     request_body = CreateFeedbackRequest,
     responses(
         (status = 200, description = "Feedback created", body = FeedbackResponse),
-        (status = 400, description = "Invalid request", body = crate::error::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid request", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn create_feedback(
@@ -120,7 +120,7 @@ pub async fn create_feedback(
     ),
     responses(
         (status = 200, description = "Feedback list", body = ListFeedbackResponse),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn list_task_feedback(

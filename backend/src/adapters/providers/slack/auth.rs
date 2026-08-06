@@ -7,7 +7,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::adapters::error::AdapterError;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 use super::api::{SlackApi, SlackUserInfo};
 
@@ -217,7 +217,7 @@ pub(super) async fn bot_user_id(api: &SlackApi, configured: Option<&str>) -> Opt
 #[cfg(test)]
 mod tests {
     use crate::adapters::test_support::ProviderStub;
-    use crate::db::DbPool;
+    use moatless_core::db::DbPool;
 
     use super::super::api::SlackApi;
     use super::{bot_user_id, resolve_inbound_sender, SenderIdentity};

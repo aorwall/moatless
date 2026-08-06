@@ -4,8 +4,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
-use crate::error::error_response;
-use crate::git_provider::GitProviderError;
+use moatless_core::error::error_response;
+use moatless_core::git_provider::GitProviderError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderSettingsError {

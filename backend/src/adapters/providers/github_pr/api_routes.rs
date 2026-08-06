@@ -46,9 +46,9 @@ use super::shell_reconcile::compose_footer;
     request_body = GithubCreatePrRequest,
     responses(
         (status = 200, description = "Pull request created", body = GithubCreatePrResponse),
-        (status = 400, description = "Bad request / adapter not configured", body = crate::error::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody),
-        (status = 502, description = "GitHub API error / no usable GitHub token", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad request / adapter not configured", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
+        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn create_pr(
@@ -189,9 +189,9 @@ impl CreatedPr {
     request_body = GithubCommentRequest,
     responses(
         (status = 200, description = "Comment posted", body = GithubCommentResponse),
-        (status = 400, description = "Bad request / adapter not configured", body = crate::error::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody),
-        (status = 502, description = "GitHub API error / no usable GitHub token", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad request / adapter not configured", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
+        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn post_comment(
@@ -254,9 +254,9 @@ pub async fn post_comment(
     request_body = GithubReplyRequest,
     responses(
         (status = 200, description = "Threaded reply posted", body = GithubCommentResponse),
-        (status = 400, description = "Bad request / adapter not configured", body = crate::error::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody),
-        (status = 502, description = "GitHub API error / no usable GitHub token", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad request / adapter not configured", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
+        (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn reply_to_review_comment(
@@ -317,8 +317,8 @@ pub async fn reply_to_review_comment(
     request_body = GithubBindPrRequest,
     responses(
         (status = 200, description = "Pull request bound to task", body = GithubBindPrResponse),
-        (status = 400, description = "Bad request / adapter not configured", body = crate::error::ErrorBody),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad request / adapter not configured", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn bind_pr(

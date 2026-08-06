@@ -36,9 +36,9 @@ use moatless_backend_core::scope::ScopeContext;
     ),
     responses(
         (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
-        (status = 400, description = "Task is Closed — start not allowed", body = crate::error::ErrorBody),
-        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
-        (status = 500, description = "Provisioning failed", body = crate::error::ErrorBody)
+        (status = 400, description = "Task is Closed — start not allowed", body = moatless_core::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Provisioning failed", body = moatless_core::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -69,7 +69,7 @@ pub async fn provision_handler(
     ),
     responses(
         (status = 200, description = "Task live status", body = crate::sandbox::live_status::LiveStatus),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -107,8 +107,8 @@ pub async fn live_status_handler(
     ),
     responses(
         (status = 200, description = "Full sandbox status", body = SandboxStatusFullResponse),
-        (status = 503, description = "Sandbox not ready", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 503, description = "Sandbox not ready", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -176,8 +176,8 @@ pub async fn sandbox_status_handler(
     ),
     responses(
         (status = 204, description = "Sandbox stopped"),
-        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
-        (status = 500, description = "Stop failed", body = crate::error::ErrorBody)
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Stop failed", body = moatless_core::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -205,9 +205,9 @@ pub async fn stop_handler(
     ),
     responses(
         (status = 204, description = "Sandbox restarted"),
-        (status = 400, description = "Task is Closed — restart not allowed", body = crate::error::ErrorBody),
-        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
-        (status = 500, description = "Restart failed", body = crate::error::ErrorBody)
+        (status = 400, description = "Task is Closed — restart not allowed", body = moatless_core::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Restart failed", body = moatless_core::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -237,9 +237,9 @@ pub async fn restart_handler(
     ),
     responses(
         (status = 200, description = "Sandbox redeployed successfully", body = ProvisionResponse),
-        (status = 400, description = "Task is Closed — redeploy not allowed", body = crate::error::ErrorBody),
-        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
-        (status = 500, description = "Redeploy failed", body = crate::error::ErrorBody)
+        (status = 400, description = "Task is Closed — redeploy not allowed", body = moatless_core::error::ErrorBody),
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Redeploy failed", body = moatless_core::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -270,8 +270,8 @@ pub async fn redeploy_handler(
     ),
     responses(
         (status = 204, description = "Sandbox cleaned up"),
-        (status = 409, description = "Another lifecycle operation is in progress", body = crate::error::ErrorBody),
-        (status = 500, description = "Cleanup failed", body = crate::error::ErrorBody)
+        (status = 409, description = "Another lifecycle operation is in progress", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Cleanup failed", body = moatless_core::error::ErrorBody)
     )
 )]
 #[tracing::instrument(skip_all, fields(task_id = %task_id))]
@@ -305,7 +305,7 @@ pub async fn remove_handler(
     ),
     responses(
         (status = 200, description = "Server status", body = ServerStatusResponse),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn server_status_handler(
@@ -398,7 +398,7 @@ fn default_tail() -> i64 {
     ),
     responses(
         (status = 200, description = "SSE stream of server log lines"),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn server_logs_handler(
@@ -457,7 +457,7 @@ pub async fn server_logs_handler(
     params(("task_id" = String, Path, description = "Task identifier")),
     responses(
         (status = 200, description = "Overrides in effect", body = ServerOverridesResponse),
-        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+        (status = 503, description = "Sandbox not reachable", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn list_server_config_handler(
@@ -498,10 +498,10 @@ pub async fn list_server_config_handler(
     request_body = UpdateServerConfigRequest,
     responses(
         (status = 200, description = "Override applied", body = ServerConfigResponse),
-        (status = 400, description = "Invalid env key or server name", body = crate::error::ErrorBody),
-        (status = 404, description = "No such server on this task", body = crate::error::ErrorBody),
-        (status = 409, description = "Field requires a redeploy to change", body = crate::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid env key or server name", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "No such server on this task", body = moatless_core::error::ErrorBody),
+        (status = 409, description = "Field requires a redeploy to change", body = moatless_core::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn update_server_config_handler(
@@ -572,8 +572,8 @@ pub async fn update_server_config_handler(
     ),
     responses(
         (status = 200, description = "Server restarted", body = ServerConfigResponse),
-        (status = 404, description = "No such server on this task", body = crate::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+        (status = 404, description = "No such server on this task", body = moatless_core::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn restart_server_handler(
@@ -603,8 +603,8 @@ pub async fn restart_server_handler(
     ),
     responses(
         (status = 200, description = "Override cleared", body = ServerConfigResponse),
-        (status = 404, description = "No such server on this task", body = crate::error::ErrorBody),
-        (status = 503, description = "Sandbox not reachable", body = crate::error::ErrorBody)
+        (status = 404, description = "No such server on this task", body = moatless_core::error::ErrorBody),
+        (status = 503, description = "Sandbox not reachable", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn reset_server_config_handler(
@@ -883,7 +883,7 @@ mod authz_tests {
             short_id: None,
             created_at: String::new(),
             last_message_at: String::new(),
-            agent_type: crate::shared_models::AgentType("claude-code".to_string()),
+            agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
             repository_id: "repo-1".to_string(),
             status: crate::task::models::TaskStatus::Open,
             total_cost_usd: 0.0,

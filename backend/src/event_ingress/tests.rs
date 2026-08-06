@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 use crate::task_event::dao::MockTaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnTransition, UnclosedTurn};

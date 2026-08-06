@@ -20,7 +20,7 @@ use tower::ServiceExt;
 
 use moatless_vibe_backend::adapters::models::AdapterConnection;
 use moatless_vibe_backend::adapters::routes::adapter_router;
-use moatless_vibe_backend::scope::Scope;
+use moatless_core::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 
 use common::{authed_request, test_app_state, user_scope, USER_1, USER_2};

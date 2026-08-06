@@ -9,7 +9,7 @@ use std::sync::Arc;
 use moatless_backend_core::scope::ScopeContext;
 use tracing::warn;
 
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::repository::models::ServerConfig;
 use crate::task::models::Task;
 use crate::task::relations::TaskRelationDao;

@@ -25,13 +25,13 @@ use crate::auth::provider_tokens::{
     APP_INSTALLATION_TOKEN_PLACEHOLDER, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
     SECRET_REF_TOKEN_PLACEHOLDER,
 };
-use crate::config::{AuthConfig, CodexOAuthConfig, SecretsConfig};
+use moatless_core::config::{AuthConfig, CodexOAuthConfig, SecretsConfig};
 use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
 use crate::credentials::codex::{save_codex_auth_for_scope, CodexScope};
 use crate::credentials::github::scope::GitHubScope;
 use crate::credentials::CredentialService;
 use crate::credentials::WriteSource;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::extractors::AuthUser;
 use crate::sandbox::secrets::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
@@ -39,7 +39,7 @@ use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::{SecretCipher, SecretService};
 
 use super::error::ProviderSettingsError;
-use crate::github_client;
+use moatless_core::github_client;
 use super::gitness_client;
 use super::schemas::*;
 
@@ -50,7 +50,7 @@ use super::schemas::*;
     tag = "provider-settings",
     responses(
         (status = 200, description = "GitHub config", body = GitHubConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_github_config(
@@ -229,8 +229,8 @@ fn adapter_app_input(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Configured Adapter apps", body = AdapterAppsResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_list_adapter_apps(
@@ -257,9 +257,9 @@ pub async fn admin_list_adapter_apps(
     request_body = SaveAdapterAppRequest,
     responses(
         (status = 200, description = "Adapter app saved", body = AdapterAppSummary),
-        (status = 400, description = "Invalid Adapter app config", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid Adapter app config", body = moatless_core::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_save_adapter_app(
@@ -290,9 +290,9 @@ pub async fn admin_save_adapter_app(
     ),
     responses(
         (status = 204, description = "Adapter app deleted"),
-        (status = 400, description = "Invalid Adapter app", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid Adapter app", body = moatless_core::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_delete_adapter_app(
@@ -475,8 +475,8 @@ async fn upsert_github_org_connection(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Configured GitHub Apps and installations", body = GitHubAppsResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_list_github_apps(
@@ -537,7 +537,7 @@ pub async fn admin_list_github_apps(
 /// Bot user creation writes the App key into the user's provider identity as
 /// `bot:<key>`, so this is the whole relation — there is no join to make.
 async fn bot_users_by_app_key(
-    db: &crate::db::DbPool,
+    db: &moatless_core::db::DbPool,
 ) -> Result<HashMap<String, String>, ProviderSettingsError> {
     let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(
         "SELECT id, provider_user_id FROM users \
@@ -614,7 +614,7 @@ async fn prove_signing_key(
     private_key_pem: &str,
     default_installation_id: Option<u64>,
 ) -> Result<crate::auth::github::service::ProvedApp, ProviderSettingsError> {
-    let entry = crate::config::GitHubAppConfig {
+    let entry = moatless_core::config::GitHubAppConfig {
         key: app_key.to_string(),
         app_id,
         private_key: private_key_pem.to_string(),
@@ -637,10 +637,10 @@ async fn prove_signing_key(
     request_body = RegisterGitHubAppRequest,
     responses(
         (status = 201, description = "App proved against GitHub and registered", body = GitHubAppRegistrationResponse),
-        (status = 400, description = "The App could not be proved, or the name is unusable", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
-        (status = 409, description = "That name is already in use", body = crate::error::ErrorBody)
+        (status = 400, description = "The App could not be proved, or the name is unusable", body = moatless_core::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody),
+        (status = 409, description = "That name is already in use", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_register_github_app(
@@ -728,10 +728,10 @@ pub async fn admin_register_github_app(
     request_body = RotateGitHubAppKeyRequest,
     responses(
         (status = 200, description = "New key proved and stored", body = GitHubAppRegistrationResponse),
-        (status = 400, description = "The new key could not be proved; the App is unchanged", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
-        (status = 404, description = "No App is registered under that name", body = crate::error::ErrorBody)
+        (status = 400, description = "The new key could not be proved; the App is unchanged", body = moatless_core::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "No App is registered under that name", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_rotate_github_app_key(
@@ -810,9 +810,9 @@ pub async fn admin_rotate_github_app_key(
     params(("github_app_key" = String, Path, description = "App name chosen at registration")),
     responses(
         (status = 200, description = "App removed installation-wide", body = RemoveGitHubAppResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody),
-        (status = 404, description = "No App is registered under that name", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "No App is registered under that name", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_remove_github_app(
@@ -944,8 +944,8 @@ async fn record_app_audit(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Global GitHub installation binding", body = GitHubInstallationBindingResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_get_global_github_installation(
@@ -967,9 +967,9 @@ pub async fn admin_get_global_github_installation(
     request_body = GitHubInstallationBindingRequest,
     responses(
         (status = 200, description = "Global GitHub installation bound", body = GitHubInstallationBindingResponse),
-        (status = 400, description = "Invalid App or installation", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid App or installation", body = moatless_core::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_put_global_github_installation(
@@ -1000,8 +1000,8 @@ pub async fn admin_put_global_github_installation(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Global GitHub installation unbound", body = GitHubInstallationBindingResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_delete_global_github_installation(
@@ -1023,7 +1023,7 @@ pub async fn admin_delete_global_github_installation(
     request_body = SavePatRequest,
     responses(
         (status = 200, description = "PAT saved", body = GitHubConfigResponse),
-        (status = 400, description = "Invalid token", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid token", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn save_github_pat(
@@ -1137,7 +1137,7 @@ pub async fn save_github_pat(
     tag = "provider-settings",
     responses(
         (status = 200, description = "OAuth URL", body = OAuthUrlResponse),
-        (status = 400, description = "GitHub OAuth not configured", body = crate::error::ErrorBody)
+        (status = 400, description = "GitHub OAuth not configured", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_github_oauth_url(
@@ -1178,7 +1178,7 @@ pub async fn get_github_oauth_url(
     request_body = ExchangeTokenRequest,
     responses(
         (status = 200, description = "Token exchanged", body = ExchangeTokenResponse),
-        (status = 400, description = "Exchange failed", body = crate::error::ErrorBody)
+        (status = 400, description = "Exchange failed", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn exchange_github_token(
@@ -1248,7 +1248,7 @@ pub async fn exchange_github_token(
     tag = "provider-settings",
     responses(
         (status = 200, description = "GitHub disconnected", body = GitHubConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn delete_github_config(
@@ -1287,8 +1287,8 @@ pub async fn delete_github_config(
     tag = "provider-settings",
     responses(
         (status = 200, description = "PAT override removed", body = GitHubConfigResponse),
-        (status = 400, description = "No PAT override to remove", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+        (status = 400, description = "No PAT override to remove", body = moatless_core::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn delete_github_pat_override(
@@ -1388,7 +1388,7 @@ pub async fn delete_github_pat_override(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Gitness config", body = GitnessConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_gitness_config(
@@ -1437,7 +1437,7 @@ pub async fn get_gitness_config(
     request_body = SaveGitnessPATRequest,
     responses(
         (status = 200, description = "PAT saved", body = GitnessConfigResponse),
-        (status = 400, description = "Invalid token", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid token", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn save_gitness_pat(
@@ -1480,7 +1480,7 @@ pub async fn save_gitness_pat(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Gitness disconnected", body = GitnessConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn delete_gitness_config(
@@ -1509,7 +1509,7 @@ pub async fn delete_gitness_config(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Codex config", body = CodexConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_codex_config(
@@ -1567,8 +1567,8 @@ pub async fn get_codex_config(
     request_body = SaveCodexAuthRequest,
     responses(
         (status = 200, description = "Codex auth saved", body = CodexConfigResponse),
-        (status = 400, description = "Invalid auth JSON", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid auth JSON", body = moatless_core::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn save_codex_auth(
@@ -1599,9 +1599,9 @@ pub async fn save_codex_auth(
     request_body = SaveCodexAuthRequest,
     responses(
         (status = 200, description = "Global codex auth saved", body = CodexConfigResponse),
-        (status = 400, description = "Invalid auth JSON", body = crate::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid auth JSON", body = moatless_core::error::ErrorBody),
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_save_global_codex_auth(
@@ -1628,8 +1628,8 @@ pub async fn admin_save_global_codex_auth(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Global codex disconnected", body = CodexConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 403, description = "Admin only", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 403, description = "Admin only", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn admin_delete_global_codex_config(
@@ -1662,7 +1662,7 @@ pub async fn admin_delete_global_codex_config(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Codex disconnected", body = CodexConfigResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn delete_codex_config(
@@ -1695,8 +1695,8 @@ pub async fn delete_codex_config(
     tag = "provider-settings",
     responses(
         (status = 200, description = "Device code issued", body = CodexDeviceCodeStartResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 502, description = "Codex OAuth provider error", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 502, description = "Codex OAuth provider error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn start_codex_device_login(
@@ -1731,8 +1731,8 @@ pub async fn start_codex_device_login(
     request_body = CodexDeviceCodePollRequest,
     responses(
         (status = 200, description = "Poll status", body = CodexDeviceCodePollResponse),
-        (status = 401, description = "Not authenticated", body = crate::error::ErrorBody),
-        (status = 502, description = "Codex OAuth provider error", body = crate::error::ErrorBody)
+        (status = 401, description = "Not authenticated", body = moatless_core::error::ErrorBody),
+        (status = 502, description = "Codex OAuth provider error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn poll_codex_device_login(

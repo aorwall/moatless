@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
-use crate::error::error_response;
+use moatless_core::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
@@ -91,7 +91,7 @@ impl IntoResponse for AuthError {
             | Self::Database(_) => {
                 // Log the full causal chain server-side exactly once, return a
                 // generic message to the client.
-                error!(error = %crate::error::causal_chain(&self), "Internal auth error");
+                error!(error = %moatless_core::error::causal_chain(&self), "Internal auth error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".to_string(),

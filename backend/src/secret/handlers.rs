@@ -22,7 +22,7 @@ use super::schemas::{
     params(ListSecretsQuery),
     responses(
         (status = 200, description = "List secret metadata", body = Vec<SecretMetadataResponse>),
-        (status = 403, description = "Forbidden", body = crate::error::ErrorBody)
+        (status = 403, description = "Forbidden", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn list_secrets(
@@ -43,7 +43,7 @@ pub async fn list_secrets(
     params(("id" = String, Path, description = "Secret ID")),
     responses(
         (status = 200, description = "Secret metadata", body = SecretMetadataResponse),
-        (status = 404, description = "Secret not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Secret not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_secret(
@@ -62,7 +62,7 @@ pub async fn get_secret(
     request_body = PutSecretRequest,
     responses(
         (status = 200, description = "Secret created or replaced", body = SecretMutationResponse),
-        (status = 400, description = "Invalid secret", body = crate::error::ErrorBody)
+        (status = 400, description = "Invalid secret", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn put_secret(
@@ -84,7 +84,7 @@ pub async fn put_secret(
     request_body = PatchSecretRequest,
     responses(
         (status = 200, description = "Secret updated", body = SecretMutationResponse),
-        (status = 404, description = "Secret not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Secret not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn patch_secret(
@@ -106,7 +106,7 @@ pub async fn patch_secret(
     params(("id" = String, Path, description = "Secret ID")),
     responses(
         (status = 204, description = "Secret deleted"),
-        (status = 404, description = "Secret not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Secret not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn delete_secret(

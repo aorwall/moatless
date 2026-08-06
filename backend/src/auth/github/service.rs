@@ -18,7 +18,7 @@ use tracing::{debug, info, warn};
 use crate::adapter_apps::dao::GitHubAppRecord;
 use crate::auth::error::AuthError;
 use crate::auth::models::OAuthTokens;
-use crate::config::{Config, GitHubAppConfig};
+use moatless_core::config::{Config, GitHubAppConfig};
 
 /// Cached installation access token.
 struct CachedToken {
@@ -222,7 +222,7 @@ impl GitHubAppService {
             client_id,
             client_secret,
             default_installation_id,
-            api_base: crate::config::api_base(),
+            api_base: moatless_core::config::api_base(),
             http,
             token_cache: RwLock::new(HashMap::new()),
             repository_token_cache: RwLock::new(HashMap::new()),

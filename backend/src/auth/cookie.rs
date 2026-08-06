@@ -1,6 +1,6 @@
 //! Cookie utilities for session management.
 
-use crate::config::Config;
+use moatless_core::config::Config;
 use axum::http::header;
 use axum::http::HeaderMap;
 use cookie::{Cookie, SameSite};

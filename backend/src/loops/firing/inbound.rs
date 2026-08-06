@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::adapters::models::LoopContext;
 use crate::adapters::Adapters;
-use crate::shared_models::AgentType;
+use moatless_core::shared_models::AgentType;
 use crate::task::creation::{
     FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome, TaskCreationService,
 };

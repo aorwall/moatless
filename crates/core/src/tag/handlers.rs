@@ -10,7 +10,7 @@ use super::error::TagError;
 use super::schemas::TagResponse;
 
 /// List all tags.
-#[utoipa::path(
+#[cfg_attr(feature = "openapi", utoipa::path(
     get,
     path = "/api/v1/tags",
     tag = "tags",
@@ -18,7 +18,7 @@ use super::schemas::TagResponse;
         (status = 200, description = "List of tags", body = Vec<TagResponse>),
         (status = 500, description = "Internal error", body = crate::error::ErrorBody)
     )
-)]
+))]
 pub async fn list_tags(
     State(tags): State<Arc<dyn TagDao>>,
 ) -> Result<Json<Vec<TagResponse>>, TagError> {

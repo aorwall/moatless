@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 use tracing::warn;
 
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 pub use moatless_api_schemas::enums::TaskRelationType;
 

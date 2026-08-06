@@ -37,7 +37,7 @@ use moatless_vibe_backend::adapters::linear::ingress::{
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::adapters::test_support::ProviderStub;
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::scope::Scope;
+use moatless_core::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 
 use common::{

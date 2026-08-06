@@ -470,7 +470,7 @@ pub async fn update_loop(
     params(("id" = String, Path, description = "Loop id")),
     responses(
         (status = 200, description = "Loop", body = Loop),
-        (status = 404, description = "Not found", body = crate::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn get_loop(
@@ -511,7 +511,7 @@ pub async fn list_loop_recent_tasks(
     params(("id" = String, Path, description = "Loop id")),
     responses(
         (status = 204, description = "Loop deleted"),
-        (status = 404, description = "Loop not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Loop not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn delete_loop(

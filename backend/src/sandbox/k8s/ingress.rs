@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
 use super::naming::{generate_ingress_route_name, generate_service_name};
-use crate::config::Config;
+use moatless_core::config::Config;
 
 const TRAEFIK_GROUP: &str = "traefik.io";
 const TRAEFIK_VERSION: &str = "v1alpha1";

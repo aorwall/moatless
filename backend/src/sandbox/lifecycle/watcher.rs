@@ -5,7 +5,7 @@ use std::sync::Arc;
 use moatless_events::{SandboxEventPayload, SandboxStatus};
 use tracing::warn;
 
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 
 use super::classify::{Observation, ObservedTransition};
 use super::events::{self, EventFact};

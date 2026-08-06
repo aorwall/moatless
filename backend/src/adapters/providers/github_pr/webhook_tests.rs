@@ -1,5 +1,5 @@
 use crate::adapters::models::{Audience, RoutingMode, SubscriptionMatch};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 use super::{normalize, title_is_ignored, IgnoredWebhook, NormalizeContext, PrimaryWebhook};
 use crate::adapters::providers::github_pr::status::WebhookStatusObservation;

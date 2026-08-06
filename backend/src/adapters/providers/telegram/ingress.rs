@@ -13,7 +13,7 @@ use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliver
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::SubscriptionMatch;
 use crate::adapters::AdapterDestinationBuilder;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::state::AppState;
 
 use super::adapter::TelegramAdapter;

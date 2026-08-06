@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// `provider_tokens.auth_method` value used on bot-user rows. Switches the
 /// canonical GitHub-token resolver from "refresh OAuth token" to "mint a fresh

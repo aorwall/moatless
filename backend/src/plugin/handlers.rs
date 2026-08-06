@@ -38,7 +38,7 @@ fn ensure_admin(auth: &AuthUser) -> Result<(), PluginError> {
     tag = "plugins",
     responses(
         (status = 200, description = "List of plugins", body = Vec<PluginResponse>),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn list_plugins(
@@ -58,8 +58,8 @@ pub async fn list_plugins(
     request_body = CreatePluginRequest,
     responses(
         (status = 200, description = "Created plugin", body = PluginResponse),
-        (status = 409, description = "Name already exists", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 409, description = "Name already exists", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn create_plugin(
@@ -102,8 +102,8 @@ pub async fn create_plugin(
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 204, description = "Deleted"),
-        (status = 404, description = "Not found", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn delete_plugin(
@@ -131,8 +131,8 @@ pub async fn delete_plugin(
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 200, description = "The plugin's skills", body = Vec<PluginSkillResponse>),
-        (status = 404, description = "Not found", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn list_plugin_skills(
@@ -171,7 +171,7 @@ pub async fn list_plugin_skills(
     params(("id" = String, Path, description = "Plugin ID")),
     responses(
         (status = 200, description = "The records that apply to this caller", body = Vec<ActivationResponse>),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn list_plugin_activations(
@@ -212,9 +212,9 @@ pub async fn list_plugin_activations(
     request_body = SetActivationRequest,
     responses(
         (status = 200, description = "The stored record", body = ActivationResponse),
-        (status = 403, description = "Admin required for the global default", body = crate::error::ErrorBody),
-        (status = 404, description = "Not found", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 403, description = "Admin required for the global default", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn set_plugin_activation(
@@ -261,9 +261,9 @@ pub async fn set_plugin_activation(
     ),
     responses(
         (status = 204, description = "Cleared"),
-        (status = 403, description = "Admin required for the global default", body = crate::error::ErrorBody),
-        (status = 404, description = "No such record", body = crate::error::ErrorBody),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 403, description = "Admin required for the global default", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "No such record", body = moatless_core::error::ErrorBody),
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn clear_plugin_activation(
@@ -301,7 +301,7 @@ pub struct ClearActivationParams {
     tag = "plugins",
     responses(
         (status = 200, description = "Plugins and skills this user receives", body = Vec<EffectivePluginResponse>),
-        (status = 500, description = "Internal error", body = crate::error::ErrorBody)
+        (status = 500, description = "Internal error", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn list_effective_plugins(

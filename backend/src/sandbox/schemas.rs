@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn error_body_serializes() {
-        let body = crate::error::ErrorBody {
+        let body = moatless_core::error::ErrorBody {
             error: "not found".into(),
         };
         let json = serde_json::to_value(&body).unwrap();

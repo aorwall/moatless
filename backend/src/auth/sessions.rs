@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use super::models::UserRole;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct Session {

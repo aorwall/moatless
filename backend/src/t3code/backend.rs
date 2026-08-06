@@ -725,14 +725,14 @@ impl ThreadCommandSink for AppStateCommands {
 }
 
 /// The agent a thread created from T3 runs.
-fn default_agent_for(instance: &str) -> crate::shared_models::AgentType {
+fn default_agent_for(instance: &str) -> moatless_core::shared_models::AgentType {
     let id = crate::agent::catalog::catalog()
         .iter()
         .find(|entry| agent_instance_for(entry.kind) == instance)
-        .map_or(crate::shared_models::AgentType::CLAUDE_CODE, |entry| {
+        .map_or(moatless_core::shared_models::AgentType::CLAUDE_CODE, |entry| {
             entry.id
         });
-    crate::shared_models::AgentType(id.to_string())
+    moatless_core::shared_models::AgentType(id.to_string())
 }
 
 fn agent_instance_for(kind: crate::agent::catalog::AgentKind) -> &'static str {
@@ -789,11 +789,11 @@ mod tests {
     fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
         assert_eq!(
             default_agent_for("claudeAgent"),
-            crate::shared_models::AgentType(catalog::CLAUDE_CODE.id.to_string())
+            moatless_core::shared_models::AgentType(catalog::CLAUDE_CODE.id.to_string())
         );
         assert_eq!(
             default_agent_for("codex"),
-            crate::shared_models::AgentType(catalog::CODEX.id.to_string())
+            moatless_core::shared_models::AgentType(catalog::CODEX.id.to_string())
         );
     }
 
@@ -804,8 +804,8 @@ mod tests {
     fn an_unknown_instance_falls_back_to_claude() {
         assert_eq!(
             default_agent_for("somethingElse"),
-            crate::shared_models::AgentType(
-                crate::shared_models::AgentType::CLAUDE_CODE.to_string()
+            moatless_core::shared_models::AgentType(
+                moatless_core::shared_models::AgentType::CLAUDE_CODE.to_string()
             )
         );
     }

@@ -13,7 +13,7 @@ use moatless_events::{
     TaskSubType, TaskTurnSubType,
 };
 
-use crate::events::{EventPublisher, PublishError};
+use moatless_core::events::{EventPublisher, PublishError};
 
 /// A publish call captured by [`RecordingPublisher`].
 #[derive(Debug, Clone, PartialEq)]

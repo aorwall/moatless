@@ -11,7 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use moatless_events::{SandboxEventPayload, ServerEventPayload, ServerSubType};
 
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 
 use super::events::LifecycleEvent;
 use super::orchestrator::LifecycleEventSink;

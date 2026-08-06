@@ -220,7 +220,7 @@ mod tests {
 
     use crate::auth::github::registry::GitHubAppRegistry;
     use crate::auth::provider_token_dao::ProviderTokenDao;
-    use crate::db::DbPool;
+    use moatless_core::db::DbPool;
 
     use super::*;
     use crate::adapters::github_pr::adapter::GithubPrAdapter;

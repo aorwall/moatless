@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::models::UserCredential;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// DAO trait for local credential persistence.
 #[cfg_attr(test, mockall::automock)]

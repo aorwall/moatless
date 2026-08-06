@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
 use super::naming::generate_preview_network_policy_name;
-use crate::config::Config;
+use moatless_core::config::Config;
 
 /// Standard Traefik chart pod label. The policy admits pods carrying it in the
 /// configured ingress namespaces.

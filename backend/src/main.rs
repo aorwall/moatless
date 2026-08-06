@@ -14,11 +14,12 @@ use tracing::{info, warn};
 use moatless_vibe_backend::agent;
 use moatless_vibe_backend::auth;
 use moatless_vibe_backend::compose::{compose, register_builtin_delivery_handlers, Ports};
-use moatless_vibe_backend::config::{Config, SandboxProviderType};
+use moatless_core::config::{Config, SandboxProviderType};
 use moatless_vibe_backend::event_handler;
 use moatless_vibe_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
-use moatless_vibe_backend::feature_flags;
-use moatless_vibe_backend::leader::LeaderGuard;
+use moatless_core::feature_flags;
+use moatless_core::leader::LeaderGuard;
+use moatless_core::tag;
 use moatless_vibe_backend::sandbox;
 use moatless_vibe_backend::sandbox::k8s::leader_election::K8sLeaderGuard;
 use moatless_vibe_backend::sse::routes::sse_router;
@@ -27,7 +28,7 @@ use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::supervisor::{Criticality, Supervisor};
 use moatless_vibe_backend::{
     adapters, feedback, file_storage, loops, message, plugin, provider_settings, repository,
-    secret, skill, t3code, tag, task, task_connections, task_event, team, workspace,
+    secret, skill, t3code, task, task_connections, task_event, team, workspace,
 };
 
 /// How long shutdown waits for supervised tasks to finish before giving up and
@@ -67,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let SecretsEntry {
             command: SecretsTop::Secrets(cmd),
         } = SecretsEntry::parse();
-        startup::init_tracing(&moatless_vibe_backend::config::OtelConfig::from_env());
+        startup::init_tracing(&moatless_core::config::OtelConfig::from_env());
         return secret::cli::run(secret::cli::SecretsCli { command: cmd }).await;
     }
 
@@ -80,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Read directly (not from `Config::from_env`, called next) so tracing is
     // live before that call's own parse warnings need somewhere to land.
-    let otel_config = moatless_vibe_backend::config::OtelConfig::from_env();
+    let otel_config = moatless_core::config::OtelConfig::from_env();
     let otel_provider = startup::init_tracing(&otel_config);
 
     let config = Config::from_env()?;
@@ -279,10 +280,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .database_url
                     .as_deref()
                     .ok_or("DATABASE_URL required to build the lifecycle lock pool")?;
-                let lock_pool = moatless_vibe_backend::db::create_pool_kind(
+                let lock_pool = moatless_core::db::create_pool_kind(
                     db_url,
                     config.database.max_connections,
-                    moatless_vibe_backend::db::PoolKind::Lock,
+                    moatless_core::db::PoolKind::Lock,
                 )
                 .await?;
                 Some(
@@ -524,7 +525,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // startup seeds this aborts on failure: a local-auth instance with no
         // admin credential is unreachable, and continuing would produce a
         // server nobody can log into.
-        if config.auth.provider == moatless_vibe_backend::config::AuthProvider::Local {
+        if config.auth.provider == moatless_core::config::AuthProvider::Local {
             auth::password::bootstrap::ensure_local_admin(
                 ports.users.as_ref(),
                 ports.user_credentials.as_ref(),
@@ -562,7 +563,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // any client receives — `resume` refuses the same cursors either
             // way. Shedding traffic over it would be the larger outage.
             Criticality::Optional,
-            moatless_vibe_backend::task_listing::spawn_change_pruner(
+            moatless_core::task_listing::spawn_change_pruner(
                 app_state.db.clone(),
                 cancel.clone(),
             ),
@@ -920,7 +921,7 @@ async fn spawn_event_handler(
     };
     let conn = match redis::aio::ConnectionManager::new_with_config(
         client,
-        moatless_vibe_backend::events::redis_manager_config(),
+        moatless_core::events::redis_manager_config(),
     )
     .await
     {

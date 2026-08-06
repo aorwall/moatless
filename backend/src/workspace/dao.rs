@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
 use super::models::{Workspace, WorkspaceRepo};
-use crate::db::DbPool;
-use crate::task_listing;
+use moatless_core::db::DbPool;
+use moatless_core::task_listing;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR \

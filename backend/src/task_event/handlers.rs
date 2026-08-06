@@ -22,7 +22,7 @@ use crate::task::dao::TaskDao;
     ),
     responses(
         (status = 200, description = "List of task events", body = ListTaskEventsResponse),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn list_task_events(

@@ -10,7 +10,7 @@
 use crate::common;
 
 use moatless_vibe_backend::repository::dao::{self as repository_dao, RepositoryPatch};
-use moatless_vibe_backend::scope::{Scope, ScopeContext};
+use moatless_core::scope::{Scope, ScopeContext};
 use sqlx::PgPool;
 
 use common::{make_repository_row, seed_team};

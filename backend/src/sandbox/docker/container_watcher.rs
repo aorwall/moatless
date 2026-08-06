@@ -17,7 +17,7 @@ use super::client::DockerClient;
 use super::container_builder::{
     CREATED_BY_LABEL, CREATED_BY_VALUE, SANDBOX_SERVICE, SERVICE_LABEL,
 };
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 use crate::sandbox::lifecycle::classify::ObservedTransition;
 use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};

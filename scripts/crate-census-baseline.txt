@@ -221,10 +221,7 @@ workspaces             -> server               [CODE] backend/src/workspace/rout
 workspaces             -> tasks                [CODE] backend/src/credentials/mod.rs:39  crate::task::dao::TaskDao
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
-# Doc-path count (not in the illegal count above): 8
-core                   -> server               [DOC] backend/src/task_listing/pruner.rs:2  crate::supervisor::Supervisor
-core                   -> tasks                [DOC] backend/src/events.rs:160  crate::event_ingress
-core                   -> tasks                [DOC] backend/src/events.rs:57  crate::event_ingress
+# Doc-path count (not in the illegal count above): 5
 identity               -> workspaces           [DOC] backend/src/auth/token_refresh.rs:30  crate::credentials::CredentialService::ensure_fresh
 sandbox-control        -> sandbox-k8s          [DOC] backend/src/sandbox/metrics.rs:4  crate::sandbox::k8s::storage::StorageBackend
 sandbox-control        -> server               [DOC] backend/src/sandbox/status_reader.rs:8  crate::t3code::projection

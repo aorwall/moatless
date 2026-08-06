@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 
 use super::client::DockerClient;
 use super::naming::{generate_container_name, generate_server_container_name};
-use crate::config::Config;
+use moatless_core::config::Config;
 use moatless_backend_core::sandbox::SandboxConnector;
 use crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use crate::sandbox::live_status::{derive_live_status, AgentStatus, LiveStatus};

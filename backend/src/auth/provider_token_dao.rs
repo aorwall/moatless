@@ -6,7 +6,7 @@ use sqlx::AssertSqlSafe;
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use crate::credentials::codex::scope::CodexScope;
 use crate::credentials::github::scope::GitHubScope;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// DAO trait for provider token credential resolution.
 ///

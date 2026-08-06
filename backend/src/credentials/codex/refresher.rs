@@ -20,8 +20,8 @@ use tracing::{debug, info, warn};
 
 use crate::credentials::codex::scope::CodexScope;
 use crate::credentials::CredentialService;
-use crate::db::DbPool;
-use crate::leader::LeaderGuard;
+use moatless_core::db::DbPool;
+use moatless_core::leader::LeaderGuard;
 
 /// Spawn the background Codex refresher as a tokio task.
 ///

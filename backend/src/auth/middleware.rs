@@ -21,8 +21,8 @@ use super::cookie::get_all_cookie_values;
 use super::identity::{AuthIdentity, AuthMethod};
 use super::jwt;
 use super::users::UserDao;
-use crate::config::Config;
-use crate::error::ErrorBody;
+use moatless_core::config::Config;
+use moatless_core::error::ErrorBody;
 
 /// The one route that accepts a ticket in its query string.
 const WEBSOCKET_PATH: &str = "/ws";

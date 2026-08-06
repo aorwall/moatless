@@ -25,12 +25,12 @@ use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
-use moatless_vibe_backend::scope::ScopeContext;
-use moatless_vibe_backend::tag::dao::{PgTagDao, TagDao};
+use moatless_core::scope::ScopeContext;
+use moatless_core::tag::dao::{PgTagDao, TagDao};
 use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
 use moatless_vibe_backend::task::models::{TaskStatus, Visibility};
 use moatless_vibe_backend::task_activities::mapping::ConversationWrite;
-use moatless_vibe_backend::task_listing::{
+use moatless_core::task_listing::{
     changes_after, current_head, current_position, prune_changes, record_change, resume,
     ChangeSubject, ListingHead, Resume, RESUME_WINDOW, RETAINED_CHANGES,
 };

@@ -23,8 +23,8 @@ use super::transform;
     request_body = SendMessageRequest,
     responses(
         (status = 200, description = "Message sent", body = SendMessageResponse),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody),
-        (status = 409, description = "Task is closed", body = crate::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody),
+        (status = 409, description = "Task is closed", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn send_message(
@@ -119,7 +119,7 @@ pub struct GetMessagesQuery {
     ),
     responses(
         (status = 200, description = "Page of messages", body = GetMessagesResponse),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_messages(
@@ -276,7 +276,7 @@ fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
     ),
     responses(
         (status = 200, description = "Tool call detail", body = ToolCallDetailResponse),
-        (status = 404, description = "Tool call not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Tool call not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_tool_call_detail(
@@ -323,7 +323,7 @@ pub async fn get_tool_call_detail(
     ),
     responses(
         (status = 200, description = "Subagent transcript", body = SubagentTranscriptResponse),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_subagent_transcript(
@@ -514,7 +514,7 @@ mod strip_heavy_fields_tests {
     ),
     responses(
         (status = 200, description = "Pending messages", body = GetPendingMessagesResponse),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_pending_messages(

@@ -5,7 +5,7 @@ use std::time::Duration;
 use super::provider::OAuthProvider;
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
-use crate::config::Config;
+use moatless_core::config::Config;
 use async_trait::async_trait;
 
 pub struct GitHubOAuthProvider {

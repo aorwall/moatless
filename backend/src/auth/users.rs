@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::models::UserRole;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct User {

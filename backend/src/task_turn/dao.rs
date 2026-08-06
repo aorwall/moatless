@@ -18,10 +18,10 @@ use sqlx::query::Query;
 use sqlx::Postgres;
 
 use super::models::{TurnStatus, TurnTransition, UnclosedTurn};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::task::dao as task_dao;
 use crate::task_activities;
-use crate::task_listing;
+use moatless_core::task_listing;
 
 /// A state-bearing event applied transactionally at the gRPC ingress.
 ///

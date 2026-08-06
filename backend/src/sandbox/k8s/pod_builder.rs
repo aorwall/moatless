@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt::{self, MintedSandboxTokens};
 use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
@@ -1633,9 +1633,9 @@ mod tests {
     }
 
     fn test_config() -> Config {
-        use crate::config::*;
+        use moatless_core::config::*;
         Config {
-            server: crate::config::ServerConfig {
+            server: moatless_core::config::ServerConfig {
                 port: 8080,
                 metrics_port: 9090,
                 grpc_port: 50051,
@@ -1735,7 +1735,7 @@ mod tests {
                 consumer_id: "test".into(),
             },
             auth: AuthConfig {
-                provider: crate::config::AuthProvider::Local,
+                provider: moatless_core::config::AuthProvider::Local,
                 github_client_id: None,
                 github_client_secret: None,
                 github_callback_url: None,
@@ -1782,23 +1782,23 @@ mod tests {
                 bot_token: None,
                 mode: "webhook".into(),
             },
-            github_pr: crate::config::GithubPrConfig {
+            github_pr: moatless_core::config::GithubPrConfig {
                 webhook_secret: None,
                 bot_token: None,
             },
-            linear: crate::config::LinearConfig {
+            linear: moatless_core::config::LinearConfig {
                 webhook_secret: None,
                 oauth_client_id: None,
                 oauth_client_secret: None,
                 oauth_callback_url: None,
                 api_base_url: None,
             },
-            skill: crate::config::SkillConfig { cache_ttl_secs: 60 },
-            secrets: crate::config::SecretsConfig {
+            skill: moatless_core::config::SkillConfig { cache_ttl_secs: 60 },
+            secrets: moatless_core::config::SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             },
-            codex_oauth: crate::config::CodexOAuthConfig {
+            codex_oauth: moatless_core::config::CodexOAuthConfig {
                 issuer: "https://auth.openai.com".into(),
                 client_id: "test-codex-client".into(),
             },
@@ -2240,7 +2240,7 @@ mod tests {
     /// per-entry subPath mount and per-entry env on the sandbox container.
     #[test]
     fn cache_volumes_wire_volume_mounts_env_and_init() {
-        use crate::config::SandboxCacheVolume;
+        use moatless_core::config::SandboxCacheVolume;
 
         let mut config = test_config();
         config.sandbox.cache_volumes = vec![
@@ -3100,7 +3100,7 @@ mod tests {
     /// carries modest resource requests/limits.
     #[test]
     fn nvme_setup_init_container_is_root_and_has_resources() {
-        use crate::config::SandboxCacheVolume;
+        use moatless_core::config::SandboxCacheVolume;
 
         let mut config = test_config();
         config.sandbox.run_as_non_root = true;

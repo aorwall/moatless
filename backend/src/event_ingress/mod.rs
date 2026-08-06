@@ -39,7 +39,7 @@ use tonic::Status;
 use tracing::warn;
 
 use crate::agent_event::is_agent_message;
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use crate::task_turn::dao::{TaskTurnDao, TurnStateEvent};
 

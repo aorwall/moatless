@@ -8,7 +8,7 @@ use super::dao::UserCredentialDao;
 use super::hash::{generate_password, hash_password, PasswordHashError};
 use crate::auth::models::UserRole;
 use crate::auth::users::{User, UserDao};
-use crate::config::AuthConfig;
+use moatless_core::config::AuthConfig;
 
 /// Length of a generated bootstrap password.
 const GENERATED_PASSWORD_LEN: usize = 24;
@@ -116,11 +116,11 @@ mod tests {
     use crate::auth::password::dao::MockUserCredentialDao;
     use crate::auth::password::hash::verify_password;
     use crate::auth::users::MockUserDao;
-    use crate::config::AuthProvider;
+    use moatless_core::config::AuthProvider;
     use std::sync::{Arc, Mutex};
 
     fn auth_config(admin_password: Option<&str>) -> AuthConfig {
-        let mut config = crate::config::Config::test_minimal().auth;
+        let mut config = moatless_core::config::Config::test_minimal().auth;
         config.provider = AuthProvider::Local;
         config.admin_username = "admin".into();
         config.admin_password = admin_password.map(str::to_string);

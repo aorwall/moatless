@@ -40,7 +40,7 @@ use super::pod_status::{
     extract_container_observed_statuses, is_sandbox_container_ready,
     DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
 };
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 use crate::sandbox::lifecycle::classify::ObservedTransition;
 use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};

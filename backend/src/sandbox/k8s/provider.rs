@@ -23,7 +23,7 @@ use super::pvc;
 use super::service;
 use super::status_resolver::StatusResolver;
 use super::storage::StorageBackend;
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::sandbox::status_reader::SandboxStatusReader;
 use moatless_backend_core::sandbox as core_sandbox;
 use crate::sandbox::client::SandboxClient;

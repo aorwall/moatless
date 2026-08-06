@@ -59,17 +59,24 @@ pub fn band_of(crate_id: &str) -> i32 {
 /// generated output can say "I do not know where this belongs" instead of guessing.
 pub enum CrateAssignment {
     Explicit(&'static str),
+    /// A `#[cfg(test)]`-only backend-local module (test scaffolding, e.g.
+    /// `test_support`). It ships in no target crate — it stays in the backend for
+    /// its own tests and is never carved. Distinct from `Fallthrough` so membership
+    /// reports it as test scaffolding, not as `UNASSIGNED` (nobody classified it).
+    TestScaffold,
     Fallthrough,
 }
 
 impl CrateAssignment {
     /// The crate id used for edge classification: an explicit arm's id, or `server`
     /// for a fallthrough. Identical to an explicit `server` match, so adding or
-    /// removing a `server` arm cannot move the illegal count.
+    /// removing a `server` arm cannot move the illegal count. Test scaffolding
+    /// scores as `server` too, but its refs are demoted to test-context before
+    /// scoring, so this only ever labels its membership row.
     pub fn edge_crate(&self) -> &'static str {
         match self {
             CrateAssignment::Explicit(id) => id,
-            CrateAssignment::Fallthrough => "server",
+            CrateAssignment::TestScaffold | CrateAssignment::Fallthrough => "server",
         }
     }
 }
@@ -81,21 +88,13 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
     // Root files (len 1) and directory modules both key on the first segment,
     // except `adapters` and `sandbox`, which split on the second.
     let id = match top {
-        // -- core --
-        "config" | "db" | "error" | "events" | "feature_flags" | "metrics" | "scope"
-        | "shared_models" | "test_support" | "git_provider" | "github_client" | "" => "core",
-        // A module with an authenticated HTTP handler cannot be core: `AuthUser` is
-        // band-identity by construction — a `FromRequestParts` extractor received per
-        // request, which cannot be inverted behind a port without the handler leaving
-        // the HTTP layer. So core may hold a module with no handler (`task_listing`) or
-        // an unauthenticated one (`tag`, which lists a global vocabulary), and nothing
-        // else. Ruling C moved `file_storage` and `task_event` to tasks and `secret` to
-        // identity for exactly this reason; check the predicate in one grep for
-        // `AuthUser` before adding a module here.
-        "tag" | "task_listing" => "core",
-        // `leader` is the dependency-free LeaderGuard trait (K8sLeaderGuard lives
-        // under sandbox/k8s); Ruling A moved it down so its consumers depend on core.
-        "leader" => "core",
+        // -- core is now the `moatless-core` crate (crates/core), no longer in
+        // backend/src. Its modules (config, db, error, events, feature_flags,
+        // git_provider, github_client, leader, metrics, scope, shared_models, tag,
+        // task_listing) are scored via `external_crate("moatless_core")`. The one
+        // former-core file that stays here is `test_support` (below); `""` is the
+        // backend lib root, which carves last as `server`. --
+        "test_support" => return CrateAssignment::TestScaffold,
         // -- identity --
         // `secret` is core-clean storage/policy but its `handlers.rs` takes `AuthUser`,
         // so by the predicate above it lands in identity (its consumers include auth).
@@ -125,9 +124,9 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
             (Some("providers"), Some("webhook")) => "adapter-webhook",
             _ => "loops",
         },
-        // -- server --
+        // -- server -- (`""` is the backend lib root, lib.rs)
         "main" | "startup" | "state" | "supervisor" | "compose" | "sse" | "t3code"
-        | "event_handler" | "setup" | "provider_settings" | "task_connections" => "server",
+        | "event_handler" | "setup" | "provider_settings" | "task_connections" | "" => "server",
         // the synthetic bin root
         "\u{0}bin" => "server",
         // Unknown top-level module: no arm claims it. Edge resolution treats it as
@@ -143,6 +142,9 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
 pub fn floor_crate_of_dir(dir_name: &str) -> String {
     match dir_name {
         "adapter-model" => "adapter-model".to_string(),
+        // `core` is a real band-1 crate (crates/core), not the floor, so it keeps its
+        // band id — like `adapter-model`, and unlike the floor `crates/*`.
+        "core" => "core".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -154,6 +156,7 @@ pub fn external_crate(head: &str) -> Option<String> {
     let id = match head {
         "moatless_events" => "floor:events",
         "moatless_backend_core" => "floor:backend-core",
+        "moatless_core" => "core",
         "moatless_api_schemas" => "floor:api-schemas",
         "moatless_sandbox_proto" => "floor:sandbox-proto",
         "moatless_cli" => "floor:cli",

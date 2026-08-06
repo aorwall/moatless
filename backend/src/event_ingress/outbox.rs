@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// Base delay before the relay's first re-publish of a record, and the factor
 /// its backoff doubles from. Long enough that the ingress publish (and the

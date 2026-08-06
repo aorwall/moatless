@@ -117,7 +117,7 @@ pub async fn create_adapter_connection(
     params(("id" = String, Path, description = "Adapter connection id")),
     responses(
         (status = 204, description = "Adapter connection deleted"),
-        (status = 404, description = "Connection not found", body = crate::error::ErrorBody),
+        (status = 404, description = "Connection not found", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn delete_adapter_connection(
@@ -144,8 +144,8 @@ pub async fn delete_adapter_connection(
     request_body = AdapterSendRequest,
     responses(
         (status = 200, description = "Adapter send result", body = AdapterSendResponse),
-        (status = 400, description = "Invalid request", body = crate::error::ErrorBody),
-        (status = 404, description = "Connection or task not found", body = crate::error::ErrorBody),
+        (status = 400, description = "Invalid request", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Connection or task not found", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn adapter_send(
@@ -228,8 +228,8 @@ pub async fn adapter_send(
     request_body = SendDmRequest,
     responses(
         (status = 200, description = "DM sent", body = SendDmResponse),
-        (status = 400, description = "Invalid request", body = crate::error::ErrorBody),
-        (status = 404, description = "User or provider mapping not found", body = crate::error::ErrorBody),
+        (status = 400, description = "Invalid request", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "User or provider mapping not found", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn send_user_dm(

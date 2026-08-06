@@ -23,7 +23,7 @@ use super::naming::{
     generate_container_name, generate_server_container_name, generate_task_host_path,
 };
 use super::status_resolver::DockerStatusResolver;
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::status_reader::SandboxStatusReader;
 use moatless_backend_core::sandbox as core_sandbox;

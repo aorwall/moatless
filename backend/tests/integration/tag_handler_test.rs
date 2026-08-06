@@ -14,8 +14,8 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::tag::dao as tag_dao;
-use moatless_vibe_backend::tag::routes::tag_router;
+use moatless_core::tag::dao as tag_dao;
+use moatless_core::tag::routes::tag_router;
 use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{body_json, make_repository_row, make_task_row, test_app_state};

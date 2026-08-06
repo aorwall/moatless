@@ -29,8 +29,8 @@ use moatless_t3code::ports::{
 use moatless_t3code::{thread_snapshot, AgentModelDefaults, Deployment};
 use moatless_vibe_backend::agent::catalog;
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::scope::ScopeContext;
-use moatless_vibe_backend::shared_models::{AgentMode, AgentType};
+use moatless_core::scope::ScopeContext;
+use moatless_core::shared_models::{AgentMode, AgentType};
 use moatless_vibe_backend::t3code::backend::AppStateCommands;
 use moatless_vibe_backend::task::dao::{PgTaskDao, TaskDao};
 use moatless_vibe_backend::task::models::{TaskStatus, Visibility};

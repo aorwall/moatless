@@ -27,7 +27,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 
 use super::outbox::{IngressOutbox, RETRY_CAP_SECS};
 

@@ -314,6 +314,12 @@ jobs:
           # --all-features because `database` gates the DAO and the pairing
           # module: at default features clippy would lint neither, and a `-p`
           # build of a dependent lints only that dependent.
+          # moatless-core is linted twice for the same reason: `openapi` gates the
+          # ToSchema derives, the utoipa::path attrs, and the tag routes module, so
+          # `--features openapi` lints the gated code and the default run keeps the
+          # feature droppable (utoipa off for non-API consumers).
+          cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
+          cargo clippy -p moatless-core --all-targets -- -D warnings
           cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
           cargo clippy -p moatless-t3code --all-targets -- -D warnings
           # `--features db-tests` because 39 of the 40 files in `backend/tests`
@@ -422,6 +428,7 @@ jobs:
           # Narrow to the reverse-dep closure. Selecting packages is what
           # saves time — filtering which tests run still builds everything.
           PKGS=$(.github/scripts/rust-changed-packages.sh /tmp/changed-files.txt \
+            moatless-core \
             moatless-backend-core \
             moatless-t3code \
             moatless-vibe-backend \

@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::error::error_response;
+use moatless_core::error::error_response;
 
 /// A stored `feedback` row holds `source` and `surface` as text. A value
 /// outside the known set means the row was written by something other than
@@ -47,7 +47,7 @@ impl IntoResponse for FeedbackError {
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::Db(_) | Self::UnreadableRow(_) => {
                 tracing::error!(
-                    error = %crate::error::causal_chain(&self),
+                    error = %moatless_core::error::causal_chain(&self),
                     "Database error in feedback handler"
                 );
                 (

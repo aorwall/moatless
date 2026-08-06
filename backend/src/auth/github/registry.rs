@@ -24,7 +24,7 @@ use tracing::{info, warn};
 use crate::adapter_apps::dao::{AdapterAppDao, GitHubAppRecord, NewGitHubApp, ENV_CARRY_OVER};
 use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
-use crate::config::GitHubAppConfig;
+use moatless_core::config::GitHubAppConfig;
 use crate::secret::service::SecretCipher;
 
 /// A live App service, and which stored record it was built from.
@@ -326,7 +326,7 @@ mod tests {
     use super::*;
     use crate::adapter_apps::dao::test_support::InMemoryAdapterAppDao;
     use crate::adapter_apps::dao::{GitHubAppRecord, NewGitHubApp};
-    use crate::config::SecretsConfig;
+    use moatless_core::config::SecretsConfig;
     use crate::secret::service::LocalEnvelopeSecretCipher;
 
     /// A parseable test key, so `from_record` produces a real service.

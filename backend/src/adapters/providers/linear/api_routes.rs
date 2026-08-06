@@ -53,7 +53,7 @@ const LINEAR_PROVIDER: &str = "linear";
     ),
     responses(
         (status = 200, description = "Issue", body = LinearIssueResponse),
-        (status = 404, description = "Not found", body = crate::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn get_issue(
@@ -80,7 +80,7 @@ pub async fn get_issue(
     request_body = LinearIssueCreateRequest,
     responses(
         (status = 200, description = "Issue created", body = LinearIssueResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn create_issue(
@@ -207,7 +207,7 @@ pub async fn create_issue(
     request_body = LinearIssueUpdateRequest,
     responses(
         (status = 200, description = "Issue updated", body = LinearIssueResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn update_issue(
@@ -311,7 +311,7 @@ pub async fn update_issue(
     request_body = LinearCommentCreateRequest,
     responses(
         (status = 200, description = "Comment posted", body = LinearIssueResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn create_comment(
@@ -392,7 +392,7 @@ pub async fn create_comment(
     request_body = LinearLabelMutationRequest,
     responses(
         (status = 200, description = "Label mutated", body = LinearOkResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn mutate_label(
@@ -483,7 +483,7 @@ fn unwrap_graphql_envelope(raw: &str) -> (String, Option<Value>) {
     params(LinearLookupParams, LinearConnectionParams),
     responses(
         (status = 200, description = "Lookup result", body = LinearLookupResponse),
-        (status = 400, description = "Bad kind", body = crate::error::ErrorBody),
+        (status = 400, description = "Bad kind", body = moatless_core::error::ErrorBody),
     )
 )]
 pub async fn lookup(

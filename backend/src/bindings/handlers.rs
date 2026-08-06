@@ -142,8 +142,8 @@ pub async fn send_task_reply(
     request_body = AddMessageReactionRequest,
     responses(
         (status = 200, description = "Reaction added", body = MessageReactionResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
-        (status = 404, description = "Not found", body = crate::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn add_message_reaction(
@@ -175,8 +175,8 @@ pub async fn add_message_reaction(
     tag = "task-bindings",
     responses(
         (status = 200, description = "Reaction removed", body = MessageReactionResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
-        (status = 404, description = "Not found", body = crate::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn remove_message_reaction(
@@ -208,8 +208,8 @@ pub async fn remove_message_reaction(
     request_body = ReplyToMessageRequest,
     responses(
         (status = 200, description = "Reply sent", body = ReplyToMessageResponse),
-        (status = 400, description = "Bad request", body = crate::error::ErrorBody),
-        (status = 404, description = "Not found", body = crate::error::ErrorBody)
+        (status = 400, description = "Bad request", body = moatless_core::error::ErrorBody),
+        (status = 404, description = "Not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn reply_to_message(

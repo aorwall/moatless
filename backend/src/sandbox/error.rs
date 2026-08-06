@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use moatless_backend_core::sandbox as core_sandbox;
 
-use crate::error::error_response;
+use moatless_core::error::error_response;
 
 /// Errors that can occur during sandbox lifecycle operations.
 #[derive(Debug, thiserror::Error)]
@@ -254,7 +254,7 @@ impl IntoResponse for SandboxError {
             }
             Self::KubeError(_) => {
                 tracing::error!(
-                    error = %crate::error::causal_chain(&self),
+                    error = %moatless_core::error::causal_chain(&self),
                     "Kubernetes API error in sandbox handler"
                 );
                 (
@@ -283,7 +283,7 @@ impl IntoResponse for SandboxError {
             | Self::Runtime(_)
             | Self::Lifecycle(_) => {
                 tracing::error!(
-                    error = %crate::error::causal_chain(&self),
+                    error = %moatless_core::error::causal_chain(&self),
                     "Sandbox operation failed"
                 );
                 (
@@ -578,7 +578,7 @@ mod tests {
             let source =
                 std::error::Error::source(&error).unwrap_or_else(|| panic!("no source: {error:?}"));
             assert!(
-                crate::error::causal_chain(source).contains(needle),
+                moatless_core::error::causal_chain(source).contains(needle),
                 "cause {needle:?} lost from {error:?}"
             );
         }

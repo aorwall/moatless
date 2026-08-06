@@ -10,7 +10,7 @@
 use crate::common;
 
 use chrono::{DateTime, Duration, Utc};
-use moatless_vibe_backend::scope::ScopeContext;
+use moatless_core::scope::ScopeContext;
 use moatless_vibe_backend::task::dao::{
     self as task_dao, PgTaskDao, TaskDao, TaskFilter, TaskPatch,
 };
@@ -224,11 +224,11 @@ async fn list_tasks_tag_filter(pool: PgPool) {
     task_dao::insert_task(&pool, &task_b).await.unwrap();
 
     // Create tag and assign
-    let tags = moatless_vibe_backend::tag::dao::find_or_create_tags(&pool, &["bug".to_string()])
+    let tags = moatless_core::tag::dao::find_or_create_tags(&pool, &["bug".to_string()])
         .await
         .unwrap();
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
-    moatless_vibe_backend::tag::dao::set_task_tags(&pool, "task-tagged", &tag_ids)
+    moatless_core::tag::dao::set_task_tags(&pool, "task-tagged", &tag_ids)
         .await
         .unwrap();
 
@@ -526,11 +526,11 @@ fn base_filter(user_id: &str) -> TaskFilter {
 /// Attach the named tags to a task.
 async fn tag_task(pool: &PgPool, task_id: &str, names: &[&str]) {
     let names: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
-    let tags = moatless_vibe_backend::tag::dao::find_or_create_tags(pool, &names)
+    let tags = moatless_core::tag::dao::find_or_create_tags(pool, &names)
         .await
         .expect("create tags");
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
-    moatless_vibe_backend::tag::dao::set_task_tags(pool, task_id, &tag_ids)
+    moatless_core::tag::dao::set_task_tags(pool, task_id, &tag_ids)
         .await
         .expect("set task tags");
 }

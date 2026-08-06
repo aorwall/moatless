@@ -16,7 +16,7 @@
 
 use crate::common;
 
-use moatless_vibe_backend::scope::{Scope, ScopeContext};
+use moatless_core::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
 use sqlx::PgPool;
 

@@ -101,7 +101,7 @@ pub struct RealGithubValidator;
 #[async_trait]
 impl GithubValidator for RealGithubValidator {
     async fn check_repo_access(&self, token: &str, owner: &str, repo: &str) -> Result<(), String> {
-        crate::github_client::check_github_repo_access(token, owner, repo)
+        moatless_core::github_client::check_github_repo_access(token, owner, repo)
             .await
             .map_err(|e| e.to_string())
     }

@@ -13,7 +13,7 @@ use tracing::{debug, info, warn};
 use super::client::K8sClient;
 use super::naming::generate_service_name;
 use super::{pod_builder, pvc};
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::lifecycle::runtime::{
     generation_from_label, RuntimeOperationContext, OPERATION_GENERATION_LABEL,

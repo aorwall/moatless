@@ -1,6 +1,6 @@
 //! Gitness API client helpers for PAT validation.
 
-use crate::git_provider::GitProviderError;
+use moatless_core::git_provider::GitProviderError;
 
 /// Validate a Gitness token by calling the user endpoint.
 /// Returns the login (username) on success.

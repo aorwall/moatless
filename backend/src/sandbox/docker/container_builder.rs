@@ -16,7 +16,7 @@ use super::naming::{
     generate_claude_config_host_path, generate_container_name, generate_data_host_path,
     generate_sandbox_host_path, generate_server_container_name,
 };
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::sandbox::k8s::pod_reader::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
 use crate::repository::models::ServerConfig;
@@ -480,9 +480,9 @@ mod tests {
     use crate::sandbox::models::{ProvisionPlan, RepoConfig};
 
     fn test_config() -> Config {
-        use crate::config::*;
+        use moatless_core::config::*;
         Config {
-            server: crate::config::ServerConfig {
+            server: moatless_core::config::ServerConfig {
                 port: 8080,
                 metrics_port: 9090,
                 grpc_port: 50051,
@@ -582,7 +582,7 @@ mod tests {
                 consumer_id: "test".into(),
             },
             auth: AuthConfig {
-                provider: crate::config::AuthProvider::Local,
+                provider: moatless_core::config::AuthProvider::Local,
                 github_client_id: None,
                 github_client_secret: None,
                 github_callback_url: None,
@@ -629,23 +629,23 @@ mod tests {
                 bot_token: None,
                 mode: "webhook".into(),
             },
-            github_pr: crate::config::GithubPrConfig {
+            github_pr: moatless_core::config::GithubPrConfig {
                 webhook_secret: None,
                 bot_token: None,
             },
-            linear: crate::config::LinearConfig {
+            linear: moatless_core::config::LinearConfig {
                 webhook_secret: None,
                 oauth_client_id: None,
                 oauth_client_secret: None,
                 oauth_callback_url: None,
                 api_base_url: None,
             },
-            skill: crate::config::SkillConfig { cache_ttl_secs: 60 },
-            secrets: crate::config::SecretsConfig {
+            skill: moatless_core::config::SkillConfig { cache_ttl_secs: 60 },
+            secrets: moatless_core::config::SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
             },
-            codex_oauth: crate::config::CodexOAuthConfig {
+            codex_oauth: moatless_core::config::CodexOAuthConfig {
                 issuer: "https://auth.openai.com".into(),
                 client_id: "test-codex-client".into(),
             },

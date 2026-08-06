@@ -32,11 +32,11 @@ use crate::auth::models::UserRole;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::auth::users::UserDao;
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::credentials::{CredentialService, WriteSource};
 use crate::event_ingress::outbox::IngressOutbox;
 use crate::event_ingress::{AdmissionError, AdmissionRequest, EventAdmission};
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 use crate::file_storage::dao::FileDao;
 use crate::file_storage::s3 as file_s3;
 use crate::message::dao::MessageDao;
@@ -48,7 +48,7 @@ use crate::sandbox::secrets::{
     TaskCredentialInputs,
 };
 use crate::secret::service::SecretService;
-use crate::shared_models::AgentType;
+use moatless_core::shared_models::AgentType;
 use crate::task::dao::TaskDao;
 use crate::task::relations::TaskRelationDao;
 use crate::task_event::dao::{InsertTaskEvent, TaskEventDao};
@@ -1961,7 +1961,7 @@ mod tests {
             short_id: None,
             created_at: String::new(),
             last_message_at: String::new(),
-            agent_type: crate::shared_models::AgentType("claude-code".to_string()),
+            agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
             repository_id: "repo-1".to_string(),
             status: crate::task::models::TaskStatus::Open,
             total_cost_usd: 0.0,

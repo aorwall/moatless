@@ -20,7 +20,7 @@ const DEFAULT_API_BASE: &str = "https://api.github.com";
 /// Resolve the GitHub API base URL. `GITHUB_API_BASE_URL` overrides the
 /// default — used by E2E tests to point the backend at a mock server (and
 /// usable for GitHub Enterprise hosts). Empty values are treated as unset.
-pub(crate) fn api_base() -> String {
+pub fn api_base() -> String {
     env::var("GITHUB_API_BASE_URL")
         .ok()
         .map(|v| v.trim().trim_end_matches('/').to_string())
@@ -1427,12 +1427,13 @@ impl Config {
     }
 }
 
-#[cfg(any(test, feature = "db-tests"))]
+#[cfg(any(test, feature = "test-support"))]
 impl Config {
     /// Minimal valid config for unit tests across the crate, and for the gRPC
     /// service's db-backed test constructors (which need a `Config` value but
-    /// never read it).
-    pub(crate) fn test_minimal() -> Self {
+    /// never read it). Public so downstream test tiers reach it off core's
+    /// `test-support` feature; no shipping build enables that feature.
+    pub fn test_minimal() -> Self {
         Config {
             server: ServerConfig {
                 port: 8080,

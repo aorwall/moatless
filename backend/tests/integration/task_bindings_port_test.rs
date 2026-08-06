@@ -21,7 +21,7 @@ use tower::ServiceExt;
 
 use moatless_vibe_backend::adapters::models::{AdapterConnection, TaskBinding};
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::scope::Scope;
+use moatless_core::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
 use moatless_vibe_backend::task::routes::task_router;

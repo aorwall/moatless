@@ -179,7 +179,7 @@ impl LeaderElection {
 pub struct K8sLeaderGuard(pub LeaderElection);
 
 #[async_trait::async_trait]
-impl crate::leader::LeaderGuard for K8sLeaderGuard {
+impl moatless_core::leader::LeaderGuard for K8sLeaderGuard {
     async fn try_acquire_or_renew(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(self.0.try_acquire_or_renew().await?)
     }

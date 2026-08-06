@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::error::error_response;
+use moatless_core::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MessageError {
@@ -57,7 +57,7 @@ impl IntoResponse for MessageError {
                 // One log line at the boundary carries the whole chain,
                 // including the SQL error the client must never see.
                 tracing::error!(
-                    error = %crate::error::causal_chain(&self),
+                    error = %moatless_core::error::causal_chain(&self),
                     "Database error in message handler"
                 );
                 (

@@ -21,7 +21,7 @@ use tracing::{info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_api_call;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// Linear's API host. Every endpoint this client speaks to hangs off it, so
 /// replacing this one value points the whole client — GraphQL and the OAuth

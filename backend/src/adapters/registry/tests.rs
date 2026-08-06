@@ -5,7 +5,7 @@ use super::Adapters;
 use crate::adapters::error::AdapterError;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::test_support::StubProviderTokens;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use moatless_api_schemas::enums::AdapterKind;
 use sqlx::postgres::PgPoolOptions;
 
@@ -64,7 +64,7 @@ fn registry_with_all_current_adapters() -> Adapters {
         ),
     ));
     providers.register_linear(Arc::new(super::super::linear::adapter::LinearAdapter::new(
-        &crate::config::Config::test_minimal().linear,
+        &moatless_core::config::Config::test_minimal().linear,
         lazy_pool(),
     )));
     providers.register_webhook(Arc::new(

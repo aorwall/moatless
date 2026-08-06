@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{Audience, InboundMessage, SubscriptionMatch};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 use super::config::GithubPrRuleConfig;
 use super::signals::ReviewDecision;

@@ -54,7 +54,7 @@ const STREAM_KEY_TTL_SECS: u64 = 6 * 60 * 60;
 /// [`truncated_payload`] stub in place of their payload.
 ///
 /// Safe only where the caller says so: the gRPC ingress durably admits an event
-/// *before* publishing it (see [`crate::event_ingress`]) and passes
+/// *before* publishing it (see the backend's `event_ingress`) and passes
 /// `payload_recoverable` when the consumer can recover the full payload from
 /// Postgres without this message, so the stub only ever degrades the live tail.
 const MAX_REDIS_PAYLOAD_BYTES: usize = 256 * 1024;
@@ -102,7 +102,7 @@ fn encode_for_stream(
 /// at 30s, then a full-jitter window `[delay/2, delay]` is applied so reconnects
 /// across replicas decorrelate instead of hammering a struggling Redis in
 /// lockstep.
-pub(crate) fn reconnect_backoff_delay(failures: u32) -> std::time::Duration {
+pub fn reconnect_backoff_delay(failures: u32) -> std::time::Duration {
     use rand::RngExt;
     const BASE_MS: u64 = 500;
     const CAP_MS: u64 = 30_000;
@@ -157,7 +157,7 @@ pub fn describe_event_metrics() {
 ///
 /// Publication is a delivery attempt, not an admission decision: the caller
 /// owns durability and decides what a failure means. The ingress
-/// ([`crate::event_ingress`]) answers gRPC success on the strength of its
+/// (the backend's `event_ingress`) answers gRPC success on the strength of its
 /// durable write and treats every variant here as "not live yet"; the relay
 /// treats one as "try this record again".
 #[derive(Debug, thiserror::Error)]

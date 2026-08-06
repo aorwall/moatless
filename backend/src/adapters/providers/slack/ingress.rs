@@ -11,7 +11,7 @@ use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliver
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{InboundMessage, LoopContext};
 use crate::adapters::{Adapter, BindingDestination};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::state::AppState;
 
 use super::adapter::{ResolvedSlackApp, SlackAdapter};
@@ -376,7 +376,7 @@ mod characterization {
     use crate::adapters::models::{Audience, InboundMessage, LoopContext, RoutingMode};
     use crate::adapters::test_support::ProviderStub;
     use crate::adapters::AdapterKind;
-    use crate::db::DbPool;
+    use moatless_core::db::DbPool;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;

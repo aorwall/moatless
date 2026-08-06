@@ -19,7 +19,7 @@
 | 7 Untangle `bindings` and `adapters` | 7a, 7b shipped; **7c folded into the error split**; **7d open** |
 | 8 Placement moves | four shipped, four repriced or deferred into the error/credential cluster |
 | 9 Consumer-owned ports | one shipped (`AgentErrorSink`); five were phantom; 9d and 9e reopened against Step 10 |
-| 10 Carve the crates | **not started.** `moatless-core` is READY; the rest of the frontier is the report's |
+| 10 Carve the crates | **in progress** — 10a carved; the frontier is the report's |
 | 11 The two package renames | not started |
 
 **The generated authorities.** Nothing in this document restates a number a tool computes.
@@ -231,7 +231,7 @@ The scoped-resource pre-row helpers (`AccessControlError`, `ResolvedScope`, `res
 
 **Four consecutive rulings landed the same way, which is now the first thing to check.** A/`LeaderGuard`, F/`FleetObserver`, E/`UserTokenVerifier` and E-(b)/`TaskAccess` were each priced as needing new design, and in each the port already existed and the code was not arranged around it. Before designing an abstraction for an illegal edge, look for the port that is already there.
 
-**10a's precondition is met.** `moatless-core` has no illegal outgoing edge and the report marks it READY. **Carve readiness is a frontier, re-run after each carve**: a crate is carvable only when it has no illegal outgoing edge *and* every crate it depends on is already extracted. `sandbox-k8s` and `server` have no illegal outgoing edges but still depend on un-carved crates, so they read WAITING, not READY.
+**Carve readiness is a frontier, re-run after each carve:** a crate is carvable only when it has no illegal outgoing edge *and* every crate it depends on is already extracted. A crate with no illegal outgoing edge can therefore still read WAITING rather than READY. 10a is done — `moatless-core` is `crates/core` — and the report's carve-readiness table is where the frontier currently points.
 
 **The band order.** Cargo edges point from a crate to the crates it depends on, so a legal edge always runs from a higher band to a lower one:
 
@@ -301,7 +301,7 @@ The `Cargo.toml` files appear one band at a time, lowest first, because a crate 
 | # | Crate | Precondition beyond the band below |
 |---|---|---|
 | — | `moatless-adapter-model` | already a crate — Step 7a extracted it, listed here only because the bands below depend on it |
-| 10a | `moatless-core` | **Precondition met** — no illegal outgoing edge; the report marks it READY. Edges: report |
+| 10a | `moatless-core` | **Carved** — `crates/core`. Edges: report |
 | 10b | `moatless-identity` | **8b's remainder and the error/credential cluster**; **8h**, which does not lift until `SetupRequirementCheck` earns a second implementation or is collapsed. Edges: report |
 | 10c | `moatless-workspaces` | the **9c broadcast refactor** (below); **9d** (→ 10g). Edges: report |
 | 10d | `moatless-tasks` | **8c's real content** — the `connections_handlers` move to server and the `tasks`/`message → loops` port; **Ruling D**'s reopened hook; the **`TaskReaper` field inversion** (below). Edges: report |
@@ -425,6 +425,7 @@ The program changes no runtime failure behaviour. The failure modes worth naming
 | A placement move leaves a stale `pub use` behind | green | green | a type reachable by two paths, and the edge not actually removed | Each move's commit deletes the original declaration, not just adds the new one. The census scores the definition site, so a re-export does not read as done |
 | Step 10 extracts a crate whose band still has an upward edge | green | does not compile | the carve stalls mid-way | The carve-readiness frontier in the report. A band that will not extract means a placement or port item was missed, and the fix is that item, not a `Cargo.toml` workaround |
 | A carve is blocked by visibility rather than by an edge | green | does not compile | a `pub(crate)` item used outside the target crate | **Visibility is invisible to a reference census.** Each carve inventories its crate's restricted-visibility items used from outside and decides each — widen, or keep private and move the caller — before writing the `Cargo.toml` |
+| A carve lands without its crate in the gate | green | green | the crate is compiled as a dependency and never linted or tested | `AGENTS.md`'s block, `ci.yml`'s clippy step, and `ci.yml`'s `PKGS` candidate list all gain the crate in the same commit that creates it. CI selects packages from a hardcoded candidate list, so a crate absent from it can never be selected in its own right however correct the change-detection closure is |
 | Step 11 renames a package and leaves `AGENTS.md` stale | green | green | the next agent runs a `-p` flag that does not resolve | `AGENTS.md` and the workflows are edited in the same commit as each rename |
 | A rebase against a moved `main` produces a diff against the wrong base | — | — | phantom deletions in review | Every step's review states its merge-base explicitly. This has produced three false findings in this engagement; it is the single most common review error here |
 
@@ -434,20 +435,9 @@ The program changes no runtime failure behaviour. The failure modes worth naming
 
 ### Testing and verification
 
-**Per-step gate.** Every step, before Step 11 renames anything:
+**Per-step gate.** `AGENTS.md`'s Rust command block, run verbatim, plus `task test:integration` — the real database tier. `cargo test` does not reach it and neither does CI: `ci.yml` links the `db-tests` targets with `cargo nextest run --features db-tests --no-run` and never executes them, so the only thing that runs the `#[sqlx::test]` tier is a real Postgres.
 
-```
-cargo clippy -p moatless-vibe-backend --all-targets --features db-tests -- -D warnings
-cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
-cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
-cargo clippy -p moatless-t3code --all-targets -- -D warnings
-cargo test -p moatless-vibe-backend
-task test:integration          # the real database tier
-```
-
-The clippy lines are run verbatim as `AGENTS.md` specifies; each flag set keys a separate rustc incremental unit, so varying them recompiles the dependency graph. `moatless-backend-core` is linted both ways because its `database` feature gates the activity DAO and the pairing module: keeping `--no-default-features` green is what keeps the feature droppable.
-
-**During Step 10 the gate grows one line per crate**, in band order, and `AGENTS.md`'s block is extended in the same commit that adds the crate. The `-p moatless-vibe-backend` line becomes `-p moatless-server` at 11b.
+`AGENTS.md` holds the single copy of those lines and this file does not restate them — each flag set keys a separate rustc incremental unit, so a drifting second copy costs a recompile rather than a stale sentence. **During Step 10 the gate grows one line per crate** — two where a feature gates real code, as `moatless-core`'s `openapi` does — in band order, and `AGENTS.md`'s block is extended in the same commit that adds the crate. The `-p moatless-vibe-backend` line becomes `-p moatless-server` at 11b.
 
 **The E2E suite has a measured baseline of 26 failures on `main`, all predating this program — compare against 26, not zero.** The first full run in repo history was 69 passed, 26 failed, 127 skipped; an identical-harness run on pre-stack `main` failed the same 26, name-for-name in both directions. They are three classes, all tracing to `06615c520`: 14 "Activating a Loop requires an explicit run-as user"; 6 "`moat repos create` … required arguments were not provided"; and 6 sandbox/workspace assertions (SANDBOX-01 ×2, SANDBOX-07, SERVER-02, WS-20, WS-30.1). A later step that changes this number owns the change.
 

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::models::{ActivationRow, Plugin, PluginSkill};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// DAO trait for plugin persistence.
 #[cfg_attr(test, mockall::automock)]

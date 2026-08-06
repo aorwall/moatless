@@ -12,7 +12,7 @@ use moatless_backend_core::pairing as core_pairing;
 
 use super::api_key;
 use super::api_keys::ApiKeyDao;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 pub use core_pairing::{
     hash_key, DevicePairing, IssuedPairingCode, PairedDevice, PairingApiKeyIssuer, PairingClient,

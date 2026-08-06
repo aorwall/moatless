@@ -1,6 +1,6 @@
 //! Durable adapter-event deduplication.
 
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 pub struct PgEventReceiptDao(DbPool);
 

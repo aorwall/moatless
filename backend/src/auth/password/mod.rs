@@ -1,6 +1,6 @@
 //! Local username/password authentication.
 //!
-//! Active when [`crate::config::AuthProvider::Local`] is configured. Credentials
+//! Active when [`moatless_core::config::AuthProvider::Local`] is configured. Credentials
 //! live in the `user_credentials` table, hashed with argon2id.
 
 pub mod bootstrap;

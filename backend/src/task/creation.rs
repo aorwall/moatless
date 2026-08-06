@@ -30,14 +30,14 @@ use moatless_backend_core::sandbox::SandboxStarter;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
-use crate::events::EventPublisher;
+use moatless_core::events::EventPublisher;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::models::Repository;
 use crate::sandbox::preflight::{
     preflight_validate_github_token, GithubValidator, PreflightCredentials, PreflightError,
 };
-use crate::shared_models::{AgentMode, AgentType};
-use crate::tag::dao::TagDao;
+use moatless_core::shared_models::{AgentMode, AgentType};
+use moatless_core::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
 use crate::task::models::{Task, TaskStatus, Visibility};
@@ -450,7 +450,7 @@ mod tests {
 
     use crate::repository::dao::MockRepositoryDao;
     use crate::repository::models::{Repository, RepositoryKind};
-    use crate::tag::dao::MockTagDao;
+    use moatless_core::tag::dao::MockTagDao;
     use crate::task::dao::MockTaskDao;
     use crate::task::relations::MockTaskRelationDao;
     use crate::test_support::RecordingPublisher;

@@ -17,7 +17,7 @@ use crate::adapters::{
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
     AdapterPostBindingFollowup,
 };
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::state::AppState;
 
 use super::agent_api::LinearAgentApi;
@@ -37,7 +37,7 @@ pub struct LinearAdapter {
     /// Database pool for looking up workspace tokens.
     db: DbPool,
     /// Runtime config used to decrypt DB-backed Adapter app secrets.
-    config: Option<Arc<crate::config::Config>>,
+    config: Option<Arc<moatless_core::config::Config>>,
 }
 
 /// Build an outbound Linear comment body: the reply text followed by the
@@ -63,7 +63,7 @@ impl LinearAdapter {
     /// builds a `LinearConfig` with `api_base_url` pointed at a loopback stub
     /// and gets an Adapter whose outbound calls never leave the machine,
     /// through the same constructor production calls.
-    pub fn new(config: &crate::config::LinearConfig, db: DbPool) -> Self {
+    pub fn new(config: &moatless_core::config::LinearConfig, db: DbPool) -> Self {
         Self {
             global_webhook_secret: config.webhook_secret.clone(),
             credentials: LinearCredentials::from(config),
@@ -72,7 +72,7 @@ impl LinearAdapter {
         }
     }
 
-    pub fn from_db(config: Arc<crate::config::Config>, db: DbPool) -> Self {
+    pub fn from_db(config: Arc<moatless_core::config::Config>, db: DbPool) -> Self {
         Self {
             global_webhook_secret: config.linear.webhook_secret.clone(),
             credentials: LinearCredentials::from(&config.linear),

@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::shared_models::AgentType;
+use moatless_core::shared_models::AgentType;
 use moatless_backend_core::scope::Scope;
 
 // Re-export enums from the shared crate.

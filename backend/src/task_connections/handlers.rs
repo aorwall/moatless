@@ -48,7 +48,7 @@ const REFRESH_CONCURRENCY: usize = 8;
     params(ListTaskConnectionsQuery),
     responses(
         (status = 200, description = "Tasks with their external connections", body = TaskConnectionsResponse),
-        (status = 403, description = "Admin role required", body = crate::error::ErrorBody)
+        (status = 403, description = "Admin role required", body = moatless_core::error::ErrorBody)
     )
 )]
 #[expect(
@@ -233,7 +233,7 @@ pub async fn list_task_connections(
     ),
     responses(
         (status = 200, description = "The task's external connections", body = Vec<Connection>),
-        (status = 404, description = "Task not found", body = crate::error::ErrorBody)
+        (status = 404, description = "Task not found", body = moatless_core::error::ErrorBody)
     )
 )]
 pub async fn get_task_connections(

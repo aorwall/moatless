@@ -21,8 +21,8 @@ use super::handlers::{deactivate_task_bindings, task_resource};
 use super::models::TaskStatus;
 use super::relations::{TaskRelationDao, TaskRelationType};
 use crate::bindings::dao::TaskBindingDao;
-use crate::config::Config;
-use crate::events::EventPublisher;
+use moatless_core::config::Config;
+use moatless_core::events::EventPublisher;
 use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
 
 /// The ports a close reads. Bundled because single and cascaded closes thread

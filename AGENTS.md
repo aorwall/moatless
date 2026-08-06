@@ -19,6 +19,8 @@ cd apps/frontend && bunx shadcn@latest add [component]
 ### Rust backend & sandbox
 ```bash
 cargo build -p moatless-vibe-backend        # or moatless-sandbox
+cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
+cargo clippy -p moatless-core --all-targets -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
 cargo clippy -p moatless-t3code --all-targets -- -D warnings
@@ -27,6 +29,7 @@ cargo clippy -p moatless-sandbox -- -D warnings   # also claude-agent-sdk, moatl
 cargo clippy -p crate-census --all-targets -- -D warnings   # Step-10 cross-crate census tool; deleted at 10i
 cargo run -p crate-census                   # regenerate scripts/crate-census-{baseline,report}.txt
 cargo test -p moatless-vibe-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
+cargo test -p moatless-core
 cargo test -p moatless-backend-core
 cargo test -p moatless-t3code
 task rust:gc                                # reclaim target/debug/incremental
@@ -75,6 +78,12 @@ the target count. A new integration test is a file in `backend/tests/integration
 plus a `mod` line in `main.rs`, and reaches the shared helpers through
 `use crate::common;`. nextest gives each test its own process, so a test may
 still set env vars without disturbing its neighbours.
+
+`moatless-core` is linted twice for the same reason: its `openapi` feature gates
+real code (the `ToSchema` derives, the two `utoipa::path` attributes, and the tag
+`routes` module), so `--features openapi` is the only run that lints the gated code
+and the default run is what keeps the feature droppable — without which utoipa
+stops being off for the non-API consumers the feature exists to protect.
 
 `moatless-backend-core` is linted twice because its `database` feature gates the
 activity DAO and the whole pairing module: `--all-features` is the only run that

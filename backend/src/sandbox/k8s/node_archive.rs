@@ -23,7 +23,7 @@ use tracing::info;
 
 use super::client::K8sClient;
 use super::naming::sanitize_k8s_name;
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
 use crate::sandbox::lifecycle::RuntimeError;
 

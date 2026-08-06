@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use sqlx::pool::PoolConnection;
 use sqlx::Postgres;
 
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 use super::orchestrator::{LifecycleLock, LockGuard};
 use super::types::OperationKind;
@@ -154,7 +154,7 @@ impl PgLifecycleLock {
 mod db_tests {
     use super::super::test_support::seed_task as seed;
     use super::*;
-    use crate::db::create_pool;
+    use moatless_core::db::create_pool;
     use sqlx::PgPool;
 
     #[sqlx::test]

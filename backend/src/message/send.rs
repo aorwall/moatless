@@ -8,7 +8,7 @@ use crate::bindings::recently_sent::RecentlySent;
 use crate::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 use crate::message::models::{MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE};
-use crate::shared_models::AgentMode;
+use moatless_core::shared_models::AgentMode;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};

@@ -11,7 +11,7 @@
 //! why the adapters and loops call it directly and callers acting for a
 //! person call this instead.
 
-use crate::shared_models::AgentMode;
+use moatless_core::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::schemas::MessageContextInput;
 use moatless_backend_core::scope::ScopeContext;

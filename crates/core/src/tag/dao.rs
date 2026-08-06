@@ -7,7 +7,9 @@ use crate::db::DbPool;
 use crate::task_listing;
 
 /// DAO trait for tag persistence.
-#[cfg_attr(test, mockall::automock)]
+// `MockTagDao` is consumed by the backend's task-creation tests, so the mock is
+// generated off `test-support` (not bare `cfg(test)`) to cross the crate boundary.
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait TagDao: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Tag>, sqlx::Error>;

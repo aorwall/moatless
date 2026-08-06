@@ -12,8 +12,8 @@ use sqlx::Row;
 use tracing::{info, warn};
 
 use crate::auth::error::AuthError;
-use crate::config::{Config, LinearConfig, SecretsConfig, SlackConfig, TelegramConfig};
-use crate::db::DbPool;
+use moatless_core::config::{Config, LinearConfig, SecretsConfig, SlackConfig, TelegramConfig};
+use moatless_core::db::DbPool;
 use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
 

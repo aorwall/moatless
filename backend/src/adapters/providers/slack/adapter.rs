@@ -7,8 +7,8 @@ use tokio::sync::OnceCell;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::{Adapter, AdapterKind, AdapterOutboundContent};
-use crate::config::Config;
-use crate::db::DbPool;
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
 
 use super::api::SlackApi;
 

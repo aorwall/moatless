@@ -16,7 +16,7 @@ use sqlx::AssertSqlSafe;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 use crate::adapters::models::{LoopSpawnConfig, RoutingMode, Schedule, SubscriptionMatch};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 // =============================================================================
 // Joined loop record — the read shape used by the HTTP surface.

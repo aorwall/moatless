@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use sqlx::AssertSqlSafe;
 
 use crate::auth::error::AuthError;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::SecretCipher;
 
@@ -638,7 +638,7 @@ pub mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::SecretsConfig;
+    use moatless_core::config::SecretsConfig;
     use crate::secret::service::LocalEnvelopeSecretCipher;
 
     fn cipher() -> std::sync::Arc<dyn SecretCipher> {

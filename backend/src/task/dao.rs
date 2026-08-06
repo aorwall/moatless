@@ -7,10 +7,10 @@ use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
 use super::models::{SandboxIntentView, Task, TaskStatus, Visibility};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::sandbox::lifecycle::dao::load_sandbox_intent_views;
-use crate::shared_models::AgentType;
-use crate::task_listing;
+use moatless_core::shared_models::AgentType;
+use moatless_core::task_listing;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 
 /// Filter struct for task listing queries.

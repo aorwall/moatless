@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::identity::AuthIdentity;
 use super::models::UserRole;
-use crate::config::Config;
+use moatless_core::config::Config;
 
 /// Issuer stamped on session JWTs. Bumped at the internal-uuid cutover so cookies
 /// minted before it (provider-id `sub`, `personal-<provider-id>` teams) fail

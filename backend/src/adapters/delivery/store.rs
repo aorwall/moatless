@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::Row;
 
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 use super::metrics::record_admission;
 use super::models::{

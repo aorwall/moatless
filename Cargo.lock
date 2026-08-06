@@ -3237,6 +3237,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "dotenvy",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "moatless-api-schemas",
+ "moatless-backend-core",
+ "moatless-events",
+ "moatless-t3code",
+ "mockall",
+ "rand 0.10.1",
+ "redis",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "utoipa",
+ "utoipa-axum",
+ "uuid",
+]
+
+[[package]]
 name = "moatless-events"
 version = "0.1.0"
 dependencies = [
@@ -3347,6 +3378,7 @@ dependencies = [
  "moatless-adapter-model",
  "moatless-api-schemas",
  "moatless-backend-core",
+ "moatless-core",
  "moatless-events",
  "moatless-t3code",
  "mockall",

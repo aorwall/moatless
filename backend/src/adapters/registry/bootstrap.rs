@@ -23,7 +23,7 @@ impl Adapters {
     /// 'github_app_installation'`). Slack, Telegram and Linear read their own
     /// per-workspace rows straight off `ports.pool`.
     pub async fn from_config(
-        config: &crate::config::Config,
+        config: &moatless_core::config::Config,
         ports: &Ports,
     ) -> (Self, ProviderHandles) {
         let mut providers = Self::new();

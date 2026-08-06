@@ -6,7 +6,7 @@ use sqlx::PgConnection;
 
 use super::mapping::{self, ActivityRow, ToolOutcome};
 use super::models::{ConversationChange, ConversationHead, RETAINED_CHANGES};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 pub use moatless_backend_core::activity::Activity;
 
 /// The kinds this build can decode, as SQL.

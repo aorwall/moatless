@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use tracing::error;
 
 use moatless_backend_core::access_control::AccessControlError;
-use crate::error::error_response;
+use moatless_core::error::error_response;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorkspaceError {

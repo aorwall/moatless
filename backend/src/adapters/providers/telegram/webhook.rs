@@ -13,7 +13,7 @@ use tracing::{debug, info};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AccessDecision, Audience, InboundMessage, LoopContext};
 use crate::adapters::AdapterKind;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 use super::access::{self, DmDecision, DmSender};
 use super::config::TelegramAdapterConfig;

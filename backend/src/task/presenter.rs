@@ -22,7 +22,7 @@ use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::schemas::{task_binding_summary_from_binding, TaskBindingSummary};
 use crate::loops::dao::LoopDao;
 use crate::repository::dao::RepositoryDao;
-use crate::tag::dao::TagDao;
+use moatless_core::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::models::SandboxIntentView;
 use crate::workspace::dao::WorkspaceDao;

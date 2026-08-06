@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
 use super::models::SecretRecord;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use moatless_backend_core::scope::{ScopeContext, ScopedEntity};
 
 pub struct SecretInsert<'a> {

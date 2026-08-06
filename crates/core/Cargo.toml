@@ -1,0 +1,96 @@
+[package]
+name = "moatless-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Moatless Team"]
+description = "Lowest-band backend crate: config, db, error, events, and the core-clean vocabularies (scope, shared_models, tag, task_listing)"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP (tag/metrics routers, error IntoResponse)
+axum = { version = "0.8", features = ["macros"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Config
+dotenvy = "0.15"
+
+# Database
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
+
+# Redis (event stream reconnect)
+redis = { version = "1.2", features = ["tokio-comp", "connection-manager"] }
+
+# UUID + timestamps
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP client (GitHub client, git provider)
+reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
+
+# Crypto
+sha2 = "0.11"
+rand = "0.10"
+
+# Error handling
+thiserror = "2"
+
+# OpenAPI documentation — gated so non-API consumers of this shared crate do not
+# pull utoipa (shared-crates.md: keep utoipa/OpenAPI derives feature-gated).
+utoipa = { version = "5", features = ["axum_extras"], optional = true }
+utoipa-axum = { version = "0.2", optional = true }
+
+# Cancellation
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Async traits
+async-trait = "0.1"
+
+# Observability
+tracing = "0.1"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
+
+# Typed event system (shared with sandbox)
+moatless-events = { path = "../events" }
+
+# Shared API schemas (DTOs shared with CLI)
+moatless-api-schemas = { path = "../api-schemas", features = ["database"] }
+
+# Pure backend access-control policy and scope types
+moatless-backend-core = { path = "../backend-core", features = ["database"] }
+
+# T3 compatibility feature flag (feature_flags::device_pairing)
+moatless-t3code = { path = "../t3code" }
+
+# Mock generation, enabled off the `test-support` feature so downstream test tiers
+# (backend unit tests via dev-dependency, db-tests via feature forwarding) can reach
+# the DAO mocks and Config::test_minimal without core's own cfg(test).
+mockall = { version = "0.15", optional = true }
+
+[features]
+# OpenAPI surface: utoipa derives, the tag OpenApiRouter, and the downstream
+# `openapi` features of the shared crates it composes. The backend (an API
+# consumer) enables it; a non-API consumer gets the config/db/event/scope/tag-DAO
+# types without utoipa.
+openapi = [
+    "dep:utoipa",
+    "dep:utoipa-axum",
+    "moatless-events/openapi",
+    "moatless-api-schemas/openapi",
+    "moatless-backend-core/openapi",
+]
+# Exposes test-only constructors (Config::test_minimal) and DAO mocks (MockTagDao)
+# to downstream crates. No shipping build enables it, so those stay unreachable in
+# production, exactly as core's own `#[cfg(test)]` gate did before the carve.
+test-support = ["dep:mockall"]
+
+[dev-dependencies]
+mockall = "0.15"
+
+[lints]
+workspace = true

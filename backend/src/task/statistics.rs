@@ -228,7 +228,7 @@ mod tests {
     use serde_json::Value;
 
     use crate::message::models::{MessageRole, MessageType};
-    use crate::shared_models::AgentType;
+    use moatless_core::shared_models::AgentType;
     use crate::task::models::{TaskStatus, Visibility};
     use crate::task_activities::mapping::ActivityStatus;
 

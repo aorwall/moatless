@@ -1,5 +1,5 @@
 //! The background worker that keeps `task_listing_changes` bounded. Registered
-//! with the root [`Supervisor`](crate::supervisor::Supervisor) in `main` as
+//! with the root `Supervisor` in the backend binary's `main` as
 //! `listing-change-pruner`, and unconditional rather than gated on the T3
 //! compatibility module: the records are written by Moatless mutations whether
 //! or not anything is subscribed.

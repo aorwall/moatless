@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct ApiKey {

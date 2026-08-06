@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::adapters::error::AdapterError;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::loops::dao::LoopDao;
 
 use super::config::TelegramAdapterConfig;

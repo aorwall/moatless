@@ -18,12 +18,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use super::models::{MessageType, TaskMessage, TaskMessageContext};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::task::dao as task_dao;
 use crate::task_activities;
 use crate::task_activities::dao::{self as activities, Activity};
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
-use crate::task_listing;
+use moatless_core::task_listing;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
 /// whether one is outstanding, so the message that raises one moves a listing
@@ -1485,7 +1485,7 @@ impl MessageDao for PgMessageDao {
             Option<String>,
             i32,
             Option<String>,
-            Option<crate::shared_models::AgentMode>,
+            Option<moatless_core::shared_models::AgentMode>,
             Option<String>,
         )> = sqlx::query_as(
             r#"SELECT m.id, m.agent_session_id, m.turn_number,

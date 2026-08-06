@@ -24,7 +24,7 @@ use moatless_vibe_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_vibe_backend::agent_event::AgentEvent;
 use moatless_vibe_backend::loops::dao::LoopDao;
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::scope::{Scope, ScopeContext};
+use moatless_core::scope::{Scope, ScopeContext};
 use moatless_vibe_backend::task::dao as task_dao;
 use sqlx::PgPool;
 

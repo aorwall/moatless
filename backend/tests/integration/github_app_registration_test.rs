@@ -29,7 +29,7 @@ use moatless_vibe_backend::adapter_apps::dao::{
 };
 use moatless_vibe_backend::auth::github::registry::GitHubAppRegistry;
 use moatless_vibe_backend::auth::github::service::GitHubAppService;
-use moatless_vibe_backend::config::{GitHubAppConfig, SecretsConfig};
+use moatless_core::config::{GitHubAppConfig, SecretsConfig};
 use moatless_vibe_backend::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
 use sqlx::PgPool;
 use tokio::sync::OnceCell;

@@ -29,7 +29,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 use crate::extractors::AuthUser;
 use crate::repository::access::{access_error_for, RepositoryTokenResolver};
 use crate::repository::config_reader::{
@@ -707,7 +707,7 @@ impl GitSyncService {
                 .execute(&mut *tx)
                 .await?;
         if reclaimed.rows_affected() > 0 {
-            crate::task_listing::record_workspace_change(&mut tx, &workspace_id).await?;
+            moatless_core::task_listing::record_workspace_change(&mut tx, &workspace_id).await?;
         }
         tx.commit().await?;
 

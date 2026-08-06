@@ -10,7 +10,7 @@ use async_trait::async_trait;
 
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
-use crate::config::Config;
+use moatless_core::config::Config;
 
 use super::provider::OAuthProvider;
 

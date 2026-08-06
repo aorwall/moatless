@@ -29,7 +29,7 @@ use crate::extractors::AuthUser;
 use crate::loops::dao::{LoopDao, ManagedLoopUpsert, NewAdapterEventSource, NewScheduleSource};
 use crate::repository::access::{parse_github_owner_repo, RepositoryTokenResolver};
 use crate::repository::models::{Repository, RepositoryProvider};
-use crate::tag::dao::TagDao;
+use moatless_core::tag::dao::TagDao;
 
 /// Reconciles a repository's committed loop declarations into the loop tables.
 ///

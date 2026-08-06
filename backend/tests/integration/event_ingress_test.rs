@@ -37,7 +37,7 @@ use moatless_vibe_backend::event_handler::consumer::persist_event;
 use moatless_vibe_backend::agent_event::AgentEvent;
 use moatless_vibe_backend::event_ingress::outbox::{IngressOutbox, PgIngressOutbox};
 use moatless_vibe_backend::event_ingress::relay::IngressRelay;
-use moatless_vibe_backend::events::{EventPublisher, PublishError};
+use moatless_core::events::{EventPublisher, PublishError};
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::sandbox::grpc_server::BackendSandboxServiceImpl;
 use moatless_vibe_backend::task::dao as task_dao;

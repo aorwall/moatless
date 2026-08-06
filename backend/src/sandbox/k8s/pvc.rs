@@ -7,7 +7,7 @@ use tracing::{debug, info, warn};
 
 use super::client::K8sClient;
 use super::naming::generate_pvc_name;
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::sandbox::error::SandboxError;
 
 /// Find existing PVC for a task by label selector

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_backend_core::sandbox::SandboxError;
 use moatless_vibe_backend::compose::compose;
-use moatless_vibe_backend::config::{
+use moatless_core::config::{
     AuthConfig, AuthProvider, CodexOAuthConfig, Config, DatabaseConfig, DockerConfig,
     GithubPrConfig, LinearConfig, OtelConfig, ProxyConfig, RedisConfig, S3Config, SandboxConfig,
     SandboxProviderType, SecretsConfig, ServerConfig, SkillConfig, SlackConfig, SseConfig,
@@ -27,8 +27,8 @@ use moatless_vibe_backend::sandbox::lifecycle::{
     ArchiveRetention, NotifyPort, ObservedStatus, ProvisionDeps, RuntimeOperationContext,
     RuntimeOutcome, SandboxRuntime,
 };
-use moatless_vibe_backend::scope::ScopeContext;
-use moatless_vibe_backend::shared_models::AgentType;
+use moatless_core::scope::ScopeContext;
+use moatless_core::shared_models::AgentType;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::models::{Task, TaskStatus, Visibility};
 use moatless_vibe_backend::workspace::models::{Workspace, WorkspaceRepo};
@@ -505,7 +505,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         model: None,
         created_by: Some(user_id.to_string()),
         visibility: Visibility::Private,
-        scope: moatless_vibe_backend::scope::Scope::User,
+        scope: moatless_core::scope::Scope::User,
         owner_user_id: Some(user_id.to_string()),
         created_at_db: None,
         updated_at: None,
@@ -531,7 +531,7 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
         default_branch: Some("main".to_string()),
         description: None,
         provider: Some(RepositoryProvider::Github),
-        scope: moatless_vibe_backend::scope::Scope::User,
+        scope: moatless_core::scope::Scope::User,
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
         access_status: "unchecked".to_string(),
@@ -741,7 +741,7 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         source_repository_id: None,
         source_key: None,
         source_config_path: None,
-        scope: moatless_vibe_backend::scope::Scope::User,
+        scope: moatless_core::scope::Scope::User,
         owner_user_id: Some(user_id.to_string()),
         created_by: Some(user_id.to_string()),
         deleted: Some(false),

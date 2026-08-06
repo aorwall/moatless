@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use super::models::FileMetadata;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// DAO trait for file metadata persistence.
 #[cfg_attr(test, mockall::automock)]

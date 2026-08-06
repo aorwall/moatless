@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::contexts::task_message_context_to_input;
 use super::models::{TaskMessage, TaskMessageContext};
-use crate::config::Config;
+use moatless_core::config::Config;
 use crate::file_storage::dao::FileDao;
 use crate::task::schemas::MessageContextInput;
 

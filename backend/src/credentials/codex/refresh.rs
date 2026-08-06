@@ -14,7 +14,7 @@ use tracing::{debug, info, warn};
 use crate::credentials::codex::oauth;
 use crate::credentials::codex::scope::CodexScope;
 use crate::credentials::{CredentialError, CredentialService};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 impl CredentialService {
     /// Just-in-time Codex auth.json refresh, addressed by `scope`.

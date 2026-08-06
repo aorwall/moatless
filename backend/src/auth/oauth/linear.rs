@@ -19,7 +19,7 @@ use reqwest::Client;
 use super::provider::OAuthProvider;
 use crate::auth::error::AuthError;
 use crate::auth::models::{OAuthTokens, ProviderUserInfo};
-use crate::config::Config;
+use moatless_core::config::Config;
 
 const LINEAR_AUTHORIZE_URL: &str = "https://linear.app/oauth/authorize";
 const LINEAR_TOKEN_URL: &str = "https://api.linear.app/oauth/token";

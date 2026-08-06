@@ -41,7 +41,7 @@ use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_vibe_backend::scope::Scope;
+use moatless_core::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
 

@@ -4,14 +4,16 @@ use axum::Json;
 use serde::Serialize;
 
 /// Slack workspace configuration.
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SlackConfig {
     pub team_id: String,
 }
 
 /// Response shape for GET /api/v1/feature-flags.
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Serialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct FeatureFlagsResponse {
     pub netlify_publish: bool,
     pub show_claude_settings: bool,
@@ -32,14 +34,14 @@ pub struct FeatureFlagsResponse {
 ///
 /// Returns all feature flags and their current values.
 /// Flags are controlled by `FF_*` environment variables.
-#[utoipa::path(
+#[cfg_attr(feature = "openapi", utoipa::path(
     get,
     path = "/api/v1/feature-flags",
     responses(
         (status = 200, description = "Feature flags", body = FeatureFlagsResponse),
     ),
     tag = "feature-flags",
-)]
+))]
 pub async fn get_feature_flags() -> Json<FeatureFlagsResponse> {
     let slack = std::env::var("SLACK_TEAM_ID")
         .ok()
