@@ -29,6 +29,7 @@ pub mod message;
 pub mod plugin;
 pub mod provider_settings;
 pub mod repository;
+pub mod repository_sync;
 pub mod sandbox;
 pub mod secret;
 pub mod setup;

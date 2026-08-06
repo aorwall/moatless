@@ -1,9 +1,14 @@
 //! Loop sync error types.
 //!
-//! Loop sync is invoked from the repository handlers (create + sync-config),
-//! never as its own HTTP handler, so this error does not implement
-//! `IntoResponse`. Callers log it and either fold it into the response summary
-//! (sync-config) or swallow it best-effort (create).
+//! Loop sync has exactly one call site: `repository_sync::handlers::sync_repo_config`,
+//! the server-band composition behind the `sync-config` endpoint. It is never
+//! its own HTTP handler, so this error does not implement `IntoResponse` — the
+//! single caller maps it into `RepositoryError` with `?`. That abort is the
+//! admin-visibility contract: the loop-sync error fails the explicit sync so an
+//! administrator never mistakes a skipped refresh for a successful approval
+//! revocation. (The git-declared workspace half of that same composition
+//! deliberately does the opposite — it swallows failure best-effort — but that
+//! is `WorkspaceSyncSummary`, not this error.)
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoopError {

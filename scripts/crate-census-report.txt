@@ -1,13 +1,13 @@
 CRATE-CENSUS REPORT
-files parsed: 645
+files parsed: 648
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  4009  illegal  150
+CODE       legal  4026  illegal  148
 ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    54  illegal   16   (function-like macro-invocation token streams)
 DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1726 point down into the existing crates/* floor
+  of the legal CODE edges, 1727 point down into the existing crates/* floor
 TEST-CONTEXT 2365  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
 
@@ -23,7 +23,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   identity  (68 files, 16109 lines)
     adapter_apps/ auth/ extractors.rs secret/ setup/ team/
 
-  workspaces  (42 files, 11286 lines)
+  workspaces  (42 files, 11227 lines)
     credentials/ plugin/ repository/ skill/ workspace/
 
   tasks  (71 files, 19216 lines)
@@ -38,7 +38,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (8 files, 3516 lines)
     sandbox/docker/
 
-  loops  (50 files, 14136 lines)
+  loops  (50 files, 14141 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
   adapter-github-pr  (24 files, 10552 lines)
@@ -56,8 +56,8 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 772 lines)
     adapters/providers/webhook/
 
-  server  (29 files, 11269 lines)
-    compose.rs event_handler/ lib.rs main.rs provider_settings/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
+  server  (32 files, 11426 lines)
+    compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
     test_support.rs
@@ -65,9 +65,9 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 139039 lines
+  TOTAL backend/src: 139142 lines
 
-== ILLEGAL PRODUCTION EDGE CLASSES (22 classes) ==
+== ILLEGAL PRODUCTION EDGE CLASSES (20 classes) ==
 
 adapter-github-pr -> server   x8
     backend/src/adapters/providers/github_pr/api_routes.rs:32  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -286,12 +286,6 @@ tasks -> server   x8
     backend/src/message/service.rs:15  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/task/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-workspaces -> loops   x1
-    backend/src/repository/handlers.rs:18  [CODE] crate::loops::sync::LoopSyncService   -> [9d / 10g — server-band sync composition]
-
-workspaces -> server   x1
-    backend/src/repository/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-
 workspaces -> tasks   x1
     backend/src/credentials/mod.rs:39  [CODE] crate::task::dao::TaskDao   -> [9c / 10c — broadcast fan-out refactor]
 
@@ -320,7 +314,7 @@ workspaces -> tasks   x1
   FRONTIER -> identity: READY now (no illegal outgoing, floor-only deps).
 
   identity           deps: floor / adapter-model only                   READY
-  workspaces         deps: identity                                     BLOCKED — 3 illegal outgoing to loops(x1), server(x1), tasks(x1)
+  workspaces         deps: identity                                     BLOCKED — 1 illegal outgoing to tasks(x1)
   tasks              deps: identity, workspaces                         BLOCKED — 57 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x8)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet

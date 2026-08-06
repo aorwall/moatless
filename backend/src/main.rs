@@ -28,7 +28,7 @@ use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::supervisor::{Criticality, Supervisor};
 use moatless_vibe_backend::{
     adapters, feedback, file_storage, loops, message, plugin, provider_settings, repository,
-    secret, skill, t3code, task, task_connections, task_event, team, workspace,
+    repository_sync, secret, skill, t3code, task, task_connections, task_event, team, workspace,
 };
 
 /// How long shutdown waits for supervised tasks to finish before giving up and
@@ -448,6 +448,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message::routes::message_router(app_state.clone()),
             file_storage::routes::file_storage_router(app_state.clone()),
             repository::routes::repository_router(app_state.clone()),
+            repository_sync::routes::repository_sync_router(app_state.clone()),
             secret::routes::secret_router(app_state.clone()),
             tag::routes::tag_router(app_state.clone()),
             provider_settings::routes::provider_settings_router(app_state.clone()),

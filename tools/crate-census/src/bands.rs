@@ -127,8 +127,14 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
             _ => "loops",
         },
         // -- server -- (`""` is the backend lib root, lib.rs)
+        // `repository_sync` is the server-band home of the repository config-sync
+        // endpoint: it composes `loops` (LoopSyncService) with `workspaces` (git
+        // sync) synchronously, and naming `loops` from `repository` (workspaces)
+        // would trap that module — so the cross-band orchestration lives here. The
+        // reverse of `setup` moving OUT of this arm into identity.
         "main" | "startup" | "state" | "supervisor" | "compose" | "sse" | "t3code"
-        | "event_handler" | "provider_settings" | "task_connections" | "" => "server",
+        | "event_handler" | "provider_settings" | "task_connections" | "repository_sync"
+        | "" => "server",
         // the synthetic bin root
         "\u{0}bin" => "server",
         // Unknown top-level module: no arm claims it. Edge resolution treats it as
