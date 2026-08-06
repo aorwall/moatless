@@ -1,6 +1,7 @@
 # Make the ports singular, then split the backend into crates
 
-> **Status:** in progress. Steps 1–4 and 6 **shipped**; Step 5 **in flight**; Steps 7–9 **partially shipped** — everything left of them is a named Step 10 precondition, so the Step 10 table is the one place they are listed; Steps 10–11 **not started**.
+> **Status:** in progress. Steps 1–4 and 6 **shipped**; Step 5 **in flight**; Steps 7–9 **partially shipped** — everything left of them is a named Step 10 precondition, so the Step 10 table is the one place they are listed; Steps 10–11 **not started** beyond 10a.
+> **Census baseline:** 186 illegal edges on `1ecd4eead`. The frontier is **`identity`, blocked on 4** — see *The carve frontier*, which is what the next work is chosen against.
 > **Updated:** 2026-08-06
 > **Vocabulary:** CONTEXT.md
 > **Predecessors:** `.plans/backend-crate-split.md`, `.plans/backend-crate-hierarchy.md`
@@ -196,20 +197,22 @@ Delete `registry/mod.rs:207` `github_pr()`, `:212` `linear()`, `:217` `slack()`,
 | Crate | Role |
 |---|---|
 | `moatless-core` | Shared vocabulary: config, errors, events, metrics, and the `task_listing` / `tag` read models every crate depends on. |
-| `moatless-identity` | Authentication, teams, request extractors, and app-level secrets. |
+| `moatless-identity` | Authentication, teams, request extractors, app-level secrets, and the setup requirements `/me` reports (8h). |
 | `moatless-workspaces` | Workspaces, repositories, skills, plugins, and credentials. |
 | `moatless-tasks` | Tasks, messages, turns, agent runs, feedback, file attachments, and task events. |
-| `moatless-sandbox-control` | Provider-agnostic sandbox lifecycle and control. |
-| `moatless-sandbox-k8s` | The Kubernetes sandbox provider. |
-| `moatless-sandbox-docker` | The Docker sandbox provider. |
-| `moatless-adapter-model` | The adapter/binding model types both sides depend on — a `crates/*` crate lifted in Step 7a, not carved from `backend/src`. |
-| `moatless-loops` | Agent loops, bindings, and the non-provider adapter core. |
-| `moatless-adapter-github-pr` | The GitHub PR provider. |
-| `moatless-adapter-linear` | The Linear provider. |
-| `moatless-adapter-slack` | The Slack provider. |
-| `moatless-adapter-telegram` | The Telegram provider. |
-| `moatless-adapter-webhook` | The generic webhook provider. |
-| `moatless-server` | Composition root: routing, startup, supervisor, SSE, setup, and the T3 surface. |
+| `moatless-sandbox-control` | Sandbox lifecycle and control, independent of the Sandbox runtime. |
+| `moatless-sandbox-k8s` | The Kubernetes Sandbox runtime. |
+| `moatless-sandbox-docker` | The Docker Sandbox runtime. |
+| `moatless-adapter-model` | The Adapter/binding model types both sides depend on — a `crates/*` crate lifted in Step 7a, not carved from `backend/src`. |
+| `moatless-loops` | Loops, bindings, and the Adapter core that no single Adapter owns. |
+| `moatless-adapter-github-pr` | The GitHub PR Adapter. |
+| `moatless-adapter-linear` | The Linear Adapter. |
+| `moatless-adapter-slack` | The Slack Adapter. |
+| `moatless-adapter-telegram` | The Telegram Adapter. |
+| `moatless-adapter-webhook` | The Webhook Adapter. |
+| `moatless-server` | Composition root: routing, startup, supervisor, SSE, and the T3 compatibility surface. |
+
+These descriptions become the crates' own doc comments, so they follow `CONTEXT.md` rather than this document's prose: an external-system integration is an **Adapter**, never a "provider", and the backend that runs Sandboxes is a **Sandbox runtime**, never a "sandbox provider". The surrounding prose in this plan predates that discipline and still says "provider" in about thirty places; the term is correct only in `Provider token`, `Git host`, and code identifiers such as `provider_settings`, `OutboundProviders` and the `providers/` directory.
 
 **The mapping is generated, and this table names roles only.** Module membership and per-crate line totals come from `bands.rs::crate_of_backend_mod` into the report's `CRATE MEMBERSHIP` section. That section carries an `UNASSIGNED` row: a top-level module no arm names falls through to it rather than being folded silently into `server`, so the output can say *I do not know where this belongs* instead of guessing. `UNASSIGNED` is empty today; a non-empty row is a finding to place in `bands.rs`, not a `--check` failure. **The rule is a regeneration invariant, not a two-place sync: any change to `crate_of_backend_mod` regenerates `scripts/crate-census-report.txt` in the same commit**, enforced by CI's `--check`.
 
@@ -270,9 +273,10 @@ band 8  server
 
 - **8b does not kill its edge.** The two OAuth scope enums are not the only `identity → workspaces` carriers: `auth/routes.rs:2004,2006` call `credentials::codex::parse_codex_auth_json`/`build_codex_metadata`. Moving the enums leaves those two calls. Deferred to the cluster below.
 - **8c has no referent as written — ruled.** The `tasks → loops` edge has six carriers and none is "binding code filed under `task/`": `task/closer.rs` and `task/reaper.rs` hold `Arc<dyn TaskBindingDao>` as a task-close/reap port; `task/presenter.rs` holds it plus `Arc<LoopDao>` to assemble a `TaskResponse`; `message/send.rs` holds `Arc<RecentlySent>`; `task/handlers.rs` reads binding summaries into the task list; `task/connections_handlers.rs` is a cross-cutting admin view that also reaches `adapters` (band 7, above loops). Moving any of them to loops drags task/message domain code up into loops — the band-convexity cycle Step 10 forbids. Its real content is two things: **(1)** one genuine misfile, `connections_handlers.rs`, whose home is the **server** band; **(2)** a **`tasks`/`message → loops` consumer-owned port** for the other five. `TaskBindingDao` is already a trait with a test mock, so this clears the single-implementation bar — the inversion moves its *declaration* down from `crate::bindings::dao` to the consumer band. Both belong to 10d.
-- **8h is defective — the two halves import each other.** `evaluator.rs:8` imports `super::github::GithubTokenRequirement` and hard-constructs it in `checks()`; `github.rs:6` imports back `SetupContext`/`SetupRequirementCheck`; and `github.rs` reaches `sandbox` and `credentials`. No cut along the file boundary kills `identity → server` without re-creating an equal-or-worse edge. The only cut that works inverts the check registry so `evaluate_setup` receives its checks from a server-band root — **but that entrenches `SetupRequirementCheck` as a single-implementation trait, which `AGENTS.md` bars. 8h lifts only when `SetupRequirementCheck` earns a second implementation or is collapsed.**
+- **8h — the cut was defective, the premise under it dissolved, and the fix is a placement rather than a trait. Ruled: `setup` is identity-band content.** The original finding stands as far as it goes: `evaluator.rs:8` imports `super::github::GithubTokenRequirement` and hard-constructs it in `checks()`, `github.rs:6` imports back `SetupContext`/`SetupRequirementCheck`, so **no cut along the file boundary** kills `identity → server` — the only cut that works inverts the check registry from a server-band root, which entrenches `SetupRequirementCheck` as a single-implementation trait that `AGENTS.md` bars. That reasoning was never wrong; it was answering the wrong question. It searched for a seam *inside* `setup/` because it took as given that `setup/` stays in the server band, and the clause holding it there was the third one — `github.rs` reached `credentials` (workspaces 4) and `sandbox` (sandbox-control 6). **That clause is no longer true.** At `023b9ef88` the file read `crate::credentials::github::scope::GitHubScope` and `crate::sandbox::secrets::GITHUB_TOKEN`; **#352** moved the constant down to `moatless_core::secret_keys` (floor) and **#359** moved the type to `crate::auth::github_scope` (identity). Neither PR was aimed at 8h. Today `setup/`'s entire production surface is `crate::auth::*`, `crate::secret::*` and `moatless_core` — nothing above identity — and its only consumer in the repository is `auth/routes.rs:22`. The module therefore carves whole into identity and both edges become intra-band. **Measured:** moving `"setup"` to the identity arm of `bands.rs` takes the census 186 → 184 and identity 4 → 2 illegal outgoing, adding no new illegal edge. `SetupRequirementCheck` stays single-implementation and this program never depends on it being otherwise — the bar is not *cleared*, it is *not reached*, because no inversion happens. **The trap for the next reader:** the barred trait inversion is the obvious cut and it is still barred; do not re-derive it. Read the module's outgoing set first — a module whose every reference sits at or below its consumer's band does not need a seam, it needs a band.
+- **8h's placement — a map entry, not a directory move.** `setup` becomes a **sibling** of `auth` inside `moatless-identity`, not a child. Relocating to `backend/src/auth/setup/` would reach the same band through the existing map with no `bands.rs` edit, and is rejected: it asserts that `auth` owns the concept, and the concept is *what is still missing before the app works* — one Provider-token check today, plausibly a Workspace or Sandbox one later. A future check that reaches outside identity should move `setup` back up as a unit, which a top-level module does cleanly and a subdirectory of `auth` does not. `bands.rs:99-101` already carries exactly this shape for `secret` — an arm entry whose reason lives in a comment — so this follows a precedent rather than setting one.
 
-**The deferred error/credential cluster — the "one entry condition" was a gate that does not bind.** Four deferrals were tracked together on a shared entry condition — *the error split lands first* — and measurement split them into two groups that share only a theme (`IntoResponse` errors that cannot descend to core), not a dependency. A prose gate reads identical to a real one until you check for the backing edge: 8h's block on 10b **is** real — two live `identity → server` edges at `auth/routes.rs:22` (`setup::evaluate_setup`, `SetupContext`), correctly named in the 10b row — whereas the cluster's entry condition bound 8b-remainder and 8d to nothing an edge carries. That is the defect: a coupling stated in prose that no dependency backs, surfaced by applying the three earning tests rather than by re-reading.
+**The deferred error/credential cluster — the "one entry condition" was a gate that does not bind.** Four deferrals were tracked together on a shared entry condition — *the error split lands first* — and measurement split them into two groups that share only a theme (`IntoResponse` errors that cannot descend to core), not a dependency. A prose gate reads identical to a real one until you check for the backing edge: 8h's block on 10b **was** real — two live `identity → server` edges at `auth/routes.rs:22` (`setup::evaluate_setup`, `SetupContext`), correctly named in the 10b row — whereas the cluster's entry condition bound 8b-remainder and 8d to nothing an edge carries. (The two edges are still live; what changed is that 8h above retires them by placement, so the *gate* is gone and the *edges* are ordinary 10b work.) That is the defect: a coupling stated in prose that no dependency backs, surfaced by applying the three earning tests rather than by re-reading.
 - **(1) the `AdapterError` descent and (2) 7c** are genuinely gated on the split and land at 10g/10h: after the descent the capability traits return the L0 error, so 7c's `OutboundProviders`/`BindingStatusSource` ports name only floor/adapter-model. 7c scores zero on all three earning tests today (its edges are intra-band-8, unscored; it is a single-implementation port with no test mock; its ruling is already banked), so it is not built early — it folds in mechanically with the descent it depends on.
 - **(3) 8b's remainder and (4) 8d are decoupled and move to 10b/10c.** Neither touches `AdapterError`: `parse_codex_auth_json`/`build_codex_metadata` and `save_codex_auth_for_scope` name `ProviderSettingsError`, a separate type, and the two paths carry five illegal edges on the identity and workspaces frontiers (`auth/routes.rs:2017,2019 → credentials::codex` and `credentials/codex/auth_json.rs:13,21,24 → provider_settings::error::ProviderSettingsError`). Nothing in them waits on the split; they are ordinary carve work that drops frontier edges, and they belong to the identity/workspaces carves that consume them.
 
@@ -305,7 +309,7 @@ The `Cargo.toml` files appear one band at a time, lowest first, because a crate 
 |---|---|---|
 | — | `moatless-adapter-model` | already a crate — Step 7a extracted it, listed here only because the bands below depend on it |
 | 10a | `moatless-core` | **Carved** — `crates/core`. Edges: report |
-| 10b | `moatless-identity` | **8b's remainder and the error/credential cluster** (together 18 of identity's 25 outgoing edges — the knot, gated on the unanswered bindings-error-ownership question); **8h**, which does not lift until `SetupRequirementCheck` earns a second implementation or is collapsed; plus **Step-5 residue** and the **9b `GITHUB_TOKEN` placement**, which are ordinary work and clear independently of the knot. Edges: report |
+| 10b | `moatless-identity` | **The knot is cleared and this is the frontier.** #352, #358 and #359 retired 8b's remainder, the error/credential cluster and the 9b `GITHUB_TOKEN` placement; **8h** is a placement, not the barred trait inversion (above). Identity is down to **4** illegal outgoing, all to server, each itemized in *The carve frontier* below. Edges: report |
 | 10c | `moatless-workspaces` | the **9c broadcast refactor** (below); **9d** (→ 10g). Edges: report |
 | 10d | `moatless-tasks` | **8c's real content** — the `connections_handlers` move to server and the `tasks`/`message → loops` port; **Ruling D**'s reopened hook; the **`TaskReaper` field inversion** (below). Edges: report |
 | 10e | `moatless-sandbox-control` | **Ruling B's inbound half** — the non-Kubernetes helpers under `k8s/` must land in `sandbox-control` before it carves, so that move happens here even though the row it is named against is 10f. Ruling F's outbound half is already built. Edges: report |
@@ -507,9 +511,34 @@ Every added port bound across all three resolves same-band or downward, so the p
 |---|---:|---|
 | router handler-porting (`agent`+`loops`) | 6 | per-site porting spread across ~6 files, most one-port helper renames |
 | `tasks → sandbox-control` lifecycle seam | 17 | **one** consumer-owned-port inversion (`tasks` owns the trait, `sandbox-control` implements) |
-| `loops` provider structure | 76 | the five-provider carve (10h) |
+| `loops` Adapter structure | 76 | the five-Adapter carve (10h) |
 
-Router porting is the **smallest** lever and the **most cost per edge** — six edges bought by touching six files — while the other two are single structural decisions retiring 17 and 76. So the router port does not jump the queue: `agent` is a clean `−3` whenever someone wants it, `loops` a clean `−2`-plus-shared, and `adapters` should ride with or wait for 10h. Which structural bet to take next is a sequencing decision to put to a human against this table.
+Router porting is the **smallest** lever and the **most cost per edge** — six edges bought by touching six files — while the other two are single structural decisions retiring 17 and 76. So the router port does not jump the queue: `agent` is a clean `−3` whenever someone wants it, `loops` a clean `−2`-plus-shared, and `adapters` should ride with or wait for 10h.
+
+**But edge count is the wrong currency for sequencing, and this table is not the queue.** Ranking by edges answers *which structural bet is biggest*; it does not answer *what to do next*, because carving is bottom-up and a crate cannot carve before the crates below it. None of the three rows touches the frontier: router porting changes `agent` (tasks) and `loops`, the lifecycle seam changes `tasks`, and the Adapter carve changes `loops` and the five Adapters. `tasks` is third in the carve order and `loops` is seventh. So the 76-edge row retires the largest number on the board and carves nothing. Read this table when choosing between structural bets; read the frontier below when choosing what to build.
+
+#### The carve frontier — what edge count does not tell you
+
+The census computes the frontier itself, and it is the authority. On `1ecd4eead` it reads:
+
+```
+FRONTIER -> identity: the base case, BLOCKED on 4 illegal outgoing.
+            No crate is carvable until it clears.
+```
+
+`identity` depends only on the floor and `adapter-model`, both already crates, so it is the base case: **nothing else in the program can carve until identity does.** Its four edges are small, and three of them are not the porting work the count implies.
+
+| # | Edge | What it is | Work |
+|---|---|---|---|
+| 1–2 | `auth/routes.rs:22` → `setup::{SetupContext, evaluate_setup}` | 8h — a misplacement, not a seam (above) | one `bands.rs` arm entry; the directory moves at carve time |
+| 3 | `auth/credentials.rs:369` → `crate::state::AppState` | `resolve_state_github_token` — **dead** | delete it |
+| 4 | `auth/routes.rs:17` → `crate::compose::Ports` | `AuthState::new` copies twelve fields out of `Ports` (`auth/routes.rs:161`) | move the constructor to the composition root |
+
+**Edge 3 is dead code that no warning reports.** `resolve_state_github_token` (`auth/credentials.rs:368`) is a `pub` convenience wrapper over `resolve_github_token_for_scopes`, and its definition is its **only** code occurrence: `rg -n "resolve_state_github_token" backend crates scripts` returns that one line, so it has no production and no test caller. `pub` suppresses `dead_code`, which is why it survived. It is a whole `identity → server` edge retired by a deletion, and the general lesson is worth more than the edge: **before porting a symbol to kill an edge, check the symbol still has callers.** Its four-line doc comment explains why handlers should prefer it, and no handler ever did.
+
+**Then `workspaces` is three edges and two designed changes.** `credentials/mod.rs:39 → TaskDao` is the 9c broadcast refactor and `repository/handlers.rs:18 → LoopSyncService` is the 9d sync composition — both already designed above, with entry conditions. The third, `repository/routes.rs:7 → AppState`, is the band-trapped router, and it is trapped **because** `handlers.rs` extracts `Arc<LoopSyncService>`. 9d removes that extraction, so the trap is not a separate problem: after 9d the generic bound is no longer upward and the router goes generic for a clean `−1` instead of the `−1 +1 = net 0` that excluded it from the router survey. Two changes, three edges, second crate carved.
+
+**The ruling: build the frontier, not the biggest number.** Identity (one map entry, one deletion, one constructor move) then workspaces (9c and 9d) carves the two lowest crates and advances the frontier for the first time since 10a. The three levers above are then re-priced against a board where `tasks` is next, which is where the lifecycle seam becomes the live question rather than a banked one.
 
 **Where a test lives, and why the split is the lever rather than the move.** 30,857 of `backend/src`'s lines are `#[cfg(test)]` — 53,713 across the workspace — and they are what the second compile of `cargo test` builds. The instinct is to move them to `backend/tests/`. Measured against what actually forces co-location — does the test module name an item that is private in the same file — that instinct pays badly:
 
