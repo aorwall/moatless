@@ -47,8 +47,8 @@ env:
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
   # Do not upload docker/build-push-action build records as GitHub artifacts:
-  # this workflow already uses GHA cache for handoff/build layers, and the org
-  # artifact quota can otherwise break post-build cleanup.
+  # this workflow already uses the Actions cache for the per-run binary
+  # handoffs, and the org artifact quota can otherwise break post-build cleanup.
   DOCKER_BUILD_RECORD_UPLOAD: false
   # Shorthand for "manual trigger with build_all checked"
   BUILD_ALL: ${{ github.event_name == 'workflow_dispatch' && inputs.build_all }}
@@ -247,21 +247,29 @@ jobs:
           fi
 
   # ── Rust lint + tests ──
-  # PR-only, and the whole workspace every time: clippy and the test suites are
-  # a review gate, not a publish gate — nothing downstream consumes them, and a
-  # main push runs them over a diff that already passed them on its PR. The
-  # build jobs only compile, so this stays the one place `-D warnings` and
-  # `cargo test` run, matching the lines CLAUDE.md mandates locally.
+  # The review gate, and the whole workspace every time: clippy and the test
+  # suites are not a publish gate — nothing downstream consumes them. The build
+  # jobs only compile, so this stays the one place `-D warnings` and `cargo
+  # test` run, matching the lines CLAUDE.md mandates locally.
   #
   # Cache: seeded from `main` (`save-if` below) and restore-only on PRs, so many
   # concurrent PRs share one entry instead of each writing a multi-GB copy into
-  # the repo's 10 GB cache budget and evicting the build caches.
+  # the repo's 10 GB cache budget and evicting the build caches. That seeding is
+  # the ONLY reason these run on push to main: `save-if` can never fire on a
+  # `pull_request` event, where `github.ref` is `refs/pull/N/merge`. They were
+  # PR-only for months and the pairing was silently dead — no `rust-clippy` or
+  # `rust-test` entry ever existed, every PR started from an empty `target/`,
+  # and both jobs logged `No cache found`. Narrowing either condition again
+  # without the other re-breaks it.
   # Split from rust-test: separate cargo fingerprints (rmeta vs codegen), so
   # one job never shared work — only wall clock.
   rust-clippy:
     name: Rust clippy
     needs: detect-changes
-    if: always() && github.event_name == 'pull_request'
+    if: >-
+      always() &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: staging-runners-large
     container:
       image: rust:1.97-bookworm
@@ -331,7 +339,12 @@ jobs:
   rust-test:
     name: Rust tests
     needs: detect-changes
-    if: always() && github.event_name == 'pull_request'
+    # Runs on push to main only to seed `shared-key: rust-test` — see the note
+    # above rust-clippy.
+    if: >-
+      always() &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: staging-runners-large
     container:
       image: rust:1.97-bookworm
@@ -394,9 +407,17 @@ jobs:
           CHANGED_FILES: ${{ needs.detect-changes.outputs.changed-files }}
         run: |
           set -euo pipefail
-          # Word-splitting is intended; the selector reads one path per line.
-          # shellcheck disable=SC2086
-          printf '%s\n' $CHANGED_FILES > /tmp/changed-files.txt
+          # On the main-push seed run the narrowing is counterproductive: the
+          # point is a cache every following PR can restore, and a PR selects
+          # packages from its own diff, not from main's last commit. An empty
+          # list is the selector's documented fail-safe into the full set.
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            : > /tmp/changed-files.txt
+          else
+            # Word-splitting is intended; the selector reads one path per line.
+            # shellcheck disable=SC2086
+            printf '%s\n' $CHANGED_FILES > /tmp/changed-files.txt
+          fi
 
           # Narrow to the reverse-dep closure. Selecting packages is what
           # saves time — filtering which tests run still builds everything.
@@ -786,8 +807,12 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:sha-${{ steps.sha.outputs.short }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=min,scope=frontend
+          # Registry, not `type=gha`: see docker/AGENTS.md. These builds are all
+          # under a minute, so this is about the 10 GB Actions-cache budget, not
+          # about their own speed — buildkit blobs held 7.29 GB of it and starved
+          # the Rust target-dir caches that actually gate PR wall clock.
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
 
   # ── Backend image (push to main + manual dispatch, conditional on changed files) ──
   #
@@ -846,8 +871,8 @@ jobs:
             ${{ env.BACKEND_IMAGE_NAME }}:sha-${{ steps.sha.outputs.short }}
           build-contexts: |
             binary=/tmp/backend-binary
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=min,scope=backend
+          cache-from: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.BACKEND_IMAGE_NAME }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
 
   # ── Build the truly stable sandbox base (Ubuntu + Node + CLIs + user setup) ──
   # No binaries needed, so it starts immediately and runs alongside build-rust;
@@ -959,8 +984,8 @@ jobs:
             ${{ env.SANDBOX_TOOLS_IMAGE }}:sha-${{ steps.sha.outputs.short }}
           build-contexts: |
             binaries=/tmp/sandbox-binaries
-          cache-from: type=gha,scope=sandbox-tools
-          cache-to: type=gha,mode=min,scope=sandbox-tools
+          cache-from: type=registry,ref=${{ env.SANDBOX_TOOLS_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.SANDBOX_TOOLS_IMAGE }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
 
   # ── The runtime sandbox = sandbox-base + scripts + Rust binaries ──
   # Pushed under both ${SANDBOX_IMAGE} and ${SANDBOX_JS_IMAGE} (same content,
@@ -1030,8 +1055,8 @@ jobs:
             SANDBOX_BASE=${{ env.SANDBOX_BASE_IMAGE }}:latest
           build-contexts: |
             binaries=/tmp/sandbox-binaries
-          cache-from: type=gha,scope=sandbox
-          cache-to: type=gha,mode=min,scope=sandbox
+          cache-from: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
 
   build-sandbox-java:
     name: Build & push sandbox-java:${{ matrix.java-version }}
@@ -1093,8 +1118,10 @@ jobs:
             BASE_IMAGE=eclipse-temurin:${{ matrix.java-version }}-jdk-noble
             JAVA_VERSION=${{ matrix.java-version }}
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
-          cache-from: type=gha,scope=sandbox-java-${{ matrix.java-version }}
-          cache-to: type=gha,mode=min,scope=sandbox-java-${{ matrix.java-version }}
+          # One cache tag per matrix leg — the two Java versions share no layers
+          # past the base and would evict each other under a single ref.
+          cache-from: type=registry,ref=${{ env.SANDBOX_JAVA_IMAGE }}:buildcache-${{ matrix.java-version }}
+          cache-to: type=registry,ref=${{ env.SANDBOX_JAVA_IMAGE }}:buildcache-${{ matrix.java-version }},mode=min,image-manifest=true,oci-mediatypes=true
 
   # ── Publish dev Helm chart (push to main + manual dispatch) ──
   publish-helm-dev:

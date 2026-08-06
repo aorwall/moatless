@@ -34,17 +34,29 @@ everything, which is the point — it exists to force a full rebuild.
 
 ## Build cache
 
-`sandbox-base` exports to a registry cache
-(`<org>/moatless-sandbox-base:buildcache`), not `type=gha`. Its `mode=max` export
-is ~7 GB against the repository's 10 GB Actions-cache budget, so it evicted its
-own previous entry — and the Rust caches — between runs, and measured a 0% layer
-hit rate on a build whose inputs were byte-identical, while spending 606s of an
-840s build writing the cache. Docker Hub has no such cap.
-`image-manifest=true,oci-mediatypes=true` pushes the cache as an ordinary image
-manifest, which Docker Hub accepts.
+**Every image exports to a registry cache — `<image>:buildcache` — never
+`type=gha`.** `image-manifest=true,oci-mediatypes=true` pushes the cache as an
+ordinary image manifest, which Docker Hub accepts. `sandbox-base` uses
+`mode=max`; the leaf images use `mode=min`.
 
-The other images stay on `type=gha,mode=min`; they are small enough not to
-crowd out the Rust caches. If one starts to, move it the same way.
+Two separate reasons, and the second is the one that generalises:
+
+`sandbox-base`'s `mode=max` export alone was ~7 GB against the repository's
+10 GB Actions-cache budget, so it evicted its own previous entry between runs —
+a 0% layer hit rate on a build whose inputs were byte-identical, and 606s of an
+840s build spent writing a cache nothing could read.
+
+Moving it was not enough. The five remaining `type=gha` images refilled the
+space it freed: `buildkit-blob` still held **7.29 GB across 252 entries** — 70%
+of the budget, on a repo already 0.34 GB over cap. The budget is shared and
+LRU, and a small writer with a high run rate crowds out a large reader just as
+effectively as a large writer does. These builds are all under a minute; the
+Rust target-dir caches they compete with are what gates PR wall clock. Docker
+Hub has no such cap, so nothing in `ci.yml` should hold Actions-cache space
+except the Rust target dirs and the per-run binary handoffs.
+
+The first build after adding a `:buildcache` ref logs a `cache-from` miss. That
+is the tag not existing yet, not a failure; the run after it hits.
 
 `RUN --mount=type=cache` is worth nothing here: every job gets a fresh
 `docker-container` buildx driver, and cache mounts are builder-local and not
