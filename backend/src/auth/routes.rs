@@ -14,7 +14,6 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::adapters::dao::AdapterConnectionDao;
-use crate::compose::Ports;
 use moatless_core::config::{AuthProvider, Config};
 use moatless_core::db::DbPool;
 use moatless_core::error::ErrorBody;
@@ -154,34 +153,6 @@ pub struct AuthState {
     /// callback mirrors the authorized workspace into this table so inbound
     /// Linear webhooks resolve a connection.
     pub adapter_connections: Arc<dyn AdapterConnectionDao>,
-}
-
-impl AuthState {
-    /// Build auth state over the ports the composition root assembled.
-    pub fn new(ports: &Ports, config: Arc<Config>) -> Self {
-        let providers = OAuthProviders::from_config(&config);
-        let cache = AuthCache::new(config.auth.cache_ttl_secs);
-        Self {
-            sessions: ports.sessions.clone(),
-            api_keys: ports.api_keys.clone(),
-            pairing: ports.pairing.clone(),
-            users: ports.users.clone(),
-            credentials: ports.user_credentials.clone(),
-            login_throttle: LoginThrottle::new(),
-            provider_tokens: ports.provider_token_auth.clone(),
-            provider_tokens_dao: ports.provider_tokens.clone(),
-            adapter_connections: ports.adapter_connections.clone(),
-            github_app_service: ports.github_app_service.clone(),
-            github_apps: ports.github_apps.clone(),
-            secrets: ports.secrets.clone(),
-            providers: Arc::new(providers),
-            cache,
-            task_access: ports.task_access.clone(),
-            token_verifier: ports.token_verifier.clone(),
-            db: ports.pool.clone(),
-            config,
-        }
-    }
 }
 
 #[derive(OpenApi)]

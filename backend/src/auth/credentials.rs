@@ -360,29 +360,6 @@ pub async fn read_github_oauth_stash(
         .await
 }
 
-/// Resolve the GitHub token for `user_id` from the wiring on [`AppState`].
-///
-/// Thin wrapper over [`resolve_user_github_token`] so HTTP handlers don't each
-/// repeat the dependency list — and so no handler is tempted to read
-/// `access_token` directly and end up sending a sentinel to GitHub.
-pub async fn resolve_state_github_token(
-    state: &crate::state::AppState,
-    user_id: &str,
-    repo_owner: Option<&str>,
-) -> Result<Option<String>, AuthError> {
-    Ok(resolve_github_token_for_scopes(
-        state.provider_tokens.as_ref(),
-        Some(state.provider_token_auth.as_ref()),
-        state.github_app_service.as_deref(),
-        state.github_apps.as_ref(),
-        Some(state.secrets.as_ref()),
-        user_id,
-        repo_owner,
-    )
-    .await?
-    .map(|resolved| resolved.token))
-}
-
 /// Read the encrypted PAT a `secret_ref` row points at.
 ///
 /// Every failure mode is an error rather than `None`: a reference row with no

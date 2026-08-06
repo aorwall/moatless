@@ -98,7 +98,9 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
         // -- identity --
         // `secret` is core-clean storage/policy but its `handlers.rs` takes `AuthUser`,
         // so by the predicate above it lands in identity (its consumers include auth).
-        "extractors" | "auth" | "team" | "adapter_apps" | "secret" => "identity",
+        // `setup` (SetupContext, evaluate_setup) is read only by `auth`, and its own
+        // outgoing surface is auth/secret/core — nothing above identity — so it sits here.
+        "extractors" | "auth" | "team" | "adapter_apps" | "secret" | "setup" => "identity",
         // -- workspaces --
         "workspace" | "repository" | "skill" | "plugin" | "credentials" => "workspaces",
         // -- tasks --
@@ -126,7 +128,7 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
         },
         // -- server -- (`""` is the backend lib root, lib.rs)
         "main" | "startup" | "state" | "supervisor" | "compose" | "sse" | "t3code"
-        | "event_handler" | "setup" | "provider_settings" | "task_connections" | "" => "server",
+        | "event_handler" | "provider_settings" | "task_connections" | "" => "server",
         // the synthetic bin root
         "\u{0}bin" => "server",
         // Unknown top-level module: no arm claims it. Edge resolution treats it as

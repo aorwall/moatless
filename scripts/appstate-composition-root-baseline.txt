@@ -54,7 +54,6 @@ backend/src/adapters/providers/webhook/handlers.rs
 backend/src/adapters/subject_events.rs
 backend/src/agent/handlers.rs
 backend/src/agent/service.rs
-backend/src/auth/credentials.rs
 backend/src/bindings/handlers.rs
 backend/src/bindings/outbound.rs
 backend/src/bindings/reply.rs

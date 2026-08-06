@@ -368,7 +368,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Auth routes (needs DB)
     let mut auth_middleware_state: Option<auth::middleware::AuthMiddlewareState> = None;
     if let Some(ref ports) = ports {
-        let auth_state = auth::routes::AuthState::new(ports, Arc::new(config.clone()));
+        let auth_state = ports.build_auth_state(Arc::new(config.clone()));
 
         // Build middleware state sharing the same repos and cache
         auth_middleware_state = Some(auth::middleware::AuthMiddlewareState {

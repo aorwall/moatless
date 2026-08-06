@@ -280,4 +280,36 @@ impl Ports {
             config,
         )
     }
+
+    /// Assemble the auth route state over the identity ports this root holds.
+    /// The three config-derived values (OAuth providers, the response cache, the
+    /// login throttle) are built here rather than inside `auth` because
+    /// `AuthState` has no private invariant to protect — every field is public —
+    /// so its constructor was a convenience, not a boundary. If `AuthState` ever
+    /// grows a private field, this moves back into `auth` behind an identity-owned
+    /// port bundle.
+    pub fn build_auth_state(&self, config: Arc<Config>) -> crate::auth::routes::AuthState {
+        let providers = crate::auth::routes::OAuthProviders::from_config(&config);
+        let cache = crate::auth::cache::AuthCache::new(config.auth.cache_ttl_secs);
+        crate::auth::routes::AuthState {
+            sessions: self.sessions.clone(),
+            api_keys: self.api_keys.clone(),
+            pairing: self.pairing.clone(),
+            users: self.users.clone(),
+            credentials: self.user_credentials.clone(),
+            login_throttle: crate::auth::password::throttle::LoginThrottle::new(),
+            provider_tokens: self.provider_token_auth.clone(),
+            provider_tokens_dao: self.provider_tokens.clone(),
+            adapter_connections: self.adapter_connections.clone(),
+            github_app_service: self.github_app_service.clone(),
+            github_apps: self.github_apps.clone(),
+            secrets: self.secrets.clone(),
+            providers: Arc::new(providers),
+            cache,
+            task_access: self.task_access.clone(),
+            token_verifier: self.token_verifier.clone(),
+            db: self.pool.clone(),
+            config,
+        }
+    }
 }
