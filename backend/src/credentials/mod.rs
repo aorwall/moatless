@@ -16,7 +16,6 @@
 
 pub mod codex;
 pub mod error;
-pub mod github;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,6 +23,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+use crate::auth::codex_scope::CodexScope;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{
@@ -39,7 +39,6 @@ use crate::secret::service::SecretService;
 use crate::task::dao::TaskDao;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
-pub use self::codex::CodexScope;
 pub use self::error::CredentialError;
 
 /// Where a [`CredentialService::store`] call originated. Used by [`broadcast`]
@@ -463,7 +462,7 @@ impl CredentialService {
 mod tests {
     use super::*;
     use crate::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-    use crate::credentials::github::scope::GitHubScope;
+    use crate::auth::github_scope::GitHubScope;
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};

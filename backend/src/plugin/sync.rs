@@ -28,7 +28,7 @@ use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
-use crate::credentials::github::scope::GitHubScope;
+use crate::auth::github_scope::GitHubScope;
 use crate::repository::access::parse_github_owner_repo;
 use crate::secret::service::SecretService;
 use crate::skill::error::SkillError;

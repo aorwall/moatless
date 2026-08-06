@@ -22,7 +22,7 @@ use super::provider_tokens::{
     AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF, ProviderTokenAuthDao,
 };
 use super::token_refresh::ensure_fresh_token;
-use crate::credentials::github::scope::GitHubScope;
+use crate::auth::github_scope::GitHubScope;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use crate::secret::error::SecretError;
 use crate::secret::models::SecretKind;

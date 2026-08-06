@@ -12,7 +12,7 @@ use sqlx::AssertSqlSafe;
 use tracing::{debug, info, warn};
 
 use crate::credentials::codex::oauth;
-use crate::credentials::codex::scope::CodexScope;
+use crate::auth::codex_scope::CodexScope;
 use crate::credentials::{CredentialError, CredentialService};
 use moatless_core::db::DbPool;
 

@@ -27,9 +27,9 @@ use crate::auth::provider_tokens::{
 };
 use moatless_core::config::{AuthConfig, CodexOAuthConfig, SecretsConfig};
 use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
-use crate::credentials::codex::CodexScope;
+use crate::auth::codex_scope::CodexScope;
 use crate::provider_settings::codex_save::save_codex_auth_for_scope;
-use crate::credentials::github::scope::GitHubScope;
+use crate::auth::github_scope::GitHubScope;
 use crate::credentials::CredentialService;
 use crate::credentials::WriteSource;
 use moatless_core::db::DbPool;

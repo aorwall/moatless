@@ -18,7 +18,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::credentials::codex::scope::CodexScope;
+use crate::auth::codex_scope::CodexScope;
 use crate::credentials::CredentialService;
 use moatless_core::db::DbPool;
 use moatless_core::leader::LeaderGuard;

@@ -14,7 +14,7 @@
 //! `ProviderScope`: genericising would drag the codex refresh pipeline
 //! (advisory locks, CAS, the healthy-row sweep) along for no gain here.
 //!
-//! [`CodexScope`]: crate::credentials::codex::scope::CodexScope
+//! [`CodexScope`]: crate::auth::codex_scope::CodexScope
 
 /// Discriminator + identifier for a GitHub `provider_tokens` row's scope.
 #[derive(Debug, Clone, PartialEq, Eq)]

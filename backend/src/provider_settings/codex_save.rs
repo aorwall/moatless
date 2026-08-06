@@ -12,7 +12,7 @@ use moatless_api_schemas::provider_settings::{CodexConfigResponse, SaveCodexAuth
 
 use crate::auth::codex_auth_json::{build_codex_metadata, parse_codex_auth_json};
 use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::credentials::codex::scope::CodexScope;
+use crate::auth::codex_scope::CodexScope;
 use crate::credentials::{CredentialService, WriteSource};
 use crate::provider_settings::error::ProviderSettingsError;
 

@@ -347,7 +347,7 @@ async fn fill_codex(
     }
 
     // No CredentialService: walk user > global with raw DAO reads.
-    use crate::credentials::codex::scope::CodexScope;
+    use crate::auth::codex_scope::CodexScope;
     let scopes = [CodexScope::user(user_id), CodexScope::Global];
 
     for scope in scopes {

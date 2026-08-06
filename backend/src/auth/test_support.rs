@@ -8,8 +8,8 @@ use async_trait::async_trait;
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
 use super::provider_token_dao::ProviderTokenDao;
-use crate::credentials::github::scope::GitHubScope;
-use crate::credentials::CodexScope;
+use crate::auth::github_scope::GitHubScope;
+use crate::auth::codex_scope::CodexScope;
 
 /// Canned `provider_tokens` rows at each scope. Writes are accepted and
 /// dropped. Reads honour the same `user > global` precedence as

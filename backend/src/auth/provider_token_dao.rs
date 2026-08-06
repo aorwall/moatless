@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
 use super::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-use crate::credentials::codex::scope::CodexScope;
-use crate::credentials::github::scope::GitHubScope;
+use crate::auth::codex_scope::CodexScope;
+use crate::auth::github_scope::GitHubScope;
 use moatless_core::db::DbPool;
 
 /// DAO trait for provider token credential resolution.

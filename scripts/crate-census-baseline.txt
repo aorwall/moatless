@@ -1,7 +1,7 @@
 # Illegal production Cargo edges: a CODE/ATTR/MACRO reference whose source band
 # is <= its target band. This is the ratcheted count — it only shrinks. Doc paths
 # are excluded (see the section below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 208
+# Illegal edge count: 192
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -37,22 +37,6 @@ identity               -> server               [CODE] backend/src/auth/credentia
 identity               -> server               [CODE] backend/src/auth/routes.rs:17  crate::compose::Ports
 identity               -> server               [CODE] backend/src/auth/routes.rs:22  crate::setup::SetupContext
 identity               -> server               [CODE] backend/src/auth/routes.rs:22  crate::setup::evaluate_setup
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:104  GitHubScope::from_row
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:208  GitHubScope::User
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:216  GitHubScope::Global
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:221  GitHubScope::Global
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:245  GitHubScope::User
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:246  GitHubScope::Global
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:25  crate::credentials::github::scope::GitHubScope
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:283  GitHubScope::user
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:311  GitHubScope::User
-identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:312  GitHubScope::Global
-identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:258  CodexScope::User
-identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:271  CodexScope::Global
-identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:342  GitHubScope::User
-identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:367  GitHubScope::Global
-identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:7  crate::credentials::codex::scope::CodexScope
-identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:8  crate::credentials::github::scope::GitHubScope
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:36  github_pr::handlers::github_webhook
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:37  github_pr::api_routes::create_pr
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:38  github_pr::api_routes::post_comment
