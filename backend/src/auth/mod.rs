@@ -6,6 +6,7 @@
 pub mod api_key;
 pub mod api_keys;
 pub mod cache;
+pub mod codex_auth_json;
 pub mod cookie;
 pub mod credentials;
 pub mod error;

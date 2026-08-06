@@ -2014,9 +2014,8 @@ async fn admin_set_codex_provider_token_handler(
         )));
     }
 
-    let parsed = crate::credentials::codex::parse_codex_auth_json(&req.auth_json)
-        .map_err(|e| AuthError::BadRequest(e.to_string()))?;
-    let metadata = crate::credentials::codex::build_codex_metadata(&parsed);
+    let parsed = crate::auth::codex_auth_json::parse_codex_auth_json(&req.auth_json)?;
+    let metadata = crate::auth::codex_auth_json::build_codex_metadata(&parsed);
     let serialized = parsed.to_string();
 
     state

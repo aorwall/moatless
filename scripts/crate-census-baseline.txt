@@ -1,7 +1,7 @@
 # Illegal production Cargo edges: a CODE/ATTR/MACRO reference whose source band
 # is <= its target band. This is the ratcheted count — it only shrinks. Doc paths
 # are excluded (see the section below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 213
+# Illegal edge count: 208
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -53,8 +53,6 @@ identity               -> workspaces           [CODE] backend/src/auth/provider_
 identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:367  GitHubScope::Global
 identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:7  crate::credentials::codex::scope::CodexScope
 identity               -> workspaces           [CODE] backend/src/auth/provider_token_dao.rs:8  crate::credentials::github::scope::GitHubScope
-identity               -> workspaces           [CODE] backend/src/auth/routes.rs:2017  crate::credentials::codex::parse_codex_auth_json
-identity               -> workspaces           [CODE] backend/src/auth/routes.rs:2019  crate::credentials::codex::build_codex_metadata
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:36  github_pr::handlers::github_webhook
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:37  github_pr::api_routes::create_pr
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:38  github_pr::api_routes::post_comment
@@ -207,9 +205,6 @@ tasks                  -> server               [CODE] backend/src/message/servic
 tasks                  -> server               [CODE] backend/src/task/routes.rs:7  crate::state::AppState
 tasks                  -> server               [CODE] backend/src/task_event/routes.rs:7  crate::state::AppState
 workspaces             -> loops                [CODE] backend/src/repository/handlers.rs:18  crate::loops::sync::LoopSyncService
-workspaces             -> server               [CODE] backend/src/credentials/codex/auth_json.rs:13  crate::provider_settings::error::ProviderSettingsError
-workspaces             -> server               [CODE] backend/src/credentials/codex/auth_json.rs:21  ProviderSettingsError::BadRequest
-workspaces             -> server               [CODE] backend/src/credentials/codex/auth_json.rs:24  ProviderSettingsError::BadRequest
 workspaces             -> server               [CODE] backend/src/plugin/routes.rs:11  crate::state::AppState
 workspaces             -> server               [CODE] backend/src/repository/routes.rs:7  crate::state::AppState
 workspaces             -> server               [CODE] backend/src/skill/routes.rs:8  crate::state::AppState
