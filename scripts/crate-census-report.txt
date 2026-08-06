@@ -3,7 +3,7 @@ files parsed: 645
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  4010  illegal  157
+CODE       legal  4014  illegal  154
 ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    54  illegal   16   (function-like macro-invocation token streams)
 DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
@@ -26,7 +26,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (42 files, 11286 lines)
     credentials/ plugin/ repository/ skill/ workspace/
 
-  tasks  (71 files, 19165 lines)
+  tasks  (71 files, 19216 lines)
     agent/ agent_event.rs event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
   sandbox-control  (43 files, 18716 lines)
@@ -65,7 +65,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 139008 lines
+  TOTAL backend/src: 139059 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (23 classes) ==
 
@@ -282,18 +282,15 @@ tasks -> sandbox-k8s   x14
     backend/src/task/reaper.rs:33  [CODE] crate::sandbox::k8s::client::K8sClient   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/reaper.rs:34  [CODE] crate::sandbox::k8s::leader_election::LeaderElection   -> [10d — invert task -> sandbox concretes to ports]
 
-tasks -> server   x11
+tasks -> server   x8
     backend/src/agent/handlers.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/agent/routes.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/agent/service.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/feedback/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/file_storage/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/handlers.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/hooks.rs:26  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/service.rs:15  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/task/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/task_event/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 workspaces -> loops   x1
     backend/src/repository/handlers.rs:18  [CODE] crate::loops::sync::LoopSyncService   -> [9d / 10g — server-band sync composition]
@@ -330,7 +327,7 @@ workspaces -> tasks   x1
 
   identity           deps: floor / adapter-model only                   BLOCKED — 4 illegal outgoing to server(x4)
   workspaces         deps: identity                                     BLOCKED — 3 illegal outgoing to loops(x1), server(x1), tasks(x1)
-  tasks              deps: identity, workspaces                         BLOCKED — 60 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x11)
+  tasks              deps: identity, workspaces                         BLOCKED — 57 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x8)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
   sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)

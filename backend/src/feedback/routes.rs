@@ -1,10 +1,15 @@
 //! Feedback API routes with OpenAPI documentation.
 
+use std::sync::Arc;
+
+use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use super::dao::FeedbackDao;
 use super::handlers;
-use crate::state::AppState;
+use crate::extractors::UserTokenVerifier;
+use crate::task::dao::TaskDao;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -19,7 +24,18 @@ use crate::state::AppState;
 pub struct FeedbackApiDoc;
 
 /// Build the feedback router with OpenAPI metadata.
-pub fn feedback_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
+///
+/// Generic over the router state `S` so this module names no root type: the
+/// composition root supplies the concrete state at the call site, and each
+/// handler reaches its ports — `Arc<dyn FeedbackDao>`, `Arc<dyn TaskDao>`, and
+/// the `UserTokenVerifier` behind `AuthUser` — through `FromRef<S>`.
+pub fn feedback_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
+where
+    S: Clone + Send + Sync + 'static,
+    Arc<dyn FeedbackDao>: FromRef<S>,
+    Arc<dyn TaskDao>: FromRef<S>,
+    Arc<dyn UserTokenVerifier>: FromRef<S>,
+{
     let (router, api) = OpenApiRouter::with_openapi(FeedbackApiDoc::openapi())
         .routes(routes!(handlers::create_feedback))
         .routes(routes!(handlers::list_task_feedback))
