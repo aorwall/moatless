@@ -193,6 +193,21 @@ jobs:
       - name: bindings names crate::adapters only in the shrinking baseline
         run: ./scripts/check-bindings-adapters-baseline.sh
 
+  # Plan-claim invariant — a spec in .plans/ does not outlive the code it
+  # asserts. The other checks ratchet counts and file sets; nothing re-validated
+  # the prose claims a plan makes about the source, and one went stale unnoticed
+  # (a step recorded as blocked by two imports that two unrelated PRs had since
+  # removed). Plans opt in by carrying `<!-- plan-assert: ... -->` beside the
+  # claims that gate work; this fails when one stops holding. Grep only, no
+  # build, so it runs unconditionally like its siblings.
+  plan-assertions:
+    name: Plan claims still hold
+    runs-on: staging-runners
+    steps:
+      - uses: actions/checkout@v6
+      - name: Every plan-assert in .plans/ still describes the source
+        run: ./scripts/check-plan-assertions.sh
+
   # Step 10 invariant — the cross-crate reference census baseline is current.
   # `crate-census` (tools/crate-census) resolves crate::/super::/self::/use and
   # re-export chains to definition sites and lists the illegal edges that must
