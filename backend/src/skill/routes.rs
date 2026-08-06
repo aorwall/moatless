@@ -1,11 +1,15 @@
 //! Skill API routes with OpenAPI documentation.
 
+use std::sync::Arc;
+
+use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
 use super::schemas::{ListSkillsResponse, SkillResponse, SkillSource};
-use crate::state::AppState;
+use super::service::SkillService;
+use crate::extractors::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -22,7 +26,17 @@ use crate::state::AppState;
 pub struct SkillApiDoc;
 
 /// Build the skill router with OpenAPI metadata.
-pub fn skill_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
+///
+/// Generic over the router state `S` so this module names no root type: the
+/// composition root supplies the concrete state at the call site, and each
+/// handler reaches its ports — `Arc<SkillService>` and the `UserTokenVerifier`
+/// behind `AuthUser` — through `FromRef<S>`.
+pub fn skill_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
+where
+    S: Clone + Send + Sync + 'static,
+    Arc<SkillService>: FromRef<S>,
+    Arc<dyn UserTokenVerifier>: FromRef<S>,
+{
     let (router, api) = OpenApiRouter::with_openapi(SkillApiDoc::openapi())
         .routes(routes!(handlers::list_repository_skills))
         .with_state(state)

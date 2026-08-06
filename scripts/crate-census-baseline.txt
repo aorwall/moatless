@@ -1,7 +1,7 @@
 # Illegal production Cargo edges: a CODE/ATTR/MACRO reference whose source band
 # is <= its target band. This is the ratcheted count — it only shrinks. Doc paths
 # are excluded (see the section below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 192
+# Illegal edge count: 189
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -189,10 +189,7 @@ tasks                  -> server               [CODE] backend/src/message/servic
 tasks                  -> server               [CODE] backend/src/task/routes.rs:7  crate::state::AppState
 tasks                  -> server               [CODE] backend/src/task_event/routes.rs:7  crate::state::AppState
 workspaces             -> loops                [CODE] backend/src/repository/handlers.rs:18  crate::loops::sync::LoopSyncService
-workspaces             -> server               [CODE] backend/src/plugin/routes.rs:11  crate::state::AppState
 workspaces             -> server               [CODE] backend/src/repository/routes.rs:7  crate::state::AppState
-workspaces             -> server               [CODE] backend/src/skill/routes.rs:8  crate::state::AppState
-workspaces             -> server               [CODE] backend/src/workspace/routes.rs:7  crate::state::AppState
 workspaces             -> tasks                [CODE] backend/src/credentials/mod.rs:39  crate::task::dao::TaskDao
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
