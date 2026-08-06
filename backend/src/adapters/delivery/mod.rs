@@ -219,6 +219,7 @@ mod tests {
     use http_body_util::BodyExt;
 
     use super::*;
+    use crate::adapters::test_support::transport_error;
 
     async fn response_of(error: AdmitError) -> (axum::http::StatusCode, String) {
         let response = AdapterError::from(error).into_response();
@@ -253,19 +254,41 @@ mod tests {
         assert_eq!(body, r#"{"error":"Internal server error"}"#);
     }
 
-    /// Wrongly-permanent is the expensive mistake — it abandons work the
-    /// sender was told we owned — so only a rejected or missing input ends a
-    /// record early.
-    #[test]
-    fn only_a_rejected_or_missing_input_is_permanent() {
-        for error in [
+    /// Every variant's retry class is pinned, exhaustively, so a variant that
+    /// later moves or is added cannot silently change whether delivery gives up.
+    /// Wrongly-permanent is the expensive mistake — it abandons work the sender
+    /// was told we owned — so a record ends early only when its input, or the
+    /// thing it names, is wrong, or when redoing the identical work is provably
+    /// futile.
+    #[tokio::test]
+    async fn every_adapter_error_pins_its_retry_class() {
+        let retryable: Vec<AdapterError> = vec![
             AdapterError::Db(sqlx::Error::PoolTimedOut),
             AdapterError::AdapterApi("502 from GitHub".into()),
             AdapterError::Unauthorized("token expired".into()),
             AdapterError::Overloaded,
             AdapterError::AdapterNotConfigured("github_pr".into()),
             AdapterError::Internal("failed to create task: db blip".into()),
-        ] {
+            AdapterError::provider_unreachable("chat.postMessage", transport_error().await),
+            AdapterError::provider_response_invalid(
+                "Linear JSON",
+                serde_json::from_str::<serde_json::Value>("{oops").unwrap_err(),
+            ),
+            AdapterError::RepositoryCredential {
+                source: crate::repository::error::RepositoryError::Db(sqlx::Error::PoolClosed),
+            },
+            AdapterError::UserCredential {
+                user_id: "u-1".into(),
+                source: crate::auth::error::AuthError::Forbidden,
+            },
+            AdapterError::TaskCreation(crate::task::creation::TaskCreationError::Db(
+                sqlx::Error::RowNotFound,
+            )),
+            AdapterError::MessageDelivery(crate::message::error::MessageError::Db(
+                sqlx::Error::RowNotFound,
+            )),
+        ];
+        for error in retryable {
             let rendered = error.to_string();
             assert!(
                 !AdapterDeliveryFailure::from(error).is_permanent(),
@@ -273,13 +296,19 @@ mod tests {
             );
         }
 
-        for error in [
-            AdapterError::BadRequest("missing repository.full_name".into()),
-            AdapterError::NotFound("task".into()),
+        let permanent: Vec<AdapterError> = vec![
             AdapterError::ConfigNotFound("connection".into()),
+            AdapterError::NotFound("task".into()),
+            AdapterError::BadRequest("missing repository.full_name".into()),
+            AdapterError::Conflict("already linked".into()),
             AdapterError::SignatureInvalid,
             AdapterError::AccessDenied("not a member".into()),
-        ] {
+            AdapterError::MultipleTargets { targets: vec![] },
+            AdapterError::ConfigSerialization(
+                serde_json::from_str::<serde_json::Value>("{oops").unwrap_err(),
+            ),
+        ];
+        for error in permanent {
             let rendered = error.to_string();
             assert!(
                 AdapterDeliveryFailure::from(error).is_permanent(),

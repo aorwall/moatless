@@ -338,4 +338,133 @@ mod tests {
                 .is_none()
         );
     }
+
+    /// Every deterministic, sourceless variant renders a pinned status and the
+    /// exact `{"error":...}` body a client sees. A later move of any variant
+    /// must preserve both, so they are asserted literally, not by substring.
+    #[tokio::test]
+    async fn plain_variants_pin_status_body_and_are_sourceless() {
+        let cases: Vec<(AdapterError, StatusCode, &str)> = vec![
+            (
+                AdapterError::ConfigNotFound("connection".into()),
+                StatusCode::NOT_FOUND,
+                r#"{"error":"Adapter config not found: connection"}"#,
+            ),
+            (
+                AdapterError::NotFound("task 7".into()),
+                StatusCode::NOT_FOUND,
+                r#"{"error":"Not found: task 7"}"#,
+            ),
+            (
+                AdapterError::BadRequest("missing repository.full_name".into()),
+                StatusCode::BAD_REQUEST,
+                r#"{"error":"Invalid request: missing repository.full_name"}"#,
+            ),
+            (
+                AdapterError::Conflict("already linked".into()),
+                StatusCode::CONFLICT,
+                r#"{"error":"Conflict: already linked"}"#,
+            ),
+            (
+                AdapterError::AdapterNotConfigured("github_pr".into()),
+                StatusCode::BAD_REQUEST,
+                r#"{"error":"Adapter not configured: github_pr"}"#,
+            ),
+            (
+                AdapterError::SignatureInvalid,
+                StatusCode::UNAUTHORIZED,
+                r#"{"error":"Signature verification failed"}"#,
+            ),
+            (
+                AdapterError::AdapterApi("channel_not_found".into()),
+                StatusCode::BAD_GATEWAY,
+                r#"{"error":"Adapter API error: channel_not_found"}"#,
+            ),
+            (
+                AdapterError::Unauthorized("token expired".into()),
+                StatusCode::BAD_GATEWAY,
+                r#"{"error":"Adapter API error: token expired"}"#,
+            ),
+            (
+                AdapterError::AccessDenied("not a member".into()),
+                StatusCode::FORBIDDEN,
+                r#"{"error":"Access denied: not a member"}"#,
+            ),
+            (
+                AdapterError::Overloaded,
+                StatusCode::SERVICE_UNAVAILABLE,
+                r#"{"error":"Service temporarily unavailable"}"#,
+            ),
+        ];
+
+        for (err, status, body) in cases {
+            assert!(err.source().is_none(), "{err} must carry no source");
+            let (got_status, got_body) = response_snapshot(err.into_response()).await;
+            assert_eq!(got_status, status, "status for {got_body}");
+            assert_eq!(got_body, body);
+        }
+    }
+
+    /// The variants that wrap an internal cause all render one redacted 500 —
+    /// the cause never reaches the client — while staying reachable through
+    /// `source()` for the logs. `Internal` renders the same body with nothing
+    /// to carry.
+    #[tokio::test]
+    async fn redacted_500_variants_hide_their_cause_but_keep_the_source() {
+        const REDACTED: &str = r#"{"error":"Internal server error"}"#;
+
+        let task_creation = AdapterError::TaskCreation(
+            crate::task::creation::TaskCreationError::Db(sqlx::Error::RowNotFound),
+        );
+        assert!(task_creation
+            .source()
+            .and_then(|s| s.downcast_ref::<crate::task::creation::TaskCreationError>())
+            .is_some());
+        let (status, body) = response_snapshot(task_creation.into_response()).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, REDACTED);
+
+        let message_delivery = AdapterError::MessageDelivery(
+            crate::message::error::MessageError::Db(sqlx::Error::RowNotFound),
+        );
+        assert!(message_delivery
+            .source()
+            .and_then(|s| s.downcast_ref::<crate::message::error::MessageError>())
+            .is_some());
+        let (status, body) = response_snapshot(message_delivery.into_response()).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, REDACTED);
+
+        let config_serialization = AdapterError::ConfigSerialization(
+            serde_json::from_str::<serde_json::Value>("{oops").unwrap_err(),
+        );
+        assert!(config_serialization
+            .source()
+            .and_then(|s| s.downcast_ref::<serde_json::Error>())
+            .is_some());
+        let (status, body) = response_snapshot(config_serialization.into_response()).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, REDACTED);
+
+        let internal = AdapterError::Internal("Slack adapter downcast failed".into());
+        assert!(internal.source().is_none());
+        let (status, body) = response_snapshot(internal.into_response()).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, REDACTED);
+    }
+
+    /// The multi-target picker is the one variant with a bespoke body: a 400
+    /// carrying the targets and the disambiguation hint, not the redacted
+    /// envelope.
+    #[tokio::test]
+    async fn multiple_targets_pins_its_picker_body() {
+        let err = AdapterError::MultipleTargets { targets: vec![] };
+        assert!(err.source().is_none());
+        let (status, body) = response_snapshot(err.into_response()).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body,
+            r#"{"error":"Task has multiple reply targets; pick one explicitly","targets":[],"hint":"Use --binding <binding_id> to pick one."}"#
+        );
+    }
 }
