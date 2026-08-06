@@ -268,16 +268,42 @@ when it settles, both on the one row.
 
 **Plugin**:
 A git repository of agent capabilities — skills, commands, agents — registered
-once by an admin and thereafter available to everyone. One word, everywhere: the
-table is `plugins`, the DAO is `PluginDao`, the API is `/api/v1/plugins`,
-and the admin page is Plugins.
+once by an admin and thereafter available to everyone. A Plugin is a container,
+not a thing an agent is given: what reaches an agent is always Skills. One word
+through the whole stack, which is where a synonym like "marketplace" would
+otherwise creep in: the table is `plugins`, the DAO is `PluginDao`, the API is
+`/api/v1/plugins`, and the admin UI is Plugins.
 _Avoid_: plugin repo, plugin_repo, marketplace
 
 **Skill**:
-One capability inside a Plugin — a `SKILL.md` and the files beside it. Identified
-by its directory name, which is what `plugin_skills` stores and what an
-Activation points at; the `name:` in its frontmatter is display metadata only. A
-Plugin is delivered whole, minus the skills nobody picked.
+One capability an agent can be given — a `SKILL.md` and the files beside it.
+Identified by its directory name, which is what `plugin_skills` stores and what
+an Activation points at; the `name:` in its frontmatter is display metadata only.
+
+A Skill is always qualified by where it came from, because both sources reach the
+same agent through the same list and `SkillSource` (`crates/api-schemas/src/skill.rs`)
+is already on the wire:
+
+- **Plugin skill** — sourced from a registered Plugin. Delivered to whoever the
+  Activations say, across every Repository.
+- **Repository skill** — sourced from one Repository's own `.claude/skills` and
+  `.agents/skills` trees, which are listed and merged; a skill exposed in both
+  (typically a `.claude/skills` symlink into `.agents/skills`) resolves to one
+  entry, `.claude/skills` winning (`backend/src/skill/fetcher.rs`,
+  `WORKSPACE_SKILL_PREFIXES`). Delivered to work in that Repository and nowhere
+  else.
+
+`GET /api/v1/repositories/{id}/skills` returns both merged
+(`backend/src/skill/service.rs::list_for_repository`): the Repository's own skills
+shadow a Plugin skill of the same name, and among plugins the first in DAO order
+wins. The plugin half is per-caller, not per-repository — two people looking at
+the same Repository can see different Skills, because that is what will reach
+their respective sandboxes. "Skill" unqualified means either; write the qualifier
+whenever the source is what makes the sentence true.
+
+_Known debt_: the wire variant for a repository skill is `SkillSource::Workspace`,
+named before Repository and Workspace were separated. It means Repository. Rename
+it when the surrounding rename debt is paid.
 
 **Activation**:
 One record in `plugin_activations` saying a Plugin, or one Skill inside it, is on
