@@ -293,10 +293,10 @@ fn build_workspace_layout_note(config: &Config) -> String {
 }
 
 /// The root instruction filenames to look for, in preference order, for the
-/// harness this sandbox runs: Claude's own memory loading reads `CLAUDE.md` and
-/// Codex's reads `AGENTS.md`, so the agent is shown the file it would have
-/// loaded itself. A repo commits one of the two (often as a symlink to the
-/// other), so the other name is the fallback.
+/// harness this sandbox runs: Claude reads `CLAUDE.md` and Codex reads
+/// `AGENTS.md`, so the agent is pointed at the file it would have loaded itself.
+/// A repo commits one of the two (often as a symlink to the other), so the other
+/// name is the fallback.
 fn repo_instruction_filenames(config: &Config) -> [&'static str; 2] {
     let is_codex = config
         .agent_type
@@ -310,60 +310,46 @@ fn repo_instruction_filenames(config: &Config) -> [&'static str; 2] {
     }
 }
 
-/// Build the "# Repository Instructions" section: each checked-out repo's root
-/// instruction file, embedded so the agent has it from the first turn regardless
-/// of its cwd. Each block states where the repo is cloned and which file this
-/// is, and nothing else — the file's own contents are the instructions.
+/// Build the "# Repository Instructions" section: the path of each checked-out
+/// repo's root instruction file, for the agent to read before working in that
+/// repo. The contents are deliberately not included — a multi-repo workspace
+/// would spend most of the prompt on instructions for repos the task never
+/// touches.
 ///
-/// These same files are kept out of the agents' on-the-fly memory loading
-/// (Claude's `claudeMdExcludes`, Codex's `project_doc_max_bytes = 0`; both set
-/// in `init`), so the content here is not pulled in a second time when the agent
-/// opens a file inside that directory.
+/// These files are kept out of the agents' on-the-fly memory loading (Claude's
+/// `claudeMdExcludes`, Codex's `project_doc_max_bytes = 0`; both set in `init`),
+/// so this listing is what tells the agent they exist.
 ///
-/// Returns `None` when no checked-out repo has a non-empty root instruction file.
+/// Returns `None` when no checked-out repo has a root instruction file.
 fn build_repo_instructions_section(config: &Config) -> Option<String> {
     let filenames = repo_instruction_filenames(config);
-    let mut blocks: Vec<String> = Vec::new();
-    for dir in config.repo_dirs() {
-        let Some((filename, content)) = read_repo_instruction_file(&dir, filenames) else {
-            continue;
-        };
-        let trimmed = content.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let dir = dir.trim_end_matches('/');
-        blocks.push(format!(
-            "This repository is cloned at `{dir}`. This is its `{filename}`:\n\n{trimmed}"
-        ));
-    }
+    let listed: Vec<String> = config
+        .repo_dirs()
+        .iter()
+        .filter_map(|dir| repo_instruction_path(dir, filenames))
+        .map(|path| format!("- `{path}`"))
+        .collect();
 
-    if blocks.is_empty() {
+    if listed.is_empty() {
         return None;
     }
 
-    let mut section = String::from("# Repository Instructions");
-    for block in blocks {
-        section.push_str("\n\n");
-        section.push_str(&block);
-    }
-    Some(section)
+    Some(format!(
+        "# Repository Instructions\n\n\
+         Each repository cloned into this workspace carries its own instruction file. \
+         Read the one for a repository before doing anything in it:\n{}",
+        listed.join("\n")
+    ))
 }
 
-/// Read a repo's root instruction file, returning `(filename, contents)` for the
-/// first of `filenames` that exists and reads. Follows symlinks (the
-/// `CLAUDE.md -> AGENTS.md` convention), so either name yields the text.
-fn read_repo_instruction_file(
-    dir: &str,
-    filenames: [&'static str; 2],
-) -> Option<(&'static str, String)> {
-    for filename in filenames {
+/// The path of a repo's root instruction file: the first of `filenames` that
+/// exists. Existence follows symlinks (the `CLAUDE.md -> AGENTS.md` convention),
+/// so either committed name resolves.
+fn repo_instruction_path(dir: &str, filenames: [&'static str; 2]) -> Option<String> {
+    filenames.into_iter().find_map(|filename| {
         let path = Path::new(dir).join(filename);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            return Some((filename, content));
-        }
-    }
-    None
+        path.exists().then(|| path.to_string_lossy().into_owned())
+    })
 }
 
 /// Build plugin configs from the plugins cloned into the sandbox.
@@ -974,11 +960,10 @@ mod tests {
         }
     }
 
-    /// Each repo's root instruction file lands in the prompt named by its full
-    /// path; a repo carrying only the other filename is picked up via the
-    /// fallback.
+    /// Each repo's root instruction file is listed by full path, never inlined;
+    /// a repo carrying only the other filename is picked up via the fallback.
     #[test]
-    fn repo_instructions_section_embeds_each_repos_root_file_with_its_path() {
+    fn repo_instructions_section_lists_each_repos_root_file_by_path() {
         let root = tempdir().unwrap();
         let ws = root.path().to_string_lossy().to_string();
         let api_dir = format!("{ws}/api");
@@ -996,15 +981,13 @@ mod tests {
         let append = build_prompt_append(&config, &request);
 
         assert!(append.contains("# Repository Instructions"));
-        assert!(append.contains(&format!(
-            "This repository is cloned at `{api_dir}`. This is its `CLAUDE.md`:"
-        )));
-        assert!(append.contains("API RULES"));
-        // Only AGENTS.md exists here, so the fallback name is what gets reported.
-        assert!(append.contains(&format!(
-            "This repository is cloned at `{web_dir}`. This is its `AGENTS.md`:"
-        )));
-        assert!(append.contains("WEB RULES"));
+        assert!(append.contains("Read the one for a repository before doing anything in it:"));
+        assert!(append.contains(&format!("- `{api_dir}/CLAUDE.md`")));
+        // Only AGENTS.md exists here, so the fallback name is what gets listed.
+        assert!(append.contains(&format!("- `{web_dir}/AGENTS.md`")));
+        // The files are pointed at, never inlined.
+        assert!(!append.contains("API RULES"));
+        assert!(!append.contains("WEB RULES"));
 
         // Order: layout note, then repo instructions, then the backend prompt.
         let layout_idx = append.find("## Workspace layout").unwrap();
@@ -1013,7 +996,7 @@ mod tests {
         assert!(layout_idx < repo_idx && repo_idx < backend_idx);
     }
 
-    /// A repo committing both names is reported under the one the running agent
+    /// A repo committing both names is pointed at under the one the running agent
     /// would have loaded itself: `CLAUDE.md` for Claude, `AGENTS.md` for Codex.
     #[test]
     fn repo_instructions_filename_follows_the_agent() {
@@ -1030,19 +1013,13 @@ mod tests {
 
         config.agent_type = Some("claude-code".to_string());
         let claude = build_prompt_append(&config, &test_request());
-        assert!(claude.contains(&format!(
-            "This repository is cloned at `{dir}`. This is its `CLAUDE.md`:"
-        )));
-        assert!(claude.contains("CLAUDE COPY"));
-        assert!(!claude.contains("AGENTS COPY"));
+        assert!(claude.contains(&format!("- `{dir}/CLAUDE.md`")));
+        assert!(!claude.contains(&format!("- `{dir}/AGENTS.md`")));
 
         config.agent_type = Some("codex".to_string());
         let codex = build_prompt_append(&config, &test_request());
-        assert!(codex.contains(&format!(
-            "This repository is cloned at `{dir}`. This is its `AGENTS.md`:"
-        )));
-        assert!(codex.contains("AGENTS COPY"));
-        assert!(!codex.contains("CLAUDE COPY"));
+        assert!(codex.contains(&format!("- `{dir}/AGENTS.md`")));
+        assert!(!codex.contains(&format!("- `{dir}/CLAUDE.md`")));
     }
 
     /// Claude's transport/model variants are the same harness, and an unset or
