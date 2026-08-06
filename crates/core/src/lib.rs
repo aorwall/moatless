@@ -23,6 +23,7 @@ pub mod github_client;
 pub mod leader;
 pub mod metrics;
 pub mod scope;
+pub mod secret_keys;
 pub mod shared_models;
 pub mod tag;
 pub mod task_listing;

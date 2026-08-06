@@ -33,7 +33,7 @@ use crate::credentials::CredentialService;
 use crate::credentials::WriteSource;
 use moatless_core::db::DbPool;
 use crate::extractors::AuthUser;
-use crate::sandbox::secrets::GITHUB_TOKEN;
+use moatless_core::secret_keys::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::{SecretCipher, SecretService};

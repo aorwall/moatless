@@ -23,7 +23,7 @@ use super::provider_tokens::{
 };
 use super::token_refresh::ensure_fresh_token;
 use crate::credentials::github::scope::GitHubScope;
-use crate::sandbox::secrets::GITHUB_TOKEN;
+use moatless_core::secret_keys::GITHUB_TOKEN;
 use crate::secret::error::SecretError;
 use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;

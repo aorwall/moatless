@@ -302,7 +302,7 @@ The `Cargo.toml` files appear one band at a time, lowest first, because a crate 
 |---|---|---|
 | — | `moatless-adapter-model` | already a crate — Step 7a extracted it, listed here only because the bands below depend on it |
 | 10a | `moatless-core` | **Carved** — `crates/core`. Edges: report |
-| 10b | `moatless-identity` | **8b's remainder and the error/credential cluster**; **8h**, which does not lift until `SetupRequirementCheck` earns a second implementation or is collapsed. Edges: report |
+| 10b | `moatless-identity` | **8b's remainder and the error/credential cluster** (together 18 of identity's 25 outgoing edges — the knot, gated on the unanswered bindings-error-ownership question); **8h**, which does not lift until `SetupRequirementCheck` earns a second implementation or is collapsed; plus **Step-5 residue** and the **9b `GITHUB_TOKEN` placement**, which are ordinary work and clear independently of the knot. Edges: report |
 | 10c | `moatless-workspaces` | the **9c broadcast refactor** (below); **9d** (→ 10g). Edges: report |
 | 10d | `moatless-tasks` | **8c's real content** — the `connections_handlers` move to server and the `tasks`/`message → loops` port; **Ruling D**'s reopened hook; the **`TaskReaper` field inversion** (below). Edges: report |
 | 10e | `moatless-sandbox-control` | **Ruling B's inbound half** — the non-Kubernetes helpers under `k8s/` must land in `sandbox-control` before it carves, so that move happens here even though the row it is named against is 10f. Ruling F's outbound half is already built. Edges: report |

@@ -1244,7 +1244,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             )
             .await
             .map_err(Into::into)
-        } else if req.key == crate::sandbox::secrets::GITHUB_TOKEN {
+        } else if req.key == moatless_core::secret_keys::GITHUB_TOKEN {
             // No credential service means no encrypted store; refuse rather
             // than resurrect a plaintext GitHub token.
             warn!(

@@ -1,7 +1,7 @@
 # Illegal production Cargo edges: a CODE/ATTR/MACRO reference whose source band
 # is <= its target band. This is the ratcheted count — it only shrinks. Doc paths
 # are excluded (see the section below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 217
+# Illegal edge count: 213
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -33,13 +33,10 @@ adapter-telegram       -> server               [CODE] backend/src/adapters/provi
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/poller.rs:12  crate::state::AppState
 adapter-webhook        -> server               [CODE] backend/src/adapters/providers/webhook/delivery.rs:8  crate::state::AppState
 adapter-webhook        -> server               [CODE] backend/src/adapters/providers/webhook/handlers.rs:10  crate::state::AppState
-identity               -> sandbox-control      [CODE] backend/src/auth/credentials.rs:26  crate::sandbox::secrets::GITHUB_TOKEN
 identity               -> server               [CODE] backend/src/auth/credentials.rs:369  crate::state::AppState
 identity               -> server               [CODE] backend/src/auth/routes.rs:17  crate::compose::Ports
 identity               -> server               [CODE] backend/src/auth/routes.rs:22  crate::setup::SetupContext
 identity               -> server               [CODE] backend/src/auth/routes.rs:22  crate::setup::evaluate_setup
-identity               -> server               [CODE] backend/src/secret/routes.rs:7  crate::state::AppState
-identity               -> server               [CODE] backend/src/team/routes.rs:7  crate::state::AppState
 identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:104  GitHubScope::from_row
 identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:208  GitHubScope::User
 identity               -> workspaces           [CODE] backend/src/auth/credentials.rs:216  GitHubScope::Global
@@ -210,7 +207,6 @@ tasks                  -> server               [CODE] backend/src/message/servic
 tasks                  -> server               [CODE] backend/src/task/routes.rs:7  crate::state::AppState
 tasks                  -> server               [CODE] backend/src/task_event/routes.rs:7  crate::state::AppState
 workspaces             -> loops                [CODE] backend/src/repository/handlers.rs:18  crate::loops::sync::LoopSyncService
-workspaces             -> sandbox-control      [CODE] backend/src/credentials/mod.rs:35  crate::sandbox::secrets::GITHUB_TOKEN
 workspaces             -> server               [CODE] backend/src/credentials/codex/auth_json.rs:13  crate::provider_settings::error::ProviderSettingsError
 workspaces             -> server               [CODE] backend/src/credentials/codex/auth_json.rs:21  ProviderSettingsError::BadRequest
 workspaces             -> server               [CODE] backend/src/credentials/codex/auth_json.rs:24  ProviderSettingsError::BadRequest

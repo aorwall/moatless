@@ -11,7 +11,7 @@ use super::schemas::{
 use crate::auth::credentials::secret_scope_for;
 use crate::auth::models::GithubTokenPresence;
 use crate::credentials::github::scope::GitHubScope;
-use crate::sandbox::secrets::GITHUB_TOKEN;
+use moatless_core::secret_keys::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
 
 /// Settings-dialog section holding the per-user GitHub connection.

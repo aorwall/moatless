@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use moatless_core::secret_keys::GITHUB_TOKEN;
 use tracing::warn;
 
 use crate::auth::github::registry::GitHubAppRegistry;
@@ -18,7 +19,6 @@ use crate::secret::models::is_reserved_key;
 use crate::secret::service::SecretService;
 use crate::task::dao::TaskDao;
 
-pub const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
 pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
 pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
 pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
