@@ -809,4 +809,29 @@ mod tests {
             )
         );
     }
+
+    /// The attach-PR dialog reads two `AdapterError` arms by name; the rest fall
+    /// through a wildcard. Pin those two so a later rename or descent of the
+    /// adapter error surface cannot silently reclassify a recognised failure as
+    /// this deployment's own bug.
+    #[test]
+    fn the_two_recognised_adapter_errors_stay_actionable() {
+        use crate::adapters::error::AdapterError;
+
+        let missing_credential = pull_request_error(AdapterError::UserCredential {
+            user_id: "u-1".into(),
+            source: crate::auth::error::AuthError::Forbidden,
+        });
+        assert!(matches!(
+            missing_credential,
+            PullRequestError::Unavailable(message)
+                if message == "Connect a GitHub account to resolve pull requests."
+        ));
+
+        let provider_said_no = pull_request_error(AdapterError::AdapterApi("PR is locked".into()));
+        assert!(matches!(
+            provider_said_no,
+            PullRequestError::Unavailable(message) if message == "PR is locked"
+        ));
+    }
 }

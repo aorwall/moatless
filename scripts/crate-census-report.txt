@@ -8,7 +8,7 @@ ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    54  illegal   16   (function-like macro-invocation token streams)
 DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 1726 point down into the existing crates/* floor
-TEST-CONTEXT 2386  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 2390  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
@@ -56,7 +56,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 772 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11454 lines)
+  server  (32 files, 11479 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ setup/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -65,7 +65,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 138941 lines
+  TOTAL backend/src: 138966 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (24 classes) ==
 
