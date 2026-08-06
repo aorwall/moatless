@@ -11,7 +11,6 @@
 
 //! Sandbox Controller library — re-exports all modules for integration tests.
 
-pub mod access_control;
 pub mod adapter_apps;
 pub mod adapters;
 pub mod agent;

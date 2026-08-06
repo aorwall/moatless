@@ -10,7 +10,7 @@ use tracing::warn;
 
 use moatless_backend_core::scope::ScopedResource;
 
-use crate::access_control::resolve_scope_for_create_auth;
+use moatless_backend_core::access_control::resolve_scope_for_create;
 use crate::extractors::AuthUser;
 use crate::repository::dao::RepositoryDao;
 
@@ -145,7 +145,7 @@ pub async fn create_workspace(
     ensure_unique_mount_names(&req.repos)?;
     ensure_repos_visible(&repositories, &auth, &req.repos).await?;
 
-    let resolved = resolve_scope_for_create_auth(&auth, req.scope)?;
+    let resolved = resolve_scope_for_create(&auth.scope_context(), req.scope)?;
 
     let workspace_id = format!("ws_{}", uuid::Uuid::new_v4());
     let row = Workspace {
@@ -288,7 +288,7 @@ pub async fn update_workspace(
     // Re-resolve owner_user_id when the scope changes.
     let (scope, owner_user_id) = match req.scope {
         Some(new_scope) => {
-            let resolved = resolve_scope_for_create_auth(&auth, Some(new_scope))?;
+            let resolved = resolve_scope_for_create(&auth.scope_context(), Some(new_scope))?;
             (Some(resolved.scope), Some(resolved.owner_user_id))
         }
         None => (None, None),

@@ -49,8 +49,34 @@ pub fn band_of(crate_id: &str) -> i32 {
     }
 }
 
-/// The 15-crate partition for a backend module path (rooted at `lib.rs`).
-pub fn crate_of_backend_mod(m: &ModPath) -> String {
+/// The outcome of mapping a backend module to a target crate. `Explicit` is a
+/// module an arm of `crate_of_backend_mod` names; `Fallthrough` is the catch-all —
+/// a top-level module no arm names. Edge resolution treats the two identically (a
+/// fallthrough resolves to `server` via `edge_crate`, byte-for-byte like an explicit
+/// `server` arm), so the illegal-edge count never depends on the distinction.
+/// Membership aggregation keeps them apart: a fallthrough module lands in the
+/// report's UNASSIGNED section rather than folded silently into `server`, so the
+/// generated output can say "I do not know where this belongs" instead of guessing.
+pub enum CrateAssignment {
+    Explicit(&'static str),
+    Fallthrough,
+}
+
+impl CrateAssignment {
+    /// The crate id used for edge classification: an explicit arm's id, or `server`
+    /// for a fallthrough. Identical to an explicit `server` match, so adding or
+    /// removing a `server` arm cannot move the illegal count.
+    pub fn edge_crate(&self) -> &'static str {
+        match self {
+            CrateAssignment::Explicit(id) => id,
+            CrateAssignment::Fallthrough => "server",
+        }
+    }
+}
+
+/// The 15-crate partition for a backend module path (rooted at `lib.rs`). A
+/// top-level module no arm names returns `Fallthrough` (see `CrateAssignment`).
+pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
     let top = m.first().map_or("", String::as_str);
     // Root files (len 1) and directory modules both key on the first segment,
     // except `adapters` and `sandbox`, which split on the second.
@@ -58,17 +84,30 @@ pub fn crate_of_backend_mod(m: &ModPath) -> String {
         // -- core --
         "config" | "db" | "error" | "events" | "feature_flags" | "metrics" | "scope"
         | "shared_models" | "test_support" | "git_provider" | "github_client" | "" => "core",
-        "tag" | "file_storage" | "task_event" | "task_listing" | "secret" => "core",
+        // A module with an authenticated HTTP handler cannot be core: `AuthUser` is
+        // band-identity by construction — a `FromRequestParts` extractor received per
+        // request, which cannot be inverted behind a port without the handler leaving
+        // the HTTP layer. So core may hold a module with no handler (`task_listing`) or
+        // an unauthenticated one (`tag`, which lists a global vocabulary), and nothing
+        // else. Ruling C moved `file_storage` and `task_event` to tasks and `secret` to
+        // identity for exactly this reason; check the predicate in one grep for
+        // `AuthUser` before adding a module here.
+        "tag" | "task_listing" => "core",
         // `leader` is the dependency-free LeaderGuard trait (K8sLeaderGuard lives
         // under sandbox/k8s); Ruling A moved it down so its consumers depend on core.
         "leader" => "core",
         // -- identity --
-        "access_control" | "extractors" | "auth" | "team" | "adapter_apps" => "identity",
+        // `secret` is core-clean storage/policy but its `handlers.rs` takes `AuthUser`,
+        // so by the predicate above it lands in identity (its consumers include auth).
+        "extractors" | "auth" | "team" | "adapter_apps" | "secret" => "identity",
         // -- workspaces --
         "workspace" | "repository" | "skill" | "plugin" | "credentials" => "workspaces",
         // -- tasks --
+        // `file_storage` and `task_event` are core-clean storage whose `handlers.rs`
+        // take `AuthUser` (and `task_event`'s a `TaskDao`); their consumers are all
+        // task/message-adjacent, so they land here (Ruling C).
         "task" | "message" | "task_activities" | "task_turn" | "agent" | "event_ingress"
-        | "feedback" | "agent_event" => "tasks",
+        | "feedback" | "agent_event" | "file_storage" | "task_event" => "tasks",
         // -- sandbox split --
         "sandbox" => match m.get(1).map(String::as_str) {
             Some("k8s") => "sandbox-k8s",
@@ -91,9 +130,12 @@ pub fn crate_of_backend_mod(m: &ModPath) -> String {
         | "event_handler" | "setup" | "provider_settings" | "task_connections" => "server",
         // the synthetic bin root
         "\u{0}bin" => "server",
-        _ => "server", // unknown top-level module: default to server and surface via report
+        // Unknown top-level module: no arm claims it. Edge resolution treats it as
+        // `server` (see `edge_crate`); membership surfaces it in the report's
+        // UNASSIGNED section instead of folding it into `server` unseen.
+        _ => return CrateAssignment::Fallthrough,
     };
-    id.to_string()
+    CrateAssignment::Explicit(id)
 }
 
 /// Existing workspace crates under `crates/`. All are the floor (band 0) except

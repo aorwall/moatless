@@ -156,11 +156,11 @@ fn walk(tree: &Tree, from_mod: &ModPath, start: ModPath, rest: &[String], depth:
 
         // `s` is an item (or associated item) defined in `cur`.
         let _ = from_mod;
-        return Resolution::Internal(crate_of_backend_mod(&cur), cur);
+        return Resolution::Internal(crate_of_backend_mod(&cur).edge_crate().to_string(), cur);
     }
 
     // Path names the module `cur` itself.
-    Resolution::Internal(crate_of_backend_mod(&cur), cur)
+    Resolution::Internal(crate_of_backend_mod(&cur).edge_crate().to_string(), cur)
 }
 
 fn all_same_crate(hits: &[Resolution]) -> bool {

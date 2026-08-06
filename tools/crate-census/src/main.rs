@@ -29,7 +29,7 @@ mod model;
 mod resolve;
 mod scan;
 
-use bands::{crate_of_backend_mod, external_crate, floor_crate_of_dir, ScopeKind, CENSUS_ROOTS};
+use bands::{crate_of_backend_mod, external_crate, floor_crate_of_dir, CrateAssignment, ScopeKind, CENSUS_ROOTS};
 use model::{ModPath, RefClass, RefRecord, Resolution, Tree};
 use resolve::resolve_backend;
 use scan::{FileVisitor, MacroDef};
@@ -102,7 +102,8 @@ fn main() {
     }
 
     let files_count = files.len();
-    let report = build_report(&records, &macro_defs, files_count, &parse_failures);
+    let membership = build_membership(&files);
+    let report = build_report(&records, &macro_defs, files_count, &parse_failures, &membership);
     let baseline = build_baseline(&records);
 
     let out_dir = repo_root.join("scripts");
@@ -226,7 +227,7 @@ fn classify_file(root: &Path, abs: &Path, rel: &str, scope: ScopeKind) -> Option
                 });
             }
             let base_mod = file_to_modpath(inner);
-            let source_crate = crate_of_backend_mod(&base_mod);
+            let source_crate = crate_of_backend_mod(&base_mod).edge_crate().to_string();
             Some(DiscoveredFile {
                 abs: abs.to_path_buf(),
                 rel: rel.to_string(),
@@ -344,12 +345,110 @@ fn build_baseline(records: &[RefRecord]) -> String {
     s
 }
 
+/// Row label for a top-level module that no arm of `crate_of_backend_mod` names.
+const UNASSIGNED: &str = "UNASSIGNED";
+
+/// Per-crate membership of `backend/src`, generated from `bands.rs`: the top-level
+/// modules each target crate owns and their combined line count. A module that
+/// `crate_of_backend_mod` does not name lands in the `UNASSIGNED` row instead of
+/// being folded into `server` — the reason it returns a distinct `Fallthrough`.
+struct Membership {
+    rows: Vec<MemberRow>,
+}
+
+struct MemberRow {
+    crate_id: String,
+    modules: BTreeSet<String>,
+    lines: usize,
+    files: usize,
+}
+
+fn build_membership(files: &[DiscoveredFile]) -> Membership {
+    // crate id (or UNASSIGNED) -> (module display names, total lines, file count).
+    let mut acc: BTreeMap<String, (BTreeSet<String>, usize, usize)> = BTreeMap::new();
+    for f in files {
+        if f.scope != ScopeKind::Backend {
+            continue;
+        }
+        let crate_id = match crate_of_backend_mod(&f.base_mod) {
+            CrateAssignment::Explicit(id) => id.to_string(),
+            CrateAssignment::Fallthrough => UNASSIGNED.to_string(),
+        };
+        let lines = std::fs::read_to_string(&f.abs)
+            .map_or(0, |s| s.bytes().filter(|&b| b == b'\n').count());
+        let e = acc.entry(crate_id).or_default();
+        e.0.insert(membership_module_name(&f.rel));
+        e.1 += lines;
+        e.2 += 1;
+    }
+
+    // Emit in band-carve order, then UNASSIGNED, then any leftover (unexpected).
+    let mut rows: Vec<MemberRow> = Vec::new();
+    let mut take = |acc: &mut BTreeMap<String, (BTreeSet<String>, usize, usize)>, id: &str| {
+        let (modules, lines, files) = acc.remove(id).unwrap_or_default();
+        rows.push(MemberRow { crate_id: id.to_string(), modules, lines, files });
+    };
+    for (_step, crate_id) in CARVE_ORDER {
+        take(&mut acc, crate_id);
+    }
+    take(&mut acc, UNASSIGNED);
+    for (crate_id, (modules, lines, files)) in acc {
+        rows.push(MemberRow { crate_id, modules, lines, files });
+    }
+    Membership { rows }
+}
+
+/// The display name for a file's owning module, shown at the depth that decides its
+/// crate: one path segment normally, but `sandbox/*` and non-provider `adapters/*`
+/// split on the second and `adapters/providers/*` on the third, so they are shown at
+/// that depth (else three sandbox crates all read `sandbox/`). A prefix with files
+/// beneath it renders as `a/b/`; a leaf file keeps its name (`config.rs`).
+fn membership_module_name(rel: &str) -> String {
+    let Some(rest) = rel.strip_prefix("backend/src/") else {
+        return rel.to_string();
+    };
+    let comps: Vec<&str> = rest.split('/').collect();
+    let depth = match (comps.first().copied(), comps.get(1).copied()) {
+        (Some("adapters"), Some("providers")) => 3,
+        (Some("adapters" | "sandbox"), _) => 2,
+        _ => 1,
+    }
+    .min(comps.len());
+    if comps.len() > depth {
+        format!("{}/", comps[..depth].join("/")) // a directory prefix
+    } else {
+        comps[..depth].join("/") // the leaf file itself
+    }
+}
+
+fn write_membership(s: &mut String, m: &Membership) {
+    let _ = writeln!(s, "== CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==");
+    let _ = writeln!(s, "  Line counts are newline counts (wc -l). adapter-model is a crates/* crate, not");
+    let _ = writeln!(s, "  carved from backend/src, so it has no row here. UNASSIGNED collects any top-level");
+    let _ = writeln!(s, "  module crate_of_backend_mod does not name — a finding to resolve in bands.rs, not");
+    let _ = writeln!(s, "  a --check failure; it is empty when every module is placed.");
+    let mut total = 0usize;
+    for row in &m.rows {
+        total += row.lines;
+        let mods = if row.modules.is_empty() {
+            "(none)".to_string()
+        } else {
+            row.modules.iter().cloned().collect::<Vec<_>>().join(" ")
+        };
+        let _ = writeln!(s, "\n  {}  ({} files, {} lines)", row.crate_id, row.files, row.lines);
+        let _ = writeln!(s, "    {mods}");
+    }
+    let _ = writeln!(s, "\n  TOTAL backend/src: {total} lines");
+    let _ = writeln!(s);
+}
+
 #[allow(clippy::too_many_lines)]
 fn build_report(
     records: &[RefRecord],
     macro_defs: &[MacroDef],
     files_count: usize,
     parse_failures: &[PathBuf],
+    membership: &Membership,
 ) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "CRATE-CENSUS REPORT");
@@ -429,6 +528,8 @@ fn build_report(
     let _ = writeln!(s, "TEST-CONTEXT {test_ctx:>4}  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)");
     let _ = writeln!(s, "UNRESOLVED  {unresolved:>5}  (glob-through-facade / prelude / macro-var — audited below)");
     let _ = writeln!(s);
+
+    write_membership(&mut s, membership);
 
     // Illegal edge classes (production), grouped by (source -> target), with the
     // step each is pinned to (filled from the pin table).
@@ -737,11 +838,6 @@ fn pin_for(src: &str, dst: &str, path: &str) -> &'static str {
     if src == "workspaces" && dst == "sandbox-k8s" {
         return "Ruling A — codex refresher bypasses LeaderGuard port (Step-3 residue)";
     }
-    // Ruling E — verifying a USER auth token is identity work; it sits under
-    // sandbox/ only because sandbox tokens are minted there too. Placement move.
-    if path.contains("jwt::verify_user_auth_token") {
-        return "Ruling E — jwt user-token verify -> identity (placement)";
-    }
     // Ruling B — the eleven sandbox-control -> provider refs are the 10f defect
     // repriced: non-Kubernetes helpers (workspace-config parsing, failure-reason
     // strings, StorageBackend) that live under k8s/ but belong in sandbox-control.
@@ -752,12 +848,12 @@ fn pin_for(src: &str, dst: &str, path: &str) -> &'static str {
     {
         return "10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control";
     }
-    // Ruling C — file_storage / secret / task_event each own a handlers.rs, and
-    // auth/routes.rs, that reach identity (AuthUser) and tasks (TaskDao). An HTTP
-    // handler taking an AuthUser and a TaskDao is server-band by nature: one
-    // handler-placement question, not four edges.
-    if (src == "core" || src == "identity") && dst == "tasks" && path.contains("task::dao::TaskDao") {
-        return "8g — handler placement (TaskDao holdings) (plan :636)";
+    // E-(b) — auth/routes.rs's session-gate TaskDao holding: verify_handler's
+    // preview-URL access check holds `Arc<dyn TaskDao>` to gate a proxy request.
+    // Ruling C did not touch it (its TaskDao moves were intra-tasks); identity-only,
+    // since no core -> tasks TaskDao remains. Priced two ways, awaiting ruling.
+    if src == "identity" && dst == "tasks" && path.contains("task::dao::TaskDao") {
+        return "E-(b) — auth/routes session-gate TaskDao holding";
     }
     // Ruling D — 9e is reopened: the shell-reconcile hook is a consumer-declared
     // port (moatless-tasks declares, adapter-github-pr registers at the root), the
@@ -768,31 +864,26 @@ fn pin_for(src: &str, dst: &str, path: &str) -> &'static str {
     }
     // 8b scope enums + their remainder + the error/credential cluster.
     if src == "identity" && dst == "workspaces" {
-        return "8b + error/credential cluster (plan :634,:639)";
+        return "8b + error/credential cluster";
     }
     if path.contains("ProviderSettingsError") {
-        return "8d error half / error cluster (plan :639)";
+        return "8d error half / error cluster";
     }
     // 8h — the setup split, deferred until SetupRequirementCheck earns a 2nd impl.
     if path.contains("setup::") {
-        return "8h (deferred, plan :637)";
-    }
-    // 8g — Ruling C: core-band handlers (file_storage/secret/task_event) naming
-    // identity (AuthUser). One handler-placement question with the TaskDao holdings.
-    if src == "core" && dst == "identity" {
-        return "8g — handler placement (AuthUser in core-band handlers) (plan :636)";
+        return "8h (deferred)";
     }
     // registry <-> providers: 7d field-widening + 10h provider carve.
     if src == "loops" && dst.starts_with("adapter-") {
-        return "7d + 10h — registry field-widening + provider carve (plan :692)";
+        return "7d + 10h — registry field-widening + provider carve";
     }
     // 10f — the only real sibling edge, the misfiled sandbox helpers.
     if src == "sandbox-docker" && dst == "sandbox-k8s" {
-        return "10f — misfiled sandbox helpers (plan :690)";
+        return "10f — misfiled sandbox helpers";
     }
     // 8c's real content — the tasks/message -> loops consumer-owned port.
     if src == "tasks" && dst == "loops" {
-        return "8c-port — tasks/message -> loops (plan :635)";
+        return "8c-port — tasks/message -> loops";
     }
     // 10d — invert the reaper's (and its siblings') task -> sandbox concretes.
     // The `sandbox::secrets` constants are a placement move to core, like 8e.
@@ -800,19 +891,19 @@ fn pin_for(src: &str, dst: &str, path: &str) -> &'static str {
         if path.contains("sandbox::secrets") {
             return "sandbox::secrets placement -> core (like 8e)";
         }
-        return "10d — invert task -> sandbox concretes to ports (plan :688,:699)";
+        return "10d — invert task -> sandbox concretes to ports";
     }
     // 9d / 10g — the repository-sync server composition.
     if src == "workspaces" && dst == "loops" {
-        return "9d / 10g — server-band sync composition (plan :697)";
+        return "9d / 10g — server-band sync composition";
     }
     // 9c / 10c — the credential broadcast fan-out refactor.
     if src == "workspaces" && dst == "tasks" {
-        return "9c / 10c — broadcast fan-out refactor (plan :695)";
+        return "9c / 10c — broadcast fan-out refactor";
     }
     // 9b remainder — the GITHUB_TOKEN secret name, a placement move to core.
     if path.contains("sandbox::secrets::GITHUB_TOKEN") {
-        return "9b remainder — GITHUB_TOKEN placement -> core (plan :666)";
+        return "9b remainder — GITHUB_TOKEN placement -> core";
     }
     // The composition-root DI container named by a lower band — same family as
     // AppState (Step 5): the composition root reaching down.

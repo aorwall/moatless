@@ -26,7 +26,7 @@ use super::error::TaskError;
 use super::models::Task;
 use super::relations::CreatedByParent;
 use super::schemas::CreateTaskRequest;
-use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create};
+use moatless_backend_core::access_control::{ensure_can_use_repository, resolve_scope_for_create};
 use crate::agent::catalog;
 use crate::config::Config;
 use crate::credentials::CredentialService;

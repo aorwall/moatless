@@ -18,7 +18,7 @@ use super::schemas::{
     PatchSecretRequest, PutSecretRequest, SecretMetadataResponse, ValidateSecretsRequest,
     ValidateSecretsResponse,
 };
-use crate::access_control::{resolve_scope_for_create, AccessControlError};
+use moatless_backend_core::access_control::{resolve_scope_for_create, AccessControlError};
 use crate::config::SecretsConfig;
 use moatless_api_schemas::enums::Scope;
 use moatless_backend_core::scope::ScopeContext;

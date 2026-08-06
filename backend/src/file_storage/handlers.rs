@@ -10,7 +10,7 @@ use axum_extra::extract::Multipart;
 use std::sync::Arc;
 
 use super::models::FileMetadata;
-use crate::access_control::resolve_scope_for_create_auth;
+use moatless_backend_core::access_control::resolve_scope_for_create;
 use crate::config::S3Config;
 use crate::extractors::AuthUser;
 use moatless_backend_core::scope::ScopedResource;
@@ -77,12 +77,12 @@ pub async fn upload_file(
     let file_id = uuid::Uuid::new_v4().to_string();
     let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
     let resolved_scope =
-        resolve_scope_for_create_auth(&auth, Some(moatless_backend_core::scope::Scope::User))
+        resolve_scope_for_create(&auth.scope_context(), Some(moatless_backend_core::scope::Scope::User))
             .map_err(|e| match e {
-                crate::access_control::AccessControlError::BadRequest(msg) => {
+                moatless_backend_core::access_control::AccessControlError::BadRequest(msg) => {
                     FileStorageError::BadRequest(msg)
                 }
-                crate::access_control::AccessControlError::Forbidden(msg) => {
+                moatless_backend_core::access_control::AccessControlError::Forbidden(msg) => {
                     FileStorageError::Forbidden(msg)
                 }
             })?;

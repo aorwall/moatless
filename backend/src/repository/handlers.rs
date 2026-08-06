@@ -11,7 +11,7 @@ use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 
 use std::sync::Arc;
 
-use crate::access_control::resolve_scope_for_create_auth;
+use moatless_backend_core::access_control::resolve_scope_for_create;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::db::DbPool;
 use crate::extractors::AuthUser;
@@ -66,7 +66,7 @@ pub async fn create_repository(
     let now = chrono::Utc::now();
     let user_id = auth.user_id;
 
-    let resolved_scope = resolve_scope_for_create_auth(&auth, req.scope)?;
+    let resolved_scope = resolve_scope_for_create(&auth.scope_context(), req.scope)?;
     let scope_ctx = auth.scope_context();
 
     ensure_unique_remote_url(
@@ -240,14 +240,14 @@ pub async fn update_repository(
 
     // User ownership is immutable here: re-submitting `scope: user` preserves
     // the existing owner even when an admin is editing the row.
-    // Global moves require admin (enforced by resolve_scope_for_create_auth).
+    // Global moves require admin (enforced by resolve_scope_for_create).
     let (scope, owner_user_id) = match req.scope {
         Some(Scope::User) => {
             let existing_owner_user_id = preserved_user_scope(&existing)?;
             (Some(Scope::User), Some(Some(existing_owner_user_id)))
         }
         Some(new_scope) => {
-            let resolved = resolve_scope_for_create_auth(&auth, Some(new_scope))?;
+            let resolved = resolve_scope_for_create(&auth.scope_context(), Some(new_scope))?;
             (Some(resolved.scope), Some(resolved.owner_user_id))
         }
         None => (None, None),

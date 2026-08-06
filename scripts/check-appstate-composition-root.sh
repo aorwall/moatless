@@ -13,12 +13,22 @@
 #   - backend/src/{main,state,compose}.rs — the composition root: `state.rs`
 #     defines `AppState` and its `FromRef` impls, `compose.rs`/`main.rs` build and
 #     wire it.
-#   - every `*/routes.rs` and `backend/src/loops/http/mod.rs` — routing tables.
-#     A router-assembly fn names `AppState` only to hand it to the router:
+#   - every `*/routes.rs` and `backend/src/loops/http/mod.rs` — routing tables,
+#     but only while they still register a handler that names `AppState`. A
+#     router-assembly fn names `AppState` to hand it to the router:
 #     ".plans/backend-ports-and-crates.md" Step 5 — "The root remains one struct,
 #     **held by the router**, named by the composition root and by nothing else."
 #     A routing table naming `AppState` is that sentence, not an exception to it.
-#     BUT a routing table must stay a routing table: this check fails if a
+#     The exemption is conditional, not permanent: a router may be generic over
+#     its state `S` (`Arc<dyn Port>: FromRef<S>`) once every handler it registers
+#     already names its ports, and it then stops naming `AppState` — `tag/routes.rs`
+#     is the first. Generic-able iff every registered handler names ports; the
+#     router follows the sweep, it cannot lead it (a `State<AppState>` handler
+#     forces `AppState: FromRef<S>`, whose only impl is axum's blanket at
+#     `S = AppState`, which pins `S` and makes the generic vacuous). So the
+#     routing tables are a second ratchet that empties as each router's handlers
+#     clear.
+#     A routing table must also stay a routing table: this check fails if a
 #     whitelisted `routes.rs` grows a handler (an `async fn` or a `State<` param),
 #     so the whitelist cannot be quietly grown into a place a handler hides.
 #
@@ -28,8 +38,10 @@
 # baseline (AGENTS.md: "the baseline only shrinks"): every slice deletes its own
 # entries as it clears them, and a baseline entry that no longer names `AppState`
 # is itself a failure — you cleared it, so remove it. When the baseline is empty
-# the sweep is done and the name survives only in the composition root and the
-# routing tables.
+# the module sweep is done; the routing tables are then the only remaining
+# holders, and they clear on the second ratchet above — each router goes generic
+# once its handlers are ported — until `AppState` survives in the composition
+# root alone.
 #
 # This is a syntactic check, not a Rust parser, but it tokenizes with the same
 # string/comment-blanking pass as check-dao-composition-root.sh, so a mention
@@ -44,9 +56,11 @@ cd "$ROOT"
 SRC="backend/src"
 BASELINE="scripts/appstate-composition-root-baseline.txt"
 
-# ── Permanent whitelist ──────────────────────────────────────────────────────
-# The composition root plus the routing tables. Routing tables carry a
-# precondition (no handler), checked below.
+# ── Whitelist ────────────────────────────────────────────────────────────────
+# The composition root plus the routing tables. The routing-table entry is a
+# conditional exemption, not a permanent one: a router names `AppState` only
+# while it still registers a handler that does (see the header note). It carries
+# a precondition (no handler of its own), checked below.
 is_composition_root() {
   case "$1" in
     "$SRC/main.rs" | "$SRC/state.rs" | "$SRC/compose.rs") return 0 ;;

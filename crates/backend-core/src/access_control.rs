@@ -1,14 +1,12 @@
 //! Helpers for the canonical scoped-resource policy.
 //!
-//! The policy itself is pure and lives in
-//! [`moatless_backend_core::scope::ScopeContext`]. Enforcement is
-//! SQL-embedded: reads filter through `access_filter()`, mutations through
-//! `control_filter()` inside the DAO statement. The helpers here cover the
-//! two decisions that happen before a row exists: what scope a new resource
-//! may be created with, and whether a repository may be used.
+//! The policy itself is pure and lives in [`crate::scope::ScopeContext`].
+//! Enforcement is SQL-embedded: reads filter through `access_filter()`,
+//! mutations through `control_filter()` inside the DAO statement. The helpers
+//! here cover the two decisions that happen before a row exists: what scope a
+//! new resource may be created with, and whether a repository may be used.
 
-use crate::extractors::AuthUser;
-use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource};
+use crate::scope::{Scope, ScopeContext, ScopedResource};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AccessControlError {
@@ -43,14 +41,6 @@ pub fn resolve_scope_for_create(
         scope,
         owner_user_id,
     })
-}
-
-/// Convenience wrapper for HTTP handlers.
-pub fn resolve_scope_for_create_auth(
-    auth: &AuthUser,
-    requested_scope: Option<Scope>,
-) -> Result<ResolvedScope, AccessControlError> {
-    resolve_scope_for_create(&auth.scope_context(), requested_scope)
 }
 
 pub fn ensure_can_use_repository(

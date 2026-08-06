@@ -189,6 +189,18 @@ pub trait TaskDao: Send + Sync {
 /// PostgreSQL implementation of [`TaskDao`].
 pub struct PgTaskDao(pub DbPool);
 
+/// The E-(b) session-gate port over `TaskDao`: `verify_handler` (identity) holds
+/// `Arc<dyn TaskAccess>`, not a `TaskDao`, so identity keeps no `task` import.
+#[async_trait]
+impl crate::extractors::TaskAccess for PgTaskDao {
+    async fn may_access_task(&self, task_id: &str, ctx: &ScopeContext) -> bool {
+        // `find_by_id` is already scope-filtered, so a task `ctx` cannot see
+        // returns `None`. Fail-closed on a DB error, matching the handler's prior
+        // `map_err(|_| Forbidden)`.
+        matches!(self.find_by_id(task_id, ctx).await, Ok(Some(_)))
+    }
+}
+
 #[async_trait]
 impl TaskDao for PgTaskDao {
     async fn find_by_id(

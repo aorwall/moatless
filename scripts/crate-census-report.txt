@@ -3,15 +3,68 @@ files parsed: 643
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3989  illegal  199
-ATTRIBUTE  legal   246  illegal   16   (utoipa/derive/etc. token streams)
+CODE       legal  3985  illegal  185
+ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    54  illegal   16   (function-like macro-invocation token streams)
-DOC           52  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1719 point down into the existing crates/* floor
-TEST-CONTEXT 2392  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+DOC           51  (intra-doc paths — never a Cargo edge, never illegal)
+  of the legal CODE edges, 1749 point down into the existing crates/* floor
+TEST-CONTEXT 2378  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
 
-== ILLEGAL PRODUCTION EDGE CLASSES (30 classes) ==
+== CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
+  Line counts are newline counts (wc -l). adapter-model is a crates/* crate, not
+  carved from backend/src, so it has no row here. UNASSIGNED collects any top-level
+  module crate_of_backend_mod does not name — a finding to resolve in bands.rs, not
+  a --check failure; it is empty when every module is placed.
+
+  core  (24 files, 4313 lines)
+    config.rs db.rs error.rs events.rs feature_flags.rs git_provider.rs github_client.rs leader.rs lib.rs metrics.rs scope.rs shared_models.rs tag/ task_listing/ test_support.rs
+
+  identity  (61 files, 15472 lines)
+    adapter_apps/ auth/ extractors.rs secret/ team/
+
+  workspaces  (46 files, 11662 lines)
+    credentials/ plugin/ repository/ skill/ workspace/
+
+  tasks  (71 files, 19165 lines)
+    agent/ agent_event.rs event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
+
+  sandbox-control  (43 files, 18716 lines)
+    sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs
+
+  sandbox-k8s  (22 files, 13299 lines)
+    sandbox/k8s/
+
+  sandbox-docker  (8 files, 3516 lines)
+    sandbox/docker/
+
+  loops  (50 files, 13978 lines)
+    adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
+
+  adapter-github-pr  (24 files, 10552 lines)
+    adapters/providers/github_pr/
+
+  adapter-linear  (23 files, 9613 lines)
+    adapters/providers/linear/
+
+  adapter-slack  (18 files, 6121 lines)
+    adapters/providers/slack/
+
+  adapter-telegram  (18 files, 4231 lines)
+    adapters/providers/telegram/
+
+  adapter-webhook  (6 files, 772 lines)
+    adapters/providers/webhook/
+
+  server  (31 files, 11403 lines)
+    compose.rs event_handler/ main.rs provider_settings/ setup/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
+
+  UNASSIGNED  (0 files, 0 lines)
+    (none)
+
+  TOTAL backend/src: 142813 lines
+
+== ILLEGAL PRODUCTION EDGE CLASSES (26 classes) ==
 
 adapter-github-pr -> server   x8
     backend/src/adapters/providers/github_pr/api_routes.rs:32  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -54,130 +107,106 @@ adapter-webhook -> server   x2
     backend/src/adapters/providers/webhook/delivery.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/webhook/handlers.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-core -> identity   x10
-    backend/src/file_storage/handlers.rs:13  [CODE] crate::access_control::resolve_scope_for_create_auth   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/file_storage/handlers.rs:15  [CODE] crate::extractors::AuthUser   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/file_storage/handlers.rs:82  [CODE] crate::access_control::AccessControlError::BadRequest   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/file_storage/handlers.rs:85  [CODE] crate::access_control::AccessControlError::Forbidden   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/secret/handlers.rs:9  [CODE] crate::extractors::AuthUser   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/secret/service.rs:21  [CODE] crate::access_control::AccessControlError   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/secret/service.rs:21  [CODE] crate::access_control::resolve_scope_for_create   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/secret/service.rs:770  [CODE] AccessControlError::BadRequest   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/secret/service.rs:771  [CODE] AccessControlError::Forbidden   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
-    backend/src/task_event/handlers.rs:11  [CODE] crate::extractors::AuthUser   -> [8g — handler placement (AuthUser in core-band handlers) (plan :636)]
+identity -> sandbox-control   x1
+    backend/src/auth/credentials.rs:26  [CODE] crate::sandbox::secrets::GITHUB_TOKEN   -> [9b remainder — GITHUB_TOKEN placement -> core]
 
-core -> server   x4
-    backend/src/file_storage/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/secret/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/tag/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/task_event/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-
-core -> tasks   x1
-    backend/src/task_event/handlers.rs:12  [CODE] crate::task::dao::TaskDao   -> [8g — handler placement (TaskDao holdings) (plan :636)]
-
-identity -> sandbox-control   x2
-    backend/src/auth/credentials.rs:26  [CODE] crate::sandbox::secrets::GITHUB_TOKEN   -> [9b remainder — GITHUB_TOKEN placement -> core (plan :666)]
-    backend/src/auth/routes.rs:1570  [CODE] crate::sandbox::jwt::verify_user_auth_token   -> [Ruling E — jwt user-token verify -> identity (placement)]
-
-identity -> server   x5
+identity -> server   x6
     backend/src/auth/credentials.rs:369  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/auth/routes.rs:17  [CODE] crate::compose::Ports   -> [Step 5 family — composition root (Ports)]
-    backend/src/auth/routes.rs:22  [CODE] crate::setup::SetupContext   -> [8h (deferred, plan :637)]
-    backend/src/auth/routes.rs:22  [CODE] crate::setup::evaluate_setup   -> [8h (deferred, plan :637)]
+    backend/src/auth/routes.rs:22  [CODE] crate::setup::SetupContext   -> [8h (deferred)]
+    backend/src/auth/routes.rs:22  [CODE] crate::setup::evaluate_setup   -> [8h (deferred)]
+    backend/src/secret/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/team/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-identity -> tasks   x1
-    backend/src/auth/routes.rs:147  [CODE] crate::task::dao::TaskDao   -> [8g — handler placement (TaskDao holdings) (plan :636)]
-
 identity -> workspaces   x18
-    backend/src/auth/credentials.rs:104  [CODE] GitHubScope::from_row   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:208  [CODE] GitHubScope::User   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:216  [CODE] GitHubScope::Global   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:221  [CODE] GitHubScope::Global   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:245  [CODE] GitHubScope::User   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:246  [CODE] GitHubScope::Global   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:25  [CODE] crate::credentials::github::scope::GitHubScope   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:283  [CODE] GitHubScope::user   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:311  [CODE] GitHubScope::User   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/credentials.rs:312  [CODE] GitHubScope::Global   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/provider_token_dao.rs:258  [CODE] CodexScope::User   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/provider_token_dao.rs:271  [CODE] CodexScope::Global   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/provider_token_dao.rs:342  [CODE] GitHubScope::User   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/provider_token_dao.rs:367  [CODE] GitHubScope::Global   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/provider_token_dao.rs:7  [CODE] crate::credentials::codex::scope::CodexScope   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/provider_token_dao.rs:8  [CODE] crate::credentials::github::scope::GitHubScope   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/routes.rs:2004  [CODE] crate::credentials::codex::parse_codex_auth_json   -> [8b + error/credential cluster (plan :634,:639)]
-    backend/src/auth/routes.rs:2006  [CODE] crate::credentials::codex::build_codex_metadata   -> [8b + error/credential cluster (plan :634,:639)]
+    backend/src/auth/credentials.rs:104  [CODE] GitHubScope::from_row   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:208  [CODE] GitHubScope::User   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:216  [CODE] GitHubScope::Global   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:221  [CODE] GitHubScope::Global   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:245  [CODE] GitHubScope::User   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:246  [CODE] GitHubScope::Global   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:25  [CODE] crate::credentials::github::scope::GitHubScope   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:283  [CODE] GitHubScope::user   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:311  [CODE] GitHubScope::User   -> [8b + error/credential cluster]
+    backend/src/auth/credentials.rs:312  [CODE] GitHubScope::Global   -> [8b + error/credential cluster]
+    backend/src/auth/provider_token_dao.rs:258  [CODE] CodexScope::User   -> [8b + error/credential cluster]
+    backend/src/auth/provider_token_dao.rs:271  [CODE] CodexScope::Global   -> [8b + error/credential cluster]
+    backend/src/auth/provider_token_dao.rs:342  [CODE] GitHubScope::User   -> [8b + error/credential cluster]
+    backend/src/auth/provider_token_dao.rs:367  [CODE] GitHubScope::Global   -> [8b + error/credential cluster]
+    backend/src/auth/provider_token_dao.rs:7  [CODE] crate::credentials::codex::scope::CodexScope   -> [8b + error/credential cluster]
+    backend/src/auth/provider_token_dao.rs:8  [CODE] crate::credentials::github::scope::GitHubScope   -> [8b + error/credential cluster]
+    backend/src/auth/routes.rs:2017  [CODE] crate::credentials::codex::parse_codex_auth_json   -> [8b + error/credential cluster]
+    backend/src/auth/routes.rs:2019  [CODE] crate::credentials::codex::build_codex_metadata   -> [8b + error/credential cluster]
 
 loops -> adapter-github-pr   x16
-    backend/src/adapters/mod.rs:40  [CODE] providers::github_pr   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/bootstrap.rs:65  [CODE] crate::adapters::github_pr::adapter::GithubPrAdapter::new   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:154  [CODE] super::github_pr::adapter::GithubPrAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:28  [CODE] super::github_pr::adapter::GithubPrAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:107  [CODE] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:36  [ATTR] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:37  [ATTR] github_pr::api_routes::create_pr   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:38  [ATTR] github_pr::api_routes::post_comment   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:39  [ATTR] github_pr::api_routes::reply_to_review_comment   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:40  [ATTR] github_pr::api_routes::bind_pr   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:75  [MACRO] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:76  [MACRO] github_pr::api_routes::create_pr   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:77  [MACRO] github_pr::api_routes::post_comment   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:78  [MACRO] github_pr::api_routes::reply_to_review_comment   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:79  [MACRO] github_pr::api_routes::bind_pr   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:8  [CODE] super::github_pr   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
+    backend/src/adapters/mod.rs:40  [CODE] providers::github_pr   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/bootstrap.rs:65  [CODE] crate::adapters::github_pr::adapter::GithubPrAdapter::new   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:154  [CODE] super::github_pr::adapter::GithubPrAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:28  [CODE] super::github_pr::adapter::GithubPrAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:107  [CODE] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:36  [ATTR] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:37  [ATTR] github_pr::api_routes::create_pr   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:38  [ATTR] github_pr::api_routes::post_comment   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:39  [ATTR] github_pr::api_routes::reply_to_review_comment   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:40  [ATTR] github_pr::api_routes::bind_pr   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:75  [MACRO] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:76  [MACRO] github_pr::api_routes::create_pr   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:77  [MACRO] github_pr::api_routes::post_comment   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:78  [MACRO] github_pr::api_routes::reply_to_review_comment   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:79  [MACRO] github_pr::api_routes::bind_pr   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:8  [CODE] super::github_pr   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> adapter-linear   x21
-    backend/src/adapters/mod.rs:40  [CODE] providers::linear   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/bootstrap.rs:82  [CODE] crate::adapters::linear::adapter::LinearAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:166  [CODE] super::linear::adapter::LinearAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:29  [CODE] super::linear::adapter::LinearAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:41  [ATTR] linear::handlers::linear_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:42  [ATTR] linear::api_routes::get_issue   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:43  [ATTR] linear::api_routes::create_issue   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:44  [ATTR] linear::api_routes::update_issue   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:45  [ATTR] linear::api_routes::create_comment   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:46  [ATTR] linear::api_routes::mutate_label   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:47  [ATTR] linear::api_routes::graphql_passthrough   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:48  [ATTR] linear::api_routes::lookup   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:8  [CODE] super::linear   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:80  [MACRO] linear::handlers::linear_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:81  [MACRO] linear::api_routes::get_issue   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:82  [MACRO] linear::api_routes::create_issue   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:83  [MACRO] linear::api_routes::update_issue   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:84  [MACRO] linear::api_routes::create_comment   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:85  [MACRO] linear::api_routes::mutate_label   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:86  [MACRO] linear::api_routes::graphql_passthrough   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:87  [MACRO] linear::api_routes::lookup   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
+    backend/src/adapters/mod.rs:40  [CODE] providers::linear   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/bootstrap.rs:82  [CODE] crate::adapters::linear::adapter::LinearAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:166  [CODE] super::linear::adapter::LinearAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:29  [CODE] super::linear::adapter::LinearAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:41  [ATTR] linear::handlers::linear_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:42  [ATTR] linear::api_routes::get_issue   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:43  [ATTR] linear::api_routes::create_issue   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:44  [ATTR] linear::api_routes::update_issue   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:45  [ATTR] linear::api_routes::create_comment   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:46  [ATTR] linear::api_routes::mutate_label   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:47  [ATTR] linear::api_routes::graphql_passthrough   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:48  [ATTR] linear::api_routes::lookup   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:8  [CODE] super::linear   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:80  [MACRO] linear::handlers::linear_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:81  [MACRO] linear::api_routes::get_issue   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:82  [MACRO] linear::api_routes::create_issue   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:83  [MACRO] linear::api_routes::update_issue   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:84  [MACRO] linear::api_routes::create_comment   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:85  [MACRO] linear::api_routes::mutate_label   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:86  [MACRO] linear::api_routes::graphql_passthrough   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:87  [MACRO] linear::api_routes::lookup   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> adapter-slack   x8
-    backend/src/adapters/mod.rs:40  [CODE] providers::slack   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/bootstrap.rs:41  [CODE] crate::adapters::slack::adapter::SlackAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:177  [CODE] super::slack::adapter::SlackAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:30  [CODE] super::slack::adapter::SlackAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:34  [ATTR] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:73  [MACRO] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:8  [CODE] super::slack   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:99  [CODE] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
+    backend/src/adapters/mod.rs:40  [CODE] providers::slack   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/bootstrap.rs:41  [CODE] crate::adapters::slack::adapter::SlackAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:177  [CODE] super::slack::adapter::SlackAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:30  [CODE] super::slack::adapter::SlackAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:34  [ATTR] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:73  [MACRO] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:8  [CODE] super::slack   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:99  [CODE] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> adapter-telegram   x8
-    backend/src/adapters/mod.rs:40  [CODE] providers::telegram   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/bootstrap.rs:55  [CODE] crate::adapters::telegram::adapter::TelegramAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:192  [CODE] super::telegram::adapter::TelegramAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:31  [CODE] super::telegram::adapter::TelegramAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:103  [CODE] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:35  [ATTR] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:74  [MACRO] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:8  [CODE] super::telegram   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
+    backend/src/adapters/mod.rs:40  [CODE] providers::telegram   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/bootstrap.rs:55  [CODE] crate::adapters::telegram::adapter::TelegramAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:192  [CODE] super::telegram::adapter::TelegramAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:31  [CODE] super::telegram::adapter::TelegramAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:103  [CODE] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:35  [ATTR] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:74  [MACRO] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:8  [CODE] super::telegram   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> adapter-webhook   x7
-    backend/src/adapters/mod.rs:40  [CODE] providers::webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/bootstrap.rs:50  [CODE] crate::adapters::webhook::adapter::WebhookAdapter::new   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/registry/mod.rs:146  [CODE] super::webhook::adapter::WebhookAdapter   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:111  [CODE] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:49  [ATTR] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:8  [CODE] super::webhook   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
-    backend/src/adapters/routes.rs:88  [MACRO] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve (plan :692)]
+    backend/src/adapters/mod.rs:40  [CODE] providers::webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/bootstrap.rs:50  [CODE] crate::adapters::webhook::adapter::WebhookAdapter::new   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/registry/mod.rs:146  [CODE] super::webhook::adapter::WebhookAdapter   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:111  [CODE] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:49  [ATTR] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:8  [CODE] super::webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/routes.rs:88  [MACRO] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> server   x16
     backend/src/adapters/capabilities.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -214,95 +243,97 @@ sandbox-control -> server   x1
     backend/src/sandbox/notify.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 sandbox-docker -> sandbox-k8s   x3
-    backend/src/sandbox/docker/container_builder.rs:20  [CODE] crate::sandbox::k8s::pod_reader::parse_cpu_to_millicores   -> [10f — misfiled sandbox helpers (plan :690)]
-    backend/src/sandbox/docker/container_builder.rs:20  [CODE] crate::sandbox::k8s::pod_reader::parse_memory_to_bytes   -> [10f — misfiled sandbox helpers (plan :690)]
-    backend/src/sandbox/docker/status_resolver.rs:13  [CODE] crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS   -> [10f — misfiled sandbox helpers (plan :690)]
+    backend/src/sandbox/docker/container_builder.rs:20  [CODE] crate::sandbox::k8s::pod_reader::parse_cpu_to_millicores   -> [10f — misfiled sandbox helpers]
+    backend/src/sandbox/docker/container_builder.rs:20  [CODE] crate::sandbox::k8s::pod_reader::parse_memory_to_bytes   -> [10f — misfiled sandbox helpers]
+    backend/src/sandbox/docker/status_resolver.rs:13  [CODE] crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS   -> [10f — misfiled sandbox helpers]
 
 tasks -> adapter-github-pr   x1
     backend/src/message/hooks.rs:22  [CODE] crate::adapters::github_pr::shell_reconcile::reconcile_shell_command   -> [9e (reopened) — consumer-declared hook; AgentErrorSink precedent]
 
 tasks -> loops   x8
-    backend/src/message/send.rs:6  [CODE] crate::adapters::Adapters   -> [8c-port — tasks/message -> loops (plan :635)]
-    backend/src/message/send.rs:7  [CODE] crate::bindings::recently_sent::RecentlySent   -> [8c-port — tasks/message -> loops (plan :635)]
-    backend/src/task/closer.rs:23  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops (plan :635)]
-    backend/src/task/handlers.rs:31  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops (plan :635)]
-    backend/src/task/handlers.rs:31  [CODE] crate::bindings::dao::get_bindings_for_tasks   -> [8c-port — tasks/message -> loops (plan :635)]
-    backend/src/task/presenter.rs:21  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops (plan :635)]
-    backend/src/task/presenter.rs:23  [CODE] crate::loops::dao::LoopDao   -> [8c-port — tasks/message -> loops (plan :635)]
-    backend/src/task/reaper.rs:29  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops (plan :635)]
+    backend/src/message/send.rs:6  [CODE] crate::adapters::Adapters   -> [8c-port — tasks/message -> loops]
+    backend/src/message/send.rs:7  [CODE] crate::bindings::recently_sent::RecentlySent   -> [8c-port — tasks/message -> loops]
+    backend/src/task/closer.rs:23  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
+    backend/src/task/handlers.rs:31  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
+    backend/src/task/handlers.rs:31  [CODE] crate::bindings::dao::get_bindings_for_tasks   -> [8c-port — tasks/message -> loops]
+    backend/src/task/presenter.rs:21  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
+    backend/src/task/presenter.rs:23  [CODE] crate::loops::dao::LoopDao   -> [8c-port — tasks/message -> loops]
+    backend/src/task/reaper.rs:29  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
 
 tasks -> sandbox-control   x26
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::ANTHROPIC_API_KEY   -> [sandbox::secrets placement -> core (like 8e)]
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::CLAUDE_CODE_OAUTH_TOKEN   -> [sandbox::secrets placement -> core (like 8e)]
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::CODEX_AUTH_JSON   -> [sandbox::secrets placement -> core (like 8e)]
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::OPENAI_API_KEY   -> [sandbox::secrets placement -> core (like 8e)]
-    backend/src/message/service.rs:141  [CODE] crate::sandbox::notify::ensure_sandbox_and_notify   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/closer.rs:26  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/closer.rs:26  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/closer.rs:72  [CODE] ArchiveRetention::on_close   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::GithubValidator   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::PreflightCredentials   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::PreflightError   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::preflight_validate_github_token   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/dao.rs:11  [CODE] crate::sandbox::lifecycle::dao::load_sandbox_intent_views   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/error.rs:33  [CODE] crate::sandbox::lifecycle::LifecycleError   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/error.rs:34  [CODE] crate::sandbox::lifecycle::LifecycleError   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/error.rs:35  [CODE] crate::sandbox::lifecycle::LifecycleError   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/error.rs:37  [CODE] LE::TaskNotFound   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/error.rs:39  [CODE] LE::NotAllowed   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/error.rs:41  [CODE] LE::OperationInProgress   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/handlers.rs:23  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/handlers.rs:23  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/handlers.rs:516  [CODE] ArchiveRetention::DeleteArchives   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1001  [CODE] ArchiveRetention::on_close   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:35  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:35  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/service.rs:37  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
+    backend/src/message/service.rs:141  [CODE] crate::sandbox::notify::ensure_sandbox_and_notify   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/closer.rs:26  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/closer.rs:26  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/closer.rs:72  [CODE] ArchiveRetention::on_close   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::GithubValidator   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::PreflightCredentials   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::PreflightError   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::preflight_validate_github_token   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/dao.rs:11  [CODE] crate::sandbox::lifecycle::dao::load_sandbox_intent_views   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/error.rs:33  [CODE] crate::sandbox::lifecycle::LifecycleError   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/error.rs:34  [CODE] crate::sandbox::lifecycle::LifecycleError   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/error.rs:35  [CODE] crate::sandbox::lifecycle::LifecycleError   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/error.rs:37  [CODE] LE::TaskNotFound   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/error.rs:39  [CODE] LE::NotAllowed   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/error.rs:41  [CODE] LE::OperationInProgress   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/handlers.rs:23  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/handlers.rs:23  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/handlers.rs:516  [CODE] ArchiveRetention::DeleteArchives   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1001  [CODE] ArchiveRetention::on_close   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:35  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:35  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/service.rs:37  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
 
 tasks -> sandbox-k8s   x14
-    backend/src/task/reaper.rs:1088  [CODE] crate::sandbox::k8s::ingress::list_ingress_route_task_ids   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::deployment   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::ingress   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::networkpolicy   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::pvc   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::service   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1100  [CODE] deployment::delete_deployment   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1103  [CODE] service::delete_sandbox_service   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1106  [CODE] ingress::delete_task_ingress_routes   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1109  [CODE] networkpolicy::delete_task_preview_network_policy   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:1112  [CODE] pvc::delete_task_pvc   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:133  [CODE] LeaderElection::new_with_name   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:33  [CODE] crate::sandbox::k8s::client::K8sClient   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
-    backend/src/task/reaper.rs:34  [CODE] crate::sandbox::k8s::leader_election::LeaderElection   -> [10d — invert task -> sandbox concretes to ports (plan :688,:699)]
+    backend/src/task/reaper.rs:1088  [CODE] crate::sandbox::k8s::ingress::list_ingress_route_task_ids   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::deployment   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::ingress   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::networkpolicy   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::pvc   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::service   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1100  [CODE] deployment::delete_deployment   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1103  [CODE] service::delete_sandbox_service   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1106  [CODE] ingress::delete_task_ingress_routes   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1109  [CODE] networkpolicy::delete_task_preview_network_policy   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1112  [CODE] pvc::delete_task_pvc   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:133  [CODE] LeaderElection::new_with_name   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:33  [CODE] crate::sandbox::k8s::client::K8sClient   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:34  [CODE] crate::sandbox::k8s::leader_election::LeaderElection   -> [10d — invert task -> sandbox concretes to ports]
 
-tasks -> server   x9
+tasks -> server   x11
     backend/src/agent/handlers.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/agent/routes.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/agent/service.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/feedback/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/file_storage/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/handlers.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/hooks.rs:26  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/service.rs:15  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/task/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/task_event/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 workspaces -> loops   x1
-    backend/src/repository/handlers.rs:18  [CODE] crate::loops::sync::LoopSyncService   -> [9d / 10g — server-band sync composition (plan :697)]
+    backend/src/repository/handlers.rs:18  [CODE] crate::loops::sync::LoopSyncService   -> [9d / 10g — server-band sync composition]
 
 workspaces -> sandbox-control   x1
-    backend/src/credentials/mod.rs:35  [CODE] crate::sandbox::secrets::GITHUB_TOKEN   -> [9b remainder — GITHUB_TOKEN placement -> core (plan :666)]
+    backend/src/credentials/mod.rs:35  [CODE] crate::sandbox::secrets::GITHUB_TOKEN   -> [9b remainder — GITHUB_TOKEN placement -> core]
 
 workspaces -> server   x7
-    backend/src/credentials/codex/auth_json.rs:13  [CODE] crate::provider_settings::error::ProviderSettingsError   -> [8d error half / error cluster (plan :639)]
-    backend/src/credentials/codex/auth_json.rs:21  [CODE] ProviderSettingsError::BadRequest   -> [8d error half / error cluster (plan :639)]
-    backend/src/credentials/codex/auth_json.rs:24  [CODE] ProviderSettingsError::BadRequest   -> [8d error half / error cluster (plan :639)]
+    backend/src/credentials/codex/auth_json.rs:13  [CODE] crate::provider_settings::error::ProviderSettingsError   -> [8d error half / error cluster]
+    backend/src/credentials/codex/auth_json.rs:21  [CODE] ProviderSettingsError::BadRequest   -> [8d error half / error cluster]
+    backend/src/credentials/codex/auth_json.rs:24  [CODE] ProviderSettingsError::BadRequest   -> [8d error half / error cluster]
     backend/src/plugin/routes.rs:11  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/repository/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/skill/routes.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/workspace/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 workspaces -> tasks   x1
-    backend/src/credentials/mod.rs:39  [CODE] crate::task::dao::TaskDao   -> [9c / 10c — broadcast fan-out refactor (plan :695)]
+    backend/src/credentials/mod.rs:39  [CODE] crate::task::dao::TaskDao   -> [9c / 10c — broadcast fan-out refactor]
 
 == UNPINNED ILLEGAL REFERENCES (headline) — 0 ==
   none
@@ -326,15 +357,15 @@ workspaces -> tasks   x1
   all still in the backend reads WAITING (necessary but not sufficient), not
   READY. Re-run after each carve; the frontier is the first crate below that is
   READY. The base case is the lowest-band crate, which depends only on the floor.
-  FRONTIER -> core: the base case, BLOCKED on 15 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> core: READY now (no illegal outgoing, floor-only deps).
 
-  core               deps: floor / adapter-model only                   BLOCKED — 15 illegal outgoing to identity(x10), server(x4), tasks(x1)
-  identity           deps: core                                         BLOCKED — 26 illegal outgoing to sandbox-control(x2), server(x5), tasks(x1), workspaces(x18)
+  core               deps: floor / adapter-model only                   READY
+  identity           deps: core                                         BLOCKED — 25 illegal outgoing to sandbox-control(x1), server(x6), workspaces(x18)
   workspaces         deps: core, identity                               BLOCKED — 10 illegal outgoing to loops(x1), sandbox-control(x1), server(x7), tasks(x1)
-  tasks              deps: core, identity, workspaces                   BLOCKED — 58 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x9)
+  tasks              deps: core, identity, workspaces                   BLOCKED — 60 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x11)
   sandbox-control    deps: core, identity, tasks, workspaces            BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: core, sandbox-control, tasks, workspaces     WAITING — no illegal outgoing, but its deps are not extracted yet
-  sandbox-docker     deps: core, sandbox-control, workspaces            BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)
+  sandbox-docker     deps: core, sandbox-control, tasks, workspaces     BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)
   loops              deps: core, identity, sandbox-control, tasks, workspaces BLOCKED — 76 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x16)
   adapter-github-pr  deps: core, identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
   adapter-linear     deps: core, identity, loops, sandbox-control, tasks BLOCKED — 14 illegal outgoing to server(x14)
@@ -344,7 +375,7 @@ workspaces -> tasks   x1
   server             deps: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, core, identity, loops, sandbox-control, sandbox-docker, sandbox-k8s, tasks, workspaces WAITING — no illegal outgoing, but its deps are not extracted yet
 
 == TARJAN SCCs (production target-crate graph) ==
-  full graph (legal + illegal edges): CYCLE (14 crates) workspaces <-> sandbox-docker <-> adapter-webhook <-> adapter-telegram <-> adapter-slack <-> server <-> adapter-linear <-> loops <-> tasks <-> sandbox-k8s <-> sandbox-control <-> identity <-> core <-> adapter-github-pr
+  full graph (legal + illegal edges): CYCLE (13 crates) workspaces <-> sandbox-docker <-> adapter-webhook <-> adapter-telegram <-> adapter-slack <-> server <-> adapter-linear <-> loops <-> tasks <-> sandbox-k8s <-> sandbox-control <-> identity <-> adapter-github-pr
   legal edges only (illegal removed): DAG — no multi-crate cycle
 
 == macro_rules! INVENTORY (census scope) ==

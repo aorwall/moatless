@@ -143,8 +143,13 @@ pub struct AuthState {
     /// Encrypted secret store — holds the OAuth token stashed behind a PAT
     /// override, and the validated PAT itself.
     pub secrets: Arc<SecretService>,
-    /// Task DAO — resolves preview-URL host access in the session gate.
-    pub tasks: Arc<dyn crate::task::dao::TaskDao>,
+    /// Preview-URL access for the session gate — the one `may_access_task` bool
+    /// the ForwardAuth gate needs (E-(b)), behind a port so this crate holds no
+    /// `task` import.
+    pub task_access: Arc<dyn crate::extractors::TaskAccess>,
+    /// Verifies the sandbox-issued `X-User-Token` on `exchange_token`, behind a
+    /// port so this crate holds neither the token secret nor a `sandbox` import.
+    pub token_verifier: Arc<dyn crate::extractors::UserTokenVerifier>,
     /// Adapter connections (`adapter_connections`). The Linear OAuth
     /// callback mirrors the authorized workspace into this table so inbound
     /// Linear webhooks resolve a connection.
@@ -171,7 +176,8 @@ impl AuthState {
             secrets: ports.secrets.clone(),
             providers: Arc::new(providers),
             cache,
-            tasks: ports.tasks.clone(),
+            task_access: ports.task_access.clone(),
+            token_verifier: ports.token_verifier.clone(),
             db: ports.pool.clone(),
             config,
         }
@@ -781,28 +787,35 @@ async fn verify_handler(
 ) -> Result<Response, AuthError> {
     let identity = authenticate_request(&state, &headers).await?;
 
-    // For preview URLs, check task-based access control
+    // For preview URLs, check task-based access control.
+    let scope_ctx = ScopeContext {
+        user_id: identity.user_id.to_string(),
+        is_admin: identity.role == UserRole::Admin,
+    };
     let forwarded_host = headers
         .get("x-forwarded-host")
         .and_then(|v| v.to_str().ok());
-    if let Some(host) = forwarded_host {
-        if let Some(task_id) = extract_task_id_from_hostname(host) {
-            let scope_ctx = ScopeContext {
-                user_id: identity.user_id.to_string(),
-                is_admin: identity.role == UserRole::Admin,
-            };
-            let task = state
-                .tasks
-                .find_by_id(task_id, &scope_ctx)
-                .await
-                .map_err(|_| AuthError::Forbidden)?;
-            if task.is_none() {
-                return Err(AuthError::Forbidden);
-            }
-        }
-    }
+    enforce_preview_access(state.task_access.as_ref(), &scope_ctx, forwarded_host).await?;
 
     Ok((StatusCode::OK, "OK").into_response())
+}
+
+/// The preview-URL session gate: when `forwarded_host` names a preview host,
+/// `Forbidden` unless `scope_ctx` may reach its task. A non-preview host (or none)
+/// passes without consulting the port. Split out so the gate is testable without
+/// the authentication machinery in front of it.
+async fn enforce_preview_access(
+    task_access: &dyn crate::extractors::TaskAccess,
+    scope_ctx: &ScopeContext,
+    forwarded_host: Option<&str>,
+) -> Result<(), AuthError> {
+    let Some(host) = forwarded_host else { return Ok(()) };
+    let Some(task_id) = extract_task_id_from_hostname(host) else { return Ok(()) };
+    if task_access.may_access_task(task_id, scope_ctx).await {
+        Ok(())
+    } else {
+        Err(AuthError::Forbidden)
+    }
 }
 
 /// Extract task ID from a preview hostname.
@@ -1560,17 +1573,17 @@ async fn exchange_token_handler(
         .and_then(|v| v.to_str().ok())
         .ok_or(AuthError::Unauthorized)?;
 
-    let secret = state
-        .config
-        .sandbox
-        .task_token_secret
-        .as_deref()
-        .ok_or_else(|| AuthError::Config("TASK_TOKEN_SECRET not configured".to_string()))?;
+    let verified = state
+        .token_verifier
+        .verify_user_token(token)
+        .map_err(|e| match e {
+            crate::extractors::TokenVerifyError::NotConfigured => {
+                AuthError::Config("TASK_TOKEN_SECRET not configured".to_string())
+            }
+            crate::extractors::TokenVerifyError::Invalid(_) => AuthError::Unauthorized,
+        })?;
 
-    let claims = crate::sandbox::jwt::verify_user_auth_token(token, secret)
-        .map_err(|_| AuthError::Unauthorized)?;
-
-    let user_id = claims
+    let user_id = verified
         .user_id
         .parse::<uuid::Uuid>()
         .map_err(|_| AuthError::Unauthorized)?;
@@ -2439,4 +2452,73 @@ async fn linear_callback_handler(
         [("Location", redirect.as_str())],
     )
         .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A `TaskAccess` that answers with a fixed verdict and counts its calls,
+    /// so a test can assert both the returned decision and whether the gate
+    /// consulted the port at all.
+    struct FakeTaskAccess {
+        allow: bool,
+        calls: AtomicUsize,
+    }
+
+    impl FakeTaskAccess {
+        fn new(allow: bool) -> Self {
+            Self {
+                allow,
+                calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::extractors::TaskAccess for FakeTaskAccess {
+        async fn may_access_task(&self, _task_id: &str, _ctx: &ScopeContext) -> bool {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.allow
+        }
+    }
+
+    fn scope_ctx() -> ScopeContext {
+        ScopeContext {
+            user_id: "user-1".to_string(),
+            is_admin: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn preview_gate_denies_task_the_scope_cannot_see() {
+        let access = FakeTaskAccess::new(false);
+        let result =
+            enforce_preview_access(&access, &scope_ctx(), Some("task-1--abc.preview.example.com"))
+                .await;
+        assert!(matches!(result, Err(AuthError::Forbidden)));
+        assert_eq!(access.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn preview_gate_allows_task_the_scope_can_see() {
+        let access = FakeTaskAccess::new(true);
+        let result =
+            enforce_preview_access(&access, &scope_ctx(), Some("task-1--abc.preview.example.com"))
+                .await;
+        assert!(result.is_ok());
+        assert_eq!(access.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn non_preview_host_passes_without_consulting_the_port() {
+        // A host with no `--` segment is not a preview URL; the gate must not
+        // deny it and must not touch the port.
+        let access = FakeTaskAccess::new(false);
+        let result =
+            enforce_preview_access(&access, &scope_ctx(), Some("app.example.com")).await;
+        assert!(result.is_ok());
+        assert_eq!(access.calls.load(Ordering::SeqCst), 0);
+    }
 }

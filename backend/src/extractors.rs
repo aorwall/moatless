@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::StatusCode;
@@ -48,6 +49,19 @@ pub enum TokenVerifyError {
     NotConfigured,
     /// A token was present but did not verify.
     Invalid(String),
+}
+
+/// Whether the authenticated caller may reach a task's preview URL — the one
+/// authorization bit the ForwardAuth session gate needs.
+///
+/// Declared consumer-side (identity) so `verify_handler` holds this bool port
+/// rather than a `TaskDao`: the implementation over `TaskDao` lives in the tasks
+/// band, behind this port, which is why the gate costs identity no `task` import.
+#[async_trait]
+pub trait TaskAccess: Send + Sync {
+    /// True iff the task exists and `ctx` is allowed to see it. Fail-closed: an
+    /// implementation denies (returns `false`) on a lookup error.
+    async fn may_access_task(&self, task_id: &str, ctx: &ScopeContext) -> bool;
 }
 
 /// Authenticated user extracted from request extensions, user token, or dev-mode headers.

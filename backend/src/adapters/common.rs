@@ -8,7 +8,7 @@ use moatless_api_schemas::loops::{
 };
 use serde::Deserialize;
 
-use crate::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
+use moatless_backend_core::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
 // `parse_adapter_kind` now lives in `moatless-adapter-model`; re-exported so the

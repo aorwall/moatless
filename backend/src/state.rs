@@ -269,6 +269,7 @@ impl AppState {
             secrets,
             github_apps,
             github_app_service,
+            token_verifier,
             ..
         } = ports.clone();
 
@@ -412,11 +413,6 @@ impl AppState {
             lifecycle.clone(),
             preflight.clone(),
         ));
-
-        let token_verifier: Arc<dyn crate::extractors::UserTokenVerifier> =
-            Arc::new(crate::sandbox::jwt::JwtUserTokenVerifier::new(
-                config.sandbox.task_token_secret.clone(),
-            ));
 
         // Config-section ports, built once so a secret-bearing section is never
         // re-cloned per request. `config` still holds the whole tree for

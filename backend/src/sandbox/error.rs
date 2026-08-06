@@ -89,7 +89,7 @@ pub enum SandboxError {
 
     /// The authorization check for a sandbox request could not be evaluated.
     #[error("Sandbox authorization check failed")]
-    Authorization(#[from] crate::access_control::AccessControlError),
+    Authorization(#[from] moatless_backend_core::access_control::AccessControlError),
 
     /// A runtime step raised by a provider's own helpers (node-archive
     /// bookkeeping, log streaming). Kept as a source so `map_sandbox_error`

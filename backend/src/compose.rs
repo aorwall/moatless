@@ -70,6 +70,9 @@ pub struct Ports {
     pub pool: DbPool,
 
     pub tasks: Arc<dyn TaskDao>,
+    /// E-(b) session-gate port: the one `may_access_task` bool the auth
+    /// ForwardAuth gate needs, over `TaskDao`, so identity holds no `task` import.
+    pub task_access: Arc<dyn crate::extractors::TaskAccess>,
     pub task_relations: Arc<dyn TaskRelationDao>,
     /// Task↔external-subject bindings (`task_bindings`).
     pub task_bindings: Arc<dyn TaskBindingDao>,
@@ -104,6 +107,9 @@ pub struct Ports {
     pub api_keys: Arc<dyn ApiKeyDao>,
     pub provider_tokens: Arc<dyn ProviderTokenDao>,
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
+    /// Verifies sandbox-issued user tokens behind a port, so the token secret
+    /// and `sandbox::jwt` stay out of the auth handlers that consume it.
+    pub token_verifier: Arc<dyn crate::extractors::UserTokenVerifier>,
     pub secret_records: Arc<dyn SecretDao>,
     pub secret_audits: Arc<dyn SecretAuditDao>,
 
@@ -148,8 +154,12 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
     let github_apps = github_app_registry(config, Some(adapter_apps), cipher);
     let github_app_service = github_apps.default_service();
 
+    // One PgTaskDao serves both the TaskDao port and the E-(b) TaskAccess port.
+    let task_dao = Arc::new(PgTaskDao(pool.clone()));
+
     Ports {
-        tasks: Arc::new(PgTaskDao(pool.clone())),
+        tasks: task_dao.clone(),
+        task_access: task_dao,
         task_relations: Arc::new(PgTaskRelationDao(pool.clone())),
         task_bindings: Arc::new(PgTaskBindingDao::new(pool.clone())),
         task_events: Arc::new(PgTaskEventDao(pool.clone())),
@@ -173,6 +183,9 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         api_keys,
         provider_tokens: Arc::new(PgProviderTokenDao(pool.clone())),
         provider_token_auth: Arc::new(PgProviderTokenAuthDao(pool.clone())),
+        token_verifier: Arc::new(crate::sandbox::jwt::JwtUserTokenVerifier::new(
+            config.sandbox.task_token_secret.clone(),
+        )),
         secret_records,
         secret_audits,
 

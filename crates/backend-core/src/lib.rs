@@ -11,6 +11,7 @@
     )
 )]
 
+pub mod access_control;
 pub mod activity;
 // Device pairing stores and consumes codes, so the whole module needs `sqlx`.
 #[cfg(feature = "database")]
