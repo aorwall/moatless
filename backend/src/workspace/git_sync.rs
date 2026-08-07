@@ -290,7 +290,7 @@ impl GitSyncService {
                         continue;
                     }
 
-                    let run = match run_config_from_entry(entry) {
+                    let mut run = match run_config_from_entry(entry) {
                         Ok(run) => run,
                         Err(e) => {
                             summary.skipped.push(WorkspaceSyncSkip {
@@ -300,6 +300,7 @@ impl GitSyncService {
                             continue;
                         }
                     };
+                    strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json");
                     let placements = self.resolve_placements(repo, &entry.repos, auth).await?;
 
                     present.insert(source_key.clone());
@@ -324,7 +325,7 @@ impl GitSyncService {
                 if let Some(config) =
                     fetch_moatless_config(remote_url, branch, token_str, provider).await?
                 {
-                    let run = match run_config_from_moatless_config(&config) {
+                    let mut run = match run_config_from_moatless_config(&config) {
                         Ok(run) => run,
                         Err(e) => {
                             summary.skipped.push(WorkspaceSyncSkip {
@@ -334,6 +335,7 @@ impl GitSyncService {
                             return Ok(summary);
                         }
                     };
+                    strip_git_declared_identity(&mut run, &repo.id, ".moatless/config.json");
                     present.insert(CONFIG_JSON_KEY.to_string());
                     let desired = DesiredWorkspace {
                         fixed_id: Some(format!("ws_{}", repo.id)),
@@ -464,6 +466,41 @@ fn record_outcome(summary: &mut WorkspaceSyncSummary, outcome: UpsertOutcome, so
             source_key: source_key.to_string(),
             reason: "manually overridden".to_string(),
         }),
+    }
+}
+
+/// Drop a privileged sandbox identity declared in repo config.
+///
+/// `.moatless/workspaces.json` and `.moatless/config.json` are writable by
+/// anyone with commit access to the synced repo — a strictly wider set than
+/// "moatless admin", and for a public repo an effectively unbounded one. Since
+/// `sandbox_service_account` and `network_profile` are what opt a sandbox into
+/// an elevated Kubernetes identity (see
+/// `handlers::ensure_privileged_sandbox_fields`), honouring them here would
+/// reopen through git exactly the escalation the API gate closes: a user could
+/// commit `sandboxServiceAccount: moatless-admin` and inherit read access to
+/// the app namespace's Secrets.
+///
+/// Dropped rather than rejected, so one stray field cannot fail a repo's whole
+/// sync. The warning names the file so an operator can see it happened. An
+/// admin can still elevate a git-synced workspace through the override
+/// endpoint, which carries the same gate.
+fn strip_git_declared_identity(run: &mut RunConfig, repository_id: &str, source_config_path: &str) {
+    if let Some(account) = run.sandbox_service_account.take() {
+        warn!(
+            %repository_id,
+            source_config_path,
+            declared = %account,
+            "Ignoring repo-declared sandboxServiceAccount: a privileged sandbox identity is admin-only"
+        );
+    }
+    if let Some(profile) = run.network_profile.take() {
+        warn!(
+            %repository_id,
+            source_config_path,
+            declared = %profile,
+            "Ignoring repo-declared networkProfile: a privileged sandbox identity is admin-only"
+        );
     }
 }
 
@@ -1109,6 +1146,55 @@ mod tests {
         // config.json has no dockerAccess/envVars.
         assert!(run.docker_access.is_none());
         assert!(run.env_vars.is_none());
+    }
+
+    /// Repo config may not hand a sandbox an elevated Kubernetes identity —
+    /// otherwise anyone with commit access could grant themselves the same
+    /// access the admin-only API gate withholds.
+    #[test]
+    fn git_declared_privileged_identity_is_stripped() {
+        let config = MoatlessRepoConfig {
+            docker_image: Some("myregistry/custom-sandbox:latest".to_string()),
+            code_execution: None,
+            servers: None,
+            system_prompt: Some("Be helpful".to_string()),
+            resources: None,
+            sandbox_service_account: Some("moatless-admin".to_string()),
+            network_profile: Some("moatless-admin".to_string()),
+        };
+
+        let mut run = run_config_from_moatless_config(&config).unwrap();
+        strip_git_declared_identity(&mut run, "repo-1", ".moatless/config.json");
+
+        assert!(run.sandbox_service_account.is_none());
+        assert!(run.network_profile.is_none());
+        // Everything else the repo declares still syncs.
+        assert_eq!(
+            run.docker_image,
+            Some("myregistry/custom-sandbox:latest".to_string())
+        );
+        assert_eq!(run.system_prompt, Some("Be helpful".to_string()));
+    }
+
+    /// Stripping is unconditional, so a repo declaring neither is unaffected
+    /// and logs nothing.
+    #[test]
+    fn strip_is_a_noop_without_declared_identity() {
+        let config = MoatlessRepoConfig {
+            docker_image: None,
+            code_execution: None,
+            servers: None,
+            system_prompt: None,
+            resources: None,
+            sandbox_service_account: None,
+            network_profile: None,
+        };
+
+        let mut run = run_config_from_moatless_config(&config).unwrap();
+        strip_git_declared_identity(&mut run, "repo-1", ".moatless/config.json");
+
+        assert!(run.sandbox_service_account.is_none());
+        assert!(run.network_profile.is_none());
     }
 
     #[test]

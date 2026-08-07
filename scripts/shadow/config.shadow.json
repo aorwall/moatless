@@ -5,10 +5,14 @@
   "//3": "config.json for a dev task. Do NOT make this the default for agent tasks —",
   "//4": "the backend sidecar compiles Rust on start, which is heavy.",
   "//5": "The sandbox image must include the Rust toolchain + bun (full sandbox image).",
-  "//6": "sandboxServiceAccount runs this repo's sandbox under the moatless-dev SA",
-  "//7": "so the shadow backend can provision sandboxes. Enable the SA + RoleBindings",
-  "//8": "in Helm: set shadowDev.enabled=true (k8s/helm/moatless-vibe/values.yaml).",
-  "sandboxServiceAccount": "moatless-dev",
+  "//6": "sandboxServiceAccount is deliberately NOT set here: git-declared values are",
+  "//7": "stripped on sync (git_sync.rs::strip_git_declared_identity), because repo",
+  "//8": "files are writable by anyone with commit access. The shadow backend needs",
+  "//9": "the moatless-dev SA to provision sandboxes, so an admin sets it on the",
+  "//10": "workspace instead: moat workspaces update <id> --sandbox-service-account",
+  "//11": "moatless-dev -- or `override` rather than `update` if that workspace is",
+  "//12": "git-synced (source=git), which `update` rejects with a 409.",
+  "//13": "Enable the SA + RoleBindings in Helm first: shadowDev.enabled=true.",
   "codeExecution": {
     "setupCommands": [
       "curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash",

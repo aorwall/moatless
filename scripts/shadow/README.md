@@ -34,15 +34,14 @@ A preview server is a **container in the sandbox pod**, generated from the repo'
 So the shadow backend should run **as a server** with
 `startCommands: ["bash scripts/shadow/up.sh"]`. Put it on a **dedicated
 repository record** — **not** the shared/global `moatless-vibe` repo. That repo
-is global, so adding the `backend` server (or `sandboxServiceAccount`) there
-makes **every** moatless-vibe task (agents included) compile Rust on start and
-run under the elevated `moatless-dev` SA. Keep it isolated:
+is global, so adding the `backend` server there makes **every** moatless-vibe
+task (agents included) compile Rust on start. Keep it isolated:
 
 ```bash
 # User-scoped dev repo pointing at the same GitHub repo (only you use it):
 moat repos create --name "moatless-vibe (shadow)" \
   --git-url https://github.com/soaplabs/moatless-vibe --branch main \
-  --sandbox-service-account moatless-dev --docker-access true \
+  --docker-access true \
   --storage 40Gi --storage-mode s3 \
   --setup-command 'curl -fsSL https://bun.sh/install | BUN_INSTALL=/opt/moatless/data/.bun bash' \
   --setup-command '/opt/moatless/data/.bun/bin/bun install' \
@@ -53,8 +52,26 @@ moat repos create --name "moatless-vibe (shadow)" \
      "startCommands":["bash scripts/shadow/up.sh"],"startupTimeoutSeconds":600}]'
 ```
 
+The elevated identity is **not** part of that command — `sandboxServiceAccount`
+lives on the workspace, is admin-only, and has no `moat repos` flag. Grant it
+separately once the repo's workspace exists (see
+[Phase 2](#phase-2--provisioning-powers-rbac-only)):
+
+```bash
+# Manual workspace:
+moat workspaces update   <workspace-id> --sandbox-service-account moatless-dev
+# Workspace synced from .moatless/workspaces.json (source=git) — `update` 409s:
+moat workspaces override <workspace-id> --sandbox-service-account moatless-dev
+```
+
+Check which you have with `moat workspaces get <workspace-id>`; `override` is
+the one that takes a git-synced workspace, and it flips `source` to `manual` so
+git sync leaves it alone from then on. See
+[Phase 2](#phase-2--provisioning-powers-rbac-only) for the full caveat.
+
 `config.shadow.json` is the equivalent as a committed `.moatless/config.json` if
-you'd rather wire it via a shadow branch. Provisioning a task on the shadow repo
+you'd rather wire it via a shadow branch — for the servers and setup commands
+only; it cannot carry the SA. Provisioning a task on the shadow repo
 builds a `backend-server` container (visible in the sandbox view,
 `moat tasks logs $TASK_ID --server backend`) alongside the `dev` frontend. Open
 the `--3000` preview URL; the frontend proxies `/api` to the sibling backend.
@@ -235,14 +252,38 @@ helm upgrade moatless-vibe k8s/helm/moatless-vibe -n moatless --set shadowDev.en
 # or: task deploy   (uses the chart)
 ```
 
-Then run the moatless-vibe dev sandbox under that SA via the **per-repo**
-`sandboxServiceAccount` override (already wired end-to-end into `pod_builder.rs`):
-- set in `scripts/shadow/config.shadow.json` (`"sandboxServiceAccount": "moatless-dev"`), or
-- set on the repository via the API / `moat repo` config.
+Then run the shadow sandbox under that SA via the **per-workspace**
+`sandboxServiceAccount` override (wired end-to-end into `pod_builder.rs`):
 
-Only that repo's sandboxes run elevated — every other repo keeps the default SA.
-(You *can* instead set it globally with `K8S_SANDBOX_SERVICE_ACCOUNT=moatless-dev`,
-but that elevates every sandbox on the cluster.)
+```bash
+# Admin-only — the API returns 403 otherwise.
+# `update` is for manual workspaces; it 409s on a git-synced one.
+moat workspaces update   <workspace-id> --sandbox-service-account moatless-dev
+
+# A workspace declared in .moatless/workspaces.json has source=git, so use:
+moat workspaces override <workspace-id> --sandbox-service-account moatless-dev
+```
+
+Only that workspace's sandboxes run elevated — every other workspace keeps the
+default SA. (You *can* instead set it globally with
+`K8S_SANDBOX_SERVICE_ACCOUNT=moatless-dev`, but that elevates every sandbox on
+the cluster.)
+
+> **`override` is a one-way door until you reclaim it.** It sets `source=manual`
+> so git sync stops updating that workspace — later edits to
+> `.moatless/workspaces.json` no longer reach it, and you re-apply them by hand.
+> `moat workspaces reset-git <workspace-id>` hands it back to git, but that
+> re-syncs from the committed config, which means the SA is stripped again
+> (git-declared identity is never honoured) and you have to re-`override` to
+> restore it.
+
+> **Not settable from git.** `sandboxServiceAccount` in `.moatless/config.json`
+> or `.moatless/workspaces.json` is stripped on sync
+> (`git_sync.rs::strip_git_declared_identity`) and a warning naming the file is
+> logged. Repo files are writable by anyone with commit access, a wider set
+> than "admin", so honouring them would bypass the gate. There is likewise no
+> `moat repos --sandbox-service-account` flag — the field lives on the
+> workspace, not the repository.
 
 ## Phase 3 — own the control loop (small Rust change)
 

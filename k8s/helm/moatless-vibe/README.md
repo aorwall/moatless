@@ -357,10 +357,22 @@ provision sandboxes.
 helm upgrade moatless-vibe k8s/helm/moatless-vibe -n moatless --set shadowDev.enabled=true
 ```
 
-Then opt a repo's sandboxes into that identity with the per-repo
-`sandboxServiceAccount` field (via `.moatless/config.json` or the repository API /
-`moat repos create|update --sandbox-service-account moatless-dev`). Only that
-repo's sandboxes run elevated. See `scripts/shadow/README.md` for the full flow.
+Then opt one workspace into that identity — **admin-only**, like every other
+privileged sandbox identity:
+
+```bash
+moat workspaces update   <workspace-id> --sandbox-service-account moatless-dev
+# ...or `override` instead of `update` if the workspace came from git (see below)
+```
+
+Only that workspace's sandboxes run elevated. See `scripts/shadow/README.md`
+for the full flow.
+
+> `sandboxServiceAccount` declared in `.moatless/config.json` or
+> `.moatless/workspaces.json` is **ignored** — git-sync strips it and logs a
+> warning naming the file. Repo files are writable by anyone with commit
+> access, which is a wider set than "admin", so honouring them would bypass the
+> gate. Set it through the API instead.
 
 > Dev clusters only. The field just *selects* the SA — RBAC (these bindings) is
 > what grants power, so leave `shadowDev.enabled=false` in production.
@@ -432,13 +444,26 @@ moat workspaces update <workspace-id> \
   --network-profile cluster-reader
 ```
 
+`update` only accepts a **manual** workspace. One synced from a repo's
+`.moatless/workspaces.json` has `source=git` and is read-only, so `update`
+returns 409 — use `moat workspaces override` with the same flags. That sets
+`source=manual`, which takes the workspace out of git sync until you hand it
+back with `moat workspaces reset-git` (and that re-sync drops the identity
+fields again, since git-declared values are never honoured).
+
 `sandboxServiceAccount` and `networkProfile` are what actually inherit a
-profile, so the API restricts both to admins
-(`workspace/handlers.rs::ensure_privileged_sandbox_fields`). Without that,
-enabling a profile here would make it self-serve for anyone who can create a
-workspace, and "point one workspace at it" would be advice rather than a
-control. The check only fires when a request carries the fields, so ordinary
-non-admin edits are unaffected.
+profile, so **every** write path restricts them — otherwise enabling a profile
+here would make it self-serve for anyone who can create a workspace, and "point
+one workspace at it" would be advice rather than a control:
+
+| Path | Behaviour |
+|------|-----------|
+| `POST /workspaces`, `PATCH /workspaces/{id}`, `POST /workspaces/{id}/override` | 403 for non-admins, via `handlers.rs::ensure_privileged_sandbox_fields`. Only fires when the request carries a field, so ordinary non-admin edits are unaffected. |
+| Git sync — `.moatless/workspaces.json`, `.moatless/config.json` | Both fields stripped and a warning logged naming the file, via `git_sync.rs::strip_git_declared_identity`. Repo files are writable by anyone with commit access, a wider set than "admin". |
+
+Taking ownership of a git-synced workspace through `override` is deliberately
+not a way around this: that endpoint skips the mutability check but keeps the
+privilege gate.
 
 Verify from inside a sandbox of that workspace:
 

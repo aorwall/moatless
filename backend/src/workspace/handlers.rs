@@ -440,6 +440,14 @@ pub async fn override_workspace(
     // Intentionally skipping `ensure_workspace_mutable` — this endpoint is the
     // explicit way to take ownership of a git-synced workspace. The DAO
     // control_filter ensures only the owner/admin can do this.
+    //
+    // The privileged-field gate is NOT skipped: taking ownership of a workspace
+    // is not the same as being allowed to elevate it.
+    ensure_privileged_sandbox_fields(
+        &ctx,
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
+    )?;
 
     let patch = WorkspacePatch {
         name: req.name,

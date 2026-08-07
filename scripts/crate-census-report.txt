@@ -23,7 +23,7 @@ UNRESOLVED     11  (glob-through-facade / prelude / macro-var — audited below)
   identity  (68 files, 16110 lines)
     adapter_apps/ auth/ extractors.rs secret/ setup/ team/
 
-  workspaces  (41 files, 10903 lines)
+  workspaces  (41 files, 10997 lines)
     credentials/ plugin/ repository/ skill/ workspace/
 
   tasks  (74 files, 19951 lines)
@@ -65,7 +65,7 @@ UNRESOLVED     11  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 139632 lines
+  TOTAL backend/src: 139726 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (19 classes) ==
 
