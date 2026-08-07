@@ -2,10 +2,19 @@
 
 pub mod handlers;
 
+use std::sync::Arc;
+
+use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use crate::state::AppState;
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::auth::users::UserDao;
+use crate::bindings::dao::TaskBindingDao;
+use crate::extractors::UserTokenVerifier;
+use crate::loops::dao::LoopDao;
+use crate::loops::sync::LoopSyncService;
+use crate::repository::dao::RepositoryDao;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -27,7 +36,24 @@ use crate::state::AppState;
 pub struct LoopsApiDoc;
 
 /// Build the Loop router.
-pub fn loops_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
+///
+/// Generic over the router state `S` so this module names no root type: the
+/// composition root supplies the concrete state at the call site, and each
+/// registered handler reaches its ports — the `loops`, `users`,
+/// `task_bindings`, `repositories`, `adapter_connections` DAOs, the
+/// `LoopSyncService`, and the `UserTokenVerifier` behind `AuthUser` — through
+/// `FromRef<S>`.
+pub fn loops_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
+where
+    S: Clone + Send + Sync + 'static,
+    Arc<LoopDao>: FromRef<S>,
+    Arc<dyn UserDao>: FromRef<S>,
+    Arc<dyn TaskBindingDao>: FromRef<S>,
+    Arc<dyn RepositoryDao>: FromRef<S>,
+    Arc<LoopSyncService>: FromRef<S>,
+    Arc<dyn AdapterConnectionDao>: FromRef<S>,
+    Arc<dyn UserTokenVerifier>: FromRef<S>,
+{
     let (router, api) = OpenApiRouter::with_openapi(LoopsApiDoc::openapi())
         .routes(routes!(handlers::list_loops, handlers::create_loop))
         .routes(routes!(handlers::get_loop))
@@ -38,7 +64,7 @@ pub fn loops_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi)
         .routes(routes!(handlers::resume_loop))
         .routes(routes!(handlers::override_loop))
         .routes(routes!(handlers::reset_git_loop))
-        .with_state(state.clone())
+        .with_state(state)
         .split_for_parts();
 
     (router, api)

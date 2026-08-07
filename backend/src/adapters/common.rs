@@ -9,12 +9,14 @@ use moatless_api_schemas::loops::{
 use serde::Deserialize;
 
 use moatless_backend_core::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
+use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, TaskBinding};
 // `parse_adapter_kind` now lives in `moatless-adapter-model`; re-exported so the
 // handler-support callers here and in `loops`/`task` keep their path unchanged.
 pub(crate) use crate::adapters::models::parse_adapter_kind;
-use crate::loops::dao::{LoopRecord, LoopSourceRow};
+use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};
+use crate::repository::dao::RepositoryDao;
 use crate::state::AppState;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
@@ -151,13 +153,15 @@ pub(crate) fn next_fire_at(
         .ok_or_else(|| AdapterError::BadRequest("Schedule has no future fire time".to_string()))
 }
 
+/// Verify a repository exists and the caller may use it, through the one port
+/// it needs — the `repositories` DAO. Its sole caller (the Loop HTTP handlers)
+/// already holds the port, so this names no `AppState` and carries no door.
 pub(crate) async fn ensure_repository_exists(
-    state: &AppState,
+    repositories: &dyn RepositoryDao,
     ctx: &ScopeContext,
     repository_id: &str,
 ) -> Result<(), AdapterError> {
-    let repo = state
-        .repositories
+    let repo = repositories
         .find_by_id(repository_id, ctx)
         .await?
         .ok_or_else(|| AdapterError::BadRequest(format!("Repository {repository_id} not found")))?;
@@ -189,8 +193,18 @@ pub(crate) async fn load_adapter_connection_for_auth(
     ctx: &ScopeContext,
     id: &str,
 ) -> Result<AdapterConnection, AdapterError> {
-    state
-        .adapter_connections
+    load_adapter_connection_for_auth_with(state.adapter_connections.as_ref(), ctx, id).await
+}
+
+/// [`load_adapter_connection_for_auth`] through the one port it needs — the
+/// `adapter_connections` DAO. A caller that already holds the port calls this
+/// directly and never names `AppState`.
+pub(crate) async fn load_adapter_connection_for_auth_with(
+    adapter_connections: &dyn AdapterConnectionDao,
+    ctx: &ScopeContext,
+    id: &str,
+) -> Result<AdapterConnection, AdapterError> {
+    adapter_connections
         .find_by_id(id, ctx)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Provider connection {id} not found")))
@@ -205,8 +219,18 @@ pub(crate) async fn load_loop_for_auth(
     ctx: &ScopeContext,
     id: &str,
 ) -> Result<LoopRecord, AdapterError> {
-    state
-        .loops
+    load_loop_for_auth_with(state.loops.as_ref(), ctx, id).await
+}
+
+/// [`load_loop_for_auth`] through the one port it needs — the `loops` DAO. A
+/// caller that already holds the port calls this directly and never names
+/// `AppState`.
+pub(crate) async fn load_loop_for_auth_with(
+    loops: &LoopDao,
+    ctx: &ScopeContext,
+    id: &str,
+) -> Result<LoopRecord, AdapterError> {
+    loops
         .get(id, ctx)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))
