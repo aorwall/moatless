@@ -19,7 +19,6 @@ backend/src/adapters/capabilities.rs
 backend/src/adapters/common.rs
 backend/src/adapters/delivery/typed.rs
 backend/src/adapters/handlers.rs
-backend/src/adapters/inbound_delivery.rs
 backend/src/adapters/providers/github_pr/api_routes.rs
 backend/src/adapters/providers/github_pr/delivery.rs
 backend/src/adapters/providers/github_pr/handlers.rs
@@ -50,7 +49,6 @@ backend/src/adapters/providers/telegram/handlers.rs
 backend/src/adapters/providers/telegram/ingress.rs
 backend/src/adapters/providers/telegram/poller.rs
 backend/src/adapters/providers/webhook/delivery.rs
-backend/src/adapters/subject_events.rs
 backend/src/agent/handlers.rs
 backend/src/agent/service.rs
 backend/src/bindings/handlers.rs

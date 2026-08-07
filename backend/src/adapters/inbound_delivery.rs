@@ -15,7 +15,8 @@
 //!
 //! [`route_inbound_message`]: crate::bindings::runtime::route_inbound_message
 
-use moatless_backend_core::scope::ScopeContext;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::adapters::delivery::{
@@ -23,8 +24,8 @@ use crate::adapters::delivery::{
 };
 use crate::adapters::error::AdapterError;
 use crate::adapters::metrics::record_webhook;
-use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
-use crate::state::AppState;
+use crate::adapters::models::InboundMessage;
+use crate::bindings::runtime::RoutingService;
 
 /// Everything [`route_inbound_message`] needs, in a form that outlives the
 /// process that admitted it.
@@ -53,17 +54,6 @@ pub(crate) struct InboundDeliveryPayload {
     pub(crate) message: InboundMessage,
 }
 
-/// The connection or Loop a record was admitted against is gone.
-///
-/// A synthesized condition, not a wrapped failure: there is no underlying
-/// error to retain, and no retry can bring the row back.
-#[derive(Debug, thiserror::Error)]
-#[error("the {what} (`{id}`) this delivery was admitted for is no longer available")]
-struct Vanished {
-    what: &'static str,
-    id: String,
-}
-
 /// Routes one admitted inbound message.
 ///
 /// Idempotent as the seam requires, and not by its own doing: repeat delivery
@@ -76,12 +66,12 @@ struct Vanished {
 pub(crate) struct InboundMessageHandler {
     /// Sender label used for routing, bindings, and metrics.
     adapter: &'static str,
-    state: AppState,
+    routing: Arc<RoutingService>,
 }
 
 impl InboundMessageHandler {
-    pub(crate) fn new(adapter: &'static str, state: AppState) -> Self {
-        Self { adapter, state }
+    pub(crate) fn new(adapter: &'static str, routing: Arc<RoutingService>) -> Self {
+        Self { adapter, routing }
     }
 }
 
@@ -100,19 +90,23 @@ impl AdapterDeliveryHandler for InboundMessageHandler {
             message,
         } = payload;
 
-        let (connection, subscription) = resolve(&self.state, &connection_id, &loop_id).await?;
+        let (connection, subscription) = self
+            .routing
+            .resolve_connection_and_subscription(&connection_id, &loop_id)
+            .await?;
 
-        let outcome = crate::bindings::runtime::route_inbound_message(
-            &self.state,
-            &connection,
-            &subscription,
-            message,
-            self.adapter,
-            &subject_kind,
-            &subject_key,
-            destination_config,
-        )
-        .await;
+        let outcome = self
+            .routing
+            .route_inbound_message(
+                &connection,
+                &subscription,
+                message,
+                self.adapter,
+                &subject_kind,
+                &subject_key,
+                destination_config,
+            )
+            .await;
 
         // The webhook outcome metric stays this path's responsibility. The
         // seam's own execution metric is `{adapter, kind, outcome}` and is
@@ -144,48 +138,6 @@ impl AdapterDeliveryHandler for InboundMessageHandler {
             }
         }
     }
-}
-
-/// Re-read the connection and Loop the work was admitted against.
-///
-/// Read at execution time rather than captured at admission so the work runs
-/// against the current configuration, and so a deleted Loop ends the record
-/// instead of routing through a stale copy of itself.
-async fn resolve(
-    state: &AppState,
-    connection_id: &str,
-    loop_id: &str,
-) -> Result<(AdapterConnection, SubscriptionMatch), AdapterDeliveryFailure> {
-    // reason: a durable Adapter delivery runs in the worker with no user session;
-    // the connection is named by an already-admitted record, not by caller
-    // input.
-    #[allow(clippy::disallowed_methods)]
-    let sys_ctx = ScopeContext::system();
-    let connection = state
-        .adapter_connections
-        .find_by_id(connection_id, &sys_ctx)
-        .await
-        .map_err(AdapterDeliveryFailure::retryable)?
-        .ok_or_else(|| {
-            AdapterDeliveryFailure::permanent(Vanished {
-                what: "adapter connection",
-                id: connection_id.to_string(),
-            })
-        })?;
-
-    let subscription = state
-        .loops
-        .find_runnable_subscription_by_id(loop_id)
-        .await
-        .map_err(AdapterDeliveryFailure::retryable)?
-        .ok_or_else(|| {
-            AdapterDeliveryFailure::permanent(Vanished {
-                what: "Loop",
-                id: loop_id.to_string(),
-            })
-        })?;
-
-    Ok((connection, subscription))
 }
 
 /// Build the durable request for one inbound message, keyed by the sender's
@@ -339,18 +291,6 @@ mod tests {
         let source = std::error::Error::source(&failure).expect("the routing error is retained");
         assert!(source.to_string().contains("tt_1"));
     }
-
-    #[test]
-    fn a_vanished_row_names_what_is_missing() {
-        let failure = AdapterDeliveryFailure::permanent(Vanished {
-            what: "Loop",
-            id: "tt_gone".into(),
-        });
-        let source = std::error::Error::source(&failure).expect("the cause is retained");
-        let rendered = source.to_string();
-        assert!(rendered.contains("Loop"), "{rendered}");
-        assert!(rendered.contains("tt_gone"), "{rendered}");
-    }
 }
 
 #[cfg(all(test, feature = "db-tests"))]
@@ -368,8 +308,8 @@ mod db_tests {
     use tokio_util::sync::CancellationToken;
 
     use crate::adapters::delivery::{
-        spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryPolicy,
-        AdapterDeliveryRequest, AdapterDeliveryStore,
+        AdapterDeliveryHandlers, AdapterDeliveryPolicy, AdapterDeliveryRequest,
+        AdapterDeliveryStore, spawn_adapter_delivery_worker,
     };
 
     use super::*;

@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 176
+# Illegal edge count: 174
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -99,14 +99,12 @@ loops                  -> server               [CODE] backend/src/adapters/capab
 loops                  -> server               [CODE] backend/src/adapters/common.rs:18  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/delivery/typed.rs:16  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/handlers.rs:20  crate::state::AppState
-loops                  -> server               [CODE] backend/src/adapters/inbound_delivery.rs:27  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/registry/bootstrap.rs:5  crate::compose::Ports
 loops                  -> server               [CODE] backend/src/adapters/routes.rs:10  crate::state::AppState
-loops                  -> server               [CODE] backend/src/adapters/subject_events.rs:9  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/handlers.rs:18  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/outbound.rs:6  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/reply.rs:10  crate::state::AppState
-loops                  -> server               [CODE] backend/src/bindings/runtime.rs:12  crate::state::AppState
+loops                  -> server               [CODE] backend/src/bindings/runtime.rs:21  crate::state::AppState
 loops                  -> server               [CODE] backend/src/loops/firing/schedule_runner.rs:16  crate::state::AppState
 loops                  -> server               [CODE] backend/src/loops/http/handlers.rs:25  crate::state::AppState
 loops                  -> server               [CODE] backend/src/loops/http/mod.rs:8  crate::state::AppState

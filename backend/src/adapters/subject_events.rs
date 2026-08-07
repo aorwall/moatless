@@ -6,7 +6,7 @@
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch, TaskBinding};
-use crate::state::AppState;
+use crate::bindings::runtime::RoutingService;
 
 /// One Adapter event and the active bindings listening to its subject.
 pub(crate) struct SubjectEvent<'a> {
@@ -25,26 +25,26 @@ pub(crate) struct SubjectEvent<'a> {
 
 /// Route an Adapter event to the tasks bound to its external subject.
 pub(crate) async fn route_subject_event(
-    state: &AppState,
+    routing: &RoutingService,
     connection: &AdapterConnection,
     subscription: &SubscriptionMatch,
     msg: &InboundMessage,
     event: SubjectEvent<'_>,
 ) -> Result<String, AdapterError> {
-    crate::bindings::runtime::fan_out(
-        state,
-        connection,
-        subscription,
-        msg,
-        crate::bindings::runtime::Fanout {
-            adapter_label: event.adapter_label,
-            binding_provider: event.binding_provider,
-            subject_kind: event.subject_kind,
-            subject_key: event.subject_key,
-            bindings: event.bindings,
-            author_task_id: event.author_task_id,
-            new_task_binding_id: event.new_task_binding_id,
-        },
-    )
-    .await
+    routing
+        .fan_out(
+            connection,
+            subscription,
+            msg,
+            crate::bindings::runtime::Fanout {
+                adapter_label: event.adapter_label,
+                binding_provider: event.binding_provider,
+                subject_kind: event.subject_kind,
+                subject_key: event.subject_key,
+                bindings: event.bindings,
+                author_task_id: event.author_task_id,
+                new_task_binding_id: event.new_task_binding_id,
+            },
+        )
+        .await
 }

@@ -24,7 +24,6 @@ use crate::event_ingress::outbox::IngressOutbox;
 use crate::feedback::dao::FeedbackDao;
 use crate::file_storage::dao::FileDao;
 use crate::loops::dao::LoopDao;
-use crate::loops::firing::receipts::EventReceiptDao;
 use crate::loops::sync::LoopSyncService;
 use crate::message::dao::MessageDao;
 use crate::message::send::{MessageSendService, SelfEchoFilter};
@@ -153,10 +152,13 @@ pub struct AppState {
     /// credential/webhook-secret rows inbound and outbound calls resolve
     /// against. Handlers read and write connections through this port.
     pub adapter_connections: Arc<dyn AdapterConnectionDao>,
-    /// Durable adapter-event deduplication (`adapter_event_receipts`). The
-    /// binding resolver records a delivery here so a redelivered webhook does
-    /// not double-post to a task.
-    pub event_receipts: Arc<dyn EventReceiptDao>,
+    /// The inbound-routing subgraph and the ten ports it reads — including the
+    /// durable adapter-event dedup (`adapter_event_receipts`), which nothing
+    /// outside routing reads, so it lives here rather than as its own field. The
+    /// durable inbound-delivery handler and the GitHub PR subject router route
+    /// through this handle instead of naming each port. See
+    /// [`crate::bindings::runtime::RoutingService`].
+    pub routing: Arc<crate::bindings::runtime::RoutingService>,
     /// Single owner of persistence for the four Loop tables (`loops`,
     /// `loop_configs`, `subscriptions`,
     /// `schedules`).
@@ -433,6 +435,24 @@ impl AppState {
                 sandbox_notify.clone(),
             ));
 
+        // The inbound-routing subgraph owns the ten ports it reads, so the
+        // routing logic in `bindings/runtime.rs` names none of them through
+        // `AppState`. Built here from the ports the composition root already
+        // assembled; `event_receipts` moves in whole because nothing else on
+        // `AppState` reads it.
+        let routing = Arc::new(crate::bindings::runtime::RoutingService::new(
+            adapter_connections.clone(),
+            loops.clone(),
+            task_bindings.clone(),
+            messages.clone(),
+            tasks.clone(),
+            task_creation.clone(),
+            message_send.clone(),
+            event_receipts,
+            sandbox_waker.clone(),
+            adapters.clone(),
+        ));
+
         Self {
             tasks,
             task_creation,
@@ -440,7 +460,7 @@ impl AppState {
             task_relations,
             task_bindings,
             adapter_connections,
-            event_receipts,
+            routing,
             loops,
             messages,
             feedback,

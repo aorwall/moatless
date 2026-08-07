@@ -27,7 +27,7 @@ pub(crate) const INBOUND_MESSAGE: &str = "webhook.inbound_message";
 pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
     handlers.register(
         INBOUND_MESSAGE,
-        Arc::new(InboundMessageHandler::new(ADAPTER, state.clone())),
+        Arc::new(InboundMessageHandler::new(ADAPTER, state.routing.clone())),
     );
 }
 

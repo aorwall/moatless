@@ -319,7 +319,7 @@ pub(super) async fn route_event(
     });
 
     crate::adapters::subject_events::route_subject_event(
-        state,
+        &state.routing,
         connection,
         &delivery_rule,
         &msg,
