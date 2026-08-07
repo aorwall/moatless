@@ -260,7 +260,14 @@ async fn sustained_ack_failure_never_re_runs_and_aborts_on_shutdown() {
         }
     });
 
-    dispatch_pending_messages(state.clone()).await;
+    // Drive the foreground dispatch as a task, not inline: if the racer wins the
+    // dispatch lock first, its guard-holding ack task pins the lock for the whole
+    // (here permanent) ack outage, so an inline `.await` here blocks until
+    // shutdown — and the `cancel()` that would release it comes later in this
+    // same function, so awaiting inline deadlocks whenever the racer wins the
+    // race. The sibling `prompt_ack_failure_never_becomes_normal_input` spawns
+    // its dispatch for the same reason.
+    let dispatch = tokio::spawn(dispatch_pending_messages(state.clone()));
 
     // The message reaches the harness once; while the ack keeps failing the guard
     // stays held, so the hammering waiter can never re-run it.
@@ -278,6 +285,9 @@ async fn sustained_ack_failure_never_re_runs_and_aborts_on_shutdown() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     stop.cancel();
     racer.await.expect("waiter task panicked");
+    // The foreground dispatch returns once shutdown releases the lock it may be
+    // parked on (or the guard it held is dropped by its own ack abort).
+    dispatch.await.expect("dispatch task panicked");
 
     assert_eq!(
         settled_inputs(&recorder).await.len(),
