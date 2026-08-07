@@ -20,6 +20,7 @@ pub mod pod_status;
 pub mod pod_watcher;
 pub mod provider;
 pub mod pvc;
+pub mod sandbox_resources;
 pub mod service;
 pub mod status_resolver;
 pub mod storage;

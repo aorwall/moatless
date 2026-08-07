@@ -1,13 +1,13 @@
 CRATE-CENSUS REPORT
-files parsed: 663
+files parsed: 664
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3822  illegal  129
+CODE       legal  3829  illegal  115
 ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
-DOC           52  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1478 point down into the existing crates/* floor
+DOC           53  (intra-doc paths — never a Cargo edge, never illegal)
+  of the legal CODE edges, 1479 point down into the existing crates/* floor
 TEST-CONTEXT 2382  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
 
@@ -31,13 +31,13 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (5 files, 45 lines)
     credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
-  tasks  (75 files, 20102 lines)
+  tasks  (75 files, 19910 lines)
     agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
   sandbox-control  (43 files, 18765 lines)
     sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs
 
-  sandbox-k8s  (22 files, 13299 lines)
+  sandbox-k8s  (23 files, 13567 lines)
     sandbox/k8s/
 
   sandbox-docker  (8 files, 3516 lines)
@@ -61,7 +61,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 775 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11822 lines)
+  server  (32 files, 11838 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -70,9 +70,9 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 113634 lines
+  TOTAL backend/src: 113726 lines
 
-== ILLEGAL PRODUCTION EDGE CLASSES (18 classes) ==
+== ILLEGAL PRODUCTION EDGE CLASSES (17 classes) ==
 
 adapter-github-pr -> server   x8
     backend/src/adapters/providers/github_pr/api_routes.rs:32  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -223,7 +223,7 @@ tasks -> loops   x8
     backend/src/task/handlers.rs:31  [CODE] crate::bindings::dao::get_bindings_for_tasks   -> [8c-port — tasks/message -> loops]
     backend/src/task/presenter.rs:21  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
     backend/src/task/presenter.rs:23  [CODE] crate::loops::dao::LoopDao   -> [8c-port — tasks/message -> loops]
-    backend/src/task/reaper.rs:29  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
+    backend/src/task/reaper.rs:26  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
 
 tasks -> sandbox-control   x25
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::ANTHROPIC_API_KEY   -> [sandbox::secrets placement -> core (like 8e)]
@@ -247,26 +247,10 @@ tasks -> sandbox-control   x25
     backend/src/task/handlers.rs:23  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/handlers.rs:23  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/handlers.rs:516  [CODE] ArchiveRetention::DeleteArchives   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1001  [CODE] ArchiveRetention::on_close   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:35  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:35  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:1013  [CODE] ArchiveRetention::on_close   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:31  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports]
+    backend/src/task/reaper.rs:31  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/service.rs:37  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
-
-tasks -> sandbox-k8s   x14
-    backend/src/task/reaper.rs:1088  [CODE] crate::sandbox::k8s::ingress::list_ingress_route_task_ids   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::deployment   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::ingress   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::networkpolicy   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::pvc   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1098  [CODE] crate::sandbox::k8s::service   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1100  [CODE] deployment::delete_deployment   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1103  [CODE] service::delete_sandbox_service   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1106  [CODE] ingress::delete_task_ingress_routes   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1109  [CODE] networkpolicy::delete_task_preview_network_policy   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:1112  [CODE] pvc::delete_task_pvc   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:133  [CODE] LeaderElection::new_with_name   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:33  [CODE] crate::sandbox::k8s::client::K8sClient   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/reaper.rs:34  [CODE] crate::sandbox::k8s::leader_election::LeaderElection   -> [10d — invert task -> sandbox concretes to ports]
 
 tasks -> server   x1
     backend/src/task/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -307,11 +291,11 @@ tasks -> server   x1
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> tasks: BLOCKED on 48 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> tasks: BLOCKED on 34 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
-  tasks              deps: identity, workspaces                         BLOCKED — 48 illegal outgoing to loops(x8), sandbox-control(x25), sandbox-k8s(x14), server(x1)
+  tasks              deps: identity, workspaces                         BLOCKED — 34 illegal outgoing to loops(x8), sandbox-control(x25), server(x1)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
   sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)

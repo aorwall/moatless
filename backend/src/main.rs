@@ -992,9 +992,24 @@ fn spawn_task_reaper(
     }
     let agent_error_sink: Arc<dyn crate::task::reaper::AgentErrorSink> =
         Arc::new(app_state.clone());
+    // Build the reaper's leader guard at the composition root; the reaper depends
+    // only on the `LeaderGuard` port, not on K8s. Lease duration is 2x the check
+    // interval so the lease doesn't expire between cycles.
+    let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+    let lease_duration_secs = (app_state.config.sandbox.idle_check_interval_secs * 2) as i32;
+    let election = sandbox::k8s::leader_election::LeaderElection::new_with_name(
+        &k8s,
+        identity,
+        "moatless-task-reaper".to_string(),
+    )
+    .with_lease_duration(lease_duration_secs);
+    let leader: Arc<dyn LeaderGuard> = Arc::new(K8sLeaderGuard(election));
+    let sandbox_resources: Arc<dyn crate::task::reaper::SandboxResources> = Arc::new(
+        sandbox::k8s::sandbox_resources::K8sSandboxResources::new(k8s, app_state.tasks.clone()),
+    );
     let handle = task::reaper::TaskReaper::new(
         agent_status,
-        k8s,
+        leader,
         app_state.messages.clone(),
         app_state.tasks.clone(),
         app_state.task_turns.clone(),
@@ -1004,6 +1019,7 @@ fn spawn_task_reaper(
         app_state.events.clone(),
         app_state.config.clone(),
         agent_error_sink,
+        sandbox_resources,
     )
     .spawn(cancel);
     info!(

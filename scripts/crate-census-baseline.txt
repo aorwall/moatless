@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 161
+# Illegal edge count: 147
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -125,7 +125,7 @@ tasks                  -> loops                [CODE] backend/src/task/handlers.
 tasks                  -> loops                [CODE] backend/src/task/handlers.rs:31  crate::bindings::dao::get_bindings_for_tasks
 tasks                  -> loops                [CODE] backend/src/task/presenter.rs:21  crate::bindings::dao::TaskBindingDao
 tasks                  -> loops                [CODE] backend/src/task/presenter.rs:23  crate::loops::dao::LoopDao
-tasks                  -> loops                [CODE] backend/src/task/reaper.rs:29  crate::bindings::dao::TaskBindingDao
+tasks                  -> loops                [CODE] backend/src/task/reaper.rs:26  crate::bindings::dao::TaskBindingDao
 tasks                  -> sandbox-control      [CODE] backend/src/agent/catalog.rs:6  crate::sandbox::secrets::ANTHROPIC_API_KEY
 tasks                  -> sandbox-control      [CODE] backend/src/agent/catalog.rs:6  crate::sandbox::secrets::CLAUDE_CODE_OAUTH_TOKEN
 tasks                  -> sandbox-control      [CODE] backend/src/agent/catalog.rs:6  crate::sandbox::secrets::CODEX_AUTH_JSON
@@ -147,24 +147,10 @@ tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:
 tasks                  -> sandbox-control      [CODE] backend/src/task/handlers.rs:23  crate::sandbox::lifecycle::ArchiveRetention
 tasks                  -> sandbox-control      [CODE] backend/src/task/handlers.rs:23  crate::sandbox::lifecycle::Lifecycle
 tasks                  -> sandbox-control      [CODE] backend/src/task/handlers.rs:516  ArchiveRetention::DeleteArchives
-tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:1001  ArchiveRetention::on_close
-tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:35  crate::sandbox::lifecycle::ArchiveRetention
-tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:35  crate::sandbox::lifecycle::Lifecycle
+tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:1013  ArchiveRetention::on_close
+tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:31  crate::sandbox::lifecycle::ArchiveRetention
+tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:31  crate::sandbox::lifecycle::Lifecycle
 tasks                  -> sandbox-control      [CODE] backend/src/task/service.rs:37  crate::sandbox::lifecycle::Lifecycle
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1088  crate::sandbox::k8s::ingress::list_ingress_route_task_ids
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1098  crate::sandbox::k8s::deployment
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1098  crate::sandbox::k8s::ingress
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1098  crate::sandbox::k8s::networkpolicy
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1098  crate::sandbox::k8s::pvc
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1098  crate::sandbox::k8s::service
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1100  deployment::delete_deployment
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1103  service::delete_sandbox_service
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1106  ingress::delete_task_ingress_routes
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1109  networkpolicy::delete_task_preview_network_policy
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:1112  pvc::delete_task_pvc
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:133  LeaderElection::new_with_name
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:33  crate::sandbox::k8s::client::K8sClient
-tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:34  crate::sandbox::k8s::leader_election::LeaderElection
 tasks                  -> server               [CODE] backend/src/task/routes.rs:7  crate::state::AppState
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
