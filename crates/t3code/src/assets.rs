@@ -1,11 +1,12 @@
 //! The bytes behind `assets.createUrl`: one workspace file, served over HTTP so
-//! a browser can render it.
+//! a browser can render it, and one chat attachment, addressed at the upload
+//! route that already serves it.
 //!
 //! T3 asks for a *URL* rather than for content, because what it does with the
 //! answer is point a frame at it — an HTML page in the preview tab, an `<img>`
-//! in the file panel. So this module answers with a path under
-//! [`ASSET_ROUTE_PREFIX`] and then serves it, and three things about that are
-//! deliberate.
+//! in the file panel, an `<img>` in a message bubble. So this module answers
+//! with a path and then serves it where the path is its own, and three things
+//! about that are deliberate.
 //!
 //! **The URL carries no credential.** Moatless is reached on one hostname, and
 //! the frame that loads this is same-site: the session cookie the rest of the
@@ -48,6 +49,12 @@ use crate::{UiRpcState, projection, viewer_scope};
 /// Where [`create_url`]'s answers point, and what [`serve`] is mounted at.
 pub(crate) const ASSET_ROUTE_PREFIX: &str = "/api/assets";
 
+/// Where an attachment's bytes already live: the Moatless upload route, mounted
+/// by the root backend rather than by this module. An attachment reaches this
+/// deployment as an upload — see `backend/src/t3code/backend.rs` — so it is
+/// addressed the way every other upload is, and nothing here needs to serve it.
+const UPLOAD_ROUTE_PREFIX: &str = "/api/v1/uploads";
+
 /// How long a minted URL is reported to be good for.
 ///
 /// Nothing enforces it — the URL holds no credential and the route re-checks
@@ -87,17 +94,34 @@ impl AssetUrlError {
 /// The URL a resource is reachable at, in the shape `AssetCreateUrlResult` has
 /// on the wire.
 ///
-/// Only `workspace-file` has one. An attachment is not a thing this deployment
-/// stores, and a project favicon would be a file in a project's root directory,
-/// which a Moatless project does not have — both keep answering that there is
-/// no such asset, which is what the client renders as a project without an
-/// icon.
+/// Two of the three resources have one. A `workspace-file` is served by
+/// [`serve`] below out of the conversation's Sandbox; an `attachment` is an
+/// ordinary Moatless upload and is served by the upload route, which is the
+/// same address the Moatless UI renders the same image from. A project favicon
+/// would be a file in a project's root directory, which a Moatless project does
+/// not have, so that one keeps answering that there is no such asset — which is
+/// what the client renders as a project without an icon.
 ///
-/// Nothing here reaches the Sandbox. Whether the file exists is settled by the
-/// request that fetches it, because that request has to look anyway: a mint
-/// that proved existence first would double every read and still be stale by
-/// the time the frame asked.
+/// Nothing here reaches the Sandbox or the database. Whether the file exists is
+/// settled by the request that fetches it, because that request has to look
+/// anyway: a mint that proved existence first would double every read and still
+/// be stale by the time the frame asked. The same is true of who may see it —
+/// the upload route re-checks the viewer against the upload's own scope, so an
+/// id minted here is no more reachable than the person asking already was.
 pub(crate) fn create_url(resource: &Value) -> Result<Value, AssetUrlError> {
+    if resource["_tag"].as_str() == Some("attachment") {
+        let Some(attachment_id) = resource["attachmentId"]
+            .as_str()
+            .filter(|id| !id.is_empty() && !id.contains('/'))
+        else {
+            return Err(AssetUrlError::NotFound);
+        };
+        return Ok(json!({
+            "relativeUrl": format!("{UPLOAD_ROUTE_PREFIX}/{}", escape(attachment_id)),
+            "expiresAt": Utc::now().timestamp_millis() + URL_TTL_MS
+        }));
+    }
+
     let (Some("workspace-file"), Some(thread_id), Some(path)) = (
         resource["_tag"].as_str(),
         resource["threadId"].as_str(),
@@ -375,14 +399,32 @@ mod tests {
         ));
     }
 
-    /// Neither is a file in a Moatless workspace, and both keep the answer this
-    /// surface has always given.
+    /// An attachment is an upload, so it is addressed where uploads are — and
+    /// nowhere near the workspace prefix, which is what the Sandbox serves.
     #[test]
-    fn an_attachment_and_a_project_favicon_have_no_url() {
+    fn an_attachment_is_addressed_at_the_upload_route() {
+        let minted =
+            create_url(&json!({ "_tag": "attachment", "attachmentId": "a-1" })).expect("minted");
+        assert_eq!(minted["relativeUrl"], "/api/v1/uploads/a-1");
+    }
+
+    /// An id that would leave the route it is a segment of cannot be one.
+    #[test]
+    fn an_attachment_id_that_is_a_path_has_no_url() {
         assert!(matches!(
-            create_url(&json!({ "_tag": "attachment", "attachmentId": "a-1" })),
+            create_url(&json!({ "_tag": "attachment", "attachmentId": "../secrets" })),
             Err(AssetUrlError::NotFound)
         ));
+        assert!(matches!(
+            create_url(&json!({ "_tag": "attachment", "attachmentId": "" })),
+            Err(AssetUrlError::NotFound)
+        ));
+    }
+
+    /// A Moatless project is a Workspace and has no root directory to hold an
+    /// icon, so this keeps the answer this surface has always given.
+    #[test]
+    fn a_project_favicon_has_no_url() {
         assert!(matches!(
             create_url(&json!({ "_tag": "project-favicon", "cwd": "/moatless/workspaces/w-1" })),
             Err(AssetUrlError::NotFound)

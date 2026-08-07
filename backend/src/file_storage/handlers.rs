@@ -9,16 +9,15 @@ use axum_extra::extract::Multipart;
 
 use std::sync::Arc;
 
-use super::models::FileMetadata;
-use moatless_backend_core::access_control::resolve_scope_for_create;
-use moatless_core::config::S3Config;
 use crate::extractors::AuthUser;
 use moatless_backend_core::scope::ScopedResource;
+use moatless_core::config::S3Config;
 
 use super::dao::FileDao;
 use super::error::FileStorageError;
 use super::s3;
 use super::schemas::UploadResponse;
+use super::store;
 
 /// Upload a file via multipart form data.
 #[utoipa::path(
@@ -39,14 +38,12 @@ pub async fn upload_file(
     auth: AuthUser,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, FileStorageError> {
-    let s3_client = s3_storage
-        .as_ref()
-        .ok_or(FileStorageError::S3NotConfigured)?;
-
-    let bucket = s3_config
-        .bucket_name
-        .as_ref()
-        .ok_or(FileStorageError::S3NotConfigured)?;
+    // Checked before the body is read as well as inside the store: a
+    // deployment without S3 refuses every upload, and there is no reason to
+    // buffer megabytes first to say so.
+    if s3_storage.is_none() || s3_config.bucket_name.is_none() {
+        return Err(FileStorageError::S3NotConfigured);
+    }
 
     let mut file_data = None;
 
@@ -74,48 +71,23 @@ pub async fn upload_file(
     let (filename, content_type, data) =
         file_data.ok_or_else(|| FileStorageError::BadRequest("No file field found".to_string()))?;
 
-    let file_id = uuid::Uuid::new_v4().to_string();
-    let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
-    let resolved_scope =
-        resolve_scope_for_create(&auth.scope_context(), Some(moatless_backend_core::scope::Scope::User))
-            .map_err(|e| match e {
-                moatless_backend_core::access_control::AccessControlError::BadRequest(msg) => {
-                    FileStorageError::BadRequest(msg)
-                }
-                moatless_backend_core::access_control::AccessControlError::Forbidden(msg) => {
-                    FileStorageError::Forbidden(msg)
-                }
-            })?;
-
-    // Upload to S3
-    s3::put_object(
-        &s3_client.client,
-        bucket,
-        &s3_key,
-        data.clone(),
-        &content_type,
+    let meta = store::store_upload(
+        s3_storage.as_ref(),
+        &s3_config,
+        files.as_ref(),
+        &auth.scope_context(),
+        store::NewUpload {
+            filename,
+            mime_type: content_type,
+            data,
+        },
     )
-    .await
-    .map_err(FileStorageError::UploadFailed)?;
-
-    // Save metadata
-    let meta = FileMetadata {
-        file_id: file_id.clone(),
-        filename: filename.clone(),
-        mime_type: content_type.clone(),
-        size: data.len() as i64,
-        scope: resolved_scope.scope,
-        owner_user_id: resolved_scope.owner_user_id,
-        created_by: Some(auth.user_id.to_string()),
-        uploaded_at: chrono::Utc::now(),
-    };
-
-    files.insert_metadata(&meta).await?;
+    .await?;
 
     Ok(Json(UploadResponse {
-        file_id,
-        filename,
-        mime_type: content_type,
+        file_id: meta.file_id,
+        filename: meta.filename,
+        mime_type: meta.mime_type,
         size: meta.size,
     }))
 }

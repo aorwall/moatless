@@ -7,3 +7,4 @@ pub mod models;
 pub mod routes;
 pub mod s3;
 pub mod schemas;
+pub mod store;

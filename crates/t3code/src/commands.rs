@@ -32,10 +32,12 @@ use serde_json::{Value, json};
 
 use moatless_backend_core::scope::ScopeContext;
 
+use base64::Engine;
+
 use super::dao::{Conversation, ConversationDao};
 use super::ports::{
     AgentCatalogSource, CommandRefusal, NewThread, QuestionAnswer, ThreadCommandSink, ThreadMeta,
-    ThreadTurn,
+    ThreadTurn, TurnAttachment,
 };
 use super::providers;
 use crate::agent::catalog;
@@ -164,6 +166,7 @@ async fn turn_start(
         .to_string();
     let agent_mode = interaction_mode(command);
     let effort = selected_effort(command);
+    let attachments = attachments(message)?;
 
     let bootstrap = command.get("bootstrap").and_then(|b| b.get("createThread"));
 
@@ -202,6 +205,7 @@ async fn turn_start(
                         model,
                         agent_mode,
                         effort,
+                        attachments,
                     }),
                 },
             )
@@ -221,9 +225,126 @@ async fn turn_start(
                 model,
                 agent_mode,
                 effort,
+                attachments,
             },
         )
         .await
+}
+
+/// The most attachments one turn may carry
+/// (`contracts/src/orchestration.ts:144`).
+const MAX_ATTACHMENTS: usize = 8;
+
+/// The largest single image, decoded
+/// (`contracts/src/orchestration.ts:145`). The composer re-encodes anything
+/// bigger before it sends, so this is a backstop against a client that does
+/// not, not a limit a person meets by pasting a screenshot.
+const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+
+/// The images the composer sent with a turn, decoded.
+///
+/// T3 has no upload endpoint: each image arrives in the command as a `data:`
+/// URL, so this is where the bytes enter Moatless. The limits the client's own
+/// schema enforces are re-checked here, and the mime type and size are taken
+/// from the payload rather than from the sibling fields declaring them — those
+/// are what the client believes, the bytes are what gets stored.
+///
+/// Anything wrong is a rejection rather than a silent drop: an image that
+/// vanishes on send reads as Moatless having lost it.
+fn attachments(message: &Value) -> Result<Vec<TurnAttachment>, CommandRefusal> {
+    let Some(sent) = message.get("attachments").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    if sent.is_empty() {
+        return Ok(Vec::new());
+    }
+    if sent.len() > MAX_ATTACHMENTS {
+        return Err(CommandRefusal::Rejected {
+            message: format!("A message may carry at most {MAX_ATTACHMENTS} attachments."),
+        });
+    }
+
+    sent.iter().map(attachment).collect()
+}
+
+/// One attachment, decoded and named.
+fn attachment(sent: &Value) -> Result<TurnAttachment, CommandRefusal> {
+    // `ChatAttachment` is a union whose only member is `image`. A future member
+    // arriving from a newer client is refused by name rather than stored as an
+    // image that is not one.
+    let kind = sent.get("type").and_then(Value::as_str).unwrap_or_default();
+    if kind != "image" {
+        return Err(CommandRefusal::Rejected {
+            message: format!("`{kind}` attachments are not supported."),
+        });
+    }
+
+    let filename = sent
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| CommandRefusal::Rejected {
+            message: "An attachment must have a name.".to_string(),
+        })?;
+
+    let data_url = sent
+        .get("dataUrl")
+        .and_then(Value::as_str)
+        .ok_or_else(|| CommandRefusal::Rejected {
+            message: format!("Attachment `{filename}` carries no data."),
+        })?;
+
+    let (mime_type, bytes) =
+        decode_data_url(data_url).ok_or_else(|| CommandRefusal::Rejected {
+            message: format!("Attachment `{filename}` is not a readable image payload."),
+        })?;
+
+    if !mime_type.starts_with("image/") {
+        return Err(CommandRefusal::Rejected {
+            message: format!("Attachment `{filename}` is not an image."),
+        });
+    }
+    if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
+        return Err(CommandRefusal::Rejected {
+            message: format!("Attachment `{filename}` is empty or too large."),
+        });
+    }
+
+    Ok(TurnAttachment {
+        filename: filename.to_string(),
+        mime_type,
+        bytes,
+    })
+}
+
+/// `data:<mime>;base64,<payload>` split into what it says it is and what it is.
+///
+/// Only base64 payloads are read: that is the one form the composer produces,
+/// and a percent-encoded `data:` URL carrying image bytes is not something a
+/// browser builds from a `File`.
+fn decode_data_url(data_url: &str) -> Option<(String, Vec<u8>)> {
+    let trimmed = data_url.trim();
+    let rest = trimmed
+        .strip_prefix("data:")
+        .or_else(|| trimmed.strip_prefix("DATA:"))?;
+    let (header, payload) = rest.split_once(',')?;
+
+    let mut parameters = header.split(';');
+    let mime_type = parameters.next().unwrap_or_default().trim().to_lowercase();
+    if !parameters.any(|parameter| parameter.trim().eq_ignore_ascii_case("base64")) {
+        return None;
+    }
+
+    // The composer chunks its own base64 and browsers wrap data URLs in
+    // attributes, so whitespace inside the payload is ordinary rather than
+    // corrupt.
+    let payload: String = payload.chars().filter(|c| !c.is_whitespace()).collect();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&payload)
+        .ok()?;
+
+    Some((mime_type, bytes))
 }
 
 /// A thread created with nothing in it. Reachable only from a proposed plan,
@@ -574,6 +695,9 @@ mod tests {
             model: Option<String>,
             agent_mode: Option<String>,
             effort: Option<String>,
+            /// Each attachment as `(filename, mime type, decoded size)` — what
+            /// the turn carried, after the data URLs were read.
+            attachments: Vec<(String, String, usize)>,
         },
         CreateThread {
             task_id: String,
@@ -633,6 +757,11 @@ mod tests {
                 model: turn.model,
                 agent_mode: turn.agent_mode.map(|m| m.0),
                 effort: turn.effort,
+                attachments: turn
+                    .attachments
+                    .into_iter()
+                    .map(|a| (a.filename, a.mime_type, a.bytes.len()))
+                    .collect(),
             });
             Ok(())
         }
@@ -933,8 +1062,136 @@ mod tests {
                 model: None,
                 agent_mode: Some("edit".to_string()),
                 effort: None,
+                attachments: vec![],
             }]
         );
+    }
+
+    /// A one-pixel PNG, as the composer would send it.
+    fn an_image(name: &str) -> Value {
+        json!({
+            "type": "image",
+            "name": name,
+            "mimeType": "image/png",
+            "sizeBytes": 70,
+            "dataUrl": format!("data:image/png;base64,{PNG_BASE64}")
+        })
+    }
+
+    /// The 70 bytes of a 1×1 transparent PNG.
+    const PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk\
+                              YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    /// A turn carrying `attachments`.
+    fn turn_with(attachments: Value) -> Value {
+        let mut command = turn(None);
+        command["message"]["attachments"] = attachments;
+        command
+    }
+
+    /// The bytes are what reaches the sink — not the data URL, and not the
+    /// sizes the client declared, which are only what the client believes.
+    #[tokio::test]
+    async fn an_attached_image_reaches_the_sink_decoded() {
+        let (result, calls) = run(turn_with(json!([an_image("screenshot.png")]))).await;
+        assert!(result.is_ok());
+        let Some(Call::SendTurn { attachments, .. }) = calls.first() else {
+            panic!("expected a turn, got {calls:?}");
+        };
+        assert_eq!(
+            attachments,
+            &vec![("screenshot.png".to_string(), "image/png".to_string(), 70)]
+        );
+    }
+
+    /// The order the composer held them in is the order they are stored in, so
+    /// the bubble renders them the way the person arranged them.
+    #[tokio::test]
+    async fn attachments_keep_the_order_they_were_sent_in() {
+        let (_, calls) = run(turn_with(json!([an_image("a.png"), an_image("b.png")]))).await;
+        let Some(Call::SendTurn { attachments, .. }) = calls.first() else {
+            panic!("expected a turn, got {calls:?}");
+        };
+        let names: Vec<&str> = attachments.iter().map(|(name, ..)| name.as_str()).collect();
+        assert_eq!(names, vec!["a.png", "b.png"]);
+    }
+
+    /// A turn with nothing attached is byte-identical to one sent before this
+    /// surface read attachments at all.
+    #[tokio::test]
+    async fn a_turn_without_attachments_carries_none() {
+        let (_, calls) = run(turn(None)).await;
+        assert!(matches!(
+            calls.first(),
+            Some(Call::SendTurn { attachments, .. }) if attachments.is_empty()
+        ));
+    }
+
+    /// Each of these is refused rather than dropped: an image that disappears
+    /// on send reads as Moatless losing it, and nothing reaches the sink, so
+    /// the refusal is the whole outcome.
+    #[tokio::test]
+    async fn an_attachment_that_cannot_be_honoured_refuses_the_turn() {
+        let mut oversized = an_image("huge.png");
+        oversized["dataUrl"] = json!(format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(vec![0u8; MAX_IMAGE_BYTES + 1])
+        ));
+
+        let mut not_an_image = an_image("notes.txt");
+        not_an_image["dataUrl"] = json!("data:text/plain;base64,aGVsbG8=");
+
+        let mut unreadable = an_image("broken.png");
+        unreadable["dataUrl"] = json!("data:image/png;base64,%%%not-base64%%%");
+
+        let mut nameless = an_image("x.png");
+        nameless["name"] = json!("   ");
+
+        let mut future_kind = an_image("clip.mp4");
+        future_kind["type"] = json!("video");
+
+        for attachment in [
+            oversized,
+            not_an_image,
+            unreadable,
+            nameless,
+            future_kind,
+            json!({ "type": "image", "name": "no-payload.png" }),
+        ] {
+            let name = attachment["name"].clone();
+            let (result, calls) = run(turn_with(json!([attachment]))).await;
+            assert!(
+                matches!(result, Err(CommandRefusal::Rejected { .. })),
+                "expected {name} to be rejected, got {result:?}"
+            );
+            assert!(calls.is_empty(), "expected no write for {name}");
+        }
+    }
+
+    /// The contract caps a turn at eight, and a client that sends more is
+    /// answering a different contract.
+    #[tokio::test]
+    async fn more_attachments_than_the_contract_allows_refuses_the_turn() {
+        let too_many: Vec<Value> = (0..=MAX_ATTACHMENTS)
+            .map(|index| an_image(&format!("{index}.png")))
+            .collect();
+        let (result, calls) = run(turn_with(Value::Array(too_many))).await;
+        assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+        assert!(calls.is_empty());
+    }
+
+    /// A data URL that is not base64 has no bytes to read, and a payload with
+    /// the newlines an encoder wrapped it at does.
+    #[test]
+    fn a_data_url_is_read_only_where_it_is_base64() {
+        assert!(decode_data_url("data:image/png,not-encoded").is_none());
+        assert!(decode_data_url("https://example.com/a.png").is_none());
+        assert!(decode_data_url("data:image/png;base64").is_none());
+
+        let (mime_type, bytes) =
+            decode_data_url("data:image/PNG;base64,aGVs\n bG8=").expect("decoded");
+        assert_eq!(mime_type, "image/png");
+        assert_eq!(bytes, b"hello");
     }
 
     #[tokio::test]
@@ -948,6 +1205,7 @@ mod tests {
                 model: Some("sonnet".to_string()),
                 agent_mode: Some("edit".to_string()),
                 effort: None,
+                attachments: vec![],
             }]
         );
     }

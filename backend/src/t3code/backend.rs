@@ -12,6 +12,7 @@ use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::adapters::models::TaskBinding;
+use crate::file_storage::store as file_store;
 use crate::message::error::MessageError;
 use crate::message::service as message_service;
 use crate::repository::error::RepositoryError;
@@ -26,6 +27,7 @@ use moatless_t3code::ports::{
     AgentCatalogSource, BoundPullRequest, BoundPullRequestSource, BranchListError, CommandRefusal,
     GithubIdentity, NewThread, PullRequestError, QuestionAnswer, RepositoryBranchSource,
     ResolvedPullRequest, SourceControlAuthSource, ThreadCommandSink, ThreadMeta, ThreadTurn,
+    TurnAttachment,
 };
 
 pub struct AppStateAgents(pub AppState);
@@ -437,6 +439,56 @@ impl AppStateCommands {
             message: "Could not update that thread.".to_string(),
         }
     }
+
+    /// Whether this turn's Message is already persisted — the frame is a
+    /// replay. The send path makes the same read and is what actually resolves
+    /// the replay, so a lookup that fails answers `false` and leaves that
+    /// decision where it belongs rather than refusing a turn over it.
+    async fn already_sent(&self, turn: &ThreadTurn) -> bool {
+        match self.0.messages.find_by_uuid(&turn.message_uuid).await {
+            Ok(existing) => existing.is_some_and(|message| message.task_id == turn.task_id),
+            Err(error) => {
+                tracing::warn!(%error, task_id = %turn.task_id, "T3 turn could not be checked for replay");
+                false
+            }
+        }
+    }
+
+    /// Store a turn's inline images as ordinary Moatless uploads, so they land
+    /// on the paths that already exist: the Sandbox pre-fetch, the prompt block
+    /// naming each file, the Moatless UI, and `GET /api/v1/uploads/{file_id}`.
+    ///
+    /// A failure refuses the whole turn — a partial store would leave a message
+    /// naming only some of what was attached.
+    async fn store_attachments(
+        &self,
+        viewer: &ScopeContext,
+        attachments: &[TurnAttachment],
+    ) -> Result<Vec<String>, CommandRefusal> {
+        let mut file_ids = Vec::with_capacity(attachments.len());
+        for attachment in attachments {
+            let stored = file_store::store_upload(
+                self.0.s3.as_ref(),
+                &self.0.s3_config,
+                self.0.files.as_ref(),
+                viewer,
+                file_store::NewUpload {
+                    filename: attachment.filename.clone(),
+                    mime_type: attachment.mime_type.clone(),
+                    data: attachment.bytes.clone(),
+                },
+            )
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, filename = %attachment.filename, "T3 attachment could not be stored");
+                CommandRefusal::Failed {
+                    message: format!("Could not store the attachment `{}`.", attachment.filename),
+                }
+            })?;
+            file_ids.push(stored.file_id);
+        }
+        Ok(file_ids)
+    }
 }
 
 #[async_trait]
@@ -446,9 +498,20 @@ impl ThreadCommandSink for AppStateCommands {
         viewer: &ScopeContext,
         turn: ThreadTurn,
     ) -> Result<(), CommandRefusal> {
-        // A replayed frame is resolved inside the send path — it reads as sent
-        // and writes nothing — so there is no already-persisted case to handle
-        // here.
+        // Stored before the Message, so a turn that reaches the agent always
+        // names files that exist.
+        //
+        // A replay has to be caught here rather than left to the send path: the
+        // send resolves it by reading the Message already under that uuid and
+        // writing nothing, but by then these bytes are in S3 under a file id no
+        // Message will ever name, and a reconnecting client replays whole
+        // turns. The extra read only happens on turns that carry files.
+        let file_ids = if turn.attachments.is_empty() || self.already_sent(&turn).await {
+            Vec::new()
+        } else {
+            self.store_attachments(viewer, &turn.attachments).await?
+        };
+
         message_service::send_user_message(
             &self.0,
             &Self::sender(viewer),
@@ -460,6 +523,7 @@ impl ThreadCommandSink for AppStateCommands {
                 effort: turn.effort,
                 resume: true,
                 message_uuid: Some(turn.message_uuid),
+                file_ids,
                 ..Default::default()
             },
         )
@@ -482,6 +546,11 @@ impl ThreadCommandSink for AppStateCommands {
         let workspace_id = thread.workspace_id.clone();
         let branch = thread.branch.clone();
 
+        let file_ids = match thread.first_message.as_ref() {
+            Some(first) => self.store_attachments(viewer, &first.attachments).await?,
+            None => Vec::new(),
+        };
+
         let request = moatless_api_schemas::task::CreateTaskRequest {
             repository_id: None,
             workspace_id: Some(thread.workspace_id),
@@ -497,7 +566,7 @@ impl ThreadCommandSink for AppStateCommands {
                 .and_then(|m| m.agent_mode.clone()),
             effort: thread.first_message.as_ref().and_then(|m| m.effort.clone()),
             contexts: vec![],
-            file_ids: vec![],
+            file_ids,
             parent_task_id: None,
             headless: Some(false),
         };

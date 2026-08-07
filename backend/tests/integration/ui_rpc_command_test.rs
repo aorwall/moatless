@@ -199,6 +199,7 @@ fn turn(task_id: &str, uuid: &str, text: &str) -> ThreadTurn {
         model: None,
         agent_mode: None,
         effort: None,
+        attachments: Vec::new(),
     }
 }
 
@@ -279,6 +280,36 @@ async fn the_same_frame_twice_is_one_message_and_two_successes(pool: PgPool) {
         message_uuids(&pool, "t-replay").await,
         vec![uuid.to_string()]
     );
+}
+
+/// A turn's images become uploads, and a deployment that cannot store an
+/// upload cannot carry the turn either — this harness configures no S3, which
+/// is the same condition as a deployment with `S3_BUCKET_NAME` unset.
+///
+/// The assertion that matters is the second one. Refusing is a message the
+/// composer shows; sending the text without the image is a turn the person
+/// believes carried their screenshot and an agent that never saw one.
+#[sqlx::test]
+async fn a_turn_whose_attachments_cannot_be_stored_is_refused_and_writes_nothing(pool: PgPool) {
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-attach", USER_1).await;
+
+    let mut turn = turn("t-attach", "2f6e5d4c-3b2a-4190-8877-665544332211", "look");
+    turn.attachments = vec![moatless_t3code::ports::TurnAttachment {
+        filename: "screenshot.png".into(),
+        mime_type: "image/png".into(),
+        bytes: vec![0u8; 16],
+    }];
+
+    let refusal = sink(&pool)
+        .send_turn(&viewer(USER_1), turn)
+        .await
+        .expect_err("a turn whose image cannot be stored is refused");
+    assert!(
+        matches!(refusal, CommandRefusal::Failed { .. }),
+        "storing failed, which is not the client asking for something impossible"
+    );
+    assert!(message_uuids(&pool, "t-attach").await.is_empty());
 }
 
 /// A message id arrives from the client, so it names a row the sender may have

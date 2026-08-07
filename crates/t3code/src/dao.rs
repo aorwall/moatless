@@ -152,6 +152,12 @@ pub struct TranscriptMessage {
     /// The display name of the Moatless user `sent_by` resolved to, joined in.
     /// The `user` fallback where no external author was recorded.
     pub sent_by_name: Option<String>,
+    /// The uploads attached to this Message, joined in from its `file` context
+    /// rows as a JSON array of `{referenceId, data}` — the upload's id and the
+    /// filename, mime type and size resolved when it was sent. Read from the
+    /// contexts rather than from `task_messages.attachments`, which holds ids
+    /// alone. `None` on a Message with no uploads.
+    pub file_contexts: Option<serde_json::Value>,
 }
 
 /// A Task's transcript, and whether it is all of it.
@@ -447,7 +453,8 @@ const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role
                       COALESCE(b.destination_config ->> 'identifier',
                                b.destination_config ->> 'issue_identifier')
                           AS binding_label,
-                      COALESCE(u.name, u.login) AS sent_by_name"#;
+                      COALESCE(u.name, u.login) AS sent_by_name,
+                      files.file_contexts"#;
 
 /// The two joins that carry a Message's origin out of the database: what its
 /// Binding says the subject is called and where it lives, and the display name
@@ -482,7 +489,19 @@ const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
                           ORDER BY tb.created_at DESC
                           LIMIT 1
                       ) b ON true
-                      LEFT JOIN users u ON u.id::text = m.sent_by"#;
+                      LEFT JOIN users u ON u.id::text = m.sent_by
+                      LEFT JOIN LATERAL (
+                          SELECT jsonb_agg(
+                                     jsonb_build_object(
+                                         'referenceId', c.reference_id,
+                                         'data', c.data
+                                     )
+                                     ORDER BY c.id
+                                 ) AS file_contexts
+                          FROM task_message_contexts c
+                          WHERE c.task_message_id = m.id
+                            AND c.type = 'file'
+                      ) files ON true"#;
 
 /// The statuses a conversation can be listed under: the sidebar and the archive
 /// together. A Task at any other status is in neither, and comes back absent

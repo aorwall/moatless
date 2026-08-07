@@ -278,6 +278,15 @@ pub(super) struct OriginContext<'a> {
 /// adapter is GitHub-only and its subject key carries the coordinates.
 const GITHUB_PR_ADAPTER: &str = "github_pr";
 
+/// What `ChatImageAttachment` accepts, field for field
+/// (`contracts/src/orchestration.ts:145-165`). An attachment outside any of
+/// these is left out of the projection rather than sent for the client to
+/// refuse — see [`message_attachments`].
+const ATTACHMENT_ID_MAX_CHARS: usize = 128;
+const ATTACHMENT_NAME_MAX_CHARS: usize = 255;
+const ATTACHMENT_MIME_MAX_CHARS: usize = 100;
+const ATTACHMENT_MAX_BYTES: i64 = 10 * 1024 * 1024;
+
 /// Where one Message came from, or `None` when it came from inside T3.
 ///
 /// The first arm that matches wins: a Message authored by another Task is a
@@ -860,14 +869,23 @@ fn message_bubble(
             // Only a `user` bubble can carry an origin: an external message is
             // someone else speaking, and the agent's own replies are not.
             (!text.is_empty()).then(|| {
-                message_row(
+                let mut row = message_row(
                     message,
                     "user",
                     text.to_string(),
                     turn,
                     at,
                     message_origin(message, origins),
-                )
+                );
+                // Only a `user` bubble can carry attachments: the uploads on a
+                // Message are what the person attached to it.
+                let attachments = message_attachments(message);
+                if !attachments.is_empty() {
+                    if let Some(object) = row.as_object_mut() {
+                        object.insert("attachments".into(), Value::Array(attachments));
+                    }
+                }
+                row
             })
         }
         MessageType::Assistant => (!text.is_empty())
@@ -878,6 +896,87 @@ fn message_bubble(
         MessageType::Result | MessageType::Error => (!text.is_empty())
             .then(|| message_row(message, "system", text.to_string(), turn, at, None)),
     }
+}
+
+/// The uploads on a Message, as the contract's `ChatAttachment` union.
+///
+/// That union has one member, `image`, so an upload that is not an image — a
+/// PDF attached from the Moatless UI on the same Task — has no shape to be sent
+/// in and is left out. So is one whose id, name or size falls outside what
+/// `ChatImageAttachment` accepts (`contracts/src/orchestration.ts:158-165`),
+/// because the client decodes the *whole* thread snapshot against that schema:
+/// a single field that fails its check costs the reader the conversation, not
+/// the attachment. Leaving it out costs them one image.
+///
+/// The agent is unaffected either way — it reads the file off disk from the
+/// path the prompt names, which is decided by the upload and not by this.
+fn message_attachments(message: &TranscriptMessage) -> Vec<Value> {
+    let Some(contexts) = message.file_contexts.as_ref().and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    contexts
+        .iter()
+        .filter_map(|context| {
+            let id = context.get("referenceId").and_then(Value::as_str)?;
+            if id.is_empty() || id.len() > ATTACHMENT_ID_MAX_CHARS || !is_attachment_id(id) {
+                return None;
+            }
+
+            let data = context.get("data")?;
+            let mime_type = data.get("mimeType").and_then(Value::as_str)?;
+            if !mime_type.to_ascii_lowercase().starts_with("image/")
+                || mime_type.len() > ATTACHMENT_MIME_MAX_CHARS
+            {
+                return None;
+            }
+
+            let name = truncate_on_char_boundary(
+                data.get("filename").and_then(Value::as_str)?.trim(),
+                ATTACHMENT_NAME_MAX_CHARS,
+            );
+            if name.is_empty() {
+                return None;
+            }
+
+            let size = data.get("size").and_then(Value::as_i64)?;
+            if !(0..=ATTACHMENT_MAX_BYTES).contains(&size) {
+                return None;
+            }
+
+            Some(json!({
+                "type": "image",
+                "id": id,
+                "name": name,
+                "mimeType": mime_type,
+                "sizeBytes": size
+            }))
+        })
+        .collect()
+}
+
+/// `ChatAttachmentId`'s alphabet (`contracts/src/orchestration.ts:152-155`). An
+/// upload id is a uuid and always passes; this is what keeps a hand-written or
+/// migrated id from reaching a client that would refuse the snapshot holding it.
+fn is_attachment_id(id: &str) -> bool {
+    id.bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+/// Cut `text` to at most `max` bytes without splitting a character.
+///
+/// Bytes rather than characters, and deliberately: the contract's limit counts
+/// UTF-16 units, which no multi-byte character can exceed the byte count of, so
+/// a byte cut is never the looser reading of the same rule.
+fn truncate_on_char_boundary(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 /// The Turn an activity is shown under, and when it happened.
@@ -2534,6 +2633,7 @@ mod tests {
             binding_url: None,
             binding_label: None,
             sent_by_name: None,
+            file_contexts: None,
         }
     }
 
@@ -2674,6 +2774,125 @@ mod tests {
                 source_task_names: &HashMap::new(),
             },
         )
+    }
+
+    /// One `file` context row, as the join reads it.
+    fn a_file_context(reference_id: &str, filename: &str, mime_type: &str, size: i64) -> Value {
+        json!({
+            "referenceId": reference_id,
+            "data": { "filename": filename, "mimeType": mime_type, "size": size }
+        })
+    }
+
+    fn with_files(mut message: TranscriptMessage, contexts: Vec<Value>) -> TranscriptMessage {
+        message.file_contexts = Some(Value::Array(contexts));
+        message
+    }
+
+    /// `ChatImageAttachment` field for field: the id the upload is fetched
+    /// back by, and the three things the bubble shows beside it.
+    #[test]
+    fn an_uploaded_image_becomes_a_chat_attachment() {
+        let message = with_files(
+            message(1, MessageType::User, "look at this"),
+            vec![a_file_context(
+                "6b1f7b2e-0000-4000-8000-000000000001",
+                "screenshot.png",
+                "image/png",
+                4096,
+            )],
+        );
+
+        assert_eq!(
+            message_attachments(&message),
+            vec![json!({
+                "type": "image",
+                "id": "6b1f7b2e-0000-4000-8000-000000000001",
+                "name": "screenshot.png",
+                "mimeType": "image/png",
+                "sizeBytes": 4096
+            })]
+        );
+    }
+
+    /// The client decodes the whole snapshot against its schema, so an upload
+    /// it would refuse costs the reader the conversation rather than the
+    /// image. Each of these is therefore left out, and the ones beside it are
+    /// not.
+    #[test]
+    fn an_upload_the_contract_has_no_shape_for_is_left_out() {
+        let message = with_files(
+            message(1, MessageType::User, "look at this"),
+            vec![
+                // Not an image: `ChatAttachment` has one member.
+                a_file_context("id-a", "report.pdf", "application/pdf", 10),
+                // Past `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES`.
+                a_file_context("id-b", "huge.png", "image/png", ATTACHMENT_MAX_BYTES + 1),
+                // Outside `ChatAttachmentId`'s alphabet.
+                a_file_context("id c/../d", "ok.png", "image/png", 10),
+                // `TrimmedNonEmptyString`.
+                a_file_context("id-d", "   ", "image/png", 10),
+                a_file_context("id-e", "kept.png", "image/png", 10),
+            ],
+        );
+
+        let attachments = message_attachments(&message);
+        assert_eq!(attachments.len(), 1, "got {attachments:?}");
+        assert_eq!(attachments[0]["name"], "kept.png");
+    }
+
+    /// A name past the contract's limit is cut rather than dropped: the person
+    /// still sees their image, under a name that is shorter than they gave it.
+    #[test]
+    fn an_overlong_name_is_cut_to_what_the_contract_takes() {
+        let long = format!("{}.png", "ä".repeat(400));
+        let message = with_files(
+            message(1, MessageType::User, "look at this"),
+            vec![a_file_context("id-a", &long, "image/png", 10)],
+        );
+
+        let attachments = message_attachments(&message);
+        let name = attachments[0]["name"].as_str().unwrap();
+        assert!(name.len() <= ATTACHMENT_NAME_MAX_CHARS, "{} bytes", name.len());
+        assert!(long.starts_with(name));
+    }
+
+    /// A Message with no uploads is byte-identical to one projected before
+    /// this surface read them — `attachments` is an optional key, and an empty
+    /// array is not the same as its absence.
+    #[test]
+    fn a_message_without_uploads_carries_no_attachments_key() {
+        let thread = detail(&transcript(
+            vec![message(1, MessageType::User, "no files here")],
+            Vec::new(),
+        ));
+        let bubble = &thread["messages"][0];
+
+        assert_eq!(bubble["role"], "user");
+        assert!(bubble.get("attachments").is_none());
+    }
+
+    /// Only the person attaches things. An assistant row carrying uploads
+    /// would be the agent claiming the person sent them.
+    #[test]
+    fn only_a_user_bubble_carries_attachments() {
+        let thread = detail(&transcript(
+            vec![
+                with_files(
+                    message(1, MessageType::User, "look at this"),
+                    vec![a_file_context("id-a", "a.png", "image/png", 10)],
+                ),
+                with_files(
+                    message(2, MessageType::Assistant, "I see it"),
+                    vec![a_file_context("id-b", "b.png", "image/png", 10)],
+                ),
+            ],
+            Vec::new(),
+        ));
+        let messages = thread["messages"].as_array().unwrap();
+
+        assert_eq!(messages[0]["attachments"].as_array().unwrap().len(), 1);
+        assert!(messages[1].get("attachments").is_none());
     }
 
     #[test]

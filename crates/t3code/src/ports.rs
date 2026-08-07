@@ -52,6 +52,21 @@ impl CommandRefusal {
     }
 }
 
+/// One image the client sent inline with a turn.
+///
+/// T3 has no upload endpoint: the composer puts the bytes in the command as a
+/// base64 data URL and lets the server decide what to call them. So this is the
+/// decoded result — [`commands`](super::commands) has already checked that the
+/// payload parses, is an image, and is within the contract's limits, and the
+/// mime type and size here are what the bytes actually are rather than what the
+/// client declared them to be.
+pub struct TurnAttachment {
+    /// The name the person's file had, for the transcript and the download.
+    pub filename: String,
+    pub mime_type: String,
+    pub bytes: Vec<u8>,
+}
+
 /// One turn, as this surface understood it.
 pub struct ThreadTurn {
     pub task_id: String,
@@ -65,6 +80,9 @@ pub struct ThreadTurn {
     /// The reasoning effort selected for this turn, in the agent's own
     /// vocabulary. `None` leaves the agent on its own default.
     pub effort: Option<String>,
+    /// The images that came with the turn, in the order the composer held them.
+    /// Empty for the overwhelming majority of turns.
+    pub attachments: Vec<TurnAttachment>,
 }
 
 /// A new Thread, as this surface understood it.

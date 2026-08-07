@@ -723,6 +723,7 @@ mod tests {
             binding_url: None,
             binding_label: None,
             sent_by_name: None,
+            file_contexts: None,
         }
     }
 

@@ -21,8 +21,10 @@
 use crate::common;
 
 use moatless_backend_core::activity::mapping::{ActivityKind, ActivityStatus};
+use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
 use moatless_events::SandboxEventPayload;
 use moatless_t3code::dao::{ConversationDao, PgConversationDao};
+use moatless_vibe_backend::message::contexts::message_context_input_to_row;
 use moatless_vibe_backend::message::dao as message_dao;
 use moatless_vibe_backend::message::dao::{MessageDao, PgMessageDao};
 use moatless_vibe_backend::message::models::MessageType;
@@ -420,4 +422,74 @@ async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool
     let changes = changes_from(&pool, TASK, 0, 10).await.unwrap();
     assert_eq!(changes.len(), 1, "only the first status recorded a change");
     assert_eq!(changes[0].activity_id.as_deref(), Some("evt-1"));
+}
+
+/// A Message's uploads reach the reader on the Message itself.
+///
+/// The transcript joins them out of the `file` context rows the send path
+/// writes, so this is a property of that SQL: only `file` rows, only this
+/// Message's, and each carrying the metadata a rendered attachment needs.
+#[sqlx::test]
+async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
+    seed_task(&pool).await;
+
+    let contexts = vec![
+        message_context_input_to_row(&MessageContextInput::File {
+            reference_id: "file-1".to_string(),
+            data: FileContextData {
+                filename: "screenshot.png".to_string(),
+                mime_type: "image/png".to_string(),
+                size: 4096,
+            },
+        }),
+        // A context of another type shares the table and must not be read as
+        // an upload.
+        message_context_input_to_row(&MessageContextInput::PreviewUrl {
+            reference_id: "preview".to_string(),
+            data: PreviewUrlContextData {
+                path: "/".to_string(),
+                url: None,
+            },
+        }),
+    ];
+
+    let with_upload = make_message_row(TASK, "with-upload");
+    message_dao::append(
+        &pool,
+        &with_upload,
+        &contexts,
+        &ConversationWrite::default(),
+    )
+    .await
+    .unwrap();
+    append(&pool, "no-upload", serde_json::json!([])).await;
+
+    let transcript = PgConversationDao::new(pool.clone())
+        .transcript(TASK)
+        .await
+        .unwrap();
+
+    let attached = transcript
+        .messages
+        .iter()
+        .find(|m| m.uuid == "with-upload")
+        .expect("the message is in the transcript");
+    assert_eq!(
+        attached.file_contexts,
+        Some(serde_json::json!([{
+            "referenceId": "file-1",
+            "data": { "filename": "screenshot.png", "mimeType": "image/png", "size": 4096 }
+        }])),
+        "only the file context, and with the metadata the attachment renders from"
+    );
+
+    let plain = transcript
+        .messages
+        .iter()
+        .find(|m| m.uuid == "no-upload")
+        .expect("the message is in the transcript");
+    assert_eq!(
+        plain.file_contexts, None,
+        "a Message with no uploads joins to nothing rather than to an empty array"
+    );
 }

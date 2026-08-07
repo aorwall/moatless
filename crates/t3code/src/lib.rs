@@ -93,7 +93,16 @@ use crate::workspace::WorkspaceAccessError;
 use moatless_backend_core::activity::{ConversationHead, Resume, resume};
 use moatless_backend_core::scope::ScopeContext;
 
-const MAX_FRAME_BYTES: usize = 1024 * 1024;
+/// The largest WebSocket message this socket reads or writes.
+///
+/// Sized by the one frame that is not small: T3 has no upload endpoint, so a
+/// composer attachment travels inside `orchestration.dispatchCommand` as a
+/// base64 data URL of up to 14,000,000 characters. Oversized attachments are
+/// refused by name in [`commands`]; a frame cap is only reached by turns the
+/// contract allows, and it fails as a dropped socket rather than a refusal.
+/// Deliberately below eight maximum-size images: the composer re-encodes before
+/// sending, and this buffer is allocated for anyone who can open the socket.
+const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 const MAX_MESSAGES_PER_FRAME: usize = 128;
 const MAX_ACTIVE_STREAMS: usize = 64;
 
@@ -2388,10 +2397,11 @@ impl ProtocolSession {
             }
             // A conversation's checkout exists inside its Sandbox and nowhere
             // else, so an asset is minted as a route this backend serves the
-            // file on rather than as a path on this machine — see
-            // [`assets`]. The resources that name no file here, an attachment
-            // and a project's favicon, keep answering that there is none, which
-            // is what the client renders as a project without an icon.
+            // file on rather than as a path on this machine — see [`assets`].
+            // An attachment is an upload and is minted at the upload route. A
+            // project's favicon names no file here and keeps answering that
+            // there is none, which is what the client renders as a project
+            // without an icon.
             "assets.createUrl" => {
                 // The error carries the resource back, and the client decodes it
                 // against the same schema it sent — so a request without one has
