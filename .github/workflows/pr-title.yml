@@ -1,0 +1,50 @@
+# The message that lands on `main` is the PR title, not any local commit: this
+# repo squash-merges and GitHub builds the squash commit from the title
+# server-side, where no git hook runs (.husky/commit-msg guards only local
+# commits) and no other job runs commitlint. So the title is linted here against
+# the same commitlint.config.ts the local hook uses.
+#
+# This is its own workflow, not a job in ci.yml, because of the trigger. A title
+# is not code: editing it fires no `synchronize`, and the default
+# `pull_request` activity set — [opened, synchronize, reopened] — omits
+# `edited`. A job in ci.yml would pass on the opening title and never re-run when
+# someone retitled, so a green check would attest to a title that no longer
+# ships. This workflow adds `edited`, so a retitle re-runs it. It cannot live in
+# ci.yml under that trigger: `edited` also fires on body edits, which would re-run
+# ci.yml's whole Rust matrix on every typo fix, and no path filter can gate an
+# event that has nothing to do with paths. Kept separate, this is seconds long
+# and the only thing a retitle re-runs.
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
+
+# A rapid sequence of retitles cancels its own in-flight run; only the latest
+# title matters.
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    name: PR title conforms to commitlint
+    runs-on: staging-runners
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+      # commitlint and its config-conventional preset are root devDependencies;
+      # install resolves them so `bunx commitlint` runs the pinned local copy and
+      # loads commitlint.config.ts, rather than fetching an unpinned one.
+      - name: Install dependencies
+        run: bun install
+      - name: Lint the PR title against commitlint.config.ts
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: ./scripts/check-pr-title.sh
