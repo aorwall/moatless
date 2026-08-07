@@ -171,6 +171,8 @@ Compressed to the outcome and the rules later steps still rest on.
 
   **Forwarding into a gated file is not itself gating.** A gated file can carry a thin `&AppState` door for its provider callers and a port-typed core for everyone else — the shape `upsert_binding`/`upsert_binding_into` already has. So a file that forwards into one clears its own row by calling the core, leaving the door and the gated file's row untouched.
 
+  **A door is earned by callers that still need it, not by the file being gated.** Check each function's callers before splitting it: `adapters/common.rs::ensure_repository_exists` has `loops/http/handlers.rs` as its sole caller, so a retained `&AppState` door would be dead the moment it was written — that function converts outright. `load_adapter_connection_for_auth` (also called from `common.rs::resolve_connection`, `bindings/handlers.rs`, `bindings/reply.rs`) and `load_loop_for_auth` (also called from `bindings/handlers.rs`) do have other callers, and those two earn doors. Splitting every function in a gated file is the mechanical reading of this rule and it manufactures dead code.
+
   **`bindings/runtime.rs` is the worst of the five, and `upsert_binding` alone is why.** That one function has nine external call sites across six files — `adapters/handlers.rs:193` and `:314`, `bindings/outbound.rs:102`, `linear/issues.rs:250`, `linear/api_routes.rs:863`, `linear/sessions.rs:370`, and `github_pr/routing.rs:154`, `:235`, `:546` — six of them in the four provider files. Its row clears when those move, which is their slices' work.
 
   **`adapters/delivery/typed.rs` is provider-only**: thirteen provider files reference it and no loops- or server-band caller does. Gamma is a fact about callers, not a classification.
@@ -187,6 +189,16 @@ Compressed to the outcome and the rules later steps still rest on.
   **And then the blocking files are not in the crates being carved at all.** What stops a provider is not only its own signatures but what it forwards *into*, and the three hubs that carry that are loops-band, not provider-band: `adapters/delivery/typed.rs` (`F: Fn(AppState, …)` closure bounds plus an owned `state: AppState`), `adapters/inbound_delivery.rs` (an owned `state: AppState` in its constructor) and `bindings/runtime.rs` (`&AppState` in nine signatures). One census row each, identical in the report to any provider row. So the cost of clearing a crate is not bounded by that crate's rows at all, and the report offers no way to see this — the hub rows sit under a different band heading and read as unrelated work.
 
   **Order a slice by measured sites, and open every file before writing code.** That is the check that caught this; it is not a re-reading of the report, because the number the report gives is not the number that governs the edit. Per-file site counts are measurements taken when a slice is scoped, not durable figures — re-measure before costing.
+
+  **And do not count port reads with a line-oriented pattern, because rustfmt splits the receiver from the field.** `grep -o 'state\.[a-z_]*'` finds `state.loops.delete(&id, &ctx)` and misses
+
+  ```rust
+  state
+      .loops
+      .get(&id, &ctx)
+  ```
+
+  which is how rustfmt writes any chain over the width limit. On `loops/http/handlers.rs` that pattern reported 3 ports and 5 `loops` reads against an actual 6 and 13, and it missed `repositories` and `loop_sync` entirely. **The bias is the problem, not the shortfall:** what it drops is exactly the long chains, which are the handlers reading the most ports and doing the most work, so it returns a confident reading of the file's cheap half. Match `^\s*\.field` as well as `state.field`, or read the file. This is the same defect as the two above — an instrument answering a different question from the one asked — and it is the one most likely to recur, because counting port reads is what every remaining slice does first.
 
   **What the churn costs so far, as edges:edits, n = 3** — leaf handler 1:1, constructor 1:6, four-module cluster 1:6.5. The atom is the outlier, not the cluster, and the cost tracks how many sites name the thing being re-signed rather than how many edges clear. A fourth point from a wide mechanical slice is what turns three observations into something worth predicting from.
 
