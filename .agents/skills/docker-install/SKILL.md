@@ -45,7 +45,7 @@ Reports host readiness. Interpret:
 - `check.ok == false` → surface the `check.hint` verbatim; do not proceed until fixed.
 - `compose_command: null` → user is missing Compose v2. Offer to walk them through [Docker install](https://docs.docker.com/compose/install/).
 - `compose_dir_source: "repo"` → user is inside a repo checkout; assets already on disk.
-- `compose_dir_source: "cache"` → user is outside the repo; Step 2 will seed assets from this skill.
+- `compose_dir_source: "cache"` → user is outside the repo; Step 2 seeds assets from the `moat` binary's embedded copies (no external files needed).
 - Port `3000` / `8080` / etc. in use → surface the hint ("stop the process or set FRONTEND_PORT in .env").
 - On Apple Silicon, note the sandbox-image-arch warning (see troubleshooting) but don't block on it.
 
@@ -56,17 +56,14 @@ Reports host readiness. Interpret:
 #### 2a. Seed the work dir
 
 ```bash
-# When compose_dir_source was "repo":
+# Same command whether compose_dir_source was "repo" or "cache":
 moat docker init --non-interactive --json
-
-# When compose_dir_source was "cache":
-moat docker init --assets-from <this-skill>/assets --non-interactive --json
 ```
 
-`<this-skill>` is the root directory of this skill — the path under which `SKILL.md` lives. Claude knows it because the skill has been loaded.
+The compose assets (`docker-compose.yml`, `.env.example`, `nginx.conf`) are embedded in the `moat` binary, so a cache-dir install needs no external files. (An alternate bundle can be supplied with `--assets-from <dir>`, but the default path never requires it.)
 
 `init` does three things:
-1. If the work dir is empty (cache-dir mode), copy `docker-compose.yml` + `.env.example` from `--assets-from`.
+1. If the work dir is missing any compose asset (cache-dir mode), seed `docker-compose.yml`, `.env.example`, and `nginx.conf` from the binary's embedded copies.
 2. If `.env` is missing, copy `.env.example` → `.env`.
 3. For each `your_*_here` placeholder, either auto-generate or flag as missing:
    - **`TASK_TOKEN_SECRET`** — 64-char hex, auto-generated.
@@ -279,7 +276,6 @@ See `references/troubleshooting.md` for expanded diagnostics.
 
 - **`references/troubleshooting.md`** — port conflicts, Apple Silicon, socket permissions, Claude token refresh, DB wipe
 
-### Assets
+### Compose assets
 
-- **`assets/docker-compose.yml`** — symlink to the canonical compose file (used by `moat docker init --assets-from` when installing outside a repo checkout)
-- **`assets/.env.example`** — symlink to the canonical env template
+The compose bundle (`docker-compose.yml`, `.env.example`, `nginx.conf`) is embedded in the `moat` binary at build time from the repo's `docker-compose/` directory, so `moat docker init` seeds a fresh cache dir from memory — this skill ships no `assets/` directory. Inside a repo checkout, `moat` uses the checkout's `docker-compose/` directly.

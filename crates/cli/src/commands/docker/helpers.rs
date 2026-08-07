@@ -18,9 +18,44 @@ pub(super) const ENV_EXAMPLE_FILE: &str = ".env.example";
 pub(super) const NGINX_CONF_FILE: &str = "nginx.conf";
 
 /// Files that must live in the compose work dir for `docker compose up` to
-/// succeed. `docker-compose.yml` + `.env.example` are the bootstrap pair;
+/// succeed, each paired with the contents embedded into the binary at compile
+/// time. `docker-compose.yml` + `.env.example` are the bootstrap pair;
 /// `nginx.conf` is bind-mounted by the frontend service.
-pub(super) const INSTALL_ASSETS: &[&str] = &[COMPOSE_FILE, ENV_EXAMPLE_FILE, NGINX_CONF_FILE];
+///
+/// The contents are `include_str!`'d straight from the repo's `docker-compose/`
+/// dir, five levels up from this file. Embedding lets `moat docker init` seed a
+/// fresh cache dir from memory with no external asset bundle — the break this
+/// fixes.
+///
+/// This reaches outside the crate directory, up into the workspace root. That
+/// is safe only because `moat` is never `cargo package`d or `cargo publish`ed:
+/// it ships as a plain `cargo build -p moatless-cli --release` from a full-repo
+/// checkout (`.github/workflows/release-moat-cli.yml`), where these paths always
+/// resolve.
+///
+/// The guarantee here is "we never package this crate", NOT "packaging would
+/// catch an escape". Verified: `cargo package -p moatless-cli` is rejected at
+/// manifest verification — its workspace path deps carry no version — before it
+/// ever runs the verify build that would flag an escaping `include_str!`. So
+/// packaging is not a tripwire today. If this crate is ever made publishable,
+/// that verify build becomes the backstop (an escaping path is a hard compile
+/// error, so it fails loudly rather than shipping a broken binary) — but until
+/// then, keep these files under `docker-compose/` and do not add this crate to
+/// a publish set without first vendoring them into the crate.
+pub(super) const INSTALL_ASSETS: &[(&str, &str)] = &[
+    (
+        COMPOSE_FILE,
+        include_str!("../../../../../docker-compose/docker-compose.yml"),
+    ),
+    (
+        ENV_EXAMPLE_FILE,
+        include_str!("../../../../../docker-compose/.env.example"),
+    ),
+    (
+        NGINX_CONF_FILE,
+        include_str!("../../../../../docker-compose/nginx.conf"),
+    ),
+];
 pub(super) const ENV_FILE: &str = ".env";
 pub(super) const REPO_COMPOSE_SUBDIR: &str = "docker-compose";
 pub(super) const DEFAULT_PROJECT_NAME: &str = "moatless";
@@ -155,57 +190,77 @@ pub(super) fn cache_compose_dir() -> Result<PathBuf, ClientError> {
     Ok(home.join(".moatless").join("compose"))
 }
 
-/// Copy the two install assets (`docker-compose.yml`, `.env.example`) from the
-/// skill's `assets/` dir into a work dir. Symlinks in the skill are followed
-/// (via `fs::copy`), so the work dir always ends up with real file contents.
-pub(super) fn copy_assets(
-    assets_dir: &Path,
+/// Seed the compose work dir with the install assets.
+///
+/// By default the contents come straight from the compiled-in [`INSTALL_ASSETS`]
+/// — no external bundle is needed, which is what lets a cache-dir `moat docker
+/// init` work without a repo checkout. Pass `custom_from` to override with files
+/// read from a directory on disk (an alternate asset bundle); symlinks there are
+/// followed via `fs::copy`, so the work dir always ends up with real contents.
+///
+/// Existing files are left untouched unless `overwrite` is set.
+pub(super) fn seed_assets(
     work_dir: &Path,
+    custom_from: Option<&Path>,
     overwrite: bool,
 ) -> Result<Vec<String>, ClientError> {
-    if !assets_dir.is_dir() {
-        return Err(ClientError::Other(format!(
-            "--assets-from path is not a directory: {}",
-            assets_dir.display()
-        )));
+    if let Some(dir) = custom_from {
+        if !dir.is_dir() {
+            return Err(ClientError::Other(format!(
+                "--assets-from path is not a directory: {}",
+                dir.display()
+            )));
+        }
     }
 
     fs::create_dir_all(work_dir)
         .map_err(|e| ClientError::Other(format!("Failed to create {}: {e}", work_dir.display())))?;
 
     let mut copied = Vec::new();
-    for name in INSTALL_ASSETS.iter().copied() {
-        let src = assets_dir.join(name);
+    for (name, embedded) in INSTALL_ASSETS.iter().copied() {
         let dst = work_dir.join(name);
-
-        if !src.exists() {
-            return Err(ClientError::Other(format!(
-                "Required asset missing from skill: {}",
-                src.display()
-            )));
-        }
 
         if dst.exists() && !overwrite {
             continue;
         }
 
-        // Guard against the skill's assets being symlinks back to the
-        // destination (repo-checkout install where assets_dir lives inside the
-        // repo). fs::copy would truncate the destination before reading, so
-        // source and dest resolving to the same inode clobbers the file.
-        if let (Ok(src_canon), Ok(dst_canon)) = (fs::canonicalize(&src), fs::canonicalize(&dst)) {
-            if src_canon == dst_canon {
-                continue;
+        match custom_from {
+            Some(dir) => {
+                let src = dir.join(name);
+                if !src.exists() {
+                    return Err(ClientError::Other(format!(
+                        "Required asset missing from --assets-from bundle: {}",
+                        src.display()
+                    )));
+                }
+
+                // Guard against the bundle's file being a symlink back to the
+                // destination (an --assets-from dir that lives inside the same
+                // repo checkout). fs::copy truncates the destination before
+                // reading, so source and dest resolving to the same inode would
+                // clobber the file.
+                if let (Ok(src_canon), Ok(dst_canon)) =
+                    (fs::canonicalize(&src), fs::canonicalize(&dst))
+                {
+                    if src_canon == dst_canon {
+                        continue;
+                    }
+                }
+
+                fs::copy(&src, &dst).map_err(|e| {
+                    ClientError::Other(format!(
+                        "Failed to copy {} → {}: {e}",
+                        src.display(),
+                        dst.display()
+                    ))
+                })?;
+            }
+            None => {
+                fs::write(&dst, embedded).map_err(|e| {
+                    ClientError::Other(format!("Failed to write {}: {e}", dst.display()))
+                })?;
             }
         }
-
-        fs::copy(&src, &dst).map_err(|e| {
-            ClientError::Other(format!(
-                "Failed to copy {} → {}: {e}",
-                src.display(),
-                dst.display()
-            ))
-        })?;
         copied.push(name.to_string());
     }
 
@@ -369,23 +424,69 @@ mod tests {
     }
 
     #[test]
-    fn copy_assets_writes_files() {
+    fn seed_assets_writes_every_install_asset() {
+        // Seeding with no --assets-from override must materialise every entry
+        // in INSTALL_ASSETS from the binary's embedded copies. This is NOT a
+        // tautology to delete: INSTALL_ASSETS carries `include_str!` contents,
+        // so each entry is anchored by the compiler to a real file under
+        // `docker-compose/`. This test fails to *build* if an entry loses its
+        // backing file, and fails at *runtime* if seeding stops writing one or
+        // writes the wrong bytes.
         let tmp = tempfile::tempdir().unwrap();
-        let assets = tmp.path().join("assets");
         let work = tmp.path().join("work");
-        fs::create_dir_all(&assets).unwrap();
-        fs::write(assets.join(COMPOSE_FILE), "services: {}\n").unwrap();
-        fs::write(assets.join(ENV_EXAMPLE_FILE), "FOO=bar\n").unwrap();
 
-        let copied = copy_assets(&assets, &work, false).unwrap();
-        assert_eq!(copied.len(), 2);
-        assert!(work.join(COMPOSE_FILE).is_file());
-        assert!(work.join(ENV_EXAMPLE_FILE).is_file());
+        let copied = seed_assets(&work, None, false).unwrap();
+        assert_eq!(copied.len(), INSTALL_ASSETS.len());
+        for (name, contents) in INSTALL_ASSETS.iter().copied() {
+            let dst = work.join(name);
+            assert!(dst.is_file(), "{name} not written");
+            assert_eq!(
+                fs::read_to_string(&dst).unwrap(),
+                contents,
+                "{name} content does not match the embedded copy"
+            );
+        }
 
-        let second = copy_assets(&assets, &work, false).unwrap();
+        let second = seed_assets(&work, None, false).unwrap();
         assert!(
             second.is_empty(),
             "should skip existing files without overwrite"
+        );
+    }
+
+    #[test]
+    fn seed_assets_override_reads_from_disk() {
+        // --assets-from overrides the embedded copies with files from a bundle
+        // dir; the work dir must end up with the bundle's bytes, not the
+        // embedded ones.
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle = tmp.path().join("bundle");
+        let work = tmp.path().join("work");
+        fs::create_dir_all(&bundle).unwrap();
+        for (name, _) in INSTALL_ASSETS.iter().copied() {
+            fs::write(bundle.join(name), format!("custom {name}\n")).unwrap();
+        }
+
+        let copied = seed_assets(&work, Some(&bundle), false).unwrap();
+        assert_eq!(copied.len(), INSTALL_ASSETS.len());
+        for (name, _) in INSTALL_ASSETS.iter().copied() {
+            assert_eq!(
+                fs::read_to_string(work.join(name)).unwrap(),
+                format!("custom {name}\n"),
+                "{name} should carry the bundle's content"
+            );
+        }
+    }
+
+    #[test]
+    fn seed_assets_rejects_non_directory_override() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work = tmp.path().join("work");
+        let missing = tmp.path().join("nope");
+        let err = seed_assets(&work, Some(&missing), false).unwrap_err();
+        assert!(
+            err.to_string().contains("--assets-from path is not a directory"),
+            "unexpected error: {err}"
         );
     }
 }

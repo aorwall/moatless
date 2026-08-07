@@ -257,4 +257,4 @@ When running outside a repo checkout, `moat docker` uses `$HOME/.moatless/compos
 moat docker uninstall --purge --purge-cache
 ```
 
-This tears down containers, drops volumes, and removes the cache dir. Next install will re-seed from the skill assets.
+This tears down containers, drops volumes, and removes the cache dir. The next `moat docker init` re-seeds the cache dir from the assets embedded in the `moat` binary.

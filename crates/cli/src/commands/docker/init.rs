@@ -1,4 +1,4 @@
-//! `moat docker init` — resolve work dir, copy skill assets, bootstrap `.env`.
+//! `moat docker init` — resolve work dir, seed compose assets, bootstrap `.env`.
 
 use std::fs;
 
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::env_file::{is_placeholder, read_env_map, set_env, write_env_file};
 use super::helpers::{
-    copy_assets, resolve_compose_dir, ComposeDirSource, ENV_EXAMPLE_FILE, ENV_FILE, INSTALL_ASSETS,
+    resolve_compose_dir, seed_assets, ComposeDirSource, ENV_EXAMPLE_FILE, ENV_FILE, INSTALL_ASSETS,
 };
 use super::InitArgs;
 use crate::client::ClientError;
@@ -39,19 +39,25 @@ pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
         ClientError::Other(format!("Failed to create {}: {e}", compose_dir.display()))
     })?;
 
-    // 1. Ensure install assets are present. Repo checkouts already have them;
-    //    cache-dir installs need `--assets-from <skill>/assets` to seed.
-    //    Also repair entries that exist but are the wrong type (e.g. `docker
-    //    compose` auto-created `nginx.conf` as an empty directory because the
-    //    bind-mount source wasn't on disk).
-    let mut force_overwrite = args.overwrite;
+    // 1. Ensure install assets are present. They're seeded from the binary's
+    //    embedded copies (see INSTALL_ASSETS), so no external bundle is needed;
+    //    `--assets-from` can override with an alternate bundle. Wrong-type
+    //    entries are repaired in the loop below.
     let mut needs_seed = false;
-    for name in INSTALL_ASSETS {
+    for (name, _) in INSTALL_ASSETS {
         let path = compose_dir.join(name);
         if !path.exists() {
             needs_seed = true;
         } else if !path.is_file() {
-            // Remove stale directory so `copy_assets` can drop a real file here.
+            // Remove a wrong-type entry (e.g. `docker compose` auto-created
+            // `nginx.conf` as an empty directory because the bind-mount source
+            // wasn't on disk) so seeding can drop a real file here. Removal is
+            // sufficient: the path no longer exists, so `seed_assets` writes it
+            // even with overwrite=false. Deliberately do NOT force overwrite —
+            // the flag applies to every entry, so repairing one would clobber
+            // the user's healthy, hand-edited assets, which is unrecoverable in
+            // the untracked cache dir. `--overwrite` remains opt-in via
+            // `args.overwrite`.
             fs::remove_dir_all(&path).map_err(|e| {
                 ClientError::Other(format!(
                     "Failed to remove stale {} (expected a file, found a directory): {e}",
@@ -59,21 +65,14 @@ pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
                 ))
             })?;
             needs_seed = true;
-            force_overwrite = true;
         }
     }
 
     let mut copied_assets = Vec::new();
     if needs_seed {
-        let Some(assets) = args.assets_from.as_deref() else {
-            return Err(ClientError::Other(format!(
-                "Work dir {} is missing install assets. Re-run with --assets-from <docker-install-skill>/assets to seed it.",
-                compose_dir.display()
-            )));
-        };
-        copied_assets = copy_assets(assets, &compose_dir, force_overwrite)?;
+        copied_assets = seed_assets(&compose_dir, args.assets_from.as_deref(), args.overwrite)?;
     } else if let (Some(assets), true) = (args.assets_from.as_deref(), args.overwrite) {
-        copied_assets = copy_assets(assets, &compose_dir, true)?;
+        copied_assets = seed_assets(&compose_dir, Some(assets), true)?;
     }
 
     // 2. Bootstrap `.env`. Merge existing `.env` over `.env.example` defaults.
@@ -211,4 +210,56 @@ fn print_human(r: &InitReport, source: ComposeDirSource) {
     }
     println!();
     println!("Next: `moat docker install` to bring the stack up.");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::super::helpers::{COMPOSE_FILE, NGINX_CONF_FILE};
+    use super::super::InitArgs;
+    use super::run;
+
+    /// Repairing one wrong-type asset must NOT clobber the user's hand-edited
+    /// copies of the OTHER assets. `docker compose` can auto-create a bind-mount
+    /// source (`nginx.conf`) as an empty directory; init repairs that by
+    /// removing it and re-seeding. Because the repaired entry no longer exists,
+    /// seeding writes it with overwrite=false — so a healthy, locally-modified
+    /// `docker-compose.yml` in the same dir must survive untouched. In the
+    /// untracked cache dir those edits are unrecoverable, so a bare `init` that
+    /// silently reverts them would be worse than the break the embed fixes.
+    ///
+    /// Fails against a repair branch that flips overwrite on for every entry.
+    #[tokio::test]
+    async fn init_repairs_stale_dir_without_clobbering_user_edits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work = tmp.path().join("compose");
+        fs::create_dir_all(&work).unwrap();
+
+        // A user who hand-edited docker-compose.yml (e.g. remapped a port).
+        let user_bytes = "services:\n  frontend:\n    ports: [\"9999:3000\"]  # user edit\n";
+        fs::write(work.join(COMPOSE_FILE), user_bytes).unwrap();
+
+        // The wrong-type entry that triggers the repair path: a stale
+        // nginx.conf *directory* instead of a file.
+        fs::create_dir_all(work.join(NGINX_CONF_FILE)).unwrap();
+
+        let args = InitArgs {
+            compose_dir: Some(work.clone()),
+            assets_from: None,
+            overwrite: false,
+            non_interactive: true,
+        };
+        run(args, true).await.unwrap();
+
+        assert!(
+            work.join(NGINX_CONF_FILE).is_file(),
+            "stale nginx.conf directory should be repaired to a real file"
+        );
+        assert_eq!(
+            fs::read_to_string(work.join(COMPOSE_FILE)).unwrap(),
+            user_bytes,
+            "user's hand-edited docker-compose.yml must not be clobbered by repair"
+        );
+    }
 }

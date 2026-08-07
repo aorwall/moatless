@@ -192,9 +192,7 @@ fn missing_compose_hint(source: ComposeDirSource) -> String {
                 |_| "~/.moatless/compose".to_string(),
                 |p| p.display().to_string(),
             );
-            format!(
-                "Populate {cache_display} via `moat docker init --assets-from <docker-install-skill>/assets`"
-            )
+            format!("Populate {cache_display} via `moat docker init`")
         }
     }
 }

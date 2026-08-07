@@ -2,8 +2,9 @@
 //!
 //! Guides users through preflight → init → install → verify for running
 //! Moatless Vibe locally via Docker Compose. Shells out to `docker` /
-//! `docker compose`; the install assets (`docker-compose.yml`, `.env.example`)
-//! live in the `docker-install` skill, not the binary.
+//! `docker compose`; the compose assets (`docker-compose.yml`, `.env.example`,
+//! `nginx.conf`) are embedded in the binary and seeded into the work dir on
+//! `init` (see `helpers::INSTALL_ASSETS`).
 
 use std::path::PathBuf;
 
@@ -26,7 +27,7 @@ pub enum DockerAction {
     /// Inspect the host and report readiness for a Docker Compose install
     Preflight(PreflightArgs),
 
-    /// Copy install assets into a work dir and bootstrap `.env`
+    /// Seed install assets into a work dir and bootstrap `.env`
     Init(InitArgs),
 
     /// Start the stack (`docker compose up -d`)
@@ -103,8 +104,9 @@ pub struct InitArgs {
     #[arg(long)]
     pub compose_dir: Option<PathBuf>,
 
-    /// Path to the skill's `assets/` directory (required when the work dir is
-    /// empty — copies `docker-compose.yml` + `.env.example` from here)
+    /// Optional override: seed the work dir from this directory instead of the
+    /// binary's embedded copies of `docker-compose.yml`, `.env.example`, and
+    /// `nginx.conf` (an alternate asset bundle)
     #[arg(long)]
     pub assets_from: Option<PathBuf>,
 
