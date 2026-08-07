@@ -1,16 +1,28 @@
 //! Outbound adapter notifications — event-driven replies and explicit sends.
 
+use std::sync::Arc;
+
 use tracing::warn;
 
+use moatless_adapter_model::models::{OutboundFile, OutboundReply, TaskBinding};
+use moatless_backend_core::scope::ScopeContext;
+use moatless_core::config::{AuthConfig, S3Config};
+
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::adapters::error::AdapterError;
+use crate::adapters::{AdapterKind, Adapters};
+use crate::bindings::dao::TaskBindingDao;
+use crate::bindings::metrics::record_outbound;
+use crate::bindings::recently_sent::RecentlySent;
+use crate::file_storage::dao::FileDao;
+use crate::file_storage::s3::S3Storage;
+use crate::loops::dao::LoopDao;
+use crate::message::dao::MessageDao;
 use crate::message::models::{MessageRole, MessageType, TaskMessage};
 use crate::state::AppState;
+use crate::task::dao::TaskDao;
 use crate::task_activities::mapping::ConversationWrite;
-
-use crate::adapters::error::AdapterError;
-use crate::adapters::Adapters;
-use crate::bindings::metrics::record_outbound;
-use moatless_adapter_model::models::{OutboundFile, OutboundReply};
-use moatless_backend_core::scope::ScopeContext;
+use crate::task_turn::dao::TaskTurnDao;
 
 /// Send a message directly through a subscription loop.
 ///
@@ -124,24 +136,288 @@ pub async fn direct_send_to_rule(
     Ok(Some(thread_info.external_thread_id))
 }
 
-/// The footer that GitHub/Linear comments end with — a link back to the
-/// moatless task. Other providers don't carry the footer, so this returns
-/// `None` for them (and when the task can't be resolved).
-pub(crate) async fn maybe_task_comment_footer(
-    state: &AppState,
-    adapter_kind: crate::adapters::AdapterKind,
-    task_id: &str,
-) -> Option<String> {
-    match adapter_kind {
-        crate::adapters::AdapterKind::GithubPr | crate::adapters::AdapterKind::Linear => {
-            crate::bindings::footer::task_comment_footer(
-                state.tasks.as_ref(),
-                &state.config.auth.frontend_url,
-                task_id,
-            )
-            .await
+/// Binding-based outbound delivery, owning the ports the send path reads rather
+/// than the whole `AppState`. Held by `ExternalReplyService`, which is the only
+/// consumer; this is a module boundary made concrete (a plain struct, no trait,
+/// no second implementation) rather than a speculative abstraction — what earns
+/// it is the parameter list `send_to_binding` would otherwise carry.
+pub(crate) struct OutboundSender {
+    task_bindings: Arc<dyn TaskBindingDao>,
+    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    loops: Arc<LoopDao>,
+    tasks: Arc<dyn TaskDao>,
+    recently_sent: Arc<RecentlySent>,
+    messages: Arc<dyn MessageDao>,
+    task_turns: Arc<dyn TaskTurnDao>,
+    s3: Option<S3Storage>,
+    auth_config: Arc<AuthConfig>,
+    s3_config: Arc<S3Config>,
+    files: Arc<dyn FileDao>,
+}
+
+impl OutboundSender {
+    #[allow(clippy::too_many_arguments)]
+    // reason: a composition-root constructor takes exactly the ports its struct
+    // holds; the alternative is threading `AppState` back in, which is the edge
+    // this slice removes.
+    pub(crate) fn new(
+        task_bindings: Arc<dyn TaskBindingDao>,
+        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        loops: Arc<LoopDao>,
+        tasks: Arc<dyn TaskDao>,
+        recently_sent: Arc<RecentlySent>,
+        messages: Arc<dyn MessageDao>,
+        task_turns: Arc<dyn TaskTurnDao>,
+        s3: Option<S3Storage>,
+        auth_config: Arc<AuthConfig>,
+        s3_config: Arc<S3Config>,
+        files: Arc<dyn FileDao>,
+    ) -> Self {
+        Self {
+            task_bindings,
+            adapter_connections,
+            loops,
+            tasks,
+            recently_sent,
+            messages,
+            task_turns,
+            s3,
+            auth_config,
+            s3_config,
+            files,
         }
-        _ => None,
+    }
+
+    /// Send a reply to the external target referenced by a task binding.
+    ///
+    /// Loads the binding, its adapter connection, and its optional
+    /// subscription loop, then calls `send_reply_for_binding` on the matching
+    /// adapter. Persists a visible assistant stub up front, tags it with the
+    /// returned external id, populates the recently_sent race-window cache, and
+    /// advances the binding cursor.
+    pub(crate) async fn send_to_binding(
+        &self,
+        providers: &Adapters,
+        task_id: &str,
+        binding_id: &str,
+        text: &str,
+        file_ids: &[String],
+    ) -> Result<(u32, Vec<String>), AdapterError> {
+        let binding_repo = self.task_bindings.clone();
+        let binding = binding_repo
+            .find_by_id(binding_id)
+            .await?
+            .ok_or_else(|| AdapterError::ConfigNotFound(format!("No task binding {binding_id}")))?;
+
+        if binding.task_id != task_id {
+            return Err(AdapterError::BadRequest(format!(
+                "Binding {binding_id} does not belong to task {task_id}"
+            )));
+        }
+
+        #[allow(clippy::disallowed_methods)]
+        // reason: outbound reply path runs as background system, no caller identity
+        let sys = ScopeContext::system();
+        let connection = self
+            .adapter_connections
+            .find_by_id(&binding.connection_id, &sys)
+            .await?
+            .ok_or_else(|| {
+                AdapterError::ConfigNotFound(format!(
+                    "Provider connection {} not found",
+                    binding.connection_id
+                ))
+            })?;
+
+        let rule = if let Some(ref subscription_id) = binding.loop_id {
+            self.loops.find_subscription_by_id(subscription_id).await?
+        } else {
+            None
+        };
+
+        let provider = providers.outbound_for_binding_reply_by_name(&binding.adapter_kind)?;
+        let adapter_label = provider.provider_key();
+
+        let binding_loop_id = binding.loop_id.as_deref().unwrap_or("");
+        let files = self.resolve_files(file_ids).await;
+        if !files.is_empty() && !provider.supports_files() {
+            record_outbound(
+                adapter_label,
+                "error",
+                "unsupported_feature",
+                binding_loop_id,
+                &binding.connection_id,
+            );
+            return Ok((
+                0,
+                vec![format!(
+                    "Provider {:?} does not support file attachments",
+                    provider.adapter_kind()
+                )],
+            ));
+        }
+
+        let footer = self
+            .maybe_task_comment_footer(provider.adapter_kind(), task_id)
+            .await;
+
+        // Author the reply under the owning task's identity (preferred by the GitHub
+        // adapter over binding/trigger-derived identities).
+        #[allow(clippy::disallowed_methods)]
+        // reason: outbound reply dispatched by background runtime, no caller identity
+        let sys_author = ScopeContext::system();
+        let author_user_id = self
+            .tasks
+            .find_by_id(task_id, &sys_author)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|t| t.owner_user_id);
+
+        let reply = OutboundReply {
+            text: truncate_text(text, provider.max_message_length()),
+            task_url: None,
+            footer,
+            author_user_id,
+            is_error: false,
+            files,
+        };
+
+        // Persist a visible stub up front so the row shows in the task timeline
+        // and we have a uuid to tag with the outbound `external_event_id`.
+        let stub_uuid = self
+            .persist_outbound_stub_for_binding(task_id, &reply.text, &binding, adapter_label)
+            .await;
+
+        let external_id = match provider
+            .send_reply_for_binding(&binding, &connection, rule.as_ref(), &reply)
+            .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                record_outbound(
+                    adapter_label,
+                    "error",
+                    "send_failed",
+                    binding_loop_id,
+                    &binding.connection_id,
+                );
+                return Ok((
+                    0,
+                    vec![format!(
+                        "Failed to send reply via {}: {e}",
+                        binding.adapter_kind
+                    )],
+                ));
+            }
+        };
+
+        if let Some(ref ext_id) = external_id {
+            self.recently_sent.note(task_id, ext_id);
+            if let Some(ref msg_id) = stub_uuid {
+                if let Err(e) = self
+                    .messages
+                    .set_external_source_metadata(
+                        msg_id,
+                        ext_id,
+                        adapter_label,
+                        Some(binding.subject_key.as_str()),
+                    )
+                    .await
+                {
+                    warn!(task_id = %task_id, error = %e, "Failed to tag outbound stub with external_event_id");
+                }
+            }
+            if let Err(e) = binding_repo.touch_cursor(&binding.id, ext_id).await {
+                warn!(
+                    binding_id = %binding.id,
+                    error = %e,
+                    "Failed to advance binding cursor"
+                );
+            }
+        }
+
+        record_outbound(
+            adapter_label,
+            "success",
+            "",
+            binding_loop_id,
+            &binding.connection_id,
+        );
+        Ok((1, vec![]))
+    }
+
+    /// The footer that GitHub/Linear comments end with — a link back to the
+    /// moatless task. Other providers don't carry the footer, so this returns
+    /// `None` for them (and when the task can't be resolved).
+    pub(crate) async fn maybe_task_comment_footer(
+        &self,
+        adapter_kind: AdapterKind,
+        task_id: &str,
+    ) -> Option<String> {
+        match adapter_kind {
+            AdapterKind::GithubPr | AdapterKind::Linear => {
+                crate::bindings::footer::task_comment_footer(
+                    self.tasks.as_ref(),
+                    &self.auth_config.frontend_url,
+                    task_id,
+                )
+                .await
+            }
+            _ => None,
+        }
+    }
+
+    /// Persist a visible assistant row for a binding-based outbound reply.
+    pub(crate) async fn persist_outbound_stub_for_binding(
+        &self,
+        task_id: &str,
+        text: &str,
+        binding: &TaskBinding,
+        adapter_label: &str,
+    ) -> Option<String> {
+        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let uuid = uuid::Uuid::new_v4().to_string();
+
+        let turn_number = match self.task_turns.latest_turn_number(task_id).await {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(task_id, error = %e, "Failed to read turn number for outbound stub");
+                None
+            }
+        };
+
+        let mut msg = TaskMessage::new_user_message(
+            task_id.to_string(),
+            uuid.clone(),
+            text.to_string(),
+            now.clone(),
+        );
+        msg.message_type = MessageType::System;
+        msg.message_role = MessageRole::Assistant;
+        msg.user_type = "assistant".to_string();
+        msg.turn_number = turn_number;
+        msg.external_adapter = Some(adapter_label.to_string());
+        msg.external_source_name = Some(binding.subject_key.clone());
+
+        match self
+            .messages
+            .append(&msg, &[], &ConversationWrite::default())
+            .await
+        {
+            Ok(_) => Some(uuid),
+            Err(e) => {
+                warn!(task_id, error = %e, "Failed to persist outbound stub message");
+                None
+            }
+        }
+    }
+
+    /// Resolve file IDs to [`OutboundFile`] structs by loading metadata + data
+    /// from S3. Delegates to the shared [`resolve_files_with`] body so the
+    /// `&AppState` door and this method never drift.
+    pub(crate) async fn resolve_files(&self, file_ids: &[String]) -> Vec<OutboundFile> {
+        resolve_files_with(&self.s3, &self.s3_config, self.files.as_ref(), file_ids).await
     }
 }
 
@@ -169,24 +445,37 @@ pub(crate) fn truncate_text(text: &str, max: usize) -> String {
 
 /// Resolve file IDs to [`OutboundFile`] structs by loading metadata + data from S3.
 ///
-/// Failures for individual files are logged as warnings and skipped.
+/// Failures for individual files are logged as warnings and skipped. This is the
+/// door retained for `adapters/handlers.rs`, which still holds `AppState`; it
+/// forwards to [`resolve_files_with`] so no logic lives here.
 pub(crate) async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<OutboundFile> {
+    resolve_files_with(&state.s3, &state.config.s3, state.files.as_ref(), file_ids).await
+}
+
+/// The file-resolution body, over the exact ports it reads. The `&AppState`
+/// door and [`OutboundSender::resolve_files`] both forward here.
+pub(crate) async fn resolve_files_with(
+    s3: &Option<S3Storage>,
+    s3_config: &S3Config,
+    files: &dyn FileDao,
+    file_ids: &[String],
+) -> Vec<OutboundFile> {
     if file_ids.is_empty() {
         return vec![];
     }
 
-    let Some(s3_client) = state.s3.as_ref() else {
+    let Some(s3_client) = s3.as_ref() else {
         warn!("S3 not configured, cannot resolve file attachments");
         return vec![];
     };
-    let Some(bucket) = state.config.s3.bucket_name.as_ref() else {
+    let Some(bucket) = s3_config.bucket_name.as_ref() else {
         warn!("S3 bucket not configured, cannot resolve file attachments");
         return vec![];
     };
 
-    let mut files = Vec::with_capacity(file_ids.len());
+    let mut resolved = Vec::with_capacity(file_ids.len());
     for file_id in file_ids {
-        let meta = match state.files.find_by_id(file_id).await {
+        let meta = match files.find_by_id(file_id).await {
             Ok(Some(m)) => m,
             Ok(None) => {
                 warn!(file_id = %file_id, "File metadata not found for outbound attachment");
@@ -198,10 +487,10 @@ pub(crate) async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<
             }
         };
 
-        let s3_key = format!("{}/{}", state.config.s3.key_prefix, file_id);
+        let s3_key = format!("{}/{}", s3_config.key_prefix, file_id);
         match crate::file_storage::s3::get_object(&s3_client.client, bucket, &s3_key).await {
             Ok((data, _content_type)) => {
-                files.push(OutboundFile {
+                resolved.push(OutboundFile {
                     filename: meta.filename,
                     mime_type: meta.mime_type,
                     data,
@@ -213,213 +502,7 @@ pub(crate) async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<
         }
     }
 
-    files
-}
-
-// ---------------------------------------------------------------------------
-// Binding-based outbound
-// ---------------------------------------------------------------------------
-
-/// Send a reply to the external target referenced by a task binding.
-///
-/// Loads the binding, its adapter connection, and its optional
-/// subscription loop, then calls `send_reply_for_binding` on the matching
-/// adapter. Persists a visible assistant stub up front, tags it with the
-/// returned external id, populates the recently_sent race-window cache, and
-/// advances the binding cursor.
-pub async fn send_to_binding(
-    state: &AppState,
-    providers: &Adapters,
-    task_id: &str,
-    binding_id: &str,
-    text: &str,
-    file_ids: &[String],
-) -> Result<(u32, Vec<String>), AdapterError> {
-    let binding_repo = state.task_bindings.clone();
-    let binding = binding_repo
-        .find_by_id(binding_id)
-        .await?
-        .ok_or_else(|| AdapterError::ConfigNotFound(format!("No task binding {binding_id}")))?;
-
-    if binding.task_id != task_id {
-        return Err(AdapterError::BadRequest(format!(
-            "Binding {binding_id} does not belong to task {task_id}"
-        )));
-    }
-
-    #[allow(clippy::disallowed_methods)]
-    // reason: outbound reply path runs as background system, no caller identity
-    let sys = ScopeContext::system();
-    let connection = state
-        .adapter_connections
-        .find_by_id(&binding.connection_id, &sys)
-        .await?
-        .ok_or_else(|| {
-            AdapterError::ConfigNotFound(format!(
-                "Provider connection {} not found",
-                binding.connection_id
-            ))
-        })?;
-
-    let rule = if let Some(ref subscription_id) = binding.loop_id {
-        state.loops.find_subscription_by_id(subscription_id).await?
-    } else {
-        None
-    };
-
-    let provider = providers.outbound_for_binding_reply_by_name(&binding.adapter_kind)?;
-    let adapter_label = provider.provider_key();
-
-    let binding_loop_id = binding.loop_id.as_deref().unwrap_or("");
-    let files = resolve_files(state, file_ids).await;
-    if !files.is_empty() && !provider.supports_files() {
-        record_outbound(
-            adapter_label,
-            "error",
-            "unsupported_feature",
-            binding_loop_id,
-            &binding.connection_id,
-        );
-        return Ok((
-            0,
-            vec![format!(
-                "Provider {:?} does not support file attachments",
-                provider.adapter_kind()
-            )],
-        ));
-    }
-
-    let footer = maybe_task_comment_footer(state, provider.adapter_kind(), task_id).await;
-
-    // Author the reply under the owning task's identity (preferred by the GitHub
-    // adapter over binding/trigger-derived identities).
-    #[allow(clippy::disallowed_methods)]
-    // reason: outbound reply dispatched by background runtime, no caller identity
-    let sys_author = ScopeContext::system();
-    let author_user_id = state
-        .tasks
-        .find_by_id(task_id, &sys_author)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|t| t.owner_user_id);
-
-    let reply = OutboundReply {
-        text: truncate_text(text, provider.max_message_length()),
-        task_url: None,
-        footer,
-        author_user_id,
-        is_error: false,
-        files,
-    };
-
-    // Persist a visible stub up front so the row shows in the task timeline
-    // and we have a uuid to tag with the outbound `external_event_id`.
-    let stub_uuid =
-        persist_outbound_stub_for_binding(state, task_id, &reply.text, &binding, adapter_label)
-            .await;
-
-    let external_id = match provider
-        .send_reply_for_binding(&binding, &connection, rule.as_ref(), &reply)
-        .await
-    {
-        Ok(id) => id,
-        Err(e) => {
-            record_outbound(
-                adapter_label,
-                "error",
-                "send_failed",
-                binding_loop_id,
-                &binding.connection_id,
-            );
-            return Ok((
-                0,
-                vec![format!(
-                    "Failed to send reply via {}: {e}",
-                    binding.adapter_kind
-                )],
-            ));
-        }
-    };
-
-    if let Some(ref ext_id) = external_id {
-        state.recently_sent.note(task_id, ext_id);
-        if let Some(ref msg_id) = stub_uuid {
-            if let Err(e) = state
-                .messages
-                .set_external_source_metadata(
-                    msg_id,
-                    ext_id,
-                    adapter_label,
-                    Some(binding.subject_key.as_str()),
-                )
-                .await
-            {
-                warn!(task_id = %task_id, error = %e, "Failed to tag outbound stub with external_event_id");
-            }
-        }
-        if let Err(e) = binding_repo.touch_cursor(&binding.id, ext_id).await {
-            warn!(
-                binding_id = %binding.id,
-                error = %e,
-                "Failed to advance binding cursor"
-            );
-        }
-    }
-
-    record_outbound(
-        adapter_label,
-        "success",
-        "",
-        binding_loop_id,
-        &binding.connection_id,
-    );
-    Ok((1, vec![]))
-}
-
-/// Persist a visible assistant row for a binding-based outbound reply.
-pub(crate) async fn persist_outbound_stub_for_binding(
-    state: &AppState,
-    task_id: &str,
-    text: &str,
-    binding: &moatless_adapter_model::models::TaskBinding,
-    adapter_label: &str,
-) -> Option<String> {
-    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let uuid = uuid::Uuid::new_v4().to_string();
-
-    let turn_number = match state.task_turns.latest_turn_number(task_id).await {
-        Ok(t) => t,
-        Err(e) => {
-            warn!(task_id, error = %e, "Failed to read turn number for outbound stub");
-            None
-        }
-    };
-
-    let mut msg = TaskMessage::new_user_message(
-        task_id.to_string(),
-        uuid.clone(),
-        text.to_string(),
-        now.clone(),
-    );
-    msg.message_type = MessageType::System;
-    msg.message_role = MessageRole::Assistant;
-    msg.user_type = "assistant".to_string();
-    msg.turn_number = turn_number;
-    msg.external_adapter = Some(adapter_label.to_string());
-    msg.external_source_name = Some(binding.subject_key.clone());
-
-    match state
-        .messages
-        .append(&msg, &[], &ConversationWrite::default())
-        .await
-    {
-        Ok(_) => Some(uuid),
-        Err(e) => {
-            warn!(task_id, error = %e, "Failed to persist outbound stub message");
-            None
-        }
-    }
+    resolved
 }
 
 #[cfg(test)]

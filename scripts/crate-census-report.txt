@@ -3,7 +3,7 @@ files parsed: 663
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3792  illegal  139
+CODE       legal  3812  illegal  137
 ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           52  (intra-doc paths — never a Cargo edge, never illegal)
@@ -43,7 +43,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (8 files, 3516 lines)
     sandbox/docker/
 
-  loops  (50 files, 14382 lines)
+  loops  (50 files, 14525 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
   adapter-github-pr  (24 files, 10562 lines)
@@ -61,7 +61,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 775 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11743 lines)
+  server  (32 files, 11781 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -70,7 +70,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 113348 lines
+  TOTAL backend/src: 113529 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (19 classes) ==
 
@@ -184,16 +184,14 @@ loops -> adapter-webhook   x7
     backend/src/adapters/routes.rs:8  [CODE] super::webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:88  [MACRO] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> server   x10
+loops -> server   x8
     backend/src/adapters/capabilities.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/common.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/adapters/common.rs:21  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/delivery/typed.rs:16  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/handlers.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/registry/bootstrap.rs:5  [CODE] crate::compose::Ports   -> [Step 5 family — composition root (Ports)]
     backend/src/adapters/routes.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/bindings/handlers.rs:18  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/bindings/outbound.rs:6  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/bindings/reply.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/bindings/outbound.rs:22  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/bindings/runtime.rs:21  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 sandbox-control -> sandbox-k8s   x11
@@ -327,7 +325,7 @@ tasks -> server   x8
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
   sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)
-  loops              deps: identity, tasks, workspaces                  BLOCKED — 70 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x10)
+  loops              deps: identity, tasks, workspaces                  BLOCKED — 68 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x8)
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
   adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 14 illegal outgoing to server(x14)
   adapter-slack      deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)

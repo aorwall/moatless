@@ -17,6 +17,7 @@ use crate::adapters::models::{AdapterConnection, TaskBinding};
 pub(crate) use crate::adapters::models::parse_adapter_kind;
 use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};
 use crate::repository::dao::RepositoryDao;
+use crate::task::dao::TaskDao;
 use crate::state::AppState;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
@@ -210,21 +211,12 @@ pub(crate) async fn load_adapter_connection_for_auth_with(
         .ok_or_else(|| AdapterError::NotFound(format!("Provider connection {id} not found")))
 }
 
-/// Load and authorize a loop for the calling user.
+/// Load and authorize a loop through the one port it needs — the `loops` DAO.
 ///
 /// Uses the scoped `get(id, ctx)` store method so only loops visible to the
-/// caller are returned; `None` → `NotFound`.
-pub(crate) async fn load_loop_for_auth(
-    state: &AppState,
-    ctx: &ScopeContext,
-    id: &str,
-) -> Result<LoopRecord, AdapterError> {
-    load_loop_for_auth_with(state.loops.as_ref(), ctx, id).await
-}
-
-/// [`load_loop_for_auth`] through the one port it needs — the `loops` DAO. A
-/// caller that already holds the port calls this directly and never names
-/// `AppState`.
+/// caller are returned; `None` → `NotFound`. The `&AppState` door this once
+/// forwarded from was dropped when its last caller (`bindings/handlers.rs`)
+/// moved onto the port.
 pub(crate) async fn load_loop_for_auth_with(
     loops: &LoopDao,
     ctx: &ScopeContext,
@@ -244,8 +236,17 @@ pub(crate) async fn ensure_task_access(
     ctx: &ScopeContext,
     task_id: &str,
 ) -> Result<crate::task::models::Task, AdapterError> {
-    state
-        .tasks
+    ensure_task_access_with(state.tasks.as_ref(), ctx, task_id).await
+}
+
+/// Load and authorize a task over the task DAO alone, for callers that hold the
+/// port rather than the whole `AppState`.
+pub(crate) async fn ensure_task_access_with(
+    tasks: &dyn TaskDao,
+    ctx: &ScopeContext,
+    task_id: &str,
+) -> Result<crate::task::models::Task, AdapterError> {
+    tasks
         .find_by_id(task_id, ctx)
         .await?
         .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id} not found")))

@@ -158,6 +158,7 @@ pub struct AppState {
     /// through this handle instead of naming each port. See
     /// [`crate::bindings::runtime::RoutingService`].
     pub routing: Arc<crate::bindings::runtime::RoutingService>,
+    pub external_reply: Arc<crate::bindings::reply::ExternalReplyService>,
     /// Single owner of persistence for the four Loop tables (`loops`,
     /// `loop_configs`, `subscriptions`,
     /// `schedules`).
@@ -450,6 +451,36 @@ impl AppState {
             adapters.clone(),
         ));
 
+        // Outbound reply delivery owns the ports its send path reads. The
+        // `OutboundSender` is built here and handed to `ExternalReplyService`
+        // (the SelfEchoFilter/RoutingService pattern), so neither struct's
+        // constructor takes more than the ports it holds and neither names
+        // `AppState`.
+        let outbound_sender = Arc::new(crate::bindings::outbound::OutboundSender::new(
+            task_bindings.clone(),
+            adapter_connections.clone(),
+            loops.clone(),
+            tasks.clone(),
+            recently_sent.clone(),
+            messages.clone(),
+            task_turns.clone(),
+            s3.clone(),
+            auth_config.clone(),
+            s3_config.clone(),
+            files.clone(),
+        ));
+        let external_reply = Arc::new(crate::bindings::reply::ExternalReplyService::new(
+            adapters.clone(),
+            task_bindings.clone(),
+            adapter_connections.clone(),
+            messages.clone(),
+            tasks.clone(),
+            loops.clone(),
+            recently_sent.clone(),
+            task_turns.clone(),
+            outbound_sender,
+        ));
+
         Self {
             tasks,
             task_creation,
@@ -458,6 +489,7 @@ impl AppState {
             task_bindings,
             adapter_connections,
             routing,
+            external_reply,
             loops,
             messages,
             feedback,
@@ -743,6 +775,12 @@ impl axum::extract::FromRef<AppState> for Arc<dyn UserDao> {
 impl axum::extract::FromRef<AppState> for Arc<dyn TaskTurnDao> {
     fn from_ref(state: &AppState) -> Self {
         state.task_turns.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<crate::bindings::reply::ExternalReplyService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.external_reply.clone()
     }
 }
 

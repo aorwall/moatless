@@ -1,5 +1,7 @@
-use axum::extract::{Path, State};
+use std::sync::Arc;
+
 use axum::Json;
+use axum::extract::{Path, State};
 use chrono::Utc;
 use moatless_api_schemas::bindings::{
     CreateTaskBindingRequest, SendTaskReplyRequest, SendTaskReplyResponse, TaskBindingResponse,
@@ -9,13 +11,18 @@ use moatless_api_schemas::message::{
     ReplyToMessageResponse,
 };
 
+use crate::adapters::Adapters;
 use crate::adapters::common::{
-    ensure_task_access, load_adapter_connection_for_auth, load_loop_for_auth, task_binding_response,
+    ensure_task_access_with, load_adapter_connection_for_auth_with, load_loop_for_auth_with,
+    task_binding_response,
 };
+use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::AdapterError;
-use crate::bindings::reply::{resolve_message_target, ExternalReplyService};
+use crate::bindings::dao::TaskBindingDao;
+use crate::bindings::reply::ExternalReplyService;
 use crate::extractors::AuthUser;
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
+use crate::task::dao::TaskDao;
 use moatless_adapter_model::models::TaskBinding;
 
 #[utoipa::path(
@@ -25,13 +32,14 @@ use moatless_adapter_model::models::TaskBinding;
     responses((status = 200, description = "Task bindings", body = Vec<TaskBindingResponse>))
 )]
 pub async fn list_task_bindings(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<Vec<TaskBindingResponse>>, AdapterError> {
     let ctx = auth.scope_context();
-    ensure_task_access(&state, &ctx, &task_id).await?;
-    let rows = state.task_bindings.find_by_task_id(&task_id).await?;
+    ensure_task_access_with(tasks.as_ref(), &ctx, &task_id).await?;
+    let rows = task_bindings.find_by_task_id(&task_id).await?;
     Ok(Json(rows.iter().map(task_binding_response).collect()))
 }
 
@@ -43,15 +51,23 @@ pub async fn list_task_bindings(
     responses((status = 200, description = "Task binding created", body = TaskBindingResponse))
 )]
 pub async fn create_task_binding(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
+    State(loops): State<Arc<LoopDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<CreateTaskBindingRequest>,
 ) -> Result<Json<TaskBindingResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    let task = ensure_task_access(&state, &ctx, &task_id).await?;
+    let task = ensure_task_access_with(tasks.as_ref(), &ctx, &task_id).await?;
     let adapter_kind = req.adapter_kind.as_str().to_string();
-    let connection = load_adapter_connection_for_auth(&state, &ctx, &req.connection_id).await?;
+    let connection = load_adapter_connection_for_auth_with(
+        adapter_connections.as_ref(),
+        &ctx,
+        &req.connection_id,
+    )
+    .await?;
     if connection.adapter_kind != adapter_kind {
         return Err(AdapterError::BadRequest(format!(
             "Connection {} is for adapter {}, not {}",
@@ -59,7 +75,7 @@ pub async fn create_task_binding(
         )));
     }
     if let Some(loop_id) = req.loop_id.as_deref() {
-        let trigger = load_loop_for_auth(&state, &ctx, loop_id).await?;
+        let trigger = load_loop_for_auth_with(loops.as_ref(), &ctx, loop_id).await?;
         let crate::loops::dao::LoopSourceRow::AdapterEvent(source) = trigger.source else {
             return Err(AdapterError::BadRequest(format!(
                 "Loop {loop_id} is not an adapter-event Loop"
@@ -104,7 +120,7 @@ pub async fn create_task_binding(
         active: true,
         deactivated_at: None,
     };
-    let saved = state.task_bindings.upsert(&row).await?;
+    let saved = task_bindings.upsert(&row).await?;
     Ok(Json(task_binding_response(&saved)))
 }
 
@@ -116,14 +132,15 @@ pub async fn create_task_binding(
     responses((status = 200, description = "Reply sent", body = SendTaskReplyResponse))
 )]
 pub async fn send_task_reply(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(external_reply): State<Arc<ExternalReplyService>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<SendTaskReplyRequest>,
 ) -> Result<Json<SendTaskReplyResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    ensure_task_access(&state, &ctx, &task_id).await?;
-    let response = ExternalReplyService::new(&state)
+    ensure_task_access_with(tasks.as_ref(), &ctx, &task_id).await?;
+    let response = external_reply
         .send_task_reply(
             &ctx,
             &task_id,
@@ -147,15 +164,17 @@ pub async fn send_task_reply(
     )
 )]
 pub async fn add_message_reaction(
-    State(state): State<AppState>,
+    State(external_reply): State<Arc<ExternalReplyService>>,
+    State(adapters): State<Option<Arc<Adapters>>>,
     auth: AuthUser,
     Path(message_id): Path<String>,
     Json(req): Json<AddMessageReactionRequest>,
 ) -> Result<Json<MessageReactionResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    let (binding, ext_id, provider_key) = resolve_message_target(&state, &ctx, &message_id).await?;
-    let providers = state
-        .adapters
+    let (binding, ext_id, provider_key) = external_reply
+        .resolve_message_target(&ctx, &message_id)
+        .await?;
+    let providers = adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
     let adapter = providers.reactions_by_name(&provider_key)?;
@@ -180,14 +199,16 @@ pub async fn add_message_reaction(
     )
 )]
 pub async fn remove_message_reaction(
-    State(state): State<AppState>,
+    State(external_reply): State<Arc<ExternalReplyService>>,
+    State(adapters): State<Option<Arc<Adapters>>>,
     auth: AuthUser,
     Path((message_id, emoji)): Path<(String, String)>,
 ) -> Result<Json<MessageReactionResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    let (binding, ext_id, provider_key) = resolve_message_target(&state, &ctx, &message_id).await?;
-    let providers = state
-        .adapters
+    let (binding, ext_id, provider_key) = external_reply
+        .resolve_message_target(&ctx, &message_id)
+        .await?;
+    let providers = adapters
         .as_ref()
         .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
     let adapter = providers.reactions_by_name(&provider_key)?;
@@ -213,13 +234,13 @@ pub async fn remove_message_reaction(
     )
 )]
 pub async fn reply_to_message(
-    State(state): State<AppState>,
+    State(external_reply): State<Arc<ExternalReplyService>>,
     auth: AuthUser,
     Path(message_id): Path<String>,
     Json(req): Json<ReplyToMessageRequest>,
 ) -> Result<Json<ReplyToMessageResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    let response = ExternalReplyService::new(&state)
+    let response = external_reply
         .reply_to_message(&ctx, &message_id, &req.text, &req.file_ids)
         .await?;
     Ok(Json(response))

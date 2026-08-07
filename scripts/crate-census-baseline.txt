@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 171
+# Illegal edge count: 169
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -96,14 +96,12 @@ loops                  -> adapter-webhook      [CODE] backend/src/adapters/route
 loops                  -> adapter-webhook      [CODE] backend/src/adapters/routes.rs:8  super::webhook
 loops                  -> adapter-webhook      [MACRO] backend/src/adapters/routes.rs:88  webhook::handlers::webhook_inbound
 loops                  -> server               [CODE] backend/src/adapters/capabilities.rs:8  crate::state::AppState
-loops                  -> server               [CODE] backend/src/adapters/common.rs:20  crate::state::AppState
+loops                  -> server               [CODE] backend/src/adapters/common.rs:21  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/delivery/typed.rs:16  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/handlers.rs:20  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/registry/bootstrap.rs:5  crate::compose::Ports
 loops                  -> server               [CODE] backend/src/adapters/routes.rs:10  crate::state::AppState
-loops                  -> server               [CODE] backend/src/bindings/handlers.rs:18  crate::state::AppState
-loops                  -> server               [CODE] backend/src/bindings/outbound.rs:6  crate::state::AppState
-loops                  -> server               [CODE] backend/src/bindings/reply.rs:10  crate::state::AppState
+loops                  -> server               [CODE] backend/src/bindings/outbound.rs:22  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/runtime.rs:21  crate::state::AppState
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:33  crate::sandbox::k8s::auto_provision::build_repo_config_from_workspace
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:33  crate::sandbox::k8s::auto_provision::build_server_configs_from_workspace
