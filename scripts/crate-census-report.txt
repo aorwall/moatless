@@ -12,9 +12,14 @@ TEST-CONTEXT 2382  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep
 UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
-  Line counts are newline counts (wc -l). This table and its TOTAL count what has
-  NOT yet been carved: a crate already extracted (core, adapter-model) has left
-  backend/src and has no row here, so a shrinking TOTAL is carve progress, not loss.
+  Line counts are newline counts (wc -l). Every row counts the backend/src files
+  crate_of_backend_mod maps to that crate. An extracted crate keeps a row here only
+  if it left permanent facade stubs in backend/src: the row then measures that facade
+  surface the backend still composes, not work left to carve. An extracted crate that
+  left no stub has no row. So TOTAL does not fall to zero as carving completes — it
+  converges to the summed line count of every facade stub that remains.
+  Extracted, keeps a facade row: identity, workspaces.
+  Extracted, left no stub (no row): adapter-model, core.
   TEST-SCAFFOLD collects cfg(test)-only backend-local modules that ship in no crate
   and are never carved. UNASSIGNED collects any top-level module crate_of_backend_mod
   does not name — a finding to resolve in bands.rs, not a --check failure; it is empty
@@ -318,7 +323,7 @@ tasks -> server   x8
   READY = no illegal outgoing edge AND every crate it depends on is already
   extracted. EXTRACTED = already carved into crates/*, detected from this run's own
   scan (a crates/<dir> that resolves to a real band, not floor:<dir>) — it has left
-  the frontier and is shown for context, not as work. Extracted so far: identity, workspaces.
+  the frontier and is shown for context, not as work. Extracted carve targets so far: identity, workspaces.
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.

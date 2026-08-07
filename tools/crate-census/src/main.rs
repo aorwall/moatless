@@ -651,15 +651,47 @@ fn membership_module_name(rel: &str) -> String {
     }
 }
 
-fn write_membership(s: &mut String, m: &Membership) {
-    let _ = writeln!(s, "== CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==");
-    let _ = writeln!(s, "  Line counts are newline counts (wc -l). This table and its TOTAL count what has");
-    let _ = writeln!(s, "  NOT yet been carved: a crate already extracted (core, adapter-model) has left");
-    let _ = writeln!(s, "  backend/src and has no row here, so a shrinking TOTAL is carve progress, not loss.");
-    let _ = writeln!(s, "  TEST-SCAFFOLD collects cfg(test)-only backend-local modules that ship in no crate");
-    let _ = writeln!(s, "  and are never carved. UNASSIGNED collects any top-level module crate_of_backend_mod");
-    let _ = writeln!(s, "  does not name — a finding to resolve in bands.rs, not a --check failure; it is empty");
-    let _ = writeln!(s, "  when every module is placed.");
+/// The membership table's header. Derived from the live `extracted` set and the row
+/// crate ids rather than hardcoded, so the prose cannot drift out of step with the
+/// table the way a hand-written "(core, adapter-model) has no row" line did once
+/// identity and workspaces began leaving permanent facade stubs in `backend/src`: an
+/// extracted crate is enumerated as keeping a facade row or as having left no stub
+/// according to whether `build_membership` actually produced a row for it, and the
+/// two states print on separate lines so a test can assert each crate lands on the
+/// right one. The invariant
+/// `membership_header_lists_each_extracted_crate_under_its_facade_state` pins: an
+/// extracted crate with a row appears on the keeps-a-facade-row line and not the
+/// no-stub line, and vice versa.
+fn membership_header(m: &Membership, extracted: &BTreeSet<String>) -> String {
+    // `files > 0` is the facade-stub test, not mere row presence: build_membership
+    // emits a zero-file placeholder row for every CARVE_ORDER crate (take() does
+    // acc.remove(id).unwrap_or_default()), so a carved target that left no facade
+    // files still has a row. Counting that as "keeps a facade row" would recreate
+    // the exact stale-prose bug this header derivation exists to prevent.
+    let row_ids: BTreeSet<&str> =
+        m.rows.iter().filter(|r| r.files > 0).map(|r| r.crate_id.as_str()).collect();
+    let with_row: Vec<&str> = extracted.iter().map(String::as_str).filter(|c| row_ids.contains(c)).collect();
+    let no_row: Vec<&str> = extracted.iter().map(String::as_str).filter(|c| !row_ids.contains(c)).collect();
+    let join = |v: &[&str]| if v.is_empty() { "(none)".to_string() } else { v.join(", ") };
+    let mut h = String::new();
+    let _ = writeln!(h, "== CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==");
+    let _ = writeln!(h, "  Line counts are newline counts (wc -l). Every row counts the backend/src files");
+    let _ = writeln!(h, "  crate_of_backend_mod maps to that crate. An extracted crate keeps a row here only");
+    let _ = writeln!(h, "  if it left permanent facade stubs in backend/src: the row then measures that facade");
+    let _ = writeln!(h, "  surface the backend still composes, not work left to carve. An extracted crate that");
+    let _ = writeln!(h, "  left no stub has no row. So TOTAL does not fall to zero as carving completes — it");
+    let _ = writeln!(h, "  converges to the summed line count of every facade stub that remains.");
+    let _ = writeln!(h, "  Extracted, keeps a facade row: {}.", join(&with_row));
+    let _ = writeln!(h, "  Extracted, left no stub (no row): {}.", join(&no_row));
+    let _ = writeln!(h, "  TEST-SCAFFOLD collects cfg(test)-only backend-local modules that ship in no crate");
+    let _ = writeln!(h, "  and are never carved. UNASSIGNED collects any top-level module crate_of_backend_mod");
+    let _ = writeln!(h, "  does not name — a finding to resolve in bands.rs, not a --check failure; it is empty");
+    let _ = writeln!(h, "  when every module is placed.");
+    h
+}
+
+fn write_membership(s: &mut String, m: &Membership, extracted: &BTreeSet<String>) {
+    s.push_str(&membership_header(m, extracted));
     let mut total = 0usize;
     for row in &m.rows {
         total += row.lines;
@@ -764,7 +796,7 @@ fn build_report(
     let _ = writeln!(s, "UNRESOLVED  {unresolved:>5}  (glob-through-facade / prelude / macro-var — audited below)");
     let _ = writeln!(s);
 
-    write_membership(&mut s, membership);
+    write_membership(&mut s, membership, extracted);
 
     // Illegal edge classes (production), grouped by (source -> target), with the
     // step each is pinned to (filled from the pin table).
@@ -997,7 +1029,7 @@ fn write_carve_analysis(s: &mut String, records: &[RefRecord], extracted: &BTree
     let extracted_line = if extracted_here.is_empty() {
         "No carve-target crate is extracted yet.".to_string()
     } else {
-        format!("Extracted so far: {}.", extracted_here.join(", "))
+        format!("Extracted carve targets so far: {}.", extracted_here.join(", "))
     };
     let _ = writeln!(s, "== CARVE READINESS (frontier — legal-dependency order, lowest band first) ==");
     let _ = writeln!(s, "  READY = no illegal outgoing edge AND every crate it depends on is already");
@@ -1232,6 +1264,70 @@ mod tests {
 
     fn edges(lines: &[&str]) -> BTreeSet<String> {
         lines.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn membership_header_lists_each_extracted_crate_under_its_facade_state() {
+        // The defect this pins (stale-generated-prose class): the header claimed "a
+        // crate already extracted (core, adapter-model) ... has no row here", but
+        // identity and workspaces are extracted AND each keep a facade-stub row. A
+        // reader trusting the header reads that facade surface as uncarved work and
+        // expects TOTAL -> 0; it converges to the summed facade stubs instead.
+        //
+        // The assertion is STRUCTURAL, not a substring match over the whole header:
+        // it parses the two facade-state lines and checks exact membership on each.
+        // A whole-header `contains(id)` would pass on the single most likely bug in
+        // membership_header — the two filters swapped, which puts every crate on the
+        // WRONG line — because the id still appears somewhere. That is the same
+        // substring-for-structural trap the plan flagged at #386; this test must not
+        // reproduce it. So it asserts both directions: a crate with a row is on the
+        // keeps line and NOT the no-stub line, and a crate with no row vice versa.
+        let row = |id: &str, files: usize| MemberRow {
+            crate_id: id.to_string(),
+            modules: if files == 0 { BTreeSet::new() } else { edges(&["x.rs"]) },
+            lines: files * 10,
+            files,
+        };
+        // workspaces: extracted, kept a facade row (real files). server: uncarved.
+        // tasks: extracted but left NO facade stub, yet build_membership still emits
+        // a zero-file placeholder row for it (it is a CARVE_ORDER crate) — this is
+        // the case row presence alone gets wrong. core: extracted, no row at all.
+        let m = Membership {
+            rows: vec![row("workspaces", 5), row("server", 12), row("tasks", 0)],
+        };
+        let extracted = edges(&["workspaces", "core", "tasks"]);
+        let header = membership_header(&m, &extracted);
+
+        // The comma-separated crate list printed after a header line's colon, as
+        // exact tokens — not a substring haystack.
+        let names_on = |needle: &str| -> Vec<String> {
+            let line = header
+                .lines()
+                .find(|l| l.contains(needle))
+                .unwrap_or_else(|| panic!("header is missing the `{needle}` line:\n{header}"));
+            let Some((_, list)) = line.rsplit_once(": ") else {
+                panic!("header line has no `label: list` shape: {line}");
+            };
+            list.trim_end_matches('.').split(", ").map(str::to_string).collect()
+        };
+        // Needles unique to the two enumeration lines: the bare phrases "keeps a
+        // facade row" / "left no stub" also occur in the body prose above, so match
+        // the "Extracted, " prefix that only the enumeration lines carry.
+        let keeps = names_on("Extracted, keeps a facade row");
+        let no_stub = names_on("Extracted, left no stub");
+        let has = |v: &[String], id: &str| v.iter().any(|c| c == id);
+
+        // workspaces is extracted with a real (files > 0) row -> keeps line only.
+        assert!(has(&keeps, "workspaces"), "extracted crate with a facade row must be on the keeps-a-facade-row line: {keeps:?}");
+        assert!(!has(&no_stub, "workspaces"), "extracted crate with a facade row must NOT be on the no-stub line: {no_stub:?}");
+        // core is extracted with no row at all -> no-stub line only.
+        assert!(has(&no_stub, "core"), "extracted crate with no row must be on the no-stub line: {no_stub:?}");
+        assert!(!has(&keeps, "core"), "extracted crate with no row must NOT be on the keeps-a-facade-row line: {keeps:?}");
+        // tasks is extracted with a ZERO-FILE placeholder row -> it left no facade
+        // stub, so it belongs on the no-stub line. Row presence alone would wrongly
+        // place it on the keeps line; `files > 0` is what makes this correct.
+        assert!(has(&no_stub, "tasks"), "extracted crate with a zero-file placeholder row must be on the no-stub line: {no_stub:?}");
+        assert!(!has(&keeps, "tasks"), "extracted crate with a zero-file placeholder row must NOT be on the keeps-a-facade-row line: {keeps:?}");
     }
 
     #[test]
