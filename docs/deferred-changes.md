@@ -34,7 +34,6 @@ reader outside that program can see them.
 |---|---|---|
 | `AgentErrorSink` has one production implementation | `task/reaper.rs::AgentErrorSink`, implemented for `AppState` in `event_handler/agent_handlers.rs` | Step 10d — see below |
 | The reaper's invocation of the sink is untested | `task/reaper.rs::close_orphaned_turn` calls `close_orphaned_turn_as_error`; only the helper is covered | Step 10d, when `TaskReaper` becomes constructible from fakes |
-| `SandboxWaker` has one production implementation | `task/sandbox_waker.rs::SandboxWaker`, implemented by `SandboxWakeService` in `sandbox/notify.rs`; clears the single-implementation bar only because the `RecordingSandboxWaker` test fake uses it, exactly as `AgentErrorSink` does below | Step 5's notify port — revisit when the wake path's dependencies are uniform, the same question `AgentErrorSink` faces at 10d |
 | `SandboxWakeService`'s closed-task guard is untested | `sandbox/notify.rs::SandboxWakeService::wake` — the "a closed task does not wake" branch; only the seam (`sandbox_waker::wake_for_message`) is covered, not the wake behaviour | When the rich `Lifecycle::start` is behind a trait and `SandboxWakeService` is constructible from fakes — a start port (`SandboxStarter`, declared in `moatless-backend-core`) already exists in the floor, so this is reconciliation, not new inversion |
 | `TaskReaper`'s two above-band concrete fields | `task/reaper.rs::TaskReaper::new` — `k8s: K8sClient`, `sandbox: Arc<Lifecycle>` | Step 10d — a precondition of the crate compiling, not a cleanup |
 | Credential broadcast fan-out reaches `tasks` | `credentials::CredentialService::store` auto-invokes `broadcast_to_scope` | Step 10c, and it must land with the fan-out test that does not exist |
@@ -53,6 +52,17 @@ reaper's dependencies are uniform, and the question becomes whether the sink is
 still the right shape or whether the error-close path should move instead. Decide
 it then, with the whole constructor visible, rather than defending the port
 because it exists.
+
+**`SandboxWaker` is a different case and is settled, so it carries no row.** It is
+also a consumer-owned port with one production implementation, but it is not held
+up by a test fake: it is the `tasks`/`sandbox-control` crate boundary itself. Its
+body needs `Lifecycle` and `NotifyPort` (sandbox-control, band 6) while every
+caller sits at band 5 or above, so no placement of the code makes the reference
+point downward — the trait is the only thing that does. Collapsing it back into a
+function restores a `5 → 6` edge and, at the loops-band call site, restores
+`loops`' dependency on `sandbox-control` outright. The reasoning, its
+discriminator against `SetupRequirementCheck`, and the assertions that pin it are
+in `.plans/backend-ports-and-crates.md` under Step 5.
 
 ## Correctness
 
