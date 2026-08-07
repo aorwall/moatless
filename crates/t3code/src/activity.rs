@@ -111,6 +111,7 @@ impl T3ActivityViewExt for ActivityView<'_> {
             // heading and the row would lose the word for what it is.
             if is_subagent_call(self) {
                 payload.insert("summary".into(), Value::String(presentation.summary));
+                stamp_agent_identity(&mut payload, self);
             }
         } else if let Some(detail) = self.detail() {
             payload.insert("detail".into(), Value::String(detail.to_string()));
@@ -123,12 +124,35 @@ impl T3ActivityViewExt for ActivityView<'_> {
     }
 }
 
+/// The identity the client's Agents surface folds a subagent card from.
+///
+/// That surface keys its roster by `taskId` and admits only rows stamped
+/// `agentKind: "agent"`; a row without the stamp is background work and stays
+/// in the work log. The call's `tool_use_id` is the key on both sides of the
+/// wire — it is what the subagent's own rows carry as `parent_uuid`.
+fn stamp_agent_identity(payload: &mut Map<String, Value>, view: &ActivityView<'_>) {
+    let Some(task_id) = view.tool_use_id() else {
+        return;
+    };
+    payload.insert("taskId".into(), Value::String(task_id.to_string()));
+    payload.insert("agentKind".into(), Value::String("agent".into()));
+    let input = view.input();
+    if let Some(role) = string_field(input, "subagent_type") {
+        payload.insert("role".into(), Value::String(role));
+    }
+    if let Some(title) = string_field(input, "description")
+        .or_else(|| string_field(input, "prompt").map(|prompt| truncate_chars(&prompt, 200)))
+    {
+        payload.insert("title".into(), Value::String(title));
+    }
+}
+
 /// Whether this row is the call that spawned a subagent.
 ///
 /// The subagent's own work is not in the Task's stream, so this one row is the
 /// whole of what a client sees of it — which is why it is reported as a task
 /// rather than as a tool call.
-fn is_subagent_call(view: &ActivityView<'_>) -> bool {
+pub fn is_subagent_call(view: &ActivityView<'_>) -> bool {
     view.kind() == ActivityKind::ToolCall
         && t3_item_type(view.summary()) == "collab_agent_tool_call"
 }
@@ -642,6 +666,57 @@ mod tests {
             assert_eq!(view.t3_summary(), "Subagent task", "{name}");
             assert_eq!(payload["detail"], "code-reviewer: Audit the SQL changes");
         }
+    }
+
+    /// The client's Agents surface admits a row only when both halves of the
+    /// stamp are on it: the roster is keyed by `taskId`, and a row without
+    /// `agentKind: "agent"` is background work that stays in the work log.
+    #[test]
+    fn a_subagent_call_carries_the_identity_the_agents_surface_folds_on() {
+        let mut call = stored(
+            ActivityKind::ToolCall,
+            json!({
+                "input": {
+                    "subagent_type": "code-reviewer",
+                    "description": "Audit the SQL changes",
+                    "prompt": "Read every migration and report"
+                }
+            }),
+        );
+        call.summary = "Task".to_string();
+        call.tool_use_id = Some("toolu_a1".to_string());
+
+        let payload = ActivityView::new(&call).t3_payload();
+        assert_eq!(payload["taskId"], "toolu_a1");
+        assert_eq!(payload["agentKind"], "agent");
+        assert_eq!(payload["role"], "code-reviewer");
+        assert_eq!(payload["title"], "Audit the SQL changes");
+    }
+
+    /// The key is the call's own id, so a call stored without one is a row the
+    /// roster cannot be built from and is left as it was.
+    #[test]
+    fn a_subagent_call_without_a_tool_use_id_is_not_stamped() {
+        let mut call = stored(ActivityKind::ToolCall, json!({ "input": {} }));
+        call.summary = "Task".to_string();
+
+        let payload = ActivityView::new(&call).t3_payload();
+        assert!(!payload.contains_key("taskId"));
+        assert!(!payload.contains_key("agentKind"));
+    }
+
+    /// Every other call keeps the shape it had. A stamp on a `Bash` row would
+    /// move it out of the work log and into the roster.
+    #[test]
+    fn an_ordinary_tool_call_carries_no_agent_identity() {
+        let mut bash = stored(ActivityKind::ToolCall, json!({ "input": {} }));
+        bash.summary = "Bash".to_string();
+        bash.tool_use_id = Some("toolu_b1".to_string());
+
+        let payload = ActivityView::new(&bash).t3_payload();
+        assert!(!payload.contains_key("taskId"));
+        assert!(!payload.contains_key("agentKind"));
+        assert!(!payload.contains_key("role"));
     }
 
     /// A subagent is reported as a task the client watches run.

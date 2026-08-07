@@ -523,12 +523,11 @@ pub(super) fn change_events(
             ));
         }
     }
-    let settled = &window.settled_requests;
     for activity in activities {
         let (turn, activity_at) = activity_anchor(conversation, window, activity);
         let (kind, payload) = activity_appended_payload(
             &conversation.task_id,
-            activity_row(activity, &turn, &activity_at, settled),
+            activity_row(activity, &turn, &activity_at, window),
         );
         let slot = usize::try_from(activity_slot(activity)).unwrap_or(usize::MAX);
         payloads.push((slot.saturating_add(1), kind, payload));
@@ -575,7 +574,7 @@ fn activity_change_events(
     let (turn, at) = activity_anchor(conversation, window, activity);
     let (kind, payload) = activity_appended_payload(
         &conversation.task_id,
-        activity_row(activity, &turn, &at, &window.settled_requests),
+        activity_row(activity, &turn, &at, window),
     );
     let slot = usize::try_from(activity_slot(activity)).unwrap_or(usize::MAX);
     change
@@ -777,7 +776,6 @@ fn rendered_transcript(
             .extend(message_bubble(message, &turn, &at, origins));
     }
     let surviving = surviving_context_windows(transcript);
-    let settled = &transcript.settled_requests;
     for activity in &transcript.activities {
         if activity.kind == ActivityKind::ContextWindowUpdated
             && !surviving.contains(activity.activity_id.as_str())
@@ -787,7 +785,7 @@ fn rendered_transcript(
         let (turn, at) = activity_anchor(conversation, transcript, activity);
         rendered
             .activities
-            .push(activity_row(activity, &turn, &at, settled));
+            .push(activity_row(activity, &turn, &at, transcript));
     }
 
     rendered
@@ -995,19 +993,46 @@ fn message_row(
 /// `sequence` is the number this row's own event carries — see
 /// [`activity_sequence`]. An activity delivered on its own, long after the
 /// snapshot it has to sort into, carries the number it was written with.
-fn activity_row(activity: &Activity, turn: &Value, at: &str, settled: &SettledCalls) -> Value {
+fn activity_row(activity: &Activity, turn: &Value, at: &str, window: &Transcript) -> Value {
     let view = ActivityView::new(activity);
+    let mut payload = view.t3_payload();
+    stamp_subagent_usage(&mut payload, window);
 
     json!({
         "id": view.activity_id(),
         "tone": view.t3_tone(),
-        "kind": panel_kind(activity, settled).unwrap_or_else(|| view.t3_kind()),
+        "kind": panel_kind(activity, &window.settled_requests).unwrap_or_else(|| view.t3_kind()),
         "summary": view.t3_summary(),
-        "payload": Value::Object(view.t3_payload()),
+        "payload": Value::Object(payload),
         "turnId": turn,
         "sequence": activity_sequence(activity),
         "createdAt": at
     })
+}
+
+/// What the subagent this row spawned has spent, on the row that names it.
+///
+/// Stamped here rather than in the payload projection because the numbers are
+/// not on the row: they are summed across Messages the transcript excludes, and
+/// reach this point on the transcript that read them. Keyed by the `taskId` the
+/// payload projection already stamped, so a row that names no subagent — every
+/// row but one kind — is left alone.
+fn stamp_subagent_usage(payload: &mut Map<String, Value>, window: &Transcript) {
+    let Some(usage) = payload
+        .get("taskId")
+        .and_then(Value::as_str)
+        .and_then(|task_id| window.subagent_usage.get(task_id))
+    else {
+        return;
+    };
+    payload.insert(
+        "typedUsage".into(),
+        json!({
+            "totalTokens": usage.input_tokens + usage.output_tokens,
+            "inputTokens": usage.input_tokens,
+            "outputTokens": usage.output_tokens
+        }),
+    );
 }
 
 /// The requests whose call has come back — [`Transcript::settled_requests`].
@@ -1631,6 +1656,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use crate::activity_dao::SubagentUsage;
     use moatless_api_schemas::enums::MessageRole;
     use moatless_api_schemas::shared::AgentType;
     use moatless_backend_core::activity::mapping::{ActivityKind, ActivityStatus};
@@ -2590,6 +2616,7 @@ mod tests {
             activities,
             omitted: 0,
             settled_requests,
+            subagent_usage: HashMap::new(),
         }
     }
 
@@ -2864,6 +2891,50 @@ mod tests {
             completed["id"], running_id,
             "the completion lands on the row the progress was reported on"
         );
+    }
+
+    /// What a subagent has spent is not on the row that names it: the numbers
+    /// are summed across Messages the transcript excludes and reach the row on
+    /// the transcript that read them, keyed by the call's own id.
+    #[test]
+    fn a_subagent_row_carries_what_its_agent_has_spent() {
+        let mut conversation = a_conversation();
+        let mut spawn = call(
+            "msg-2",
+            2,
+            3,
+            "call-3",
+            "Task",
+            json!({ "subagent_type": "code-reviewer", "description": "Audit the SQL" }),
+        );
+        spawn.status = ActivityStatus::InProgress;
+        spawn.payload["status"] = json!("inProgress");
+        conversation.activities.push(spawn);
+        conversation.subagent_usage.insert(
+            "call-3".to_string(),
+            SubagentUsage {
+                parent_uuid: "call-3".to_string(),
+                input_tokens: 900,
+                output_tokens: 100,
+            },
+        );
+
+        let projected = detail(&conversation);
+        let rows = projected["activities"].as_array().unwrap().clone();
+        let spent = rows
+            .iter()
+            .find(|row| row["payload"]["taskId"] == "call-3")
+            .expect("the spawning call is a row of the thread");
+        assert_eq!(spent["payload"]["typedUsage"]["totalTokens"], 1000);
+        assert_eq!(spent["payload"]["typedUsage"]["inputTokens"], 900);
+        assert_eq!(spent["payload"]["typedUsage"]["outputTokens"], 100);
+
+        // A row that names no subagent is left as it was.
+        let ordinary = rows
+            .iter()
+            .find(|row| row["payload"]["data"]["toolCallId"] == "call-1")
+            .expect("the conversation has an ordinary tool call");
+        assert!(ordinary["payload"].get("typedUsage").is_none());
     }
 
     #[test]

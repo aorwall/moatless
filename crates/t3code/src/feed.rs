@@ -740,6 +740,7 @@ mod tests {
                 activities: Vec::new(),
                 omitted: 0,
                 settled_requests: HashSet::new(),
+                subagent_usage: HashMap::new(),
             })
         });
         dao

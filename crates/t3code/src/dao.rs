@@ -25,6 +25,7 @@ use tracing::warn;
 
 use crate::UiRpcDbPool;
 use crate::activity_dao as activities;
+use crate::activity_dao::SubagentUsage;
 use crate::data::{T3TaskDao, T3WorkspaceDao, TaskView};
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::workspace::UiRpcListedWorkspace;
@@ -176,6 +177,11 @@ pub struct Transcript {
     /// one of them holds the panel without the call. So this is looked up by
     /// request id rather than read out of `activities`.
     pub settled_requests: HashSet<String>,
+    /// What each subagent these rows spawned has spent, by its call's
+    /// `tool_use_id`. Looked up rather than read out of the rows for the reason
+    /// the transcript excludes them: a subagent's own Messages carry the
+    /// spawning id as `parent_uuid` and are never among `activities`.
+    pub subagent_usage: HashMap<String, SubagentUsage>,
 }
 
 /// One conversation a search matched, and the text that matched in it.
@@ -1038,12 +1044,14 @@ impl ConversationDao for PgConversationDao {
         .await?;
 
         let settled_requests = activities::settled_requests(&self.pool, task_id, &activities).await?;
+        let subagent_usage = activities::subagent_usage(&self.pool, task_id, &activities).await?;
 
         Ok(Transcript {
             messages,
             activities,
             omitted,
             settled_requests,
+            subagent_usage,
         })
     }
 
@@ -1094,6 +1102,7 @@ impl ConversationDao for PgConversationDao {
                 activities: Vec::new(),
                 omitted: 0,
                 settled_requests: HashSet::new(),
+                subagent_usage: HashMap::new(),
             });
         }
         // Just the named rows. A result no longer lands on a Message of its
@@ -1132,12 +1141,14 @@ impl ConversationDao for PgConversationDao {
         let mut activities = activities::for_messages(&self.pool, task_id, uuids).await?;
         activities.extend(activities::for_activity_ids(&self.pool, task_id, activity_ids).await?);
         let settled_requests = activities::settled_requests(&self.pool, task_id, &activities).await?;
+        let subagent_usage = activities::subagent_usage(&self.pool, task_id, &activities).await?;
 
         Ok(Transcript {
             messages,
             activities,
             omitted: 0,
             settled_requests,
+            subagent_usage,
         })
     }
 

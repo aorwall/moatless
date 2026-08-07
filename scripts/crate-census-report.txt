@@ -3,11 +3,11 @@ files parsed: 648
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  4026  illegal  148
+CODE       legal  4027  illegal  148
 ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    54  illegal   16   (function-like macro-invocation token streams)
 DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1727 point down into the existing crates/* floor
+  of the legal CODE edges, 1728 point down into the existing crates/* floor
 TEST-CONTEXT 2365  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
 
