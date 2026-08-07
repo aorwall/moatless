@@ -122,7 +122,15 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 - State assumptions when uncertain; define a verifiable success criterion (failing test, reproducible check) before starting.
 
 ## Commits
-Conventional commits, enforced by commitlint; header ≤100 chars. Types: `feat fix docs style refactor test chore`. Optional scopes (others rejected): `components layout routes styles utils hooks`. Pre-push runs `bun run test:fast`.
+Conventional commits — `type(optional-scope): subject`, header ≤100 characters.
+
+**`commitlint.config.ts` is the authority for which types and scopes are valid**, and this file deliberately does not restate either list: it extends `@commitlint/config-conventional` for the types and pins its own `scope-enum`. A second copy of an enum drifts from the one that runs, and a reader cannot tell which is current. To settle a specific case, ask the linter — `printf 'feat: x\n' | bunx commitlint`.
+
+**Two checks, because they cover different commits.** `.husky/commit-msg` lints each local commit. `.github/workflows/pr-title.yml` lints the **pull request title**, which is the message that reaches `main`: this repo squash-merges, and GitHub composes the squash commit from the title server-side, where no git hook runs. That workflow triggers on `edited` as well as `opened`, so a retitle re-runs it — a title check that ran only at open time would attest to a title that no longer ships.
+
+**The title check is advisory.** It is not in `main`'s required-status-check list, so a red title check does not block a merge; a reviewer has to notice it. Making it required is a repository setting.
+
+Pre-push runs `bun run test:fast`.
 
 ## Architecture & conventions
 - Domain glossary: `CONTEXT.md`. Historical markdown specs and ADRs were removed because they were not maintained; use current code/tests as authority and docs only as routing aids. Read `.plans/` only when asked to implement or review that specific plan.
