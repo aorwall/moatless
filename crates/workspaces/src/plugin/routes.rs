@@ -13,7 +13,7 @@ use super::schemas::{
     PluginResponse, PluginSkillResponse, SetActivationRequest,
 };
 use super::sync::PluginSyncService;
-use crate::extractors::UserTokenVerifier;
+use moatless_identity::extractors::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(

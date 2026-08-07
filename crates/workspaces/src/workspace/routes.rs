@@ -9,7 +9,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use super::dao::WorkspaceDao;
 use super::git_sync::GitSyncService;
 use super::handlers;
-use crate::extractors::UserTokenVerifier;
+use moatless_identity::extractors::UserTokenVerifier;
 use crate::repository::dao::RepositoryDao;
 
 #[derive(OpenApi)]

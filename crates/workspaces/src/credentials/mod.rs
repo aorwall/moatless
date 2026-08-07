@@ -24,13 +24,13 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
-use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
 use moatless_core::db::DbPool;
 use moatless_core::secret_keys::GITHUB_TOKEN;
-use crate::secret::models::SecretKind;
-use crate::secret::schemas::PutSecretRequest;
-use crate::secret::service::SecretService;
+use moatless_identity::secret::models::SecretKind;
+use moatless_identity::secret::schemas::PutSecretRequest;
+use moatless_identity::secret::service::SecretService;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
 pub use self::error::CredentialError;
@@ -66,7 +66,7 @@ pub enum StoreOutcome {
 /// Per-key broadcast policy. `pub(crate)` so the tasks-band `CredentialSync`
 /// can gate its fan-out on it (the broadcast decision moved up with the
 /// orchestration in 9c; the policy that keys are file-resident stays here).
-pub(crate) fn should_broadcast(key: &str) -> bool {
+pub fn should_broadcast(key: &str) -> bool {
     matches!(
         key,
         // File-resident credentials — sandboxes can't pull these on demand,
@@ -284,9 +284,9 @@ impl CredentialService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::codex_scope::CodexScope;
-    use crate::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
-    use crate::auth::github_scope::GitHubScope;
+    use moatless_identity::auth::codex_scope::CodexScope;
+    use moatless_identity::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
+    use moatless_identity::auth::github_scope::GitHubScope;
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};

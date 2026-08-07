@@ -24,7 +24,7 @@ pub struct RepositoryPatch {
 }
 
 /// DAO trait for repository persistence.
-#[cfg_attr(test, mockall::automock)]
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait RepositoryDao: Send + Sync {
     /// Find by id, scoped to access control.

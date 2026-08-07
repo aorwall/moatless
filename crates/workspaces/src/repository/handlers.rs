@@ -11,10 +11,10 @@ use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 use std::sync::Arc;
 
 use moatless_backend_core::access_control::resolve_scope_for_create;
-use crate::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_core::db::DbPool;
-use crate::extractors::AuthUser;
-use crate::secret::models::looks_like_secret_key;
+use moatless_identity::extractors::AuthUser;
+use moatless_identity::secret::models::looks_like_secret_key;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
 use super::access::{access_error_for, parse_github_owner_repo, RepositoryTokenResolver};
@@ -127,7 +127,7 @@ pub async fn create_repository(
 
 /// Run `sync_repo_workspaces` and log the outcome (`Ok=>info!`, `Err=>warn!`),
 /// never blocking the caller. A failure yields an empty summary.
-pub(crate) async fn log_workspace_sync(
+pub async fn log_workspace_sync(
     git_sync: &Arc<GitSyncService>,
     repo: &Repository,
     auth: &AuthUser,
@@ -580,7 +580,7 @@ pub async fn get_branches(
 /// provider dispatch live here rather than in the handler. Scope is enforced by
 /// the repository lookup: a `repository_id` the viewer cannot read answers
 /// `NotFound`, the same as one that does not exist.
-pub(crate) async fn list_branches(
+pub async fn list_branches(
     repositories: &Arc<dyn RepositoryDao>,
     repo_token_resolver: &Arc<RepositoryTokenResolver>,
     provider_tokens: &Arc<dyn ProviderTokenDao>,

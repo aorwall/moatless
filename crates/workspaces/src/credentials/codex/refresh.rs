@@ -14,7 +14,7 @@ use sqlx::AssertSqlSafe;
 use tracing::{debug, info, warn};
 
 use crate::credentials::codex::oauth;
-use crate::auth::codex_scope::CodexScope;
+use moatless_identity::auth::codex_scope::CodexScope;
 use crate::credentials::{CredentialError, CredentialService};
 use moatless_core::db::DbPool;
 
@@ -37,7 +37,7 @@ impl CredentialService {
     /// 4. On permanent failure, write `metadata.refresh_failure` and return
     ///    `CredentialError::NotFound`. On transient failure, return the stored
     ///    (stale) blob. Without DB / HTTP wired, fall back to a raw read.
-    pub(crate) async fn refresh_codex_locked(
+    pub async fn refresh_codex_locked(
         &self,
         scope: &CodexScope,
     ) -> Result<CodexRefreshOutcome, CredentialError> {
@@ -59,7 +59,7 @@ impl CredentialService {
     /// no refresh. Used by `CredentialSync` on the in-flight-guard path, and
     /// here as the fallback when the DB / HTTP plumbing for refresh is absent
     /// (tests) or another replica is the active refresher.
-    pub(crate) async fn read_raw_codex(
+    pub async fn read_raw_codex(
         &self,
         scope: &CodexScope,
     ) -> Result<String, CredentialError> {
@@ -79,7 +79,7 @@ impl CredentialService {
 // =============================================================================
 
 /// Outcome of the pure refresh. `CredentialSync` broadcasts only on `Rotated`.
-pub(crate) enum CodexRefreshOutcome {
+pub enum CodexRefreshOutcome {
     /// The stored blob was already fresh — no HTTP call was made.
     Unchanged { blob: String },
     /// We refreshed the blob and the new value is now persisted.
@@ -87,7 +87,7 @@ pub(crate) enum CodexRefreshOutcome {
 }
 
 impl CodexRefreshOutcome {
-    pub(crate) fn into_blob(self) -> String {
+    pub fn into_blob(self) -> String {
         match self {
             Self::Unchanged { blob } | Self::Rotated { new_blob: blob } => blob,
         }

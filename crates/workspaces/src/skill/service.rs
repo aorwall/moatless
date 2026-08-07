@@ -18,19 +18,19 @@ use super::fetcher::{SkillFetcher, SkillLayout};
 use super::models::{Skill, SkillSource};
 use super::scanner;
 use super::schemas::SkillResponse;
-use crate::auth::credentials::resolve_user_github_token;
-use crate::auth::error::AuthError;
-use crate::auth::github::registry::GitHubAppRegistry;
-use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::provider_tokens::ProviderTokenAuthDao;
-use crate::extractors::AuthUser;
+use moatless_identity::auth::credentials::resolve_user_github_token;
+use moatless_identity::auth::error::AuthError;
+use moatless_identity::auth::github::registry::GitHubAppRegistry;
+use moatless_identity::auth::github::service::GitHubAppService;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
+use moatless_identity::extractors::AuthUser;
 use crate::plugin::dao::PluginDao;
 use crate::plugin::models::Plugin;
 use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
-use crate::secret::service::SecretService;
+use moatless_identity::secret::service::SecretService;
 
 /// Orchestrates skill discovery across workspace + plugins.
 pub struct SkillService {

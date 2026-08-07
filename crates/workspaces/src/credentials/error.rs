@@ -1,6 +1,6 @@
 //! Credential service error type.
 
-use crate::auth::error::AuthError;
+use moatless_identity::auth::error::AuthError;
 
 /// Errors returned by [`crate::credentials::CredentialService`].
 #[derive(Debug, thiserror::Error)]
@@ -15,7 +15,7 @@ pub enum CredentialError {
     Database(#[from] sqlx::Error),
 
     #[error("secret storage error: {0}")]
-    Secret(#[from] crate::secret::error::SecretError),
+    Secret(#[from] moatless_identity::secret::error::SecretError),
 
     /// The stored Codex `auth.json` blob is not parseable JSON, so the refresh
     /// cannot read the tokens out of it. Retains the parse failure — the offset

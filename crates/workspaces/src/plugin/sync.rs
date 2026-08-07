@@ -23,14 +23,14 @@ use tracing::{debug, warn};
 
 use super::dao::PluginDao;
 use super::models::{Plugin, PluginSkill};
-use crate::auth::credentials::resolve_repository_github_scope_token;
-use crate::auth::github::registry::GitHubAppRegistry;
-use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::provider_tokens::ProviderTokenAuthDao;
-use crate::auth::github_scope::GitHubScope;
+use moatless_identity::auth::credentials::resolve_repository_github_scope_token;
+use moatless_identity::auth::github::registry::GitHubAppRegistry;
+use moatless_identity::auth::github::service::GitHubAppService;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
+use moatless_identity::auth::github_scope::GitHubScope;
 use crate::repository::access::parse_github_owner_repo;
-use crate::secret::service::SecretService;
+use moatless_identity::secret::service::SecretService;
 use crate::skill::error::SkillError;
 use crate::skill::fetcher::{SkillFetcher, SkillLayout};
 use crate::skill::models::SkillSource;
@@ -216,9 +216,9 @@ mod tests {
 
     use super::super::models::ActivationRow;
     use super::*;
-    use crate::auth::provider_tokens::MockProviderTokenAuthDao;
-    use crate::auth::test_support::StubProviderTokens;
-    use crate::secret::test_support::service_with;
+    use moatless_identity::auth::provider_tokens::MockProviderTokenAuthDao;
+    use moatless_identity::auth::test_support::StubProviderTokens;
+    use moatless_identity::secret::test_support::service_with;
     use crate::skill::fetcher::FetchedSkillFile;
 
     const SKILL_MD: &str =

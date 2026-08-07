@@ -8,7 +8,7 @@ use axum::Json;
 use super::error::SkillError;
 use super::schemas::ListSkillsResponse;
 use super::service::SkillService;
-use crate::extractors::AuthUser;
+use moatless_identity::extractors::AuthUser;
 
 /// List all skills discovered for a repository.
 ///

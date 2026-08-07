@@ -9,7 +9,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use super::handlers;
 use super::schemas::{ListSkillsResponse, SkillResponse, SkillSource};
 use super::service::SkillService;
-use crate::extractors::UserTokenVerifier;
+use moatless_identity::extractors::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(

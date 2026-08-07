@@ -28,9 +28,9 @@ use chrono::Utc;
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
-use crate::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_core::db::DbPool;
-use crate::extractors::AuthUser;
+use moatless_identity::extractors::AuthUser;
 use crate::repository::access::{access_error_for, RepositoryTokenResolver};
 use crate::repository::config_reader::{
     fetch_provider_file, verify_repository_access, AccessStatus,

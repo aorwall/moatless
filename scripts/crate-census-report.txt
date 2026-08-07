@@ -1,15 +1,15 @@
 CRATE-CENSUS REPORT
-files parsed: 656
+files parsed: 662
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3894  illegal  147
+CODE       legal  3770  illegal  147
 ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1607 point down into the existing crates/* floor
-TEST-CONTEXT 2396  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
-UNRESOLVED     13  (glob-through-facade / prelude / macro-var — audited below)
+  of the legal CODE edges, 1479 point down into the existing crates/* floor
+TEST-CONTEXT 2382  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
   Line counts are newline counts (wc -l). This table and its TOTAL count what has
@@ -23,8 +23,8 @@ UNRESOLVED     13  (glob-through-facade / prelude / macro-var — audited below)
   identity  (5 files, 55 lines)
     adapter_apps.rs auth.rs extractors.rs secret.rs team.rs
 
-  workspaces  (41 files, 10997 lines)
-    credentials/ plugin/ repository/ skill/ workspace/
+  workspaces  (5 files, 45 lines)
+    credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
   tasks  (74 files, 19955 lines)
     agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
@@ -65,7 +65,7 @@ UNRESOLVED     13  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 123880 lines
+  TOTAL backend/src: 112928 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (19 classes) ==
 
@@ -290,7 +290,7 @@ tasks -> server   x8
   none
 
 == UNRESOLVED REFERENCES (audit) ==
-  [super-above-root] x13
+  [super-above-root] x19
     test:backend :: ActivityStatus::Completed   (backend/tests/integration/agent_handlers_per_block_test.rs:281)
     test:backend :: ActivityStatus::Completed   (backend/tests/integration/message_dao_test.rs:760)
     test:backend :: ActivityStatus::Completed   (backend/tests/integration/ui_rpc_thread_test.rs:132)
@@ -302,8 +302,14 @@ tasks -> server   x8
     test:backend :: CommandRefusal::NotWritable   (backend/tests/integration/ui_rpc_command_test.rs:860)
     test:backend :: CommandRefusal::Rejected   (backend/tests/integration/ui_rpc_command_test.rs:339)
     test:backend :: CommandRefusal::Rejected   (backend/tests/integration/ui_rpc_command_test.rs:410)
-    test:backend :: GitHubAppRegistry::new   (backend/tests/integration/github_app_registration_test.rs:78)
     test:backend :: LocalEnvelopeSecretCipher::from_config   (backend/tests/integration/github_app_registration_test.rs:69)
+    test:backend :: WorkspacePatch::default   (backend/tests/integration/task_listing_position_test.rs:797)
+    test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:2461)
+    test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4312)
+    test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4503)
+    test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4551)
+    test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4572)
+    test:backend :: WorkspacePatch::default   (backend/tests/integration/workspace_dao_test.rs:172)
 
 == CARVED BUT UNBANDED (crates/<dir> names a real band but floor_crate_of_dir maps it to floor:<dir>) — 0 ==
   none — every extracted crates/<dir> that names a real band has its bands.rs arm.
@@ -312,14 +318,14 @@ tasks -> server   x8
   READY = no illegal outgoing edge AND every crate it depends on is already
   extracted. EXTRACTED = already carved into crates/*, detected from this run's own
   scan (a crates/<dir> that resolves to a real band, not floor:<dir>) — it has left
-  the frontier and is shown for context, not as work. Extracted so far: identity.
+  the frontier and is shown for context, not as work. Extracted so far: identity, workspaces.
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> workspaces: READY now (no illegal outgoing; every crate it depends on is extracted).
+  FRONTIER -> tasks: BLOCKED on 57 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
-  workspaces         deps: identity                                     READY
+  workspaces         deps: identity                                     EXTRACTED
   tasks              deps: identity, workspaces                         BLOCKED — 57 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x8)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
@@ -337,14 +343,14 @@ tasks -> server   x8
   legal edges only (illegal removed): DAG — no multi-crate cycle
 
 == macro_rules! INVENTORY (census scope) ==
-  backend/src/repository/dao.rs  push_set  emits-cross-module-path: no
-  backend/src/repository/dao.rs  bind_opt  emits-cross-module-path: no
   backend/src/task/dao.rs  run_field  emits-cross-module-path: no
   backend/src/task_activities/dao.rs  known_kinds  emits-cross-module-path: no
   backend/src/task_activities/dao.rs  read_activities  emits-cross-module-path: no
-  backend/src/workspace/dao.rs  push_set  emits-cross-module-path: no
-  backend/src/workspace/dao.rs  bind_opt  emits-cross-module-path: no
   crates/claude-agent-sdk/tests/e2e.rs  skip_unless_subprocess_e2e  emits-cross-module-path: no
   crates/claude-agent-sdk/tests/e2e.rs  skip_unless_tmux_e2e  emits-cross-module-path: no
   crates/t3code/src/activity_dao.rs  known_kinds  emits-cross-module-path: no
   crates/t3code/src/activity_dao.rs  read_activities  emits-cross-module-path: no
+  crates/workspaces/src/repository/dao.rs  push_set  emits-cross-module-path: no
+  crates/workspaces/src/repository/dao.rs  bind_opt  emits-cross-module-path: no
+  crates/workspaces/src/workspace/dao.rs  push_set  emits-cross-module-path: no
+  crates/workspaces/src/workspace/dao.rs  bind_opt  emits-cross-module-path: no

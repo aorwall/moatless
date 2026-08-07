@@ -5,7 +5,7 @@ use axum::Json;
 
 use std::sync::Arc;
 
-use crate::extractors::AuthUser;
+use moatless_identity::extractors::AuthUser;
 
 use super::activation;
 use super::dao::PluginDao;

@@ -130,6 +130,9 @@ moatless-adapter-model = { path = "../crates/adapter-model" }
 # Identity band: auth, extractors, team, adapter apps, secrets, setup (lifted out
 # of backend/src). Composed through permanent facade modules that re-export it.
 moatless-identity = { path = "../crates/identity" }
+# Workspaces band: workspace sync, repository, skill, plugin, credentials (lifted
+# out of backend/src). Composed through permanent facade modules that re-export it.
+moatless-workspaces = { path = "../crates/workspaces" }
 moatless-t3code = { path = "../crates/t3code" }
 
 # Claude agent SDK types (for OpenAPI schema generation)
@@ -163,6 +166,11 @@ moatless-core = { path = "../crates/core", features = ["test-support"] }
 # identity's test fakes (auth/secret `test_support`) for the backend's own unit
 # tests, exposed through the facade under `#[cfg(any(test, feature = "db-tests"))]`.
 moatless-identity = { path = "../crates/identity", features = ["test-support"] }
+# workspaces' `MockRepositoryDao` for the backend's own `#[cfg(test)]` unit tests
+# (task::creation, repository::handlers), reached through the facade. Dev-dependency
+# features do not unify into the normal build under resolver 2, so this stays out of
+# `cargo build`. No `db-tests` forward: no integration test names a workspaces mock.
+moatless-workspaces = { path = "../crates/workspaces", features = ["test-support"] }
 tokio-test = "0.4"
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "migrate"] }
 tower = { version = "0.5", features = ["util"] }

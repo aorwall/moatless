@@ -31,7 +31,7 @@ pub enum SkillError {
     /// Resolving the caller's own provider token failed. Retains the auth
     /// failure so the log says *which* credential path broke.
     #[error("User provider token could not be resolved")]
-    UserToken(#[source] crate::auth::error::AuthError),
+    UserToken(#[source] moatless_identity::auth::error::AuthError),
 
     /// An invariant this module synthesizes, with no underlying failure to
     /// carry — kept distinct from the wrapping variants above.
@@ -81,7 +81,7 @@ impl IntoResponse for SkillError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::error::AuthError;
+    use moatless_identity::auth::error::AuthError;
 
     #[test]
     fn token_resolution_keeps_the_underlying_failure_as_source() {

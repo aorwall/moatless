@@ -11,7 +11,7 @@ use tracing::warn;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 use moatless_backend_core::access_control::resolve_scope_for_create;
-use crate::extractors::AuthUser;
+use moatless_identity::extractors::AuthUser;
 use crate::repository::dao::RepositoryDao;
 
 use super::dao::{WorkspaceDao, WorkspacePatch};

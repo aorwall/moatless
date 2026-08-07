@@ -10,8 +10,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use super::access::RepositoryTokenResolver;
 use super::dao::RepositoryDao;
 use super::handlers;
-use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::extractors::UserTokenVerifier;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::extractors::UserTokenVerifier;
 use crate::workspace::git_sync::GitSyncService;
 
 #[derive(OpenApi)]
