@@ -1134,6 +1134,93 @@ shadowDev:
   # -- Annotations for the shadow-dev ServiceAccount (e.g. EKS Pod Identity / IRSA).
   serviceAccountAnnotations: {}
 
+# Sandbox access: opt-in Kubernetes access for the sandboxes that need it.
+#
+# By default a sandbox cannot talk to the cluster at all — the base sandbox
+# NetworkPolicy excludes the kube-apiserver ClusterIP as an RFC1918 range, and
+# the Roles in rbac.yaml bind the backend ServiceAccount, not the sandbox one.
+# So audit tasks reconstruct cluster state from Prometheus, which exposes
+# neither NetworkPolicy objects nor namespace labels.
+#
+# A workspace opts into a profile through two fields that already exist, and it
+# needs BOTH — RBAC alone still times out on connect, egress alone 403s:
+#   sandboxServiceAccount → the profile's `serviceAccount`
+#   networkProfile        → the profile's map key
+# Every other workspace is untouched.
+#
+# `access` selects a chart-owned RBAC shape instead of putting raw rules here.
+# Those rule sets decide who can read your Secrets, so they live in the chart
+# where code review sees them, and a chart upgrade can improve them without
+# every install pinning a stale copy in gitops. See _helpers.tpl.
+sandboxAccess:
+  # -- kube-apiserver ClusterIP(s) — what `kubectl` dials. Environment-specific,
+  # shared by every profile, and REQUIRED once any profile is enabled (rendering
+  # fails otherwise, since the SA would carry RBAC it cannot reach). Find it with:
+  #   kubectl -n default get svc kubernetes -o jsonpath='{.spec.clusterIP}'
+  # Typically 172.20.0.1/32 (EKS default service CIDR) or 10.100.0.1/32.
+  apiServerCidrs: []
+  # -- Port the kube-apiserver listens on.
+  apiServerPort: 443
+  # -- Access profiles. The map key is the pod label a workspace selects with
+  # `networkProfile`, so the NetworkPolicy selector cannot drift from the name.
+  # Add your own entry to define a new identity; `access` must be one of the
+  # presets below or rendering fails.
+  profiles:
+    # Read-only cluster inspection — auditing NetworkPolicies, namespace labels,
+    # PodSecurity levels, what is deployed where.
+    cluster-reader:
+      # -- Create this profile's ServiceAccount, RBAC and egress NetworkPolicy.
+      enabled: false
+      # -- RBAC preset: `cluster-read` = cluster-wide ClusterRole, get/list/watch,
+      # Secrets deliberately excluded.
+      access: cluster-read
+      # -- ServiceAccount name (sandbox namespace). Put this in the workspace's
+      # `sandboxServiceAccount`.
+      serviceAccount: moatless-cluster-reader
+      # -- Annotations for the SA (e.g. EKS Pod Identity / IRSA — add an `eks:*`
+      # role here if the workspace should also run `aws eks describe-cluster`).
+      serviceAccountAnnotations: {}
+      # -- Extra read-only rules for environment CRDs, appended verbatim. Example:
+      #   - apiGroups: ["argoproj.io", "cilium.io"]
+      #     resources: ["*"]
+      #     verbs: ["get", "list", "watch"]
+      extraRules: []
+      # -- Extra egress appended verbatim — databases and other in-VPC
+      # destinations the base policy excludes as private ranges. Example:
+      #   - to:
+      #       - ipBlock:
+      #           cidr: 10.30.20.0/24
+      #     ports:
+      #       - protocol: TCP
+      #         port: 5432
+      extraEgress: []
+    # Deep troubleshooting — read Secrets, delete and restart workloads, but only
+    # inside the app and sandbox namespaces.
+    #
+    # SECURITY: the app namespace holds the backend's own Secrets (database
+    # credentials, provider API keys, session signing keys). Enabling this gives
+    # an LLM agent with internet egress read access to all of them, plus delete
+    # on anything running there. Troubleshooting clusters only — point exactly
+    # one workspace at it and revoke when done. Prefer cluster-reader when
+    # read-only inspection is enough.
+    moatless-admin:
+      # -- Create this profile's ServiceAccount, RBAC and egress NetworkPolicy.
+      enabled: false
+      # -- RBAC preset: `namespace-admin` = Role + RoleBinding in the app and
+      # sandbox namespaces with full verbs. Namespaced on purpose — the blast
+      # radius stops at those two namespaces instead of the cluster.
+      access: namespace-admin
+      # -- ServiceAccount name (sandbox namespace). Put this in the workspace's
+      # `sandboxServiceAccount`.
+      serviceAccount: moatless-admin
+      # -- Annotations for the SA (e.g. EKS Pod Identity / IRSA).
+      serviceAccountAnnotations: {}
+      # -- Normally empty: the preset already grants everything in-namespace.
+      # A Role cannot carry cluster-scoped rules — use cluster-reader for those.
+      extraRules: []
+      # -- Extra egress appended verbatim (e.g. the database, to run psql).
+      extraEgress: []
+
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs
 extraEnv:

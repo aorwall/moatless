@@ -1,0 +1,127 @@
+{{- /*
+Sandbox-access identities: ServiceAccount + RBAC, one set per enabled profile.
+
+Opt-in Kubernetes access for sandboxes that need it — cluster inspection, deep
+troubleshooting — while every other sandbox keeps the default identity with no
+API access at all. A workspace opts in through two fields that already exist:
+
+  sandboxServiceAccount  → the SA below   (what it may do)
+  networkProfile         → the map key    (whether it can reach the API server,
+                                           see sandbox-access-networkpolicy.yaml)
+
+Both are required. RBAC without the egress rule yields a sandbox that carries
+permissions and still times out on connect; egress without RBAC yields 403s.
+
+`access` selects a chart-owned RBAC shape rather than letting values carry raw
+rules. The rule sets are the part that decides who can read your Secrets, so
+they stay in the chart where code review sees them, and a chart upgrade can
+improve them without every install having pinned a stale copy in gitops:
+
+  cluster-read     ClusterRole, get/list/watch, no secrets. Cluster-wide.
+  namespace-admin  Role + RoleBinding in the app and sandbox namespaces, full
+                   verbs including secrets and delete. Namespaced deliberately —
+                   the blast radius stops at those two namespaces.
+
+SECURITY (namespace-admin): the app namespace holds the backend's own Secrets —
+database credentials, provider API keys, session signing keys — so this grants
+an LLM agent with internet egress read access to all of them, plus delete on
+anything running there. Off by default. Enable on troubleshooting clusters,
+point exactly one workspace at it, revoke when done. Prefer cluster-read when
+read-only inspection is enough.
+*/ -}}
+{{- $root := . -}}
+{{- $sandboxNamespace := include "moatless-vibe.sandboxNamespace" . -}}
+{{- $fullname := include "moatless-vibe.fullname" . -}}
+{{- range $name, $profile := .Values.sandboxAccess.profiles }}
+{{- if $profile.enabled }}
+{{- $preset := include "moatless-vibe.accessPreset" (dict "name" $name "profile" $profile) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $profile.serviceAccount }}
+  namespace: {{ $sandboxNamespace }}
+  labels:
+    {{- include "moatless-vibe.labels" $root | nindent 4 }}
+    moatless.io/access-profile: {{ $name }}
+  {{- with $profile.serviceAccountAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if $root.Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml $root.Values.imagePullSecrets | nindent 2 }}
+{{- end }}
+{{- if eq $preset "cluster-read" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-%s" $fullname $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "moatless-vibe.labels" $root | nindent 4 }}
+    moatless.io/access-profile: {{ $name }}
+rules:
+  {{- include "moatless-vibe.clusterReadRules" $root | nindent 2 }}
+  {{- with $profile.extraRules }}
+  # Environment-specific CRDs (argoproj.io, traefik.io, cilium.io, ...).
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s" $fullname $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "moatless-vibe.labels" $root | nindent 4 }}
+    moatless.io/access-profile: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $profile.serviceAccount }}
+    namespace: {{ $sandboxNamespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ printf "%s-%s" $fullname $name | trunc 63 | trimSuffix "-" }}
+  apiGroup: rbac.authorization.k8s.io
+{{- else }}
+{{- /* namespace-admin: app namespace + sandbox namespace, deduped when equal. */}}
+{{- range $ns := uniq (list $root.Release.Namespace $sandboxNamespace) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-%s" $fullname $name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "moatless-vibe.labels" $root | nindent 4 }}
+    moatless.io/access-profile: {{ $name }}
+rules:
+  # Full access within this namespace only — includes secrets (read), delete,
+  # and patch (what `kubectl rollout restart` issues).
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+  {{- with $profile.extraRules }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-%s" $fullname $name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "moatless-vibe.labels" $root | nindent 4 }}
+    moatless.io/access-profile: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $profile.serviceAccount }}
+    namespace: {{ $sandboxNamespace }}
+roleRef:
+  kind: Role
+  name: {{ printf "%s-%s" $fullname $name | trunc 63 | trimSuffix "-" }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

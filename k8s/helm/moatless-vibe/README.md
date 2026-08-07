@@ -365,6 +365,107 @@ repo's sandboxes run elevated. See `scripts/shadow/README.md` for the full flow.
 > Dev clusters only. The field just *selects* the SA — RBAC (these bindings) is
 > what grants power, so leave `shadowDev.enabled=false` in production.
 
+### Sandbox access (using the cluster from a sandbox)
+
+By default a sandbox cannot talk to the Kubernetes API at all, for two
+independent reasons — and a workspace needs **both** lifted:
+
+| Gate | What blocks it | How a workspace opts in |
+|------|----------------|-------------------------|
+| Network | The kube-apiserver ClusterIP (e.g. `172.20.0.1`) is inside `172.16.0.0/12`, which the base sandbox policy lists under `except:`. `kubectl` hangs on connect. | `networkProfile` = the profile's **map key** |
+| RBAC | The Roles in `rbac.yaml` bind the *backend* SA, not the sandbox one — so `kubectl get ns` would 403 even with a network path. | `sandboxServiceAccount` = the profile's `serviceAccount` |
+
+Without this, cluster-audit tasks reconstruct state from
+Prometheus/kube-state-metrics, which exposes **neither NetworkPolicy objects nor
+namespace labels**.
+
+`sandboxAccess.profiles` is a map; the key is the pod label, so the policy
+selector can never drift from the profile name. `access` picks a **chart-owned**
+RBAC shape rather than putting raw rules in values — those rules decide who can
+read your Secrets, so they stay where code review sees them, and a chart upgrade
+can improve them without every install pinning a stale copy in gitops.
+
+| Preset | Scope | Grants |
+|--------|-------|--------|
+| `cluster-read` | Cluster-wide ClusterRole | `get`/`list`/`watch`. **Secrets excluded by construction.** |
+| `namespace-admin` | Role + RoleBinding in the app **and** sandbox namespaces | Full verbs — read Secrets, delete, patch (`kubectl rollout restart`). Namespaced on purpose: the blast radius stops at those two namespaces. |
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `sandboxAccess.apiServerCidrs` | kube-apiserver ClusterIP(s), shared by all profiles. **Required once any profile is enabled** | `[]` |
+| `sandboxAccess.apiServerPort` | kube-apiserver port | `443` |
+| `sandboxAccess.profiles.<key>.enabled` | Create this profile's SA, RBAC and NetworkPolicy | `false` |
+| `sandboxAccess.profiles.<key>.access` | `cluster-read` or `namespace-admin` | — |
+| `sandboxAccess.profiles.<key>.serviceAccount` | SA name, in the sandbox namespace | — |
+| `sandboxAccess.profiles.<key>.serviceAccountAnnotations` | SA annotations (EKS Pod Identity / IRSA) | `{}` |
+| `sandboxAccess.profiles.<key>.extraRules` | Extra RBAC rules appended verbatim (environment CRDs) | `[]` |
+| `sandboxAccess.profiles.<key>.extraEgress` | Extra egress appended verbatim (databases, other in-VPC destinations) | `[]` |
+
+```yaml
+# apiServerCidrs from: kubectl -n default get svc kubernetes -o jsonpath='{.spec.clusterIP}'
+sandboxAccess:
+  apiServerCidrs: ["172.20.0.1/32"]
+  profiles:
+    cluster-reader:
+      enabled: true
+      access: cluster-read
+      serviceAccount: moatless-cluster-reader
+      extraRules:
+        - apiGroups: ["argoproj.io", "cilium.io", "traefik.io"]
+          resources: ["*"]
+          verbs: ["get", "list", "watch"]
+    moatless-admin:
+      enabled: true
+      access: namespace-admin
+      serviceAccount: moatless-admin
+      extraEgress:                     # so `psql` works while troubleshooting
+        - to: [{ ipBlock: { cidr: 10.30.20.0/24 } }]
+          ports: [{ protocol: TCP, port: 5432 }]
+```
+
+Then opt one workspace into one profile — nothing else changes:
+
+```bash
+# Admin-only: the API rejects both fields for non-admin callers with 403.
+moat workspaces update <workspace-id> \
+  --sandbox-service-account moatless-cluster-reader \
+  --network-profile cluster-reader
+```
+
+`sandboxServiceAccount` and `networkProfile` are what actually inherit a
+profile, so the API restricts both to admins
+(`workspace/handlers.rs::ensure_privileged_sandbox_fields`). Without that,
+enabling a profile here would make it self-serve for anyone who can create a
+workspace, and "point one workspace at it" would be advice rather than a
+control. The check only fires when a request carries the fields, so ordinary
+non-admin edits are unaffected.
+
+Verify from inside a sandbox of that workspace:
+
+```bash
+kubectl get ns                     # was a 45s connect timeout before
+kubectl get networkpolicies -A
+```
+
+Adding a third identity is a values entry when it reuses a preset; only a
+genuinely new RBAC *shape* needs a chart change. An unrecognised `access` value
+fails the render rather than creating an SA with no RBAC, and enabling any
+profile without `apiServerCidrs` fails too — otherwise you would deploy
+permissions that cannot reach the API server and get the same silent timeout
+this feature exists to remove.
+
+> **`namespace-admin` is a large grant.** The app namespace holds the backend's
+> own Secrets — database credentials, provider API keys, session signing keys —
+> so enabling it gives an LLM agent with internet egress read access to all of
+> them, plus delete on anything running there. Troubleshooting clusters only:
+> point exactly one workspace at it and revoke when done. Use `cluster-read`
+> when read-only inspection is enough.
+
+> Keep profile keys out of `egressProxy.profiles`. A sealed profile is excluded
+> from the base sandbox policy, so those pods would get API-server access and
+> lose general internet egress. The chart fails the render on that combination
+> rather than leaving it as a runtime surprise.
+
 ### Ingress Parameters
 
 | Parameter | Description | Default |

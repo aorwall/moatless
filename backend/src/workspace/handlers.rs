@@ -8,7 +8,7 @@ use axum::Json;
 use serde::Serialize;
 use tracing::warn;
 
-use moatless_backend_core::scope::ScopedResource;
+use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 use moatless_backend_core::access_control::resolve_scope_for_create;
 use crate::extractors::AuthUser;
@@ -109,6 +109,45 @@ async fn ensure_repos_visible(
     Ok(())
 }
 
+/// Restrict the two fields that select a sandbox's Kubernetes privileges to
+/// admins.
+///
+/// `sandbox_service_account` picks the pod's ServiceAccount and
+/// `network_profile` picks the NetworkPolicy that reaches the kube-apiserver.
+/// Together they are what opts a workspace into a chart `sandboxAccess` profile
+/// — including `namespace-admin`, which can read the app namespace's Secrets
+/// (database credentials, provider API keys, session signing keys) and delete
+/// workloads there. The same pair also selects the `shadowDev` identity, whose
+/// bound Role already carries `secrets`.
+///
+/// Whether those identities *exist* is an operator decision made in Helm
+/// values, but without this check any authenticated user could name one on a
+/// workspace they own and inherit it, so "point exactly one workspace at it"
+/// would not be an enforceable control.
+///
+/// Only rejects when a request actually carries the field: an ordinary
+/// non-admin update (renaming, changing servers) leaves both `None` and is
+/// unaffected, as is a workspace that already has them set.
+fn ensure_privileged_sandbox_fields(
+    ctx: &ScopeContext,
+    sandbox_service_account: Option<&String>,
+    network_profile: Option<&String>,
+) -> Result<(), WorkspaceError> {
+    if ctx.is_admin {
+        return Ok(());
+    }
+    let attempted = match (sandbox_service_account, network_profile) {
+        (Some(_), Some(_)) => "sandboxServiceAccount and networkProfile",
+        (Some(_), None) => "sandboxServiceAccount",
+        (None, Some(_)) => "networkProfile",
+        (None, None) => return Ok(()),
+    };
+    Err(WorkspaceError::Forbidden(format!(
+        "{attempted} may only be set by an admin — these fields grant a sandbox \
+         elevated Kubernetes access"
+    )))
+}
+
 /// Reject duplicate non-null mount names within a single request payload (the
 /// DB also enforces per-workspace uniqueness).
 fn ensure_unique_mount_names(placements: &[WorkspaceRepoInput]) -> Result<(), WorkspaceError> {
@@ -144,6 +183,11 @@ pub async fn create_workspace(
 ) -> Result<(StatusCode, Json<WorkspaceResponse>), WorkspaceError> {
     ensure_unique_mount_names(&req.repos)?;
     ensure_repos_visible(&repositories, &auth, &req.repos).await?;
+    ensure_privileged_sandbox_fields(
+        &auth.scope_context(),
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
+    )?;
 
     let resolved = resolve_scope_for_create(&auth.scope_context(), req.scope)?;
 
@@ -284,6 +328,11 @@ pub async fn update_workspace(
         .await?
         .ok_or_else(|| WorkspaceError::NotFound(workspace_id.clone()))?;
     ensure_workspace_mutable(&existing)?;
+    ensure_privileged_sandbox_fields(
+        &ctx,
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
+    )?;
 
     // Re-resolve owner_user_id when the scope changes.
     let (scope, owner_user_id) = match req.scope {
@@ -688,6 +737,45 @@ mod tests {
             is_primary: None,
             position: None,
         }
+    }
+
+    fn ctx(is_admin: bool) -> ScopeContext {
+        ScopeContext {
+            user_id: "u1".to_string(),
+            is_admin,
+        }
+    }
+
+    /// The two fields that opt a workspace into an elevated `sandboxAccess`
+    /// profile are admin-only, so enabling a profile in Helm values stays an
+    /// operator decision rather than becoming self-serve.
+    #[test]
+    fn privileged_sandbox_fields_are_admin_only() {
+        let sa = "moatless-admin".to_string();
+        let profile = "moatless-admin".to_string();
+
+        for (account, network) in [
+            (Some(&sa), None),
+            (None, Some(&profile)),
+            (Some(&sa), Some(&profile)),
+        ] {
+            let err = ensure_privileged_sandbox_fields(&ctx(false), account, network).unwrap_err();
+            assert!(
+                matches!(err, WorkspaceError::Forbidden(_)),
+                "non-admin must not select a privileged sandbox identity"
+            );
+            assert!(
+                ensure_privileged_sandbox_fields(&ctx(true), account, network).is_ok(),
+                "admin may select a privileged sandbox identity"
+            );
+        }
+    }
+
+    /// An ordinary edit that never mentions the fields is untouched — otherwise
+    /// a non-admin could not rename their own workspace.
+    #[test]
+    fn absent_privileged_fields_are_allowed_for_anyone() {
+        assert!(ensure_privileged_sandbox_fields(&ctx(false), None, None).is_ok());
     }
 
     #[test]

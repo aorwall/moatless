@@ -279,3 +279,72 @@ cidrs:
     - 13.107.213.0/24
     - 150.171.8.0/24
 {{- end -}}
+
+{{/*
+Rule set for the `cluster-read` sandbox-access preset.
+
+Chart-owned rather than values-owned on purpose: this is the list that decides
+what an opted-in sandbox can see, so it belongs where code review looks. Keeping
+it here also means a chart upgrade can widen it (a new apiGroup, a new
+subresource) without every install having pinned its own stale copy in gitops.
+
+get/list/watch only, and `secrets` is deliberately absent — a sandbox runs an
+LLM agent with internet egress, so cluster-wide Secret read would be a
+credential-exfiltration path. Use the `namespace-admin` preset when Secret
+access is genuinely required; it is scoped to two namespaces instead.
+*/}}
+{{- define "moatless-vibe.clusterReadRules" -}}
+- apiGroups: [""]
+  resources:
+    - namespaces
+    - nodes
+    - pods
+    - pods/log
+    - services
+    - endpoints
+    - configmaps
+    - serviceaccounts
+    - persistentvolumes
+    - persistentvolumeclaims
+    - replicationcontrollers
+    - limitranges
+    - resourcequotas
+    - events
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+    - apps
+    - batch
+    - autoscaling
+    - networking.k8s.io      # NetworkPolicy, Ingress
+    - policy                 # PodDisruptionBudget
+    - storage.k8s.io
+    - discovery.k8s.io
+    - coordination.k8s.io
+    - node.k8s.io
+    - scheduling.k8s.io
+    - rbac.authorization.k8s.io
+    - admissionregistration.k8s.io
+    - apiextensions.k8s.io   # CustomResourceDefinition
+    - apiregistration.k8s.io
+    - metrics.k8s.io
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+# Non-resource endpoints — `kubectl version`, `/healthz`, discovery.
+- nonResourceURLs: ["/healthz", "/livez", "/readyz", "/version", "/metrics", "/openapi/*"]
+  verbs: ["get"]
+{{- end -}}
+
+{{/*
+Validate one sandbox-access profile and return its `access` preset.
+Usage: {{ include "moatless-vibe.accessPreset" (dict "name" $name "profile" $p) }}
+*/}}
+{{- define "moatless-vibe.accessPreset" -}}
+{{- $known := list "cluster-read" "namespace-admin" -}}
+{{- if not (has .profile.access $known) -}}
+{{- fail (printf "sandboxAccess.profiles.%s.access=%q is not a known preset — use one of %v. An unrecognised value would create a ServiceAccount with no RBAC at all, which fails at kubectl time rather than at deploy time." .name (.profile.access | toString) $known) -}}
+{{- end -}}
+{{- if not .profile.serviceAccount -}}
+{{- fail (printf "sandboxAccess.profiles.%s.serviceAccount is empty — it names the ServiceAccount the RBAC binds to and the value a workspace puts in sandboxServiceAccount, so an empty one would bind nothing." .name) -}}
+{{- end -}}
+{{- .profile.access -}}
+{{- end -}}
