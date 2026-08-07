@@ -330,7 +330,12 @@ async fn run_stack(
 /// Exec the local `gh` binary with the original args, inheriting stdio, and
 /// propagate its exit code.
 fn passthrough(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let status = gh_command(args, None)
+    // Thread the git-credential token exactly as the typed and stack paths do,
+    // so a passthrough (`pr view`, `api`, `run watch`, …) authenticates the
+    // same way. `github_token_for_gh` yields `None` when `GH_TOKEN` /
+    // `GITHUB_TOKEN` is already set, preserving that env precedence.
+    let token = github_token_for_gh();
+    let status = gh_command(args, token.as_deref())
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;
     std::process::exit(status.code().unwrap_or(1));
