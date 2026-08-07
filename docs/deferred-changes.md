@@ -144,3 +144,4 @@ of its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | `PluginDao::clear_activation` takes an owned skill name | `crates/workspaces/src/plugin/dao.rs::PluginDao::clear_activation` — `skill_name: Option<String>` | Nothing requires the owned form; narrow it to `Option<&str>` when this signature is being changed for another reason, rather than touching a request path for that alone |
+| `bindings/runtime.rs` has two doors onto binding upsert | `bindings/runtime.rs::upsert_binding` (`&AppState`) delegating to `::upsert_binding_into` (`&dyn TaskBindingDao`) | Delete the `&AppState` door when `runtime.rs`'s own `&AppState` functions are ported and its nine external callers move to the port-typed core |

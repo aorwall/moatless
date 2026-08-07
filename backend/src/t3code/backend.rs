@@ -289,8 +289,13 @@ async fn bind_thread_to_open_pr(
         "repo": repo,
         "pr_number": pr.number,
     });
-    match crate::loops::firing::listen::Connector::new(state.clone())
-        .connect_github_binding(
+    match crate::loops::firing::listen::Connector::new(
+        state.adapters.clone(),
+        state.adapter_connections.clone(),
+        state.loops.clone(),
+        state.task_bindings.clone(),
+    )
+    .connect_github_binding(
             &source_id,
             task_id,
             thread_properties,

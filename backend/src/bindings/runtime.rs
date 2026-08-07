@@ -5,6 +5,7 @@ use chrono::Utc;
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
+use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{resolve_recipients, EventProvenance};
 use crate::loops::firing::inbound;
@@ -605,6 +606,44 @@ pub async fn upsert_binding(
     origin: &str,
     last_external_event_id: Option<String>,
 ) -> Result<TaskBinding, AdapterError> {
+    upsert_binding_into(
+        state.task_bindings.as_ref(),
+        connection,
+        subscription,
+        task_id,
+        provider,
+        subject_kind,
+        subject_key,
+        destination_config,
+        origin,
+        last_external_event_id,
+    )
+    .await
+}
+
+/// Upsert a canonical task binding through the one port it needs — the
+/// `task_bindings` DAO; every other parameter is binding-identity data.
+/// [`upsert_binding`] delegates here after reading the port off `AppState`, so a
+/// caller that already holds the port calls this directly and never names
+/// `AppState`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "nine binding-identity data parameters plus the one task_bindings \
+              port; there is no AppState or port bundle to hoist, so the width is \
+              the binding's own identity threaded to the DAO"
+)]
+pub(crate) async fn upsert_binding_into(
+    task_bindings: &dyn TaskBindingDao,
+    connection: &AdapterConnection,
+    subscription: Option<&SubscriptionMatch>,
+    task_id: &str,
+    provider: &str,
+    subject_kind: &str,
+    subject_key: &str,
+    destination_config: serde_json::Value,
+    origin: &str,
+    last_external_event_id: Option<String>,
+) -> Result<TaskBinding, AdapterError> {
     let now = Utc::now();
     let filter_uid = destination_config
         .get("filter_user_id")
@@ -633,7 +672,7 @@ pub async fn upsert_binding(
         active: true,
         deactivated_at: None,
     };
-    Ok(state.task_bindings.upsert(&binding).await?)
+    Ok(task_bindings.upsert(&binding).await?)
 }
 
 async fn deliver_to_binding(

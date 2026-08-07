@@ -12,35 +12,39 @@ use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use crate::adapters::{AdapterDestinationBuilder, AdapterKind, Adapters};
+use crate::bindings::dao::TaskBindingDao;
 use crate::loops::dao::LoopDao;
-use crate::state::AppState;
 
 /// Wires a task to an external Adapter subject: resolves the connection and
 /// (optionally) the Subscription, then upserts the canonical task binding.
 ///
-/// Holds the three ports this module reads as typed fields — the adapter
+/// Holds the four ports this module reads as typed fields — the adapter
 /// registry (`adapters`), the adapter-connection DAO (`adapter_connections`),
-/// and the Loop DAO (`loops`). Read ports through those fields, never through
-/// `app_state`.
+/// the Loop DAO (`loops`), and the task-binding DAO (`task_bindings`). Read
+/// ports through those fields; this module no longer names `AppState`.
 ///
-/// `app_state` is retained solely for [`Connector::write_binding`]'s call into
-/// [`crate::bindings::runtime::upsert_binding`], which still takes the whole
-/// AppState. Decomposing that function retires this field and takes this module
-/// off the composition-root baseline.
+/// [`Connector::write_binding`] upserts through the port-typed
+/// [`crate::bindings::runtime::upsert_binding_into`], passing `task_bindings`
+/// directly rather than the whole AppState.
 pub struct Connector {
     adapters: Option<Arc<Adapters>>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
-    app_state: AppState,
+    task_bindings: Arc<dyn TaskBindingDao>,
 }
 
 impl Connector {
-    pub fn new(app_state: AppState) -> Self {
+    pub fn new(
+        adapters: Option<Arc<Adapters>>,
+        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        loops: Arc<LoopDao>,
+        task_bindings: Arc<dyn TaskBindingDao>,
+    ) -> Self {
         Self {
-            adapters: app_state.adapters.clone(),
-            adapter_connections: app_state.adapter_connections.clone(),
-            loops: app_state.loops.clone(),
-            app_state,
+            adapters,
+            adapter_connections,
+            loops,
+            task_bindings,
         }
     }
 
@@ -127,9 +131,10 @@ impl Connector {
                   the top); subscription is read for its effective user and then \
                   forwarded; connection, source_id, task_id, external_thread_id, and \
                   thread_properties are forwarded to the destination builder or to \
-                  bindings::runtime::upsert_binding. The three ports this file reads \
-                  now live on Connector's fields, so the width here is the binding's \
-                  own identity, with no frame above to hoist a data argument to."
+                  bindings::runtime::upsert_binding_into. The four ports this file \
+                  reads now live on Connector's fields, so the width here is the \
+                  binding's own identity, with no frame above to hoist a data argument \
+                  to."
     )]
     async fn write_binding(
         &self,
@@ -154,8 +159,8 @@ impl Connector {
             filter_user_id,
         )?;
 
-        crate::bindings::runtime::upsert_binding(
-            &self.app_state,
+        crate::bindings::runtime::upsert_binding_into(
+            self.task_bindings.as_ref(),
             connection,
             subscription,
             task_id,
