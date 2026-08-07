@@ -11,10 +11,10 @@
 //! why the adapters and loops call it directly and callers acting for a
 //! person call this instead.
 
-use moatless_core::shared_models::AgentMode;
 use crate::state::AppState;
 use crate::task::schemas::MessageContextInput;
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::shared_models::AgentMode;
 
 use super::error::MessageError;
 use super::send;
@@ -138,7 +138,8 @@ pub async fn send_user_message(
         }
     };
 
-    if let Err(error_msg) = crate::sandbox::notify::ensure_sandbox_and_notify(state, task_id).await
+    if let Some(error_msg) =
+        crate::task::sandbox_waker::wake_for_message(state.sandbox_waker.as_ref(), task_id).await
     {
         state
             .message_send

@@ -1,12 +1,12 @@
 CRATE-CENSUS REPORT
-files parsed: 662
+files parsed: 663
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3772  illegal  145
+CODE       legal  3777  illegal  144
 ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
-DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
+DOC           51  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 1479 point down into the existing crates/* floor
 TEST-CONTEXT 2382  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
@@ -31,10 +31,10 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (5 files, 45 lines)
     credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
-  tasks  (74 files, 19955 lines)
+  tasks  (75 files, 20038 lines)
     agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
-  sandbox-control  (43 files, 18723 lines)
+  sandbox-control  (43 files, 18765 lines)
     sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs
 
   sandbox-k8s  (22 files, 13299 lines)
@@ -61,7 +61,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 775 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11713 lines)
+  server  (32 files, 11723 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -70,7 +70,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 112996 lines
+  TOTAL backend/src: 113131 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (19 classes) ==
 
@@ -215,7 +215,7 @@ sandbox-control -> sandbox-k8s   x11
     backend/src/sandbox/models.rs:414  [CODE] crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS   -> [10f (repriced) — non-k8s helpers under k8s/, move to sandbox-control]
 
 sandbox-control -> server   x1
-    backend/src/sandbox/notify.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/sandbox/notify.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 sandbox-docker -> sandbox-k8s   x3
     backend/src/sandbox/docker/container_builder.rs:20  [CODE] crate::sandbox::k8s::pod_reader::parse_cpu_to_millicores   -> [10f — misfiled sandbox helpers]
@@ -235,12 +235,11 @@ tasks -> loops   x8
     backend/src/task/presenter.rs:23  [CODE] crate::loops::dao::LoopDao   -> [8c-port — tasks/message -> loops]
     backend/src/task/reaper.rs:29  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
 
-tasks -> sandbox-control   x26
+tasks -> sandbox-control   x25
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::ANTHROPIC_API_KEY   -> [sandbox::secrets placement -> core (like 8e)]
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::CLAUDE_CODE_OAUTH_TOKEN   -> [sandbox::secrets placement -> core (like 8e)]
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::CODEX_AUTH_JSON   -> [sandbox::secrets placement -> core (like 8e)]
     backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::OPENAI_API_KEY   -> [sandbox::secrets placement -> core (like 8e)]
-    backend/src/message/service.rs:141  [CODE] crate::sandbox::notify::ensure_sandbox_and_notify   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/closer.rs:26  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/closer.rs:26  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/closer.rs:72  [CODE] ArchiveRetention::on_close   -> [10d — invert task -> sandbox concretes to ports]
@@ -286,7 +285,7 @@ tasks -> server   x8
     backend/src/message/handlers.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/hooks.rs:26  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/message/service.rs:15  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/message/service.rs:14  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/task/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 == UNPINNED ILLEGAL REFERENCES (headline) — 0 ==
@@ -325,11 +324,11 @@ tasks -> server   x8
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> tasks: BLOCKED on 57 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> tasks: BLOCKED on 56 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
-  tasks              deps: identity, workspaces                         BLOCKED — 57 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x8)
+  tasks              deps: identity, workspaces                         BLOCKED — 56 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x25), sandbox-k8s(x14), server(x8)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
   sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)

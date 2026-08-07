@@ -6,10 +6,10 @@
 
 use std::sync::Arc;
 
+use crate::adapters::Adapters;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
-use crate::adapters::Adapters;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
@@ -18,12 +18,9 @@ use crate::auth::users::UserDao;
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::compose::Ports;
-use moatless_core::config::{AuthConfig, CodexOAuthConfig, Config, S3Config, SecretsConfig};
 use crate::credential_sync::CredentialSync;
 use crate::credentials::CredentialService;
-use moatless_core::db::DbPool;
 use crate::event_ingress::outbox::IngressOutbox;
-use moatless_core::events::EventPublisher;
 use crate::feedback::dao::FeedbackDao;
 use crate::file_storage::dao::FileDao;
 use crate::loops::dao::LoopDao;
@@ -42,7 +39,6 @@ use crate::secret::dao::SecretDao;
 use crate::secret::service::SecretService;
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
-use moatless_core::tag::dao::TagDao;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::{PreflightPort, RealPreflight, TaskCreationService};
 use crate::task::dao::TaskDao;
@@ -54,6 +50,10 @@ use crate::team::dao::TeamDao;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
 use moatless_backend_core::sandbox::SandboxConnector;
+use moatless_core::config::{AuthConfig, CodexOAuthConfig, Config, S3Config, SecretsConfig};
+use moatless_core::db::DbPool;
+use moatless_core::events::EventPublisher;
+use moatless_core::tag::dao::TagDao;
 
 /// Shared application state for task/message/agent/file routes.
 ///
@@ -83,16 +83,16 @@ pub struct AppState {
     /// request transitions (`start`/`stop`/`restart`/`redeploy`/`remove`) and read
     /// desired state through it rather than driving a provider directly.
     pub sandbox: Arc<Lifecycle>,
-    /// Message notification port. Address construction stays inside the
-    /// connector-backed adapter rather than on `AppState`.
-    ///
-    /// Still a field, unlike `agent_status`: its only reader
-    /// (`sandbox::notify::notify_sandbox_for_task`) is reached through
-    /// `ensure_sandbox_and_notify(&AppState)`, whose seven handler/adapter/loop
-    /// callers would each have to take the port to remove it — that is the
-    /// per-handler sweep. It leaves `AppState` in the slice that migrates those
-    /// callers. See `.plans/backend-ports-and-crates.md` Step 5.
-    pub sandbox_notify: Arc<dyn NotifyPort>,
+    /// Consumer-owned wake port: ensure a task's sandbox is running and notify
+    /// it of new work. Declared in the tasks band
+    /// ([`crate::task::sandbox_waker::SandboxWaker`]) and implemented in
+    /// sandbox-control ([`crate::sandbox::notify::SandboxWakeService`]), so the
+    /// message-delivery consumer wakes a sandbox through
+    /// [`crate::task::sandbox_waker::wake_for_message`] without naming the sandbox
+    /// layer above it. Built in [`AppState::new`] from the connector-backed notify
+    /// port, which `AppState` takes as a constructor parameter but does not hold as
+    /// a field — nothing reads the raw notifier off state.
+    pub sandbox_waker: Arc<dyn crate::task::sandbox_waker::SandboxWaker>,
     /// Optional event publisher for real-time event streaming (trait object).
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 handle for file uploads/downloads.
@@ -423,6 +423,16 @@ impl AppState {
         let secrets_config = Arc::new(config.secrets.clone());
         let s3_config = Arc::new(config.s3.clone());
 
+        // The tasks-band wake port, implemented in sandbox-control. Built here
+        // because it needs the task DAO, the lifecycle handle, and the notify
+        // port — the same three the composition root already assembled.
+        let sandbox_waker: Arc<dyn crate::task::sandbox_waker::SandboxWaker> =
+            Arc::new(crate::sandbox::notify::SandboxWakeService::new(
+                tasks.clone(),
+                lifecycle.clone(),
+                sandbox_notify.clone(),
+            ));
+
         Self {
             tasks,
             task_creation,
@@ -466,7 +476,7 @@ impl AppState {
             s3_config,
             token_verifier,
             sandbox: lifecycle,
-            sandbox_notify,
+            sandbox_waker,
             events,
             s3,
             adapters,
