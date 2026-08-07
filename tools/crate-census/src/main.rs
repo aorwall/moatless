@@ -104,11 +104,24 @@ fn main() {
     let files_count = files.len();
     let membership = build_membership(&files);
     let report = build_report(&records, &macro_defs, files_count, &parse_failures, &membership);
-    let baseline = build_baseline(&records);
 
     let out_dir = repo_root.join("scripts");
     let baseline_path = out_dir.join("crate-census-baseline.txt");
     let report_path = out_dir.join("crate-census-report.txt");
+
+    // The illegal edge set and its current size. The count is bounded by the
+    // ratchet CEILING on the committed baseline's `# Illegal edge count:` line:
+    // the baseline is regenerated with `min(committed_ceiling, current_count)`,
+    // so regeneration lowers the ceiling to the current count but NEVER raises
+    // it. A branch that adds an illegal edge therefore cannot make the gate green
+    // by regenerating — the ceiling stays put and `check_ceiling` rejects the
+    // excess. Absent a committed baseline (first run), bootstrap to the current
+    // count: there is nothing to ratchet against yet.
+    let (illegal, doc_up) = partition_edges(&records);
+    let current_count = illegal.len();
+    let committed_ceiling = read_committed_ceiling(&baseline_path).unwrap_or(current_count);
+    let effective_ceiling = committed_ceiling.min(current_count);
+    let baseline = build_baseline(&illegal, &doc_up, effective_ceiling);
 
     // `--check` regenerates in memory and compares against the files ON DISK
     // (the working tree) without writing them and without invoking git, so the
@@ -122,10 +135,32 @@ fn main() {
         let mut ok = report_parse_failures(&parse_failures);
         ok &= check_current(&baseline_path, &baseline);
         ok &= check_current(&report_path, &report);
+        // The monotonic ratchet, independent of the byte-compare above: the
+        // current count must not exceed the committed ceiling. This is the gate
+        // the byte-compare cannot be — regeneration keeps the committed file
+        // self-consistent at any count, so only an assertion against the
+        // ceiling catches a carve regression.
+        ok &= check_ceiling(current_count, committed_ceiling, &illegal, &baseline_path);
         if !ok {
             std::process::exit(1);
         }
         return;
+    }
+
+    // Say out loud what the ceiling did, so a moved ratchet is observed rather
+    // than inferred from a silent diff. A carve lowers it; a regression that
+    // raised the count is pinned at the old ceiling and warned about here (the
+    // subsequent `--check` is what fails).
+    if effective_ceiling < committed_ceiling {
+        announce(&format!(
+            "illegal-edge ceiling {committed_ceiling} -> {effective_ceiling} (lowered by this regeneration)"
+        ));
+    } else if current_count > committed_ceiling {
+        announce(&format!(
+            "illegal-edge count {current_count} exceeds the committed ceiling {committed_ceiling}; \
+             the baseline pins the ceiling at {committed_ceiling} (regeneration never raises it), so \
+             `--check` will fail until the edge is removed — see its output before raising the ceiling."
+        ));
     }
 
     write_file(&baseline_path, &baseline);
@@ -171,6 +206,121 @@ fn report_parse_failures(failures: &[PathBuf]) -> bool {
 )]
 fn report_stale(msg: &str) {
     eprintln!("crate-census: {msg}");
+}
+
+/// An informational note about the ratchet (a lowered or over-ceiling count),
+/// on stderr so it stays out of any capture of the tool's file output.
+#[expect(
+    clippy::print_stderr,
+    reason = "census: a moved ratchet ceiling must be observable, not silent"
+)]
+fn announce(msg: &str) {
+    eprintln!("crate-census: {msg}");
+}
+
+/// Parse the committed ceiling from `crate-census-baseline.txt` — the integer on
+/// its `# Illegal edge count: N` line. `None` when the file or that line is
+/// absent, in which case the caller bootstraps to the current count (there is
+/// nothing to ratchet against yet). Only the count line is read, so it survives
+/// changes to the surrounding header prose.
+fn read_committed_ceiling(path: &Path) -> Option<usize> {
+    parse_ceiling(&std::fs::read_to_string(path).ok()?)
+}
+
+/// The pure parse behind [`read_committed_ceiling`] — the integer on the
+/// `# Illegal edge count: N` line, ignoring the surrounding prose.
+fn parse_ceiling(content: &str) -> Option<usize> {
+    content
+        .lines()
+        .find_map(|l| l.strip_prefix("# Illegal edge count:"))
+        .and_then(|n| n.trim().parse().ok())
+}
+
+/// The illegal edges listed in the committed baseline: every non-comment,
+/// non-blank line above the intra-doc section. Used to name exactly the edges a
+/// branch added when its count exceeds the ceiling. The line format matches
+/// [`partition_edges`], so the two sets diff cleanly.
+fn read_committed_illegal_edges(path: &Path) -> BTreeSet<String> {
+    parse_illegal_edges(&std::fs::read_to_string(path).unwrap_or_default())
+}
+
+/// The pure parse behind [`read_committed_illegal_edges`] — every non-comment,
+/// non-blank line above the intra-doc section, in the [`partition_edges`] format
+/// so the two sets diff cleanly.
+fn parse_illegal_edges(content: &str) -> BTreeSet<String> {
+    content
+        .split("# --- intra-doc paths")
+        .next()
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect()
+}
+
+/// The monotonic ratchet: the current illegal count must not exceed the committed
+/// ceiling. Regeneration cannot raise the ceiling, so a failure here means the
+/// branch added an edge (or reverted a carve). Names the new edges and — per the
+/// gate's whole purpose — pre-empts the wrong fix: regenerating will not clear
+/// it, and raising the ceiling is a deliberate architecture decision, not a
+/// routine regenerate. Modelled on the repo's best fail message (the helm
+/// `apiServerCidrs` render failure): what broke, the fix, and the wrong fix named.
+fn check_ceiling(current: usize, ceiling: usize, illegal: &BTreeSet<String>, path: &Path) -> bool {
+    let committed = read_committed_illegal_edges(path);
+    match ceiling_violation(current, ceiling, illegal, &committed) {
+        Some(msg) => {
+            report_stale(&msg);
+            false
+        }
+        None => true,
+    }
+}
+
+/// The pure ratchet decision behind [`check_ceiling`]: `None` when the current
+/// count is within the ceiling, else the failure message. `committed` is the
+/// baseline's on-disk edge list, used to name exactly the edges a branch added.
+/// Kept free of IO and printing so the message can be asserted in tests.
+fn ceiling_violation(
+    current: usize,
+    ceiling: usize,
+    illegal: &BTreeSet<String>,
+    committed: &BTreeSet<String>,
+) -> Option<String> {
+    if current <= ceiling {
+        return None;
+    }
+    let new_edges: Vec<&String> = illegal.iter().filter(|e| !committed.contains(*e)).collect();
+    let mut msg = format!(
+        "illegal cross-band edge count rose to {current}, above the ratcheted ceiling of {ceiling}. \
+         The census ratchet only shrinks — every carve lowers it — so an increase is a carve regression.\n"
+    );
+    // Name the added edges when the committed baseline still holds the old list
+    // (the author added an edge but did not regenerate). Once regenerated, the
+    // committed list already contains them, so — with no git in this tool — the
+    // excess cannot be named from files alone; point at the diff a human can run.
+    if new_edges.is_empty() {
+        let _ = writeln!(
+            msg,
+            "  The committed baseline already lists all {current} edges (it was regenerated), so the \
+             {} over the ceiling cannot be named from files alone. Run \
+             `git diff origin/main -- scripts/crate-census-baseline.txt` to see the added edge(s).",
+            current - ceiling
+        );
+    } else {
+        let _ = writeln!(msg, "  {} new illegal edge(s) not in the committed baseline:", new_edges.len());
+        for e in &new_edges {
+            let _ = writeln!(msg, "    {e}");
+        }
+    }
+    msg.push_str(
+        "  Regenerating will NOT fix this: `cargo run -p crate-census` pins the ceiling at the \
+         committed value and never raises it. Remove the edge (route through a port, or move the \
+         item down a band) so the count returns to the ceiling. If the increase is genuinely \
+         intended, raising the `# Illegal edge count:` line in scripts/crate-census-baseline.txt is \
+         a deliberate architecture decision — put the reasoning in the commit message and expect a \
+         reviewer to weigh it.",
+    );
+    Some(msg)
 }
 
 /// A reference collected in pass 1, before resolution.
@@ -306,17 +456,19 @@ fn write_file(path: &Path, contents: &str) {
 
 // -- report construction ---------------------------------------------------
 
-fn build_baseline(records: &[RefRecord]) -> String {
+/// Partition the resolved records into the sorted, formatted illegal production
+/// Cargo edges and the up-pointing intra-doc paths. `illegal` is the ratcheted
+/// set — its length is the current illegal count the baseline's ceiling bounds.
+/// Doc paths are kept out of it: they are never a Cargo edge, so an illegal
+/// count that moved when a doc comment is edited would measure prose, not
+/// architecture. They are listed in their own baseline section, out of the count.
+fn partition_edges(records: &[RefRecord]) -> (BTreeSet<String>, BTreeSet<String>) {
     let fmt = |r: &RefRecord| {
         format!(
             "{:<22} -> {:<20} [{}] {}:{}  {}",
             r.source_crate, r.target_crate, r.class.tag(), r.file, r.line, r.path_text
         )
     };
-    // The ratchet: sorted illegal production Cargo edges (CODE / ATTR / MACRO),
-    // one per line. Doc paths are NOT here — they are never a Cargo edge, so an
-    // illegal count that moved when a doc comment is edited would measure prose,
-    // not architecture. They are listed in their own section below, out of the count.
     let mut illegal: BTreeSet<String> = BTreeSet::new();
     let mut doc_up: BTreeSet<String> = BTreeSet::new();
     for r in records {
@@ -329,12 +481,25 @@ fn build_baseline(records: &[RefRecord]) -> String {
             illegal.insert(fmt(r));
         }
     }
+    (illegal, doc_up)
+}
+
+/// Render `crate-census-baseline.txt`. The header count is the ratchet CEILING,
+/// not `illegal.len()`: the caller passes `min(committed_ceiling, current_count)`
+/// so a regeneration can only ever lower it. When a branch adds an illegal edge
+/// the ceiling stays put and the header sits below the edge-list length — a
+/// state `--check`'s [`check_ceiling`] rejects until the edge goes or the ceiling
+/// is raised by hand.
+fn build_baseline(illegal: &BTreeSet<String>, doc_up: &BTreeSet<String>, ceiling: usize) -> String {
     let mut s = String::new();
     s.push_str("# Illegal production Cargo edges: a CODE/ATTR/MACRO reference whose source band\n");
-    s.push_str("# is <= its target band. This is the ratcheted count — it only shrinks. Doc paths\n");
-    s.push_str("# are excluded (see the section below). Regenerate with `cargo run -p crate-census`.\n");
-    let _ = writeln!(s, "# Illegal edge count: {}", illegal.len());
-    for l in &illegal {
+    s.push_str("# is <= its target band. The count below is a ratchet CEILING enforced by `--check`:\n");
+    s.push_str("# regeneration lowers it to the current count but never raises it, so a branch that\n");
+    s.push_str("# adds an edge fails the check until the edge is removed — or the ceiling is raised by\n");
+    s.push_str("# hand as a deliberate, reviewed decision. Doc paths are excluded (see the section\n");
+    s.push_str("# below). Regenerate with `cargo run -p crate-census`.\n");
+    let _ = writeln!(s, "# Illegal edge count: {ceiling}");
+    for l in illegal {
         s.push_str(l);
         s.push('\n');
     }
@@ -343,7 +508,7 @@ fn build_baseline(records: &[RefRecord]) -> String {
     // as Step 8f showed), but not Cargo edges and never part of the count above.
     let _ = writeln!(s, "\n# --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---");
     let _ = writeln!(s, "# Doc-path count (not in the illegal count above): {}", doc_up.len());
-    for l in &doc_up {
+    for l in doc_up {
         s.push_str(l);
         s.push('\n');
     }
@@ -927,4 +1092,126 @@ fn pin_for(src: &str, dst: &str, path: &str) -> &'static str {
         return "Step 5 family — composition root (Ports)";
     }
     "UNPINNED"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edges(lines: &[&str]) -> BTreeSet<String> {
+        lines.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn parse_ceiling_reads_the_count_line_through_surrounding_prose() {
+        let content = "\
+# Illegal production Cargo edges: some prose.
+# more prose about the ratchet.
+# Illegal edge count: 179
+a -> b [CODE] x.rs:1  crate::b::T
+";
+        assert_eq!(parse_ceiling(content), Some(179));
+    }
+
+    #[test]
+    fn parse_ceiling_is_none_when_the_line_is_absent() {
+        assert_eq!(parse_ceiling("# no count here\nsome edge\n"), None);
+        assert_eq!(parse_ceiling(""), None);
+    }
+
+    #[test]
+    fn parse_illegal_edges_takes_only_edge_lines_above_the_intra_doc_section() {
+        let content = "\
+# header comment
+# Illegal edge count: 2
+a -> b [CODE] x.rs:1  crate::b::T
+c -> d [ATTR] y.rs:2  crate::d::U
+
+# --- intra-doc paths pointing up (NOT Cargo edges) ---
+# Doc-path count (not in the illegal count above): 1
+e -> f [DOC] z.rs:3  crate::f::V
+";
+        let got = parse_illegal_edges(content);
+        assert_eq!(
+            got,
+            edges(&[
+                "a -> b [CODE] x.rs:1  crate::b::T",
+                "c -> d [ATTR] y.rs:2  crate::d::U",
+            ]),
+            "comments, blanks, and the intra-doc section are all excluded"
+        );
+    }
+
+    #[test]
+    fn within_the_ceiling_is_not_a_violation() {
+        // Regenerating a carve that removed edges: current below the committed
+        // ceiling is fine — the ratchet only asserts an upper bound.
+        assert_eq!(ceiling_violation(147, 179, &edges(&[]), &edges(&[])), None);
+        assert_eq!(ceiling_violation(179, 179, &edges(&[]), &edges(&[])), None);
+    }
+
+    #[test]
+    fn an_added_edge_names_itself_when_the_baseline_is_not_yet_regenerated() {
+        // The author added an edge but did not regenerate, so the committed list
+        // still holds the old set — the new edge can be named exactly.
+        let committed = edges(&["a -> b [CODE] x.rs:1  crate::b::T"]);
+        let current = edges(&[
+            "a -> b [CODE] x.rs:1  crate::b::T",
+            "c -> server [CODE] new.rs:9  crate::credential_sync::CredentialSync",
+        ]);
+        let Some(msg) = ceiling_violation(2, 1, &current, &committed) else {
+            panic!("count 2 over ceiling 1 must be a violation");
+        };
+        assert!(msg.contains("rose to 2, above the ratcheted ceiling of 1"));
+        assert!(
+            msg.contains("1 new illegal edge(s) not in the committed baseline")
+                && msg.contains("crate::credential_sync::CredentialSync"),
+            "the added edge is named: {msg}"
+        );
+        assert!(
+            msg.contains("Regenerating will NOT fix this"),
+            "the message pre-empts the reflexive regenerate-and-commit: {msg}"
+        );
+    }
+
+    #[test]
+    fn a_regenerated_baseline_over_ceiling_points_at_the_diff() {
+        // The reflexive "just regenerate and commit": now the committed list
+        // already contains every current edge, so the excess cannot be named
+        // from files alone — the message must hand off to `git diff`, and still
+        // refuse to accept the raised count.
+        let all = edges(&[
+            "a -> b [CODE] x.rs:1  crate::b::T",
+            "c -> server [CODE] new.rs:9  crate::credential_sync::CredentialSync",
+        ]);
+        let Some(msg) = ceiling_violation(2, 1, &all, &all) else {
+            panic!("a regenerated-but-raised count must still be a violation");
+        };
+        assert!(
+            msg.contains("cannot be named from files alone")
+                && msg.contains("git diff origin/main"),
+            "with no new edge to name it points at the diff: {msg}"
+        );
+        assert!(msg.contains("Regenerating will NOT fix this"));
+    }
+
+    #[test]
+    fn build_baseline_header_is_the_passed_ceiling_not_the_edge_count() {
+        // The heart of the asymmetry: the header carries the ceiling the caller
+        // computed (`min(committed, current)`), even when more edges are listed
+        // than the ceiling. A regeneration that added an edge writes a header
+        // that sits BELOW its own edge list — exactly the state `--check` fails.
+        let illegal = edges(&[
+            "a -> b [CODE] x.rs:1  crate::b::T",
+            "c -> d [CODE] y.rs:2  crate::d::U",
+            "e -> f [CODE] z.rs:3  crate::f::V",
+        ]);
+        let out = build_baseline(&illegal, &edges(&[]), 2);
+        assert!(
+            out.contains("# Illegal edge count: 2"),
+            "header is the ceiling (2), not illegal.len() (3): {out}"
+        );
+        // All three edges are still listed — the header is a ceiling, not a tally.
+        assert!(out.contains("crate::f::V"));
+    }
 }

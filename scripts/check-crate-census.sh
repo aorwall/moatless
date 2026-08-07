@@ -6,10 +6,16 @@
 # crate::/super::/self::/use/re-export chains — to the crate that defines the
 # symbol, and lists the illegal edges (a lower band naming a higher one) that
 # must go to zero before each Step 10 carve. `scripts/crate-census-baseline.txt`
-# is the ratchet: it only shrinks. `--check` regenerates the census in memory
-# and compares it against the files ON DISK (the working tree), failing if
-# either is out of date — a new illegal edge appeared, or a slice cleared one
-# and did not delete its baseline line. It compares against the working tree,
+# is the ratchet: it only shrinks. Its `# Illegal edge count:` line is an
+# enforced CEILING, not a running tally — regeneration lowers it to the current
+# count via min() but never raises it, so a branch that adds an illegal edge
+# cannot make this gate green by regenerating; the count stays pinned below the
+# edge list and `--check` fails until the edge is removed (or the ceiling is
+# raised by hand, a deliberate reviewed decision). `--check` regenerates the
+# census in memory and compares it against the files ON DISK (the working tree),
+# failing if either is out of date — a new illegal edge appeared, or a slice
+# cleared one and did not delete its baseline line — or if the current count
+# exceeds the committed ceiling. It compares against the working tree,
 # NOT git (which it never invokes), so a regenerated-but-uncommitted baseline or
 # report makes this pass locally while CI — which checks out the committed tree
 # — fails; regenerate and commit BOTH files and run this against a clean tree.

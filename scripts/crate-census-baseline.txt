@@ -1,6 +1,9 @@
 # Illegal production Cargo edges: a CODE/ATTR/MACRO reference whose source band
-# is <= its target band. This is the ratcheted count — it only shrinks. Doc paths
-# are excluded (see the section below). Regenerate with `cargo run -p crate-census`.
+# is <= its target band. The count below is a ratchet CEILING enforced by `--check`:
+# regeneration lowers it to the current count but never raises it, so a branch that
+# adds an edge fails the check until the edge is removed — or the ceiling is raised by
+# hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
+# below). Regenerate with `cargo run -p crate-census`.
 # Illegal edge count: 179
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
