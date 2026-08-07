@@ -25,10 +25,11 @@ use crate::auth::provider_tokens::ProviderTokenAuthDao;
 /// This function does NOT serialize concurrent callers — two parallel
 /// invocations for the same user would both attempt to refresh, and the loser
 /// would get `bad_refresh_token` because GitHub invalidates the prior refresh
-/// token on every successful exchange. Callers that may race (e.g. parallel
-/// task provisions for the same user) should go through
-/// `crate::credentials::CredentialService::ensure_fresh`, which wraps this
-/// with a per-`(user, key)` mutex.
+/// token on every successful exchange. The generic per-`(user, key)` mutex
+/// wrapper that used to sit in front of this (`CredentialService::ensure_fresh`)
+/// was removed in 9c along with the rest of the unused generic refresh path —
+/// it had no callers — so the GitHub token path is currently unserialized. The
+/// Codex path keeps its own per-scope serialization in `credentials::codex`.
 pub async fn ensure_fresh_token(
     token_dao: &dyn ProviderTokenDao,
     token_auth: &dyn ProviderTokenAuthDao,
@@ -38,9 +39,9 @@ pub async fn ensure_fresh_token(
     ensure_fresh_token_with_dao(token_dao, token_auth, github_app_service, user_id).await
 }
 
-/// Internal entry point used by `CredentialService::ensure_fresh` once it has
-/// acquired the per-`(user, key)` mutex. Callers outside the service should
-/// prefer the public `ensure_fresh_token` to keep the call-site uniform.
+/// Internal implementation that [`ensure_fresh_token`] forwards to, kept
+/// separate so the DAO trio can be passed in directly. Callers should prefer
+/// the public `ensure_fresh_token` to keep the call-site uniform.
 pub async fn ensure_fresh_token_with_dao(
     token_dao: &dyn ProviderTokenDao,
     token_auth: &dyn ProviderTokenAuthDao,

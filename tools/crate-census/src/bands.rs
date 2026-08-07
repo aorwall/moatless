@@ -107,8 +107,17 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
         // `file_storage` and `task_event` are core-clean storage whose `handlers.rs`
         // take `AuthUser` (and `task_event`'s a `TaskDao`); their consumers are all
         // task/message-adjacent, so they land here (Ruling C).
+        // `credential_sync` (9c) is the server-of-a-lower-band orchestrator for the
+        // codex refresh/broadcast: its deps floor at `TaskDao` (tasks, 5) and its
+        // caller ceiling is `task/service` (also tasks, 5), so the intersection is a
+        // single band — the tasks crate is the only home that needs no inversion
+        // trait. Without this arm it would fall through to `server` (see `edge_crate`)
+        // and its sub-server callers (`sandbox/secrets`, `task/service`) would name it
+        // upward — the trap this placement avoids.
         "task" | "message" | "task_activities" | "task_turn" | "agent" | "event_ingress"
-        | "feedback" | "agent_event" | "file_storage" | "task_event" => "tasks",
+        | "feedback" | "agent_event" | "file_storage" | "task_event" | "credential_sync" => {
+            "tasks"
+        }
         // -- sandbox split --
         "sandbox" => match m.get(1).map(String::as_str) {
             Some("k8s") => "sandbox-k8s",

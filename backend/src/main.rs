@@ -1035,9 +1035,9 @@ fn spawn_codex_refresher(
     )
     .with_lease_duration(lease_duration_secs);
     let leader_guard: Arc<dyn LeaderGuard> = Arc::new(K8sLeaderGuard(election));
-    let handle = moatless_vibe_backend::credentials::codex::refresher::spawn_codex_refresher(
+    let handle = moatless_vibe_backend::credential_sync::refresher::spawn_codex_refresher(
         app_state.db.clone(),
-        Arc::clone(&app_state.credentials_svc),
+        Arc::clone(&app_state.credential_sync),
         leader_guard,
         interval,
         cancel,

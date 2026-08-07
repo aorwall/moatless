@@ -13,7 +13,7 @@ use super::dao::{TaskDao, TaskFilter, TaskPatch};
 use super::models::Task;
 use super::relations::{TaskRelationDao, TaskRelationType};
 use moatless_core::config::Config;
-use crate::credentials::CredentialService;
+use crate::credential_sync::CredentialSync;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use crate::extractors::AuthUser;
@@ -57,7 +57,7 @@ use super::service;
 pub async fn create_task(
     State(workspaces): State<Arc<dyn WorkspaceDao>>,
     State(repositories): State<Arc<dyn RepositoryDao>>,
-    State(credentials_svc): State<Arc<CredentialService>>,
+    State(credential_sync): State<Arc<CredentialSync>>,
     State(config): State<Arc<Config>>,
     State(task_creation): State<Arc<TaskCreationService>>,
     State(message_send): State<Arc<MessageSendService>>,
@@ -78,7 +78,7 @@ pub async fn create_task(
     let new_task = service::normalize(
         workspaces.as_ref(),
         repositories.as_ref(),
-        &credentials_svc,
+        &credential_sync,
         &config,
         &auth.scope_context(),
         &user_id,

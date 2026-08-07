@@ -110,9 +110,14 @@ fn main() {
     let baseline_path = out_dir.join("crate-census-baseline.txt");
     let report_path = out_dir.join("crate-census-report.txt");
 
-    // `--check` regenerates in memory and compares against the committed files
-    // without writing them, so the CI ratchet needs no git repository (see
-    // scripts/check-crate-census.sh). Default mode writes the files.
+    // `--check` regenerates in memory and compares against the files ON DISK
+    // (the working tree) without writing them and without invoking git, so the
+    // CI ratchet needs no git repository (see scripts/check-crate-census.sh).
+    // Because the comparison is against the working tree, a regenerated-but-
+    // uncommitted baseline or report makes `--check` pass locally while CI,
+    // which runs against the freshly checked-out committed tree, fails — so
+    // regenerate and commit BOTH files and run the check against a clean tree.
+    // Default mode writes the files.
     if std::env::args().any(|a| a == "--check") {
         let mut ok = report_parse_failures(&parse_failures);
         ok &= check_current(&baseline_path, &baseline);

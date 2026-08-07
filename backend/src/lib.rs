@@ -18,6 +18,7 @@ pub mod agent_event;
 pub mod auth;
 pub mod bindings;
 pub mod compose;
+pub mod credential_sync;
 pub mod credentials;
 pub mod event_handler;
 pub mod event_ingress;

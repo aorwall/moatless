@@ -1,11 +1,13 @@
-//! Codex-specific refresh path for [`CredentialService`].
+//! Codex-specific refresh path for [`CredentialService`] — the pure half.
 //!
-//! This file adds a second `impl CredentialService` block holding every
-//! codex-aware method. The struct itself is still declared in
+//! This file adds a second `impl CredentialService` block holding the raw
+//! Codex refresh (`refresh_codex_locked`) and raw read (`read_raw_codex`) plus
+//! the SQL that backs them. The struct itself is declared in
 //! `credentials/mod.rs` — Rust allows multiple `impl` blocks for the same type
-//! across modules within a crate, so callers see the same public API surface
-//! (`state.credentials_svc.ensure_fresh_codex(...)`) regardless of which module
-//! the method lives in.
+//! across modules within a crate. The in-flight guard, the scope-precedence
+//! walk and the sandbox broadcast that used to live here moved up to
+//! the tasks-band `CredentialSync` (9c); this module names neither
+//! `TaskDao` nor `SandboxConnector`.
 
 use chrono::Utc;
 use sqlx::AssertSqlSafe;
@@ -17,141 +19,50 @@ use crate::credentials::{CredentialError, CredentialService};
 use moatless_core::db::DbPool;
 
 impl CredentialService {
-    /// Just-in-time Codex auth.json refresh, addressed by `scope`.
+    /// The pure Codex `auth.json` refresh, serialized on the per-scope mutex.
     ///
-    /// Behaviour (uniform across user / team / global scopes):
-    /// 1. If another *open* codex task within this scope (other than
-    ///    `except_task_id`) is in flight, return the stored blob unchanged
-    ///    — the sandbox watcher will rotate it. Avoids racing the CLI for
-    ///    the single-use refresh_token.
-    /// 2. Acquire per-scope mutex + Postgres advisory transaction lock, then
-    ///    `SELECT … FOR UPDATE` the row addressed by the scope's WHERE
+    /// This is the "make this token fresh" half — no in-flight guard and no
+    /// broadcast. Both moved up to the tasks-band `CredentialSync` (9c), which
+    /// calls this and then, on [`CodexRefreshOutcome::Rotated`], fans the new
+    /// blob out.
+    ///
+    /// Behaviour:
+    /// 1. Acquire the per-scope mutex + Postgres advisory transaction lock,
+    ///    then `SELECT … FOR UPDATE` the row addressed by the scope's WHERE
     ///    clause.
-    /// 3. Check `should_refresh` (access-token exp <= now + 5min, or
-    ///    last_refresh < now - 8d). If not, return the stored blob.
-    /// 4. POST `refresh_token` to `auth.openai.com`. On success, merge the
-    ///    rotated fields into the blob, CAS-update the row, broadcast the
-    ///    new blob to every running sandbox whose effective user resolves
-    ///    through this scope.
-    /// 5. On permanent failure, write `metadata.refresh_failure` and return
-    ///    `CredentialError::NotFound`. On transient failure, return the
-    ///    stored (stale) blob.
-    pub async fn ensure_fresh_codex(
+    /// 2. Check `should_refresh` (access-token exp <= now + 5min, or
+    ///    last_refresh < now - 8d). If not, return the stored blob unchanged.
+    /// 3. POST `refresh_token` to `auth.openai.com`. On success merge the
+    ///    rotated fields into the blob and CAS-update the row.
+    /// 4. On permanent failure, write `metadata.refresh_failure` and return
+    ///    `CredentialError::NotFound`. On transient failure, return the stored
+    ///    (stale) blob. Without DB / HTTP wired, fall back to a raw read.
+    pub(crate) async fn refresh_codex_locked(
         &self,
-        scope: CodexScope,
-        except_task_id: Option<&str>,
-    ) -> Result<String, CredentialError> {
+        scope: &CodexScope,
+    ) -> Result<CodexRefreshOutcome, CredentialError> {
         let lock = self
             .acquire_lock(&scope.lock_key(), "CODEX_AUTH_JSON")
             .await;
         let _guard = lock.lock().await;
 
-        // Step 1: skip the backend refresh when the sandbox watcher is the
-        // active refresher for any task within this scope.
-        if self.any_other_open_codex_task(&scope, except_task_id).await {
-            debug!(
-                scope = %scope.display(),
-                "ensure_fresh_codex: skipping backend refresh (open codex task in flight)"
-            );
-            return self.read_raw_codex(&scope).await;
-        }
-
-        // Step 2: require DB + HTTP. Without them we fall back to a raw read.
+        // Require DB + HTTP. Without them we fall back to a raw read.
         let (Some(db), Some(http)) = (self.db.as_ref(), self.http.as_ref()) else {
-            return self.read_raw_codex(&scope).await;
+            let blob = self.read_raw_codex(scope).await?;
+            return Ok(CodexRefreshOutcome::Unchanged { blob });
         };
 
-        let outcome = codex_refresh_inner(db, http, &scope).await?;
-        if let CodexRefreshOutcome::Rotated { ref new_blob } = outcome {
-            // Broadcast outside the SQL transaction — fan-out spawns gRPC
-            // tasks per running sandbox.
-            self.broadcast_to_scope(&scope, None, "CODEX_AUTH_JSON", new_blob)
-                .await;
-        }
-        Ok(outcome.into_blob())
-    }
-
-    /// Returns true when any *other* codex-typed task within this scope is
-    /// currently `Open`. Best-effort: any DB error is logged and treated as
-    /// "no other tasks" so a transient failure can't block every refresh.
-    async fn any_other_open_codex_task(
-        &self,
-        scope: &CodexScope,
-        except_task_id: Option<&str>,
-    ) -> bool {
-        let Some(ref ctx) = self.broadcast_ctx else {
-            return false;
-        };
-        let scope_kind = scope.scope_kind().to_string();
-        let scope_id = match scope {
-            CodexScope::User(id) => id.clone(),
-            CodexScope::Global => String::new(),
-        };
-        let except = except_task_id.unwrap_or("").to_string();
-        match ctx
-            .tasks
-            .list_open_codex_tasks_for_scope(scope_kind, scope_id, except)
-            .await
-        {
-            Ok(tasks) => !tasks.is_empty(),
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    scope = %scope.display(),
-                    "ensure_fresh_codex: failed to list codex tasks, skipping in-flight guard"
-                );
-                false
-            }
-        }
-    }
-
-    /// Resolve `CODEX_AUTH_JSON` with `user > global` precedence in one call.
-    ///
-    /// Single entry point for callers that don't want to think about scopes:
-    /// the resolver in `sandbox::secrets`, the gRPC `GetCredentials` handler,
-    /// and any future caller all see one method. The walk lives here so the
-    /// "most-specific wins" rule is enforced centrally — callers can't
-    /// accidentally invert the precedence by reordering their calls.
-    ///
-    /// Each scope's blob is refreshed in place via
-    /// [`Self::ensure_fresh_codex`]. The first scope that yields a usable
-    /// blob wins; scopes with no row or a permanent refresh failure
-    /// (`CredentialError::NotFound`) silently fall through. Transient
-    /// errors are logged and the walk continues so a single scope's
-    /// upstream outage can't block the others.
-    pub async fn ensure_fresh_codex_for(
-        &self,
-        user_id: &str,
-        except_task_id: Option<&str>,
-    ) -> Result<String, CredentialError> {
-        let scopes = [CodexScope::user(user_id), CodexScope::Global];
-
-        let mut last_err: Option<CredentialError> = None;
-        for scope in &scopes {
-            match self.ensure_fresh_codex(scope.clone(), except_task_id).await {
-                Ok(blob) => return Ok(blob),
-                Err(CredentialError::NotFound(_)) => continue,
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        scope = %scope.display(),
-                        "ensure_fresh_codex_for: transient failure, trying next scope"
-                    );
-                    last_err = Some(e);
-                }
-            }
-        }
-        Err(last_err.unwrap_or_else(|| {
-            CredentialError::NotFound(format!(
-                "No codex provider_token found at any scope (user={user_id})"
-            ))
-        }))
+        codex_refresh_inner(db, http, scope).await
     }
 
     /// Read the codex blob for `scope` straight from `provider_tokens` with
-    /// no refresh. Used as the fallback path when the DB / HTTP plumbing for
-    /// refresh is absent (tests) or another replica is the active refresher.
-    async fn read_raw_codex(&self, scope: &CodexScope) -> Result<String, CredentialError> {
+    /// no refresh. Used by `CredentialSync` on the in-flight-guard path, and
+    /// here as the fallback when the DB / HTTP plumbing for refresh is absent
+    /// (tests) or another replica is the active refresher.
+    pub(crate) async fn read_raw_codex(
+        &self,
+        scope: &CodexScope,
+    ) -> Result<String, CredentialError> {
         let row = self
             .provider_tokens
             .find_codex_blob(scope)
@@ -161,24 +72,14 @@ impl CredentialService {
             })?;
         Ok(row.access_token)
     }
-
-    /// Public-facing entry point for HTTP handlers that just saved a
-    /// team / global codex blob via the DAO and want to fan the rotation
-    /// out to live sandboxes. For user-scope writes, call
-    /// [`CredentialService::store`] instead so the standard dedup +
-    /// persistence path runs.
-    pub async fn broadcast_codex_rotation(&self, scope: &CodexScope, value: &str) {
-        self.broadcast_to_scope(scope, None, "CODEX_AUTH_JSON", value)
-            .await;
-    }
 }
 
 // =============================================================================
 // Codex refresh — raw SQL implementation
 // =============================================================================
 
-/// Outcome of `codex_refresh_inner`. The caller broadcasts only on `Rotated`.
-pub(super) enum CodexRefreshOutcome {
+/// Outcome of the pure refresh. `CredentialSync` broadcasts only on `Rotated`.
+pub(crate) enum CodexRefreshOutcome {
     /// The stored blob was already fresh — no HTTP call was made.
     Unchanged { blob: String },
     /// We refreshed the blob and the new value is now persisted.
@@ -186,7 +87,7 @@ pub(super) enum CodexRefreshOutcome {
 }
 
 impl CodexRefreshOutcome {
-    fn into_blob(self) -> String {
+    pub(crate) fn into_blob(self) -> String {
         match self {
             Self::Unchanged { blob } | Self::Rotated { new_blob: blob } => blob,
         }
@@ -288,7 +189,7 @@ fn merge_refreshed_blob(
 
 /// Core Codex refresh — single transaction, advisory lock + CAS.
 ///
-/// All raw SQL lives here so [`CredentialService::ensure_fresh_codex`] keeps
+/// All raw SQL lives here so [`CredentialService::refresh_codex_locked`] keeps
 /// its high-level shape. Lives outside the `impl` so it can borrow `db` /
 /// `http` independently of `&self` (avoids long-lived borrows on the service
 /// across the network call).

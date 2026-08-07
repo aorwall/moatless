@@ -19,7 +19,8 @@ use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::compose::Ports;
 use moatless_core::config::{AuthConfig, CodexOAuthConfig, Config, S3Config, SecretsConfig};
-use crate::credentials::{BroadcastContext, CredentialService};
+use crate::credential_sync::CredentialSync;
+use crate::credentials::CredentialService;
 use moatless_core::db::DbPool;
 use crate::event_ingress::outbox::IngressOutbox;
 use moatless_core::events::EventPublisher;
@@ -114,9 +115,10 @@ pub struct AppState {
     /// any admin-registered bot Apps, read from storage). Bot users' provider
     /// tokens reference an App by `key` (stored in `provider_user_id`).
     pub github_apps: Arc<GitHubAppRegistry>,
-    /// Generic credential service — serializes refreshes per `(user, key)` and
-    /// broadcasts rotations to running sandboxes.
-    pub credentials_svc: Arc<CredentialService>,
+    /// Codex credential orchestrator (tasks band) — wraps the pure credential
+    /// service with the in-flight guard and the rotation broadcast to running
+    /// sandboxes (9c).
+    pub credential_sync: Arc<CredentialSync>,
     /// Short-lived in-memory cache of `(task_id, external_event_id)` we
     /// just sent outbound — closes the race where the inbound webhook lands
     /// before `set_external_event_id` commits. See [`RecentlySent`].
@@ -287,18 +289,17 @@ impl AppState {
                 }),
         );
         let credentials_svc = Arc::new(
-            CredentialService::new(
-                provider_tokens.clone(),
-                Some(provider_token_auth.clone()),
-                github_app_service.clone(),
-                Some(BroadcastContext {
-                    connector,
-                    tasks: tasks.clone(),
-                }),
-            )
-            .with_codex_refresh(pool.clone(), codex_http)
-            .with_secrets(secrets.clone()),
+            CredentialService::new(provider_tokens.clone())
+                .with_codex_refresh(pool.clone(), codex_http)
+                .with_secrets(secrets.clone()),
         );
+        // Tasks-band orchestrator (9c): the in-flight guard + sandbox fan-out
+        // that reach up out of the workspaces-band credential service.
+        let credential_sync = Arc::new(CredentialSync::new(
+            credentials_svc.clone(),
+            tasks.clone(),
+            connector,
+        ));
 
         let repo_token_resolver = Arc::new(RepositoryTokenResolver::new(
             provider_tokens.clone(),
@@ -399,7 +400,7 @@ impl AppState {
                 provider_token_auth: provider_token_auth.clone(),
                 github_apps: github_apps.clone(),
                 users: users.clone(),
-                credentials_svc: credentials_svc.clone(),
+                credential_sync: credential_sync.clone(),
             },
             Arc::new(RealGithubValidator),
         ));
@@ -472,7 +473,7 @@ impl AppState {
             provider_handles,
             github_app_service,
             github_apps,
-            credentials_svc,
+            credential_sync,
             recently_sent,
             linear_active_turns: Arc::new(ActiveLinearTurns::new()),
             tool_call_names: Arc::new(
@@ -635,9 +636,9 @@ impl axum::extract::FromRef<AppState> for Arc<GitHubAppRegistry> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<CredentialService> {
+impl axum::extract::FromRef<AppState> for Arc<CredentialSync> {
     fn from_ref(state: &AppState) -> Self {
-        state.credentials_svc.clone()
+        state.credential_sync.clone()
     }
 }
 

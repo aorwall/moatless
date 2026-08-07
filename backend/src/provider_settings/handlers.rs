@@ -30,7 +30,7 @@ use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
 use crate::auth::codex_scope::CodexScope;
 use crate::provider_settings::codex_save::save_codex_auth_for_scope;
 use crate::auth::github_scope::GitHubScope;
-use crate::credentials::CredentialService;
+use crate::credential_sync::CredentialSync;
 use crate::credentials::WriteSource;
 use moatless_core::db::DbPool;
 use crate::extractors::AuthUser;
@@ -1574,13 +1574,13 @@ pub async fn get_codex_config(
 )]
 pub async fn save_codex_auth(
     State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
-    State(credentials_svc): State<Arc<CredentialService>>,
+    State(credential_sync): State<Arc<CredentialSync>>,
     auth: AuthUser,
     Json(req): Json<SaveCodexAuthRequest>,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
     let resp = save_codex_auth_for_scope(
         &provider_tokens,
-        &credentials_svc,
+        &credential_sync,
         CodexScope::user(auth.user_id.to_string()),
         req,
     )
@@ -1607,7 +1607,7 @@ pub async fn save_codex_auth(
 )]
 pub async fn admin_save_global_codex_auth(
     State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
-    State(credentials_svc): State<Arc<CredentialService>>,
+    State(credential_sync): State<Arc<CredentialSync>>,
     auth: AuthUser,
     Json(req): Json<SaveCodexAuthRequest>,
 ) -> Result<Json<CodexConfigResponse>, ProviderSettingsError> {
@@ -1617,7 +1617,7 @@ pub async fn admin_save_global_codex_auth(
         ));
     }
     let resp =
-        save_codex_auth_for_scope(&provider_tokens, &credentials_svc, CodexScope::Global, req)
+        save_codex_auth_for_scope(&provider_tokens, &credential_sync, CodexScope::Global, req)
             .await?;
     Ok(Json(resp))
 }
@@ -1739,7 +1739,7 @@ pub async fn start_codex_device_login(
 pub async fn poll_codex_device_login(
     State(codex_oauth_config): State<Arc<CodexOAuthConfig>>,
     State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
-    State(credentials_svc): State<Arc<CredentialService>>,
+    State(credential_sync): State<Arc<CredentialSync>>,
     auth: AuthUser,
     Json(req): Json<CodexDeviceCodePollRequest>,
 ) -> Result<Json<CodexDeviceCodePollResponse>, ProviderSettingsError> {
@@ -1784,7 +1784,7 @@ pub async fn poll_codex_device_login(
             // Broadcast the freshly-minted Codex auth.json to any running
             // sandboxes the user owns so they pick up the new tokens without
             // a restart.
-            if let Err(e) = credentials_svc
+            if let Err(e) = credential_sync
                 .store(
                     &auth.user_id.to_string(),
                     "CODEX_AUTH_JSON",

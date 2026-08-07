@@ -7,10 +7,14 @@
 # symbol, and lists the illegal edges (a lower band naming a higher one) that
 # must go to zero before each Step 10 carve. `scripts/crate-census-baseline.txt`
 # is the ratchet: it only shrinks. `--check` regenerates the census in memory
-# and compares it against the committed files, failing if either is out of date
-# — a new illegal edge appeared, or a slice cleared one and did not delete its
-# baseline line. It writes nothing and runs no git, so the CI job needs neither
-# a writable tree nor a checkout marked safe for `git diff`.
+# and compares it against the files ON DISK (the working tree), failing if
+# either is out of date — a new illegal edge appeared, or a slice cleared one
+# and did not delete its baseline line. It compares against the working tree,
+# NOT git (which it never invokes), so a regenerated-but-uncommitted baseline or
+# report makes this pass locally while CI — which checks out the committed tree
+# — fails; regenerate and commit BOTH files and run this against a clean tree.
+# It writes nothing and runs no git, so the CI job needs neither a writable tree
+# nor a checkout marked safe for `git diff`.
 #
 # Unlike the other composition-root checks this one builds a small Rust tool
 # (syn + walkdir only — not the backend closure), because a regex is exactly the

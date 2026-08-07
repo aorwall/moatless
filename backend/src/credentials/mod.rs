@@ -1,18 +1,19 @@
-//! Generic credential service: serialized refresh + write-through broadcast.
+//! Generic credential service: the pure persist + refresh half.
 //!
 //! Single point that:
-//! - Reads-or-refreshes a credential under a per-`(user_id, key)` mutex so
-//!   parallel callers never trigger competing OAuth refreshes.
+//! - Refreshes a credential under a per-`(user_id, key)` mutex so parallel
+//!   callers never trigger competing OAuth refreshes.
 //! - Persists rotated values to `provider_tokens`.
-//! - Broadcasts rotations to every running sandbox the user owns so file-resident
-//!   credentials (Codex `auth.json`, Claude `.credentials`) stay live.
 //!
-//! Callers:
-//! - `sandbox::secrets::resolve_task_credentials` — gets fresh GitHub App tokens
-//!   for sandbox provisioning.
+//! It does **not** reach up to running sandboxes or to open Tasks: the
+//! in-flight guard and the write-through broadcast live one band up, in
+//! the tasks-band `CredentialSync`, which wraps this service (9c).
+//! So this module names neither `TaskDao` nor `SandboxConnector`.
+//!
+//! Callers of the wrapper (`CredentialSync`), for orientation:
+//! - `sandbox::secrets` — resolves a fresh Codex blob for sandbox provisioning.
 //! - `sandbox::grpc_server::update_credential` — sandbox pushed a rotated blob.
 //! - `provider_settings::handlers::*` — user saved a token via the UI.
-//! - `auth::token_refresh::ensure_fresh_token` — internal use, now wrapped here.
 
 pub mod codex;
 pub mod error;
@@ -21,22 +22,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
-use crate::auth::codex_scope::CodexScope;
-use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::provider_tokens::{
-    ProviderTokenAuthDao, AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER,
-};
-use crate::auth::token_refresh::ensure_fresh_token_with_dao;
+use crate::auth::provider_tokens::{AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER};
 use moatless_core::db::DbPool;
-use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
-use crate::task::dao::TaskDao;
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
 pub use self::error::CredentialError;
@@ -54,8 +48,25 @@ pub enum WriteSource {
     UserUiSave,
 }
 
-/// Per-key broadcast policy.
-fn should_broadcast(key: &str) -> bool {
+/// Which persist path [`CredentialService::store`] took. Returned so the
+/// tasks-band `CredentialSync` can make the broadcast decision explicit at the
+/// call site instead of hiding it inside the persist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreOutcome {
+    /// GitHub token routed to the encrypted secret store. Never broadcast —
+    /// `should_broadcast("GITHUB_TOKEN")` is false.
+    SecretRef,
+    /// Dedup hit: the stored value already equalled `value`, nothing was
+    /// persisted. Must not broadcast, or a no-op write echoes back.
+    Unchanged,
+    /// A new value was upserted. Broadcast iff `should_broadcast(key)`.
+    Persisted,
+}
+
+/// Per-key broadcast policy. `pub(crate)` so the tasks-band `CredentialSync`
+/// can gate its fan-out on it (the broadcast decision moved up with the
+/// orchestration in 9c; the policy that keys are file-resident stays here).
+pub(crate) fn should_broadcast(key: &str) -> bool {
     matches!(
         key,
         // File-resident credentials — sandboxes can't pull these on demand,
@@ -80,20 +91,9 @@ pub(crate) fn credential_key_to_provider(key: &str) -> Option<&'static str> {
     }
 }
 
-/// Bundle of dependencies needed to call out to running sandboxes.
-///
-/// Kept as a separate struct so unit tests can construct a `CredentialService`
-/// without spinning up real K8s/Docker plumbing.
-pub struct BroadcastContext {
-    pub connector: Arc<dyn SandboxConnector>,
-    pub tasks: Arc<dyn TaskDao>,
-}
-
 /// Generic credential gating point.
 pub struct CredentialService {
     pub(in crate::credentials) provider_tokens: Arc<dyn ProviderTokenDao>,
-    provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
-    github_app_service: Option<Arc<GitHubAppService>>,
     /// Encrypted secret store. Required to read or rotate a `secret_ref`
     /// GitHub token; `None` in tests / minimal wiring.
     secrets: Option<Arc<SecretService>>,
@@ -101,7 +101,6 @@ pub struct CredentialService {
     /// purely for serialization. Auto-evicted after the TTL so inactive
     /// users' locks don't accumulate forever.
     locks: moka::future::Cache<(String, String), Arc<Mutex<()>>>,
-    pub(in crate::credentials) broadcast_ctx: Option<BroadcastContext>,
     /// PostgreSQL pool for the Codex refresh path (advisory lock + CAS + raw
     /// `metadata` updates that don't fit the trait DAO).
     pub(in crate::credentials) db: Option<DbPool>,
@@ -111,15 +110,10 @@ pub struct CredentialService {
 }
 
 impl CredentialService {
-    /// Build a service. `broadcast_ctx` is optional — when omitted, [`store`]
-    /// still persists but skips broadcasting (used in tests and by the gRPC
-    /// server which constructs its own state without a sandbox provider).
-    pub fn new(
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        provider_token_auth: Option<Arc<dyn ProviderTokenAuthDao>>,
-        github_app_service: Option<Arc<GitHubAppService>>,
-        broadcast_ctx: Option<BroadcastContext>,
-    ) -> Self {
+    /// Build a service. This is the pure credential half — it persists and
+    /// refreshes; the tasks-band `CredentialSync` wraps it to add the
+    /// in-flight guard and the sandbox fan-out (9c).
+    pub fn new(provider_tokens: Arc<dyn ProviderTokenDao>) -> Self {
         let locks = moka::future::Cache::builder()
             .max_capacity(10_000)
             .time_to_idle(Duration::from_mins(5))
@@ -127,11 +121,8 @@ impl CredentialService {
 
         Self {
             provider_tokens,
-            provider_token_auth,
-            github_app_service,
             secrets: None,
             locks,
-            broadcast_ctx,
             db: None,
             http: None,
         }
@@ -147,7 +138,7 @@ impl CredentialService {
     /// Wire in the Postgres pool + HTTP client used by the Codex refresh path.
     ///
     /// Call sites that don't need Codex refresh (e.g. unit tests) can leave
-    /// these unset; `ensure_fresh_codex` then falls back to a raw read.
+    /// these unset; `refresh_codex_locked` then falls back to a raw read.
     #[must_use]
     pub fn with_codex_refresh(mut self, db: DbPool, http: Arc<reqwest::Client>) -> Self {
         self.db = Some(db);
@@ -167,131 +158,33 @@ impl CredentialService {
             .await
     }
 
-    /// Read-or-refresh-then-store, serialized per `(user_id, key)`.
+    /// Persist a credential value. Returns which of the three persist paths
+    /// ran, so the tasks-band `CredentialSync` can decide whether to fan the
+    /// value out to running sandboxes (9c moved the broadcast up; the persist
+    /// stays here).
     ///
-    /// Today only supports GitHub App user-tokens — other credentials are
-    /// returned as-is from `provider_tokens`. The serialization makes it safe
-    /// to add Codex / Claude refresh paths later without revisiting the
-    /// race-condition story.
-    pub async fn ensure_fresh(&self, user_id: &str, key: &str) -> Result<String, CredentialError> {
-        // Codex refresh has its own dedicated entry point that takes a
-        // per-row mutex AND a Postgres advisory lock; it must not run under
-        // the generic `(user, key)` mutex. Default to user scope here for
-        // back-compat with the generic API; callers that want team / global
-        // resolution use the explicit `ensure_fresh_codex(scope, …)` entry
-        // point on the resolver.
-        if key == "CODEX_AUTH_JSON" {
-            return self
-                .ensure_fresh_codex(CodexScope::user(user_id), None)
-                .await;
-        }
-
-        let lock = self.acquire_lock(user_id, key).await;
-        let _guard = lock.lock().await;
-
-        match key {
-            "GITHUB_TOKEN" => {
-                let token_auth = self.provider_token_auth.as_ref();
-                let github_app = self.github_app_service.as_ref();
-                if let (Some(token_auth), Some(github_app)) = (token_auth, github_app) {
-                    let token = ensure_fresh_token_with_dao(
-                        self.provider_tokens.as_ref(),
-                        token_auth.as_ref(),
-                        github_app,
-                        user_id,
-                    )
-                    .await?;
-                    Ok(token)
-                } else {
-                    // GitHub App not configured — fall through to raw read.
-                    self.read_raw(user_id, key).await
-                }
-            }
-            _ => self.read_raw(user_id, key).await,
-        }
-    }
-
-    /// Read the encrypted PAT behind a `secret_ref` GitHub row, if that's what
-    /// this user has. `Ok(None)` means the row isn't a reference row.
-    async fn read_github_secret_ref(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<String>, CredentialError> {
-        let Some(row) = self
-            .provider_tokens
-            .find_provider_token_full(user_id, "github")
-            .await?
-        else {
-            return Ok(None);
-        };
-        if row.auth_method.as_deref() != Some(AUTH_METHOD_SECRET_REF) {
-            return Ok(None);
-        }
-        let secrets = self.secrets.as_ref().ok_or_else(|| {
-            CredentialError::Internal(format!(
-                "User '{user_id}' has a secret_ref GitHub token but no secret service is wired"
-            ))
-        })?;
-        secrets
-            .resolve_user_secret(user_id, GITHUB_TOKEN, Some(SecretKind::ProviderToken))
-            .await?
-            .map(Some)
-            .ok_or_else(|| {
-                CredentialError::NotFound(format!(
-                    "GITHUB_TOKEN secret missing for secret_ref user {user_id}"
-                ))
-            })
-    }
-
-    async fn read_raw(&self, user_id: &str, key: &str) -> Result<String, CredentialError> {
-        let provider = credential_key_to_provider(key)
-            .ok_or_else(|| CredentialError::Internal(format!("Unknown credential key: {key}")))?;
-
-        // A secret_ref row's `access_token` column holds only a sentinel.
-        if key == GITHUB_TOKEN {
-            if let Some(token) = self.read_github_secret_ref(user_id).await? {
-                return Ok(token);
-            }
-        }
-
-        let row = self
-            .provider_tokens
-            .find_provider_token(user_id, provider)
-            .await?
-            .ok_or_else(|| {
-                CredentialError::NotFound(format!(
-                    "No {provider} provider_token for user {user_id}"
-                ))
-            })?;
-        Ok(row.access_token)
-    }
-
-    /// Persist a credential value and broadcast to running sandboxes.
-    ///
-    /// - Per-`(user, key)` serialization prevents lost writes when two callers
-    ///   race (e.g. UI save + sandbox push at the same moment).
-    /// - Hash-based dedup short-circuits the broadcast if the stored value is
-    ///   already up to date — prevents echo loops where a broadcast write
-    ///   propagates back through the originating sandbox's watcher.
-    /// - The originating sandbox (if any) is excluded from the broadcast so
-    ///   it doesn't immediately re-receive its own rotation.
+    /// Per-`(user, key)` serialization prevents lost writes when two callers
+    /// race (e.g. UI save + sandbox push at the same moment). Hash-based dedup
+    /// short-circuits when the stored value is already up to date, which the
+    /// caller uses to suppress an echo broadcast.
     pub async fn store(
         &self,
         user_id: &str,
         key: &str,
         value: &str,
         source: WriteSource,
-    ) -> Result<(), CredentialError> {
+    ) -> Result<StoreOutcome, CredentialError> {
         let provider = credential_key_to_provider(key)
             .ok_or_else(|| CredentialError::Internal(format!("Unknown credential key: {key}")))?;
 
         let lock = self.acquire_lock(user_id, key).await;
         let _guard = lock.lock().await;
 
-        // A GitHub token must never land in `provider_tokens.access_token` in
-        // the clear — route it to the encrypted store and keep the row as a
-        // reference. Without this a sandbox-side rotation would resurrect a
-        // plaintext row.
+        // Path 1 (SecretRef): a GitHub token must never land in
+        // `provider_tokens.access_token` in the clear — route it to the
+        // encrypted store and keep the row as a reference. Never broadcast:
+        // `should_broadcast("GITHUB_TOKEN")` is false and the sentinel row
+        // carries no fan-out-able value.
         if key == GITHUB_TOKEN && self.secrets.is_some() {
             self.store_github_secret_ref(user_id, value).await?;
             info!(
@@ -300,10 +193,12 @@ impl CredentialService {
                 ?source,
                 "Persisted GitHub token as secret"
             );
-            return Ok(());
+            return Ok(StoreOutcome::SecretRef);
         }
 
-        // Dedup: skip persistence + broadcast when the value is unchanged.
+        // Path 2 (Unchanged): dedup — skip persistence when the value is
+        // unchanged. The caller must not broadcast, or a no-op write echoes
+        // through the originating sandbox's watcher.
         let existing = self
             .provider_tokens
             .find_provider_token(user_id, provider)
@@ -316,29 +211,18 @@ impl CredentialService {
                 user_id,
                 provider, "CredentialService::store skipped — value unchanged"
             );
-            return Ok(());
+            return Ok(StoreOutcome::Unchanged);
         }
 
+        // Path 3 (Persisted): a new value was upserted. The caller broadcasts
+        // iff `should_broadcast(key)`.
         self.provider_tokens
             .upsert_token(user_id, provider, value, None, None, None)
             .await?;
 
         info!(user_id, provider, ?source, "Persisted credential");
 
-        if should_broadcast(key) {
-            let except_task_id = match &source {
-                WriteSource::SandboxRotation { task_id } => Some(task_id.as_str()),
-                _ => None,
-            };
-            // `store` is user-scoped (per-user provider_tokens upsert), so
-            // fan out to that user's running sandboxes. Team / global
-            // rotations go through `broadcast_to_scope` directly from
-            // `ensure_fresh_codex`.
-            self.broadcast_to_scope(&CodexScope::user(user_id), except_task_id, key, value)
-                .await;
-        }
-
-        Ok(())
+        Ok(StoreOutcome::Persisted)
     }
 
     /// Write a GitHub token to the encrypted store and point the
@@ -395,72 +279,12 @@ impl CredentialService {
         Ok(())
     }
 
-    /// Push a freshly stored credential to every running sandbox whose
-    /// effective user resolves through `scope`. Fire-and-forget per sandbox
-    /// — failures are logged.
-    ///
-    /// v1 fan-out is coarse: for team / global scopes we push to every open
-    /// codex task within the scope, including users who have their own row
-    /// and don't need the push. Harmless because the sandbox watcher applies
-    /// the value only when it differs from the in-memory blob.
-    pub(in crate::credentials) async fn broadcast_to_scope(
-        &self,
-        scope: &CodexScope,
-        except_task_id: Option<&str>,
-        key: &str,
-        value: &str,
-    ) {
-        let Some(ref ctx) = self.broadcast_ctx else {
-            return;
-        };
-
-        let scope_kind = scope.scope_kind().to_string();
-        let scope_id = match scope {
-            CodexScope::User(id) => id.clone(),
-            CodexScope::Global => String::new(),
-        };
-        let except = except_task_id.unwrap_or("").to_string();
-        let task_ids = match ctx
-            .tasks
-            .list_open_codex_tasks_for_scope(scope_kind, scope_id, except)
-            .await
-        {
-            Ok(ids) => ids,
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    scope = %scope.display(),
-                    "broadcast_to_scope: failed to list codex tasks"
-                );
-                return;
-            }
-        };
-
-        for task_id in task_ids {
-            let connector = Arc::clone(&ctx.connector);
-            let key = key.to_string();
-            let value = value.to_string();
-            tokio::spawn(async move {
-                let client = match connector.sandbox_client(&task_id).await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        debug!(task_id, error = %e, "broadcast: client connect failed");
-                        return;
-                    }
-                };
-                if let Err(e) = client.refresh_credential(&task_id, &key, &value).await {
-                    debug!(task_id, error = %e, "broadcast: refresh_credential gRPC failed");
-                } else {
-                    info!(task_id, key, "broadcast: refresh_credential delivered");
-                }
-            });
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::codex_scope::CodexScope;
     use crate::auth::models::{GithubTokenPresence, ProviderAccessToken, ProviderToken};
     use crate::auth::github_scope::GitHubScope;
     use async_trait::async_trait;
@@ -602,18 +426,24 @@ mod tests {
     }
 
     fn make_service(repo: Arc<dyn ProviderTokenDao>) -> CredentialService {
-        CredentialService::new(repo, None, None, None)
+        CredentialService::new(repo)
     }
 
     #[tokio::test]
     async fn store_persists_value() {
         let repo = Arc::new(InMemoryTokens::new());
         let svc = make_service(repo.clone());
-        svc.store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
+        let outcome = svc
+            .store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
             .await
             .unwrap();
-        let got = svc.read_raw("u1", "CODEX_AUTH_JSON").await.unwrap();
-        assert_eq!(got, "v1");
+        assert_eq!(outcome, StoreOutcome::Persisted);
+        let got = repo
+            .find_provider_token("u1", "codex")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.access_token, "v1");
     }
 
     #[tokio::test]
@@ -623,30 +453,13 @@ mod tests {
         svc.store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
             .await
             .unwrap();
-        svc.store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
+        let outcome = svc
+            .store("u1", "CODEX_AUTH_JSON", "v1", WriteSource::UserUiSave)
             .await
             .unwrap();
         // First store does an upsert, second short-circuits before upsert.
+        assert_eq!(outcome, StoreOutcome::Unchanged);
         assert_eq!(repo.upsert_count.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn read_raw_returns_stored_value() {
-        let repo = Arc::new(InMemoryTokens::new());
-        let svc = make_service(repo.clone());
-        repo.upsert_token("u1", "codex", "v1", None, None, None)
-            .await
-            .unwrap();
-        let got = svc.read_raw("u1", "CODEX_AUTH_JSON").await.unwrap();
-        assert_eq!(got, "v1");
-    }
-
-    #[tokio::test]
-    async fn read_raw_returns_not_found_for_missing_token() {
-        let repo = Arc::new(InMemoryTokens::new());
-        let svc = make_service(repo.clone());
-        let err = svc.read_raw("u1", "CODEX_AUTH_JSON").await.unwrap_err();
-        assert!(matches!(err, CredentialError::NotFound(_)));
     }
 
     #[test]

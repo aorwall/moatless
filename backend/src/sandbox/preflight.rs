@@ -27,7 +27,7 @@ use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::auth::users::UserDao;
-use crate::credentials::CredentialService;
+use crate::credential_sync::CredentialSync;
 use crate::repository::access::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::sandbox::secrets::{resolve_task_github_token, TaskCredentialInputs};
@@ -47,7 +47,7 @@ pub struct PreflightCredentials {
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     pub github_apps: Arc<GitHubAppRegistry>,
     pub users: Arc<dyn UserDao>,
-    pub credentials_svc: Arc<CredentialService>,
+    pub credential_sync: Arc<CredentialSync>,
 }
 
 /// Failure modes for the pre-flight check.
@@ -135,7 +135,7 @@ pub async fn preflight_validate_github_token(
         github_apps: Some(&creds.github_apps),
         repository: Some(repo),
         users: Some(&creds.users),
-        credentials_svc: Some(&creds.credentials_svc),
+        credential_sync: Some(&creds.credential_sync),
     })
     .await
     .ok_or_else(|| PreflightError::NoGithubToken {

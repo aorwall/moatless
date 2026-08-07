@@ -6,9 +6,10 @@
 //! sweep at any time.
 //!
 //! The actual refresh decision and HTTP call live in
-//! [`crate::credentials::CredentialService::ensure_fresh_codex`]; this module
+//! [`crate::credential_sync::CredentialSync::ensure_fresh_codex`]; this module
 //! is just the periodic driver that picks rows out of `provider_tokens` and
-//! hands each one to the service.
+//! hands each one to the orchestrator. It sits in the tasks band with
+//! `CredentialSync` because it calls the guarded refresh, not the pure one.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::auth::codex_scope::CodexScope;
-use crate::credentials::CredentialService;
+use crate::credential_sync::CredentialSync;
 use moatless_core::db::DbPool;
 use moatless_core::leader::LeaderGuard;
 
@@ -29,14 +30,14 @@ use moatless_core::leader::LeaderGuard;
 /// 1. Queries `provider_tokens` for codex rows that don't have a permanent
 ///    `refresh_failure` already recorded.
 /// 2. For each user, calls
-///    [`CredentialService::ensure_fresh_codex`] which is itself a no-op when
+///    [`CredentialSync::ensure_fresh_codex`] which is itself a no-op when
 ///    the row's access token is still fresh.
 ///
 /// The expensive part (`refresh_chatgpt_tokens`) only runs when the row is
 /// actually near expiry; the sweeper is effectively idle most of the time.
 pub fn spawn_codex_refresher(
     db: DbPool,
-    credentials_svc: Arc<CredentialService>,
+    credential_sync: Arc<CredentialSync>,
     leader_guard: Arc<dyn LeaderGuard>,
     interval: Duration,
     cancel: CancellationToken,
@@ -53,7 +54,7 @@ pub fn spawn_codex_refresher(
             match leader_guard.try_acquire_or_renew().await {
                 Ok(true) => {
                     debug!(identity = %identity, "Codex refresher is leader, running sweep");
-                    if let Err(e) = run_sweep(&db, &credentials_svc).await {
+                    if let Err(e) = run_sweep(&db, &credential_sync).await {
                         warn!(error = %e, "Codex refresher sweep failed");
                     }
                 }
@@ -76,10 +77,7 @@ pub fn spawn_codex_refresher(
     })
 }
 
-async fn run_sweep(
-    db: &DbPool,
-    credentials_svc: &Arc<CredentialService>,
-) -> Result<(), sqlx::Error> {
+async fn run_sweep(db: &DbPool, credential_sync: &Arc<CredentialSync>) -> Result<(), sqlx::Error> {
     // Reads every healthy codex row regardless of scope. Each row's
     // `(user_id, team_id, scope)` tuple maps to one [`CodexScope`]; the
     // refresher then runs the same code path on each. The partial index
@@ -113,7 +111,7 @@ async fn run_sweep(
 
         attempted += 1;
         let scope_label = scope.display();
-        if let Err(e) = credentials_svc.ensure_fresh_codex(scope, None).await {
+        if let Err(e) = credential_sync.ensure_fresh_codex(scope, None).await {
             warn!(error = %e, scope = %scope_label, "Codex refresher: ensure_fresh_codex failed");
             errored += 1;
         }

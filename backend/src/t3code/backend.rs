@@ -514,7 +514,7 @@ impl ThreadCommandSink for AppStateCommands {
         let new_task = task_service::normalize(
             self.0.workspaces.as_ref(),
             self.0.repositories.as_ref(),
-            &self.0.credentials_svc,
+            &self.0.credential_sync,
             &self.0.config,
             viewer,
             &viewer.user_id,

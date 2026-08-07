@@ -11,7 +11,7 @@ use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::auth::users::UserDao;
-use crate::credentials::CredentialService;
+use crate::credential_sync::CredentialSync;
 use crate::repository::access::resolve_repository_github_token_with;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::models::Repository;
@@ -45,10 +45,10 @@ pub struct TaskCredentialInputs<'a> {
     /// from `users.login` / `users.email`. Bots get both; human users get
     /// their account email when set (name still resolves via the GitHub API).
     pub users: Option<&'a Arc<dyn UserDao>>,
-    /// Credential service used to refresh codex tokens just-in-time before
-    /// handing the blob to the sandbox. When `None`, the codex branch falls
-    /// back to a raw provider_tokens read.
-    pub credentials_svc: Option<&'a Arc<CredentialService>>,
+    /// Codex credential orchestrator used to refresh codex tokens just-in-time
+    /// before handing the blob to the sandbox. When `None`, the codex branch
+    /// falls back to a raw provider_tokens read.
+    pub credential_sync: Option<&'a Arc<CredentialSync>>,
 }
 
 /// Resolve the credentials a task's sandbox needs.
@@ -78,7 +78,7 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
         input.provider_token_auth,
         input.github_apps,
         input.repository,
-        input.credentials_svc,
+        input.credential_sync,
         Some(input.task_id),
     )
     .await;
@@ -227,7 +227,7 @@ async fn fill_provider_tokens(
     provider_token_auth: Option<&Arc<dyn ProviderTokenAuthDao>>,
     github_apps: Option<&Arc<GitHubAppRegistry>>,
     repository: Option<&Repository>,
-    credentials_svc: Option<&Arc<CredentialService>>,
+    credential_sync: Option<&Arc<CredentialSync>>,
     current_task_id: Option<&str>,
 ) {
     let Some(provider_tokens) = provider_tokens else {
@@ -249,7 +249,7 @@ async fn fill_provider_tokens(
     fill_codex(
         credentials,
         provider_tokens,
-        credentials_svc,
+        credential_sync,
         user_id,
         current_task_id,
     )
@@ -315,14 +315,14 @@ async fn fill_github(
 
 /// Resolve `CODEX_AUTH_JSON` for this task.
 ///
-/// Delegates to [`CredentialService::ensure_fresh_codex_for`] which owns
+/// Delegates to [`CredentialSync::ensure_fresh_codex_for`] which owns
 /// the `user > global` precedence walk; this function is a thin
-/// fallback shim for callers without the credential service wired (tests /
+/// fallback shim for callers without the orchestrator wired (tests /
 /// no-DB) — there we walk the same chain via raw DAO reads with no refresh.
 async fn fill_codex(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn ProviderTokenDao>,
-    credentials_svc: Option<&Arc<CredentialService>>,
+    credential_sync: Option<&Arc<CredentialSync>>,
     user_id: &str,
     current_task_id: Option<&str>,
 ) {
@@ -330,7 +330,7 @@ async fn fill_codex(
         return;
     }
 
-    if let Some(svc) = credentials_svc {
+    if let Some(svc) = credential_sync {
         match svc.ensure_fresh_codex_for(user_id, current_task_id).await {
             Ok(blob) => {
                 credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
@@ -569,7 +569,7 @@ mod tests {
             github_apps: None,
             repository: Some(repository),
             users: None,
-            credentials_svc: None,
+            credential_sync: None,
         }
     }
 

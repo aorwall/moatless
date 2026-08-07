@@ -1,14 +1,14 @@
 CRATE-CENSUS REPORT
-files parsed: 648
+files parsed: 649
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  4027  illegal  148
+CODE       legal  4032  illegal  147
 ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
-MACRO      legal    54  illegal   16   (function-like macro-invocation token streams)
-DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
+MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
+DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 1728 point down into the existing crates/* floor
-TEST-CONTEXT 2365  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 2374  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
@@ -20,16 +20,16 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   does not name — a finding to resolve in bands.rs, not a --check failure; it is empty
   when every module is placed.
 
-  identity  (68 files, 16109 lines)
+  identity  (68 files, 16110 lines)
     adapter_apps/ auth/ extractors.rs secret/ setup/ team/
 
-  workspaces  (42 files, 11227 lines)
+  workspaces  (41 files, 10815 lines)
     credentials/ plugin/ repository/ skill/ workspace/
 
-  tasks  (71 files, 19216 lines)
-    agent/ agent_event.rs event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
+  tasks  (73 files, 19897 lines)
+    agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
-  sandbox-control  (43 files, 18722 lines)
+  sandbox-control  (43 files, 18723 lines)
     sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs
 
   sandbox-k8s  (22 files, 13299 lines)
@@ -56,7 +56,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 772 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11426 lines)
+  server  (32 files, 11428 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -65,9 +65,9 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 139148 lines
+  TOTAL backend/src: 139421 lines
 
-== ILLEGAL PRODUCTION EDGE CLASSES (20 classes) ==
+== ILLEGAL PRODUCTION EDGE CLASSES (19 classes) ==
 
 adapter-github-pr -> server   x8
     backend/src/adapters/providers/github_pr/api_routes.rs:32  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -286,9 +286,6 @@ tasks -> server   x8
     backend/src/message/service.rs:15  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/task/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-workspaces -> tasks   x1
-    backend/src/credentials/mod.rs:39  [CODE] crate::task::dao::TaskDao   -> [9c / 10c — broadcast fan-out refactor]
-
 == UNPINNED ILLEGAL REFERENCES (headline) — 0 ==
   none
 
@@ -314,7 +311,7 @@ workspaces -> tasks   x1
   FRONTIER -> identity: READY now (no illegal outgoing, floor-only deps).
 
   identity           deps: floor / adapter-model only                   READY
-  workspaces         deps: identity                                     BLOCKED — 1 illegal outgoing to tasks(x1)
+  workspaces         deps: identity                                     WAITING — no illegal outgoing, but its deps are not extracted yet
   tasks              deps: identity, workspaces                         BLOCKED — 57 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x8)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
@@ -328,7 +325,7 @@ workspaces -> tasks   x1
   server             deps: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, identity, loops, sandbox-control, sandbox-docker, sandbox-k8s, tasks, workspaces WAITING — no illegal outgoing, but its deps are not extracted yet
 
 == TARJAN SCCs (production target-crate graph) ==
-  full graph (legal + illegal edges): CYCLE (12 crates) workspaces <-> sandbox-docker <-> adapter-webhook <-> adapter-telegram <-> adapter-slack <-> server <-> tasks <-> sandbox-k8s <-> sandbox-control <-> adapter-linear <-> loops <-> adapter-github-pr
+  full graph (legal + illegal edges): CYCLE (11 crates) sandbox-docker <-> adapter-webhook <-> adapter-telegram <-> adapter-slack <-> server <-> tasks <-> sandbox-k8s <-> sandbox-control <-> adapter-linear <-> loops <-> adapter-github-pr
   legal edges only (illegal removed): DAG — no multi-crate cycle
 
 == macro_rules! INVENTORY (census scope) ==

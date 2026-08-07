@@ -13,7 +13,8 @@ use moatless_api_schemas::provider_settings::{CodexConfigResponse, SaveCodexAuth
 use crate::auth::codex_auth_json::{build_codex_metadata, parse_codex_auth_json};
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::codex_scope::CodexScope;
-use crate::credentials::{CredentialService, WriteSource};
+use crate::credential_sync::CredentialSync;
+use crate::credentials::WriteSource;
 use crate::provider_settings::error::ProviderSettingsError;
 
 /// Shared codex-blob save path used by every scope endpoint (user / admin global).
@@ -22,7 +23,7 @@ use crate::provider_settings::error::ProviderSettingsError;
 /// this scope.
 pub async fn save_codex_auth_for_scope(
     provider_tokens: &Arc<dyn ProviderTokenDao>,
-    credentials_svc: &Arc<CredentialService>,
+    credential_sync: &Arc<CredentialSync>,
     scope: CodexScope,
     body: SaveCodexAuthRequest,
 ) -> Result<CodexConfigResponse, ProviderSettingsError> {
@@ -41,7 +42,7 @@ pub async fn save_codex_auth_for_scope(
     // provider_tokens.
     if let Err(e) = match &scope {
         CodexScope::User(user_id) => {
-            credentials_svc
+            credential_sync
                 .store(
                     user_id,
                     "CODEX_AUTH_JSON",
@@ -51,7 +52,7 @@ pub async fn save_codex_auth_for_scope(
                 .await
         }
         CodexScope::Global => {
-            credentials_svc
+            credential_sync
                 .broadcast_codex_rotation(&scope, &serialized)
                 .await;
             Ok(())

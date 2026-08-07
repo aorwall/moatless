@@ -29,7 +29,7 @@ use super::schemas::CreateTaskRequest;
 use moatless_backend_core::access_control::{ensure_can_use_repository, resolve_scope_for_create};
 use crate::agent::catalog;
 use moatless_core::config::Config;
-use crate::credentials::CredentialService;
+use crate::credential_sync::CredentialSync;
 use moatless_core::events::EventPublisher;
 use crate::message::send::MessageSendService;
 use crate::repository::dao::RepositoryDao;
@@ -169,7 +169,7 @@ pub async fn stop_task(
 pub async fn normalize(
     workspaces: &dyn WorkspaceDao,
     repositories: &dyn RepositoryDao,
-    credentials_svc: &CredentialService,
+    credential_sync: &CredentialSync,
     config: &Config,
     scope_ctx: &ScopeContext,
     user_id: &str,
@@ -252,7 +252,7 @@ pub async fn normalize(
     // blob.
     if agent_type.as_str() == "codex" {
         if let Err(crate::credentials::CredentialError::NotFound(reason)) =
-            credentials_svc.ensure_fresh_codex_for(user_id, None).await
+            credential_sync.ensure_fresh_codex_for(user_id, None).await
         {
             tracing::info!(
                 user_id = %user_id,

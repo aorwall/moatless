@@ -1,7 +1,7 @@
 # Illegal production Cargo edges: a CODE/ATTR/MACRO reference whose source band
 # is <= its target band. This is the ratcheted count — it only shrinks. Doc paths
 # are excluded (see the section below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 180
+# Illegal edge count: 179
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -181,12 +181,9 @@ tasks                  -> server               [CODE] backend/src/message/hooks.
 tasks                  -> server               [CODE] backend/src/message/routes.rs:7  crate::state::AppState
 tasks                  -> server               [CODE] backend/src/message/service.rs:15  crate::state::AppState
 tasks                  -> server               [CODE] backend/src/task/routes.rs:7  crate::state::AppState
-workspaces             -> tasks                [CODE] backend/src/credentials/mod.rs:39  crate::task::dao::TaskDao
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
-# Doc-path count (not in the illegal count above): 5
-identity               -> workspaces           [DOC] backend/src/auth/token_refresh.rs:30  crate::credentials::CredentialService::ensure_fresh
+# Doc-path count (not in the illegal count above): 3
 sandbox-control        -> sandbox-k8s          [DOC] backend/src/sandbox/metrics.rs:4  crate::sandbox::k8s::storage::StorageBackend
 sandbox-control        -> server               [DOC] backend/src/sandbox/status_reader.rs:8  crate::t3code::projection
 tasks                  -> server               [DOC] backend/src/task_activities/pruner.rs:2  crate::supervisor::Supervisor
-workspaces             -> tasks                [DOC] backend/src/credentials/codex/refresher.rs:5  crate::task::reaper::TaskReaper::spawn

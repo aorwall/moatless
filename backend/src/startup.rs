@@ -26,7 +26,8 @@ use tracing_subscriber::EnvFilter;
 
 use crate::compose::{github_app_registry, Ports};
 use moatless_core::config::{Config, OtelConfig};
-use crate::credentials::{BroadcastContext, CredentialService};
+use crate::credential_sync::CredentialSync;
+use crate::credentials::CredentialService;
 use moatless_core::db::{self, DbPool};
 use moatless_core::events::{EventPublisher, RedisEventPublisher};
 use moatless_core::metrics;
@@ -459,18 +460,16 @@ pub fn spawn_grpc_server(
     });
     let handlers = ports.map(|p| {
         let credentials_svc = Arc::new(
-            CredentialService::new(
-                p.provider_tokens.clone(),
-                Some(p.provider_token_auth.clone()),
-                github_app_service.clone(),
-                Some(BroadcastContext {
-                    connector: Arc::clone(&connector),
-                    tasks: p.tasks.clone(),
-                }),
-            )
-            .with_codex_refresh(p.pool.clone(), codex_http.clone())
-            .with_secrets(p.secrets.clone()),
+            CredentialService::new(p.provider_tokens.clone())
+                .with_codex_refresh(p.pool.clone(), codex_http.clone())
+                .with_secrets(p.secrets.clone()),
         );
+        // Tasks-band orchestrator (9c) — guard + fan-out over the pure service.
+        let credential_sync = Arc::new(CredentialSync::new(
+            credentials_svc,
+            p.tasks.clone(),
+            Arc::clone(&connector),
+        ));
         crate::sandbox::grpc_server::HandlerDbPorts {
             messages: p.messages.clone(),
             provider_tokens: p.provider_tokens.clone(),
@@ -478,7 +477,7 @@ pub fn spawn_grpc_server(
             task_relations: p.task_relations.clone(),
             provider_token_auth: p.provider_token_auth.clone(),
             secrets: p.secrets.clone(),
-            credentials_svc,
+            credential_sync,
             repositories: p.repositories.clone(),
             workspaces: p.workspaces.clone(),
             files: p.files.clone(),

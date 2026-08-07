@@ -33,7 +33,8 @@ use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::auth::users::UserDao;
 use moatless_core::config::Config;
-use crate::credentials::{CredentialService, WriteSource};
+use crate::credential_sync::CredentialSync;
+use crate::credentials::WriteSource;
 use crate::event_ingress::outbox::IngressOutbox;
 use crate::event_ingress::{AdmissionError, AdmissionRequest, EventAdmission};
 use moatless_core::events::EventPublisher;
@@ -114,10 +115,10 @@ pub struct HandlerDbPorts {
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     /// Scoped secret resolver for global/team/user secrets.
     pub secrets: Arc<SecretService>,
-    /// Generic credential service — used to route sandbox-pushed rotations
-    /// through `store(.., WriteSource::SandboxRotation)` so the broadcast
-    /// fan-out picks them up automatically.
-    pub credentials_svc: Arc<CredentialService>,
+    /// Codex credential orchestrator (9c) — used to route sandbox-pushed
+    /// rotations through `store(.., WriteSource::SandboxRotation)` so the
+    /// broadcast fan-out picks them up automatically.
+    pub credential_sync: Arc<CredentialSync>,
     /// Repository DAO — used to resolve a task's repo owner for credentials.
     pub repositories: Arc<dyn RepositoryDao>,
     /// Workspace DAO — used to load the workspace's `system_prompt` and `servers`
@@ -1141,7 +1142,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             github_apps: Some(&self.github_apps),
             repository: repository.as_ref(),
             users: handlers.map(|h| &h.users),
-            credentials_svc: handlers.map(|h| &h.credentials_svc),
+            credential_sync: handlers.map(|h| &h.credential_sync),
         })
         .await;
 
@@ -1230,7 +1231,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         // fan-out fires for every running sandbox the user owns — minus the
         // originating one (race-loop guard).
         let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = if let Some(svc) =
-            self.handlers.as_ref().map(|h| &h.credentials_svc)
+            self.handlers.as_ref().map(|h| &h.credential_sync)
         {
             // Routes GITHUB_TOKEN into the encrypted store instead of writing
             // it plaintext to `provider_tokens.access_token`.
