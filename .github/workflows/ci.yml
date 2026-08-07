@@ -447,21 +447,47 @@ jobs:
 
           # Narrow to the reverse-dep closure. Selecting packages is what
           # saves time — filtering which tests run still builds everything.
-          PKGS=$(.github/scripts/rust-changed-packages.sh /tmp/changed-files.txt \
-            moatless-core \
-            moatless-backend-core \
-            moatless-t3code \
-            moatless-vibe-backend \
-            moatless-sandbox \
-            claude-agent-sdk \
-            moatless-events)
+          # No package list: the script defaults to every workspace member, so
+          # a crate is gated the day it lands with nothing to keep in sync —
+          # matching the `cargo clippy --workspace` floor. The old hand-listed
+          # seven left six crates untested until they were added by name.
+          PKGS=$(.github/scripts/rust-changed-packages.sh /tmp/changed-files.txt)
           echo "Testing: $PKGS"
 
           # shellcheck disable=SC2086
           cargo nextest run --profile ci $PKGS
+
           # nextest does not run doctests; the workspace has a handful.
-          # shellcheck disable=SC2086
-          cargo test --doc $PKGS
+          # `cargo test --doc` errors ("no library targets found") when EVERY
+          # selected package has no doctest target, and silently skips the
+          # doctest-less ones otherwise — so restrict the doc run to packages
+          # that actually carry doctests and skip it when none qualify (e.g. a
+          # PR touching only the bin-only crate-census tool). The predicate is
+          # cargo metadata's per-target `doctest` flag — true for lib AND
+          # proc-macro, false for bin/build-script — not "kind == lib", so a
+          # future proc-macro crate's doctests still run. Queried from the
+          # graph, not hand-listed, and every dropped package is announced, so
+          # the doc set never narrows silently.
+          DOCTESTABLE=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(any(.targets[]; .doctest)) | .name')
+          DOC_PKGS=""
+          set -- $PKGS
+          while [ "$#" -gt 0 ]; do
+            if [ "$1" = -p ]; then
+              if printf '%s\n' "$DOCTESTABLE" | grep -qxF "$2"; then
+                DOC_PKGS="$DOC_PKGS -p $2"
+              else
+                echo "::notice::Skipping doctests for $2 — no doctestable target"
+              fi
+            fi
+            shift
+          done
+          if [ -n "$DOC_PKGS" ]; then
+            # shellcheck disable=SC2086
+            cargo test --doc $DOC_PKGS
+          else
+            echo "No selected package has a doctestable target — skipping doctests."
+          fi
 
           # Clippy type-checks the db-tests tier; this links it. No DB needed.
           case "$PKGS" in
