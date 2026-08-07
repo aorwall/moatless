@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 172
+# Illegal edge count: 171
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -105,7 +105,6 @@ loops                  -> server               [CODE] backend/src/bindings/handl
 loops                  -> server               [CODE] backend/src/bindings/outbound.rs:6  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/reply.rs:10  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/runtime.rs:21  crate::state::AppState
-loops                  -> server               [CODE] backend/src/loops/firing/schedule_runner.rs:16  crate::state::AppState
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:33  crate::sandbox::k8s::auto_provision::build_repo_config_from_workspace
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:33  crate::sandbox::k8s::auto_provision::build_server_configs_from_workspace
 sandbox-control        -> sandbox-k8s          [CODE] backend/src/sandbox/auto_provision.rs:34  crate::sandbox::k8s::auto_provision::filter_disabled_server_list

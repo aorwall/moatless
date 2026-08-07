@@ -689,11 +689,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "cron-scheduler",
                     // Readiness: durable scheduled jobs stop firing entirely.
                     Criticality::Readiness,
-                    loops::firing::schedule_runner::spawn_cron_scheduler(
-                        app_state.clone(),
-                        cron_leader,
-                        cancel.clone(),
-                    ),
+                    loops::firing::schedule_runner::ScheduleRunner::new(
+                        app_state.loops.clone(),
+                        app_state.tasks.clone(),
+                        app_state.message_send.clone(),
+                        app_state.adapters.clone(),
+                        app_state.task_creation.clone(),
+                        app_state.sandbox_waker.clone(),
+                    )
+                    .spawn(cron_leader, cancel.clone()),
                 );
             } else {
                 info!("Cron scheduler disabled (CRON_SCHEDULER_ENABLED=false)");
