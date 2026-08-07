@@ -134,3 +134,13 @@ from `docker/Dockerfile.sandbox` and pushes it under two repository names —
 `moatless-sandbox` and the back-compat `moatless-sandbox-js` alias — while
 `Dockerfile.sandbox-full` is local-only and published nowhere. The "alternative"
 the docs offer is an image nobody builds.
+
+## API surface
+
+Signatures broader than their callers need. Not a defect — the code is correct —
+so each waits for a change already touching the same signature rather than a pass
+of its own.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| `PluginDao::clear_activation` takes an owned skill name | `crates/workspaces/src/plugin/dao.rs::PluginDao::clear_activation` — `skill_name: Option<String>` | Nothing requires the owned form; narrow it to `Option<&str>` when this signature is being changed for another reason, rather than touching a request path for that alone |

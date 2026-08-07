@@ -7,7 +7,6 @@ use super::models::{ActivationRow, Plugin, PluginSkill};
 use moatless_core::db::DbPool;
 
 /// DAO trait for plugin persistence.
-#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait PluginDao: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Plugin>, sqlx::Error>;
@@ -46,8 +45,6 @@ pub trait PluginDao: Send + Sync {
     /// Remove one activation record. Clearing a personal record hands the
     /// person back to whatever the global default says, which is not the same
     /// as setting it to off.
-    /// Owned `Option` for the skill name rather than `Option<&str>`: mockall
-    /// cannot synthesise the lifetime of a reference nested inside a generic.
     async fn clear_activation(
         &self,
         plugin_id: &str,

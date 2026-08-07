@@ -56,7 +56,6 @@ pub struct WorkspacePatch {
 }
 
 /// DAO trait for workspace persistence.
-#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait WorkspaceDao: Send + Sync {
     /// Fetch a single active workspace, or a deleted git-origin tombstone, by
