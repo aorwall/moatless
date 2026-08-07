@@ -28,6 +28,14 @@
 # it stale while every illegal count stays put. Run `cargo run -p crate-census`
 # last, and commit BOTH files.
 #
+# "Last" means AFTER the final `cargo fmt`, not merely after the code edits. The
+# census is a pure function of the final `.rs` tree and regeneration writes only
+# these two `.txt` files, so a run that follows the last thing to mutate a `.rs`
+# file is current by construction. rustfmt is that last thing, and it moves line
+# counts without moving an edge — which is precisely the staleness this paragraph
+# describes, arriving after the author believes they are done. Regenerate, then
+# format, and you regenerate twice.
+#
 # Unlike the other composition-root checks this one builds a small Rust tool
 # (syn + walkdir only — not the backend closure), because a regex is exactly the
 # instrument that produced the withdrawn count this census replaces.
