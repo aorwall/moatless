@@ -22,6 +22,12 @@
 # It writes nothing and runs no git, so the CI job needs neither a writable tree
 # nor a checkout marked safe for `git diff`.
 #
+# WHEN TO REGENERATE: after any commit that touches Rust, not only one that
+# moves an edge or adds a file. The report carries a `wc -l` total per band and
+# one for `backend/src`, so a single line added to a `#[cfg(test)]` module makes
+# it stale while every illegal count stays put. Run `cargo run -p crate-census`
+# last, and commit BOTH files.
+#
 # Unlike the other composition-root checks this one builds a small Rust tool
 # (syn + walkdir only — not the backend closure), because a regex is exactly the
 # instrument that produced the withdrawn count this census replaces.
