@@ -46,6 +46,10 @@ impl UiRpcTurnStatus {
     }
 }
 
+/// The fields a script is read out of, narrowed from the workspace's stored
+/// server config. Every field a workspace can omit is optional here too — the
+/// canonical `ServerConfig` defaults all of them, and one required field that is
+/// merely usually present costs the whole workspace its scripts.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UiRpcServerConfig {
@@ -54,11 +58,6 @@ struct UiRpcServerConfig {
     label: Option<String>,
     #[serde(default)]
     start_commands: Option<Vec<String>>,
-    #[expect(
-        dead_code,
-        reason = "workspace server configs carry ports; T3 scripts do not"
-    )]
-    port: u16,
     #[serde(default)]
     default: bool,
 }

@@ -29,7 +29,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   tasks  (71 files, 19216 lines)
     agent/ agent_event.rs event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
-  sandbox-control  (43 files, 18716 lines)
+  sandbox-control  (43 files, 18722 lines)
     sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs
 
   sandbox-k8s  (22 files, 13299 lines)
@@ -65,7 +65,7 @@ UNRESOLVED     10  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 139142 lines
+  TOTAL backend/src: 139148 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (20 classes) ==
 

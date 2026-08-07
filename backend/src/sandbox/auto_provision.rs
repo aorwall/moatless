@@ -544,11 +544,17 @@ async fn resolve_server_configs(
     let Some(ws_id) = task.workspace_id.as_deref() else {
         return Ok(vec![]);
     };
-    let ws = workspaces
+    // `tasks.workspace_id` carries no foreign key, so a task outlives the
+    // workspace it names and a deleted one reads as absent. That is the same
+    // answer as a task with no workspace at all — no servers — not a failure to
+    // report on every pod-watcher pass.
+    let Some(ws) = workspaces
         .find_by_id(ws_id, &sys)
         .await
         .map_err(|e| format!("Failed to fetch workspace {ws_id}: {e}"))?
-        .ok_or_else(|| format!("Workspace {ws_id} not found"))?;
+    else {
+        return Ok(vec![]);
+    };
     let mut servers = build_server_configs_from_workspace(&ws);
     filter_disabled_server_list(&mut servers, &parse_disabled_servers(&task));
     Ok(servers)
