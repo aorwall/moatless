@@ -3,7 +3,7 @@ files parsed: 663
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3781  illegal  142
+CODE       legal  3780  illegal  142
 ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           52  (intra-doc paths — never a Cargo edge, never illegal)
@@ -61,7 +61,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 775 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11743 lines)
+  server  (32 files, 11739 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -70,7 +70,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 113256 lines
+  TOTAL backend/src: 113252 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (19 classes) ==
 

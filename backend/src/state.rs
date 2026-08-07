@@ -33,7 +33,6 @@ use crate::repository::access::RepositoryTokenResolver;
 use crate::repository::dao::RepositoryDao;
 use crate::sandbox::lifecycle::{Lifecycle, NotifyPort};
 use crate::sandbox::preflight::{PreflightCredentials, RealGithubValidator};
-use crate::secret::audit::SecretAuditDao;
 use crate::secret::dao::SecretDao;
 use crate::secret::service::SecretService;
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
@@ -175,7 +174,6 @@ pub struct AppState {
     pub provider_tokens: Arc<dyn ProviderTokenDao>,
     pub provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
     pub secret_records: Arc<dyn SecretDao>,
-    pub secret_audits: Arc<dyn SecretAuditDao>,
     pub secrets: Arc<SecretService>,
     pub teams: Arc<dyn TeamDao>,
     pub task_events: Arc<dyn TaskEventDao>,
@@ -269,7 +267,6 @@ impl AppState {
             provider_tokens,
             provider_token_auth,
             secret_records,
-            secret_audits,
             secrets,
             github_apps,
             github_app_service,
@@ -472,7 +469,6 @@ impl AppState {
             provider_tokens,
             provider_token_auth,
             secret_records,
-            secret_audits,
             secrets,
             teams,
             task_events,

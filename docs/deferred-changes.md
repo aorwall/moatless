@@ -128,7 +128,26 @@ sizeable and belongs on its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | `MOATLESS_DEFAULT_RUN_AS_USER_ID` is read by nothing | `config.rs::default_run_as_user_id` — declared, populated from env, never consumed | Decide whether it is an unfinished feature or removable |
+| The `AdapterNewThread` outbound capability is dead in production, live in tests | `bindings/outbound.rs::direct_send_to_rule` (sole production caller) reaching `capabilities.rs::{AdapterNewThread::send_message, binding_destination_from_new_thread}`, `registry/mod.rs::{Registry::outbound_for_new_thread_by_name, OutboundOperation::NewThread}`, both impl'd by `providers/{slack,telegram}/outbound.rs` | Is subscription-based new-thread outbound being finished or abandoned? See below |
 | The sandbox images are documented as two products | `docs/docker-builds.md`, `docs/sandbox-architecture.md`, `docker-compose/README.md`, the `docker-install` and `docker-testing` skills, and the commented alternative in both `.env.example` files | Any pass over the sandbox image docs |
+
+**Subscription-based new-thread outbound.** `direct_send_to_rule` — documented as
+"the subscription-based replacement for direct sends to Slack/Telegram adapter
+configs" — has no caller anywhere, production or test. It is the *only* production
+caller of the `AdapterNewThread` capability: deleting it orphans
+`AdapterNewThread::send_message`, `binding_destination_from_new_thread`,
+`Registry::outbound_for_new_thread_by_name`, and the `OutboundOperation::NewThread`
+variant — all of which Slack and Telegram implement and unit tests still exercise
+(two are named `binding_destination_from_new_thread_preserves_direct_send_shape`).
+The capability is therefore dead in production and live in tests. The condition is
+not size but a product fact neither the AppState sweep nor a cleanup PR can settle:
+is subscription-based new-thread outbound a feature being *finished* or one
+*abandoned*? If finished, `direct_send_to_rule` gets wired to a route; if
+abandoned, the function and the whole capability — the trait method, both provider
+impls, the registry wiring (`register_new_thread` + the `new_threads` map), the
+`NewThread` variant, and their tests — come out together. Whoever knows which
+answers it in a minute; without this note the next reader re-derives the entire
+call graph, which is what #403's follow-up did before writing this.
 
 **Sandbox image docs.** These describe a slim JavaScript image and an alternative
 full-polyglot image as two things you can choose between. CI builds one image
