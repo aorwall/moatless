@@ -1,4 +1,11 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stderr,
+    // Timeout consts read more clearly as `from_secs(..)` than the lint's
+    // `from_mins` rewrite.
+    clippy::duration_suboptimal_units
+)]
 //! Smoke test for claude-agent-sdk.
 //!
 //! Verifies:

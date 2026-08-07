@@ -748,6 +748,9 @@ mod tests {
     }
 
     #[tokio::test]
+    // `from_secs(60)` reads more clearly than the lint's `from_mins(1)` for a
+    // one-minute mtime offset.
+    #[allow(clippy::duration_suboptimal_units)]
     async fn resume_target_continue_picks_newest_existing_transcript() {
         let dir = unique_tmp_dir();
         // Two transcripts with explicit, distinct mtimes; --continue must pick

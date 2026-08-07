@@ -35,9 +35,12 @@ use tokio_util::sync::CancellationToken;
 // Mock BackendClient
 // =============================================================================
 
+/// One recorded acknowledgment: (task_id, message_ids, run_id, error).
+type AckRecord = (String, Vec<String>, String, Option<String>);
+
 struct MockBackendClient {
     message_batches: Mutex<Vec<Vec<PendingAgentDelivery>>>,
-    acknowledgments: Mutex<Vec<(String, Vec<String>, String, Option<String>)>>,
+    acknowledgments: Mutex<Vec<AckRecord>>,
     publish_count: AtomicUsize,
     ack_count: AtomicUsize,
     get_pending_count: AtomicUsize,

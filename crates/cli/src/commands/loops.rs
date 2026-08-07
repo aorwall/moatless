@@ -790,7 +790,7 @@ mod tests {
     use super::*;
 
     fn v(s: &[&str]) -> Vec<String> {
-        s.iter().map(|x| x.to_string()).collect()
+        s.iter().map(ToString::to_string).collect()
     }
 
     #[test]

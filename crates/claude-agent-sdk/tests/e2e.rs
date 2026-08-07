@@ -2,7 +2,14 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::print_stdout,
-    clippy::print_stderr
+    clippy::print_stderr,
+    // Every test here is #[ignore]d for the same reason, documented in the
+    // module doc below (they spawn the real `claude` CLI + make API calls); a
+    // per-attr reason string would just repeat it 20 times.
+    clippy::ignore_without_reason,
+    // Timeout consts read more clearly as `from_secs(60/90/120)` than the
+    // lint's `from_mins` rewrite.
+    clippy::duration_suboptimal_units
 )]
 //! End-to-end integration tests for claude-agent-sdk.
 //!

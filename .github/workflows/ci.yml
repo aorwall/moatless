@@ -323,29 +323,34 @@ jobs:
 
       - name: Clippy (deny warnings)
         run: |
-          # --all-targets so `#[cfg(test)]` code is linted too. Without it the
-          # step compiles no test target at all, and lints the workspace denies
-          # never reach a single test module.
-          # --all-features because `database` gates the DAO and the pairing
-          # module: at default features clippy would lint neither, and a `-p`
-          # build of a dependent lints only that dependent.
-          # moatless-core is linted twice for the same reason: `openapi` gates the
-          # ToSchema derives, the utoipa::path attrs, and the tag routes module, so
-          # `--features openapi` lints the gated code and the default run keeps the
-          # feature droppable (utoipa off for non-API consumers).
+          # Floor: lint EVERY workspace member at --all-targets, so a new crate
+          # is gated the day it lands. A hand-maintained `-p` list silently
+          # drifts from the workspace — that drift left six crates partly or
+          # wholly unlinted. --all-targets is what makes `#[cfg(test)]` code
+          # reach the lints the workspace denies; without it a test module is
+          # never compiled here at all.
+          cargo clippy --workspace --all-targets -- -D warnings
+          # Feature-matrix runs on top of the floor. --workspace unifies each
+          # member's features to a single set, so the floor lints every crate at
+          # exactly ONE feature configuration — the union the graph resolves to —
+          # and reaches neither a feature's off-state nor a different graph. These
+          # `-p` runs survive because the floor structurally cannot cover them,
+          # not out of caution:
+          # - backend/Cargo.toml pulls moatless-core with `features = ["openapi"]`,
+          #   so under --workspace the floor ALWAYS lints core openapi-ON. It thus
+          #   proves neither the openapi-off compile nor that the feature stays
+          #   droppable — only the second `-p` run (openapi off) does. The first
+          #   run pins the openapi-on paths (ToSchema derives, utoipa::path attrs,
+          #   tag routes module) in isolation from the graph's unification.
           cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
           cargo clippy -p moatless-core --all-targets -- -D warnings
+          # - moatless-backend-core with every feature on: `database` gates the
+          #   DAO and pairing module, which the default (`[]`) floor run omits.
           cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
-          cargo clippy -p moatless-t3code --all-targets -- -D warnings
-          # `--features db-tests` because 39 of the 40 files in `backend/tests`
-          # open with `#![cfg(feature = "db-tests")]` and compile to nothing
-          # without it. Carrying the feature here rather than on a line of its
-          # own type-checks and lints that tier inside a configuration the
-          # working loop already builds, so it costs no extra cargo unit.
+          # - `--features db-tests` because 39 of the 40 files in `backend/tests`
+          #   open with `#![cfg(feature = "db-tests")]` and compile to nothing
+          #   without it.
           cargo clippy -p moatless-vibe-backend --all-targets --features db-tests -- -D warnings
-          cargo clippy -p moatless-sandbox -- -D warnings
-          cargo clippy -p claude-agent-sdk -- -D warnings
-          cargo clippy -p moatless-events -- -D warnings
 
       # Resolves a different graph (no sqlx/rustls), so it rebuilds the
       # closure. Guards that `database` stays droppable — manifest-only concern.

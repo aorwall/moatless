@@ -1,3 +1,7 @@
+// reason: test code may unwrap/expect freely; production code keeps the
+// workspace `deny`/`warn`.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 //! Adapter domain types (loop/binding contexts, DB rows, inbound/outbound
 //! messages, access-control vocabularies) and `adapter_connections`
 //! persistence.
