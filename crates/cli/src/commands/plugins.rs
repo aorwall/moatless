@@ -166,6 +166,9 @@ async fn set_activation(
     let req = SetActivationRequest {
         reach: reach.into(),
         skill_name,
+        // Always the caller's own record: the command line has no way to name
+        // another user, and `--reach personal` reads as "me" here.
+        user_id: None,
         enabled,
     };
     let stored = client.api().set_plugin_activation(plugin_id, &req).await?;

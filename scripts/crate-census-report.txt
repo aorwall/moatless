@@ -4,7 +4,7 @@ parse failures: 0
 
 == TOTALS (production, cross-crate) ==
 CODE       legal  3770  illegal  147
-ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
+ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 1479 point down into the existing crates/* floor

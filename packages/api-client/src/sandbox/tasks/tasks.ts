@@ -831,7 +831,7 @@ export const useCloseTask = <TError = ErrorType<ErrorBody>,
     }
     /**
  * Per-task counterpart to [`list_task_connections`]. Unlike the admin list,
-this is scope-checked like [`super::handlers::get_task`] (not admin-gated),
+this is scope-checked like [`crate::task::handlers::get_task`] (not admin-gated),
 so any user who can see the task can see its connections.
  * @summary Get a single task's external connections, statuses, and message counts.
  */

@@ -30,6 +30,8 @@ import type {
   CreatePluginRequest,
   EffectivePluginResponse,
   ErrorBody,
+  ListEffectivePluginsParams,
+  ListPluginActivationsParams,
   PluginResponse,
   PluginSkillResponse,
   SetActivationRequest
@@ -273,12 +275,21 @@ export const useCreatePlugin = <TError = ErrorType<ErrorBody>,
       return useMutation(getCreatePluginMutationOptions(options), queryClient);
     }
     /**
- * @summary What the calling user actually gets, once global defaults and their own
-records have been resolved against each other.
+ * The same read whoever it is asked about: an administrator setting a bot
+user's records needs to see what those records add up to for the bot, not
+for themselves, and resolution is the server's to do either way.
+ * @summary What one person actually gets, once global defaults and their own records
+have been resolved against each other. The caller unless `userId` names
+another, which is an administrator's call.
  */
 export type listEffectivePluginsResponse200 = {
   data: EffectivePluginResponse[]
   status: 200
+}
+
+export type listEffectivePluginsResponse403 = {
+  data: ErrorBody
+  status: 403
 }
 
 export type listEffectivePluginsResponse500 = {
@@ -289,23 +300,30 @@ export type listEffectivePluginsResponse500 = {
 export type listEffectivePluginsResponseSuccess = (listEffectivePluginsResponse200) & {
   headers: Headers;
 };
-export type listEffectivePluginsResponseError = (listEffectivePluginsResponse500) & {
+export type listEffectivePluginsResponseError = (listEffectivePluginsResponse403 | listEffectivePluginsResponse500) & {
   headers: Headers;
 };
 
 export type listEffectivePluginsResponse = (listEffectivePluginsResponseSuccess | listEffectivePluginsResponseError)
 
-export const getListEffectivePluginsUrl = () => {
+export const getListEffectivePluginsUrl = (params?: ListEffectivePluginsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
-  
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/plugins/effective`
+  return stringifiedParams.length > 0 ? `/api/v1/plugins/effective?${stringifiedParams}` : `/api/v1/plugins/effective`
 }
 
-export const listEffectivePlugins = async ( options?: RequestInit): Promise<listEffectivePluginsResponse> => {
+export const listEffectivePlugins = async (params?: ListEffectivePluginsParams, options?: RequestInit): Promise<listEffectivePluginsResponse> => {
   
-  return customInstance<listEffectivePluginsResponse>(getListEffectivePluginsUrl(),
+  return customInstance<listEffectivePluginsResponse>(getListEffectivePluginsUrl(params),
   {      
     ...options,
     method: 'GET'
@@ -318,23 +336,23 @@ export const listEffectivePlugins = async ( options?: RequestInit): Promise<list
 
 
 
-export const getListEffectivePluginsQueryKey = () => {
+export const getListEffectivePluginsQueryKey = (params?: ListEffectivePluginsParams,) => {
     return [
-    `/api/v1/plugins/effective`
+    `/api/v1/plugins/effective`, ...(params ? [params] : [])
     ] as const;
     }
 
     
-export const getListEffectivePluginsQueryOptions = <TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListEffectivePluginsQueryOptions = <TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(params?: ListEffectivePluginsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListEffectivePluginsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListEffectivePluginsQueryKey(params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEffectivePlugins>>> = ({ signal }) => listEffectivePlugins({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEffectivePlugins>>> = ({ signal }) => listEffectivePlugins(params, { signal, ...requestOptions });
 
       
 
@@ -348,7 +366,7 @@ export type ListEffectivePluginsQueryError = ErrorType<ErrorBody>
 
 
 export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>> & Pick<
+ params: undefined |  ListEffectivePluginsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listEffectivePlugins>>,
           TError,
@@ -358,7 +376,7 @@ export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEf
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>> & Pick<
+ params?: ListEffectivePluginsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listEffectivePlugins>>,
           TError,
@@ -368,20 +386,21 @@ export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEf
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListEffectivePluginsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary What the calling user actually gets, once global defaults and their own
-records have been resolved against each other.
+ * @summary What one person actually gets, once global defaults and their own records
+have been resolved against each other. The caller unless `userId` names
+another, which is an administrator's call.
  */
 
 export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListEffectivePluginsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getListEffectivePluginsQueryOptions(options)
+  const queryOptions = getListEffectivePluginsQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -389,15 +408,16 @@ export function useListEffectivePlugins<TData = Awaited<ReturnType<typeof listEf
 }
 
 /**
- * @summary What the calling user actually gets, once global defaults and their own
-records have been resolved against each other.
+ * @summary What one person actually gets, once global defaults and their own records
+have been resolved against each other. The caller unless `userId` names
+another, which is an administrator's call.
  */
 export const prefetchListEffectivePluginsQuery = async <TData = Awaited<ReturnType<typeof listEffectivePlugins>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ queryClient: QueryClient, params?: ListEffectivePluginsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEffectivePlugins>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getListEffectivePluginsQueryOptions(options)
+  const queryOptions = getListEffectivePluginsQueryOptions(params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 
@@ -501,14 +521,20 @@ export const useDeletePlugin = <TError = ErrorType<ErrorBody>,
     }
     /**
  * Setting the default for everyone is an administrator's call; setting one's
-own is anybody's. A personal record wins over the global one in both
-directions, so this same endpoint is how somebody escapes a plugin that
-arrived by default.
+own is anybody's, and setting somebody else's — a bot user, which has no way
+to sign in and set its own — is an administrator's again. A personal record
+wins over the global one in both directions, so this same endpoint is how
+somebody escapes a plugin that arrived by default.
  * @summary Turn a plugin, or one skill inside it, on or off.
  */
 export type setPluginActivationResponse200 = {
   data: ActivationResponse
   status: 200
+}
+
+export type setPluginActivationResponse400 = {
+  data: ErrorBody
+  status: 400
 }
 
 export type setPluginActivationResponse403 = {
@@ -529,7 +555,7 @@ export type setPluginActivationResponse500 = {
 export type setPluginActivationResponseSuccess = (setPluginActivationResponse200) & {
   headers: Headers;
 };
-export type setPluginActivationResponseError = (setPluginActivationResponse403 | setPluginActivationResponse404 | setPluginActivationResponse500) & {
+export type setPluginActivationResponseError = (setPluginActivationResponse400 | setPluginActivationResponse403 | setPluginActivationResponse404 | setPluginActivationResponse500) & {
   headers: Headers;
 };
 
@@ -613,6 +639,11 @@ export type clearPluginActivationResponse204 = {
   status: 204
 }
 
+export type clearPluginActivationResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
 export type clearPluginActivationResponse403 = {
   data: ErrorBody
   status: 403
@@ -631,7 +662,7 @@ export type clearPluginActivationResponse500 = {
 export type clearPluginActivationResponseSuccess = (clearPluginActivationResponse204) & {
   headers: Headers;
 };
-export type clearPluginActivationResponseError = (clearPluginActivationResponse403 | clearPluginActivationResponse404 | clearPluginActivationResponse500) & {
+export type clearPluginActivationResponseError = (clearPluginActivationResponse400 | clearPluginActivationResponse403 | clearPluginActivationResponse404 | clearPluginActivationResponse500) & {
   headers: Headers;
 };
 
@@ -716,12 +747,18 @@ export const useClearPluginActivation = <TError = ErrorType<ErrorBody>,
  * This is the read half of the two write endpoints below. Without it a control
 can show what somebody *gets* but not which record put it there, so "turn
 off my personal override" and "the default is already off" look identical.
- * @summary The activation records that bear on this caller for one plugin: every global
-record plus their own, and nobody else's.
+ * @summary The activation records that bear on one person for one plugin: every global
+record plus theirs, and nobody else's. The person is the caller unless
+`userId` names another, which is an administrator's call.
  */
 export type listPluginActivationsResponse200 = {
   data: ActivationResponse[]
   status: 200
+}
+
+export type listPluginActivationsResponse403 = {
+  data: ErrorBody
+  status: 403
 }
 
 export type listPluginActivationsResponse500 = {
@@ -732,23 +769,32 @@ export type listPluginActivationsResponse500 = {
 export type listPluginActivationsResponseSuccess = (listPluginActivationsResponse200) & {
   headers: Headers;
 };
-export type listPluginActivationsResponseError = (listPluginActivationsResponse500) & {
+export type listPluginActivationsResponseError = (listPluginActivationsResponse403 | listPluginActivationsResponse500) & {
   headers: Headers;
 };
 
 export type listPluginActivationsResponse = (listPluginActivationsResponseSuccess | listPluginActivationsResponseError)
 
-export const getListPluginActivationsUrl = (id: string,) => {
+export const getListPluginActivationsUrl = (id: string,
+    params?: ListPluginActivationsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
+    
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
-  
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/plugins/${id}/activations`
+  return stringifiedParams.length > 0 ? `/api/v1/plugins/${id}/activations?${stringifiedParams}` : `/api/v1/plugins/${id}/activations`
 }
 
-export const listPluginActivations = async (id: string, options?: RequestInit): Promise<listPluginActivationsResponse> => {
+export const listPluginActivations = async (id: string,
+    params?: ListPluginActivationsParams, options?: RequestInit): Promise<listPluginActivationsResponse> => {
   
-  return customInstance<listPluginActivationsResponse>(getListPluginActivationsUrl(id),
+  return customInstance<listPluginActivationsResponse>(getListPluginActivationsUrl(id,params),
   {      
     ...options,
     method: 'GET'
@@ -761,23 +807,25 @@ export const listPluginActivations = async (id: string, options?: RequestInit): 
 
 
 
-export const getListPluginActivationsQueryKey = (id: string,) => {
+export const getListPluginActivationsQueryKey = (id: string,
+    params?: ListPluginActivationsParams,) => {
     return [
-    `/api/v1/plugins/${id}/activations`
+    `/api/v1/plugins/${id}/activations`, ...(params ? [params] : [])
     ] as const;
     }
 
     
-export const getListPluginActivationsQueryOptions = <TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListPluginActivationsQueryOptions = <TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(id: string,
+    params?: ListPluginActivationsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListPluginActivationsQueryKey(id);
+  const queryKey =  queryOptions?.queryKey ?? getListPluginActivationsQueryKey(id,params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPluginActivations>>> = ({ signal }) => listPluginActivations(id, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPluginActivations>>> = ({ signal }) => listPluginActivations(id,params, { signal, ...requestOptions });
 
       
 
@@ -791,7 +839,8 @@ export type ListPluginActivationsQueryError = ErrorType<ErrorBody>
 
 
 export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
- id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>> & Pick<
+ id: string,
+    params: undefined |  ListPluginActivationsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listPluginActivations>>,
           TError,
@@ -801,7 +850,8 @@ export function useListPluginActivations<TData = Awaited<ReturnType<typeof listP
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>> & Pick<
+ id: string,
+    params?: ListPluginActivationsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listPluginActivations>>,
           TError,
@@ -811,20 +861,23 @@ export function useListPluginActivations<TData = Awaited<ReturnType<typeof listP
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ id: string,
+    params?: ListPluginActivationsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
 /**
- * @summary The activation records that bear on this caller for one plugin: every global
-record plus their own, and nobody else's.
+ * @summary The activation records that bear on one person for one plugin: every global
+record plus theirs, and nobody else's. The person is the caller unless
+`userId` names another, which is an administrator's call.
  */
 
 export function useListPluginActivations<TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
- id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ id: string,
+    params?: ListPluginActivationsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
 
-  const queryOptions = getListPluginActivationsQueryOptions(id,options)
+  const queryOptions = getListPluginActivationsQueryOptions(id,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
 
@@ -832,15 +885,17 @@ export function useListPluginActivations<TData = Awaited<ReturnType<typeof listP
 }
 
 /**
- * @summary The activation records that bear on this caller for one plugin: every global
-record plus their own, and nobody else's.
+ * @summary The activation records that bear on one person for one plugin: every global
+record plus theirs, and nobody else's. The person is the caller unless
+`userId` names another, which is an administrator's call.
  */
 export const prefetchListPluginActivationsQuery = async <TData = Awaited<ReturnType<typeof listPluginActivations>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient, id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ queryClient: QueryClient, id: string,
+    params?: ListPluginActivationsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPluginActivations>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 
   ): Promise<QueryClient> => {
 
-  const queryOptions = getListPluginActivationsQueryOptions(id,options)
+  const queryOptions = getListPluginActivationsQueryOptions(id,params,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

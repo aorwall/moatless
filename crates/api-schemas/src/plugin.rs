@@ -1,6 +1,7 @@
 //! Plugin request/response types.
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Request to register a new plugin.
 #[derive(Debug, Serialize, Deserialize)]
@@ -34,14 +35,15 @@ pub struct PluginSkillResponse {
     pub description: String,
 }
 
-/// Who an activation applies to: everyone, or the calling user alone.
+/// Who an activation applies to: everyone, or one person.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum ActivationReach {
     /// The default position for everybody. Administrators only.
     Everyone,
-    /// The calling user's own setting, which overrides the default.
+    /// One person's own setting, which overrides the default. Which person is
+    /// carried alongside as `userId`, and is the caller when that is absent.
     Personal,
 }
 
@@ -54,6 +56,13 @@ pub struct SetActivationRequest {
     /// Omit to mean the whole plugin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_name: Option<String>,
+    /// Whose record, with `personal` reach: the caller's own when omitted, and
+    /// somebody else's only for an administrator — which is how a bot user,
+    /// who never signs in to set its own, gets one. Rejected with `everyone`,
+    /// where naming a person would read as a record for them and write the
+    /// deployment-wide default instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<Uuid>,
     pub enabled: bool,
 }
 
@@ -66,6 +75,9 @@ pub struct ActivationResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_name: Option<String>,
     pub reach: ActivationReach,
+    /// Whose record this is. Absent for the deployment-wide default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<Uuid>,
     pub enabled: bool,
 }
 

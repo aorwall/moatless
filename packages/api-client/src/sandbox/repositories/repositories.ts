@@ -806,11 +806,7 @@ export const useConvertToTemplate = <TError = ErrorType<ErrorBody>,
       > => {
       return useMutation(getConvertToTemplateMutationOptions(options), queryClient);
     }
-    /**
- * @summary Sync `.moatless/config.json` and `.moatless/loops/` from the remote
-repository into the DB.
- */
-export type syncConfigResponse200 = {
+    export type syncConfigResponse200 = {
   data: SyncConfigResponse
   status: 200
 }
@@ -887,11 +883,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     
     export type SyncConfigMutationError = ErrorType<ErrorBody>
 
-    /**
- * @summary Sync `.moatless/config.json` and `.moatless/loops/` from the remote
-repository into the DB.
- */
-export const useSyncConfig = <TError = ErrorType<ErrorBody>,
+    export const useSyncConfig = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncConfig>>, TError,{repositoryId: string}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof syncConfig>>,
