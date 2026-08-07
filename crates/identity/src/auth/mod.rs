@@ -28,7 +28,9 @@ pub mod schemas;
 pub mod secrets;
 pub mod session;
 pub mod sessions;
-#[cfg(test)]
+// `test` stays first so the census keeps scoring this fake as test-context; the
+// feature exposes it to other crates' tests (see Cargo.toml `test-support`).
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 pub mod test_user;
 pub mod token_refresh;

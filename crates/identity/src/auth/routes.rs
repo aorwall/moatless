@@ -13,7 +13,7 @@ use urlencoding;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use crate::adapters::dao::AdapterConnectionDao;
+use moatless_adapter_model::dao::AdapterConnectionDao;
 use moatless_core::config::{AuthProvider, Config};
 use moatless_core::db::DbPool;
 use moatless_core::error::ErrorBody;
@@ -2323,7 +2323,7 @@ async fn linear_callback_handler(
         .await?;
 
     // Upsert the workspace-level adapter_connections row.
-    use crate::adapters::models::AdapterConnection;
+    use moatless_adapter_model::models::AdapterConnection;
     let conn_repo = &state.adapter_connections;
 
     let now = chrono::Utc::now();

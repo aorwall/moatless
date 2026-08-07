@@ -3277,6 +3277,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-identity"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "async-trait",
+ "axum",
+ "base64",
+ "chrono",
+ "clap",
+ "cookie",
+ "hex",
+ "http-body-util",
+ "jsonwebtoken",
+ "moatless-adapter-model",
+ "moatless-api-schemas",
+ "moatless-backend-core",
+ "moatless-core",
+ "moatless-t3code",
+ "mockall",
+ "moka",
+ "rand 0.10.1",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sha2 0.11.0",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "urlencoding",
+ "utoipa",
+ "utoipa-axum",
+ "uuid",
+]
+
+[[package]]
 name = "moatless-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -3380,6 +3419,7 @@ dependencies = [
  "moatless-backend-core",
  "moatless-core",
  "moatless-events",
+ "moatless-identity",
  "moatless-t3code",
  "mockall",
  "moka",

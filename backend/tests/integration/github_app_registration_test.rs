@@ -35,7 +35,8 @@ use sqlx::PgPool;
 use tokio::sync::OnceCell;
 
 /// A throwaway key, so a service built from a stored record is a real one.
-const TEST_PEM: &str = include_str!("../../src/auth/github/testdata/github_app_test_key.pem");
+const TEST_PEM: &str =
+    include_str!("../../../crates/identity/src/auth/github/testdata/github_app_test_key.pem");
 
 static STUB: OnceCell<SocketAddr> = OnceCell::const_new();
 

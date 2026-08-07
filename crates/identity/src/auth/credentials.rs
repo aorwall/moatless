@@ -186,7 +186,7 @@ async fn resolve_github_row_token(
 /// scope. This deliberately performs no scope walk.
 #[allow(clippy::too_many_arguments)]
 // reason: mirrors the canonical row resolver's infrastructure dependencies.
-pub(crate) async fn resolve_repository_github_scope_token(
+pub async fn resolve_repository_github_scope_token(
     provider_tokens: &dyn ProviderTokenDao,
     provider_token_auth: Option<&dyn ProviderTokenAuthDao>,
     github_app_service: Option<&GitHubAppService>,
@@ -270,7 +270,7 @@ pub(crate) async fn resolve_repository_github_scope_token(
 /// the App is installed on rather than only the task's own repository.
 #[allow(clippy::too_many_arguments)]
 // reason: mirrors the canonical row resolver's infrastructure dependencies.
-pub(crate) async fn resolve_run_as_user_github_token(
+pub async fn resolve_run_as_user_github_token(
     provider_tokens: &dyn ProviderTokenDao,
     provider_token_auth: Option<&dyn ProviderTokenAuthDao>,
     github_app_service: Option<&GitHubAppService>,

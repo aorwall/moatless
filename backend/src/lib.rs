@@ -33,7 +33,6 @@ pub mod repository;
 pub mod repository_sync;
 pub mod sandbox;
 pub mod secret;
-pub mod setup;
 pub mod skill;
 pub mod sse;
 pub mod startup;

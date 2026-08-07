@@ -4,6 +4,13 @@
 //! `SecretInsert<'_>` / `SecretReplace<'_>` lifetimes), so tests that need a
 //! `SecretService` build one over this hand-written stub.
 
+// Under the `test-support` feature this module is part of the library rather than
+// a `#[cfg(test)]` target, so the library's lints apply to it and are waived here.
+#![allow(
+    clippy::expect_used,
+    reason = "a broken test fixture should fail the test loudly, not be handled"
+)]
+
 use std::sync::Arc;
 
 use super::audit::{SecretAuditDao, SecretAuditInput};

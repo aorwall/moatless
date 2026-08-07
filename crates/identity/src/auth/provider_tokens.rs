@@ -45,7 +45,7 @@ pub struct ProviderToken {
 }
 
 /// DAO trait for provider token auth persistence.
-#[cfg_attr(test, mockall::automock)]
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait ProviderTokenAuthDao: Send + Sync {
     async fn upsert_provider_token(&self, token: &ProviderToken) -> Result<(), sqlx::Error>;

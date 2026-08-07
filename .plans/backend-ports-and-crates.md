@@ -645,10 +645,10 @@ FRONTIER -> identity: READY now (no illegal outgoing, floor-only deps). (d03c764
 | 3 | `auth/credentials.rs:369` → `crate::state::AppState` | `resolve_state_github_token` — **dead** | delete it | #364 |
 | 4 | `auth/routes.rs:17` → `crate::compose::Ports` | `AuthState::new` copies eighteen fields out of `Ports` | `Ports::build_auth_state` in `compose.rs` | #364 |
 
-<!-- plan-assert: absent backend/src/setup/github.rs crate::sandbox -->
-<!-- plan-assert: absent backend/src/setup/github.rs crate::credentials:: -->
+<!-- plan-assert: absent crates/identity/src/setup/github.rs crate::sandbox -->
+<!-- plan-assert: absent crates/identity/src/setup/github.rs crate::credentials:: -->
 <!-- plan-assert: contains backend/src/compose.rs build_auth_state -->
-<!-- plan-assert: absent backend/src/auth/routes.rs crate::compose::Ports -->
+<!-- plan-assert: absent crates/identity/src/auth/routes.rs crate::compose::Ports -->
 
 **Edge 4's destination was the decision, not its existence.** The two obvious forms both fail: an eighteen-argument constructor in `auth` trips `clippy::too_many_arguments` under `-D warnings`, and an eighteen-field literal inlined at `main.rs` invents a shape. `compose.rs` already had the answer two hundred lines up — `impl Ports` carries `build_lifecycle` and `build_reconciler`, each taking `&self` plus extras and returning a higher-band type assembled from ports. `build_auth_state` joins them, and `main.rs` is one line. **The tradeoff, recorded in the doc comment so it is not rediscovered:** the three config-derived values (OAuth providers, response cache, login throttle) are now built in the server band rather than in identity. That is acceptable only because `AuthState` has eighteen `pub` fields and no private invariant — its constructor was a convenience, not a boundary. **The trigger that reverses it: if `AuthState` ever grows a private field, the constructor returns to identity behind an identity-owned port bundle.**
 

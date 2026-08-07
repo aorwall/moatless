@@ -1,15 +1,15 @@
 CRATE-CENSUS REPORT
-files parsed: 650
+files parsed: 656
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  4037  illegal  147
+CODE       legal  3894  illegal  147
 ATTRIBUTE  legal   255  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1734 point down into the existing crates/* floor
-TEST-CONTEXT 2400  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
-UNRESOLVED     11  (glob-through-facade / prelude / macro-var — audited below)
+  of the legal CODE edges, 1607 point down into the existing crates/* floor
+TEST-CONTEXT 2396  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+UNRESOLVED     13  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
   Line counts are newline counts (wc -l). This table and its TOTAL count what has
@@ -20,8 +20,8 @@ UNRESOLVED     11  (glob-through-facade / prelude / macro-var — audited below)
   does not name — a finding to resolve in bands.rs, not a --check failure; it is empty
   when every module is placed.
 
-  identity  (68 files, 16110 lines)
-    adapter_apps/ auth/ extractors.rs secret/ setup/ team/
+  identity  (5 files, 55 lines)
+    adapter_apps.rs auth.rs extractors.rs secret.rs team.rs
 
   workspaces  (41 files, 10997 lines)
     credentials/ plugin/ repository/ skill/ workspace/
@@ -56,7 +56,7 @@ UNRESOLVED     11  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 772 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11703 lines)
+  server  (32 files, 11702 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -65,7 +65,7 @@ UNRESOLVED     11  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 139936 lines
+  TOTAL backend/src: 123880 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (19 classes) ==
 
@@ -290,7 +290,7 @@ tasks -> server   x8
   none
 
 == UNRESOLVED REFERENCES (audit) ==
-  [super-above-root] x11
+  [super-above-root] x13
     test:backend :: ActivityStatus::Completed   (backend/tests/integration/agent_handlers_per_block_test.rs:281)
     test:backend :: ActivityStatus::Completed   (backend/tests/integration/message_dao_test.rs:760)
     test:backend :: ActivityStatus::Completed   (backend/tests/integration/ui_rpc_thread_test.rs:132)
@@ -302,6 +302,8 @@ tasks -> server   x8
     test:backend :: CommandRefusal::NotWritable   (backend/tests/integration/ui_rpc_command_test.rs:860)
     test:backend :: CommandRefusal::Rejected   (backend/tests/integration/ui_rpc_command_test.rs:339)
     test:backend :: CommandRefusal::Rejected   (backend/tests/integration/ui_rpc_command_test.rs:410)
+    test:backend :: GitHubAppRegistry::new   (backend/tests/integration/github_app_registration_test.rs:78)
+    test:backend :: LocalEnvelopeSecretCipher::from_config   (backend/tests/integration/github_app_registration_test.rs:69)
 
 == CARVE READINESS (frontier — legal-dependency order, lowest band first) ==
   READY = no illegal outgoing edge AND every crate it depends on is already

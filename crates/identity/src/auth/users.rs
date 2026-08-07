@@ -5,7 +5,7 @@
 //! generated item lands in this module, so this is the only scope that can
 //! carry the suppression.
 #![cfg_attr(
-    test,
+    any(test, feature = "test-support"),
     expect(
         clippy::option_option,
         reason = "`update_user_profile_and_role` takes the PATCH body's tri-state \
@@ -53,7 +53,7 @@ pub struct UserProviderAccount {
 }
 
 /// DAO trait for user persistence.
-#[cfg_attr(test, mockall::automock)]
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait UserDao: Send + Sync {
     async fn get_user(&self, user_id: &Uuid) -> Result<Option<User>, sqlx::Error>;
