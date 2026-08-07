@@ -307,14 +307,16 @@ tasks -> server   x8
 
 == CARVE READINESS (frontier — legal-dependency order, lowest band first) ==
   READY = no illegal outgoing edge AND every crate it depends on is already
-  extracted. Nothing is extracted yet, so a crate whose legal dependencies are
-  all still in the backend reads WAITING (necessary but not sufficient), not
-  READY. Re-run after each carve; the frontier is the first crate below that is
-  READY. The base case is the lowest-band crate, which depends only on the floor.
-  FRONTIER -> identity: READY now (no illegal outgoing, floor-only deps).
+  extracted. EXTRACTED = already carved into crates/*, detected from this run's own
+  scan (a crates/<dir> that resolves to a real band, not floor:<dir>) — it has left
+  the frontier and is shown for context, not as work. Extracted so far: identity.
+  A crate with no illegal outgoing whose carve-target deps are all extracted reads
+  READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
+  carve; the frontier is the first crate below that is READY.
+  FRONTIER -> workspaces: READY now (no illegal outgoing; every crate it depends on is extracted).
 
-  identity           deps: floor / adapter-model only                   READY
-  workspaces         deps: identity                                     WAITING — no illegal outgoing, but its deps are not extracted yet
+  identity           deps: floor / adapter-model only                   EXTRACTED
+  workspaces         deps: identity                                     READY
   tasks              deps: identity, workspaces                         BLOCKED — 57 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x26), sandbox-k8s(x14), server(x8)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet

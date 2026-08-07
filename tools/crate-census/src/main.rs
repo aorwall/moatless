@@ -103,7 +103,9 @@ fn main() {
 
     let files_count = files.len();
     let membership = build_membership(&files);
-    let report = build_report(&records, &macro_defs, files_count, &parse_failures, &membership);
+    let extracted = extracted_crates(&files);
+    let report =
+        build_report(&records, &macro_defs, files_count, &parse_failures, &membership, &extracted);
 
     let out_dir = repo_root.join("scripts");
     let baseline_path = out_dir.join("crate-census-baseline.txt");
@@ -575,6 +577,23 @@ fn build_membership(files: &[DiscoveredFile]) -> Membership {
     Membership { rows }
 }
 
+/// The banded crates already carved into `crates/*`, derived from the scan rather
+/// than hand-listed. A `crates/<dir>` resolves through `floor_crate_of_dir` to its
+/// real band id only once it is a modelled crate (the carve adds the arm, as #385
+/// did for `identity`) and to `floor:<dir>` otherwise — so a Floor-scope file whose
+/// source crate is not a `floor:` id is a crate that both exists on disk (it was
+/// scanned) and is banded (it is measured). That pair IS extraction: the readiness
+/// table keys on it so a carved crate reads EXTRACTED, not READY, and its dependents
+/// flip to READY. A hardcoded "identity is done" list is exactly what this avoids.
+fn extracted_crates(files: &[DiscoveredFile]) -> BTreeSet<String> {
+    files
+        .iter()
+        .filter(|f| matches!(f.scope, ScopeKind::Floor | ScopeKind::FloorTest))
+        .map(|f| f.source_crate.clone())
+        .filter(|c| !c.starts_with("floor:"))
+        .collect()
+}
+
 /// The display name for a file's owning module, shown at the depth that decides its
 /// crate: one path segment normally, but `sandbox/*` and non-provider `adapters/*`
 /// split on the second and `adapters/providers/*` on the third, so they are shown at
@@ -629,6 +648,7 @@ fn build_report(
     files_count: usize,
     parse_failures: &[PathBuf],
     membership: &Membership,
+    extracted: &BTreeSet<String>,
 ) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "CRATE-CENSUS REPORT");
@@ -774,7 +794,7 @@ fn build_report(
     let _ = writeln!(s);
 
     // Carve readiness + Tarjan on the target-crate graph.
-    write_carve_analysis(&mut s, records);
+    write_carve_analysis(&mut s, records, extracted);
 
     // Macro inventory over census scope.
     let _ = writeln!(s, "== macro_rules! INVENTORY (census scope) ==");
@@ -809,9 +829,48 @@ const CARVE_ORDER: &[(&str, &str)] = &[
     ("10i", "server"),
 ];
 
+/// A carve-target crate's state at the current extraction front.
+#[derive(Debug, PartialEq, Eq)]
+enum CarveState {
+    /// Already carved into `crates/*`; it has left the frontier.
+    Extracted,
+    /// Has illegal outgoing edges (the count) that must reach zero first.
+    Blocked(usize),
+    /// No illegal outgoing and every carve-target dep is extracted — carve next.
+    Ready,
+    /// No illegal outgoing but a carve-target dep is not yet extracted.
+    Waiting,
+}
+
+/// Classify a carve-target crate. `EXTRACTED` wins over everything: a crate already
+/// carved is done, and reading it as `READY` is the exact defect this pins — the
+/// frontier pointing at finished work. Otherwise an illegal outgoing edge blocks the
+/// carve; failing that, the crate is READY once every carve-target dep is extracted
+/// and WAITING until then. `carve_target_deps` is the crate's legal deps that are
+/// themselves carve targets (deps on the floor or an already-extracted crate never
+/// block), so with `extracted` empty this reproduces the pre-extraction reading.
+fn carve_state(
+    crate_id: &str,
+    illegal_out: usize,
+    carve_target_deps: &[String],
+    extracted: &BTreeSet<String>,
+) -> CarveState {
+    if extracted.contains(crate_id) {
+        return CarveState::Extracted;
+    }
+    if illegal_out > 0 {
+        return CarveState::Blocked(illegal_out);
+    }
+    if carve_target_deps.iter().all(|d| extracted.contains(d)) {
+        CarveState::Ready
+    } else {
+        CarveState::Waiting
+    }
+}
+
 /// Per-crate carve readiness (illegal outgoing edges block a carve) and a Tarjan
 /// SCC pass on the production target-crate graph.
-fn write_carve_analysis(s: &mut String, records: &[RefRecord]) {
+fn write_carve_analysis(s: &mut String, records: &[RefRecord], extracted: &BTreeSet<String>) {
     // Illegal outgoing edges per source crate (these block its carve).
     let mut blockers: BTreeMap<&str, BTreeMap<&str, usize>> = BTreeMap::new();
     // Production target-crate edge sets for Tarjan: the full graph, and the
@@ -875,39 +934,54 @@ fn write_carve_analysis(s: &mut String, records: &[RefRecord]) {
         }
     }
 
+    let extracted_here: Vec<&str> =
+        CARVE_ORDER.iter().map(|(_, c)| *c).filter(|c| extracted.contains(*c)).collect();
+    let extracted_line = if extracted_here.is_empty() {
+        "No carve-target crate is extracted yet.".to_string()
+    } else {
+        format!("Extracted so far: {}.", extracted_here.join(", "))
+    };
     let _ = writeln!(s, "== CARVE READINESS (frontier — legal-dependency order, lowest band first) ==");
     let _ = writeln!(s, "  READY = no illegal outgoing edge AND every crate it depends on is already");
-    let _ = writeln!(s, "  extracted. Nothing is extracted yet, so a crate whose legal dependencies are");
-    let _ = writeln!(s, "  all still in the backend reads WAITING (necessary but not sufficient), not");
-    let _ = writeln!(s, "  READY. Re-run after each carve; the frontier is the first crate below that is");
-    let _ = writeln!(s, "  READY. The base case is the lowest-band crate, which depends only on the floor.");
-    let frontier = order.first().cloned().unwrap_or_default();
+    let _ = writeln!(s, "  extracted. EXTRACTED = already carved into crates/*, detected from this run's own");
+    let _ = writeln!(s, "  scan (a crates/<dir> that resolves to a real band, not floor:<dir>) — it has left");
+    let _ = writeln!(s, "  the frontier and is shown for context, not as work. {extracted_line}");
+    let _ = writeln!(s, "  A crate with no illegal outgoing whose carve-target deps are all extracted reads");
+    let _ = writeln!(s, "  READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each");
+    let _ = writeln!(s, "  carve; the frontier is the first crate below that is READY.");
+    let frontier =
+        order.iter().find(|c| !extracted.contains(c.as_str())).cloned().unwrap_or_default();
     let frontier_illegal: usize = blockers.get(frontier.as_str()).map_or(0, |e| e.values().sum());
     if frontier_illegal == 0 {
-        let _ = writeln!(s, "  FRONTIER -> {frontier}: READY now (no illegal outgoing, floor-only deps).");
+        let _ = writeln!(s, "  FRONTIER -> {frontier}: READY now (no illegal outgoing; every crate it depends on is extracted).");
     } else {
-        let _ = writeln!(s, "  FRONTIER -> {frontier}: the base case, BLOCKED on {frontier_illegal} illegal outgoing. No crate is carvable until it clears.");
+        let _ = writeln!(s, "  FRONTIER -> {frontier}: BLOCKED on {frontier_illegal} illegal outgoing. No crate is carvable until it clears.");
     }
     let _ = writeln!(s);
     let empty: BTreeSet<String> = BTreeSet::new();
     for crate_id in &order {
-        // Deps still inside the backend at instant zero (nothing carved yet).
-        let pending = dep_pending(crate_id, &empty);
-        let dep_str = if pending.is_empty() {
+        // The crate's legal deps that are themselves carve targets (a dep on the
+        // floor or an already-extracted crate never blocks). Shown in full so the
+        // dependency structure is stable across carves; only readiness moves.
+        let deps = dep_pending(crate_id, &empty);
+        let dep_str = if deps.is_empty() {
             "floor / adapter-model only".to_string()
         } else {
-            pending.join(", ")
+            deps.join(", ")
         };
         let illegal = blockers.get(crate_id.as_str());
         let illegal_total: usize = illegal.map_or(0, |e| e.values().sum());
-        let state = if illegal_total > 0 {
-            let targets: Vec<String> =
-                illegal.map(|e| e.iter().map(|(t, n)| format!("{t}(x{n})")).collect()).unwrap_or_default();
-            format!("BLOCKED — {illegal_total} illegal outgoing to {}", targets.join(", "))
-        } else if pending.is_empty() {
-            "READY".to_string()
-        } else {
-            "WAITING — no illegal outgoing, but its deps are not extracted yet".to_string()
+        let state = match carve_state(crate_id, illegal_total, &deps, extracted) {
+            CarveState::Extracted => "EXTRACTED".to_string(),
+            CarveState::Blocked(n) => {
+                let targets: Vec<String> =
+                    illegal.map(|e| e.iter().map(|(t, c)| format!("{t}(x{c})")).collect()).unwrap_or_default();
+                format!("BLOCKED — {n} illegal outgoing to {}", targets.join(", "))
+            }
+            CarveState::Ready => "READY".to_string(),
+            CarveState::Waiting => {
+                "WAITING — no illegal outgoing, but its deps are not extracted yet".to_string()
+            }
         };
         let _ = writeln!(s, "  {crate_id:<18} deps: {dep_str:<44} {state}");
     }
@@ -1100,6 +1174,63 @@ mod tests {
 
     fn edges(lines: &[&str]) -> BTreeSet<String> {
         lines.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn an_extracted_crate_reads_extracted_not_ready() {
+        // The defect this pins: the readiness table pointing at finished work.
+        // identity is carved, so it must read EXTRACTED, never READY.
+        assert_eq!(carve_state("identity", 0, &[], &edges(&["identity"])), CarveState::Extracted);
+        // The base-case READY only holds *before* the carve, when nothing is extracted.
+        assert_eq!(carve_state("identity", 0, &[], &edges(&[])), CarveState::Ready);
+    }
+
+    #[test]
+    fn a_dep_becoming_extracted_flips_a_waiter_to_ready() {
+        let deps = vec!["identity".to_string()];
+        // workspaces waits while identity is still inside the backend...
+        assert_eq!(carve_state("workspaces", 0, &deps, &edges(&[])), CarveState::Waiting);
+        // ...and flips to READY the instant identity is extracted. This flip is the
+        // whole deliverable of the identity carve, and the table must show it.
+        assert_eq!(carve_state("workspaces", 0, &deps, &edges(&["identity"])), CarveState::Ready);
+    }
+
+    #[test]
+    fn illegal_outgoing_blocks_regardless_of_extraction() {
+        let deps = vec!["identity".to_string(), "workspaces".to_string()];
+        // An illegal edge blocks even once a dep is extracted — extraction never
+        // masks the ratchet, and the count is carried through verbatim.
+        assert_eq!(
+            carve_state("tasks", 57, &deps, &edges(&["identity"])),
+            CarveState::Blocked(57)
+        );
+    }
+
+    #[test]
+    fn extraction_signal_is_the_band_not_a_hardcoded_list() {
+        // Derived from the scan: a Floor-scope file whose source crate resolved to a
+        // real band (floor_crate_of_dir returned the band id, not floor:<dir>) is
+        // extracted; a floor:<dir> source is not. Pins the signal to the band
+        // distinction, so adding the bands arm at carve time is what flips a crate to
+        // extracted — no hand-maintained "identity is done" line.
+        let df = |source: &str| DiscoveredFile {
+            abs: PathBuf::new(),
+            rel: String::new(),
+            base_mod: Vec::new(),
+            scope: ScopeKind::Floor,
+            source_crate: source.to_string(),
+        };
+        let files = vec![
+            df(&floor_crate_of_dir("identity")), // "identity" — a real band-3 crate
+            df(&floor_crate_of_dir("events")),   // "floor:events" — the floor
+        ];
+        let extracted = extracted_crates(&files);
+        assert!(extracted.contains("identity"), "a real-band crates/* dir is extracted");
+        assert!(!extracted.contains("floor:events"), "a floor:<dir> source is not extracted");
+        assert!(
+            !extracted.iter().any(|c| c.starts_with("floor:")),
+            "no floor id ever counts as an extracted crate"
+        );
     }
 
     #[test]
