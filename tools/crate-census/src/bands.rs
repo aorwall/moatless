@@ -155,13 +155,26 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
 }
 
 /// Existing workspace crates under `crates/`. All are the floor (band 0) except
-/// `adapter-model`, which is a real band-2 crate in the target graph.
+/// `core` (band 1), `adapter-model` (band 2), and `identity` (band 3), which are
+/// real banded crates in the target graph.
 pub fn floor_crate_of_dir(dir_name: &str) -> String {
     match dir_name {
         "adapter-model" => "adapter-model".to_string(),
         // `core` is a real band-1 crate (crates/core), not the floor, so it keeps its
         // band id — like `adapter-model`, and unlike the floor `crates/*`.
         "core" => "core".to_string(),
+        // `identity` (10b) is a real band-3 crate (crates/identity), not the floor.
+        // Mapping it to `floor:identity` instead does NOT inflate the count: a
+        // `floor:` id is excluded from scoring entirely by `classify_edge`'s floor
+        // guard (model.rs), which returns before any band comparison — so no
+        // `0 <= band` arithmetic is ever reached. The real failure is worse and
+        // silent: identity would leave the census graph. Its 68 files would score as
+        // floor (excluded), and every backend `moatless_identity::` reference would
+        // hit `external_crate`'s `_ => None` (no census edge), so a whole band-3
+        // crate becomes invisible to the ratchet — its 0-in/0-out property no longer
+        // measured, a future illegal edge into or out of it never caught. Inert until
+        // crates/identity exists (the 10b move).
+        "identity" => "identity".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -181,7 +194,50 @@ pub fn external_crate(head: &str) -> Option<String> {
         "moatless_t3code" => "floor:t3code",
         "claude_agent_sdk" => "floor:claude-agent-sdk",
         "moatless_adapter_model" => "adapter-model",
+        // `moatless_identity` (10b) resolves to the band-3 identity crate, so a
+        // backend (band 4..10) reference to it scores as a downward-legal edge and
+        // identity's own downward deps stay legal. Mirrors `core`/`adapter-model`.
+        // Without this arm the head falls to `_ => None` below — "no census edge" —
+        // so every backend->identity reference is silently dropped rather than
+        // scored, the export half of identity leaving the census graph. Inert until
+        // something names `moatless_identity::` (the 10b move).
+        "moatless_identity" => "identity",
         _ => return None,
     };
     Some(id.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pins the BAND, not the arm's existence: `floor_crate_of_dir("identity")`
+    /// returning the fallthrough `floor:identity` would *pass* an "is non-empty"
+    /// check while dropping identity out of the scored graph entirely (a `floor:`
+    /// id is excluded by `classify_edge`'s floor guard, so it is never scored at
+    /// all). Assert it lands at band 3 so that silent mismodel trips the test here
+    /// rather than making a whole band-3 crate invisible in the 10b move.
+    #[test]
+    fn identity_dir_resolves_to_the_band_3_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("identity"), "identity");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("identity")),
+            3,
+            "crates/identity must be the band-3 identity crate, not floor band 0"
+        );
+        // Guard the trap explicitly: the fallthrough it must NOT take is band 0.
+        assert_eq!(band_of("floor:identity"), 0);
+    }
+
+    /// A backend reference to `moatless_identity::` must resolve to the band-3
+    /// identity crate (so it scores downward-legal), the same way `moatless_core`
+    /// and `moatless_adapter_model` resolve to their bands.
+    #[test]
+    fn moatless_identity_head_resolves_to_the_band_3_crate() {
+        assert_eq!(external_crate("moatless_identity"), Some("identity".to_string()));
+        let Some(id) = external_crate("moatless_identity") else {
+            panic!("moatless_identity must be a known external head");
+        };
+        assert_eq!(band_of(&id), 3, "moatless_identity must resolve to band-3 identity");
+    }
 }
