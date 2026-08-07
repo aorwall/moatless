@@ -31,7 +31,6 @@ use crate::auth::codex_scope::CodexScope;
 use crate::provider_settings::codex_save::save_codex_auth_for_scope;
 use crate::auth::github_scope::GitHubScope;
 use crate::credential_sync::CredentialSync;
-use crate::credentials::WriteSource;
 use moatless_core::db::DbPool;
 use crate::extractors::AuthUser;
 use moatless_core::secret_keys::GITHUB_TOKEN;
@@ -1781,23 +1780,20 @@ pub async fn poll_codex_device_login(
                 )
                 .await?;
 
-            // Broadcast the freshly-minted Codex auth.json to any running
-            // sandboxes the user owns so they pick up the new tokens without
-            // a restart.
-            if let Err(e) = credential_sync
-                .store(
-                    &auth.user_id.to_string(),
-                    "CODEX_AUTH_JSON",
+            // Push the already-persisted auth.json to the user's running
+            // sandboxes so they pick up the new tokens without a restart.
+            // Broadcast directly rather than through `store`: the row was just
+            // written above, so `store` would read it back, dedup on the
+            // identical value, and never fan out. The echo loop terminates one
+            // hop in — a sandbox echoing the push back arrives as
+            // `store(.., SandboxRotation)`, which dedups and does not
+            // re-broadcast.
+            credential_sync
+                .broadcast_codex_rotation(
+                    &CodexScope::user(auth.user_id.to_string()),
                     &serialized,
-                    WriteSource::UserUiSave,
                 )
-                .await
-            {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to broadcast Codex device-code login to running sandboxes"
-                );
-            }
+                .await;
 
             Ok(Json(CodexDeviceCodePollResponse::Success {
                 connected: true,

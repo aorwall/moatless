@@ -178,10 +178,14 @@ impl CredentialSync {
         Ok(())
     }
 
-    /// Public-facing entry point for HTTP handlers that just saved a
-    /// team / global codex blob via the DAO and want to fan the rotation out
-    /// to live sandboxes. For user-scope writes, call [`Self::store`] instead
-    /// so the standard dedup + persistence path runs.
+    /// Public-facing entry point for callers that have already persisted a
+    /// codex blob via the DAO and want to fan the rotation out to live
+    /// sandboxes — team / global saves from HTTP handlers, and user-scope
+    /// saves that wrote the row themselves. Those user-scope callers must come
+    /// here rather than [`Self::store`]: `store`'s dedup reads the just-written
+    /// value back, sees no change, and would suppress the broadcast. Call
+    /// `store` instead only when the write has not happened yet and you want
+    /// its dedup + persistence path to run.
     pub async fn broadcast_codex_rotation(&self, scope: &CodexScope, value: &str) {
         self.broadcast_to_scope(scope, None, "CODEX_AUTH_JSON", value)
             .await;
