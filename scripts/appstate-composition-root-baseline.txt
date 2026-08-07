@@ -50,7 +50,6 @@ backend/src/adapters/providers/telegram/handlers.rs
 backend/src/adapters/providers/telegram/ingress.rs
 backend/src/adapters/providers/telegram/poller.rs
 backend/src/adapters/providers/webhook/delivery.rs
-backend/src/adapters/providers/webhook/handlers.rs
 backend/src/adapters/subject_events.rs
 backend/src/agent/handlers.rs
 backend/src/agent/service.rs

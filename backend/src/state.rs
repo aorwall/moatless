@@ -696,6 +696,12 @@ impl axum::extract::FromRef<AppState> for Arc<LoopDao> {
     }
 }
 
+impl axum::extract::FromRef<AppState> for Arc<AdapterDeliveryStore> {
+    fn from_ref(state: &AppState) -> Self {
+        state.adapter_delivery.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<dyn MessageDao> {
     fn from_ref(state: &AppState) -> Self {
         state.messages.clone()

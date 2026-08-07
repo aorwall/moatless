@@ -1,13 +1,16 @@
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use tracing::{debug, info};
 
+use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::error::AdapterError;
 use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
 use crate::adapters::ingress::admit_delivery;
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
 
 use super::adapter::{WebhookAccepted, WebhookAdapter};
 use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
@@ -36,15 +39,15 @@ use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};
     ))
 )]
 pub async fn webhook_inbound(
-    State(state): State<AppState>,
+    State(loops): State<Arc<LoopDao>>,
+    State(adapter_delivery): State<Arc<AdapterDeliveryStore>>,
     Path(loop_id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<WebhookAccepted>, AdapterError> {
     info!(loop_id = %loop_id, "Webhook inbound received");
 
-    let subscription = state
-        .loops
+    let subscription = loops
         .find_runnable_subscription_by_id(&loop_id)
         .await?
         .ok_or_else(|| AdapterError::ConfigNotFound(loop_id.clone()))?;
@@ -96,7 +99,7 @@ pub async fn webhook_inbound(
     // `AdmitError` is flattened here, by the same `From` impl that used to do it
     // inside the admitting helper. Giving it the shared vocabulary means giving
     // it an ingress module, which is stage 10's job, not this one's.
-    let admission = admit_delivery(&state.adapter_delivery, request).await?;
+    let admission = admit_delivery(&adapter_delivery, request).await?;
 
     debug!(
         loop_id = %loop_id,
