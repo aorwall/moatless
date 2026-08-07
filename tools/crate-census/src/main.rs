@@ -29,7 +29,7 @@ mod model;
 mod resolve;
 mod scan;
 
-use bands::{crate_of_backend_mod, external_crate, floor_crate_of_dir, CrateAssignment, ScopeKind, CENSUS_ROOTS};
+use bands::{band_of, crate_of_backend_mod, external_crate, floor_crate_of_dir, CrateAssignment, ScopeKind, CENSUS_ROOTS};
 use model::{ModPath, RefClass, RefRecord, Resolution, Tree};
 use resolve::resolve_backend;
 use scan::{FileVisitor, MacroDef};
@@ -104,8 +104,16 @@ fn main() {
     let files_count = files.len();
     let membership = build_membership(&files);
     let extracted = extracted_crates(&files);
-    let report =
-        build_report(&records, &macro_defs, files_count, &parse_failures, &membership, &extracted);
+    let unbanded = carved_but_unbanded(&files);
+    let report = build_report(
+        &records,
+        &macro_defs,
+        files_count,
+        &parse_failures,
+        &membership,
+        &extracted,
+        &unbanded,
+    );
 
     let out_dir = repo_root.join("scripts");
     let baseline_path = out_dir.join("crate-census-baseline.txt");
@@ -594,6 +602,32 @@ fn extracted_crates(files: &[DiscoveredFile]) -> BTreeSet<String> {
         .collect()
 }
 
+/// Crate dirs physically extracted under `crates/<dir>` whose `<dir>` names a real
+/// carve-target band (`band_of` in `1..=10`) but which still resolved to
+/// `floor:<dir>` — the `bands.rs` `floor_crate_of_dir` arm was never added (the
+/// #385-style precursor step was skipped). Such a crate scores as the floor:
+/// excluded from every band comparison, so its 0-in/0-out property stops being
+/// measured and a future illegal edge into or out of it is never caught — a whole
+/// carved crate silently absent from the ratchet. The extraction signal reads its
+/// files as floor (they never appear in `extracted_crates`), so nothing else
+/// surfaces the omission; this row does.
+///
+/// `band_of` returns 0 for any `floor:`-prefixed id (its floor guard fires before
+/// the match), so the prefix is stripped BEFORE the lookup — otherwise every floor
+/// crate would read band 0 and this guard could never fire. The real floor crates
+/// (`floor:events`, `floor:api-schemas`, …) name nothing in `1..=10`, so they do
+/// not trip it: zero false positives until a target-band crate is carved without
+/// its arm. The names it returns are the stripped dir names, ready to print.
+fn carved_but_unbanded(files: &[DiscoveredFile]) -> BTreeSet<String> {
+    files
+        .iter()
+        .filter(|f| matches!(f.scope, ScopeKind::Floor | ScopeKind::FloorTest))
+        .filter_map(|f| f.source_crate.strip_prefix("floor:"))
+        .filter(|name| (1..=10).contains(&band_of(name)))
+        .map(str::to_string)
+        .collect()
+}
+
 /// The display name for a file's owning module, shown at the depth that decides its
 /// crate: one path segment normally, but `sandbox/*` and non-provider `adapters/*`
 /// split on the second and `adapters/providers/*` on the third, so they are shown at
@@ -649,6 +683,7 @@ fn build_report(
     parse_failures: &[PathBuf],
     membership: &Membership,
     extracted: &BTreeSet<String>,
+    unbanded: &BTreeSet<String>,
 ) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "CRATE-CENSUS REPORT");
@@ -789,6 +824,29 @@ fn build_report(
         let _ = writeln!(s, "  [{reason}] x{}", sites.len());
         for site in sites {
             let _ = writeln!(s, "{site}");
+        }
+    }
+    let _ = writeln!(s);
+
+    // Carved-but-unbanded backstop: a crates/<dir> whose name is a real band but
+    // whose floor_crate_of_dir arm was never added (see `carved_but_unbanded`).
+    // Printed always so its absence is itself the healthy state; a row here is a
+    // bands.rs omission, not a --check failure by itself (though it silently
+    // undercounts the ratchet, which is why it is surfaced loudly).
+    let _ = writeln!(
+        s,
+        "== CARVED BUT UNBANDED (crates/<dir> names a real band but floor_crate_of_dir maps it to floor:<dir>) — {} ==",
+        unbanded.len()
+    );
+    if unbanded.is_empty() {
+        let _ = writeln!(s, "  none — every extracted crates/<dir> that names a real band has its bands.rs arm.");
+    } else {
+        for name in unbanded {
+            let _ = writeln!(
+                s,
+                "  {name}: band {} but scores as floor:{name} — add a floor_crate_of_dir(\"{name}\") arm in bands.rs.",
+                band_of(name)
+            );
         }
     }
     let _ = writeln!(s);
@@ -1231,6 +1289,55 @@ mod tests {
             !extracted.iter().any(|c| c.starts_with("floor:")),
             "no floor id ever counts as an extracted crate"
         );
+    }
+
+    #[test]
+    fn carved_but_unbanded_fires_on_a_target_band_dir_that_still_scores_as_floor() {
+        let df = |source: &str| DiscoveredFile {
+            abs: PathBuf::new(),
+            rel: String::new(),
+            base_mod: Vec::new(),
+            scope: ScopeKind::Floor,
+            source_crate: source.to_string(),
+        };
+        // Synthetic omission: crates/tasks exists but nobody added a
+        // floor_crate_of_dir("tasks") arm, so its files resolve to floor:tasks even
+        // though `tasks` is band 5. The guard MUST fire and name it. Constructed via
+        // floor_crate_of_dir so the day someone DOES add the arm, source_crate becomes
+        // "tasks", this stops being a floor: id, and the test breaks loudly rather than
+        // asserting a stale string.
+        let missing = floor_crate_of_dir("tasks");
+        assert_eq!(missing, "floor:tasks", "the omission this test simulates: no bands arm yet");
+        let files = vec![
+            df(&missing),                        // floor:tasks — band 5, unbanded: FIRES
+            df(&floor_crate_of_dir("events")),   // floor:events — a real floor crate
+            df(&floor_crate_of_dir("identity")), // "identity" — properly banded, extracted
+        ];
+        let unbanded = carved_but_unbanded(&files);
+        assert!(unbanded.contains("tasks"), "a target-band dir scoring as floor must be surfaced");
+        assert!(!unbanded.contains("events"), "a genuine floor crate (band 50) must not fire");
+        assert!(
+            !unbanded.iter().any(|n| n == "identity"),
+            "a properly-banded extracted crate is not floor:-prefixed, so it never reaches the guard"
+        );
+        assert_eq!(unbanded.len(), 1, "exactly the one omission, no false positives");
+    }
+
+    #[test]
+    fn carved_but_unbanded_is_empty_on_todays_tree_shape() {
+        // The floor crates that exist today all name bands outside 1..=10 (band 50),
+        // so the guard is silent until a real target-band crate is carved without its
+        // arm. This pins the zero-false-positive property.
+        let df = |source: &str| DiscoveredFile {
+            abs: PathBuf::new(),
+            rel: String::new(),
+            base_mod: Vec::new(),
+            scope: ScopeKind::Floor,
+            source_crate: source.to_string(),
+        };
+        let floors = ["events", "backend-core", "api-schemas", "sandbox-proto", "cli", "api-client"];
+        let files: Vec<_> = floors.iter().map(|d| df(&floor_crate_of_dir(d))).collect();
+        assert!(carved_but_unbanded(&files).is_empty(), "no real floor crate names a target band");
     }
 
     #[test]

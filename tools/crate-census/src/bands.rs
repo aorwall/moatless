@@ -175,6 +175,16 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // measured, a future illegal edge into or out of it never caught. Inert until
         // crates/identity exists (the 10b move).
         "identity" => "identity".to_string(),
+        // `workspaces` (10c) is a real band-4 crate (crates/workspaces), not the
+        // floor. Same reasoning as `identity` above: mapping it to `floor:workspaces`
+        // would drop a whole band-4 crate out of the scored graph — its files score as
+        // floor (excluded), every backend `moatless_workspaces::` reference misses
+        // `external_crate` (no census edge), and its 0-out property stops being
+        // measured. Inert until crates/workspaces exists (the 10c move). The
+        // carved-but-unbanded guard in main.rs is the backstop for the day this arm is
+        // forgotten: it fires the instant a crates/<dir> whose name is a real band
+        // still resolves to `floor:<dir>`.
+        "workspaces" => "workspaces".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -202,6 +212,14 @@ pub fn external_crate(head: &str) -> Option<String> {
         // scored, the export half of identity leaving the census graph. Inert until
         // something names `moatless_identity::` (the 10b move).
         "moatless_identity" => "identity",
+        // `moatless_workspaces` (10c) resolves to the band-4 workspaces crate, so a
+        // backend (band 5..10) reference to it scores as a downward-legal edge and
+        // workspaces' own downward deps (identity, core) stay legal. Mirrors
+        // `moatless_identity`. Without this arm the head falls to `_ => None` — "no
+        // census edge" — and every backend->workspaces reference is silently dropped
+        // rather than scored, the export half of workspaces leaving the census graph.
+        // Inert until something names `moatless_workspaces::` (the 10c move).
+        "moatless_workspaces" => "workspaces",
         _ => return None,
     };
     Some(id.to_string())
@@ -239,5 +257,32 @@ mod tests {
             panic!("moatless_identity must be a known external head");
         };
         assert_eq!(band_of(&id), 3, "moatless_identity must resolve to band-3 identity");
+    }
+
+    /// The 10c analogue of the identity band-pin: `crates/workspaces` must resolve to
+    /// the band-4 workspaces crate, not the `floor:workspaces` fallthrough (band 0,
+    /// excluded from scoring). Asserting the band, not just non-emptiness, is what
+    /// makes the fallthrough a test failure rather than a silent whole-crate drop.
+    #[test]
+    fn workspaces_dir_resolves_to_the_band_4_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("workspaces"), "workspaces");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("workspaces")),
+            4,
+            "crates/workspaces must be the band-4 workspaces crate, not floor band 0"
+        );
+        // The trap it must NOT take is band 0.
+        assert_eq!(band_of("floor:workspaces"), 0);
+    }
+
+    /// A backend reference to `moatless_workspaces::` must resolve to the band-4
+    /// workspaces crate (so it scores downward-legal), mirroring `moatless_identity`.
+    #[test]
+    fn moatless_workspaces_head_resolves_to_the_band_4_crate() {
+        assert_eq!(external_crate("moatless_workspaces"), Some("workspaces".to_string()));
+        let Some(id) = external_crate("moatless_workspaces") else {
+            panic!("moatless_workspaces must be a known external head");
+        };
+        assert_eq!(band_of(&id), 4, "moatless_workspaces must resolve to band-4 workspaces");
     }
 }

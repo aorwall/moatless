@@ -305,6 +305,9 @@ tasks -> server   x8
     test:backend :: GitHubAppRegistry::new   (backend/tests/integration/github_app_registration_test.rs:78)
     test:backend :: LocalEnvelopeSecretCipher::from_config   (backend/tests/integration/github_app_registration_test.rs:69)
 
+== CARVED BUT UNBANDED (crates/<dir> names a real band but floor_crate_of_dir maps it to floor:<dir>) — 0 ==
+  none — every extracted crates/<dir> that names a real band has its bands.rs arm.
+
 == CARVE READINESS (frontier — legal-dependency order, lowest band first) ==
   READY = no illegal outgoing edge AND every crate it depends on is already
   extracted. EXTRACTED = already carved into crates/*, detected from this run's own
