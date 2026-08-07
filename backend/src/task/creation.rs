@@ -33,9 +33,6 @@ use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 use moatless_core::events::EventPublisher;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::models::Repository;
-use crate::sandbox::preflight::{
-    preflight_validate_github_token, GithubValidator, PreflightCredentials, PreflightError,
-};
 use moatless_core::shared_models::{AgentMode, AgentType};
 use moatless_core::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
@@ -47,32 +44,24 @@ use crate::task::relations::{
 use crate::task::schemas::MessageContextInput;
 
 /// Preflight seam: GitHub-token validation before a sandbox is provisioned.
-/// Wired once in state assembly ([`RealPreflight`]) so every creation path gets
-/// the same check for free; mocked in unit tests.
+/// Wired once in state assembly (`RealPreflight`, in `sandbox::preflight`) so
+/// every creation path gets the same check for free; mocked in unit tests.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait PreflightPort: Send + Sync {
-    async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightError>;
+    async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightRejection>;
 }
 
-/// Production preflight — holds exactly the credential handles
-/// `preflight_validate_github_token` consumes plus the network validator seam.
-pub struct RealPreflight {
-    creds: PreflightCredentials,
-    validator: Arc<dyn GithubValidator>,
-}
-
-impl RealPreflight {
-    pub fn new(creds: PreflightCredentials, validator: Arc<dyn GithubValidator>) -> Self {
-        Self { creds, validator }
-    }
-}
-
-#[async_trait]
-impl PreflightPort for RealPreflight {
-    async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightError> {
-        preflight_validate_github_token(&self.creds, task, repo, self.validator.as_ref()).await
-    }
+/// Band-clean preflight failure returned by [`PreflightPort`]. The
+/// sandbox-control implementation pre-computes both strings from its rich
+/// `PreflightError` so the tasks band names no preflight-credential type:
+/// `user_message` drives the 403 body + `sandbox.error` event, `detail` is the
+/// underlying failure's `Display` for the log + event detail field.
+#[derive(Debug, thiserror::Error)]
+#[error("{detail}")]
+pub struct PreflightRejection {
+    pub user_message: String,
+    pub detail: String,
 }
 
 /// Normalised task-creation input. Every call path (HTTP handler, loops,
@@ -314,13 +303,12 @@ impl TaskCreationService {
         // sandbox error event (the `start_task` pattern) so the task surfaces as
         // errored rather than silently proceeding; then surface the typed error.
         if let Err(e) = self.preflight.validate(&row, &repo).await {
-            let msg = e.user_message();
             tracing::warn!(task_id = %task_id, error = %e, "Task creation preflight failed");
             row.status = TaskStatus::Error;
             self.tasks.insert_task(&row).await?;
-            self.publish_sandbox_error(&task_id, &msg, &e.to_string(), "preflight_failed")
+            self.publish_sandbox_error(&task_id, &e.user_message, &e.detail, "preflight_failed")
                 .await;
-            return Err(TaskCreationError::Preflight(msg));
+            return Err(TaskCreationError::Preflight(e.user_message));
         }
 
         // `insert_task` resolves the repository's shadow workspace when the
@@ -696,8 +684,9 @@ mod tests {
 
         let mut preflight = MockPreflightPort::new();
         preflight.expect_validate().returning(|_, _| {
-            Err(PreflightError::NoGithubToken {
-                user_id: "u".into(),
+            Err(PreflightRejection {
+                user_message: "GitHub access is not configured for this repository scope.".into(),
+                detail: "GitHub account not connected for user u".into(),
             })
         });
 

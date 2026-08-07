@@ -3,7 +3,7 @@ files parsed: 664
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3829  illegal  115
+CODE       legal  3839  illegal  107
 ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           53  (intra-doc paths — never a Cargo edge, never illegal)
@@ -31,10 +31,10 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (5 files, 45 lines)
     credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
-  tasks  (75 files, 19910 lines)
+  tasks  (75 files, 19898 lines)
     agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
-  sandbox-control  (43 files, 18765 lines)
+  sandbox-control  (43 files, 18794 lines)
     sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs
 
   sandbox-k8s  (23 files, 13567 lines)
@@ -70,7 +70,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 113726 lines
+  TOTAL backend/src: 113743 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (17 classes) ==
 
@@ -225,18 +225,10 @@ tasks -> loops   x8
     backend/src/task/presenter.rs:23  [CODE] crate::loops::dao::LoopDao   -> [8c-port — tasks/message -> loops]
     backend/src/task/reaper.rs:26  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
 
-tasks -> sandbox-control   x25
-    backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::ANTHROPIC_API_KEY   -> [sandbox::secrets placement -> core (like 8e)]
-    backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::CLAUDE_CODE_OAUTH_TOKEN   -> [sandbox::secrets placement -> core (like 8e)]
-    backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::CODEX_AUTH_JSON   -> [sandbox::secrets placement -> core (like 8e)]
-    backend/src/agent/catalog.rs:6  [CODE] crate::sandbox::secrets::OPENAI_API_KEY   -> [sandbox::secrets placement -> core (like 8e)]
+tasks -> sandbox-control   x17
     backend/src/task/closer.rs:26  [CODE] crate::sandbox::lifecycle::ArchiveRetention   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/closer.rs:26  [CODE] crate::sandbox::lifecycle::Lifecycle   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/closer.rs:72  [CODE] ArchiveRetention::on_close   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::GithubValidator   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::PreflightCredentials   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::PreflightError   -> [10d — invert task -> sandbox concretes to ports]
-    backend/src/task/creation.rs:37  [CODE] crate::sandbox::preflight::preflight_validate_github_token   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/dao.rs:11  [CODE] crate::sandbox::lifecycle::dao::load_sandbox_intent_views   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/error.rs:33  [CODE] crate::sandbox::lifecycle::LifecycleError   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/error.rs:34  [CODE] crate::sandbox::lifecycle::LifecycleError   -> [10d — invert task -> sandbox concretes to ports]
@@ -291,11 +283,11 @@ tasks -> server   x1
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> tasks: BLOCKED on 34 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> tasks: BLOCKED on 26 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
-  tasks              deps: identity, workspaces                         BLOCKED — 34 illegal outgoing to loops(x8), sandbox-control(x25), server(x1)
+  tasks              deps: identity, workspaces                         BLOCKED — 26 illegal outgoing to loops(x8), sandbox-control(x17), server(x1)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
   sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)

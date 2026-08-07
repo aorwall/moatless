@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 147
+# Illegal edge count: 139
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -126,17 +126,9 @@ tasks                  -> loops                [CODE] backend/src/task/handlers.
 tasks                  -> loops                [CODE] backend/src/task/presenter.rs:21  crate::bindings::dao::TaskBindingDao
 tasks                  -> loops                [CODE] backend/src/task/presenter.rs:23  crate::loops::dao::LoopDao
 tasks                  -> loops                [CODE] backend/src/task/reaper.rs:26  crate::bindings::dao::TaskBindingDao
-tasks                  -> sandbox-control      [CODE] backend/src/agent/catalog.rs:6  crate::sandbox::secrets::ANTHROPIC_API_KEY
-tasks                  -> sandbox-control      [CODE] backend/src/agent/catalog.rs:6  crate::sandbox::secrets::CLAUDE_CODE_OAUTH_TOKEN
-tasks                  -> sandbox-control      [CODE] backend/src/agent/catalog.rs:6  crate::sandbox::secrets::CODEX_AUTH_JSON
-tasks                  -> sandbox-control      [CODE] backend/src/agent/catalog.rs:6  crate::sandbox::secrets::OPENAI_API_KEY
 tasks                  -> sandbox-control      [CODE] backend/src/task/closer.rs:26  crate::sandbox::lifecycle::ArchiveRetention
 tasks                  -> sandbox-control      [CODE] backend/src/task/closer.rs:26  crate::sandbox::lifecycle::Lifecycle
 tasks                  -> sandbox-control      [CODE] backend/src/task/closer.rs:72  ArchiveRetention::on_close
-tasks                  -> sandbox-control      [CODE] backend/src/task/creation.rs:37  crate::sandbox::preflight::GithubValidator
-tasks                  -> sandbox-control      [CODE] backend/src/task/creation.rs:37  crate::sandbox::preflight::PreflightCredentials
-tasks                  -> sandbox-control      [CODE] backend/src/task/creation.rs:37  crate::sandbox::preflight::PreflightError
-tasks                  -> sandbox-control      [CODE] backend/src/task/creation.rs:37  crate::sandbox::preflight::preflight_validate_github_token
 tasks                  -> sandbox-control      [CODE] backend/src/task/dao.rs:11  crate::sandbox::lifecycle::dao::load_sandbox_intent_views
 tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:33  crate::sandbox::lifecycle::LifecycleError
 tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:34  crate::sandbox::lifecycle::LifecycleError

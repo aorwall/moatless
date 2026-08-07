@@ -853,7 +853,6 @@ pub async fn start_task(
         .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
 
     if let Err(e) = preflight.validate(&row, &repo).await {
-        let msg = e.user_message();
         tracing::warn!(task_id = %task_id, error = %e, "Start preflight failed");
         if let Err(db_err) = tasks
             .update_task(
@@ -878,15 +877,15 @@ pub async fn start_task(
                     &task_id,
                     SandboxStatus::Error,
                     &SandboxEventPayload {
-                        message: msg.clone(),
-                        error: Some(e.to_string()),
+                        message: e.user_message.clone(),
+                        error: Some(e.detail.clone()),
                         lifecycle_event: Some("preflight_failed".to_string()),
                         ..Default::default()
                     },
                 )
                 .await;
         }
-        return Err(TaskError::BadRequest(msg));
+        return Err(TaskError::BadRequest(e.user_message));
     }
 
     // Best-effort: if the repo ships a `.moatless/` directory, reconcile its

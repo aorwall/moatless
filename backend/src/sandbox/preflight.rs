@@ -32,6 +32,7 @@ use crate::repository::access::parse_github_owner_repo;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider};
 use crate::sandbox::secrets::{resolve_task_github_token, TaskCredentialInputs};
 use crate::secret::service::SecretService;
+use crate::task::creation::{PreflightPort, PreflightRejection};
 use crate::task::models::Task;
 
 /// The exact set of credential-resolution dependencies the GitHub preflight
@@ -104,6 +105,36 @@ impl GithubValidator for RealGithubValidator {
         moatless_core::github_client::check_github_repo_access(token, owner, repo)
             .await
             .map_err(|e| e.to_string())
+    }
+}
+
+/// Production preflight — holds exactly the credential handles
+/// `preflight_validate_github_token` consumes plus the network validator seam.
+///
+/// Lives here (sandbox-control) rather than the tasks band so the tasks-band
+/// [`PreflightPort`] names no credential or validator type. It maps the rich
+/// [`PreflightError`] down to the band-clean [`PreflightRejection`] at the seam,
+/// pre-computing the user-facing message and detail the caller needs.
+pub struct RealPreflight {
+    creds: PreflightCredentials,
+    validator: Arc<dyn GithubValidator>,
+}
+
+impl RealPreflight {
+    pub fn new(creds: PreflightCredentials, validator: Arc<dyn GithubValidator>) -> Self {
+        Self { creds, validator }
+    }
+}
+
+#[async_trait]
+impl PreflightPort for RealPreflight {
+    async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightRejection> {
+        preflight_validate_github_token(&self.creds, task, repo, self.validator.as_ref())
+            .await
+            .map_err(|e| PreflightRejection {
+                user_message: e.user_message(),
+                detail: e.to_string(),
+            })
     }
 }
 

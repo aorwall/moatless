@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use moatless_core::secret_keys::GITHUB_TOKEN;
+use moatless_core::secret_keys::{
+    ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, OPENAI_API_KEY,
+};
 use tracing::warn;
 
 use crate::auth::github::registry::GitHubAppRegistry;
@@ -21,10 +23,6 @@ use crate::task::dao::TaskDao;
 
 pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
 pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
-pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
-pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";
-pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
-pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 pub const GIT_USER_NAME: &str = "GIT_USER_NAME";
 pub const GIT_USER_EMAIL: &str = "GIT_USER_EMAIL";
 

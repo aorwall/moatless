@@ -2,7 +2,7 @@
 //!
 //! Adding a new agent is a single-file change: append an entry to [`catalog`].
 
-use crate::sandbox::secrets::{
+use moatless_core::secret_keys::{
     ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, OPENAI_API_KEY,
 };
 
