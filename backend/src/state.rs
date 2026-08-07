@@ -796,6 +796,12 @@ impl axum::extract::FromRef<AppState> for Arc<MessageSendService> {
     }
 }
 
+impl axum::extract::FromRef<AppState> for Arc<dyn crate::task::sandbox_waker::SandboxWaker> {
+    fn from_ref(state: &AppState) -> Self {
+        state.sandbox_waker.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<TaskPresenter> {
     fn from_ref(state: &AppState) -> Self {
         state.task_presenter.clone()

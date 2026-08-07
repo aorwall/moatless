@@ -54,8 +54,5 @@ backend/src/bindings/runtime.rs
 backend/src/event_handler/agent_handlers.rs
 backend/src/event_handler/consumer.rs
 backend/src/event_handler/mod.rs
-backend/src/message/handlers.rs
-backend/src/message/hooks.rs
-backend/src/message/service.rs
 backend/src/sandbox/notify.rs
 backend/src/t3code/backend.rs

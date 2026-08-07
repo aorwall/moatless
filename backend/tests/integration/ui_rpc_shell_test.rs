@@ -1487,7 +1487,9 @@ async fn a_user_message_clears_settle_for_all_followers_and_snooze_only_for_send
     let state = test_app_state(pool.clone());
     let sender_scope = viewer("user-1");
     message_service::send_user_message(
-        &state,
+        state.tasks.as_ref(),
+        state.message_send.as_ref(),
+        state.sandbox_waker.as_ref(),
         &message_service::Sender {
             user_id: "user-1",
             scope: &sender_scope,

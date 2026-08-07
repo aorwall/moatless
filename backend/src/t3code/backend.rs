@@ -523,7 +523,9 @@ impl ThreadCommandSink for AppStateCommands {
         };
 
         message_service::send_user_message(
-            &self.0,
+            self.0.tasks.as_ref(),
+            self.0.message_send.as_ref(),
+            self.0.sandbox_waker.as_ref(),
             &Self::sender(viewer),
             &turn.task_id,
             message_service::UserMessage {
@@ -753,7 +755,9 @@ impl ThreadCommandSink for AppStateCommands {
         answer: QuestionAnswer,
     ) -> Result<(), CommandRefusal> {
         message_service::send_user_message(
-            &self.0,
+            self.0.tasks.as_ref(),
+            self.0.message_send.as_ref(),
+            self.0.sandbox_waker.as_ref(),
             &Self::sender(viewer),
             &answer.task_id,
             message_service::UserMessage {

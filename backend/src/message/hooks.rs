@@ -2,9 +2,11 @@
 //!
 //! Message-domain work only: walk the persisted `tool_result` blocks, resolve
 //! the tool call each result belongs to, unwrap the agent harness's shell
-//! wrapper, normalize line continuations — then hand the resulting command line
-//! and its output to the GitHub adapter's shell reconciler, which owns every
-//! GitHub-specific behaviour (the GitHub PR status/reaction design).
+//! wrapper, normalize line continuations — and return the resulting command
+//! lines and their output as targets. Dispatching those targets to the GitHub
+//! adapter's shell reconciler (which owns every GitHub-specific behaviour — the
+//! GitHub PR status/reaction design) is the server-band caller's job: that
+//! `tasks -> adapter` step lives at the call site, not in this hook.
 //!
 //! Also hosts the derived, UI-only `message.upsert` / `subagentProgress`
 //! assembly (server-owned assembly and skeleton-message model).
@@ -19,34 +21,46 @@ use tracing::{debug, warn};
 
 use super::models::MessageType;
 use super::schemas::{SubagentStatus, UiMessage};
-use crate::adapters::github_pr::shell_reconcile::reconcile_shell_command;
 use moatless_core::events::EventPublisher;
 use crate::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
-use crate::state::AppState;
 
-/// Inspect the just-persisted message for shell tool calls and hand each one
-/// to the GitHub reconciler. Errors are logged and swallowed — the event
-/// handler loop is fire-and-forget.
+/// One shell tool call resolved from a persisted message, ready to hand to the
+/// GitHub reconciler: the command line (wrapper stripped, continuations joined)
+/// and its result text, keyed by the `tool_use_id` the gh claim is recorded
+/// against.
+pub(crate) struct ShellReconcileTarget {
+    pub tool_use_id: String,
+    pub cmd: String,
+    pub result_text: String,
+}
+
+/// Resolve every shell tool call in the just-persisted message to the command
+/// line and result the GitHub reconciler needs. This is the message-domain half
+/// and stays in the tasks band: walk the `tool_result` blocks, resolve each to
+/// its `tool_use` call, unwrap the agent harness's shell wrapper, normalize line
+/// continuations. Dispatching the targets to the adapter is the (server-band)
+/// caller's job — it owns the `tasks -> adapter` direction, so the parse and the
+/// dispatch live on opposite sides of that band edge.
 ///
-/// `_message_uuid` is the uuid of the Message the result arrived on, which is
-/// not rendered and writes no row of its own. The gh side effects record what
-/// they created on the *call* instead — see `reconcile_shell_command`. The
-/// argument is kept for symmetry with sibling persistence hooks.
-pub async fn on_agent_message_persisted(
-    state: &AppState,
+/// `message_type` gates the walk to system-role messages (SDK "user" role),
+/// where tool results land. Lookups that fail are logged and skipped — the
+/// event-handler loop is fire-and-forget.
+pub(crate) async fn extract_shell_reconcile_targets(
+    messages: &Arc<dyn MessageDao>,
     task_id: &str,
-    _message_uuid: &str,
     message_type: MessageType,
     content: &serde_json::Value,
-) {
+) -> Vec<ShellReconcileTarget> {
+    let mut targets = Vec::new();
+
     // Tool results land on system-role messages (SDK "user" role).
     if message_type != MessageType::System {
-        return;
+        return targets;
     }
 
     let Some(blocks) = content.as_array() else {
-        return;
+        return targets;
     };
 
     for block in blocks {
@@ -57,7 +71,7 @@ pub async fn on_agent_message_persisted(
             continue;
         };
 
-        let tool_call = match state.messages.find_tool_call(task_id, tool_use_id).await {
+        let tool_call = match messages.find_tool_call(task_id, tool_use_id).await {
             Ok(Some(c)) => c,
             Ok(None) => {
                 debug!(task_id, tool_use_id, "tool_use not found for tool_result");
@@ -91,15 +105,20 @@ pub async fn on_agent_message_persisted(
         // the reconciler's whitespace tokenizers — join them before handing
         // the command over.
         let cmd = normalize_line_continuations(cmd);
-        let cmd = cmd.as_ref();
 
         let result_text = block.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
         // The claim is recorded on the call, not on the Message it was made
         // from: a turn that only ran the command said nothing and wrote no
         // Message row for the claim to land on.
-        reconcile_shell_command(state, task_id, tool_use_id, cmd, result_text).await;
+        targets.push(ShellReconcileTarget {
+            tool_use_id: tool_use_id.to_string(),
+            cmd: cmd.into_owned(),
+            result_text: result_text.to_string(),
+        });
     }
+
+    targets
 }
 
 // =============================================================================
@@ -111,15 +130,7 @@ pub async fn on_agent_message_persisted(
 /// (`GET /messages`) and the live top-level emit so the collapsed `Agent` card
 /// has a single source of truth. Fire-and-forget: an aggregate failure leaves
 /// the summaries absent (the card falls back to whatever it last had).
-pub(crate) async fn hydrate_subagent_summaries(
-    state: &AppState,
-    task_id: &str,
-    messages: &mut [UiMessage],
-) {
-    hydrate_subagent_summaries_from_dao(&state.messages, task_id, messages).await;
-}
-
-async fn hydrate_subagent_summaries_from_dao(
+pub(crate) async fn hydrate_subagent_summaries_from_dao(
     message_dao: &Arc<dyn MessageDao>,
     task_id: &str,
     messages: &mut [UiMessage],
@@ -156,19 +167,9 @@ async fn hydrate_subagent_summaries_from_dao(
 /// `UiMessage`. UI-only — the event-handler consumer gates `message.*` out of
 /// `task_events`, and the SSE consumer relays it to clients. Fire-and-forget:
 /// assembly failures are logged and the read path hydrates on next open.
-pub async fn emit_message_upsert(state: &AppState, task_id: &str, message_uuid: &str) {
-    emit_message_upsert_from_daos(
-        state.events.as_ref(),
-        &state.messages,
-        Some(&state.files),
-        task_id,
-        message_uuid,
-    )
-    .await;
-}
-
-/// DAO-based form of [`emit_message_upsert`] for infrastructure paths that do
-/// not own a full [`AppState`] but still mutate UI-visible message fields.
+///
+/// Named over its ports (event publisher + message/file DAOs) rather than a full
+/// `AppState` so the server-band caller passes exactly the ports it holds.
 pub async fn emit_message_upsert_from_daos(
     events: Option<&Arc<dyn EventPublisher>>,
     message_dao: &Arc<dyn MessageDao>,
@@ -254,13 +255,17 @@ pub async fn emit_message_upsert_from_daos(
 /// Emitted instead of a parent `message.upsert` when a subagent row is
 /// persisted, so the collapsed `Agent` card's count/tokens stay live without
 /// ever streaming subagent transcript content. Fire-and-forget.
-pub async fn emit_subagent_progress(state: &AppState, task_id: &str, tool_use_id: &str) {
-    let Some(events) = state.events.as_ref() else {
+pub async fn emit_subagent_progress(
+    events: Option<&Arc<dyn EventPublisher>>,
+    messages: &Arc<dyn MessageDao>,
+    task_id: &str,
+    tool_use_id: &str,
+) {
+    let Some(events) = events else {
         return;
     };
 
-    let aggregates = match state
-        .messages
+    let aggregates = match messages
         .get_subagent_aggregates(task_id, std::slice::from_ref(&tool_use_id.to_string()))
         .await
     {
@@ -279,7 +284,7 @@ pub async fn emit_subagent_progress(state: &AppState, task_id: &str, tool_use_id
 
     // Status: the one shared rule keyed on the outer `Agent` tool_result, so the
     // live path can't drift from the read path's `inject_subagent_summaries`.
-    let status = match state.messages.find_tool_call(task_id, tool_use_id).await {
+    let status = match messages.find_tool_call(task_id, tool_use_id).await {
         Ok(Some(call)) => {
             let present = call.result_content.is_some() || call.is_error.is_some();
             SubagentStatus::from_outer_result(present, call.is_error == Some(true))

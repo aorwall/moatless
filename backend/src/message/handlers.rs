@@ -1,11 +1,17 @@
 //! Message HTTP handlers.
 
+use std::sync::Arc;
+
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
 
 use crate::extractors::AuthUser;
-use crate::state::AppState;
+use crate::file_storage::dao::FileDao;
+use crate::message::dao::MessageDao;
+use crate::message::send::MessageSendService;
+use crate::task::dao::TaskDao;
+use crate::task::sandbox_waker::SandboxWaker;
 
 use super::error::MessageError;
 use super::schemas::*;
@@ -28,7 +34,9 @@ use super::transform;
     )
 )]
 pub async fn send_message(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(message_send): State<Arc<MessageSendService>>,
+    State(sandbox_waker): State<Arc<dyn SandboxWaker>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Json(req): Json<SendMessageRequest>,
@@ -45,7 +53,9 @@ pub async fn send_message(
 
     let user_id = auth.user_id.to_string();
     let message_uuid = service::send_user_message(
-        &state,
+        tasks.as_ref(),
+        message_send.as_ref(),
+        sandbox_waker.as_ref(),
         &service::Sender {
             user_id: &user_id,
             scope: &auth.scope_context(),
@@ -123,20 +133,21 @@ pub struct GetMessagesQuery {
     )
 )]
 pub async fn get_messages(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(message_dao): State<Arc<dyn MessageDao>>,
+    State(files): State<Arc<dyn FileDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
     Query(query): Query<GetMessagesQuery>,
 ) -> Result<Json<GetMessagesResponse>, MessageError> {
-    ensure_task_read_access(&state, &auth, &task_id).await?;
+    ensure_task_read_access(tasks.as_ref(), &auth, &task_id).await?;
 
     let limit = query
         .limit
         .unwrap_or(DEFAULT_MESSAGE_LIMIT)
         .clamp(1, MAX_MESSAGE_LIMIT);
 
-    let (messages, contexts, blocks) = state
-        .messages
+    let (messages, contexts, blocks) = message_dao
         .get_paginated(&task_id, query.before_id, limit)
         .await?;
 
@@ -161,8 +172,7 @@ pub async fn get_messages(
     let file_metadata = if legacy_file_ids.is_empty() {
         std::collections::HashMap::new()
     } else {
-        state
-            .files
+        files
             .find_by_ids(&legacy_file_ids)
             .await
             .unwrap_or_else(|e| {
@@ -186,7 +196,8 @@ pub async fn get_messages(
     // Inject `subagentSummary` onto `Agent` blocks via the shared helper — one
     // batched aggregate over the page's `Agent` tool ids. Same source of truth
     // as the live top-level emit.
-    super::hooks::hydrate_subagent_summaries(&state, &task_id, &mut ui_messages).await;
+    super::hooks::hydrate_subagent_summaries_from_dao(&message_dao, &task_id, &mut ui_messages)
+        .await;
 
     let total_count = ui_messages.len();
     Ok(Json(GetMessagesResponse {
@@ -280,14 +291,14 @@ fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
     )
 )]
 pub async fn get_tool_call_detail(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(message_dao): State<Arc<dyn MessageDao>>,
     auth: AuthUser,
     Path((task_id, tool_use_id)): Path<(String, String)>,
 ) -> Result<Json<ToolCallDetailResponse>, MessageError> {
-    ensure_task_read_access(&state, &auth, &task_id).await?;
+    ensure_task_read_access(tasks.as_ref(), &auth, &task_id).await?;
 
-    let row = state
-        .messages
+    let row = message_dao
         .find_tool_call(&task_id, &tool_use_id)
         .await?
         .ok_or_else(|| MessageError::NotFound(tool_use_id.clone()))?;
@@ -327,14 +338,14 @@ pub async fn get_tool_call_detail(
     )
 )]
 pub async fn get_subagent_transcript(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(message_dao): State<Arc<dyn MessageDao>>,
     auth: AuthUser,
     Path((task_id, tool_use_id)): Path<(String, String)>,
 ) -> Result<Json<SubagentTranscriptResponse>, MessageError> {
-    ensure_task_read_access(&state, &auth, &task_id).await?;
+    ensure_task_read_access(tasks.as_ref(), &auth, &task_id).await?;
 
-    let (messages, contexts, blocks) = state
-        .messages
+    let (messages, contexts, blocks) = message_dao
         .get_subagent_messages(&task_id, &tool_use_id)
         .await?;
 
@@ -518,14 +529,15 @@ mod strip_heavy_fields_tests {
     )
 )]
 pub async fn get_pending_messages(
-    State(state): State<AppState>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(message_dao): State<Arc<dyn MessageDao>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<GetPendingMessagesResponse>, MessageError> {
-    ensure_task_read_access(&state, &auth, &task_id).await?;
+    ensure_task_read_access(tasks.as_ref(), &auth, &task_id).await?;
 
-    let pending = state.messages.get_pending_user(&task_id).await?;
-    let last_result = state.messages.get_last_result(&task_id).await?;
+    let pending = message_dao.get_pending_user(&task_id).await?;
+    let last_result = message_dao.get_last_result(&task_id).await?;
 
     let mut messages: Vec<PendingMessageItem> = pending
         .iter()
@@ -562,12 +574,11 @@ pub async fn get_pending_messages(
 }
 
 async fn ensure_task_read_access(
-    state: &AppState,
+    tasks: &dyn TaskDao,
     auth: &AuthUser,
     task_id: &str,
 ) -> Result<(), MessageError> {
-    state
-        .tasks
+    tasks
         .find_by_id(task_id, &auth.scope_context())
         .await?
         .ok_or_else(|| MessageError::NotFound(task_id.to_string()))?;

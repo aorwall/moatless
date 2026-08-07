@@ -975,14 +975,27 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             // delete: a record that survives is content the conversation never
             // got, and the relay keeps re-publishing it until this line runs.
             release_ingress_record(state, &event.task_id, &event.event_id).await;
-            crate::message::hooks::on_agent_message_persisted(
-                state,
+            // The message-domain parse stays in the tasks band
+            // (`extract_shell_reconcile_targets`); dispatching each target to the
+            // GitHub adapter is the server band's job, so this `tasks -> adapter`
+            // step happens here rather than inside the hook. Fire-and-forget.
+            let reconcile_targets = crate::message::hooks::extract_shell_reconcile_targets(
+                &state.messages,
                 &event.task_id,
-                uuid,
                 message_type,
                 &content,
             )
             .await;
+            for target in reconcile_targets {
+                crate::adapters::github_pr::shell_reconcile::reconcile_shell_command(
+                    state,
+                    &event.task_id,
+                    &target.tool_use_id,
+                    &target.cmd,
+                    &target.result_text,
+                )
+                .await;
+            }
             // Server-owned assembly (server-owned assembly and skeleton-message model). A subagent row (carrying a
             // `parent_uuid` = the spawning `Agent` tool-use id) rides a
             // lightweight `subagentProgress` event and never streams transcript
@@ -990,14 +1003,21 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             // and publishes a derived `message.upsert` for the live Chat.
             if let Some(parent_tool_use_id) = msg_row.parent_uuid.as_deref() {
                 crate::message::hooks::emit_subagent_progress(
-                    state,
+                    state.events.as_ref(),
+                    &state.messages,
                     &event.task_id,
                     parent_tool_use_id,
                 )
                 .await;
             } else {
-                crate::message::hooks::emit_message_upsert(state, &event.task_id, &anchor_uuid)
-                    .await;
+                crate::message::hooks::emit_message_upsert_from_daos(
+                    state.events.as_ref(),
+                    &state.messages,
+                    Some(&state.files),
+                    &event.task_id,
+                    &anchor_uuid,
+                )
+                .await;
             }
         }
         Err(e) => {

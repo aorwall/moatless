@@ -11,13 +11,15 @@
 //! why the adapters and loops call it directly and callers acting for a
 //! person call this instead.
 
-use crate::state::AppState;
+use crate::task::dao::TaskDao;
+use crate::task::sandbox_waker::SandboxWaker;
 use crate::task::schemas::MessageContextInput;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::shared_models::AgentMode;
 
 use super::error::MessageError;
 use super::send;
+use super::send::MessageSendService;
 
 /// What a person is sending, independent of how it reached the process.
 #[derive(Debug, Default)]
@@ -69,13 +71,14 @@ pub struct Sender<'a> {
 /// already persisted, and a failure to start is written into the conversation
 /// where the person reading the task will see it.
 pub async fn send_user_message(
-    state: &AppState,
+    tasks: &dyn TaskDao,
+    message_send: &MessageSendService,
+    sandbox_waker: &dyn SandboxWaker,
     sender: &Sender<'_>,
     task_id: &str,
     message: UserMessage,
 ) -> Result<Option<String>, MessageError> {
-    state
-        .tasks
+    tasks
         .find_by_id(task_id, sender.scope)
         .await?
         .ok_or_else(|| MessageError::NotFound(task_id.to_string()))?;
@@ -83,11 +86,10 @@ pub async fn send_user_message(
     // Auto-follow: writing to a task adds it to the sender's personal task
     // list. Best-effort — a follow failure must never block sending.
     if !sender.is_agent_context {
-        if let Err(e) = state.tasks.follow_task(sender.user_id, task_id).await {
+        if let Err(e) = tasks.follow_task(sender.user_id, task_id).await {
             tracing::warn!(error = %e, task_id = %task_id, "Failed to auto-follow task on message send");
         }
-        if let Err(e) = state
-            .tasks
+        if let Err(e) = tasks
             .clear_snoozed_for_follower(sender.user_id, task_id)
             .await
         {
@@ -102,8 +104,7 @@ pub async fn send_user_message(
 
     let message_uuid = match message.tool_response {
         Some(response) => {
-            state
-                .message_send
+            message_send
                 .send_tool_response_flow(
                     task_id,
                     &response.tool_use_id,
@@ -115,8 +116,7 @@ pub async fn send_user_message(
             None
         }
         None => {
-            state
-                .message_send
+            message_send
                 .send_message_flow(
                     task_id,
                     &message.text,
@@ -139,12 +139,9 @@ pub async fn send_user_message(
     };
 
     if let Some(error_msg) =
-        crate::task::sandbox_waker::wake_for_message(state.sandbox_waker.as_ref(), task_id).await
+        crate::task::sandbox_waker::wake_for_message(sandbox_waker, task_id).await
     {
-        state
-            .message_send
-            .persist_error_result(task_id, &error_msg)
-            .await;
+        message_send.persist_error_result(task_id, &error_msg).await;
     }
 
     tracing::info!(task_id = %task_id, user_id = %sender.user_id, "Message sent to agent");

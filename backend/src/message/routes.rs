@@ -1,10 +1,18 @@
 //! Message API routes with OpenAPI documentation.
 
+use std::sync::Arc;
+
+use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
-use crate::state::AppState;
+use crate::extractors::UserTokenVerifier;
+use crate::file_storage::dao::FileDao;
+use crate::message::dao::MessageDao;
+use crate::message::send::MessageSendService;
+use crate::task::dao::TaskDao;
+use crate::task::sandbox_waker::SandboxWaker;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -22,7 +30,21 @@ use crate::state::AppState;
 pub struct MessageApiDoc;
 
 /// Build the message router with OpenAPI metadata.
-pub fn message_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
+///
+/// Generic over the router state `S`: each handler extracts its ports through
+/// `FromRef<S>`, so this router names those ports (tasks-band DAOs plus the
+/// message-send service and sandbox waker) rather than the whole `AppState`.
+/// The composition root passes `AppState` as `S`.
+pub fn message_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
+where
+    S: Clone + Send + Sync + 'static,
+    Arc<dyn UserTokenVerifier>: FromRef<S>,
+    Arc<dyn TaskDao>: FromRef<S>,
+    Arc<dyn MessageDao>: FromRef<S>,
+    Arc<dyn FileDao>: FromRef<S>,
+    Arc<MessageSendService>: FromRef<S>,
+    Arc<dyn SandboxWaker>: FromRef<S>,
+{
     let (router, api) = OpenApiRouter::with_openapi(MessageApiDoc::openapi())
         .routes(routes!(handlers::send_message, handlers::get_messages))
         .routes(routes!(handlers::get_pending_messages))
