@@ -4,13 +4,18 @@ use std::collections::HashSet;
 
 use super::catalog::{catalog, AgentEntry};
 use super::schemas::{AgentDescriptor, AgentModel};
-use crate::state::AppState;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::secret::dao::SecretDao;
 use moatless_backend_core::scope::ScopeContext;
 
 /// Materialize the full catalog with `installed` populated per the given scope.
-pub async fn list_agents(state: &AppState, ctx: &ScopeContext) -> Vec<AgentDescriptor> {
-    let present_keys = collect_credential_keys(state, ctx).await;
-    let present_providers = collect_provider_token_providers(state, ctx).await;
+pub async fn list_agents(
+    secret_records: &dyn SecretDao,
+    provider_tokens: &dyn ProviderTokenDao,
+    ctx: &ScopeContext,
+) -> Vec<AgentDescriptor> {
+    let present_keys = collect_credential_keys(secret_records, ctx).await;
+    let present_providers = collect_provider_token_providers(provider_tokens, ctx).await;
 
     catalog()
         .iter()
@@ -55,12 +60,15 @@ fn build_descriptor(
 
 /// Collect the set of credential keys visible to the caller across:
 ///   - Global / User scoped secrets (metadata only).
-async fn collect_credential_keys(state: &AppState, ctx: &ScopeContext) -> HashSet<String> {
+async fn collect_credential_keys(
+    secret_records: &dyn SecretDao,
+    ctx: &ScopeContext,
+) -> HashSet<String> {
     let mut keys: HashSet<String> = HashSet::new();
 
     // The access filter already limits this to global secrets plus the
     // caller's own user-scoped ones.
-    match state.secret_records.list(ctx, None).await {
+    match secret_records.list(ctx, None).await {
         Ok(records) => keys.extend(records.into_iter().map(|r| r.key)),
         Err(e) => {
             tracing::warn!(
@@ -75,7 +83,10 @@ async fn collect_credential_keys(state: &AppState, ctx: &ScopeContext) -> HashSe
 }
 
 /// Collect the set of provider-token provider names visible to the caller.
-async fn collect_provider_token_providers(state: &AppState, ctx: &ScopeContext) -> HashSet<String> {
+async fn collect_provider_token_providers(
+    provider_tokens: &dyn ProviderTokenDao,
+    ctx: &ScopeContext,
+) -> HashSet<String> {
     let mut providers: HashSet<String> = HashSet::new();
 
     let relevant: HashSet<&'static str> = catalog()
@@ -84,8 +95,7 @@ async fn collect_provider_token_providers(state: &AppState, ctx: &ScopeContext) 
         .collect();
 
     for provider in &relevant {
-        match state
-            .provider_tokens
+        match provider_tokens
             .find_provider_token(&ctx.user_id, provider)
             .await
         {

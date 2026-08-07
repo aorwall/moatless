@@ -1,11 +1,16 @@
 //! Agent API routes with OpenAPI documentation.
 
+use std::sync::Arc;
+
+use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
 use super::schemas::{AgentDescriptor, AgentModel, ListAgentsResponse};
-use crate::state::AppState;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::extractors::UserTokenVerifier;
+use crate::secret::dao::SecretDao;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -18,7 +23,17 @@ use crate::state::AppState;
 pub struct AgentApiDoc;
 
 /// Build the agent router with OpenAPI metadata.
-pub fn agent_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
+///
+/// Generic over the router state `S`: the handler extracts its ports through
+/// `FromRef<S>`, so this router names those ports (all identity-band) rather
+/// than the whole `AppState`. The composition root passes `AppState` as `S`.
+pub fn agent_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
+where
+    S: Clone + Send + Sync + 'static,
+    Arc<dyn UserTokenVerifier>: FromRef<S>,
+    Arc<dyn SecretDao>: FromRef<S>,
+    Arc<dyn ProviderTokenDao>: FromRef<S>,
+{
     let (router, api) = OpenApiRouter::with_openapi(AgentApiDoc::openapi())
         .routes(routes!(handlers::list_agents_handler))
         .with_state(state)

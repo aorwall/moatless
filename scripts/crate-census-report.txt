@@ -3,7 +3,7 @@ files parsed: 663
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3812  illegal  137
+CODE       legal  3819  illegal  134
 ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           52  (intra-doc paths — never a Cargo edge, never illegal)
@@ -31,7 +31,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (5 files, 45 lines)
     credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
-  tasks  (75 files, 20038 lines)
+  tasks  (75 files, 20067 lines)
     agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
   sandbox-control  (43 files, 18765 lines)
@@ -61,7 +61,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 775 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11781 lines)
+  server  (32 files, 11792 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -70,7 +70,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 113529 lines
+  TOTAL backend/src: 113569 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (19 classes) ==
 
@@ -271,10 +271,7 @@ tasks -> sandbox-k8s   x14
     backend/src/task/reaper.rs:33  [CODE] crate::sandbox::k8s::client::K8sClient   -> [10d — invert task -> sandbox concretes to ports]
     backend/src/task/reaper.rs:34  [CODE] crate::sandbox::k8s::leader_election::LeaderElection   -> [10d — invert task -> sandbox concretes to ports]
 
-tasks -> server   x8
-    backend/src/agent/handlers.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/agent/routes.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/agent/service.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+tasks -> server   x5
     backend/src/message/handlers.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/hooks.rs:26  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/message/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -317,11 +314,11 @@ tasks -> server   x8
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> tasks: BLOCKED on 56 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> tasks: BLOCKED on 53 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
-  tasks              deps: identity, workspaces                         BLOCKED — 56 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x25), sandbox-k8s(x14), server(x8)
+  tasks              deps: identity, workspaces                         BLOCKED — 53 illegal outgoing to adapter-github-pr(x1), loops(x8), sandbox-control(x25), sandbox-k8s(x14), server(x5)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
   sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)

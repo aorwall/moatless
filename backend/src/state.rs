@@ -682,6 +682,12 @@ impl axum::extract::FromRef<AppState> for Arc<dyn ProviderTokenDao> {
     }
 }
 
+impl axum::extract::FromRef<AppState> for Arc<dyn SecretDao> {
+    fn from_ref(state: &AppState) -> Self {
+        state.secret_records.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<dyn AdapterConnectionDao> {
     fn from_ref(state: &AppState) -> Self {
         state.adapter_connections.clone()

@@ -35,7 +35,12 @@ pub struct AppStateAgents(pub AppState);
 #[async_trait]
 impl AgentCatalogSource for AppStateAgents {
     async fn list(&self, viewer: &ScopeContext) -> Vec<AgentDescriptor> {
-        crate::agent::service::list_agents(&self.0, viewer).await
+        crate::agent::service::list_agents(
+            self.0.secret_records.as_ref(),
+            self.0.provider_tokens.as_ref(),
+            viewer,
+        )
+        .await
     }
 }
 

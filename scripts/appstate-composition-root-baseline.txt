@@ -49,8 +49,6 @@ backend/src/adapters/providers/telegram/handlers.rs
 backend/src/adapters/providers/telegram/ingress.rs
 backend/src/adapters/providers/telegram/poller.rs
 backend/src/adapters/providers/webhook/delivery.rs
-backend/src/agent/handlers.rs
-backend/src/agent/service.rs
 backend/src/bindings/outbound.rs
 backend/src/bindings/runtime.rs
 backend/src/event_handler/agent_handlers.rs

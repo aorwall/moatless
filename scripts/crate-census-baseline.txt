@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 169
+# Illegal edge count: 166
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -166,9 +166,6 @@ tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs
 tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:133  LeaderElection::new_with_name
 tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:33  crate::sandbox::k8s::client::K8sClient
 tasks                  -> sandbox-k8s          [CODE] backend/src/task/reaper.rs:34  crate::sandbox::k8s::leader_election::LeaderElection
-tasks                  -> server               [CODE] backend/src/agent/handlers.rs:10  crate::state::AppState
-tasks                  -> server               [CODE] backend/src/agent/routes.rs:8  crate::state::AppState
-tasks                  -> server               [CODE] backend/src/agent/service.rs:7  crate::state::AppState
 tasks                  -> server               [CODE] backend/src/message/handlers.rs:8  crate::state::AppState
 tasks                  -> server               [CODE] backend/src/message/hooks.rs:26  crate::state::AppState
 tasks                  -> server               [CODE] backend/src/message/routes.rs:7  crate::state::AppState
