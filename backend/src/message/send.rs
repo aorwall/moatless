@@ -3,8 +3,6 @@
 use std::sync::Arc;
 
 use super::models::{TaskMessage, TaskMessageContext};
-use crate::adapters::Adapters;
-use crate::bindings::recently_sent::RecentlySent;
 use crate::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 use crate::message::models::{MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE};
@@ -19,46 +17,22 @@ use super::contexts::message_context_input_to_row;
 use super::error::MessageError;
 
 /// The message domain's one question of the adapter registry, named here so the
-/// send flows no longer reach `Adapters` directly: self-echo deduplication. This
-/// filter is where that dependency is confined — it holds the in-memory
-/// race-window cache and the adapter registry internally and answers only "has
-/// this inbound event already been sent from here, and what ids could it be
-/// stored under" — the boundary the plan (Step 5) mandates for this file.
-pub struct SelfEchoFilter {
-    recently_sent: Arc<RecentlySent>,
-    adapters: Option<Arc<Adapters>>,
-}
-
-impl SelfEchoFilter {
-    pub fn new(recently_sent: Arc<RecentlySent>, adapters: Option<Arc<Adapters>>) -> Self {
-        Self {
-            recently_sent,
-            adapters,
-        }
-    }
-
+/// send flows no longer reach `Adapters` directly: self-echo deduplication.
+/// Given an inbound event, has it already been sent from here, and what ids
+/// could it be stored under — the boundary the plan (Step 5) mandates for this
+/// file. The concrete filter that holds the in-memory race-window cache and the
+/// adapter registry lives up-band in `adapters/self_echo.rs` and implements
+/// this port.
+pub trait SelfEchoGuard: Send + Sync {
     /// In-memory race-window check — catches webhooks that land before
     /// `set_external_event_id` has committed.
-    fn sent_recently(&self, task_id: &str, ext_id: &str) -> bool {
-        self.recently_sent.contains(task_id, ext_id)
-    }
+    fn sent_recently(&self, task_id: &str, ext_id: &str) -> bool;
 
     /// Given an adapter name and an external id, the ids this event could be
     /// stored under — the adapter's inbound presentation aliases, or the bare
     /// id when no adapter is known. Tolerates both the prefixed format and any
     /// legacy bare-int rows.
-    fn candidate_ids(&self, adapter: Option<&str>, ext_id: &str) -> Vec<String> {
-        adapter
-            .and_then(|provider_name| {
-                self.adapters
-                    .as_ref()
-                    .and_then(|providers| providers.inbound_presentation_by_name(provider_name))
-            })
-            .map_or_else(
-                || vec![ext_id.to_string()],
-                |presentation| presentation.external_id_aliases(ext_id),
-            )
-    }
+    fn candidate_ids(&self, adapter: Option<&str>, ext_id: &str) -> Vec<String>;
 }
 
 /// The ports the message-send flows read, held together so each flow is a
@@ -68,7 +42,7 @@ pub struct MessageSendService {
     tasks: Arc<dyn TaskDao>,
     task_turns: Arc<dyn TaskTurnDao>,
     files: Arc<dyn FileDao>,
-    self_echo: SelfEchoFilter,
+    self_echo: Arc<dyn SelfEchoGuard>,
 }
 
 impl MessageSendService {
@@ -77,7 +51,7 @@ impl MessageSendService {
         tasks: Arc<dyn TaskDao>,
         task_turns: Arc<dyn TaskTurnDao>,
         files: Arc<dyn FileDao>,
-        self_echo: SelfEchoFilter,
+        self_echo: Arc<dyn SelfEchoGuard>,
     ) -> Self {
         Self {
             messages,

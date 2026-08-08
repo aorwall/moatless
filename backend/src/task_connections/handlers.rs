@@ -25,7 +25,7 @@ use moatless_adapter_model::models::{ExternalStatus, TaskBinding};
 
 use crate::adapters::{AdapterBindingStatus, Adapters};
 use crate::auth::users::UserDao;
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::status_service;
 use crate::extractors::AuthUser;
 use crate::message::dao::{ConnectionMessageCount, MessageDao};

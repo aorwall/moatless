@@ -10,7 +10,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::auth::users::UserDao;
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::extractors::UserTokenVerifier;
 use crate::loops::dao::LoopDao;
 use crate::loops::sync::LoopSyncService;

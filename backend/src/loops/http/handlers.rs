@@ -21,7 +21,7 @@ use crate::adapters::common::{
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::auth::users::UserDao;
-use crate::bindings::dao::{LoopRecentTaskRow, TaskBindingDao};
+use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingDao};
 use crate::extractors::AuthUser;
 use crate::loops::dao::{
     AdapterSourceUpdate, LoopDao, LoopListFilter, LoopSourceRow, LoopUpdate, NewAdapterEventSource,

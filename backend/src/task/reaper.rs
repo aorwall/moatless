@@ -24,7 +24,7 @@ use super::dao::{TaskDao, TaskPatch};
 use super::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason, TaskStatus};
 use super::sandbox_lifecycle::SandboxLifecycle;
 use crate::agent_event::AgentEvent;
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::message::dao::MessageDao;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
@@ -1041,7 +1041,7 @@ mod tests {
 
     use super::super::dao::MockTaskDao;
     use super::super::sandbox_lifecycle::SandboxOpError;
-    use crate::bindings::dao::LoopRecentTaskRow;
+    use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingInfo};
     use crate::message::dao::MockMessageDao;
     use crate::task_event::dao::MockTaskEventDao;
     use crate::task_turn::dao::MockTaskTurnDao;
@@ -1254,6 +1254,12 @@ mod tests {
             _loop_id: &str,
             _limit: i64,
         ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn get_bindings_for_tasks(
+            &self,
+            _task_ids: &[String],
+        ) -> Result<Vec<TaskBindingInfo>, sqlx::Error> {
             unimplemented!("reaper error path does not read bindings")
         }
     }

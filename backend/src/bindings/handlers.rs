@@ -18,7 +18,7 @@ use crate::adapters::common::{
 };
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::reply::ExternalReplyService;
 use crate::extractors::AuthUser;
 use crate::loops::dao::LoopDao;

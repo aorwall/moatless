@@ -18,9 +18,9 @@ use super::models::Task;
 use super::relations::{TaskRelation, TaskRelationDao, TaskRelationType};
 use super::schemas::*;
 use crate::auth::users::UserDao;
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::schemas::{task_binding_summary_from_binding, TaskBindingSummary};
-use crate::loops::dao::LoopDao;
+use crate::task::loop_reader::LoopSubscriptionReader;
 use crate::repository::dao::RepositoryDao;
 use moatless_core::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
@@ -37,7 +37,7 @@ pub struct TaskPresenter {
     pub(crate) workspaces: Arc<dyn WorkspaceDao>,
     pub(crate) users: Arc<dyn UserDao>,
     pub(crate) task_bindings: Arc<dyn TaskBindingDao>,
-    pub(crate) loops: Arc<LoopDao>,
+    pub(crate) loops: Arc<dyn LoopSubscriptionReader>,
     pub(crate) task_relations: Arc<dyn TaskRelationDao>,
     pub(crate) tasks: Arc<dyn TaskDao>,
 }

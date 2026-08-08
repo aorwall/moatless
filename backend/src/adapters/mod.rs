@@ -8,6 +8,7 @@ pub(crate) mod ingress;
 pub mod metrics;
 pub mod providers;
 pub mod routes;
+pub mod self_echo;
 pub mod signature;
 pub(crate) mod subject_events;
 /// Loopback stubs for Adapter HTTP clients.

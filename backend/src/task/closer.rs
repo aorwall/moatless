@@ -21,7 +21,7 @@ use super::handlers::{deactivate_task_bindings, task_resource};
 use super::models::{ArchiveRetention, TaskStatus};
 use super::relations::{TaskRelationDao, TaskRelationType};
 use super::sandbox_lifecycle::SandboxLifecycle;
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 

@@ -15,7 +15,7 @@ use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::auth::users::UserDao;
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::compose::Ports;
 use crate::credential_sync::CredentialSync;
@@ -26,7 +26,8 @@ use crate::file_storage::dao::FileDao;
 use crate::loops::dao::LoopDao;
 use crate::loops::sync::LoopSyncService;
 use crate::message::dao::MessageDao;
-use crate::message::send::{MessageSendService, SelfEchoFilter};
+use crate::adapters::self_echo::SelfEchoFilter;
+use crate::message::send::MessageSendService;
 use crate::plugin::dao::PluginDao;
 use crate::plugin::sync::PluginSyncService;
 use crate::repository::access::RepositoryTokenResolver;
@@ -332,7 +333,7 @@ impl AppState {
             tasks.clone(),
             task_turns.clone(),
             files.clone(),
-            SelfEchoFilter::new(recently_sent.clone(), adapters.clone()),
+            Arc::new(SelfEchoFilter::new(recently_sent.clone(), adapters.clone())),
         ));
 
         let task_presenter = Arc::new(TaskPresenter {

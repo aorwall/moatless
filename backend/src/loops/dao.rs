@@ -1525,3 +1525,16 @@ async fn insert_schedule_source(
     .await?;
     Ok(())
 }
+
+/// The tasks-band read port (`task/loop_reader.rs`), implemented here so the
+/// task presenter can resolve a subscription for display without depending on
+/// the whole `LoopDao`. Delegates to the inherent query above.
+#[async_trait::async_trait]
+impl crate::task::loop_reader::LoopSubscriptionReader for LoopDao {
+    async fn find_subscription_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<SubscriptionMatch>, sqlx::Error> {
+        LoopDao::find_subscription_by_id(self, id).await
+    }
+}

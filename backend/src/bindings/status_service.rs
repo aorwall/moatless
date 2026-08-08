@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use moka::future::Cache;
 
 use crate::adapters::{AdapterBindingStatus, Adapters};
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use moatless_adapter_model::models::{ExternalStatus, TaskBinding};
 
 /// Whether a binding's live external status is worth fetching again.

@@ -11,7 +11,7 @@ use moatless_core::config::{AuthConfig, S3Config};
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::{AdapterKind, Adapters};
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::metrics::record_outbound;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::file_storage::dao::FileDao;

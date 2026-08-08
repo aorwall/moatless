@@ -11,7 +11,7 @@ use crate::adapters::common::{
 };
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::outbound::{self, OutboundSender};
 use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;

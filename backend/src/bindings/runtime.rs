@@ -10,7 +10,7 @@ use crate::adapters::Adapters;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryFailure;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;

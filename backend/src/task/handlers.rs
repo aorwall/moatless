@@ -24,11 +24,10 @@ use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
-use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_core::tag::dao::TagDao;
 
-use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingDao};
+use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::schemas::TaskBindingSummary;
 
 use super::closer::TaskCloser;
@@ -151,9 +150,7 @@ pub async fn create_task(
 pub async fn list_tasks(
     State(tasks): State<Arc<dyn TaskDao>>,
     State(tags): State<Arc<dyn TagDao>>,
-    // Batch binding lookup reads the pool directly (get_bindings_for_tasks has
-    // no DAO seam yet); the raw DbPool residue lives here until it grows one.
-    State(db): State<DbPool>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
     Query(query): Query<ListTasksQuery>,
@@ -226,7 +223,8 @@ pub async fn list_tasks(
         .await;
 
     // Batch resolve external bindings for tasks (single query instead of N+1)
-    let all_bindings = get_bindings_for_tasks(&db, &task_ids)
+    let all_bindings = task_bindings
+        .get_bindings_for_tasks(&task_ids)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "Failed to batch resolve task bindings");
@@ -1114,7 +1112,7 @@ mod tests {
     use super::*;
 
     use crate::adapters::models::TaskBinding;
-    use crate::bindings::dao::LoopRecentTaskRow;
+    use crate::task::binding_dao::{LoopRecentTaskRow, TaskBindingInfo};
 
     /// `TaskBindingDao` fake that only answers `deactivate_by_task`.
     ///
@@ -1253,6 +1251,12 @@ mod tests {
             _loop_id: &str,
             _limit: i64,
         ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
+            unimplemented!("not reachable from deactivate_task_bindings")
+        }
+        async fn get_bindings_for_tasks(
+            &self,
+            _task_ids: &[String],
+        ) -> Result<Vec<TaskBindingInfo>, sqlx::Error> {
             unimplemented!("not reachable from deactivate_task_bindings")
         }
     }

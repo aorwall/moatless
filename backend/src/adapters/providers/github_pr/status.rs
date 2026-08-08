@@ -6,7 +6,7 @@ use crate::adapters::models::{ExternalStatus, TaskBinding};
 use crate::adapters::AdapterBindingStatus;
 use std::sync::Arc;
 
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 
 use super::adapter::GithubPrAdapter;
 use super::api::PrInfo;

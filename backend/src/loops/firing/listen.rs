@@ -12,7 +12,7 @@ use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use crate::adapters::{AdapterDestinationBuilder, AdapterKind, Adapters};
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::loops::dao::LoopDao;
 
 /// Wires a task to an external Adapter subject: resolves the connection and

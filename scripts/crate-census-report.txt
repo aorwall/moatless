@@ -1,14 +1,14 @@
 CRATE-CENSUS REPORT
-files parsed: 666
+files parsed: 669
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  4067  illegal   89
+CODE       legal  4082  illegal   81
 ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
-DOC           53  (intra-doc paths — never a Cargo edge, never illegal)
+DOC           54  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 1483 point down into the existing crates/* floor
-TEST-CONTEXT 2437  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 2435  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
@@ -31,7 +31,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (5 files, 45 lines)
     credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
-  tasks  (76 files, 20337 lines)
+  tasks  (78 files, 20502 lines)
     agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
   sandbox-control  (43 files, 18749 lines)
@@ -43,8 +43,8 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (8 files, 3516 lines)
     sandbox/docker/
 
-  loops  (50 files, 14558 lines)
-    adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
+  loops  (51 files, 14488 lines)
+    adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
   adapter-github-pr  (24 files, 10604 lines)
     adapters/providers/github_pr/
@@ -61,7 +61,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 777 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11851 lines)
+  server  (32 files, 11853 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -70,9 +70,9 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 114358 lines
+  TOTAL backend/src: 114455 lines
 
-== ILLEGAL PRODUCTION EDGE CLASSES (16 classes) ==
+== ILLEGAL PRODUCTION EDGE CLASSES (15 classes) ==
 
 adapter-github-pr -> server   x8
     backend/src/adapters/providers/github_pr/api_routes.rs:32  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -115,7 +115,7 @@ adapter-webhook -> server   x1
     backend/src/adapters/providers/webhook/delivery.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 loops -> adapter-github-pr   x16
-    backend/src/adapters/mod.rs:40  [CODE] providers::github_pr   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/mod.rs:41  [CODE] providers::github_pr   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/bootstrap.rs:75  [CODE] crate::adapters::github_pr::adapter::GithubPrAdapter::new   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:154  [CODE] super::github_pr::adapter::GithubPrAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:28  [CODE] super::github_pr::adapter::GithubPrAdapter   -> [7d + 10h — registry field-widening + provider carve]
@@ -133,7 +133,7 @@ loops -> adapter-github-pr   x16
     backend/src/adapters/routes.rs:8  [CODE] super::github_pr   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> adapter-linear   x21
-    backend/src/adapters/mod.rs:40  [CODE] providers::linear   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/mod.rs:41  [CODE] providers::linear   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/bootstrap.rs:92  [CODE] crate::adapters::linear::adapter::LinearAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:166  [CODE] super::linear::adapter::LinearAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:29  [CODE] super::linear::adapter::LinearAdapter   -> [7d + 10h — registry field-widening + provider carve]
@@ -156,7 +156,7 @@ loops -> adapter-linear   x21
     backend/src/adapters/routes.rs:87  [MACRO] linear::api_routes::lookup   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> adapter-slack   x8
-    backend/src/adapters/mod.rs:40  [CODE] providers::slack   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/mod.rs:41  [CODE] providers::slack   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/bootstrap.rs:51  [CODE] crate::adapters::slack::adapter::SlackAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:177  [CODE] super::slack::adapter::SlackAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:30  [CODE] super::slack::adapter::SlackAdapter   -> [7d + 10h — registry field-widening + provider carve]
@@ -166,7 +166,7 @@ loops -> adapter-slack   x8
     backend/src/adapters/routes.rs:99  [CODE] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> adapter-telegram   x8
-    backend/src/adapters/mod.rs:40  [CODE] providers::telegram   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/mod.rs:41  [CODE] providers::telegram   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/bootstrap.rs:65  [CODE] crate::adapters::telegram::adapter::TelegramAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:192  [CODE] super::telegram::adapter::TelegramAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:31  [CODE] super::telegram::adapter::TelegramAdapter   -> [7d + 10h — registry field-widening + provider carve]
@@ -176,7 +176,7 @@ loops -> adapter-telegram   x8
     backend/src/adapters/routes.rs:8  [CODE] super::telegram   -> [7d + 10h — registry field-widening + provider carve]
 
 loops -> adapter-webhook   x7
-    backend/src/adapters/mod.rs:40  [CODE] providers::webhook   -> [7d + 10h — registry field-widening + provider carve]
+    backend/src/adapters/mod.rs:41  [CODE] providers::webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/bootstrap.rs:60  [CODE] crate::adapters::webhook::adapter::WebhookAdapter::new   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/registry/mod.rs:146  [CODE] super::webhook::adapter::WebhookAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:111  [CODE] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
@@ -213,16 +213,6 @@ sandbox-docker -> sandbox-k8s   x3
     backend/src/sandbox/docker/container_builder.rs:20  [CODE] crate::sandbox::k8s::pod_reader::parse_cpu_to_millicores   -> [10f — misfiled sandbox helpers]
     backend/src/sandbox/docker/container_builder.rs:20  [CODE] crate::sandbox::k8s::pod_reader::parse_memory_to_bytes   -> [10f — misfiled sandbox helpers]
     backend/src/sandbox/docker/status_resolver.rs:13  [CODE] crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS   -> [10f — misfiled sandbox helpers]
-
-tasks -> loops   x8
-    backend/src/message/send.rs:6  [CODE] crate::adapters::Adapters   -> [8c-port — tasks/message -> loops]
-    backend/src/message/send.rs:7  [CODE] crate::bindings::recently_sent::RecentlySent   -> [8c-port — tasks/message -> loops]
-    backend/src/task/closer.rs:24  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
-    backend/src/task/handlers.rs:31  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
-    backend/src/task/handlers.rs:31  [CODE] crate::bindings::dao::get_bindings_for_tasks   -> [8c-port — tasks/message -> loops]
-    backend/src/task/presenter.rs:21  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
-    backend/src/task/presenter.rs:23  [CODE] crate::loops::dao::LoopDao   -> [8c-port — tasks/message -> loops]
-    backend/src/task/reaper.rs:27  [CODE] crate::bindings::dao::TaskBindingDao   -> [8c-port — tasks/message -> loops]
 
 tasks -> server   x1
     backend/src/task/routes.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -263,11 +253,11 @@ tasks -> server   x1
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> tasks: BLOCKED on 9 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> tasks: BLOCKED on 1 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
-  tasks              deps: identity, workspaces                         BLOCKED — 9 illegal outgoing to loops(x8), server(x1)
+  tasks              deps: identity, workspaces                         BLOCKED — 1 illegal outgoing to server(x1)
   sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
   sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)

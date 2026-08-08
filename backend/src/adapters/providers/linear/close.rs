@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
-use crate::bindings::dao::TaskBindingDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::sandbox::lifecycle::ArchiveRetention;
 use crate::state::AppState;
 use crate::task::dao::TaskPatch;
