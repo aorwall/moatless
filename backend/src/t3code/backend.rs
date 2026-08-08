@@ -301,12 +301,12 @@ async fn bind_thread_to_open_pr(
         state.task_bindings.clone(),
     )
     .connect_github_binding(
-            &source_id,
-            task_id,
-            thread_properties,
-            Some(&viewer.user_id),
-        )
-        .await
+        &source_id,
+        task_id,
+        thread_properties,
+        Some(&viewer.user_id),
+    )
+    .await
     {
         Ok((_, binding)) => tracing::info!(
             task_id,
@@ -661,7 +661,7 @@ impl ThreadCommandSink for AppStateCommands {
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         task_service::stop_task(
             self.0.tasks.as_ref(),
-            &self.0.sandbox,
+            self.0.sandbox.as_ref(),
             self.0.events.as_deref(),
             viewer,
             task_id,
@@ -705,7 +705,7 @@ impl ThreadCommandSink for AppStateCommands {
         // and the next turn starts the sandbox again.
         if let Err(error) = task_service::stop_task(
             self.0.tasks.as_ref(),
-            &self.0.sandbox,
+            self.0.sandbox.as_ref(),
             self.0.events.as_deref(),
             viewer,
             task_id,
@@ -812,9 +812,10 @@ fn default_agent_for(instance: &str) -> moatless_core::shared_models::AgentType 
     let id = crate::agent::catalog::catalog()
         .iter()
         .find(|entry| agent_instance_for(entry.kind) == instance)
-        .map_or(moatless_core::shared_models::AgentType::CLAUDE_CODE, |entry| {
-            entry.id
-        });
+        .map_or(
+            moatless_core::shared_models::AgentType::CLAUDE_CODE,
+            |entry| entry.id,
+        );
     moatless_core::shared_models::AgentType(id.to_string())
 }
 

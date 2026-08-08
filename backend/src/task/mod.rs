@@ -10,6 +10,7 @@ pub mod presenter;
 pub mod reaper;
 pub mod relations;
 pub mod routes;
+pub mod sandbox_lifecycle;
 pub mod sandbox_waker;
 pub mod schemas;
 pub mod service;

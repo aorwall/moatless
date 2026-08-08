@@ -11,10 +11,10 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use moatless_core::db::DbPool;
 use crate::task::models::{
-    sandbox_intent_epoch, SandboxDesiredState, SandboxIntentView, SandboxStopReason, TaskStatus,
+    sandbox_intent_epoch, SandboxDesiredState, SandboxStopReason, TaskStatus,
 };
+use moatless_core::db::DbPool;
 
 use super::events::LifecycleEvent;
 use super::orchestrator::{IntentWrite, LifecycleDao, StoreError, TaskIntent};
@@ -74,55 +74,6 @@ fn marker_from_columns(
             .map(|kind| CorrelationMarker::new(kind, OperationGeneration(generation), started_at)),
         _ => None,
     }
-}
-
-#[derive(sqlx::FromRow)]
-struct SandboxIntentViewRow {
-    task_id: String,
-    started_at: Option<DateTime<Utc>>,
-    desired_state: Option<SandboxDesiredState>,
-    stop_reason: Option<SandboxStopReason>,
-    desired_state_updated_at: Option<DateTime<Utc>>,
-}
-
-/// Batch-load the task-response projection of Sandbox intent. This module owns
-/// the lazy-row semantic: an existing Task without a Sandbox row is returned as
-/// converged Stopped at the no-intent epoch.
-pub(crate) async fn load_sandbox_intent_views(
-    pool: &DbPool,
-    task_ids: &[String],
-) -> Result<std::collections::HashMap<String, SandboxIntentView>, sqlx::Error> {
-    if task_ids.is_empty() {
-        return Ok(std::collections::HashMap::new());
-    }
-
-    let rows: Vec<SandboxIntentViewRow> = sqlx::query_as(
-        r#"SELECT t.task_id, s.started_at, s.desired_state, s.stop_reason,
-                  s.desired_state_updated_at
-           FROM tasks t
-           LEFT JOIN sandboxes s ON s.task_id = t.task_id
-           WHERE t.task_id = ANY($1)"#,
-    )
-    .bind(task_ids)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            (
-                row.task_id,
-                SandboxIntentView {
-                    started_at: row.started_at,
-                    desired_state: row.desired_state.unwrap_or(SandboxDesiredState::Stopped),
-                    stop_reason: row.stop_reason,
-                    desired_state_updated_at: row
-                        .desired_state_updated_at
-                        .unwrap_or_else(sandbox_intent_epoch),
-                },
-            )
-        })
-        .collect())
 }
 
 #[async_trait]
@@ -751,16 +702,6 @@ mod db_tests {
         let intent = store.load("t1").await.unwrap().expect("task exists");
         assert_eq!(intent.desired_state, SandboxDesiredState::Stopped);
         assert_eq!(intent.desired_state_updated_at, sandbox_intent_epoch());
-
-        let views = load_sandbox_intent_views(&pool, &[String::from("t1")])
-            .await
-            .unwrap();
-        let view = views.get("t1").expect("existing task has a projection");
-        assert_eq!(view.desired_state, SandboxDesiredState::Stopped);
-        assert!(
-            !view.has_explicit_intent(),
-            "allocation alone must not look like an explicit stop"
-        );
     }
 
     #[sqlx::test]
@@ -813,7 +754,9 @@ mod db_tests {
             changes[0].subject(),
             Some(moatless_core::task_listing::ChangeSubject::Task("t1"))
         );
-        let after_move = moatless_core::task_listing::current_position(&pool).await.unwrap();
+        let after_move = moatless_core::task_listing::current_position(&pool)
+            .await
+            .unwrap();
 
         // Same intent, a fresh marker: the correlation churn every operation
         // writes, and nothing a sidebar carries.
@@ -826,7 +769,9 @@ mod db_tests {
             IntentEffect::Unchanged
         );
         assert_eq!(
-            moatless_core::task_listing::current_position(&pool).await.unwrap(),
+            moatless_core::task_listing::current_position(&pool)
+                .await
+                .unwrap(),
             after_move,
             "rewriting the marker advanced the deployment's position counter"
         );

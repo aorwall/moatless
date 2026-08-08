@@ -147,55 +147,12 @@ impl fmt::Display for ObservedStatus {
     }
 }
 
-/// Typed policy for task archive retention.
-/// Runtime resources (Deployment, Service, IngressRoutes, **and the PVC**) are
-/// always removed regardless of this policy; it governs S3 archives and
-/// managed provider-local disk archives (opt-in Kubernetes node hostPaths and
-/// Docker task directories).
-///
-/// Persisted alongside `Removed` intent in the same atomic write so a crashed
-/// remove can be retried with the *original* policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArchiveRetention {
-    /// Soft removal: keep archives so the task can be revived (reopen).
-    RetainArchives,
-    /// Permanent deletion: remove all archives too. Never superseded by a
-    /// later message-wake — deletion wins.
-    DeleteArchives,
-}
-
-impl ArchiveRetention {
-    pub fn retains(self) -> bool {
-        matches!(self, Self::RetainArchives)
-    }
-
-    /// The close-time policy from the `SANDBOX_RETAIN_STORAGE_ON_CLOSE` flag:
-    /// retain archives (revivable) when set, delete them otherwise. One helper
-    /// so the close/auto-close/adapter-close sites can't drift.
-    pub fn on_close(retain_archives: bool) -> Self {
-        if retain_archives {
-            Self::RetainArchives
-        } else {
-            Self::DeleteArchives
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::RetainArchives => "retain_archives",
-            Self::DeleteArchives => "delete_archives",
-        }
-    }
-
-    /// Parse the persisted slug back into a policy. `None` for an unknown value.
-    pub fn from_db_str(s: &str) -> Option<Self> {
-        match s {
-            "retain_archives" => Some(Self::RetainArchives),
-            "delete_archives" => Some(Self::DeleteArchives),
-            _ => None,
-        }
-    }
-}
+/// `ArchiveRetention` lives in `task::models` (tasks band): the close, reap, and
+/// delete sites that choose a retention policy are tasks-band and now name it
+/// intra-band, while the lifecycle store, providers, and reconciler reach it on
+/// the legal downward edge. Re-exported here so `super::types::ArchiveRetention`
+/// and the `lifecycle` module's re-export keep resolving unchanged.
+pub use crate::task::models::ArchiveRetention;
 
 /// Monotonic, comparable operation identity.
 ///

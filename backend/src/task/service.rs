@@ -26,19 +26,19 @@ use super::error::TaskError;
 use super::models::Task;
 use super::relations::CreatedByParent;
 use super::schemas::CreateTaskRequest;
-use moatless_backend_core::access_control::{ensure_can_use_repository, resolve_scope_for_create};
 use crate::agent::catalog;
-use moatless_core::config::Config;
 use crate::credential_sync::CredentialSync;
-use moatless_core::events::EventPublisher;
 use crate::message::send::MessageSendService;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::models::RepositoryKind;
-use crate::sandbox::lifecycle::Lifecycle;
-use moatless_core::shared_models::AgentType;
 use crate::task::models::Visibility;
+use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::workspace::dao::WorkspaceDao;
+use moatless_backend_core::access_control::{ensure_can_use_repository, resolve_scope_for_create};
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource};
+use moatless_core::config::Config;
+use moatless_core::events::EventPublisher;
+use moatless_core::shared_models::AgentType;
 
 /// A create request plus the two things only an internal caller supplies.
 pub struct CreateTaskIntent {
@@ -121,7 +121,7 @@ where
 /// cleanly when the sandbox is already gone.
 pub async fn stop_task(
     tasks: &dyn TaskDao,
-    sandbox: &Lifecycle,
+    sandbox: &dyn SandboxLifecycle,
     events: Option<&dyn EventPublisher>,
     scope_ctx: &ScopeContext,
     task_id: &str,

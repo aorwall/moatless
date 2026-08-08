@@ -29,6 +29,7 @@ use moatless_backend_core::sandbox as core_sandbox;
 
 use crate::sandbox::error::SandboxError;
 use crate::task::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use crate::task::sandbox_lifecycle::{SandboxLifecycle, SandboxOpError};
 
 use super::error::LifecycleError;
 use super::events::{self, EventContext, EventFact, FailureDetail, LifecycleEvent};
@@ -956,6 +957,58 @@ impl core_sandbox::SandboxStopper for Lifecycle {
             .await
             .map(|_| ())
             .map_err(|e| SandboxError::from(e).into_contract())
+    }
+}
+
+/// Classify a `LifecycleError` for the tasks-band lifecycle port. This is the
+/// `LifecycleError -> TaskError` mapping the tasks band used to own, moved to the
+/// implementation side so the tasks band names no lifecycle error: the three
+/// client-visible outcomes (404 / 400 / 409) keep their shape and everything
+/// else is an internal failure with its rendered chain intact. Unlike the T3
+/// contract's `SandboxError`, `SandboxOpError` has an `InProgress` variant, so
+/// lock contention stays a 409 rather than flattening to a 500.
+fn op_error(e: LifecycleError) -> SandboxOpError {
+    use LifecycleError as LE;
+    match &e {
+        LE::TaskNotFound(id) => SandboxOpError::NotFound(id.clone()),
+        LE::NotAllowed { .. } => SandboxOpError::NotAllowed(e.to_string()),
+        LE::OperationInProgress { .. } => SandboxOpError::InProgress(e.to_string()),
+        _ => SandboxOpError::Internal(e.to_string()),
+    }
+}
+
+/// The tasks-band lifecycle port. The closer, reaper, HTTP handlers, and service
+/// drive a Task's sandbox through this without naming a `sandbox` type; the four
+/// methods are the whole tasks-band cross-boundary surface.
+#[async_trait]
+impl SandboxLifecycle for Lifecycle {
+    async fn start(&self, task_id: &str) -> Result<(), SandboxOpError> {
+        Self::start(self, task_id)
+            .await
+            .map(|_| ())
+            .map_err(op_error)
+    }
+
+    async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxOpError> {
+        Self::stop(self, task_id, reason)
+            .await
+            .map(|_| ())
+            .map_err(op_error)
+    }
+
+    async fn remove(
+        &self,
+        task_id: &str,
+        retention: ArchiveRetention,
+    ) -> Result<(), SandboxOpError> {
+        Self::remove(self, task_id, retention)
+            .await
+            .map(|_| ())
+            .map_err(op_error)
+    }
+
+    async fn desired_state(&self, task_id: &str) -> Result<SandboxDesiredState, SandboxOpError> {
+        Self::desired_state(self, task_id).await.map_err(op_error)
     }
 }
 

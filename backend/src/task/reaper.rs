@@ -21,18 +21,18 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use super::dao::{TaskDao, TaskPatch};
-use super::models::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use super::models::{ArchiveRetention, SandboxDesiredState, SandboxStopReason, TaskStatus};
+use super::sandbox_lifecycle::SandboxLifecycle;
 use crate::agent_event::AgentEvent;
 use crate::bindings::dao::TaskBindingDao;
-use moatless_core::config::Config;
-use moatless_core::events::EventPublisher;
-use moatless_core::leader::LeaderGuard;
 use crate::message::dao::MessageDao;
-use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::config::Config;
+use moatless_core::events::EventPublisher;
+use moatless_core::leader::LeaderGuard;
 use moatless_events::EventType;
 
 /// Minimum age of a stuck `active` turn before the reaper reconciles it.
@@ -63,7 +63,7 @@ pub struct TaskReaper {
     tasks: Arc<dyn TaskDao>,
     task_turns: Arc<dyn TaskTurnDao>,
     task_events: Arc<dyn TaskEventDao>,
-    sandbox: Arc<Lifecycle>,
+    sandbox: Arc<dyn SandboxLifecycle>,
     task_bindings: Arc<dyn TaskBindingDao>,
     events: Option<Arc<dyn EventPublisher>>,
     config: Arc<Config>,
@@ -85,7 +85,7 @@ impl TaskReaper {
         tasks: Arc<dyn TaskDao>,
         task_turns: Arc<dyn TaskTurnDao>,
         task_events: Arc<dyn TaskEventDao>,
-        sandbox: Arc<Lifecycle>,
+        sandbox: Arc<dyn SandboxLifecycle>,
         task_bindings: Arc<dyn TaskBindingDao>,
         events: Option<Arc<dyn EventPublisher>>,
         config: Arc<Config>,
@@ -508,7 +508,7 @@ impl TaskReaper {
             .stop(task_id, SandboxStopReason::IdleReaper)
             .await
         {
-            Ok(_) => {
+            Ok(()) => {
                 info!(task_id = %task_id, "Idle sandbox stopped successfully");
                 true
             }
@@ -1360,5 +1360,4 @@ mod tests {
             ReapDecision::Skip("no activity timestamp")
         );
     }
-
 }

@@ -12,21 +12,21 @@ use super::creation::{PreflightPort, TaskCreationService};
 use super::dao::{TaskDao, TaskFilter, TaskPatch};
 use super::models::Task;
 use super::relations::{TaskRelationDao, TaskRelationType};
-use moatless_core::config::Config;
 use crate::credential_sync::CredentialSync;
-use moatless_core::db::DbPool;
-use moatless_core::events::EventPublisher;
 use crate::extractors::AuthUser;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
 use crate::repository::dao::RepositoryDao;
-use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
-use moatless_core::tag::dao::TagDao;
-use crate::task::models::{SandboxIntentView, TaskStatus};
+use crate::task::models::{ArchiveRetention, SandboxIntentView, TaskStatus};
+use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+use moatless_core::events::EventPublisher;
+use moatless_core::tag::dao::TagDao;
 
 use crate::bindings::dao::{get_bindings_for_tasks, TaskBindingDao};
 use crate::bindings::schemas::TaskBindingSummary;
@@ -500,7 +500,7 @@ pub(crate) async fn deactivate_task_bindings(bindings: &dyn TaskBindingDao, task
     )
 )]
 pub async fn delete_task(
-    State(sandbox): State<Arc<Lifecycle>>,
+    State(sandbox): State<Arc<dyn SandboxLifecycle>>,
     State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     State(tasks): State<Arc<dyn TaskDao>>,
     auth: AuthUser,
@@ -821,7 +821,7 @@ pub async fn start_task(
     State(repositories): State<Arc<dyn RepositoryDao>>,
     State(preflight): State<Arc<dyn PreflightPort>>,
     State(events): State<Option<Arc<dyn EventPublisher>>>,
-    State(sandbox): State<Arc<Lifecycle>>,
+    State(sandbox): State<Arc<dyn SandboxLifecycle>>,
     State(git_sync): State<Arc<GitSyncService>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
@@ -914,14 +914,14 @@ pub async fn start_task(
 )]
 pub async fn stop_task(
     State(tasks): State<Arc<dyn TaskDao>>,
-    State(sandbox): State<Arc<Lifecycle>>,
+    State(sandbox): State<Arc<dyn SandboxLifecycle>>,
     State(events): State<Option<Arc<dyn EventPublisher>>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
     service::stop_task(
         tasks.as_ref(),
-        &sandbox,
+        sandbox.as_ref(),
         events.as_deref(),
         &auth.scope_context(),
         &task_id,

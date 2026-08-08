@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 139
+# Illegal edge count: 122
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -120,29 +120,12 @@ sandbox-docker         -> sandbox-k8s          [CODE] backend/src/sandbox/docker
 sandbox-docker         -> sandbox-k8s          [CODE] backend/src/sandbox/docker/status_resolver.rs:13  crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS
 tasks                  -> loops                [CODE] backend/src/message/send.rs:6  crate::adapters::Adapters
 tasks                  -> loops                [CODE] backend/src/message/send.rs:7  crate::bindings::recently_sent::RecentlySent
-tasks                  -> loops                [CODE] backend/src/task/closer.rs:23  crate::bindings::dao::TaskBindingDao
+tasks                  -> loops                [CODE] backend/src/task/closer.rs:24  crate::bindings::dao::TaskBindingDao
 tasks                  -> loops                [CODE] backend/src/task/handlers.rs:31  crate::bindings::dao::TaskBindingDao
 tasks                  -> loops                [CODE] backend/src/task/handlers.rs:31  crate::bindings::dao::get_bindings_for_tasks
 tasks                  -> loops                [CODE] backend/src/task/presenter.rs:21  crate::bindings::dao::TaskBindingDao
 tasks                  -> loops                [CODE] backend/src/task/presenter.rs:23  crate::loops::dao::LoopDao
-tasks                  -> loops                [CODE] backend/src/task/reaper.rs:26  crate::bindings::dao::TaskBindingDao
-tasks                  -> sandbox-control      [CODE] backend/src/task/closer.rs:26  crate::sandbox::lifecycle::ArchiveRetention
-tasks                  -> sandbox-control      [CODE] backend/src/task/closer.rs:26  crate::sandbox::lifecycle::Lifecycle
-tasks                  -> sandbox-control      [CODE] backend/src/task/closer.rs:72  ArchiveRetention::on_close
-tasks                  -> sandbox-control      [CODE] backend/src/task/dao.rs:11  crate::sandbox::lifecycle::dao::load_sandbox_intent_views
-tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:33  crate::sandbox::lifecycle::LifecycleError
-tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:34  crate::sandbox::lifecycle::LifecycleError
-tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:35  crate::sandbox::lifecycle::LifecycleError
-tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:37  LE::TaskNotFound
-tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:39  LE::NotAllowed
-tasks                  -> sandbox-control      [CODE] backend/src/task/error.rs:41  LE::OperationInProgress
-tasks                  -> sandbox-control      [CODE] backend/src/task/handlers.rs:23  crate::sandbox::lifecycle::ArchiveRetention
-tasks                  -> sandbox-control      [CODE] backend/src/task/handlers.rs:23  crate::sandbox::lifecycle::Lifecycle
-tasks                  -> sandbox-control      [CODE] backend/src/task/handlers.rs:516  ArchiveRetention::DeleteArchives
-tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:1013  ArchiveRetention::on_close
-tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:31  crate::sandbox::lifecycle::ArchiveRetention
-tasks                  -> sandbox-control      [CODE] backend/src/task/reaper.rs:31  crate::sandbox::lifecycle::Lifecycle
-tasks                  -> sandbox-control      [CODE] backend/src/task/service.rs:37  crate::sandbox::lifecycle::Lifecycle
+tasks                  -> loops                [CODE] backend/src/task/reaper.rs:27  crate::bindings::dao::TaskBindingDao
 tasks                  -> server               [CODE] backend/src/task/routes.rs:7  crate::state::AppState
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---

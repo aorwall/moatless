@@ -6,12 +6,66 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
-use super::models::{SandboxIntentView, Task, TaskStatus, Visibility};
+use super::models::{
+    sandbox_intent_epoch, SandboxDesiredState, SandboxIntentView, SandboxStopReason, Task,
+    TaskStatus, Visibility,
+};
+use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 use moatless_core::db::DbPool;
-use crate::sandbox::lifecycle::dao::load_sandbox_intent_views;
 use moatless_core::shared_models::AgentType;
 use moatless_core::task_listing;
-use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
+
+#[derive(sqlx::FromRow)]
+struct SandboxIntentViewRow {
+    task_id: String,
+    started_at: Option<DateTime<Utc>>,
+    desired_state: Option<SandboxDesiredState>,
+    stop_reason: Option<SandboxStopReason>,
+    desired_state_updated_at: Option<DateTime<Utc>>,
+}
+
+/// Batch-load the task-response projection of Sandbox intent from the
+/// `sandboxes` table. Owns the lazy-row semantic: an existing Task without a
+/// Sandbox row is returned as converged Stopped at the no-intent epoch. Lives
+/// here beside the other task-response reads of the `sandboxes` table (the
+/// projection type and epoch sentinel are tasks-band); `Lifecycle` remains the
+/// sole *writer* of that intent.
+async fn load_sandbox_intent_views(
+    pool: &DbPool,
+    task_ids: &[String],
+) -> Result<HashMap<String, SandboxIntentView>, sqlx::Error> {
+    if task_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows: Vec<SandboxIntentViewRow> = sqlx::query_as(
+        r#"SELECT t.task_id, s.started_at, s.desired_state, s.stop_reason,
+                  s.desired_state_updated_at
+           FROM tasks t
+           LEFT JOIN sandboxes s ON s.task_id = t.task_id
+           WHERE t.task_id = ANY($1)"#,
+    )
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.task_id,
+                SandboxIntentView {
+                    started_at: row.started_at,
+                    desired_state: row.desired_state.unwrap_or(SandboxDesiredState::Stopped),
+                    stop_reason: row.stop_reason,
+                    desired_state_updated_at: row
+                        .desired_state_updated_at
+                        .unwrap_or_else(sandbox_intent_epoch),
+                },
+            )
+        })
+        .collect())
+}
 
 /// Filter struct for task listing queries.
 pub struct TaskFilter {
@@ -1160,4 +1214,29 @@ pub async fn delete_task(
 /// Check if a task with the given short_id exists (convenience wrapper).
 pub async fn exists_by_short_id(pool: &DbPool, short_id: &str) -> Result<bool, sqlx::Error> {
     PgTaskDao(pool.clone()).exists_by_short_id(short_id).await
+}
+
+#[cfg(all(test, feature = "db-tests"))]
+mod tests {
+    use super::*;
+    use crate::sandbox::lifecycle::test_support::seed_bare_task;
+    use sqlx::PgPool;
+
+    /// A Task with no `sandboxes` row projects as converged Stopped at the
+    /// no-intent epoch — the lazy-row semantic this task-response projection
+    /// owns. Deleting the projection would silently drop it.
+    #[sqlx::test]
+    async fn no_sandbox_row_projects_as_converged_stopped(pool: PgPool) {
+        seed_bare_task(&pool, "t1", "open").await;
+
+        let views = load_sandbox_intent_views(&pool, &[String::from("t1")])
+            .await
+            .unwrap();
+        let view = views.get("t1").expect("existing task has a projection");
+        assert_eq!(view.desired_state, SandboxDesiredState::Stopped);
+        assert!(
+            !view.has_explicit_intent(),
+            "a no-row task must not look like an explicit stop"
+        );
+    }
 }

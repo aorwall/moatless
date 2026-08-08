@@ -30,16 +30,19 @@ pub enum TaskError {
     Conflict(String),
 }
 
-impl From<crate::sandbox::lifecycle::LifecycleError> for TaskError {
-    fn from(value: crate::sandbox::lifecycle::LifecycleError) -> Self {
-        use crate::sandbox::lifecycle::LifecycleError as LE;
-        match &value {
-            LE::TaskNotFound(id) => Self::NotFound(id.clone()),
-            // The Closed guard rejected the operation — a client state error.
-            LE::NotAllowed { .. } => Self::BadRequest(value.to_string()),
-            // Another operation holds the per-Task lock.
-            LE::OperationInProgress { .. } => Self::Conflict(value.to_string()),
-            _ => Self::Internal(value.to_string()),
+impl From<crate::task::sandbox_lifecycle::SandboxOpError> for TaskError {
+    /// The tasks-band lifecycle port error, mapped the rest of the way to an HTTP
+    /// outcome. The sandbox-band implementation already classified the underlying
+    /// `LifecycleError`; this preserves the three client-visible codes — a closed
+    /// task is a 400, lock contention a 409, a missing task a 404 — and renders
+    /// everything else as a 500.
+    fn from(value: crate::task::sandbox_lifecycle::SandboxOpError) -> Self {
+        use crate::task::sandbox_lifecycle::SandboxOpError as Op;
+        match value {
+            Op::NotFound(id) => Self::NotFound(id),
+            Op::NotAllowed(msg) => Self::BadRequest(msg),
+            Op::InProgress(msg) => Self::Conflict(msg),
+            Op::Internal(msg) => Self::Internal(msg),
         }
     }
 }

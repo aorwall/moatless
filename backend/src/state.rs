@@ -6,10 +6,10 @@
 
 use std::sync::Arc;
 
-use crate::adapters::Adapters;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::linear::active_turns::ActiveLinearTurns;
+use crate::adapters::Adapters;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
@@ -42,6 +42,7 @@ use crate::task::creation::{PreflightPort, TaskCreationService};
 use crate::task::dao::TaskDao;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
+use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::team::dao::TeamDao;
@@ -712,7 +713,7 @@ impl axum::extract::FromRef<AppState> for Arc<Config> {
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<Lifecycle> {
+impl axum::extract::FromRef<AppState> for Arc<dyn SandboxLifecycle> {
     fn from_ref(state: &AppState) -> Self {
         state.sandbox.clone()
     }

@@ -18,12 +18,12 @@ use moatless_events::TaskSubType;
 use super::dao::{TaskDao, TaskPatch};
 use super::error::TaskError;
 use super::handlers::{deactivate_task_bindings, task_resource};
-use super::models::TaskStatus;
+use super::models::{ArchiveRetention, TaskStatus};
 use super::relations::{TaskRelationDao, TaskRelationType};
+use super::sandbox_lifecycle::SandboxLifecycle;
 use crate::bindings::dao::TaskBindingDao;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
 
 /// The ports a close reads. Bundled because single and cascaded closes thread
 /// the same set through every frame; constructed once at the composition root.
@@ -31,7 +31,7 @@ pub struct TaskCloser {
     pub(crate) tasks: Arc<dyn TaskDao>,
     pub(crate) task_relations: Arc<dyn TaskRelationDao>,
     pub(crate) config: Arc<Config>,
-    pub(crate) sandbox: Arc<Lifecycle>,
+    pub(crate) sandbox: Arc<dyn SandboxLifecycle>,
     pub(crate) task_bindings: Arc<dyn TaskBindingDao>,
     pub(crate) events: Option<Arc<dyn EventPublisher>>,
 }
