@@ -521,9 +521,7 @@ async fn notify_bindings_of_state_change(
             continue;
         }
 
-        if let Err(e) =
-            crate::sandbox::notify::ensure_sandbox_and_notify(state, &binding.task_id).await
-        {
+        if let Err(e) = state.sandbox_waker.wake(&binding.task_id).await {
             warn!(
                 task_id = %binding.task_id,
                 issue = %issue.identifier,

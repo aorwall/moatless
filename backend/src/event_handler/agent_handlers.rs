@@ -533,9 +533,7 @@ async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent,
         .await
     {
         Ok(_message_uuid) => {
-            if let Err(error_msg) =
-                crate::sandbox::notify::ensure_sandbox_and_notify(state, &relation.to_task_id).await
-            {
+            if let Err(error_msg) = state.sandbox_waker.wake(&relation.to_task_id).await {
                 state
                     .message_send
                     .persist_error_result(&relation.to_task_id, &error_msg)

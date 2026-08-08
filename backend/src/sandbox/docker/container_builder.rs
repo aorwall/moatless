@@ -17,7 +17,7 @@ use super::naming::{
     generate_sandbox_host_path, generate_server_container_name,
 };
 use moatless_core::config::Config;
-use crate::sandbox::k8s::pod_reader::{parse_cpu_to_millicores, parse_memory_to_bytes};
+use crate::sandbox::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
 use crate::repository::models::ServerConfig;
 use crate::sandbox::models::{ProvisionPlan, WORKSPACE_REPOS_ENV};

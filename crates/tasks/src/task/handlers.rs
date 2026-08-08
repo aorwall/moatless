@@ -472,7 +472,7 @@ pub async fn update_task_metadata(
 /// adapter "listeners" (Linear issue / GitHub PR / Slack thread bindings) must
 /// stop routing inbound events — otherwise a new comment would re-provision the
 /// sandbox and resurrect the task. Logs on failure but never blocks the
-/// close/delete; the runtime guards in `ensure_sandbox_and_notify` and
+/// close/delete; the runtime guards in `SandboxWaker::wake` and
 /// `send_message_flow` are the backstop if this doesn't run.
 pub(crate) async fn deactivate_task_bindings(bindings: &dyn TaskBindingDao, task_id: &str) {
     match bindings.deactivate_by_task(task_id).await {

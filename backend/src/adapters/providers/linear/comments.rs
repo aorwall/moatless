@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience};
-use crate::bindings::recipients::{resolve_recipients, EventProvenance};
+use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::state::AppState;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
@@ -156,9 +156,7 @@ pub(super) async fn handle_comment_created(
             continue;
         }
 
-        if let Err(e) =
-            crate::sandbox::notify::ensure_sandbox_and_notify(state, &binding.task_id).await
-        {
+        if let Err(e) = state.sandbox_waker.wake(&binding.task_id).await {
             warn!(
                 task_id = %binding.task_id,
                 error = %e,
@@ -196,7 +194,7 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::adapters::models::{TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+    use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
     use crate::adapters::providers::linear::subject::{
         ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND,
     };

@@ -184,7 +184,7 @@ sequenceDiagram
     participant BindingRepo as PgTaskBindingDao
     participant API as LinearAgentApi
     participant MsgFlow as message::send::send_message_flow
-    participant Sandbox as sandbox::notify::ensure_sandbox_and_notify
+    participant Sandbox as SandboxWaker::wake (state.sandbox_waker)
 
     Linear->>Runtime: AgentSessionEvent.prompted(session_id, body)
     Runtime->>BindingRepo: find_by_subject("linear", "linear_agent_session", session_id)
@@ -194,7 +194,7 @@ sequenceDiagram
     Runtime->>API: agentActivityCreate(session, thought "Working on it…", ephemeral)
     loop for each bound task
         Runtime->>MsgFlow: send_message_flow(task, body, external_event_id=linear:prompt:{session}:{ts})
-        Runtime->>Sandbox: ensure_sandbox_and_notify(task)
+        Runtime->>Sandbox: state.sandbox_waker.wake(task)
     end
 ```
 

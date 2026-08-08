@@ -14,6 +14,7 @@ use super::client::K8sClient;
 use super::pod_status::{extract_all_container_statuses, extract_container_observed_statuses};
 use crate::sandbox::access::LogOptions;
 use crate::sandbox::models::{ContainerObservedStatus, ContainerState, PodPhase};
+use crate::sandbox::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
 use crate::sandbox::schemas::RuntimeEvent;
 use moatless_backend_core::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 
@@ -382,41 +383,6 @@ pub async fn fetch_container_resource_usage(
             )
         })
         .collect()
-}
-
-/// Parse K8s CPU quantity (e.g. "250m", "1", "100n") to millicores.
-pub(crate) fn parse_cpu_to_millicores(s: &str) -> u64 {
-    if let Some(nano) = s.strip_suffix('n') {
-        // Nanocores → millicores
-        nano.parse::<u64>().unwrap_or(0) / 1_000_000
-    } else if let Some(micro) = s.strip_suffix('u') {
-        micro.parse::<u64>().unwrap_or(0) / 1_000
-    } else if let Some(milli) = s.strip_suffix('m') {
-        milli.parse::<u64>().unwrap_or(0)
-    } else {
-        // Whole cores
-        s.parse::<f64>().map_or(0, |v| (v * 1000.0) as u64)
-    }
-}
-
-/// Parse K8s memory quantity (e.g. "128Mi", "1Gi", "256000Ki") to bytes.
-pub(crate) fn parse_memory_to_bytes(s: &str) -> u64 {
-    if let Some(v) = s.strip_suffix("Ki") {
-        v.parse::<u64>().unwrap_or(0) * 1024
-    } else if let Some(v) = s.strip_suffix("Mi") {
-        v.parse::<u64>().unwrap_or(0) * 1024 * 1024
-    } else if let Some(v) = s.strip_suffix("Gi") {
-        v.parse::<u64>().unwrap_or(0) * 1024 * 1024 * 1024
-    } else if let Some(v) = s.strip_suffix('k') {
-        v.parse::<u64>().unwrap_or(0) * 1000
-    } else if let Some(v) = s.strip_suffix('M') {
-        v.parse::<u64>().unwrap_or(0) * 1_000_000
-    } else if let Some(v) = s.strip_suffix('G') {
-        v.parse::<u64>().unwrap_or(0) * 1_000_000_000
-    } else {
-        // Plain bytes
-        s.parse::<u64>().unwrap_or(0)
-    }
 }
 
 // =============================================================================

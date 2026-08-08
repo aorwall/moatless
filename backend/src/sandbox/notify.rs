@@ -7,7 +7,6 @@ use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::sandbox::lifecycle::{Lifecycle, LifecycleError, NotifyPort, ObservedStatus};
-use crate::state::AppState;
 use crate::task::dao::TaskDao;
 use crate::task::sandbox_waker::SandboxWaker;
 
@@ -27,18 +26,6 @@ pub async fn notify_task_over_grpc(connector: &dyn SandboxConnector, task_id: &s
     };
 
     client.notify_messages().await;
-}
-
-/// Ensure the sandbox for `task_id` is running, then notify it about new
-/// messages — the AppState-taking wrapper over [`SandboxWakeService`].
-///
-/// Kept for the callers that still hold `&AppState` and reach the wake
-/// downward-legally (event handlers, adapters, loop runners). The tasks-band
-/// consumer (message delivery) uses the port directly through
-/// [`crate::task::sandbox_waker::wake_for_message`] instead. This door is
-/// transitional; see `docs/deferred-changes.md`.
-pub async fn ensure_sandbox_and_notify(state: &AppState, task_id: &str) -> Result<(), String> {
-    state.sandbox_waker.wake(task_id).await
 }
 
 /// Sandbox-control implementation of the tasks-band [`SandboxWaker`] port.

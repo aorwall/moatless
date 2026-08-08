@@ -230,9 +230,7 @@ pub(super) async fn handle_session_prompted(
             continue;
         }
 
-        if let Err(e) =
-            crate::sandbox::notify::ensure_sandbox_and_notify(state, &binding.task_id).await
-        {
+        if let Err(e) = state.sandbox_waker.wake(&binding.task_id).await {
             warn!(
                 task_id = %binding.task_id,
                 error = %e,
