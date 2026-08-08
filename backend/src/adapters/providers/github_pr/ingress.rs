@@ -4,14 +4,20 @@
 //! This module owns everything from request verification through classification
 //! of the durable admission outcome.
 
+use std::sync::Arc;
+
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
-use crate::adapters::delivery::AdapterDeliveryRequest;
+use moatless_core::db::DbPool;
+
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch};
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
+use crate::task::binding_dao::TaskBindingDao;
 
 use super::adapter::GithubPrAdapter;
 use super::config::GithubPrRuleConfig;
@@ -53,7 +59,11 @@ fn ingress(e: AdapterError) -> IngressError {
 
 /// Verify, normalize, plan, and durably admit one GitHub webhook.
 pub(crate) async fn receive(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
+    loops: &LoopDao,
+    db: &DbPool,
+    task_bindings: &Arc<dyn TaskBindingDao>,
+    adapter_delivery: &AdapterDeliveryStore,
     github_provider: &GithubPrAdapter,
     request: WebhookRequest<'_>,
 ) -> Result<Outcome, IngressError> {
@@ -96,7 +106,7 @@ pub(crate) async fn receive(
             ingress(SharedAdapterError::BadRequest("Missing repository.owner.login".into()).into())
         })?;
 
-    let resolved = resolve_provider_event(state, owner_login, repo_full_name)
+    let resolved = resolve_provider_event(adapter_connections, loops, owner_login, repo_full_name)
         .await
         .map_err(ingress)?;
     let Some((connection, rule)) = resolved else {
@@ -199,7 +209,7 @@ pub(crate) async fn receive(
             repo,
             sender_login,
             frontend_url: github_provider.frontend_url(),
-            db: &state.db,
+            db,
         },
     )
     .await;
@@ -209,7 +219,7 @@ pub(crate) async fn receive(
     // have no separate post-observation rejection for the documented Ticket 01
     // partial shape.
     for observation in normalized.status_observations {
-        super::status::apply_webhook_observation(state.task_bindings.clone(), observation);
+        super::status::apply_webhook_observation(task_bindings.clone(), observation);
     }
     let primary = normalized.primary.map_err(ingress)?;
 
@@ -319,7 +329,7 @@ pub(crate) async fn receive(
         );
     }
 
-    admit_sequentially(state, plan).await?;
+    admit_sequentially(adapter_delivery, plan).await?;
 
     Ok(Outcome::Processed {
         event_type: event_type.to_string(),
@@ -332,20 +342,19 @@ pub(crate) async fn receive(
 /// optional because existing PR bindings remain opted in even when no trigger
 /// matches; only trigger-created Task behavior requires the real Subscription.
 async fn resolve_provider_event(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
+    loops: &LoopDao,
     org: &str,
     repo_full_name: &str,
 ) -> Result<Option<(AdapterConnection, Option<SubscriptionMatch>)>, AdapterError> {
-    let connection = state
-        .adapter_connections
+    let connection = adapter_connections
         .find_by_scope_value(super::delivery::ADAPTER, org)
         .await?;
     let Some(connection) = connection else {
         return Ok(None);
     };
 
-    let rule = state
-        .loops
+    let rule = loops
         .find_subscription_by_source_matcher(super::delivery::ADAPTER, repo_full_name)
         .await?
         .filter(|rule| {
@@ -376,14 +385,13 @@ fn delivery_event_id(delivery_id: &str, body: &[u8]) -> String {
 /// Each successful admission commits independently. A redelivery therefore
 /// sees earlier kinds as duplicates and resumes at the first missing kind.
 async fn admit_sequentially(
-    state: &AppState,
+    adapter_delivery: &AdapterDeliveryStore,
     plan: Vec<AdapterDeliveryRequest>,
 ) -> Result<(), IngressError> {
     for request in plan {
         let kind = request.kind;
         let event_id = request.event_id.clone();
-        let admission =
-            crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
+        let admission = crate::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
         super::delivery::log_admission(kind, &event_id, admission);
     }
     Ok(())

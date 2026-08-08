@@ -3,7 +3,7 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3461  illegal   18
+CODE       legal  3466  illegal   17
 ATTRIBUTE  legal   274  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    50  illegal    0   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
@@ -46,7 +46,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   loops  (47 files, 13300 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
-  adapter-github-pr  (24 files, 10617 lines)
+  adapter-github-pr  (24 files, 10635 lines)
     adapters/providers/github_pr/
 
   adapter-linear  (23 files, 9950 lines)
@@ -70,15 +70,14 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 57799 lines
+  TOTAL backend/src: 57817 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (4 classes) ==
 
-adapter-github-pr -> server   x8
+adapter-github-pr -> server   x7
     backend/src/adapters/providers/github_pr/api_routes.rs:32  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/github_pr/delivery.rs:75  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/github_pr/handlers.rs:11  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/github_pr/ingress.rs:14  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/github_pr/merge_conflict.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/github_pr/post_merge.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/github_pr/routing.rs:17  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -125,7 +124,7 @@ adapter-telegram -> server   x3
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           EXTRACTED
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
   loops              deps: identity, tasks, workspaces                  READY
-  adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
+  adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 7 illegal outgoing to server(x7)
   adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 5 illegal outgoing to server(x5)
   adapter-slack      deps: identity, loops                              BLOCKED — 2 illegal outgoing to server(x2)
   adapter-telegram   deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)

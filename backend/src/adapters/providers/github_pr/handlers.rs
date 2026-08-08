@@ -37,7 +37,17 @@ pub async fn github_webhook(
         &body,
     );
 
-    match super::ingress::receive(&state, &github_pr_provider, request).await {
+    match super::ingress::receive(
+        state.adapter_connections.as_ref(),
+        &state.loops,
+        &state.db,
+        &state.task_bindings,
+        &state.adapter_delivery,
+        &github_pr_provider,
+        request,
+    )
+    .await
+    {
         Ok(Outcome::Processed { event_type }) => {
             record_webhook("github_pr", "success", "", &event_type, "", "");
         }
