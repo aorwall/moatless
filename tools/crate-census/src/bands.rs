@@ -195,6 +195,16 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // the carved-but-unbanded backstop in main.rs flagged it, and this arm is the
         // fix. A physical carve without its precursor arm silently unbands the crate.
         "tasks" => "tasks".to_string(),
+        // `sandbox-control` (10e) is a real band-6 crate (crates/sandbox-control),
+        // not the floor. Same reasoning as `tasks` above: mapping it to
+        // `floor:sandbox-control` drops a whole band-6 crate out of the scored graph
+        // — its files score as floor (excluded), every backend
+        // `moatless_sandbox_control::` facade re-export misses `external_crate` (no
+        // census edge), and its outgoing edges launder to `floor -> X`
+        // (downward-legal), so a future illegal edge out of it is never caught. The
+        // arm ships in the same slice as the `git mv`; the carved-but-unbanded
+        // backstop in main.rs is the tripwire if it is ever forgotten.
+        "sandbox-control" => "sandbox-control".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -239,6 +249,14 @@ pub fn external_crate(head: &str) -> Option<String> {
         // silently dropped rather than scored, the export half of tasks leaving the
         // census graph. Skipped at the 10d carve; restored here.
         "moatless_tasks" => "tasks",
+        // `moatless_sandbox_control` (10e) resolves to the band-6 sandbox-control
+        // crate, so a backend (band 7..10) reference to it — every `crate::sandbox::`
+        // access routed through the facade at src/sandbox/mod.rs, including the k8s
+        // and docker providers at band 7 — scores as a downward-legal edge, and the
+        // crate's own downward deps stay legal. Without this arm the head falls to
+        // `_ => None` ("no census edge") and the export half of sandbox-control
+        // leaves the census graph. Mirrors `moatless_tasks`.
+        "moatless_sandbox_control" => "sandbox-control",
         _ => return None,
     };
     Some(id.to_string())
@@ -330,5 +348,35 @@ mod tests {
             panic!("moatless_tasks must be a known external head");
         };
         assert_eq!(band_of(&id), 5, "moatless_tasks must resolve to band-5 tasks");
+    }
+
+    /// The 10e analogue: `crates/sandbox-control` must resolve to the band-6
+    /// sandbox-control crate, not the `floor:sandbox-control` fallthrough (band 0,
+    /// excluded from scoring). Asserting the band, not just non-emptiness, turns the
+    /// fallthrough into a test failure rather than a silent whole-crate drop.
+    #[test]
+    fn sandbox_control_dir_resolves_to_the_band_6_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("sandbox-control"), "sandbox-control");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("sandbox-control")),
+            6,
+            "crates/sandbox-control must be the band-6 sandbox-control crate, not floor band 0"
+        );
+        // The trap it must NOT take is band 0.
+        assert_eq!(band_of("floor:sandbox-control"), 0);
+    }
+
+    /// A backend reference to `moatless_sandbox_control::` must resolve to the band-6
+    /// sandbox-control crate (so it scores downward-legal), mirroring `moatless_tasks`.
+    #[test]
+    fn moatless_sandbox_control_head_resolves_to_the_band_6_crate() {
+        assert_eq!(
+            external_crate("moatless_sandbox_control"),
+            Some("sandbox-control".to_string())
+        );
+        let Some(id) = external_crate("moatless_sandbox_control") else {
+            panic!("moatless_sandbox_control must be a known external head");
+        };
+        assert_eq!(band_of(&id), 6, "moatless_sandbox_control must resolve to band-6 sandbox-control");
     }
 }

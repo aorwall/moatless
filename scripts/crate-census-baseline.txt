@@ -104,5 +104,4 @@ loops                  -> server               [CODE] backend/src/bindings/outbo
 loops                  -> server               [CODE] backend/src/bindings/runtime.rs:21  crate::state::AppState
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
-# Doc-path count (not in the illegal count above): 1
-sandbox-control        -> server               [DOC] backend/src/sandbox/status_reader.rs:8  crate::t3code::projection
+# Doc-path count (not in the illegal count above): 0

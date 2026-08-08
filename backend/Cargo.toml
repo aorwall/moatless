@@ -137,6 +137,10 @@ moatless-workspaces = { path = "../crates/workspaces" }
 # and file storage (lifted out of backend/src). Composed through permanent facade
 # modules that re-export it, so higher bands keep naming `crate::task::…` etc.
 moatless-tasks = { path = "../crates/tasks" }
+# Sandbox-control band (band 6): provider-agnostic lifecycle, gRPC ingress,
+# preflight, secrets, status reads (lifted out of backend/src/sandbox). Composed
+# through the permanent facade at src/sandbox/mod.rs; `k8s`/`docker` stay local.
+moatless-sandbox-control = { path = "../crates/sandbox-control" }
 moatless-t3code = { path = "../crates/t3code" }
 
 # Claude agent SDK types (for OpenAPI schema generation)
@@ -161,6 +165,9 @@ db-tests = [
     "moatless-core/test-support",
     "moatless-identity/test-support",
     "moatless-tasks/test-support",
+    # Forwards so the control crate's `for_ingress_tests` harness, reached from
+    # backend/tests/integration, compiles with its DB-backed blocks.
+    "moatless-sandbox-control/db-tests",
 ]
 
 [lints]

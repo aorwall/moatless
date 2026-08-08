@@ -1,30 +1,20 @@
-//! Sandbox operations module.
+//! Permanent facade over the sandbox-control band (`moatless-sandbox-control`).
 //!
-//! Provides internal API for managing sandbox pods, PVCs, secrets,
-//! and services. The `k8s` submodule contains Kubernetes-specific
-//! implementation details.
+//! The provider-agnostic half of the sandbox module now lives in its own crate;
+//! the backend re-exports those modules here so higher bands still in the
+//! backend keep naming `crate::sandbox::…`. Explicit named re-exports (never a
+//! glob) so the crate census can resolve edges through the facade. The backend
+//! stays the composition root that wires these ports into `AppState`.
+//!
+//! `k8s` and `docker` (band 7, the two container runtimes) stay backend-local
+//! and reach the control band through this facade — they depend downward on the
+//! crate, so they must not move into it.
 
-pub mod access;
-pub mod auto_provision;
-pub mod client;
+pub use moatless_sandbox_control::{
+    access, auto_provision, client, error, event_dedup, file_handlers, grpc_server, handlers, jwt,
+    lifecycle, live_status, metrics, models, notify, preflight, resource_parse, routes, schemas,
+    secrets, server_runner, status_reader, storage,
+};
+
 pub mod docker;
-pub mod error;
-pub mod event_dedup;
-pub mod file_handlers;
-pub mod grpc_server;
-pub mod handlers;
-pub mod jwt;
 pub mod k8s;
-pub mod lifecycle;
-pub mod live_status;
-pub mod metrics;
-pub mod models;
-pub mod notify;
-pub mod preflight;
-pub mod resource_parse;
-pub mod routes;
-pub mod schemas;
-pub mod storage;
-pub mod status_reader;
-pub mod secrets;
-pub mod server_runner;

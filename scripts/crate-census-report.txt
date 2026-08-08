@@ -1,15 +1,15 @@
 CRATE-CENSUS REPORT
-files parsed: 683
+files parsed: 684
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3872  illegal   65
+CODE       legal  3673  illegal   65
 ATTRIBUTE  legal   258  illegal   16   (utoipa/derive/etc. token streams)
-MACRO      legal    47  illegal   16   (function-like macro-invocation token streams)
-DOC           47  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1115 point down into the existing crates/* floor
-TEST-CONTEXT 2208  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
-UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
+MACRO      legal    38  illegal   16   (function-like macro-invocation token streams)
+DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
+  of the legal CODE edges, 1012 point down into the existing crates/* floor
+TEST-CONTEXT 2050  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+UNRESOLVED    120  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
   Line counts are newline counts (wc -l). Every row counts the backend/src files
@@ -18,7 +18,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   surface the backend still composes, not work left to carve. An extracted crate that
   left no stub has no row. So TOTAL does not fall to zero as carving completes — it
   converges to the summed line count of every facade stub that remains.
-  Extracted, keeps a facade row: identity, tasks, workspaces.
+  Extracted, keeps a facade row: identity, sandbox-control, tasks, workspaces.
   Extracted, left no stub (no row): adapter-model, core.
   TEST-SCAFFOLD collects cfg(test)-only backend-local modules that ship in no crate
   and are never carved. UNASSIGNED collects any top-level module crate_of_backend_mod
@@ -34,8 +34,8 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   tasks  (11 files, 90 lines)
     agent.rs agent_event.rs credential_sync.rs event_ingress.rs feedback.rs file_storage.rs message.rs task.rs task_activities.rs task_event.rs task_turn.rs
 
-  sandbox-control  (45 files, 19219 lines)
-    sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/resource_parse.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs sandbox/storage.rs
+  sandbox-control  (1 files, 20 lines)
+    sandbox/mod.rs
 
   sandbox-k8s  (21 files, 13092 lines)
     sandbox/k8s/
@@ -70,7 +70,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 93779 lines
+  TOTAL backend/src: 74580 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (11 classes) ==
 
@@ -197,7 +197,7 @@ loops -> server   x7
   none
 
 == UNRESOLVED REFERENCES (audit) ==
-  [super-above-root] x118
+  [super-above-root] x120
     test:backend :: CommandRefusal::Failed   (backend/tests/integration/ui_rpc_command_test.rs:309)
     test:backend :: CommandRefusal::NotWritable   (backend/tests/integration/ui_rpc_command_test.rs:433)
     test:backend :: CommandRefusal::NotWritable   (backend/tests/integration/ui_rpc_command_test.rs:626)
@@ -206,6 +206,8 @@ loops -> server   x7
     test:backend :: CommandRefusal::Rejected   (backend/tests/integration/ui_rpc_command_test.rs:410)
     test:backend :: IngressRelay::new   (backend/tests/integration/event_ingress_test.rs:523)
     test:backend :: LocalEnvelopeSecretCipher::from_config   (backend/tests/integration/github_app_registration_test.rs:69)
+    test:backend :: RuntimeOutcome::applied   (backend/tests/integration/common/mod.rs:62)
+    test:backend :: RuntimeOutcome::applied   (backend/tests/integration/common/mod.rs:95)
     test:backend :: TaskPatch::default   (backend/tests/integration/task_listing_position_test.rs:667)
     test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:1316)
     test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:1362)
@@ -324,21 +326,21 @@ loops -> server   x7
   READY = no illegal outgoing edge AND every crate it depends on is already
   extracted. EXTRACTED = already carved into crates/*, detected from this run's own
   scan (a crates/<dir> that resolves to a real band, not floor:<dir>) — it has left
-  the frontier and is shown for context, not as work. Extracted carve targets so far: identity, workspaces, tasks.
+  the frontier and is shown for context, not as work. Extracted carve targets so far: identity, workspaces, tasks, sandbox-control.
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> sandbox-control: READY now (no illegal outgoing; every crate it depends on is extracted).
+  FRONTIER -> sandbox-k8s: READY now (no illegal outgoing; every crate it depends on is extracted).
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
   tasks              deps: identity, workspaces                         EXTRACTED
-  sandbox-control    deps: identity, tasks, workspaces                  READY
-  sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
-  sandbox-docker     deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
+  sandbox-control    deps: identity, tasks, workspaces                  EXTRACTED
+  sandbox-k8s        deps: sandbox-control, tasks, workspaces           READY
+  sandbox-docker     deps: sandbox-control, tasks, workspaces           READY
   loops              deps: identity, tasks, workspaces                  BLOCKED — 67 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x7)
-  adapter-github-pr  deps: identity, loops, tasks, workspaces           BLOCKED — 8 illegal outgoing to server(x8)
-  adapter-linear     deps: identity, loops, tasks                       BLOCKED — 14 illegal outgoing to server(x14)
+  adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
+  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 14 illegal outgoing to server(x14)
   adapter-slack      deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)
   adapter-telegram   deps: identity, loops                              BLOCKED — 4 illegal outgoing to server(x4)
   adapter-webhook    deps: loops                                        BLOCKED — 1 illegal outgoing to server(x1)

@@ -14,6 +14,7 @@ members = [
     "crates/identity",
     "crates/workspaces",
     "crates/tasks",
+    "crates/sandbox-control",
     "crates/t3code",
     # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
     "tools/crate-census",
