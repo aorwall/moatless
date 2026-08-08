@@ -9,7 +9,12 @@ Apply this reference to Rust changes under `backend/`.
 - HTTP and webhook handlers obtain persistence and domain behavior through DAOs
   or services injected into `AppState`.
 - Construct concrete `Pg*` DAO implementations in composition roots or inside
-  DAO/service implementations, not in handlers.
+  DAO/service implementations, not in handlers. A pool-wrapper DAO may be built
+  at the root or locally as convenient (a provider adapter that carries its own
+  ports builds its instance where it is constructed) precisely because it must
+  stay a stateless wrapper over the pool — two instances never diverge. A DAO
+  that acquires in-memory state (a dedup cache, a counter, a notify channel) has
+  to be built once and shared instead, not rebuilt per consumer.
 - Direct pool access in handlers is limited to documented authentication,
   infrastructure, or transaction boundaries.
 - Add a trait only when the boundary has more than one real consumer or a test

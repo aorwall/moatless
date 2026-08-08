@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::adapter_apps::dao::{AdapterAppDao, PgAdapterAppDao};
 use crate::adapters::Adapters;
 use crate::adapters::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
-use crate::adapters::delivery::AdapterDeliveryHandlers;
+use crate::adapters::delivery::{AdapterDeliveryHandlers, AdapterDeliveryStore};
 use crate::auth::api_keys::{ApiKeyDao, PgApiKeyDao};
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
@@ -22,11 +22,7 @@ use crate::auth::provider_tokens::{PgProviderTokenAuthDao, ProviderTokenAuthDao}
 use crate::auth::sessions::{PgSessionDao, SessionDao};
 use crate::auth::users::{PgUserDao, UserDao};
 use crate::bindings::dao::PgTaskBindingDao;
-use crate::task::binding_dao::TaskBindingDao;
-use moatless_core::config::Config;
-use moatless_core::db::DbPool;
 use crate::event_ingress::outbox::{IngressOutbox, PgIngressOutbox};
-use moatless_core::events::EventPublisher;
 use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
 use crate::file_storage::dao::{FileDao, PgFileDao};
 use crate::loops::dao::LoopDao;
@@ -44,7 +40,7 @@ use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
 use crate::secret::dao::{PgSecretDao, SecretDao};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher, SecretService};
 use crate::state::{AppState, ProviderHandles};
-use moatless_core::tag::dao::{PgTagDao, TagDao};
+use crate::task::binding_dao::TaskBindingDao;
 use crate::task::dao::{PgTaskDao, TaskDao};
 use crate::task::relations::{PgTaskRelationDao, TaskRelationDao};
 use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
@@ -52,6 +48,10 @@ use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
 use crate::team::dao::{PgTeamDao, TeamDao};
 use crate::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
 use moatless_backend_core::sandbox::SandboxConnector;
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+use moatless_core::events::EventPublisher;
+use moatless_core::tag::dao::{PgTagDao, TagDao};
 
 /// Bounded per-Task lock-acquire attempts before a lifecycle call surfaces
 /// `OperationInProgress`. The inline retry is only a latency fast path — the
@@ -354,10 +354,12 @@ impl Adapters {
         let db = pool;
 
         let runtime_config = Arc::new(config.clone());
-        let slack = Arc::new(crate::adapters::providers::slack::adapter::SlackAdapter::from_db(
-            runtime_config.clone(),
-            db.clone(),
-        ));
+        let slack = Arc::new(
+            crate::adapters::providers::slack::adapter::SlackAdapter::from_db(
+                runtime_config.clone(),
+                db.clone(),
+            ),
+        );
         slack.clone().register_into(&mut providers);
         tracing::info!("Slack adapter registered");
 
@@ -366,10 +368,21 @@ impl Adapters {
             .register_into(&mut providers);
         tracing::info!("Webhook adapter configured");
 
+        // Telegram carries its ingress ports (connections, loops, delivery) so
+        // its webhook route and poller read them through the adapter rather
+        // than an `AppState`. Built locally from the pool, the same move as
+        // Linear's `with_tasks` above.
+        let telegram_connections: Arc<dyn AdapterConnectionDao> =
+            Arc::new(PgAdapterConnectionDao::new(db.clone()));
         let telegram = Arc::new(
             crate::adapters::providers::telegram::adapter::TelegramAdapter::from_db(
                 runtime_config,
                 db.clone(),
+            )
+            .with_ingress_ports(
+                telegram_connections,
+                Arc::new(LoopDao::new(db.clone())),
+                Arc::new(AdapterDeliveryStore::new(db.clone())),
             ),
         );
         telegram.clone().register_into(&mut providers);

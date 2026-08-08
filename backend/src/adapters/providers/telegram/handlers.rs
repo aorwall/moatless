@@ -11,7 +11,6 @@ use tracing::{info, warn};
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
-use crate::state::AppState;
 
 use super::adapter::TelegramAdapter;
 use super::ingress::{self, Transport};
@@ -24,7 +23,6 @@ use super::ingress::{self, Transport};
     responses((status = 200, description = "Webhook processed"))
 )]
 pub async fn telegram_webhook(
-    State(state): State<AppState>,
     State(telegram_provider): State<Option<Arc<TelegramAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
@@ -40,7 +38,7 @@ pub async fn telegram_webhook(
             .and_then(|v| v.to_str().ok()),
     };
 
-    match ingress::receive(&state, &telegram_provider, &body, transport).await {
+    match ingress::receive(&telegram_provider, &body, transport).await {
         // Routing is durably owned now; its outcome is recorded by the work
         // handler when it actually runs. Recording "success" here would count
         // an outcome this path no longer knows.

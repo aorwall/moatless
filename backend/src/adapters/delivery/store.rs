@@ -28,9 +28,18 @@ pub(crate) struct Backlog {
 
 /// The durable Adapter delivery store.
 ///
-/// Webhook handlers reach this through `AppState::adapter_delivery` and only ever
-/// call [`AdapterDeliveryStore::admit`]; the remaining operations belong to the
-/// worker that owns admitted records.
+/// Most webhook handlers reach this through `AppState::adapter_delivery` and
+/// only ever call [`AdapterDeliveryStore::admit`]; the remaining operations
+/// belong to the worker that owns admitted records.
+///
+/// INVARIANT — must stay a stateless wrapper over the pool. A provider adapter
+/// (Telegram today, see `TelegramAdapter::with_ingress_ports`) may construct
+/// its own instance at the composition root rather than share the one on
+/// `AppState`, which is sound only because every instance is `pool` + a fixed
+/// `policy` and admission's capacity guard rides the DB (`SELECT COUNT(*)`), so
+/// two instances never diverge. Any in-memory state added here — a dedup cache,
+/// a counter, a notify channel — breaks that: it would have to be built once
+/// and shared, not rebuilt per provider.
 pub struct AdapterDeliveryStore {
     pool: DbPool,
     policy: AdapterDeliveryPolicy,

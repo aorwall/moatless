@@ -13,7 +13,6 @@ use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::SubscriptionMatch;
-use crate::state::AppState;
 use moatless_core::db::DbPool;
 
 use super::adapter::TelegramAdapter;
@@ -45,7 +44,6 @@ fn ignored(reason: &'static str) -> Outcome {
 /// entry points must leave their acknowledgment unsent on an `Err`: the webhook
 /// by answering non-2xx, the poller by holding its offset back.
 pub(super) async fn receive(
-    state: &AppState,
     adapter: &TelegramAdapter,
     body: &[u8],
     transport: Transport<'_>,
@@ -98,8 +96,10 @@ pub(super) async fn receive(
     // update could route under a Subscription whose secret was never checked
     // (spec Decision 5).
     let Some((connection, subscription)) = crate::bindings::runtime::resolve_chat_provider_event(
-        state.adapter_connections.as_ref(),
-        state.loops.as_ref(),
+        adapter
+            .require_adapter_connections()
+            .map_err(IngressError::Ingress)?,
+        adapter.require_loops().map_err(IngressError::Ingress)?,
         "telegram",
         "default",
         &source_id,
@@ -122,6 +122,7 @@ pub(super) async fn receive(
 
     let config = moatless_adapter_model::models::subscription_context(&subscription, "telegram");
     let tg_config = TelegramAdapterConfig::from_config(&config);
+    let db = adapter.require_db().map_err(IngressError::Ingress)?;
     let api = adapter
         .app_api(crate::adapter_apps::app_key_from_transport_config(
             &connection.transport_config,
@@ -134,7 +135,7 @@ pub(super) async fn receive(
         &NormalizeContext {
             config: &config,
             tg_config: &tg_config,
-            db: &state.db,
+            db,
             is_private_chat,
         },
     )
@@ -143,7 +144,7 @@ pub(super) async fn receive(
 
     match normalized {
         Normalization::Message { message, effects } => {
-            apply_effects(&api, &state.db, &config.id, effects)
+            apply_effects(&api, db, &config.id, effects)
                 .await
                 .map_err(IngressError::Ingress)?;
             let msg = *message;
@@ -184,8 +185,13 @@ pub(super) async fn receive(
             // The routing runs in the Adapter delivery worker, which is also where
             // the webhook outcome metric is recorded. Failing here propagates:
             // nothing durable was written, so the caller must not acknowledge.
-            let admission =
-                crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
+            let admission = crate::adapters::ingress::admit_delivery(
+                adapter
+                    .require_adapter_delivery()
+                    .map_err(IngressError::Ingress)?,
+                request,
+            )
+            .await?;
             debug!(
                 update_id,
                 admission = admission.as_str(),
@@ -196,7 +202,7 @@ pub(super) async fn receive(
             })
         }
         Normalization::Ignored { reason, effects } => {
-            apply_effects(&api, &state.db, &config.id, effects)
+            apply_effects(&api, db, &config.id, effects)
                 .await
                 .map_err(IngressError::Ingress)?;
             debug!(update_id, reason, "Telegram update ignored by provider");

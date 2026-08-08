@@ -28,9 +28,6 @@ backend/src/adapters/providers/linear/delivery.rs
 backend/src/adapters/providers/linear/handlers.rs
 backend/src/adapters/providers/linear/issues.rs
 backend/src/adapters/providers/linear/sessions.rs
-backend/src/adapters/providers/telegram/handlers.rs
-backend/src/adapters/providers/telegram/ingress.rs
-backend/src/adapters/providers/telegram/poller.rs
 backend/src/event_handler/agent_handlers.rs
 backend/src/event_handler/consumer.rs
 backend/src/event_handler/mod.rs

@@ -11,15 +11,15 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use moatless_vibe_backend::agent;
-use moatless_vibe_backend::auth;
-use moatless_vibe_backend::compose::{compose, register_builtin_delivery_handlers, Ports};
 use moatless_core::config::{Config, SandboxProviderType};
-use moatless_vibe_backend::event_handler;
-use moatless_vibe_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
 use moatless_core::feature_flags;
 use moatless_core::leader::LeaderGuard;
 use moatless_core::tag;
+use moatless_vibe_backend::agent;
+use moatless_vibe_backend::auth;
+use moatless_vibe_backend::compose::{Ports, compose, register_builtin_delivery_handlers};
+use moatless_vibe_backend::event_handler;
+use moatless_vibe_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
 use moatless_vibe_backend::sandbox;
 use moatless_vibe_backend::sandbox::k8s::leader_election::K8sLeaderGuard;
 use moatless_vibe_backend::sse::routes::sse_router;
@@ -572,10 +572,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // any client receives — `resume` refuses the same cursors either
             // way. Shedding traffic over it would be the larger outage.
             Criticality::Optional,
-            moatless_core::task_listing::spawn_change_pruner(
-                app_state.db.clone(),
-                cancel.clone(),
-            ),
+            moatless_core::task_listing::spawn_change_pruner(app_state.db.clone(), cancel.clone()),
         );
 
         // The same job for the conversation feed, and Optional for the same
@@ -720,7 +717,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // and its own early-exit branches already log the reason.
                         Criticality::Optional,
                         adapters::providers::telegram::spawn_telegram_poller(
-                            app_state.clone(),
                             telegram,
                             cancel.clone(),
                         ),
