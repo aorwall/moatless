@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::adapters::capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
     AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation,
-    AdapterMessageReply, AdapterNewThread, AdapterPostBindingFollowup, AdapterReactions,
+    AdapterMessageReply, AdapterPostBindingFollowup, AdapterReactions,
 };
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 
@@ -25,7 +25,6 @@ pub struct Adapters {
     message_replies: HashMap<AdapterKind, Arc<dyn AdapterMessageReply>>,
     direct_destinations: HashMap<AdapterKind, Arc<dyn AdapterDirectDestination>>,
     direct_messages: HashMap<AdapterKind, Arc<dyn AdapterDirectMessage>>,
-    new_threads: HashMap<AdapterKind, Arc<dyn AdapterNewThread>>,
     post_binding_followups: HashMap<AdapterKind, Arc<dyn AdapterPostBindingFollowup>>,
     reactions: HashMap<AdapterKind, Arc<dyn AdapterReactions>>,
     inbound_presentations: HashMap<AdapterKind, Arc<dyn AdapterInboundPresentation>>,
@@ -47,7 +46,6 @@ impl Adapters {
             message_replies: HashMap::new(),
             direct_destinations: HashMap::new(),
             direct_messages: HashMap::new(),
-            new_threads: HashMap::new(),
             post_binding_followups: HashMap::new(),
             reactions: HashMap::new(),
             inbound_presentations: HashMap::new(),
@@ -94,10 +92,6 @@ impl Adapters {
     pub(crate) fn register_direct_message(&mut self, provider: Arc<dyn AdapterDirectMessage>) {
         self.direct_messages
             .insert(provider.adapter_kind(), provider);
-    }
-
-    pub(crate) fn register_new_thread(&mut self, provider: Arc<dyn AdapterNewThread>) {
-        self.new_threads.insert(provider.adapter_kind(), provider);
     }
 
     pub(crate) fn register_post_binding_followup(
@@ -166,19 +160,6 @@ impl Adapters {
             .get(&adapter_kind)
             .map(Arc::as_ref)
             .ok_or_else(|| unsupported_outbound(adapter_kind, OutboundOperation::MessageReply))
-    }
-
-    pub(crate) fn outbound_for_new_thread_by_name(
-        &self,
-        name: &str,
-    ) -> Result<&dyn AdapterNewThread, AdapterError> {
-        let adapter_kind = self
-            .adapter_kind_for_name(name)
-            .ok_or_else(|| SharedAdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
-        self.new_threads
-            .get(&adapter_kind)
-            .map(Arc::as_ref)
-            .ok_or_else(|| unsupported_outbound(adapter_kind, OutboundOperation::NewThread))
     }
 
     pub(crate) fn outbound_for_direct_destination(
@@ -322,7 +303,6 @@ enum OutboundOperation {
     MessageReply,
     DirectDestination,
     DirectMessage,
-    NewThread,
 }
 
 fn unsupported_outbound(adapter_kind: AdapterKind, operation: OutboundOperation) -> AdapterError {
@@ -343,10 +323,6 @@ fn unsupported_outbound(adapter_kind: AdapterKind, operation: OutboundOperation)
             adapter_kind.as_str()
         ))
         .into(),
-        OutboundOperation::NewThread => {
-            SharedAdapterError::Internal(format!("{adapter_kind:?} does not support send_message"))
-                .into()
-        }
     }
 }
 

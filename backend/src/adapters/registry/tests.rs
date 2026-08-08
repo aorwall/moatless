@@ -150,12 +150,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
             .outbound_for_direct_message(AdapterKind::Slack)
             .is_ok()
     );
-    assert!(providers.outbound_for_new_thread_by_name("slack").is_ok());
-    assert!(
-        providers
-            .outbound_for_new_thread_by_name("telegram")
-            .is_ok()
-    );
     assert!(
         providers
             .post_binding_followup(AdapterKind::Linear)
@@ -194,13 +188,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     assert!(
         providers
             .outbound_for_direct_message(AdapterKind::Webhook)
-            .is_err()
-    );
-    assert!(providers.outbound_for_new_thread_by_name("github").is_err());
-    assert!(providers.outbound_for_new_thread_by_name("linear").is_err());
-    assert!(
-        providers
-            .outbound_for_new_thread_by_name("webhook")
             .is_err()
     );
     assert!(

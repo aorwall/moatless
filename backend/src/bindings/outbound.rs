@@ -19,126 +19,9 @@ use crate::file_storage::s3::S3Storage;
 use crate::loops::dao::LoopDao;
 use crate::message::dao::MessageDao;
 use crate::message::models::{MessageRole, MessageType, TaskMessage};
-use crate::state::AppState;
 use crate::task::dao::TaskDao;
 use crate::task_activities::mapping::ConversationWrite;
 use crate::task_turn::dao::TaskTurnDao;
-
-/// Send a message directly through a subscription loop.
-///
-/// This is the subscription-based replacement for direct sends to Slack/Telegram
-/// adapter configs. When `task_id` is provided, a binding is created so
-/// future replies can target the external thread via `moat reply`.
-pub async fn direct_send_to_rule(
-    state: &AppState,
-    providers: &Adapters,
-    subscription_id: &str,
-    task_id: Option<&str>,
-    text: &str,
-    file_ids: &[String],
-) -> Result<Option<String>, AdapterError> {
-    let rule = state
-        .loops
-        .find_subscription_by_id(subscription_id)
-        .await?
-        .ok_or_else(|| SharedAdapterError::ConfigNotFound(subscription_id.to_string()))?;
-
-    if !rule.allow_direct_send {
-        return Err(SharedAdapterError::BadRequest(format!(
-            "Task trigger {subscription_id} does not allow direct send"
-        ))
-        .into());
-    }
-    if !rule.active {
-        return Err(SharedAdapterError::BadRequest(format!(
-            "Task trigger {subscription_id} is not active"
-        ))
-        .into());
-    }
-
-    #[allow(clippy::disallowed_methods)] // reason: webhook routing path has no caller identity
-    let sys = ScopeContext::system();
-    let connection = state
-        .adapter_connections
-        .find_by_id(&rule.connection_id, &sys)
-        .await?
-        .ok_or_else(|| SharedAdapterError::ConfigNotFound(rule.connection_id.clone()))?;
-
-    let provider = providers.outbound_for_new_thread_by_name(&rule.adapter_kind)?;
-    let adapter_label = provider.provider_key();
-
-    let files = resolve_files(state, file_ids).await;
-    if !files.is_empty() && !provider.supports_files() {
-        record_outbound(
-            adapter_label,
-            "error",
-            "unsupported_feature",
-            &rule.id,
-            &connection.id,
-        );
-        return Err(SharedAdapterError::BadRequest(format!(
-            "Provider {:?} does not support file attachments",
-            provider.adapter_kind()
-        ))
-        .into());
-    }
-
-    let reply = OutboundReply {
-        text: truncate_text(text, provider.max_message_length()),
-        task_url: None,
-        footer: None,
-        author_user_id: None,
-        is_error: false,
-        files,
-    };
-    let config = moatless_adapter_model::models::subscription_context(&rule, adapter_label);
-    let thread_info = match provider.send_message(&config, &reply).await {
-        Ok(info) => info,
-        Err(e) => {
-            record_outbound(
-                adapter_label,
-                "error",
-                "send_failed",
-                &rule.id,
-                &connection.id,
-            );
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "Failed to send message via {}: {e}",
-                rule.adapter_kind
-            ))
-            .into());
-        }
-    };
-
-    if let Some(tid) = task_id {
-        let destination_builder = providers.destination_builder(provider.adapter_kind())?;
-        let destination =
-            destination_builder.binding_destination_from_new_thread(&rule, &thread_info)?;
-
-        crate::bindings::runtime::upsert_binding_into(
-            state.task_bindings.as_ref(),
-            &connection,
-            Some(&rule),
-            tid,
-            provider.connection_provider_key(),
-            destination.subject_kind,
-            &destination.subject_key,
-            destination.destination_config,
-            crate::bindings::runtime::ORIGIN_CONNECTED_THREAD,
-            destination.last_external_event_id,
-        )
-        .await?;
-    }
-
-    record_outbound(
-        adapter_label,
-        "success",
-        "direct_send",
-        &rule.id,
-        &connection.id,
-    );
-    Ok(Some(thread_info.external_thread_id))
-}
 
 /// Binding-based outbound delivery, owning the ports the send path reads rather
 /// than the whole `AppState`. Held by `ExternalReplyService`, which is the only
@@ -418,8 +301,8 @@ impl OutboundSender {
     }
 
     /// Resolve file IDs to [`OutboundFile`] structs by loading metadata + data
-    /// from S3. Delegates to the shared [`resolve_files_with`] body so the
-    /// `&AppState` door and this method never drift.
+    /// from S3. Delegates to the shared [`resolve_files_with`] body so callers
+    /// that hold the ports directly and this method never drift.
     pub(crate) async fn resolve_files(&self, file_ids: &[String]) -> Vec<OutboundFile> {
         resolve_files_with(&self.s3, &self.s3_config, self.files.as_ref(), file_ids).await
     }
@@ -447,17 +330,9 @@ pub(crate) fn truncate_text(text: &str, max: usize) -> String {
 // File attachment helpers
 // ---------------------------------------------------------------------------
 
-/// Resolve file IDs to [`OutboundFile`] structs by loading metadata + data from S3.
-///
-/// Failures for individual files are logged as warnings and skipped. This is the
-/// door retained for `adapters/handlers.rs`, which still holds `AppState`; it
-/// forwards to [`resolve_files_with`] so no logic lives here.
-pub(crate) async fn resolve_files(state: &AppState, file_ids: &[String]) -> Vec<OutboundFile> {
-    resolve_files_with(&state.s3, &state.config.s3, state.files.as_ref(), file_ids).await
-}
-
-/// The file-resolution body, over the exact ports it reads. The `&AppState`
-/// door and [`OutboundSender::resolve_files`] both forward here.
+/// The file-resolution body, over the exact ports it reads.
+/// [`OutboundSender::resolve_files`] and `adapters/handlers.rs` both forward
+/// here, each passing the S3 and file ports it already holds.
 pub(crate) async fn resolve_files_with(
     s3: &Option<S3Storage>,
     s3_config: &S3Config,

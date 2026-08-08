@@ -14,7 +14,7 @@ use super::common::{
 use crate::adapters::AdapterKind;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, OutboundReply};
-use crate::bindings::outbound::{resolve_files, truncate_text};
+use crate::bindings::outbound::{resolve_files_with, truncate_text};
 use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding_into};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -172,7 +172,7 @@ pub async fn adapter_send(
     })?;
     let provider = providers.outbound_for_direct_destination(req.adapter)?;
 
-    let files = resolve_files(&state, &req.file_ids).await;
+    let files = resolve_files_with(&state.s3, &state.config.s3, state.files.as_ref(), &req.file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
         return Err(SharedAdapterError::BadRequest(format!(
             "{} adapter does not support file attachments",

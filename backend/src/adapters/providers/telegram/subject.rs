@@ -6,7 +6,6 @@
 //! where it stops being one.
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{NewThreadInfo, SubscriptionMatch};
 use crate::adapters::{AdapterDestinationBuilder, BindingDestination};
 
 use super::adapter::TelegramAdapter;
@@ -127,20 +126,6 @@ impl AdapterDestinationBuilder for TelegramAdapter {
             destination_config,
         ))
     }
-
-    fn binding_destination_from_new_thread(
-        &self,
-        rule: &SubscriptionMatch,
-        new_thread_info: &NewThreadInfo,
-    ) -> Result<BindingDestination, AdapterError> {
-        let destination = self.binding_destination_from_existing_thread(
-            &rule.source_matcher,
-            &new_thread_info.external_thread_id,
-            &new_thread_info.properties,
-            None,
-        )?;
-        Ok(destination.with_last_external_event_id(new_thread_info.external_thread_id.clone()))
-    }
 }
 
 /// The chat id in a `chat:<id>` direct destination.
@@ -174,7 +159,6 @@ pub(super) fn parse_message_target(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::test_rule;
     use super::*;
 
     #[test]
@@ -205,37 +189,6 @@ mod tests {
         assert_eq!(destination.destination_config["message_id"], 77);
         assert_eq!(destination.destination_config["forum_topic_id"], 45);
         assert_eq!(destination.destination_config["filter_user_id"], "user-1");
-    }
-
-    #[test]
-    fn binding_destination_from_new_thread_preserves_direct_send_shape() {
-        let provider = TelegramAdapter::new("fake_token");
-        let rule = test_rule("telegram", "111");
-        let destination = provider
-            .binding_destination_from_new_thread(
-                &rule,
-                &NewThreadInfo {
-                    external_thread_id: "77".to_string(),
-                    properties: serde_json::json!({
-                        "chat_id": "111",
-                        "message_id": 77,
-                        "forum_topic_id": serde_json::Value::Null,
-                    }),
-                },
-            )
-            .unwrap();
-
-        assert_eq!(destination.subject_kind, "telegram_thread");
-        assert_eq!(destination.subject_key, "111:thread:77");
-        assert_eq!(
-            destination.destination_config,
-            serde_json::json!({
-                "chat_id": "111",
-                "message_id": 77,
-                "forum_topic_id": serde_json::Value::Null,
-            })
-        );
-        assert_eq!(destination.last_external_event_id.as_deref(), Some("77"));
     }
 
     #[test]

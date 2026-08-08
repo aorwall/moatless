@@ -43,6 +43,6 @@ pub use registry::Adapters;
 pub(crate) use capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
     AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation,
-    AdapterMessageReply, AdapterNewThread, AdapterOutboundContent, AdapterPostBindingFollowup,
+    AdapterMessageReply, AdapterOutboundContent, AdapterPostBindingFollowup,
     AdapterReactions,
 };

@@ -2,8 +2,8 @@
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, NewThreadInfo,
-    OutboundReply, SubscriptionMatch, TaskBinding,
+    AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
+    SubscriptionMatch, TaskBinding,
 };
 
 use moatless_api_schemas::enums::AdapterKind;
@@ -118,24 +118,6 @@ pub(crate) trait AdapterDestinationBuilder: Adapter {
         thread_properties: &serde_json::Value,
         filter_user_id: Option<&str>,
     ) -> Result<BindingDestination, AdapterError>;
-
-    /// Build the binding destination for a newly-created external thread.
-    ///
-    /// Compatibility bridge for destination builders that can bind existing
-    /// subjects but do not create new threads. Callers only reach this after
-    /// obtaining an [`AdapterNewThread`] capability, so unsupported new-thread
-    /// workflows still fail at capability lookup.
-    fn binding_destination_from_new_thread(
-        &self,
-        _rule: &SubscriptionMatch,
-        _new_thread_info: &NewThreadInfo,
-    ) -> Result<BindingDestination, AdapterError> {
-        Err(SharedAdapterError::BadRequest(format!(
-            "{} provider does not support rules-based direct send",
-            self.provider_key()
-        ))
-        .into())
-    }
 }
 
 /// Shared message formatting limits for outbound capabilities that send text.
@@ -229,17 +211,6 @@ pub(crate) trait AdapterPostBindingFollowup: Adapter {
         binding: &TaskBinding,
         task_id: &str,
     );
-}
-
-/// Send new top-level external threads.
-#[async_trait::async_trait]
-pub(crate) trait AdapterNewThread: AdapterOutboundContent {
-    /// Send a new top-level message to an external destination.
-    async fn send_message(
-        &self,
-        config: &LoopContext,
-        message: &OutboundReply,
-    ) -> Result<NewThreadInfo, AdapterError>;
 }
 
 /// Reaction support for external messages.

@@ -4,12 +4,12 @@ use std::fmt::Write;
 
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, LoopContext, NewThreadInfo, OutboundReply, RoutingMode,
-    SubscriptionMatch, TaskBinding,
+    AdapterConnection, BindingContext, LoopContext, OutboundReply, RoutingMode, SubscriptionMatch,
+    TaskBinding,
 };
 use crate::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
-    AdapterNewThread, DestinationPostResult,
+    DestinationPostResult,
 };
 
 use super::adapter::TelegramAdapter;
@@ -166,30 +166,6 @@ impl AdapterDirectMessage for TelegramAdapter {
     /// bot, so the destination needs no API call.
     async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
         Ok(Some(format!("chat:{provider_user_id}")))
-    }
-}
-
-#[async_trait::async_trait]
-impl AdapterNewThread for TelegramAdapter {
-    async fn send_message(
-        &self,
-        config: &LoopContext,
-        message: &OutboundReply,
-    ) -> Result<NewThreadInfo, AdapterError> {
-        let chat_id = &config.source_id;
-        let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
-
-        let message_id = api
-            .send_message_returning_id(chat_id, &with_task_link(message), None, None)
-            .await?;
-        Ok(NewThreadInfo {
-            external_thread_id: message_id.to_string(),
-            properties: serde_json::json!({
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "forum_topic_id": serde_json::Value::Null,
-            }),
-        })
     }
 }
 
@@ -389,30 +365,6 @@ mod tests {
             stub.calls()[0].body["reply_parameters"]["message_id"],
             55,
             "the named target, not the binding's message"
-        );
-    }
-
-    /// Opening a thread is one send too, and the properties it returns are what
-    /// every later reply is addressed by.
-    #[tokio::test]
-    async fn opening_a_thread_is_one_send_message_and_reports_where_it_landed() {
-        let (provider, stub) = provider_with_stub().await;
-
-        let info = provider
-            .send_message(&test_loop_context("999"), &reply("hello", None))
-            .await
-            .unwrap();
-
-        assert_eq!(stub.methods(), vec!["sendMessage"]);
-        assert_eq!(stub.calls()[0].body["chat_id"], "999");
-        assert_eq!(info.external_thread_id, "77");
-        assert_eq!(
-            info.properties,
-            serde_json::json!({
-                "chat_id": "999",
-                "message_id": 77,
-                "forum_topic_id": serde_json::Value::Null,
-            })
         );
     }
 

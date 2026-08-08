@@ -43,7 +43,6 @@ impl SlackAdapter {
         adapters.register_message_reply(self.clone());
         adapters.register_direct_destination(self.clone());
         adapters.register_direct_message(self.clone());
-        adapters.register_new_thread(self.clone());
         adapters.register_reactions(self.clone());
         adapters.register_inbound_presentation(kind, self);
     }

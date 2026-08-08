@@ -5,12 +5,11 @@ use tracing::warn;
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
-    AdapterConnection, BindingContext, LoopContext, NewThreadInfo, OutboundReply,
-    SubscriptionMatch, TaskBinding,
+    AdapterConnection, BindingContext, LoopContext, OutboundReply, SubscriptionMatch, TaskBinding,
 };
 use crate::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
-    AdapterNewThread, DestinationPostResult,
+    DestinationPostResult,
 };
 
 use super::adapter::SlackAdapter;
@@ -186,39 +185,6 @@ impl AdapterDirectMessage for SlackAdapter {
     }
 }
 
-#[async_trait::async_trait]
-impl AdapterNewThread for SlackAdapter {
-    async fn send_message(
-        &self,
-        config: &LoopContext,
-        message: &OutboundReply,
-    ) -> Result<NewThreadInfo, AdapterError> {
-        let channel = &config.source_id;
-
-        let text = text::with_task_link(&message.text, message.task_url.as_deref());
-
-        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
-        let ts = app
-            .api
-            .post_message(channel, &text, None)
-            .await?
-            .ok_or_else(|| {
-                SharedAdapterError::Internal("Slack did not return message ts".into())
-            })?;
-
-        upload_files(&app.api, channel, &ts, message).await;
-
-        Ok(NewThreadInfo {
-            external_thread_id: ts.clone(),
-            properties: serde_json::json!({
-                "channel": channel,
-                "ts": ts,
-                "thread_ts": ts,
-            }),
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::adapters::models::{
@@ -226,7 +192,7 @@ mod tests {
     };
     use crate::adapters::test_support::ProviderStub;
     use crate::adapters::{
-        AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterNewThread,
+        AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage,
     };
     use moatless_backend_core::scope::Scope;
 
@@ -487,42 +453,5 @@ mod tests {
             Some("dm:D123".to_string())
         );
         assert_eq!(stub.paths(), vec!["/conversations.open".to_string()]);
-    }
-
-    /// A new thread posts top-level and reports itself as its own anchor, so the
-    /// Binding the caller creates threads subsequent replies under this message.
-    #[tokio::test]
-    async fn a_new_thread_posts_top_level_and_anchors_on_itself() {
-        let stub = slack_stub().await;
-
-        let info = adapter(&stub)
-            .send_message(
-                &loop_context("C1"),
-                &reply("kicking off", Some("https://example.test/t/1")),
-            )
-            .await
-            .expect("the stub accepts the post");
-
-        assert_eq!(info.external_thread_id, "1700000000.000900");
-        assert_eq!(
-            info.properties,
-            serde_json::json!({
-                "channel": "C1",
-                "ts": "1700000000.000900",
-                "thread_ts": "1700000000.000900",
-            })
-        );
-        assert_eq!(stub.paths(), vec!["/chat.postMessage".to_string()]);
-        let posted = body(&stub.requests()[0]);
-        assert_eq!(posted["channel"], "C1");
-        assert!(
-            posted
-                .get("thread_ts")
-                .is_none_or(serde_json::Value::is_null)
-        );
-        assert_eq!(
-            posted["text"],
-            "kicking off\n<https://example.test/t/1|View task>"
-        );
     }
 }

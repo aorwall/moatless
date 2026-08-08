@@ -34,7 +34,6 @@ backend/src/adapters/providers/slack/ingress.rs
 backend/src/adapters/providers/telegram/handlers.rs
 backend/src/adapters/providers/telegram/ingress.rs
 backend/src/adapters/providers/telegram/poller.rs
-backend/src/bindings/outbound.rs
 backend/src/event_handler/agent_handlers.rs
 backend/src/event_handler/consumer.rs
 backend/src/event_handler/mod.rs

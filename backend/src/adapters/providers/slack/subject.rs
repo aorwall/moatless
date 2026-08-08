@@ -4,7 +4,7 @@
 //! `thread:` string, a reaction target — is read here and nowhere else.
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{BindingContext, NewThreadInfo, SubscriptionMatch};
+use crate::adapters::models::BindingContext;
 use crate::adapters::{AdapterDestinationBuilder, BindingDestination};
 
 use super::adapter::SlackAdapter;
@@ -245,27 +245,12 @@ impl AdapterDestinationBuilder for SlackAdapter {
             filter_user_id,
         ))
     }
-
-    fn binding_destination_from_new_thread(
-        &self,
-        rule: &SubscriptionMatch,
-        new_thread_info: &NewThreadInfo,
-    ) -> Result<BindingDestination, AdapterError> {
-        let destination = self.binding_destination_from_existing_thread(
-            &rule.source_matcher,
-            &new_thread_info.external_thread_id,
-            &new_thread_info.properties,
-            None,
-        )?;
-        Ok(destination.with_last_external_event_id(new_thread_info.external_thread_id.clone()))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::adapters::AdapterDestinationBuilder;
-    use crate::adapters::models::{BindingContext, NewThreadInfo, RoutingMode, SubscriptionMatch};
-    use moatless_backend_core::scope::Scope;
+    use crate::adapters::models::BindingContext;
 
     use super::super::adapter::SlackAdapter;
     use super::{direct_destination, parse_destination, reaction_target};
@@ -299,39 +284,6 @@ mod tests {
         );
         assert_eq!(destination.destination_config["filter_user_id"], "user-1");
         assert_eq!(destination.last_external_event_id, None);
-    }
-
-    #[test]
-    fn binding_destination_from_new_thread_preserves_direct_send_shape() {
-        let rule = test_rule("slack", "C123");
-        let destination = adapter()
-            .binding_destination_from_new_thread(
-                &rule,
-                &NewThreadInfo {
-                    external_thread_id: "1700000000.000100".to_string(),
-                    properties: serde_json::json!({
-                        "channel": "C123",
-                        "ts": "1700000000.000100",
-                        "thread_ts": "1700000000.000100",
-                    }),
-                },
-            )
-            .unwrap();
-
-        assert_eq!(destination.subject_kind, "slack_thread");
-        assert_eq!(destination.subject_key, "default:C123:1700000000.000100");
-        assert_eq!(
-            destination.destination_config,
-            serde_json::json!({
-                "channel": "C123",
-                "ts": "1700000000.000100",
-                "thread_ts": "1700000000.000100",
-            })
-        );
-        assert_eq!(
-            destination.last_external_event_id.as_deref(),
-            Some("1700000000.000100")
-        );
     }
 
     /// The bag the tracked-thread lookup builds carries no `ts` while the
@@ -536,36 +488,5 @@ mod tests {
             "a thread reply keys under the parent, not under itself"
         );
         assert_eq!(reply_config["ts"], "1700000000.000900");
-    }
-
-    fn test_rule(adapter_kind: &str, source_matcher: &str) -> SubscriptionMatch {
-        let now = chrono::Utc::now();
-        SubscriptionMatch {
-            id: "tt_test".into(),
-            adapter_kind: adapter_kind.into(),
-            connection_id: "pc_test".into(),
-            source_matcher: source_matcher.into(),
-            source_name: None,
-            routing_mode: RoutingMode::BySubject,
-            event_filter: serde_json::json!([]),
-            repository_id: "repo-1".into(),
-            prompt_template: None,
-            task_name: None,
-            tag_ids: vec![],
-            run_as_user_id: None,
-            agent_type: "claude-code".into(),
-            inactive_ttl_days: None,
-            allow_direct_send: true,
-            adapter_config: None,
-            ongoing_task_id: None,
-            close_task_on_close: true,
-            notify_on_success: false,
-            active: true,
-            created_by: "user-1".into(),
-            scope: Scope::Global,
-            owner_user_id: None,
-            created_at: now,
-            updated_at: now,
-        }
     }
 }
