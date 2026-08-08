@@ -53,7 +53,17 @@ async fn replica(pool: &PgPool) -> AppState {
     config.slack.signing_secret = Some(SIGNING_SECRET.to_string());
     config.slack.bot_user_id = Some("U0BOT".to_string());
 
-    let (adapters, handles) = Adapters::from_config(&config, &compose(pool.clone(), &config)).await;
+    let ports = compose(pool.clone(), &config);
+    let (adapters, handles) = Adapters::from_config(
+        &config,
+        ports.pool.clone(),
+        ports.provider_tokens.clone(),
+        ports.provider_token_auth.clone(),
+        ports.github_apps.clone(),
+        ports.github_app_service.clone(),
+        ports.secrets.clone(),
+    )
+    .await;
     test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)), handles)
 }
 

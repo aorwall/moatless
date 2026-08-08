@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 122
+# Illegal edge count: 121
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -41,7 +41,7 @@ loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/route
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:39  github_pr::api_routes::reply_to_review_comment
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:40  github_pr::api_routes::bind_pr
 loops                  -> adapter-github-pr    [CODE] backend/src/adapters/mod.rs:40  providers::github_pr
-loops                  -> adapter-github-pr    [CODE] backend/src/adapters/registry/bootstrap.rs:65  crate::adapters::github_pr::adapter::GithubPrAdapter::new
+loops                  -> adapter-github-pr    [CODE] backend/src/adapters/registry/bootstrap.rs:75  crate::adapters::github_pr::adapter::GithubPrAdapter::new
 loops                  -> adapter-github-pr    [CODE] backend/src/adapters/registry/mod.rs:154  super::github_pr::adapter::GithubPrAdapter
 loops                  -> adapter-github-pr    [CODE] backend/src/adapters/registry/mod.rs:28  super::github_pr::adapter::GithubPrAdapter
 loops                  -> adapter-github-pr    [CODE] backend/src/adapters/routes.rs:107  github_pr::handlers::github_webhook
@@ -60,7 +60,7 @@ loops                  -> adapter-linear       [ATTR] backend/src/adapters/route
 loops                  -> adapter-linear       [ATTR] backend/src/adapters/routes.rs:47  linear::api_routes::graphql_passthrough
 loops                  -> adapter-linear       [ATTR] backend/src/adapters/routes.rs:48  linear::api_routes::lookup
 loops                  -> adapter-linear       [CODE] backend/src/adapters/mod.rs:40  providers::linear
-loops                  -> adapter-linear       [CODE] backend/src/adapters/registry/bootstrap.rs:82  crate::adapters::linear::adapter::LinearAdapter::from_db
+loops                  -> adapter-linear       [CODE] backend/src/adapters/registry/bootstrap.rs:92  crate::adapters::linear::adapter::LinearAdapter::from_db
 loops                  -> adapter-linear       [CODE] backend/src/adapters/registry/mod.rs:166  super::linear::adapter::LinearAdapter
 loops                  -> adapter-linear       [CODE] backend/src/adapters/registry/mod.rs:29  super::linear::adapter::LinearAdapter
 loops                  -> adapter-linear       [CODE] backend/src/adapters/routes.rs:8  super::linear
@@ -74,7 +74,7 @@ loops                  -> adapter-linear       [MACRO] backend/src/adapters/rout
 loops                  -> adapter-linear       [MACRO] backend/src/adapters/routes.rs:87  linear::api_routes::lookup
 loops                  -> adapter-slack        [ATTR] backend/src/adapters/routes.rs:34  slack::handlers::slack_webhook
 loops                  -> adapter-slack        [CODE] backend/src/adapters/mod.rs:40  providers::slack
-loops                  -> adapter-slack        [CODE] backend/src/adapters/registry/bootstrap.rs:41  crate::adapters::slack::adapter::SlackAdapter::from_db
+loops                  -> adapter-slack        [CODE] backend/src/adapters/registry/bootstrap.rs:51  crate::adapters::slack::adapter::SlackAdapter::from_db
 loops                  -> adapter-slack        [CODE] backend/src/adapters/registry/mod.rs:177  super::slack::adapter::SlackAdapter
 loops                  -> adapter-slack        [CODE] backend/src/adapters/registry/mod.rs:30  super::slack::adapter::SlackAdapter
 loops                  -> adapter-slack        [CODE] backend/src/adapters/routes.rs:8  super::slack
@@ -82,7 +82,7 @@ loops                  -> adapter-slack        [CODE] backend/src/adapters/route
 loops                  -> adapter-slack        [MACRO] backend/src/adapters/routes.rs:73  slack::handlers::slack_webhook
 loops                  -> adapter-telegram     [ATTR] backend/src/adapters/routes.rs:35  telegram::handlers::telegram_webhook
 loops                  -> adapter-telegram     [CODE] backend/src/adapters/mod.rs:40  providers::telegram
-loops                  -> adapter-telegram     [CODE] backend/src/adapters/registry/bootstrap.rs:55  crate::adapters::telegram::adapter::TelegramAdapter::from_db
+loops                  -> adapter-telegram     [CODE] backend/src/adapters/registry/bootstrap.rs:65  crate::adapters::telegram::adapter::TelegramAdapter::from_db
 loops                  -> adapter-telegram     [CODE] backend/src/adapters/registry/mod.rs:192  super::telegram::adapter::TelegramAdapter
 loops                  -> adapter-telegram     [CODE] backend/src/adapters/registry/mod.rs:31  super::telegram::adapter::TelegramAdapter
 loops                  -> adapter-telegram     [CODE] backend/src/adapters/routes.rs:103  telegram::handlers::telegram_webhook
@@ -90,7 +90,7 @@ loops                  -> adapter-telegram     [CODE] backend/src/adapters/route
 loops                  -> adapter-telegram     [MACRO] backend/src/adapters/routes.rs:74  telegram::handlers::telegram_webhook
 loops                  -> adapter-webhook      [ATTR] backend/src/adapters/routes.rs:49  webhook::handlers::webhook_inbound
 loops                  -> adapter-webhook      [CODE] backend/src/adapters/mod.rs:40  providers::webhook
-loops                  -> adapter-webhook      [CODE] backend/src/adapters/registry/bootstrap.rs:50  crate::adapters::webhook::adapter::WebhookAdapter::new
+loops                  -> adapter-webhook      [CODE] backend/src/adapters/registry/bootstrap.rs:60  crate::adapters::webhook::adapter::WebhookAdapter::new
 loops                  -> adapter-webhook      [CODE] backend/src/adapters/registry/mod.rs:146  super::webhook::adapter::WebhookAdapter
 loops                  -> adapter-webhook      [CODE] backend/src/adapters/routes.rs:111  webhook::handlers::webhook_inbound
 loops                  -> adapter-webhook      [CODE] backend/src/adapters/routes.rs:8  super::webhook
@@ -99,7 +99,6 @@ loops                  -> server               [CODE] backend/src/adapters/capab
 loops                  -> server               [CODE] backend/src/adapters/common.rs:22  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/delivery/typed.rs:16  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/handlers.rs:20  crate::state::AppState
-loops                  -> server               [CODE] backend/src/adapters/registry/bootstrap.rs:5  crate::compose::Ports
 loops                  -> server               [CODE] backend/src/adapters/routes.rs:10  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/outbound.rs:22  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/runtime.rs:21  crate::state::AppState

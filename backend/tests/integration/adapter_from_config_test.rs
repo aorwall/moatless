@@ -20,7 +20,17 @@ use common::test_config;
 #[sqlx::test]
 async fn from_config_populates_both_the_registry_and_the_handles(pool: PgPool) {
     let config = test_config();
-    let (adapters, handles) = Adapters::from_config(&config, &compose(pool.clone(), &config)).await;
+    let ports = compose(pool.clone(), &config);
+    let (adapters, handles) = Adapters::from_config(
+        &config,
+        ports.pool.clone(),
+        ports.provider_tokens.clone(),
+        ports.provider_token_auth.clone(),
+        ports.github_apps.clone(),
+        ports.github_app_service.clone(),
+        ports.secrets.clone(),
+    )
+    .await;
 
     // Every concrete handle the root hands to a provider's own handlers.
     assert!(handles.github_pr.is_some(), "github_pr handle missing");

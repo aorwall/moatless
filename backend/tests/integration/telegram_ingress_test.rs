@@ -57,7 +57,17 @@ const WEBHOOK_PATH: &str = "/api/v1/adapters/telegram/webhook";
 async fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.telegram.bot_token = Some("fake-token".to_string());
-    let (adapters, handles) = Adapters::from_config(&config, &compose(pool.clone(), &config)).await;
+    let ports = compose(pool.clone(), &config);
+    let (adapters, handles) = Adapters::from_config(
+        &config,
+        ports.pool.clone(),
+        ports.provider_tokens.clone(),
+        ports.provider_token_auth.clone(),
+        ports.github_apps.clone(),
+        ports.github_app_service.clone(),
+        ports.secrets.clone(),
+    )
+    .await;
     test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)), handles)
 }
 

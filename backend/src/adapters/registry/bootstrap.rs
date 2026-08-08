@@ -2,7 +2,13 @@
 
 use std::sync::Arc;
 
-use crate::compose::Ports;
+use moatless_core::db::DbPool;
+
+use crate::auth::github::registry::GitHubAppRegistry;
+use crate::auth::github::service::GitHubAppService;
+use crate::auth::provider_token_dao::ProviderTokenDao;
+use crate::auth::provider_tokens::ProviderTokenAuthDao;
+use crate::secret::service::SecretService;
 
 use super::{Adapters, ProviderHandles};
 
@@ -16,26 +22,30 @@ impl Adapters {
     /// not at registration — so the registry is always populated, and every
     /// concrete-handle field of the returned `ProviderHandles` is `Some`.
     ///
-    /// `ports.github_apps` is the shared App registry, so the `GithubPrAdapter`
+    /// `github_apps` is the shared App registry, so the `GithubPrAdapter`
     /// and `AppState` hit the same token cache. The `GithubPrAdapter` resolves
     /// runtime GitHub tokens through the canonical resolver, which needs the
     /// registry to mint installation tokens for bot users (`auth_method =
     /// 'github_app_installation'`). Slack, Telegram and Linear read their own
-    /// per-workspace rows straight off `ports.pool`.
+    /// per-workspace rows straight off `pool`.
+    ///
+    /// Each dependency is taken by value so the loops-band registry owns what it
+    /// consumes at construction rather than reaching into the server-band
+    /// composition root; the root destructures them out of `Ports` at the call.
     pub async fn from_config(
         config: &moatless_core::config::Config,
-        ports: &Ports,
+        pool: DbPool,
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
+        github_apps: Arc<GitHubAppRegistry>,
+        github_app_service: Option<Arc<GitHubAppService>>,
+        // Needed so the GitHub adapter can resolve `secret_ref` provider tokens
+        // (validated PATs live in `secrets`, not `provider_tokens`).
+        secrets: Arc<SecretService>,
     ) -> (Self, ProviderHandles) {
         let mut providers = Self::new();
 
-        let db = ports.pool.clone();
-        let provider_tokens = ports.provider_tokens.clone();
-        let provider_token_auth = ports.provider_token_auth.clone();
-        let github_apps = ports.github_apps.clone();
-        let github_app_service = ports.github_app_service.clone();
-        // Needed so the GitHub adapter can resolve `secret_ref` provider tokens
-        // (validated PATs live in `secrets`, not `provider_tokens`).
-        let secrets = ports.secrets.clone();
+        let db = pool;
 
         let runtime_config = Arc::new(config.clone());
         let slack = Arc::new(crate::adapters::slack::adapter::SlackAdapter::from_db(

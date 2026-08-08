@@ -394,8 +394,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Domain routes (need DB)
     if let Some(ports) = ports {
-        let (adapter_registry, provider_handles) =
-            adapters::Adapters::from_config(&config, &ports).await;
+        let (adapter_registry, provider_handles) = adapters::Adapters::from_config(
+            &config,
+            ports.pool.clone(),
+            ports.provider_tokens.clone(),
+            ports.provider_token_auth.clone(),
+            ports.github_apps.clone(),
+            ports.github_app_service.clone(),
+            ports.secrets.clone(),
+        )
+        .await;
         // The shared lifecycle was built above; it is present whenever the DB is.
         let lifecycle = lifecycle
             .ok_or("lifecycle handle required to build AppState (missing database pool)")?;

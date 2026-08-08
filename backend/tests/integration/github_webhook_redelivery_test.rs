@@ -175,7 +175,17 @@ async fn registered_replica(
     config.auth.frontend_url = "https://app.example.com".to_string();
     config.github_pr.webhook_secret = webhook_secret.map(str::to_string);
     config.github_pr.bot_token = bot_token.map(str::to_string);
-    let (adapters, handles) = Adapters::from_config(&config, &compose(pool.clone(), &config)).await;
+    let ports = compose(pool.clone(), &config);
+    let (adapters, handles) = Adapters::from_config(
+        &config,
+        ports.pool.clone(),
+        ports.provider_tokens.clone(),
+        ports.provider_token_auth.clone(),
+        ports.github_apps.clone(),
+        ports.github_app_service.clone(),
+        ports.secrets.clone(),
+    )
+    .await;
     test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)), handles)
 }
 
