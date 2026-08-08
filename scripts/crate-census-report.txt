@@ -3,7 +3,7 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3477  illegal   29
+CODE       legal  3480  illegal   27
 ATTRIBUTE  legal   286  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    62  illegal    0   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
@@ -43,13 +43,13 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (0 files, 0 lines)
     (none)
 
-  loops  (49 files, 14137 lines)
+  loops  (49 files, 14139 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
   adapter-github-pr  (24 files, 10621 lines)
     adapters/providers/github_pr/
 
-  adapter-linear  (23 files, 9893 lines)
+  adapter-linear  (23 files, 9925 lines)
     adapters/providers/linear/
 
   adapter-slack  (18 files, 6194 lines)
@@ -61,7 +61,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 791 lines)
     adapters/providers/webhook/
 
-  server  (33 files, 12094 lines)
+  server  (33 files, 12097 lines)
     adapters/routes.rs compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
@@ -70,7 +70,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 58230 lines
+  TOTAL backend/src: 58267 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (10 classes) ==
 
@@ -84,12 +84,11 @@ adapter-github-pr -> server   x8
     backend/src/adapters/providers/github_pr/routing.rs:17  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/github_pr/shell_reconcile.rs:46  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-adapter-linear -> server   x6
-    backend/src/adapters/providers/linear/adapter.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+adapter-linear -> server   x5
     backend/src/adapters/providers/linear/api_routes.rs:34  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/delivery.rs:78  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/handlers.rs:19  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/issues.rs:25  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/adapters/providers/linear/issues.rs:27  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/sessions.rs:30  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 adapter-slack -> server   x2
@@ -116,8 +115,7 @@ loops -> adapter-telegram   x1
 loops -> adapter-webhook   x1
     backend/src/adapters/mod.rs:41  [CODE] providers::webhook   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> server   x5
-    backend/src/adapters/capabilities.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+loops -> server   x4
     backend/src/adapters/delivery/typed.rs:16  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/handlers.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/bindings/outbound.rs:22  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -258,7 +256,7 @@ loops -> server   x5
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> loops: BLOCKED on 10 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> loops: BLOCKED on 9 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
@@ -266,9 +264,9 @@ loops -> server   x5
   sandbox-control    deps: identity, tasks, workspaces                  EXTRACTED
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           EXTRACTED
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
-  loops              deps: identity, tasks, workspaces                  BLOCKED — 10 illegal outgoing to adapter-github-pr(x1), adapter-linear(x1), adapter-slack(x1), adapter-telegram(x1), adapter-webhook(x1), server(x5)
+  loops              deps: identity, tasks, workspaces                  BLOCKED — 9 illegal outgoing to adapter-github-pr(x1), adapter-linear(x1), adapter-slack(x1), adapter-telegram(x1), adapter-webhook(x1), server(x4)
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
-  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 6 illegal outgoing to server(x6)
+  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 5 illegal outgoing to server(x5)
   adapter-slack      deps: identity, loops                              BLOCKED — 2 illegal outgoing to server(x2)
   adapter-telegram   deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)
   adapter-webhook    deps: loops                                        WAITING — no illegal outgoing, but its deps are not extracted yet

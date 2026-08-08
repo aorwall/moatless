@@ -393,11 +393,14 @@ impl Adapters {
 
         // Linear adapter — workspace tokens come from the OAuth install
         // flow (provider_tokens, team_id=<linear org uuid>). OAuth client
-        // credentials are needed to refresh expired access tokens.
-        let linear = Arc::new(crate::adapters::linear::adapter::LinearAdapter::from_db(
-            Arc::new(config.clone()),
-            db,
-        ));
+        // credentials are needed to refresh expired access tokens. It owns a
+        // task store for the post-binding follow-up, which titles the
+        // attachment it links back onto the issue.
+        let task_dao = Arc::new(PgTaskDao(db.clone()));
+        let linear = Arc::new(
+            crate::adapters::linear::adapter::LinearAdapter::from_db(Arc::new(config.clone()), db)
+                .with_tasks(task_dao),
+        );
         linear.clone().register_into(&mut providers);
         tracing::info!("Linear adapter configured");
 

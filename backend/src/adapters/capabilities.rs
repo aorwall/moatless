@@ -5,7 +5,6 @@ use crate::adapters::models::{
     AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, NewThreadInfo,
     OutboundReply, SubscriptionMatch, TaskBinding,
 };
-use crate::state::AppState;
 
 use moatless_api_schemas::enums::AdapterKind;
 
@@ -220,9 +219,12 @@ pub(crate) trait AdapterDirectMessage: Adapter {
 #[async_trait::async_trait]
 pub(crate) trait AdapterPostBindingFollowup: Adapter {
     /// Follow-up the provider runs after an outbound send created a binding.
+    ///
+    /// The implementor owns the ports this needs (a task store, its frontend
+    /// URL) rather than receiving `AppState`, so the loops-band capability
+    /// surface names nothing in the server band.
     async fn on_binding_created(
         &self,
-        state: &AppState,
         connection: &AdapterConnection,
         binding: &TaskBinding,
         task_id: &str,

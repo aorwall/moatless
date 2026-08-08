@@ -210,7 +210,7 @@ pub async fn adapter_send(
         .await?;
         if let Some(followup) = providers.post_binding_followup(req.adapter) {
             followup
-                .on_binding_created(&state, &connection, &binding, task_id)
+                .on_binding_created(&connection, &binding, task_id)
                 .await;
         }
         Some(binding.id)

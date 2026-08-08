@@ -15,7 +15,6 @@
 #
 # Do not add entries to grow coverage — the baseline only shrinks. Order is the
 # `find | sort` order the check walks, so a regenerated list diffs cleanly.
-backend/src/adapters/capabilities.rs
 backend/src/adapters/delivery/typed.rs
 backend/src/adapters/handlers.rs
 backend/src/adapters/providers/github_pr/api_routes.rs
@@ -26,7 +25,6 @@ backend/src/adapters/providers/github_pr/merge_conflict.rs
 backend/src/adapters/providers/github_pr/post_merge.rs
 backend/src/adapters/providers/github_pr/routing.rs
 backend/src/adapters/providers/github_pr/shell_reconcile.rs
-backend/src/adapters/providers/linear/adapter.rs
 backend/src/adapters/providers/linear/api_routes.rs
 backend/src/adapters/providers/linear/delivery.rs
 backend/src/adapters/providers/linear/handlers.rs

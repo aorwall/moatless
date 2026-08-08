@@ -17,7 +17,7 @@ use crate::adapters::{
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
     AdapterPostBindingFollowup, Adapters,
 };
-use crate::state::AppState;
+use crate::task::dao::TaskDao;
 use moatless_core::db::DbPool;
 
 use super::SUBJECT_KIND_ISSUE;
@@ -38,6 +38,11 @@ pub struct LinearAdapter {
     db: DbPool,
     /// Runtime config used to decrypt DB-backed Adapter app secrets.
     config: Option<Arc<moatless_core::config::Config>>,
+    /// Task store the post-binding follow-up reads to title the attachment it
+    /// links back onto the Linear issue. `None` in test-only constructors that
+    /// never drive the follow-up; the composition root injects it through
+    /// [`with_tasks`](Self::with_tasks).
+    tasks: Option<Arc<dyn TaskDao>>,
 }
 
 /// Build an outbound Linear comment body: the reply text followed by the
@@ -85,6 +90,7 @@ impl LinearAdapter {
             credentials: LinearCredentials::from(config),
             db,
             config: None,
+            tasks: None,
         }
     }
 
@@ -94,7 +100,16 @@ impl LinearAdapter {
             credentials: LinearCredentials::from(&config.linear),
             db,
             config: Some(config),
+            tasks: None,
         }
+    }
+
+    /// Inject the task store the post-binding follow-up needs. The composition
+    /// root calls this; test constructors leave it unset because no test drives
+    /// the follow-up.
+    pub fn with_tasks(mut self, tasks: Arc<dyn TaskDao>) -> Self {
+        self.tasks = Some(tasks);
+        self
     }
 
     /// Build a Linear Agents API client for the given workspace.
@@ -339,7 +354,6 @@ impl AdapterPostBindingFollowup for LinearAdapter {
     /// Agent-session bindings already carry that link from the session itself.
     async fn on_binding_created(
         &self,
-        state: &AppState,
         connection: &AdapterConnection,
         binding: &TaskBinding,
         task_id: &str,
@@ -347,6 +361,15 @@ impl AdapterPostBindingFollowup for LinearAdapter {
         if binding.subject_kind != SUBJECT_KIND_ISSUE {
             return;
         }
+        // Owned ports the follow-up needs; both are set by the composition root
+        // and only absent in test-only construction, which never gets here.
+        let (Some(config), Some(tasks)) = (self.config.as_deref(), self.tasks.as_deref()) else {
+            warn!(
+                connection_id = %connection.id,
+                "Linear binding follow-up skipped: adapter built without config/task store"
+            );
+            return;
+        };
         let api = match self.agent_api_for_connection(connection).await {
             Ok(api) => api,
             Err(e) => {
@@ -358,7 +381,8 @@ impl AdapterPostBindingFollowup for LinearAdapter {
                 return;
             }
         };
-        super::issues::attach_parent_task_link(state, &api, &binding.subject_key, task_id).await;
+        super::issues::attach_parent_task_link(config, tasks, &api, &binding.subject_key, task_id)
+            .await;
     }
 }
 
