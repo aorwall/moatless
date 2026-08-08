@@ -119,9 +119,6 @@ sandbox-docker         -> sandbox-k8s          [CODE] backend/src/sandbox/docker
 sandbox-docker         -> sandbox-k8s          [CODE] backend/src/sandbox/docker/status_resolver.rs:13  crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
-# Doc-path count (not in the illegal count above): 5
+# Doc-path count (not in the illegal count above): 2
 sandbox-control        -> sandbox-k8s          [DOC] backend/src/sandbox/metrics.rs:4  crate::sandbox::k8s::storage::StorageBackend
 sandbox-control        -> server               [DOC] backend/src/sandbox/status_reader.rs:8  crate::t3code::projection
-tasks                  -> loops                [DOC] backend/src/task/binding_dao.rs:120  crate::bindings::dao::PgTaskBindingDao::find_recent_for_loop
-tasks                  -> sandbox-control      [DOC] backend/src/task/sandbox_waker.rs:4  crate::sandbox::notify::SandboxWakeService
-tasks                  -> server               [DOC] backend/src/task_activities/pruner.rs:2  crate::supervisor::Supervisor

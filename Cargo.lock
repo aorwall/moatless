@@ -3385,6 +3385,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-tasks"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-s3",
+ "axum",
+ "axum-extra",
+ "base64",
+ "chrono",
+ "futures",
+ "http-body-util",
+ "metrics",
+ "moatless-adapter-model",
+ "moatless-api-schemas",
+ "moatless-backend-core",
+ "moatless-core",
+ "moatless-events",
+ "moatless-identity",
+ "moatless-workspaces",
+ "mockall",
+ "nanoid",
+ "sandbox-proto",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "utoipa",
+ "utoipa-axum",
+ "uuid",
+]
+
+[[package]]
 name = "moatless-vibe-backend"
 version = "0.1.0"
 dependencies = [
@@ -3423,6 +3460,7 @@ dependencies = [
  "moatless-events",
  "moatless-identity",
  "moatless-t3code",
+ "moatless-tasks",
  "moatless-workspaces",
  "mockall",
  "moka",

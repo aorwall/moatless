@@ -19,6 +19,13 @@ use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+/// `RecordingPublisher` and friends: an [`EventPublisher`] test double shared
+/// across the workspace's test tiers. Gated so it compiles for this crate's own
+/// tests and, off `test-support`, for downstream crates' test builds; never for
+/// a shipping build.
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 /// Maximum number of retry attempts after the initial publish fails.
 const MAX_RETRIES: usize = 2;
 

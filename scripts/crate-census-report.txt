@@ -1,15 +1,15 @@
 CRATE-CENSUS REPORT
-files parsed: 669
+files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  4089  illegal   80
-ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
-MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
-DOC           54  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 1483 point down into the existing crates/* floor
-TEST-CONTEXT 2435  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
-UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
+CODE       legal  3390  illegal   80
+ATTRIBUTE  legal   253  illegal   16   (utoipa/derive/etc. token streams)
+MACRO      legal    37  illegal   16   (function-like macro-invocation token streams)
+DOC           42  (intra-doc paths — never a Cargo edge, never illegal)
+  of the legal CODE edges, 1115 point down into the existing crates/* floor
+TEST-CONTEXT 1628  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
   Line counts are newline counts (wc -l). Every row counts the backend/src files
@@ -31,10 +31,10 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (5 files, 45 lines)
     credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
-  tasks  (78 files, 20552 lines)
-    agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
+  tasks  (11 files, 90 lines)
+    agent.rs agent_event.rs credential_sync.rs event_ingress.rs feedback.rs file_storage.rs message.rs task.rs task_activities.rs task_event.rs task_turn.rs
 
-  sandbox-control  (43 files, 18749 lines)
+  sandbox-control  (43 files, 18730 lines)
     sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs
 
   sandbox-k8s  (23 files, 13567 lines)
@@ -43,7 +43,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (8 files, 3516 lines)
     sandbox/docker/
 
-  loops  (51 files, 14488 lines)
+  loops  (51 files, 14443 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
   adapter-github-pr  (24 files, 10604 lines)
@@ -61,16 +61,16 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 777 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11853 lines)
+  server  (32 files, 11850 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
-  TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
-    test_support.rs
+  TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
+    (none)
 
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 114505 lines
+  TOTAL backend/src: 93773 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (14 classes) ==
 
@@ -218,19 +218,118 @@ sandbox-docker -> sandbox-k8s   x3
   none
 
 == UNRESOLVED REFERENCES (audit) ==
-  [super-above-root] x19
-    test:backend :: ActivityStatus::Completed   (backend/tests/integration/agent_handlers_per_block_test.rs:281)
-    test:backend :: ActivityStatus::Completed   (backend/tests/integration/message_dao_test.rs:760)
-    test:backend :: ActivityStatus::Completed   (backend/tests/integration/ui_rpc_thread_test.rs:132)
-    test:backend :: ActivityStatus::InProgress   (backend/tests/integration/agent_handlers_per_block_test.rs:162)
-    test:backend :: ActivityStatus::InProgress   (backend/tests/integration/message_dao_test.rs:309)
+  [super-above-root] x118
     test:backend :: CommandRefusal::Failed   (backend/tests/integration/ui_rpc_command_test.rs:309)
     test:backend :: CommandRefusal::NotWritable   (backend/tests/integration/ui_rpc_command_test.rs:433)
     test:backend :: CommandRefusal::NotWritable   (backend/tests/integration/ui_rpc_command_test.rs:626)
     test:backend :: CommandRefusal::NotWritable   (backend/tests/integration/ui_rpc_command_test.rs:860)
     test:backend :: CommandRefusal::Rejected   (backend/tests/integration/ui_rpc_command_test.rs:339)
     test:backend :: CommandRefusal::Rejected   (backend/tests/integration/ui_rpc_command_test.rs:410)
+    test:backend :: IngressRelay::new   (backend/tests/integration/event_ingress_test.rs:523)
     test:backend :: LocalEnvelopeSecretCipher::from_config   (backend/tests/integration/github_app_registration_test.rs:69)
+    test:backend :: TaskPatch::default   (backend/tests/integration/task_listing_position_test.rs:667)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:1316)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:1362)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:1392)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:3896)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:3933)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:3977)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:3993)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4012)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4685)
+    test:backend :: TaskPatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4713)
+    test:backend :: TaskRelation::new   (backend/tests/integration/closed_terminal_test.rs:67)
+    test:backend :: TaskRelation::new   (backend/tests/integration/task_dao_test.rs:713)
+    test:backend :: TaskRelation::new   (backend/tests/integration/task_handler_test.rs:236)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:122)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:131)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:171)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:182)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:187)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:193)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:198)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:209)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:289)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/closed_terminal_test.rs:303)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_dao_test.rs:157)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_dao_test.rs:187)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_dao_test.rs:199)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_dao_test.rs:756)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_dao_test.rs:792)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_dao_test.rs:802)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_handler_test.rs:219)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_handler_test.rs:301)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_listing_position_test.rs:664)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/task_listing_position_test.rs:683)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/ui_rpc_command_test.rs:398)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/ui_rpc_shell_test.rs:1296)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/ui_rpc_shell_test.rs:1340)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/ui_rpc_shell_test.rs:1361)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/ui_rpc_shell_test.rs:1423)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/ui_rpc_shell_test.rs:3880)
+    test:backend :: TaskStatus::Closed   (backend/tests/integration/ui_rpc_shell_test.rs:4684)
+    test:backend :: TaskStatus::Error   (backend/tests/integration/closed_terminal_test.rs:151)
+    test:backend :: TaskStatus::Error   (backend/tests/integration/closed_terminal_test.rs:215)
+    test:backend :: TaskStatus::Error   (backend/tests/integration/task_dao_test.rs:191)
+    test:backend :: TaskStatus::Error   (backend/tests/integration/ui_rpc_shell_test.rs:1297)
+    test:backend :: TaskStatus::Error   (backend/tests/integration/ui_rpc_shell_test.rs:1341)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/closed_terminal_test.rs:126)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/closed_terminal_test.rs:139)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/closed_terminal_test.rs:141)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/closed_terminal_test.rs:144)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/closed_terminal_test.rs:159)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/closed_terminal_test.rs:162)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/closed_terminal_test.rs:226)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/closed_terminal_test.rs:42)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/common/mod.rs:495)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/task_dao_test.rs:165)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/task_dao_test.rs:278)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/task_dao_test.rs:68)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/task_dao_test.rs:782)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/task_handler_test.rs:280)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/task_handler_test.rs:325)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/task_turn_dao_test.rs:290)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/ui_rpc_shell_test.rs:1295)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/ui_rpc_shell_test.rs:1315)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/ui_rpc_shell_test.rs:1339)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/ui_rpc_shell_test.rs:1391)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/ui_rpc_shell_test.rs:3895)
+    test:backend :: TaskStatus::Open   (backend/tests/integration/ui_rpc_shell_test.rs:4712)
+    test:backend :: TurnStatus::Completed   (backend/tests/integration/task_listing_position_test.rs:533)
+    test:backend :: TurnStatus::Completed   (backend/tests/integration/task_turn_dao_test.rs:205)
+    test:backend :: TurnStatus::Completed   (backend/tests/integration/task_turn_dao_test.rs:279)
+    test:backend :: TurnStatus::Completed   (backend/tests/integration/task_turn_dao_test.rs:308)
+    test:backend :: TurnStatus::Completed   (backend/tests/integration/task_turn_dao_test.rs:358)
+    test:backend :: TurnStatus::Completed   (backend/tests/integration/task_turn_dao_test.rs:642)
+    test:backend :: TurnStatus::Completed   (backend/tests/integration/task_turn_dao_test.rs:649)
+    test:backend :: TurnStatus::Completed   (backend/tests/integration/task_turn_dao_test.rs:93)
+    test:backend :: TurnStatus::Error   (backend/tests/integration/task_turn_dao_test.rs:134)
+    test:backend :: TurnStatus::Stopped   (backend/tests/integration/task_turn_dao_test.rs:144)
+    test:backend :: TurnStatus::Stopped   (backend/tests/integration/task_turn_dao_test.rs:603)
+    test:backend :: TurnStatus::Stopped   (backend/tests/integration/task_turn_dao_test.rs:619)
+    test:backend :: TurnStatus::Stopped   (backend/tests/integration/task_turn_dao_test.rs:633)
+    test:backend :: TurnTransition::Interrupted   (backend/tests/integration/task_turn_dao_test.rs:172)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:107)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:125)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:163)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:185)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:224)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:234)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:331)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:345)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:612)
+    test:backend :: TurnTransition::Open   (backend/tests/integration/task_turn_dao_test.rs:78)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_listing_position_test.rs:533)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:134)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:144)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:205)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:279)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:308)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:358)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:603)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:633)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:642)
+    test:backend :: TurnTransition::Terminal   (backend/tests/integration/task_turn_dao_test.rs:93)
     test:backend :: WorkspacePatch::default   (backend/tests/integration/task_listing_position_test.rs:797)
     test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:2463)
     test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4314)
@@ -239,8 +338,8 @@ sandbox-docker -> sandbox-k8s   x3
     test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4574)
     test:backend :: WorkspacePatch::default   (backend/tests/integration/workspace_dao_test.rs:172)
 
-== CARVED BUT UNBANDED (crates/<dir> names a real band but floor_crate_of_dir maps it to floor:<dir>) — 0 ==
-  none — every extracted crates/<dir> that names a real band has its bands.rs arm.
+== CARVED BUT UNBANDED (crates/<dir> names a real band but floor_crate_of_dir maps it to floor:<dir>) — 1 ==
+  tasks: band 5 but scores as floor:tasks — add a floor_crate_of_dir("tasks") arm in bands.rs.
 
 == CARVE READINESS (frontier — legal-dependency order, lowest band first) ==
   READY = no illegal outgoing edge AND every crate it depends on is already
@@ -254,13 +353,13 @@ sandbox-docker -> sandbox-k8s   x3
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
-  tasks              deps: identity, workspaces                         READY
-  sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
-  sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
-  sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)
-  loops              deps: identity, tasks, workspaces                  BLOCKED — 67 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x7)
-  adapter-github-pr  deps: identity, loops, tasks, workspaces           BLOCKED — 8 illegal outgoing to server(x8)
-  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 14 illegal outgoing to server(x14)
+  tasks              deps: floor / adapter-model only                   READY
+  sandbox-control    deps: identity, workspaces                         BLOCKED — 12 illegal outgoing to sandbox-k8s(x11), server(x1)
+  sandbox-k8s        deps: sandbox-control, workspaces                  WAITING — no illegal outgoing, but its deps are not extracted yet
+  sandbox-docker     deps: sandbox-control, workspaces                  BLOCKED — 3 illegal outgoing to sandbox-k8s(x3)
+  loops              deps: identity, workspaces                         BLOCKED — 67 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x7)
+  adapter-github-pr  deps: identity, loops, workspaces                  BLOCKED — 8 illegal outgoing to server(x8)
+  adapter-linear     deps: identity, loops, sandbox-control             BLOCKED — 14 illegal outgoing to server(x14)
   adapter-slack      deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)
   adapter-telegram   deps: identity, loops                              BLOCKED — 4 illegal outgoing to server(x4)
   adapter-webhook    deps: loops                                        BLOCKED — 1 illegal outgoing to server(x1)
@@ -271,13 +370,13 @@ sandbox-docker -> sandbox-k8s   x3
   legal edges only (illegal removed): DAG — no multi-crate cycle
 
 == macro_rules! INVENTORY (census scope) ==
-  backend/src/task/dao.rs  run_field  emits-cross-module-path: no
-  backend/src/task_activities/dao.rs  known_kinds  emits-cross-module-path: no
-  backend/src/task_activities/dao.rs  read_activities  emits-cross-module-path: no
   crates/claude-agent-sdk/tests/e2e.rs  skip_unless_subprocess_e2e  emits-cross-module-path: no
   crates/claude-agent-sdk/tests/e2e.rs  skip_unless_tmux_e2e  emits-cross-module-path: no
   crates/t3code/src/activity_dao.rs  known_kinds  emits-cross-module-path: no
   crates/t3code/src/activity_dao.rs  read_activities  emits-cross-module-path: no
+  crates/tasks/src/task/dao.rs  run_field  emits-cross-module-path: no
+  crates/tasks/src/task_activities/dao.rs  known_kinds  emits-cross-module-path: no
+  crates/tasks/src/task_activities/dao.rs  read_activities  emits-cross-module-path: no
   crates/workspaces/src/repository/dao.rs  push_set  emits-cross-module-path: no
   crates/workspaces/src/repository/dao.rs  bind_opt  emits-cross-module-path: no
   crates/workspaces/src/workspace/dao.rs  push_set  emits-cross-module-path: no

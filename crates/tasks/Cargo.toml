@@ -1,0 +1,80 @@
+[package]
+name = "moatless-tasks"
+version = "0.1.0"
+edition = "2021"
+description = "Tasks band: task lifecycle, messages, agent turns, activities, ingress, and file storage for Moatless"
+
+[dependencies]
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros"] }
+# Multipart extractor for the file-storage upload handlers.
+axum-extra = { version = "0.12", features = ["multipart"] }
+# S3 client for the file-storage backend.
+aws-sdk-s3 = "1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+# Counter/gauge instrumentation (event ingress, reaper).
+metrics = "0.24"
+# Short id generation (task creation).
+nanoid = "0.5"
+# Mock generation, enabled off `test-support` so the sandbox-control and server
+# bands (still in the backend) can name `MockTaskDao` across the crate boundary.
+mockall = { version = "0.15", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7" }
+# gRPC status type for the event-ingress admission return.
+tonic = "0.14"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+
+moatless-adapter-model = { path = "../adapter-model" }
+moatless-api-schemas = { path = "../api-schemas", features = ["openapi", "database"] }
+moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
+moatless-core = { path = "../core", features = ["openapi"] }
+moatless-events = { path = "../events" }
+moatless-identity = { path = "../identity" }
+moatless-workspaces = { path = "../workspaces" }
+# Shared gRPC wire vocabulary (proto types). The reaper's consumer-owned
+# `AgentStatusPort` returns `sandbox_proto::GetAgentStatusResponse`; a low-band
+# shared crate, so naming it from the tasks band is a legal downward edge.
+sandbox-proto = { path = "../sandbox-proto" }
+
+[features]
+# Exposes the `#[cfg(any(test, feature = "test-support"))]` `MockTaskDao` and the
+# `seed_bare_task` db-test seeder to other crates' test builds — the backend's
+# sandbox-control and server bands reach them across the facade. The gate keeps
+# the `test,` disjunct FIRST: the census keys on the substring "test" in the cfg
+# token stream (crate-census scan.rs), so items gated this way stay test-context
+# and are never scored as a production edge. No shipping build enables it.
+# `dep:mockall` provides the generator.
+test-support = ["dep:mockall"]
+# Gate the `#[sqlx::test]` blocks that need a running PostgreSQL (task/dao.rs and
+# message/dao.rs projections). Empty because those blocks reach the `seed_bare_task`
+# seeder through the crate's own `test` cfg (the `test-support` module is
+# `#[cfg(any(test, feature = "test-support"))]`), so no feature forwarding is
+# needed — the flag only decides whether the DB-backed tests are compiled and run.
+db-tests = []
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+async-trait = "0.1"
+http-body-util = "0.1"
+mockall = "0.15"
+tokio-test = "0.4"
+# `RecordingPublisher` lives in core (core owns `EventPublisher`); the tasks
+# unit tests reach it across the crate boundary off core's `test-support` gate.
+moatless-core = { path = "../core", features = ["test-support"] }
+# `MockTaskDao`'s sibling `MockRepositoryDao` (task::creation tests) lives in
+# workspaces, reached off its `test-support` gate. Required when the crate is
+# built in isolation (`-p moatless-tasks`); a `--workspace` build otherwise masks
+# it through the backend's own workspaces dev-dependency.
+moatless-workspaces = { path = "../workspaces", features = ["test-support"] }

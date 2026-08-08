@@ -336,25 +336,25 @@ impl AppState {
             Arc::new(SelfEchoFilter::new(recently_sent.clone(), adapters.clone())),
         ));
 
-        let task_presenter = Arc::new(TaskPresenter {
-            tags: tags.clone(),
-            repositories: repositories.clone(),
-            workspaces: workspaces.clone(),
-            users: users.clone(),
-            task_bindings: task_bindings.clone(),
-            loops: loops.clone(),
-            task_relations: task_relations.clone(),
-            tasks: tasks.clone(),
-        });
+        let task_presenter = Arc::new(TaskPresenter::new(
+            tags.clone(),
+            repositories.clone(),
+            workspaces.clone(),
+            users.clone(),
+            task_bindings.clone(),
+            loops.clone(),
+            task_relations.clone(),
+            tasks.clone(),
+        ));
 
-        let task_closer = Arc::new(TaskCloser {
-            tasks: tasks.clone(),
-            task_relations: task_relations.clone(),
-            config: config.clone(),
-            sandbox: lifecycle.clone(),
-            task_bindings: task_bindings.clone(),
-            events: events.clone(),
-        });
+        let task_closer = Arc::new(TaskCloser::new(
+            tasks.clone(),
+            task_relations.clone(),
+            config.clone(),
+            lifecycle.clone(),
+            task_bindings.clone(),
+            events.clone(),
+        ));
 
         let skill_http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
