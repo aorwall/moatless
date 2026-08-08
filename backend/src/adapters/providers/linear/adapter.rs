@@ -15,7 +15,7 @@ use crate::adapters::models::{
 use crate::adapters::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
-    AdapterPostBindingFollowup,
+    AdapterPostBindingFollowup, Adapters,
 };
 use crate::state::AppState;
 use moatless_core::db::DbPool;
@@ -54,6 +54,22 @@ fn build_comment_body(message: &OutboundReply) -> String {
 }
 
 impl LinearAdapter {
+    /// Register this adapter's capabilities into `adapters`.
+    ///
+    /// Construction lives at the composition root; the provider owns the
+    /// mapping from itself to the capability surfaces it implements. `pub` so
+    /// the integration harness can build a Linear-only registry directly.
+    pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+        let kind = AdapterKind::Linear;
+        adapters.register_trait_object(self.clone());
+        adapters.register_binding_reply(self.clone());
+        adapters.register_message_reply(self.clone());
+        adapters.register_direct_destination(self.clone());
+        adapters.register_post_binding_followup(self.clone());
+        adapters.register_inbound_presentation(kind, self.clone());
+        adapters.register_binding_status(kind, self);
+    }
+
     /// Build the Adapter from the one place its credentials come from.
     ///
     /// Taking [`LinearConfig`] rather than three loose `Option<String>`s is

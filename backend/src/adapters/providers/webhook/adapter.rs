@@ -10,6 +10,8 @@
 //! }
 //! ```
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -20,6 +22,7 @@ use crate::adapters::models::{
 };
 use crate::adapters::{
     Adapter, AdapterBindingReply, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
+    Adapters,
 };
 
 /// Inbound webhook payload.
@@ -99,6 +102,17 @@ pub(crate) struct WebhookDelivery {
 pub struct WebhookAdapter;
 
 impl WebhookAdapter {
+    /// Register this adapter's capabilities into `adapters`.
+    ///
+    /// The Webhook adapter has no concrete-only methods, so no handler needs a
+    /// concrete handle to it: it has no `ProviderHandles` entry and lives only
+    /// as a trait object.
+    pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+        adapters.register_trait_object(self.clone());
+        adapters.register_binding_reply(self.clone());
+        adapters.register_message_reply(self);
+    }
+
     pub fn new() -> Self {
         Self
     }

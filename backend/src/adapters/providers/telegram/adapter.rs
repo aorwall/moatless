@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::{Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent};
+use crate::adapters::{
+    Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
+};
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 
@@ -17,6 +19,21 @@ pub struct TelegramAdapter {
 }
 
 impl TelegramAdapter {
+    /// Register this adapter's capabilities into `adapters`.
+    ///
+    /// Construction lives at the composition root; the provider owns the
+    /// mapping from itself to the capability surfaces it implements.
+    pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+        let kind = AdapterKind::Telegram;
+        adapters.register_trait_object(self.clone());
+        adapters.register_destination_builder(kind, self.clone());
+        adapters.register_binding_reply(self.clone());
+        adapters.register_message_reply(self.clone());
+        adapters.register_new_thread(self.clone());
+        adapters.register_reactions(self.clone());
+        adapters.register_inbound_presentation(kind, self);
+    }
+
     #[cfg(test)]
     pub fn new(bot_token: &str) -> Self {
         Self {

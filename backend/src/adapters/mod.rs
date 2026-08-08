@@ -39,7 +39,7 @@ pub use moatless_api_schemas::enums::AdapterKind;
 // here — it lives in `bindings::footer`, where the port belongs.
 pub use moatless_adapter_model::{dao, footer, models};
 pub use providers::{github_pr, linear, slack, telegram, webhook};
-pub use registry::{Adapters, ProviderHandles};
+pub use registry::Adapters;
 
 pub(crate) use capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,

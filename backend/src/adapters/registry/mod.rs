@@ -12,25 +12,6 @@ use crate::adapters::error::{AdapterError, SharedAdapterError};
 
 use moatless_api_schemas::enums::AdapterKind;
 
-mod bootstrap;
-
-/// The concrete per-provider handles the composition root owns, projected to a
-/// provider's own handlers by `FromRef<AppState>`.
-///
-/// A provider's handlers need methods its concrete adapter has and the `Adapter`
-/// trait does not, so they take `State(p): State<Option<Arc<ConcreteAdapter>>>`
-/// off the root rather than reaching back through the registry that holds the
-/// trait object. Each is `Some` exactly when the registry has that provider;
-/// `from_config` fills all four, and a build with no adapters leaves all four
-/// `None`.
-#[derive(Clone, Default)]
-pub struct ProviderHandles {
-    pub github_pr: Option<Arc<super::github_pr::adapter::GithubPrAdapter>>,
-    pub linear: Option<Arc<super::linear::adapter::LinearAdapter>>,
-    pub slack: Option<Arc<super::slack::adapter::SlackAdapter>>,
-    pub telegram: Option<Arc<super::telegram::adapter::TelegramAdapter>>,
-}
-
 /// Registry of external adapters keyed by AdapterKind.
 ///
 /// The trait-object map is the whole registry: cross-provider code dispatches
@@ -76,14 +57,15 @@ impl Adapters {
 
     /// Insert into the trait-object map only.
     ///
-    /// Private: every adapter kind that has a typed handle must go through its
-    /// typed registrar, or the map and the handle could disagree. Widen this to
-    /// `pub(crate)` if a stand-in registry is ever needed from another module.
-    fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
+    /// `pub(crate)` so each provider's `register_into` can fan its one concrete
+    /// handle across the capability maps without the registry naming the
+    /// provider type. Every adapter kind that has a typed handle must go through
+    /// its own `register_into`, or the map and the handle could disagree.
+    pub(crate) fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
         self.providers.insert(provider.adapter_kind(), provider);
     }
 
-    fn register_destination_builder(
+    pub(crate) fn register_destination_builder(
         &mut self,
         kind: AdapterKind,
         provider: Arc<dyn AdapterDestinationBuilder>,
@@ -91,40 +73,46 @@ impl Adapters {
         self.destination_builders.insert(kind, provider);
     }
 
-    fn register_binding_reply(&mut self, provider: Arc<dyn AdapterBindingReply>) {
+    pub(crate) fn register_binding_reply(&mut self, provider: Arc<dyn AdapterBindingReply>) {
         self.binding_replies
             .insert(provider.adapter_kind(), provider);
     }
 
-    fn register_message_reply(&mut self, provider: Arc<dyn AdapterMessageReply>) {
+    pub(crate) fn register_message_reply(&mut self, provider: Arc<dyn AdapterMessageReply>) {
         self.message_replies
             .insert(provider.adapter_kind(), provider);
     }
 
-    fn register_direct_destination(&mut self, provider: Arc<dyn AdapterDirectDestination>) {
+    pub(crate) fn register_direct_destination(
+        &mut self,
+        provider: Arc<dyn AdapterDirectDestination>,
+    ) {
         self.direct_destinations
             .insert(provider.adapter_kind(), provider);
     }
 
-    fn register_direct_message(&mut self, provider: Arc<dyn AdapterDirectMessage>) {
+    pub(crate) fn register_direct_message(&mut self, provider: Arc<dyn AdapterDirectMessage>) {
         self.direct_messages
             .insert(provider.adapter_kind(), provider);
     }
 
-    fn register_new_thread(&mut self, provider: Arc<dyn AdapterNewThread>) {
+    pub(crate) fn register_new_thread(&mut self, provider: Arc<dyn AdapterNewThread>) {
         self.new_threads.insert(provider.adapter_kind(), provider);
     }
 
-    fn register_post_binding_followup(&mut self, provider: Arc<dyn AdapterPostBindingFollowup>) {
+    pub(crate) fn register_post_binding_followup(
+        &mut self,
+        provider: Arc<dyn AdapterPostBindingFollowup>,
+    ) {
         self.post_binding_followups
             .insert(provider.adapter_kind(), provider);
     }
 
-    fn register_reactions(&mut self, provider: Arc<dyn AdapterReactions>) {
+    pub(crate) fn register_reactions(&mut self, provider: Arc<dyn AdapterReactions>) {
         self.reactions.insert(provider.adapter_kind(), provider);
     }
 
-    fn register_inbound_presentation(
+    pub(crate) fn register_inbound_presentation(
         &mut self,
         kind: AdapterKind,
         provider: Arc<dyn AdapterInboundPresentation>,
@@ -132,73 +120,12 @@ impl Adapters {
         self.inbound_presentations.insert(kind, provider);
     }
 
-    fn register_binding_status(
+    pub(crate) fn register_binding_status(
         &mut self,
         kind: AdapterKind,
         provider: Arc<dyn AdapterBindingStatus>,
     ) {
         self.binding_statuses.insert(kind, provider);
-    }
-
-    /// The Webhook adapter has no concrete-only methods, so no handler needs a
-    /// concrete handle to it: it has no `ProviderHandles` entry and lives only
-    /// as a trait object.
-    pub fn register_webhook(&mut self, provider: Arc<super::webhook::adapter::WebhookAdapter>) {
-        self.register_trait_object(provider.clone());
-        self.register_binding_reply(provider.clone());
-        self.register_message_reply(provider);
-    }
-
-    pub(crate) fn register_github_pr(
-        &mut self,
-        provider: Arc<super::github_pr::adapter::GithubPrAdapter>,
-    ) {
-        let kind = AdapterKind::GithubPr;
-        self.register_trait_object(provider.clone());
-        self.register_destination_builder(kind, provider.clone());
-        self.register_binding_reply(provider.clone());
-        self.register_message_reply(provider.clone());
-        self.register_reactions(provider.clone());
-        self.register_inbound_presentation(kind, provider.clone());
-        self.register_binding_status(kind, provider);
-    }
-
-    pub fn register_linear(&mut self, provider: Arc<super::linear::adapter::LinearAdapter>) {
-        let kind = AdapterKind::Linear;
-        self.register_trait_object(provider.clone());
-        self.register_binding_reply(provider.clone());
-        self.register_message_reply(provider.clone());
-        self.register_direct_destination(provider.clone());
-        self.register_post_binding_followup(provider.clone());
-        self.register_inbound_presentation(kind, provider.clone());
-        self.register_binding_status(kind, provider);
-    }
-
-    pub(crate) fn register_slack(&mut self, provider: Arc<super::slack::adapter::SlackAdapter>) {
-        let kind = AdapterKind::Slack;
-        self.register_trait_object(provider.clone());
-        self.register_destination_builder(kind, provider.clone());
-        self.register_binding_reply(provider.clone());
-        self.register_message_reply(provider.clone());
-        self.register_direct_destination(provider.clone());
-        self.register_direct_message(provider.clone());
-        self.register_new_thread(provider.clone());
-        self.register_reactions(provider.clone());
-        self.register_inbound_presentation(kind, provider);
-    }
-
-    pub(crate) fn register_telegram(
-        &mut self,
-        provider: Arc<super::telegram::adapter::TelegramAdapter>,
-    ) {
-        let kind = AdapterKind::Telegram;
-        self.register_trait_object(provider.clone());
-        self.register_destination_builder(kind, provider.clone());
-        self.register_binding_reply(provider.clone());
-        self.register_message_reply(provider.clone());
-        self.register_new_thread(provider.clone());
-        self.register_reactions(provider.clone());
-        self.register_inbound_presentation(kind, provider);
     }
 
     pub fn get(&self, adapter_kind: AdapterKind) -> Option<&Arc<dyn Adapter>> {

@@ -344,7 +344,7 @@ pub fn test_app_state(pool: PgPool) -> AppState {
     test_app_state_with_adapters(
         pool,
         None,
-        moatless_vibe_backend::adapters::ProviderHandles::default(),
+        moatless_vibe_backend::state::ProviderHandles::default(),
     )
 }
 
@@ -359,7 +359,7 @@ pub fn test_app_state(pool: PgPool) -> AppState {
 pub fn test_app_state_with_adapters(
     pool: PgPool,
     adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
-    provider_handles: moatless_vibe_backend::adapters::ProviderHandles,
+    provider_handles: moatless_vibe_backend::state::ProviderHandles,
 ) -> AppState {
     test_app_state_with_config(pool, adapters, provider_handles, test_config())
 }
@@ -383,11 +383,11 @@ pub fn test_app_state_with_linear(
     config: Config,
 ) -> AppState {
     let mut registry = moatless_vibe_backend::adapters::Adapters::new();
-    registry.register_linear(linear.clone());
+    linear.clone().register_into(&mut registry);
     test_app_state_with_config(
         pool,
         Some(Arc::new(registry)),
-        moatless_vibe_backend::adapters::ProviderHandles {
+        moatless_vibe_backend::state::ProviderHandles {
             linear: Some(linear),
             ..Default::default()
         },
@@ -409,7 +409,7 @@ pub fn test_app_state_with_linear(
 pub fn test_app_state_with_config(
     pool: PgPool,
     adapters: Option<Arc<moatless_vibe_backend::adapters::Adapters>>,
-    provider_handles: moatless_vibe_backend::adapters::ProviderHandles,
+    provider_handles: moatless_vibe_backend::state::ProviderHandles,
     config: Config,
 ) -> AppState {
     let ports = compose(pool.clone(), &config);

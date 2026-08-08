@@ -1,9 +1,9 @@
 CRATE-CENSUS REPORT
-files parsed: 684
+files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3427  illegal   65
+CODE       legal  3433  illegal   51
 ATTRIBUTE  legal   258  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    35  illegal   16   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
@@ -43,25 +43,25 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (0 files, 0 lines)
     (none)
 
-  loops  (51 files, 14443 lines)
+  loops  (50 files, 14263 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
-  adapter-github-pr  (24 files, 10604 lines)
+  adapter-github-pr  (24 files, 10621 lines)
     adapters/providers/github_pr/
 
-  adapter-linear  (23 files, 9654 lines)
+  adapter-linear  (23 files, 9670 lines)
     adapters/providers/linear/
 
-  adapter-slack  (18 files, 6171 lines)
+  adapter-slack  (18 files, 6188 lines)
     adapters/providers/slack/
 
-  adapter-telegram  (18 files, 4265 lines)
+  adapter-telegram  (18 files, 4282 lines)
     adapters/providers/telegram/
 
-  adapter-webhook  (6 files, 777 lines)
+  adapter-webhook  (6 files, 791 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11848 lines)
+  server  (32 files, 11965 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
@@ -70,7 +70,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 57976 lines
+  TOTAL backend/src: 57994 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (11 classes) ==
 
@@ -114,11 +114,8 @@ adapter-telegram -> server   x4
 adapter-webhook -> server   x1
     backend/src/adapters/providers/webhook/delivery.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-loops -> adapter-github-pr   x16
+loops -> adapter-github-pr   x13
     backend/src/adapters/mod.rs:41  [CODE] providers::github_pr   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/bootstrap.rs:75  [CODE] crate::adapters::github_pr::adapter::GithubPrAdapter::new   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:154  [CODE] super::github_pr::adapter::GithubPrAdapter   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:28  [CODE] super::github_pr::adapter::GithubPrAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:107  [CODE] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:36  [ATTR] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:37  [ATTR] github_pr::api_routes::create_pr   -> [7d + 10h — registry field-widening + provider carve]
@@ -132,11 +129,8 @@ loops -> adapter-github-pr   x16
     backend/src/adapters/routes.rs:79  [MACRO] github_pr::api_routes::bind_pr   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:8  [CODE] super::github_pr   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> adapter-linear   x21
+loops -> adapter-linear   x18
     backend/src/adapters/mod.rs:41  [CODE] providers::linear   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/bootstrap.rs:92  [CODE] crate::adapters::linear::adapter::LinearAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:166  [CODE] super::linear::adapter::LinearAdapter   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:29  [CODE] super::linear::adapter::LinearAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:41  [ATTR] linear::handlers::linear_webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:42  [ATTR] linear::api_routes::get_issue   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:43  [ATTR] linear::api_routes::create_issue   -> [7d + 10h — registry field-widening + provider carve]
@@ -155,30 +149,22 @@ loops -> adapter-linear   x21
     backend/src/adapters/routes.rs:86  [MACRO] linear::api_routes::graphql_passthrough   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:87  [MACRO] linear::api_routes::lookup   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> adapter-slack   x8
+loops -> adapter-slack   x5
     backend/src/adapters/mod.rs:41  [CODE] providers::slack   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/bootstrap.rs:51  [CODE] crate::adapters::slack::adapter::SlackAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:177  [CODE] super::slack::adapter::SlackAdapter   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:30  [CODE] super::slack::adapter::SlackAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:34  [ATTR] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:73  [MACRO] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:8  [CODE] super::slack   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:99  [CODE] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> adapter-telegram   x8
+loops -> adapter-telegram   x5
     backend/src/adapters/mod.rs:41  [CODE] providers::telegram   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/bootstrap.rs:65  [CODE] crate::adapters::telegram::adapter::TelegramAdapter::from_db   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:192  [CODE] super::telegram::adapter::TelegramAdapter   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:31  [CODE] super::telegram::adapter::TelegramAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:103  [CODE] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:35  [ATTR] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:74  [MACRO] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:8  [CODE] super::telegram   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> adapter-webhook   x7
+loops -> adapter-webhook   x5
     backend/src/adapters/mod.rs:41  [CODE] providers::webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/bootstrap.rs:60  [CODE] crate::adapters::webhook::adapter::WebhookAdapter::new   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/registry/mod.rs:146  [CODE] super::webhook::adapter::WebhookAdapter   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:111  [CODE] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:49  [ATTR] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:8  [CODE] super::webhook   -> [7d + 10h — registry field-widening + provider carve]
@@ -328,7 +314,7 @@ loops -> server   x7
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> loops: BLOCKED on 67 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> loops: BLOCKED on 53 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
@@ -336,7 +322,7 @@ loops -> server   x7
   sandbox-control    deps: identity, tasks, workspaces                  EXTRACTED
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           EXTRACTED
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
-  loops              deps: identity, tasks, workspaces                  BLOCKED — 67 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x7)
+  loops              deps: identity, tasks, workspaces                  BLOCKED — 53 illegal outgoing to adapter-github-pr(x13), adapter-linear(x18), adapter-slack(x5), adapter-telegram(x5), adapter-webhook(x5), server(x7)
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
   adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 14 illegal outgoing to server(x14)
   adapter-slack      deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)

@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::adapters::{Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent};
+use crate::adapters::{
+    Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
+};
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
@@ -25,6 +27,21 @@ pub struct GithubPrAdapter {
 }
 
 impl GithubPrAdapter {
+    /// Register this adapter's capabilities into `adapters`.
+    ///
+    /// Construction lives at the composition root; the provider owns the
+    /// mapping from itself to the capability surfaces it implements.
+    pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+        let kind = AdapterKind::GithubPr;
+        adapters.register_trait_object(self.clone());
+        adapters.register_destination_builder(kind, self.clone());
+        adapters.register_binding_reply(self.clone());
+        adapters.register_message_reply(self.clone());
+        adapters.register_reactions(self.clone());
+        adapters.register_inbound_presentation(kind, self.clone());
+        adapters.register_binding_status(kind, self);
+    }
+
     pub(crate) fn new(
         global_webhook_secret: Option<String>,
         global_bot_token: Option<String>,

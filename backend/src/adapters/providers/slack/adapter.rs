@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::OnceCell;
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::{Adapter, AdapterKind, AdapterOutboundContent};
+use crate::adapters::{Adapter, AdapterKind, AdapterOutboundContent, Adapters};
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 
@@ -31,6 +31,23 @@ pub struct SlackAdapter {
 }
 
 impl SlackAdapter {
+    /// Register this adapter's capabilities into `adapters`.
+    ///
+    /// Construction lives at the composition root; the provider owns the
+    /// mapping from itself to the capability surfaces it implements.
+    pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+        let kind = AdapterKind::Slack;
+        adapters.register_trait_object(self.clone());
+        adapters.register_destination_builder(kind, self.clone());
+        adapters.register_binding_reply(self.clone());
+        adapters.register_message_reply(self.clone());
+        adapters.register_direct_destination(self.clone());
+        adapters.register_direct_message(self.clone());
+        adapters.register_new_thread(self.clone());
+        adapters.register_reactions(self.clone());
+        adapters.register_inbound_presentation(kind, self);
+    }
+
     pub fn new(bot_token: &str, signing_secret: &str, bot_user_id: Option<String>) -> Self {
         Self {
             api: SlackApi::new(bot_token),

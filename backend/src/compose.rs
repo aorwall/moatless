@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use crate::adapter_apps::dao::{AdapterAppDao, PgAdapterAppDao};
+use crate::adapters::Adapters;
 use crate::adapters::dao::{AdapterConnectionDao, PgAdapterConnectionDao};
 use crate::adapters::delivery::AdapterDeliveryHandlers;
 use crate::auth::api_keys::{ApiKeyDao, PgApiKeyDao};
@@ -42,7 +43,7 @@ use crate::sandbox::lifecycle::{
 use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
 use crate::secret::dao::{PgSecretDao, SecretDao};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher, SecretService};
-use crate::state::AppState;
+use crate::state::{AppState, ProviderHandles};
 use moatless_core::tag::dao::{PgTagDao, TagDao};
 use crate::task::dao::{PgTaskDao, TaskDao};
 use crate::task::relations::{PgTaskRelationDao, TaskRelationDao};
@@ -312,5 +313,100 @@ impl Ports {
             db: self.pool.clone(),
             config,
         }
+    }
+}
+
+impl Adapters {
+    /// Build adapters from application config and the composed ports, returning
+    /// the trait-object registry and the concrete per-provider handles the root
+    /// hands to each provider's own handlers.
+    ///
+    /// The composition root is the only place a concrete provider type is
+    /// named: each provider is constructed here and registers its own
+    /// capabilities through [`register_into`](crate::adapters::providers), so
+    /// the loops-band registry never sees a concrete adapter type.
+    ///
+    /// Every provider (Slack, Webhook, Telegram, GitHub PR, Linear) is
+    /// registered unconditionally — their per-workspace config is resolved per
+    /// subscription, not at registration — so the registry is always populated,
+    /// and every concrete-handle field of the returned `ProviderHandles` is
+    /// `Some`.
+    ///
+    /// `github_apps` is the shared App registry, so the `GithubPrAdapter`
+    /// and `AppState` hit the same token cache. The `GithubPrAdapter` resolves
+    /// runtime GitHub tokens through the canonical resolver, which needs the
+    /// registry to mint installation tokens for bot users (`auth_method =
+    /// 'github_app_installation'`). Slack, Telegram and Linear read their own
+    /// per-workspace rows straight off `pool`.
+    pub async fn from_config(
+        config: &Config,
+        pool: DbPool,
+        provider_tokens: Arc<dyn ProviderTokenDao>,
+        provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
+        github_apps: Arc<GitHubAppRegistry>,
+        github_app_service: Option<Arc<GitHubAppService>>,
+        // Needed so the GitHub adapter can resolve `secret_ref` provider tokens
+        // (validated PATs live in `secrets`, not `provider_tokens`).
+        secrets: Arc<SecretService>,
+    ) -> (Self, ProviderHandles) {
+        let mut providers = Self::new();
+
+        let db = pool;
+
+        let runtime_config = Arc::new(config.clone());
+        let slack = Arc::new(crate::adapters::slack::adapter::SlackAdapter::from_db(
+            runtime_config.clone(),
+            db.clone(),
+        ));
+        slack.clone().register_into(&mut providers);
+        tracing::info!("Slack adapter registered");
+
+        // Webhook adapter is always available (config is per subscription).
+        Arc::new(crate::adapters::webhook::adapter::WebhookAdapter::new())
+            .register_into(&mut providers);
+        tracing::info!("Webhook adapter configured");
+
+        let telegram = Arc::new(
+            crate::adapters::telegram::adapter::TelegramAdapter::from_db(
+                runtime_config,
+                db.clone(),
+            ),
+        );
+        telegram.clone().register_into(&mut providers);
+        tracing::info!("Telegram adapter registered");
+
+        // GitHub PR adapter is always available; config is per subscription.
+        let github_pr = Arc::new(
+            crate::adapters::github_pr::adapter::GithubPrAdapter::new(
+                config.github_pr.webhook_secret.clone(),
+                config.github_pr.bot_token.clone(),
+                config.auth.frontend_url.clone(),
+                provider_tokens.clone(),
+                Some(provider_token_auth.clone()),
+                github_app_service.clone(),
+                github_apps.clone(),
+            )
+            .with_secrets(secrets.clone()),
+        );
+        github_pr.clone().register_into(&mut providers);
+        tracing::info!("GitHub PR adapter configured");
+
+        // Linear adapter — workspace tokens come from the OAuth install
+        // flow (provider_tokens, team_id=<linear org uuid>). OAuth client
+        // credentials are needed to refresh expired access tokens.
+        let linear = Arc::new(crate::adapters::linear::adapter::LinearAdapter::from_db(
+            Arc::new(config.clone()),
+            db,
+        ));
+        linear.clone().register_into(&mut providers);
+        tracing::info!("Linear adapter configured");
+
+        let handles = ProviderHandles {
+            github_pr: Some(github_pr),
+            linear: Some(linear),
+            slack: Some(slack),
+            telegram: Some(telegram),
+        };
+        (providers, handles)
     }
 }

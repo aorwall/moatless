@@ -55,6 +55,27 @@ use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_core::tag::dao::TagDao;
 
+/// The concrete per-provider handles the composition root owns, projected to a
+/// provider's own handlers by `FromRef<AppState>`.
+///
+/// A provider's handlers need methods its concrete adapter has and the `Adapter`
+/// trait does not, so they take `State(p): State<Option<Arc<ConcreteAdapter>>>`
+/// off the root rather than reaching back through the registry that holds the
+/// trait object. Each is `Some` exactly when the registry has that provider;
+/// `from_config` fills all four, and a build with no adapters leaves all four
+/// `None`.
+///
+/// This lives in the server band, not the loops-band registry: naming a
+/// concrete provider type is the composition root's privilege, so the registry
+/// that holds only `dyn Adapter` never reaches up to a provider band.
+#[derive(Clone, Default)]
+pub struct ProviderHandles {
+    pub github_pr: Option<Arc<crate::adapters::github_pr::adapter::GithubPrAdapter>>,
+    pub linear: Option<Arc<crate::adapters::linear::adapter::LinearAdapter>>,
+    pub slack: Option<Arc<crate::adapters::slack::adapter::SlackAdapter>>,
+    pub telegram: Option<Arc<crate::adapters::telegram::adapter::TelegramAdapter>>,
+}
+
 /// Shared application state for task/message/agent/file routes.
 ///
 /// All fields are cheap to clone (Arc-wrapped or internally Arc'd).
@@ -102,8 +123,8 @@ pub struct AppState {
     /// The concrete per-provider adapter handles, projected to each provider's
     /// own handlers by `FromRef<AppState>`. Each field is `Some` exactly when
     /// `adapters` holds that provider; all four are `None` when there are no
-    /// adapters. See [`crate::adapters::ProviderHandles`].
-    pub provider_handles: crate::adapters::ProviderHandles,
+    /// adapters. See [`ProviderHandles`].
+    pub provider_handles: ProviderHandles,
     /// Optional GitHub App service for installation tokens and user token refresh.
     ///
     /// Convenience handle to the default (user-auth) App. Equivalent to
@@ -245,7 +266,7 @@ impl AppState {
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<crate::file_storage::s3::S3Storage>,
         adapters: Option<Arc<Adapters>>,
-        provider_handles: crate::adapters::ProviderHandles,
+        provider_handles: ProviderHandles,
     ) -> Self {
         let Ports {
             pool,
