@@ -120,6 +120,13 @@ fn walk(tree: &Tree, from_mod: &ModPath, start: ModPath, rest: &[String], depth:
             return resolve_backend(tree, &cur, &combined, depth + 1);
         }
 
+        // A local definition shadows every glob re-export, so attribute it to
+        // `cur`'s own band here — before the glob arm below, which cannot see a
+        // floor crate's exports and would otherwise launder the name to it.
+        if tree.defines(&cur, s) {
+            return Resolution::Internal(crate_of_backend_mod(&cur).edge_crate().to_string(), cur);
+        }
+
         // Glob re-export: try each; a definite single crate wins, 2+ is ambiguous.
         if let Some(globs) = tree.glob_reexports.get(&cur) {
             let mut hits: Vec<Resolution> = Vec::new();
@@ -177,4 +184,79 @@ fn all_same_crate(hits: &[Resolution]) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Tree;
+
+    fn m(parts: &[&str]) -> ModPath {
+        parts.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    fn describe(r: &Resolution) -> String {
+        match r {
+            Resolution::Internal(c, module) => format!("Internal({c}, {module:?})"),
+            Resolution::ExternalCrate(c) => format!("ExternalCrate({c})"),
+            Resolution::Ignore => "Ignore".to_string(),
+            Resolution::Unresolved(x) => format!("Unresolved({x})"),
+        }
+    }
+
+    /// A local definition in a module that also glob-re-exports a floor crate must
+    /// attribute to its own band, while a name that only comes through the floor
+    /// glob must still attribute to the floor.
+    #[test]
+    fn a_local_def_shadows_a_floor_glob_reexport() {
+        let mut tree = Tree::default();
+        // crate -> bindings -> schemas, and crate -> task -> presenter (the caller).
+        tree.children
+            .entry(m(&[]))
+            .or_default()
+            .extend(["bindings".to_string(), "task".to_string()]);
+        tree.children
+            .entry(m(&["bindings"]))
+            .or_default()
+            .insert("schemas".to_string());
+        tree.children
+            .entry(m(&["task"]))
+            .or_default()
+            .insert("presenter".to_string());
+        // schemas glob-re-exports the api-schemas floor crate AND defines its own fn.
+        tree.glob_reexports
+            .entry(m(&["bindings", "schemas"]))
+            .or_default()
+            .push(m(&["moatless_api_schemas", "bindings"]));
+        tree.defined
+            .entry(m(&["bindings", "schemas"]))
+            .or_default()
+            .insert("task_binding_summary_from_binding".to_string());
+
+        let from = m(&["task", "presenter"]);
+
+        // The locally-defined fn must attribute to its own (loops) band, not floor.
+        let local = ["crate", "bindings", "schemas", "task_binding_summary_from_binding"]
+            .map(String::from);
+        match resolve_backend(&tree, &from, &local, 0) {
+            Resolution::Internal(c, module) => {
+                assert_eq!(c, "loops", "a local def must attribute to its own band");
+                assert_eq!(module, m(&["bindings", "schemas"]));
+            }
+            other => panic!("local def must resolve Internal(loops); got {}", describe(&other)),
+        }
+
+        // A name that is NOT defined locally really does come from the floor glob;
+        // the fix must not over-reach and steal it back to the module's band.
+        let via_glob = ["crate", "bindings", "schemas", "TaskBindingSummary"].map(String::from);
+        match resolve_backend(&tree, &from, &via_glob, 0) {
+            Resolution::ExternalCrate(c) => {
+                assert_eq!(c, "floor:api-schemas", "a genuine floor re-export must stay floor");
+            }
+            other => panic!(
+                "a glob-only name must resolve ExternalCrate(floor:api-schemas); got {}",
+                describe(&other)
+            ),
+        }
+    }
 }
