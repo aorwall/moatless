@@ -2,6 +2,9 @@
 
 use std::sync::Arc;
 
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::adapters::delivery::AdapterDeliveryStore;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::{
     Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
 };
@@ -9,7 +12,10 @@ use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
+use crate::loops::dao::LoopDao;
 use crate::secret::service::SecretService;
+use crate::task::binding_dao::TaskBindingDao;
+use moatless_core::db::DbPool;
 
 use super::auth::GithubPrAuth;
 
@@ -24,6 +30,21 @@ pub struct GithubPrAdapter {
     frontend_url: String,
     /// GitHub identity selection and credential materialization.
     auth: GithubPrAuth,
+    /// Ingress ports the webhook route reads through this adapter rather than an
+    /// `AppState`. They are present on the composition-root instance (see
+    /// [`Self::with_ingress_ports`]) and absent on the `#[cfg(test)]`
+    /// constructors, which never reach [`super::ingress::receive`].
+    adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
+    loops: Option<Arc<LoopDao>>,
+    db: Option<DbPool>,
+    task_bindings: Option<Arc<dyn TaskBindingDao>>,
+    adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
+}
+
+/// The internal error for an ingress port read on an adapter that never
+/// received one — a composition-root bug, not a request fault.
+fn missing_port(name: &str) -> AdapterError {
+    SharedAdapterError::Internal(format!("GitHub PR adapter missing {name} port")).into()
 }
 
 impl GithubPrAdapter {
@@ -61,7 +82,74 @@ impl GithubPrAdapter {
                 github_app_service,
                 github_apps,
             ),
+            adapter_connections: None,
+            loops: None,
+            db: None,
+            task_bindings: None,
+            adapter_delivery: None,
         }
+    }
+
+    /// Attach the ingress ports the webhook route reaches through this adapter,
+    /// so [`super::handlers::github_webhook`] takes no `AppState`.
+    ///
+    /// Built at the composition root ([`crate::compose`]) from the pool it
+    /// already holds — the same local-construction move Telegram's
+    /// `with_ingress_ports` and `LinearAdapter::with_tasks` make. All five are
+    /// pool-wrapper DAOs the backend guidelines allow constructing locally
+    /// precisely because they stay stateless, so a per-provider instance is
+    /// interchangeable with the one `AppState` holds (`AdapterDeliveryStore`
+    /// carries the one non-obvious case — policy state — and pins the invariant
+    /// at its own definition).
+    #[must_use]
+    pub(crate) fn with_ingress_ports(
+        mut self,
+        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        loops: Arc<LoopDao>,
+        db: DbPool,
+        task_bindings: Arc<dyn TaskBindingDao>,
+        adapter_delivery: Arc<AdapterDeliveryStore>,
+    ) -> Self {
+        self.adapter_connections = Some(adapter_connections);
+        self.loops = Some(loops);
+        self.db = Some(db);
+        self.task_bindings = Some(task_bindings);
+        self.adapter_delivery = Some(adapter_delivery);
+        self
+    }
+
+    /// The connection store, for connection resolution during admission. `Err`
+    /// only if this adapter was built without ingress ports (a test constructor).
+    pub(super) fn require_adapter_connections(
+        &self,
+    ) -> Result<&dyn AdapterConnectionDao, AdapterError> {
+        self.adapter_connections
+            .as_deref()
+            .ok_or_else(|| missing_port("adapter_connections"))
+    }
+
+    /// The Loop store, for subscription resolution during admission.
+    pub(super) fn require_loops(&self) -> Result<&LoopDao, AdapterError> {
+        self.loops.as_deref().ok_or_else(|| missing_port("loops"))
+    }
+
+    /// The pool, for normalization reads on the ingress path.
+    pub(super) fn require_db(&self) -> Result<&DbPool, AdapterError> {
+        self.db.as_ref().ok_or_else(|| missing_port("db"))
+    }
+
+    /// The binding store, for the subscription/binding reads admission plans on.
+    pub(super) fn require_task_bindings(&self) -> Result<&Arc<dyn TaskBindingDao>, AdapterError> {
+        self.task_bindings
+            .as_ref()
+            .ok_or_else(|| missing_port("task_bindings"))
+    }
+
+    /// The durable delivery store admitted webhook work is handed to.
+    pub(super) fn require_adapter_delivery(&self) -> Result<&AdapterDeliveryStore, AdapterError> {
+        self.adapter_delivery
+            .as_deref()
+            .ok_or_else(|| missing_port("adapter_delivery"))
     }
 
     /// Wire the secret service used to resolve `secret_ref` provider tokens.

@@ -8,7 +8,6 @@ use tracing::warn;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
-use crate::state::AppState;
 
 use super::adapter::GithubPrAdapter;
 use super::ingress::WebhookRequest;
@@ -21,7 +20,6 @@ use super::ingress::WebhookRequest;
     responses((status = 200, description = "Webhook processed"))
 )]
 pub async fn github_webhook(
-    State(state): State<AppState>,
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
@@ -37,12 +35,17 @@ pub async fn github_webhook(
         &body,
     );
 
+    // Every port `receive` needs is carried on the adapter (see
+    // `with_ingress_ports`), so this route reads them through it rather than an
+    // `AppState`. `receive` keeps its explicit-port contract (adapter-carve
+    // #444); this route just sources those ports from the provider it already
+    // extracts.
     match super::ingress::receive(
-        state.adapter_connections.as_ref(),
-        &state.loops,
-        &state.db,
-        &state.task_bindings,
-        &state.adapter_delivery,
+        github_pr_provider.require_adapter_connections()?,
+        github_pr_provider.require_loops()?,
+        github_pr_provider.require_db()?,
+        github_pr_provider.require_task_bindings()?,
+        github_pr_provider.require_adapter_delivery()?,
         &github_pr_provider,
         request,
     )

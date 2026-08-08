@@ -388,7 +388,14 @@ impl Adapters {
         telegram.clone().register_into(&mut providers);
         tracing::info!("Telegram adapter registered");
 
-        // GitHub PR adapter is always available; config is per subscription.
+        // GitHub PR adapter is always available; config is per subscription. It
+        // carries the ingress ports its webhook route reads (connections, loops,
+        // db, bindings, delivery) so `github_webhook` takes no `AppState` — the
+        // same local-construction move as Telegram above.
+        let github_pr_connections: Arc<dyn AdapterConnectionDao> =
+            Arc::new(PgAdapterConnectionDao::new(db.clone()));
+        let github_pr_bindings: Arc<dyn TaskBindingDao> =
+            Arc::new(PgTaskBindingDao::new(db.clone()));
         let github_pr = Arc::new(
             crate::adapters::providers::github_pr::adapter::GithubPrAdapter::new(
                 config.github_pr.webhook_secret.clone(),
@@ -399,7 +406,14 @@ impl Adapters {
                 github_app_service.clone(),
                 github_apps.clone(),
             )
-            .with_secrets(secrets.clone()),
+            .with_secrets(secrets.clone())
+            .with_ingress_ports(
+                github_pr_connections,
+                Arc::new(LoopDao::new(db.clone())),
+                db.clone(),
+                github_pr_bindings,
+                Arc::new(AdapterDeliveryStore::new(db.clone())),
+            ),
         );
         github_pr.clone().register_into(&mut providers);
         tracing::info!("GitHub PR adapter configured");
