@@ -125,7 +125,20 @@ if [ -n "$SCCACHE_S3_BUCKET" ] && command -v sccache >/dev/null 2>&1; then
             sccache --start-server >/dev/null 2>&1
     }
 
-    if sccache_start; then
+    # Retry the first start: at container boot the Pod Identity agent may not
+    # be serving credentials yet, and a single failed attempt used to disable
+    # the cache for the pod's whole life — the re-arm loop below only ran on
+    # success, so one lost race meant compiling uncached until the pod died.
+    sccache_started=false
+    for _attempt in 1 2 3 4 5; do
+        if sccache_start; then
+            sccache_started=true
+            break
+        fi
+        sleep 5
+    done
+
+    if [ "$sccache_started" = true ]; then
         export RUSTC_WRAPPER=/usr/local/bin/sccache
         # Pod Identity credentials last ~6h; re-arm inside that window. A failed
         # refresh leaves the old server running until its credentials lapse,
