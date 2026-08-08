@@ -95,8 +95,11 @@ impl FileVisitor {
         macro_defs: &mut Vec<MacroDef>,
         rel: &str,
     ) {
-        // Merge tables. Each module path is owned by exactly one file, so these
-        // are inserts/unions with no real conflict.
+        // Merge tables. Each module path is owned by exactly one file — floor and
+        // backend-test files are rooted under per-crate sentinels (see
+        // `synthetic_root` in main.rs), so their trees no longer collide at `[]`
+        // with each other or with the backend lib — so these are inserts/unions
+        // with no real conflict.
         for m in self.modules {
             insert_with_ancestors(&mut tree.modules, m);
         }

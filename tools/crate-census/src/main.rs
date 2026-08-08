@@ -401,13 +401,25 @@ fn classify_file(root: &Path, abs: &Path, rel: &str, scope: ScopeKind) -> Option
                 source_crate,
             })
         }
-        ScopeKind::BackendTest => Some(DiscoveredFile {
-            abs: abs.to_path_buf(),
-            rel: rel.to_string(),
-            base_mod: Vec::new(),
-            scope,
-            source_crate: "test:backend".to_string(),
-        }),
+        ScopeKind::BackendTest => {
+            // A backend integration test is its own crate (one binary per file),
+            // NOT part of the backend lib — so root its module tree under a
+            // per-crate sentinel instead of the lib's `[]`. Otherwise every
+            // `backend/tests/*` file and every `crates/*` file share key `[]`, and
+            // `commit`'s sorted merge lets a floor file's `use super::...` clobber a
+            // test's `use moatless_vibe_backend::...` alias, stranding the test ref
+            // as `super-above-root`.
+            let inner = rel.strip_prefix("backend/tests/")?;
+            let mut base_mod = vec![synthetic_root("test:backend")];
+            base_mod.extend(file_to_modpath(inner));
+            Some(DiscoveredFile {
+                abs: abs.to_path_buf(),
+                rel: rel.to_string(),
+                base_mod,
+                scope,
+                source_crate: "test:backend".to_string(),
+            })
+        }
         ScopeKind::Floor | ScopeKind::FloorTest => {
             // crates/<name>/(src|tests)/...
             let inner = rel.strip_prefix("crates/")?;
@@ -425,10 +437,17 @@ fn classify_file(root: &Path, abs: &Path, rel: &str, scope: ScopeKind) -> Option
             };
             let source_crate = floor_crate_of_dir(name);
             let _ = root;
+            // Each floor crate is its own module tree; root it under a per-crate
+            // sentinel so its `use`/`defined` tables never merge into the backend
+            // lib's `[]` namespace (see `synthetic_root`). `inner_mod` is the path
+            // below `crates/<name>/(src|tests)/`.
+            let inner_mod = parts.collect::<Vec<_>>().join("/");
+            let mut base_mod = vec![synthetic_root(&source_crate)];
+            base_mod.extend(file_to_modpath(&inner_mod));
             Some(DiscoveredFile {
                 abs: abs.to_path_buf(),
                 rel: rel.to_string(),
-                base_mod: Vec::new(),
+                base_mod,
                 scope,
                 source_crate,
             })
@@ -445,6 +464,22 @@ fn file_to_modpath(inner: &str) -> ModPath {
         return Vec::new();
     }
     stem.split('/').map(str::to_string).collect()
+}
+
+/// The first segment of the module root for a file whose tree is NOT the backend
+/// lib's — a floor crate or a backend integration test. Prefixed with a NUL so it
+/// can never collide with a real Rust module segment (the same sentinel `main.rs`
+/// gets as `\u{0}bin`). Rooting these files under a per-crate sentinel keeps their
+/// `use` / inline-module / `defined` tables out of the backend lib's `[]`
+/// namespace: every such file used to land at `[]`, so `commit`'s sorted merge let
+/// a later `crates/*` file's `use super::models::X` overwrite a `backend/tests/*`
+/// file's real `use moatless_vibe_backend::...::X` at that key, and the test ref
+/// then resolved through the floor `super::` and stranded as `super-above-root`.
+/// Backend resolution never walks into these sentinel roots (floor refs resolve by
+/// external-crate head, and `crate::`/`moatless_vibe_backend::` anchor at `[]`), so
+/// isolating them changes no production edge — only the spurious unresolved count.
+fn synthetic_root(crate_tag: &str) -> String {
+    format!("\u{0}{crate_tag}")
 }
 
 fn repo_root() -> PathBuf {
