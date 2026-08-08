@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 75
+# Illegal edge count: 72
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -19,14 +19,11 @@ adapter-linear         -> server               [CODE] backend/src/adapters/provi
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/handlers.rs:19  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/issues.rs:25  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/sessions.rs:30  crate::state::AppState
-adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/delivery.rs:7  crate::state::AppState
 adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/handlers.rs:12  crate::state::AppState
 adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/ingress.rs:14  crate::state::AppState
-adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/delivery.rs:7  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/handlers.rs:14  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/ingress.rs:16  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/poller.rs:12  crate::state::AppState
-adapter-webhook        -> server               [CODE] backend/src/adapters/providers/webhook/delivery.rs:8  crate::state::AppState
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:36  github_pr::handlers::github_webhook
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:37  github_pr::api_routes::create_pr
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:38  github_pr::api_routes::post_comment

@@ -228,11 +228,11 @@ pub fn register_builtin_delivery_handlers(
     handlers: &mut AdapterDeliveryHandlers,
     state: &AppState,
 ) {
-    crate::adapters::slack::delivery::register(handlers, state);
-    crate::adapters::telegram::delivery::register(handlers, state);
+    crate::adapters::slack::delivery::register(handlers, state.routing.clone());
+    crate::adapters::telegram::delivery::register(handlers, state.routing.clone());
     crate::adapters::github_pr::delivery::register(handlers, state);
     crate::adapters::linear::delivery::register(handlers, state);
-    crate::adapters::webhook::delivery::register(handlers, state);
+    crate::adapters::webhook::delivery::register(handlers, state.routing.clone());
 }
 
 impl Ports {

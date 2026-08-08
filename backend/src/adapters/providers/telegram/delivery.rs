@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::adapters::delivery::AdapterDeliveryHandlers;
 use crate::adapters::inbound_delivery::InboundMessageHandler;
-use crate::state::AppState;
+use crate::bindings::runtime::RoutingService;
 
 /// Adapter name on `adapter_delivery` rows, metrics, and bindings.
 pub(crate) const ADAPTER: &str = "telegram";
@@ -20,10 +20,10 @@ pub(crate) const INBOUND_MESSAGE: &str = "telegram.inbound_message";
 /// The worker claims only registered kinds, so a replica that predates this
 /// registration leaves Telegram deliveries for one that has it rather than
 /// failing them.
-pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
+pub fn register(handlers: &mut AdapterDeliveryHandlers, routing: Arc<RoutingService>) {
     handlers.register(
         INBOUND_MESSAGE,
-        Arc::new(InboundMessageHandler::new(ADAPTER, state.routing.clone())),
+        Arc::new(InboundMessageHandler::new(ADAPTER, routing)),
     );
 }
 
