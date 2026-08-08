@@ -7,12 +7,12 @@
 use tracing::{debug, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{InboundMessage, LoopContext};
 use crate::adapters::{Adapter, BindingDestination};
-use moatless_core::db::DbPool;
 use crate::state::AppState;
+use moatless_core::db::DbPool;
 
 use super::adapter::{ResolvedSlackApp, SlackAdapter};
 use super::webhook::{self, Normalization, NormalizeContext};
@@ -372,16 +372,16 @@ mod characterization {
     use moatless_backend_core::scope::Scope;
     use sha2::Sha256;
 
-    use crate::adapters::error::AdapterError;
+    use crate::adapters::AdapterKind;
+    use crate::adapters::error::{AdapterError, SharedAdapterError};
     use crate::adapters::models::{Audience, InboundMessage, LoopContext, RoutingMode};
     use crate::adapters::test_support::ProviderStub;
-    use crate::adapters::AdapterKind;
     use moatless_core::db::DbPool;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;
     use super::super::webhook::Normalization;
-    use super::{challenge, normalize_and_apply, parse_body, verify, IngressError, WebhookRequest};
+    use super::{IngressError, WebhookRequest, challenge, normalize_and_apply, parse_body, verify};
 
     pub(super) const SIGNING_SECRET: &str = "8f742231b10e8888abcd99yez67676hg";
     pub(super) const BOT_USER_ID: &str = "U0BOT";
@@ -640,7 +640,13 @@ mod characterization {
             .await,
         );
 
-        assert!(matches!(error, AdapterError::SignatureInvalid), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                AdapterError::Shared(SharedAdapterError::SignatureInvalid)
+            ),
+            "{error:?}"
+        );
     }
 
     #[tokio::test]
@@ -661,7 +667,13 @@ mod characterization {
             .await,
         );
 
-        assert!(matches!(error, AdapterError::SignatureInvalid), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                AdapterError::Shared(SharedAdapterError::SignatureInvalid)
+            ),
+            "{error:?}"
+        );
     }
 
     #[tokio::test]
@@ -685,7 +697,13 @@ mod characterization {
             .await,
         );
 
-        assert!(matches!(error, AdapterError::SignatureInvalid), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                AdapterError::Shared(SharedAdapterError::SignatureInvalid)
+            ),
+            "{error:?}"
+        );
     }
 
     /// The body is read before the signature is checked, so a body that is not
@@ -877,7 +895,10 @@ mod characterization {
             .await,
         );
 
-        assert!(matches!(error, AdapterError::Db(_)), "{error:?}");
+        assert!(
+            matches!(error, AdapterError::Shared(SharedAdapterError::Db(_))),
+            "{error:?}"
+        );
         assert_eq!(stub.paths(), vec!["/users.info".to_string()]);
     }
 
@@ -936,8 +957,8 @@ mod characterization {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::{Audience, InboundMessage};
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::{Audience, InboundMessage};
 
     use super::admission_event_id;
 
@@ -1012,14 +1033,14 @@ mod tests {
 mod characterization_db {
     use sqlx::PgPool;
 
-    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::Audience;
 
-    use super::characterization::{
-        adapter, envelope, human, ignored, message_event, parse, slack_stub, trigger, Parsed,
-        BOT_USER_ID, OWNER,
-    };
     use super::IngressError;
+    use super::characterization::{
+        BOT_USER_ID, OWNER, Parsed, adapter, envelope, human, ignored, message_event, parse,
+        slack_stub, trigger,
+    };
 
     fn message(result: Result<Parsed, IngressError>) -> crate::adapters::models::InboundMessage {
         match result {

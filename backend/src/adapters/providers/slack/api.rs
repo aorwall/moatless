@@ -3,7 +3,7 @@
 use serde::Deserialize;
 use tracing::warn;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 
 /// Slack API client wrapping reqwest.
 #[derive(Clone)]
@@ -144,15 +144,15 @@ impl SlackApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("chat.postMessage", e))?
+            .map_err(|e| SharedAdapterError::provider_unreachable("chat.postMessage", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("chat.postMessage", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("chat.postMessage", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
             warn!(error = %err, "Slack chat.postMessage failed");
-            return Err(AdapterError::AdapterApi(format!("chat.postMessage: {err}")));
+            return Err(SharedAdapterError::AdapterApi(format!("chat.postMessage: {err}")).into());
         }
 
         Ok(resp.ts)
@@ -166,19 +166,19 @@ impl SlackApi {
             .bearer_auth(&self.token)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("auth.test", e))?
+            .map_err(|e| SharedAdapterError::provider_unreachable("auth.test", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("auth.test", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("auth.test", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!("auth.test: {err}")));
+            return Err(SharedAdapterError::AdapterApi(format!("auth.test: {err}")).into());
         }
 
         let user_id = resp
             .user_id
-            .ok_or_else(|| AdapterError::AdapterApi("auth.test: missing user_id".into()))?;
+            .ok_or_else(|| SharedAdapterError::AdapterApi("auth.test: missing user_id".into()))?;
 
         Ok(AuthTestInfo {
             user_id,
@@ -202,10 +202,10 @@ impl SlackApi {
             .query(&[("user", user_id)])
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("users.info", e))?
+            .map_err(|e| SharedAdapterError::provider_unreachable("users.info", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("users.info", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("users.info", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -250,10 +250,12 @@ impl SlackApi {
             .query(&query)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("conversations.replies", e))?
+            .map_err(|e| SharedAdapterError::provider_unreachable("conversations.replies", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("conversations.replies", e))?;
+            .map_err(|e| {
+                SharedAdapterError::provider_response_invalid("conversations.replies", e)
+            })?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -321,25 +323,26 @@ impl SlackApi {
             .query(&[("filename", filename), ("length", &length_str)])
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("files.getUploadURLExternal", e))?
+            .map_err(|e| SharedAdapterError::provider_unreachable("files.getUploadURLExternal", e))?
             .json()
             .await
             .map_err(|e| {
-                AdapterError::provider_response_invalid("files.getUploadURLExternal", e)
+                SharedAdapterError::provider_response_invalid("files.getUploadURLExternal", e)
             })?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "files.getUploadURLExternal: {err}"
-            )));
+            ))
+            .into());
         }
 
         let upload_url = resp.upload_url.ok_or_else(|| {
-            AdapterError::AdapterApi("files.getUploadURLExternal: no upload_url".into())
+            SharedAdapterError::AdapterApi("files.getUploadURLExternal: no upload_url".into())
         })?;
         let slack_file_id = resp.file_id.ok_or_else(|| {
-            AdapterError::AdapterApi("files.getUploadURLExternal: no file_id".into())
+            SharedAdapterError::AdapterApi("files.getUploadURLExternal: no file_id".into())
         })?;
 
         // Step 2: Upload file content to presigned URL
@@ -349,13 +352,16 @@ impl SlackApi {
             .body(content)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("File upload to presigned URL", e))?
+            .map_err(|e| {
+                SharedAdapterError::provider_unreachable("File upload to presigned URL", e)
+            })?
             .status();
 
         if !upload_status.is_success() {
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "File upload returned HTTP {upload_status}"
-            )));
+            ))
+            .into());
         }
 
         // Step 3: Complete the upload, associating with channel + thread
@@ -374,18 +380,21 @@ impl SlackApi {
             .json(&complete_body)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("files.completeUploadExternal", e))?
+            .map_err(|e| {
+                SharedAdapterError::provider_unreachable("files.completeUploadExternal", e)
+            })?
             .json()
             .await
             .map_err(|e| {
-                AdapterError::provider_response_invalid("files.completeUploadExternal", e)
+                SharedAdapterError::provider_response_invalid("files.completeUploadExternal", e)
             })?;
 
         if !complete_resp.ok {
             let err = complete_resp.error.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "files.completeUploadExternal: {err}"
-            )));
+            ))
+            .into());
         }
 
         Ok(())
@@ -404,20 +413,20 @@ impl SlackApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("conversations.open", e))?
+            .map_err(|e| SharedAdapterError::provider_unreachable("conversations.open", e))?
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("conversations.open", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("conversations.open", e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
-                "conversations.open: {err}"
-            )));
+            return Err(
+                SharedAdapterError::AdapterApi(format!("conversations.open: {err}")).into(),
+            );
         }
 
         let channel = resp.channel.ok_or_else(|| {
-            AdapterError::AdapterApi("conversations.open: missing channel in response".into())
+            SharedAdapterError::AdapterApi("conversations.open: missing channel in response".into())
         })?;
 
         Ok(channel.id)
@@ -467,10 +476,10 @@ impl SlackApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable(method, e))?
+            .map_err(|e| SharedAdapterError::provider_unreachable(method, e))?
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid(method, e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid(method, e))?;
 
         if !resp.ok {
             let err = resp.error.unwrap_or_default();
@@ -478,16 +487,19 @@ impl SlackApi {
             // to surface but not break the caller. Map them to a BadRequest so
             // the user gets a clear message.
             return Err(match err.as_str() {
-                "already_reacted" => AdapterError::BadRequest(
+                "already_reacted" => SharedAdapterError::BadRequest(
                     "Slack: reaction already exists on this message".into(),
-                ),
-                "no_reaction" => AdapterError::BadRequest(
+                )
+                .into(),
+                "no_reaction" => SharedAdapterError::BadRequest(
                     "Slack: no matching reaction to remove on this message".into(),
-                ),
+                )
+                .into(),
                 "invalid_name" => {
-                    AdapterError::BadRequest(format!("Slack: invalid reaction name `{name}`"))
+                    SharedAdapterError::BadRequest(format!("Slack: invalid reaction name `{name}`"))
+                        .into()
                 }
-                _ => AdapterError::AdapterApi(format!("{method}: {err}")),
+                _ => SharedAdapterError::AdapterApi(format!("{method}: {err}")).into(),
             });
         }
 
@@ -617,7 +629,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_slack_keeps_transport_source() {
@@ -628,10 +640,10 @@ mod error_source_tests {
             .await
             .expect_err("dead loopback port must fail");
 
-        let AdapterError::ProviderUnreachable {
+        let AdapterError::Shared(SharedAdapterError::ProviderUnreachable {
             ref operation,
             ref source,
-        } = err
+        }) = err
         else {
             panic!("expected ProviderUnreachable, got {err:?}");
         };
@@ -650,7 +662,10 @@ mod error_source_tests {
             .await
             .expect_err("html body must not decode");
 
-        let AdapterError::ProviderResponseInvalid { ref operation, .. } = err else {
+        let AdapterError::Shared(SharedAdapterError::ProviderResponseInvalid {
+            ref operation, ..
+        }) = err
+        else {
             panic!("expected ProviderResponseInvalid, got {err:?}");
         };
         assert_eq!(operation, "chat.postMessage");
@@ -674,7 +689,7 @@ mod error_source_tests {
             .expect_err("ok:false must be an error");
 
         assert!(
-            matches!(err, AdapterError::AdapterApi(ref m) if m == "chat.postMessage: channel_not_found"),
+            matches!(err, AdapterError::Shared(SharedAdapterError::AdapterApi(ref m)) if m == "chat.postMessage: channel_not_found"),
             "got {err:?}"
         );
         assert!(err.source().is_none());

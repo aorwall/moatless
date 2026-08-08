@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::adapters::delivery::Admission;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
     Audience, BindingContext, InboundMessage, LoopContext, OutboundReply,
 };
@@ -121,18 +121,18 @@ impl WebhookAdapter {
             .and_then(|v| v.as_str());
 
         if let Some(secret) = webhook_secret {
-            let sig = signature.ok_or(AdapterError::SignatureInvalid)?;
+            let sig = signature.ok_or(SharedAdapterError::SignatureInvalid)?;
             super::signature::verify_signature(secret, body, sig)?;
         }
 
         // 2. Parse payload
         let payload: WebhookPayload = serde_json::from_slice(body)
-            .map_err(|e| AdapterError::BadRequest(format!("Invalid JSON: {e}")))?;
+            .map_err(|e| SharedAdapterError::BadRequest(format!("Invalid JSON: {e}")))?;
 
         if payload.text.trim().is_empty() {
-            return Err(AdapterError::BadRequest(
-                "Missing required field: text".into(),
-            ));
+            return Err(
+                SharedAdapterError::BadRequest("Missing required field: text".into()).into(),
+            );
         }
 
         // 3. Determine user_id
@@ -262,13 +262,14 @@ impl AdapterBindingReply for WebhookAdapter {
                 let status = resp.status();
                 let text = resp.text().await.unwrap_or_default();
                 warn!(loop_id = %config.id, url = %callback_url, status = %status, body = %text, "Webhook callback failed");
-                Err(AdapterError::AdapterApi(format!(
+                Err(SharedAdapterError::AdapterApi(format!(
                     "Webhook callback returned {status}: {text}"
-                )))
+                ))
+                .into())
             }
             Err(e) => {
                 warn!(loop_id = %config.id, url = %callback_url, "Webhook callback request failed");
-                Err(AdapterError::provider_unreachable("Webhook callback", e))
+                Err(SharedAdapterError::provider_unreachable("Webhook callback", e).into())
             }
         }
     }

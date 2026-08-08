@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use super::super::capabilities::Adapter;
 use super::Adapters;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::test_support::StubProviderTokens;
-use moatless_core::db::DbPool;
 use moatless_api_schemas::enums::AdapterKind;
+use moatless_core::db::DbPool;
 use sqlx::postgres::PgPoolOptions;
 
 struct DummyProvider;
@@ -98,12 +98,16 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
         );
     }
     assert!(providers.get(AdapterKind::Webhook).is_some());
-    assert!(providers
-        .outbound_for_binding_reply_by_name("webhook")
-        .is_ok());
-    assert!(providers
-        .outbound_for_message_reply_by_name("webhook")
-        .is_ok());
+    assert!(
+        providers
+            .outbound_for_binding_reply_by_name("webhook")
+            .is_ok()
+    );
+    assert!(
+        providers
+            .outbound_for_message_reply_by_name("webhook")
+            .is_ok()
+    );
 
     for kind in [
         AdapterKind::Slack,
@@ -130,59 +134,91 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
 
     assert!(providers.destination_builder(AdapterKind::Linear).is_err());
     assert!(providers.destination_builder(AdapterKind::Webhook).is_err());
-    assert!(providers
-        .outbound_for_direct_destination(AdapterKind::Slack)
-        .is_ok());
-    assert!(providers
-        .outbound_for_direct_destination(AdapterKind::Linear)
-        .is_ok());
-    assert!(providers
-        .outbound_for_direct_message(AdapterKind::Slack)
-        .is_ok());
+    assert!(
+        providers
+            .outbound_for_direct_destination(AdapterKind::Slack)
+            .is_ok()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_destination(AdapterKind::Linear)
+            .is_ok()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_message(AdapterKind::Slack)
+            .is_ok()
+    );
     assert!(providers.outbound_for_new_thread_by_name("slack").is_ok());
-    assert!(providers
-        .outbound_for_new_thread_by_name("telegram")
-        .is_ok());
-    assert!(providers
-        .post_binding_followup(AdapterKind::Linear)
-        .is_some());
-    assert!(providers
-        .outbound_for_direct_destination(AdapterKind::GithubPr)
-        .is_err());
-    assert!(providers
-        .outbound_for_direct_destination(AdapterKind::Telegram)
-        .is_err());
-    assert!(providers
-        .outbound_for_direct_destination(AdapterKind::Webhook)
-        .is_err());
-    assert!(providers
-        .outbound_for_direct_message(AdapterKind::GithubPr)
-        .is_err());
-    assert!(providers
-        .outbound_for_direct_message(AdapterKind::Linear)
-        .is_err());
-    assert!(providers
-        .outbound_for_direct_message(AdapterKind::Telegram)
-        .is_err());
-    assert!(providers
-        .outbound_for_direct_message(AdapterKind::Webhook)
-        .is_err());
+    assert!(
+        providers
+            .outbound_for_new_thread_by_name("telegram")
+            .is_ok()
+    );
+    assert!(
+        providers
+            .post_binding_followup(AdapterKind::Linear)
+            .is_some()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_destination(AdapterKind::GithubPr)
+            .is_err()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_destination(AdapterKind::Telegram)
+            .is_err()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_destination(AdapterKind::Webhook)
+            .is_err()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_message(AdapterKind::GithubPr)
+            .is_err()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_message(AdapterKind::Linear)
+            .is_err()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_message(AdapterKind::Telegram)
+            .is_err()
+    );
+    assert!(
+        providers
+            .outbound_for_direct_message(AdapterKind::Webhook)
+            .is_err()
+    );
     assert!(providers.outbound_for_new_thread_by_name("github").is_err());
     assert!(providers.outbound_for_new_thread_by_name("linear").is_err());
-    assert!(providers
-        .outbound_for_new_thread_by_name("webhook")
-        .is_err());
-    assert!(providers
-        .post_binding_followup(AdapterKind::Slack)
-        .is_none());
-    assert!(providers
-        .post_binding_followup(AdapterKind::Webhook)
-        .is_none());
+    assert!(
+        providers
+            .outbound_for_new_thread_by_name("webhook")
+            .is_err()
+    );
+    assert!(
+        providers
+            .post_binding_followup(AdapterKind::Slack)
+            .is_none()
+    );
+    assert!(
+        providers
+            .post_binding_followup(AdapterKind::Webhook)
+            .is_none()
+    );
     assert!(providers.reactions(AdapterKind::Linear).is_err());
     assert!(providers.reactions(AdapterKind::Webhook).is_err());
-    assert!(providers
-        .inbound_presentation(AdapterKind::Webhook)
-        .is_err());
+    assert!(
+        providers
+            .inbound_presentation(AdapterKind::Webhook)
+            .is_err()
+    );
     assert!(providers.binding_status(AdapterKind::Slack).is_none());
     assert!(providers.binding_status(AdapterKind::Telegram).is_none());
     assert!(providers.binding_status(AdapterKind::Webhook).is_none());
@@ -205,7 +241,7 @@ async fn missing_capability_returns_adapter_error() {
     let providers = registry_with_all_current_adapters();
 
     match providers.reactions(AdapterKind::Linear) {
-        Err(AdapterError::BadRequest(_)) => {}
+        Err(AdapterError::Shared(SharedAdapterError::BadRequest(_))) => {}
         Err(other) => panic!("expected BadRequest, got: {other:?}"),
         Ok(_) => panic!("Linear should not have reaction capability"),
     }
@@ -231,7 +267,7 @@ async fn capability_lookup_by_name_preserves_provider_aliases() {
     );
 
     match providers.reactions_by_name("linear") {
-        Err(AdapterError::BadRequest(_)) => {}
+        Err(AdapterError::Shared(SharedAdapterError::BadRequest(_))) => {}
         Err(other) => panic!("expected BadRequest, got: {other:?}"),
         Ok(_) => panic!("Linear should not have reaction capability"),
     }
@@ -272,7 +308,7 @@ async fn missing_outbound_capability_returns_registry_owned_error() {
     providers.register_trait_object(Arc::new(IdentityOnlyProvider { kind }));
 
     match providers.outbound_for_direct_destination(kind) {
-        Err(AdapterError::BadRequest(msg)) => {
+        Err(AdapterError::Shared(SharedAdapterError::BadRequest(msg))) => {
             assert!(
                 msg.contains("does not support direct destination sends"),
                 "unexpected message: {msg}"
@@ -288,7 +324,7 @@ async fn webhook_raw_destination_send_is_absent_from_registry() {
     let providers = registry_with_all_current_adapters();
 
     match providers.outbound_for_direct_destination(AdapterKind::Webhook) {
-        Err(AdapterError::BadRequest(msg)) => {
+        Err(AdapterError::Shared(SharedAdapterError::BadRequest(msg))) => {
             assert!(
                 msg.contains("does not support direct destination sends"),
                 "unexpected message: {msg}"

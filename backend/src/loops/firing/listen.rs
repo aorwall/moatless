@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use crate::adapters::{AdapterDestinationBuilder, AdapterKind, Adapters};
 use crate::bindings::dao::TaskBindingDao;
@@ -198,9 +198,10 @@ impl Connector {
                 .await?;
         }
         connection.ok_or_else(|| {
-            AdapterError::BadRequest(format!(
+            SharedAdapterError::BadRequest(format!(
                 "No {adapter_key} Adapter connection for scope '{scope_value}'"
             ))
+            .into()
         })
     }
 
@@ -258,7 +259,7 @@ impl Connector {
         let providers = self
             .adapters
             .as_ref()
-            .ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
+            .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("github_pr".into()))?;
         let adapter_destination = providers.destination_builder(AdapterKind::GithubPr)?;
         self.connect_binding_optional_subscription(
             adapter_destination,

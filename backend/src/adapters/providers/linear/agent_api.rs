@@ -19,7 +19,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::metrics::record_api_call;
 use moatless_core::db::DbPool;
 
@@ -195,10 +195,10 @@ impl LinearAgentApi {
         .bind(PROVIDER)
         .fetch_optional(&self.db)
         .await
-        .map_err(AdapterError::Db)?;
+        .map_err(SharedAdapterError::Db)?;
 
         let (access_token, refresh_token, expires_at, metadata) = full.ok_or_else(|| {
-            AdapterError::AdapterApi(
+            SharedAdapterError::AdapterApi(
                 "No Linear OAuth token registered — \
                      run `moat adapters install --adapter linear` first"
                     .to_string(),
@@ -278,7 +278,7 @@ impl LinearAgentApi {
         .bind(new_expires_at)
         .execute(&self.db)
         .await
-        .map_err(AdapterError::Db)?;
+        .map_err(SharedAdapterError::Db)?;
 
         Ok(refreshed.access_token)
     }
@@ -288,7 +288,7 @@ impl LinearAgentApi {
     /// touching our `expires_at`, so `needs_refresh` never trips. Re-SELECT
     /// the current refresh token + metadata and exchange it.
     ///
-    /// Returns [`AdapterError::Unauthorized`] when no refresh token is stored
+    /// Returns [`SharedAdapterError::Unauthorized`] when no refresh token is stored
     /// — that case is unrecoverable and surfaces to the auth-failure alert,
     /// prompting a re-install.
     async fn force_refresh_access_token(&self) -> Result<String, AdapterError> {
@@ -301,7 +301,7 @@ impl LinearAgentApi {
         .bind(PROVIDER)
         .fetch_optional(&self.db)
         .await
-        .map_err(AdapterError::Db)?;
+        .map_err(SharedAdapterError::Db)?;
 
         let (refresh_token, metadata) = refresh_token_from_row(row)?;
 
@@ -314,12 +314,12 @@ impl LinearAgentApi {
     /// Exchange a refresh token for a new access token.
     async fn refresh_tokens(&self, refresh_token: &str) -> Result<TokenResponse, AdapterError> {
         let client_id = self.oauth_client_id.as_deref().ok_or_else(|| {
-            AdapterError::AdapterApi(
+            SharedAdapterError::AdapterApi(
                 "LINEAR_OAUTH_CLIENT_ID is not configured; cannot refresh Linear token".into(),
             )
         })?;
         let client_secret = self.oauth_client_secret.as_deref().ok_or_else(|| {
-            AdapterError::AdapterApi(
+            SharedAdapterError::AdapterApi(
                 "LINEAR_OAUTH_CLIENT_SECRET is not configured; cannot refresh Linear token".into(),
             )
         })?;
@@ -337,26 +337,27 @@ impl LinearAgentApi {
             .form(&form)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("Linear refresh request", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("Linear refresh request", e))?;
 
         let status = resp.status();
         let text = resp
             .text()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("Linear refresh body read", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("Linear refresh body read", e))?;
 
         if !status.is_success() {
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "Linear refresh returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         serde_json::from_str(&text)
-            .map_err(|e| AdapterError::provider_response_invalid("Linear refresh", e))
+            .map_err(|e| SharedAdapterError::provider_response_invalid("Linear refresh", e).into())
     }
 
     /// Send a GraphQL request with a fresh access token. Surface errors via
-    /// `AdapterError::AdapterApi`.
+    /// `SharedAdapterError::AdapterApi`.
     pub async fn graphql(
         &self,
         body: serde_json::Value,
@@ -395,7 +396,7 @@ impl LinearAgentApi {
     ) -> Result<serde_json::Value, AdapterError> {
         let token = self.resolve_access_token().await?;
         match self.graphql_raw_with_token(&token, body.clone()).await {
-            Err(AdapterError::Unauthorized(_)) => {
+            Err(AdapterError::Shared(SharedAdapterError::Unauthorized(_))) => {
                 warn!(org_id = %self.org_id, "Linear 401 — forcing token refresh and retrying once");
                 let fresh = self.force_refresh_access_token().await?;
                 self.graphql_raw_with_token(&fresh, body).await
@@ -420,29 +421,31 @@ impl LinearAgentApi {
             .await
             .map_err(|e| {
                 record_api_call(PROVIDER, "error");
-                AdapterError::provider_unreachable("Linear request", e)
+                SharedAdapterError::provider_unreachable("Linear request", e)
             })?;
 
         let status = resp.status();
         let text = resp.text().await.map_err(|e| {
             record_api_call(PROVIDER, "error");
-            AdapterError::provider_unreachable("Linear response read", e)
+            SharedAdapterError::provider_unreachable("Linear response read", e)
         })?;
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
             warn!(status = %status, body = %text, "Linear GraphQL 401 unauthorized");
             record_api_call(PROVIDER, "auth_error");
-            return Err(AdapterError::Unauthorized(format!(
+            return Err(SharedAdapterError::Unauthorized(format!(
                 "Linear API returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         if !status.is_success() {
             warn!(status = %status, body = %text, "Linear GraphQL HTTP error");
             record_api_call(PROVIDER, "error");
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "Linear API returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         match serde_json::from_str(&text) {
@@ -452,7 +455,7 @@ impl LinearAgentApi {
             }
             Err(e) => {
                 record_api_call(PROVIDER, "error");
-                Err(AdapterError::provider_response_invalid("Linear JSON", e))
+                Err(SharedAdapterError::provider_response_invalid("Linear JSON", e).into())
             }
         }
     }
@@ -491,15 +494,16 @@ impl LinearAgentApi {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         if !success {
-            return Err(AdapterError::AdapterApi(
+            return Err(SharedAdapterError::AdapterApi(
                 "Linear agentActivityCreate returned success=false".into(),
-            ));
+            )
+            .into());
         }
         let id = value
             .pointer("/data/agentActivityCreate/agentActivity/id")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                AdapterError::AdapterApi(
+                SharedAdapterError::AdapterApi(
                     "Linear agentActivityCreate missing agentActivity.id".into(),
                 )
             })?;
@@ -548,15 +552,16 @@ impl LinearAgentApi {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         if !success {
-            return Err(AdapterError::AdapterApi(
+            return Err(SharedAdapterError::AdapterApi(
                 "Linear agentActivityCreate(action) returned success=false".into(),
-            ));
+            )
+            .into());
         }
         let id = value
             .pointer("/data/agentActivityCreate/agentActivity/id")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                AdapterError::AdapterApi(
+                SharedAdapterError::AdapterApi(
                     "Linear agentActivityCreate(action) missing agentActivity.id".into(),
                 )
             })?;
@@ -590,9 +595,10 @@ impl LinearAgentApi {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         if !success {
-            return Err(AdapterError::AdapterApi(
+            return Err(SharedAdapterError::AdapterApi(
                 "Linear agentSessionUpdate returned success=false".into(),
-            ));
+            )
+            .into());
         }
         Ok(())
     }
@@ -654,10 +660,9 @@ impl LinearAgentApi {
                 "variables": { "id": id_or_key }
             }))
             .await?;
-        value
-            .pointer("/data/issue")
-            .cloned()
-            .ok_or_else(|| AdapterError::NotFound(format!("Linear issue {id_or_key} not found")))
+        value.pointer("/data/issue").cloned().ok_or_else(|| {
+            SharedAdapterError::NotFound(format!("Linear issue {id_or_key} not found")).into()
+        })
     }
 
     /// Run `issueCreate` and return the created issue. Caller is
@@ -680,7 +685,9 @@ impl LinearAgentApi {
         value
             .pointer("/data/issueCreate/issue")
             .cloned()
-            .ok_or_else(|| AdapterError::AdapterApi("issueCreate missing issue subobject".into()))
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi("issueCreate missing issue subobject".into()).into()
+            })
     }
 
     /// Run `issueUpdate` and return the updated issue.
@@ -703,7 +710,9 @@ impl LinearAgentApi {
         value
             .pointer("/data/issueUpdate/issue")
             .cloned()
-            .ok_or_else(|| AdapterError::AdapterApi("issueUpdate missing issue subobject".into()))
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi("issueUpdate missing issue subobject".into()).into()
+            })
     }
 
     /// Resolve a workflow-state NAME to its UUID within a specific team.
@@ -756,7 +765,8 @@ impl LinearAgentApi {
             .pointer("/data/commentCreate/comment")
             .cloned()
             .ok_or_else(|| {
-                AdapterError::AdapterApi("commentCreate missing comment subobject".into())
+                SharedAdapterError::AdapterApi("commentCreate missing comment subobject".into())
+                    .into()
             })
     }
 
@@ -873,7 +883,9 @@ impl LinearAgentApi {
         let id = first
             .get("id")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| AdapterError::AdapterApi(format!("Linear {collection} missing id")))?
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi(format!("Linear {collection} missing id"))
+            })?
             .to_string();
         let resolved_name = first
             .get("name")
@@ -949,9 +961,7 @@ fn check_graphql_errors(value: &serde_json::Value) -> Result<(), AdapterError> {
         errors = %serde_json::Value::Array(errors.clone()),
         "Linear GraphQL returned errors"
     );
-    Err(AdapterError::AdapterApi(format!(
-        "Linear GraphQL errors: {errors:?}"
-    )))
+    Err(SharedAdapterError::AdapterApi(format!("Linear GraphQL errors: {errors:?}")).into())
 }
 
 /// Recognise Linear's "URL already linked with <issue>" response from
@@ -985,9 +995,10 @@ fn require_mutation_success(
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     if !success {
-        return Err(AdapterError::AdapterApi(format!(
+        return Err(SharedAdapterError::AdapterApi(format!(
             "Linear {op_name} returned success=false"
-        )));
+        ))
+        .into());
     }
     Ok(())
 }
@@ -1001,14 +1012,14 @@ fn require_mutation_success(
 fn parse_viewer(value: &serde_json::Value) -> Result<ViewerInfo, AdapterError> {
     let viewer = value
         .pointer("/data/viewer")
-        .ok_or_else(|| AdapterError::AdapterApi("Linear viewer missing".into()))?;
+        .ok_or_else(|| SharedAdapterError::AdapterApi("Linear viewer missing".into()))?;
     serde_json::from_value(viewer.clone())
-        .map_err(|e| AdapterError::provider_response_invalid("Linear viewer", e))
+        .map_err(|e| SharedAdapterError::provider_response_invalid("Linear viewer", e).into())
 }
 
 /// Decide whether a force-refresh can proceed from the stored token row.
 /// Returns the refresh token + metadata to exchange, or
-/// [`AdapterError::Unauthorized`] when the row is missing or has no refresh
+/// [`SharedAdapterError::Unauthorized`] when the row is missing or has no refresh
 /// token — the unrecoverable case that must surface to the auth-failure alert.
 type TokenRow = Option<(Option<String>, Option<serde_json::Value>)>;
 
@@ -1016,7 +1027,7 @@ fn refresh_token_from_row(
     row: TokenRow,
 ) -> Result<(String, Option<serde_json::Value>), AdapterError> {
     let (refresh_token, metadata) = row.ok_or_else(|| {
-        AdapterError::Unauthorized(
+        SharedAdapterError::Unauthorized(
             "No Linear OAuth token registered — \
              run `moat adapters install --adapter linear` first"
                 .to_string(),
@@ -1024,11 +1035,12 @@ fn refresh_token_from_row(
     })?;
 
     let Some(refresh_token) = refresh_token else {
-        return Err(AdapterError::Unauthorized(
+        return Err(SharedAdapterError::Unauthorized(
             "Linear access token rejected (401) and no refresh token stored — \
              re-install with `moat adapters install --adapter linear`"
                 .to_string(),
-        ));
+        )
+        .into());
     };
 
     Ok((refresh_token, metadata))
@@ -1089,14 +1101,20 @@ mod tests {
     fn force_refresh_unauthorized_when_no_row() {
         // No stored token row at all → unrecoverable, surfaces to the alert.
         let err = refresh_token_from_row(None).unwrap_err();
-        assert!(matches!(err, AdapterError::Unauthorized(_)));
+        assert!(matches!(
+            err,
+            AdapterError::Shared(SharedAdapterError::Unauthorized(_))
+        ));
     }
 
     #[test]
     fn force_refresh_unauthorized_when_no_refresh_token() {
         // Row exists but refresh_token is NULL → still unrecoverable.
         let err = refresh_token_from_row(Some((None, None))).unwrap_err();
-        assert!(matches!(err, AdapterError::Unauthorized(_)));
+        assert!(matches!(
+            err,
+            AdapterError::Shared(SharedAdapterError::Unauthorized(_))
+        ));
     }
 
     #[test]
@@ -1157,7 +1175,7 @@ mod error_source_tests {
 
     use super::*;
     use crate::adapters::error::ProviderDecodeError;
-    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     /// A pool that is never connected — `graphql_with_token` takes the token as
     /// an argument, so it never touches the database.
@@ -1190,10 +1208,10 @@ mod error_source_tests {
             .await
             .expect_err("dead loopback port must fail");
 
-        let AdapterError::ProviderUnreachable {
+        let AdapterError::Shared(SharedAdapterError::ProviderUnreachable {
             ref operation,
             ref source,
-        } = err
+        }) = err
         else {
             panic!("expected ProviderUnreachable, got {err:?}");
         };
@@ -1215,10 +1233,10 @@ mod error_source_tests {
             .await
             .expect_err("html body must not decode");
 
-        let AdapterError::ProviderResponseInvalid {
+        let AdapterError::Shared(SharedAdapterError::ProviderResponseInvalid {
             ref operation,
             ref source,
-        } = err
+        }) = err
         else {
             panic!("expected ProviderResponseInvalid, got {err:?}");
         };
@@ -1244,7 +1262,13 @@ mod error_source_tests {
             .await
             .expect_err("401 must be an error");
 
-        assert!(matches!(err, AdapterError::Unauthorized(_)), "got {err:?}");
+        assert!(
+            matches!(
+                err,
+                AdapterError::Shared(SharedAdapterError::Unauthorized(_))
+            ),
+            "got {err:?}"
+        );
         assert!(err.source().is_none());
     }
 }

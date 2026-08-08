@@ -10,7 +10,7 @@ use crate::adapters::common::{
     binding_descriptor, ensure_task_access_with, load_adapter_connection_for_auth_with,
 };
 use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::outbound::{self, OutboundSender};
 use crate::bindings::recently_sent::RecentlySent;
@@ -74,21 +74,20 @@ impl ExternalReplyService {
         text: &str,
         file_ids: &[String],
     ) -> Result<SendTaskReplyResponse, AdapterError> {
-        let providers = self
-            .adapters
-            .as_ref()
-            .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
+        let providers = self.adapters.as_ref().ok_or_else(|| {
+            SharedAdapterError::AdapterNotConfigured("No adapters configured".into())
+        })?;
 
         let repo = self.task_bindings.clone();
         let bindings = if let Some(binding_id) = binding_id {
-            let binding = repo
-                .find_by_id(binding_id)
-                .await?
-                .ok_or_else(|| AdapterError::NotFound(format!("Binding {binding_id} not found")))?;
+            let binding = repo.find_by_id(binding_id).await?.ok_or_else(|| {
+                SharedAdapterError::NotFound(format!("Binding {binding_id} not found"))
+            })?;
             if binding.task_id != task_id {
-                return Err(AdapterError::BadRequest(format!(
+                return Err(SharedAdapterError::BadRequest(format!(
                     "Binding {binding_id} does not belong to task {task_id}"
-                )));
+                ))
+                .into());
             }
             load_adapter_connection_for_auth_with(
                 self.adapter_connections.as_ref(),
@@ -102,9 +101,10 @@ impl ExternalReplyService {
         };
 
         match bindings.len() {
-            0 => Err(AdapterError::ConfigNotFound(format!(
-                "Task {task_id} has no bindings"
-            ))),
+            0 => Err(
+                SharedAdapterError::ConfigNotFound(format!("Task {task_id} has no bindings"))
+                    .into(),
+            ),
             1 => {
                 let binding = &bindings[0];
                 let (sent_count, errors) = self
@@ -112,7 +112,7 @@ impl ExternalReplyService {
                     .send_to_binding(providers, task_id, &binding.id, text, file_ids)
                     .await?;
                 if sent_count == 0 && !errors.is_empty() {
-                    return Err(AdapterError::AdapterApi(errors.join("; ")));
+                    return Err(SharedAdapterError::AdapterApi(errors.join("; ")).into());
                 }
                 Ok(SendTaskReplyResponse {
                     sent_count,
@@ -124,9 +124,10 @@ impl ExternalReplyService {
                     },
                 })
             }
-            _ => Err(AdapterError::MultipleTargets {
+            _ => Err(SharedAdapterError::MultipleTargets {
                 targets: bindings.iter().map(binding_descriptor).collect(),
-            }),
+            }
+            .into()),
         }
     }
 
@@ -141,7 +142,7 @@ impl ExternalReplyService {
             .messages
             .find_by_uuid(message_id)
             .await?
-            .ok_or_else(|| AdapterError::NotFound(format!("message {message_id}")))?;
+            .ok_or_else(|| SharedAdapterError::NotFound(format!("message {message_id}")))?;
         let task = ensure_task_access_with(self.tasks.as_ref(), ctx, &msg.task_id).await?;
 
         let Some(ext_id) = msg.external_event_id.clone() else {
@@ -153,10 +154,9 @@ impl ExternalReplyService {
             });
         };
 
-        let provider_key = msg
-            .external_adapter
-            .clone()
-            .ok_or_else(|| AdapterError::BadRequest("Message has no external_adapter".into()))?;
+        let provider_key = msg.external_adapter.clone().ok_or_else(|| {
+            SharedAdapterError::BadRequest("Message has no external_adapter".into())
+        })?;
         let binding = self
             .load_binding_for_message_and_adapter(
                 &msg.task_id,
@@ -165,10 +165,9 @@ impl ExternalReplyService {
             )
             .await?;
 
-        let providers = self
-            .adapters
-            .as_ref()
-            .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
+        let providers = self.adapters.as_ref().ok_or_else(|| {
+            SharedAdapterError::AdapterNotConfigured("No adapters configured".into())
+        })?;
         let adapter = providers.outbound_for_message_reply_by_name(&provider_key)?;
 
         // reason: delivery routing for an already read-authorized reply; public
@@ -181,7 +180,7 @@ impl ExternalReplyService {
             .find_by_id(&binding.connection_id, &sys_ctx)
             .await?
             .ok_or_else(|| {
-                AdapterError::ConfigNotFound(format!(
+                SharedAdapterError::ConfigNotFound(format!(
                     "Provider connection {} not found",
                     binding.connection_id
                 ))
@@ -194,10 +193,11 @@ impl ExternalReplyService {
 
         let files = self.outbound.resolve_files(file_ids).await;
         if !files.is_empty() && !adapter.supports_files() {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "Provider {:?} does not support file attachments",
                 adapter.adapter_kind()
-            )));
+            ))
+            .into());
         }
 
         let footer = self
@@ -275,16 +275,14 @@ impl ExternalReplyService {
             .messages
             .find_by_uuid(message_id)
             .await?
-            .ok_or_else(|| AdapterError::NotFound(format!("message {message_id}")))?;
+            .ok_or_else(|| SharedAdapterError::NotFound(format!("message {message_id}")))?;
         ensure_task_access_with(self.tasks.as_ref(), ctx, &msg.task_id).await?;
-        let ext_id = msg
-            .external_event_id
-            .clone()
-            .ok_or_else(|| AdapterError::BadRequest("Message has no external_event_id".into()))?;
-        let provider_key = msg
-            .external_adapter
-            .clone()
-            .ok_or_else(|| AdapterError::BadRequest("Message has no external_adapter".into()))?;
+        let ext_id = msg.external_event_id.clone().ok_or_else(|| {
+            SharedAdapterError::BadRequest("Message has no external_event_id".into())
+        })?;
+        let provider_key = msg.external_adapter.clone().ok_or_else(|| {
+            SharedAdapterError::BadRequest("Message has no external_adapter".into())
+        })?;
         let binding = self
             .load_binding_for_message_and_adapter(
                 &msg.task_id,
@@ -341,7 +339,8 @@ impl ExternalReplyService {
         select_binding_for_reply(&rows, &candidates, subject_key)
             .cloned()
             .ok_or_else(|| {
-                AdapterError::NotFound(format!("No {adapter_key} binding for task {task_id}"))
+                SharedAdapterError::NotFound(format!("No {adapter_key} binding for task {task_id}"))
+                    .into()
             })
     }
 }

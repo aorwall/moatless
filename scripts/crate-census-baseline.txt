@@ -14,9 +14,9 @@ adapter-github-pr      -> server               [CODE] backend/src/adapters/provi
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/routing.rs:17  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/shell_reconcile.rs:46  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/activity.rs:34  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/adapter.rs:21  crate::state::AppState
+adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/adapter.rs:20  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/api_routes.rs:34  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/auth.rs:26  crate::state::AppState
+adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/auth.rs:24  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/close.rs:24  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/comments.rs:20  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/delivery.rs:78  crate::state::AppState
@@ -29,10 +29,10 @@ adapter-linear         -> server               [CODE] backend/src/adapters/provi
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/text.rs:19  crate::state::AppState
 adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/delivery.rs:7  crate::state::AppState
 adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/handlers.rs:12  crate::state::AppState
-adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/ingress.rs:15  crate::state::AppState
+adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/ingress.rs:14  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/delivery.rs:7  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/handlers.rs:14  crate::state::AppState
-adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/ingress.rs:17  crate::state::AppState
+adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/ingress.rs:16  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/poller.rs:12  crate::state::AppState
 adapter-webhook        -> server               [CODE] backend/src/adapters/providers/webhook/delivery.rs:8  crate::state::AppState
 loops                  -> adapter-github-pr    [ATTR] backend/src/adapters/routes.rs:36  github_pr::handlers::github_webhook
@@ -96,7 +96,7 @@ loops                  -> adapter-webhook      [CODE] backend/src/adapters/route
 loops                  -> adapter-webhook      [CODE] backend/src/adapters/routes.rs:8  super::webhook
 loops                  -> adapter-webhook      [MACRO] backend/src/adapters/routes.rs:88  webhook::handlers::webhook_inbound
 loops                  -> server               [CODE] backend/src/adapters/capabilities.rs:8  crate::state::AppState
-loops                  -> server               [CODE] backend/src/adapters/common.rs:21  crate::state::AppState
+loops                  -> server               [CODE] backend/src/adapters/common.rs:22  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/delivery/typed.rs:16  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/handlers.rs:20  crate::state::AppState
 loops                  -> server               [CODE] backend/src/adapters/registry/bootstrap.rs:5  crate::compose::Ports

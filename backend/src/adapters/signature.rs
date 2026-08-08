@@ -8,7 +8,7 @@
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -16,20 +16,20 @@ type HmacSha256 = Hmac<Sha256>;
 ///
 /// `expected_hex` is the bare hex digest (no prefix). Comparison is constant-time
 /// via [`Mac::verify_slice`]; any decode or length mismatch is reported as
-/// [`AdapterError::SignatureInvalid`] so callers never leak which check failed.
+/// [`SharedAdapterError::SignatureInvalid`] so callers never leak which check failed.
 pub fn verify_hmac_sha256(
     secret: &str,
     payload: &[u8],
     expected_hex: &str,
 ) -> Result<(), AdapterError> {
-    let expected = hex::decode(expected_hex).map_err(|_| AdapterError::SignatureInvalid)?;
+    let expected = hex::decode(expected_hex).map_err(|_| SharedAdapterError::SignatureInvalid)?;
 
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .map_err(|_| AdapterError::Internal("Invalid signing secret".to_string()))?;
+        .map_err(|_| SharedAdapterError::Internal("Invalid signing secret".to_string()))?;
     mac.update(payload);
 
     mac.verify_slice(&expected)
-        .map_err(|_| AdapterError::SignatureInvalid)
+        .map_err(|_| SharedAdapterError::SignatureInvalid.into())
 }
 
 #[cfg(test)]

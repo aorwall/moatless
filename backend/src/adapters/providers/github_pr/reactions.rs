@@ -1,8 +1,8 @@
 //! Reaction capability for GitHub pull request comments.
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::BindingContext;
 use crate::adapters::AdapterReactions;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::models::BindingContext;
 
 use super::adapter::GithubPrAdapter;
 use super::external_id::{self, CommentTarget};
@@ -25,9 +25,9 @@ fn to_github_content(emoji: &str) -> Result<&'static str, AdapterError> {
         "rocket" => "rocket",
         "eyes" | "looking" => "eyes",
         other => {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "GitHub does not accept emoji `{other}` (allowed: +1, -1, laugh, confused, heart, hooray, rocket, eyes)"
-            )));
+            )).into());
         }
     };
     Ok(mapped)
@@ -42,7 +42,7 @@ impl AdapterReactions for GithubPrAdapter {
         emoji: &str,
     ) -> Result<Option<String>, AdapterError> {
         let target = external_id::comment_target_from_id(target_external_id).ok_or_else(|| {
-            AdapterError::BadRequest(format!(
+            SharedAdapterError::BadRequest(format!(
                 "GitHub reaction target `{target_external_id}` must be a github:ic:<id> or github:rc:<id> id"
             ))
         })?;
@@ -82,7 +82,7 @@ impl AdapterReactions for GithubPrAdapter {
         emoji: &str,
     ) -> Result<(), AdapterError> {
         let target = external_id::comment_target_from_id(target_external_id).ok_or_else(|| {
-            AdapterError::BadRequest(format!(
+            SharedAdapterError::BadRequest(format!(
                 "GitHub reaction target `{target_external_id}` must be a github:ic:<id> or github:rc:<id> id"
             ))
         })?;
@@ -117,7 +117,7 @@ impl AdapterReactions for GithubPrAdapter {
                         .is_some_and(|user| user.login == bot_login)
             })
             .ok_or_else(|| {
-                AdapterError::NotFound(format!(
+                SharedAdapterError::NotFound(format!(
                     "GitHub: no `{content}` reaction by `{bot_login}` to remove on comment {comment_id}"
                 ))
             })?;
@@ -148,11 +148,11 @@ mod tests {
 
     use axum::http::{Method, StatusCode};
 
-    use super::super::test_support::{start_github_api_stub, StubResponse};
+    use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
     use crate::adapters::models::BindingContext;
     use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use crate::auth::test_support::{StubProviderTokens, github_row};
 
     #[test]
     fn github_content_accepts_canonical_and_aliases() {
@@ -168,7 +168,10 @@ mod tests {
     #[test]
     fn github_content_rejects_unknown_names() {
         let err = to_github_content("celebration").unwrap_err();
-        assert!(matches!(err, AdapterError::BadRequest(_)));
+        assert!(matches!(
+            err,
+            AdapterError::Shared(SharedAdapterError::BadRequest(_))
+        ));
     }
 
     #[tokio::test]

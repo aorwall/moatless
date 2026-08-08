@@ -2,7 +2,7 @@
 //!
 //! Verifies `X-Webhook-Signature` header using `HMAC-SHA256(secret, body)`.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::signature::verify_hmac_sha256;
 
 /// Verify the webhook request signature.
@@ -16,7 +16,7 @@ pub fn verify_signature(
 ) -> Result<(), AdapterError> {
     let expected_hex = expected_signature
         .strip_prefix("sha256=")
-        .ok_or(AdapterError::SignatureInvalid)?;
+        .ok_or(SharedAdapterError::SignatureInvalid)?;
     verify_hmac_sha256(secret, body, expected_hex)
 }
 

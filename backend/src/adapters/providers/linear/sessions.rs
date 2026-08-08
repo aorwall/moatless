@@ -23,14 +23,14 @@
 
 use tracing::{info, warn};
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
-    AdapterConnection, SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN,
+    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding,
 };
 use crate::state::AppState;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
-use super::config::{rules_need_issue_fetch, select_spawn_rule, LinearRuleConfig};
+use super::config::{LinearRuleConfig, rules_need_issue_fetch, select_spawn_rule};
 use super::issues::{insert_event_task, transition_issue_state};
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
 use super::webhook_payloads::AgentSession;
@@ -43,8 +43,7 @@ const ADAPTER_LABEL: &str = "linear";
 /// so a created session that only ever got the ephemeral heartbeat stays
 /// `active` in the panel forever; a terminal `error` closes it and tells the
 /// user why nothing started.
-pub(super) const NO_ACTIVE_RULE_DECLINE: &str =
-    "No Moatless automation is configured for this Linear team, so I can't start a task for this issue.";
+pub(super) const NO_ACTIVE_RULE_DECLINE: &str = "No Moatless automation is configured for this Linear team, so I can't start a task for this issue.";
 
 /// Close a Linear agent session with a terminal `error` activity when no task
 /// will be provisioned behind it.
@@ -255,7 +254,7 @@ async fn provision_session_task(
     let issue = session
         .issue
         .as_ref()
-        .ok_or_else(|| AdapterError::BadRequest("AgentSession missing issue".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("AgentSession missing issue".into()))?;
 
     // Idempotency guard: if a binding already exists for this session id, this
     // is a second execution of work that already provisioned the task. Durable
@@ -332,7 +331,7 @@ async fn provision_session_task(
         // gate exists to surface the service's error event in Linear. Post the
         // reason onto the agent session directly so the user isn't left staring
         // at silence, then bail out — no binding, no prompt for a dead task.
-        Err(AdapterError::AccessDenied(msg)) => {
+        Err(AdapterError::Shared(SharedAdapterError::AccessDenied(msg))) => {
             if let Err(e) = api
                 .agent_activity_create(
                     &session.id,
@@ -344,7 +343,7 @@ async fn provision_session_task(
             {
                 warn!(session_id = %session.id, error = %e, "Failed to post Linear preflight error");
             }
-            return Err(AdapterError::AccessDenied(msg));
+            return Err(SharedAdapterError::AccessDenied(msg).into());
         }
         Err(e) => return Err(e),
     };

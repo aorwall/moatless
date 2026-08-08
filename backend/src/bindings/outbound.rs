@@ -9,7 +9,7 @@ use moatless_backend_core::scope::ScopeContext;
 use moatless_core::config::{AuthConfig, S3Config};
 
 use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::{AdapterKind, Adapters};
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::metrics::record_outbound;
@@ -41,17 +41,19 @@ pub async fn direct_send_to_rule(
         .loops
         .find_subscription_by_id(subscription_id)
         .await?
-        .ok_or_else(|| AdapterError::ConfigNotFound(subscription_id.to_string()))?;
+        .ok_or_else(|| SharedAdapterError::ConfigNotFound(subscription_id.to_string()))?;
 
     if !rule.allow_direct_send {
-        return Err(AdapterError::BadRequest(format!(
+        return Err(SharedAdapterError::BadRequest(format!(
             "Task trigger {subscription_id} does not allow direct send"
-        )));
+        ))
+        .into());
     }
     if !rule.active {
-        return Err(AdapterError::BadRequest(format!(
+        return Err(SharedAdapterError::BadRequest(format!(
             "Task trigger {subscription_id} is not active"
-        )));
+        ))
+        .into());
     }
 
     #[allow(clippy::disallowed_methods)] // reason: webhook routing path has no caller identity
@@ -60,7 +62,7 @@ pub async fn direct_send_to_rule(
         .adapter_connections
         .find_by_id(&rule.connection_id, &sys)
         .await?
-        .ok_or_else(|| AdapterError::ConfigNotFound(rule.connection_id.clone()))?;
+        .ok_or_else(|| SharedAdapterError::ConfigNotFound(rule.connection_id.clone()))?;
 
     let provider = providers.outbound_for_new_thread_by_name(&rule.adapter_kind)?;
     let adapter_label = provider.provider_key();
@@ -74,10 +76,11 @@ pub async fn direct_send_to_rule(
             &rule.id,
             &connection.id,
         );
-        return Err(AdapterError::BadRequest(format!(
+        return Err(SharedAdapterError::BadRequest(format!(
             "Provider {:?} does not support file attachments",
             provider.adapter_kind()
-        )));
+        ))
+        .into());
     }
 
     let reply = OutboundReply {
@@ -99,10 +102,11 @@ pub async fn direct_send_to_rule(
                 &rule.id,
                 &connection.id,
             );
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "Failed to send message via {}: {e}",
                 rule.adapter_kind
-            )));
+            ))
+            .into());
         }
     };
 
@@ -204,15 +208,15 @@ impl OutboundSender {
         file_ids: &[String],
     ) -> Result<(u32, Vec<String>), AdapterError> {
         let binding_repo = self.task_bindings.clone();
-        let binding = binding_repo
-            .find_by_id(binding_id)
-            .await?
-            .ok_or_else(|| AdapterError::ConfigNotFound(format!("No task binding {binding_id}")))?;
+        let binding = binding_repo.find_by_id(binding_id).await?.ok_or_else(|| {
+            SharedAdapterError::ConfigNotFound(format!("No task binding {binding_id}"))
+        })?;
 
         if binding.task_id != task_id {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "Binding {binding_id} does not belong to task {task_id}"
-            )));
+            ))
+            .into());
         }
 
         #[allow(clippy::disallowed_methods)]
@@ -223,7 +227,7 @@ impl OutboundSender {
             .find_by_id(&binding.connection_id, &sys)
             .await?
             .ok_or_else(|| {
-                AdapterError::ConfigNotFound(format!(
+                SharedAdapterError::ConfigNotFound(format!(
                     "Provider connection {} not found",
                     binding.connection_id
                 ))

@@ -1,8 +1,8 @@
 //! Emoji reactions on a Slack message.
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::BindingContext;
 use crate::adapters::AdapterReactions;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::models::BindingContext;
 
 use super::adapter::SlackAdapter;
 use super::subject;
@@ -16,7 +16,7 @@ use super::subject;
 fn normalize_emoji(emoji: &str) -> Result<&str, AdapterError> {
     let trimmed = emoji.trim().trim_matches(':');
     if trimmed.is_empty() {
-        return Err(AdapterError::BadRequest("Empty emoji name".into()));
+        return Err(SharedAdapterError::BadRequest("Empty emoji name".into()).into());
     }
     Ok(trimmed)
 }
@@ -51,9 +51,9 @@ impl AdapterReactions for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
+    use crate::adapters::AdapterReactions;
     use crate::adapters::models::BindingContext;
     use crate::adapters::test_support::ProviderStub;
-    use crate::adapters::AdapterReactions;
 
     use super::super::adapter::SlackAdapter;
     use super::super::api::SlackApi;

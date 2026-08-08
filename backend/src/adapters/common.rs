@@ -8,17 +8,19 @@ use moatless_api_schemas::loops::{
 };
 use serde::Deserialize;
 
-use moatless_backend_core::access_control::{ensure_can_use_repository, resolve_scope_for_create, ResolvedScope};
 use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, TaskBinding};
+use moatless_backend_core::access_control::{
+    ResolvedScope, ensure_can_use_repository, resolve_scope_for_create,
+};
 // `parse_adapter_kind` now lives in `moatless-adapter-model`; re-exported so the
 // handler-support callers here and in `loops`/`task` keep their path unchanged.
 pub(crate) use crate::adapters::models::parse_adapter_kind;
 use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};
 use crate::repository::dao::RepositoryDao;
-use crate::task::dao::TaskDao;
 use crate::state::AppState;
+use crate::task::dao::TaskDao;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
 #[derive(Debug, Deserialize)]
@@ -147,11 +149,10 @@ pub(crate) fn next_fire_at(
 ) -> Result<chrono::DateTime<chrono::Utc>, AdapterError> {
     let schedule: CronSchedule = schedule_expr
         .parse()
-        .map_err(|e| AdapterError::BadRequest(format!("Invalid cron expression: {e}")))?;
-    schedule
-        .after(&chrono::Utc::now())
-        .next()
-        .ok_or_else(|| AdapterError::BadRequest("Schedule has no future fire time".to_string()))
+        .map_err(|e| SharedAdapterError::BadRequest(format!("Invalid cron expression: {e}")))?;
+    schedule.after(&chrono::Utc::now()).next().ok_or_else(|| {
+        SharedAdapterError::BadRequest("Schedule has no future fire time".to_string()).into()
+    })
 }
 
 /// Verify a repository exists and the caller may use it, through the one port
@@ -165,7 +166,9 @@ pub(crate) async fn ensure_repository_exists(
     let repo = repositories
         .find_by_id(repository_id, ctx)
         .await?
-        .ok_or_else(|| AdapterError::BadRequest(format!("Repository {repository_id} not found")))?;
+        .ok_or_else(|| {
+            SharedAdapterError::BadRequest(format!("Repository {repository_id} not found"))
+        })?;
     ensure_can_use_repository(
         ctx,
         &ScopedResource::borrowed(
@@ -208,7 +211,9 @@ pub(crate) async fn load_adapter_connection_for_auth_with(
     adapter_connections
         .find_by_id(id, ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Provider connection {id} not found")))
+        .ok_or_else(|| {
+            SharedAdapterError::NotFound(format!("Provider connection {id} not found")).into()
+        })
 }
 
 /// Load and authorize a loop through the one port it needs — the `loops` DAO.
@@ -225,7 +230,7 @@ pub(crate) async fn load_loop_for_auth_with(
     loops
         .get(id, ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")).into())
 }
 
 /// Load and authorize a task for the calling user.
@@ -249,7 +254,7 @@ pub(crate) async fn ensure_task_access_with(
     tasks
         .find_by_id(task_id, ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Task {task_id} not found")))
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Task {task_id} not found")).into())
 }
 
 /// Resolve an adapter connection for the caller.
@@ -268,11 +273,12 @@ pub(crate) async fn resolve_connection(
     if let Some(id) = connection_id {
         let conn = load_adapter_connection_for_auth(state, ctx, id).await?;
         if conn.adapter_kind != kind.as_str() {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "Connection {id} is for adapter {}, not {}",
                 conn.adapter_kind,
                 kind.as_str()
-            )));
+            ))
+            .into());
         }
         return Ok(conn);
     }
@@ -282,22 +288,22 @@ pub(crate) async fn resolve_connection(
         .await?;
     let mut iter = rows.into_iter();
     match (iter.next(), iter.next()) {
-        (None, _) => Err(AdapterError::BadRequest(format!(
+        (None, _) => Err(SharedAdapterError::BadRequest(format!(
             "No {} connection configured. Create one with `moat adapters connections create --adapter {} ...` first.",
             kind.as_str(),
             kind.as_str()
-        ))),
+        )).into()),
         (Some(only), None) => Ok(only),
         (Some(first), Some(second)) => {
             let mut ids: Vec<String> = vec![first.id, second.id];
             for row in iter {
                 ids.push(row.id);
             }
-            Err(AdapterError::BadRequest(format!(
+            Err(SharedAdapterError::BadRequest(format!(
                 "Multiple {} connections accessible: [{}]. Pass --connection <id> to choose.",
                 kind.as_str(),
                 ids.join(", ")
-            )))
+            )).into())
         }
     }
 }

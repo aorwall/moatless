@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use crate::adapters::common::ensure_task_access;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::footer::FOOTER_MARKER;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
@@ -141,7 +141,7 @@ impl CreatedPr {
     fn from_created(pr: &Value, requested_title: &str) -> Result<Self, AdapterError> {
         Ok(Self {
             number: pr.get("number").and_then(Value::as_u64).ok_or_else(|| {
-                AdapterError::AdapterApi("GitHub create_pr: missing number".into())
+                SharedAdapterError::AdapterApi("GitHub create_pr: missing number".into())
             })?,
             html_url: pr
                 .get("html_url")
@@ -392,7 +392,7 @@ async fn resolve_github_api(
         source,
     })?
     .ok_or_else(|| {
-        AdapterError::AdapterApi(format!(
+        SharedAdapterError::AdapterApi(format!(
             "User {user_id} has no GitHub credential — connect GitHub to act on {owner}/{repo_name}"
         ))
     })?;
@@ -594,7 +594,7 @@ async fn bind_task_to_pr(
         state.task_bindings.clone(),
     )
     .connect_github_binding(&source_id, task_id, thread_properties, Some(user_id))
-        .await
+    .await
     {
         Ok((rule, binding)) => {
             info!(

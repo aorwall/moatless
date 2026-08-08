@@ -6,7 +6,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::warn;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 
 /// Maximum comment length for GitHub's API (64 KB).
 pub(super) const MAX_COMMENT_LENGTH: usize = 65_536;
@@ -171,21 +171,22 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "body": body }))
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub post_comment", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub post_comment", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub post_comment error");
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub post_comment returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         let data: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("GitHub post_comment", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub post_comment", e))?;
 
         let comment_id = data
             .get("id")
@@ -220,20 +221,21 @@ impl GithubPrApi {
             }))
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub create_pr", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub create_pr", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub create_pr error");
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub create_pr returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
-        resp.json()
-            .await
-            .map_err(|e| AdapterError::provider_response_invalid("GitHub create_pr", e))
+        resp.json().await.map_err(|e| {
+            SharedAdapterError::provider_response_invalid("GitHub create_pr", e).into()
+        })
     }
 
     /// Fetch a repository's default branch name.
@@ -248,25 +250,27 @@ impl GithubPrApi {
             .request(reqwest::Method::GET, &url)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub get_repo", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub get_repo", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub get_repo returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         let data: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("GitHub get_repo", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub get_repo", e))?;
         data.get("default_branch")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| {
-                AdapterError::AdapterApi("GitHub get_repo: missing default_branch".into())
+                SharedAdapterError::AdapterApi("GitHub get_repo: missing default_branch".into())
+                    .into()
             })
     }
 
@@ -288,19 +292,22 @@ impl GithubPrApi {
             .request(reqwest::Method::GET, &url)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub get_pulls_for_commit", e))?;
+            .map_err(|e| {
+                SharedAdapterError::provider_unreachable("GitHub get_pulls_for_commit", e)
+            })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub get_pulls_for_commit returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
-        resp.json::<Vec<CommitPr>>()
-            .await
-            .map_err(|e| AdapterError::provider_response_invalid("GitHub get_pulls_for_commit", e))
+        resp.json::<Vec<CommitPr>>().await.map_err(|e| {
+            SharedAdapterError::provider_response_invalid("GitHub get_pulls_for_commit", e).into()
+        })
     }
 
     /// The open pull request whose head branch is `head`, if any.
@@ -329,18 +336,21 @@ impl GithubPrApi {
             ])
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub find_open_pr_for_head", e))?;
+            .map_err(|e| {
+                SharedAdapterError::provider_unreachable("GitHub find_open_pr_for_head", e)
+            })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub find_open_pr_for_head returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         let prs: Vec<PrInfo> = resp.json().await.map_err(|e| {
-            AdapterError::provider_response_invalid("GitHub find_open_pr_for_head", e)
+            SharedAdapterError::provider_response_invalid("GitHub find_open_pr_for_head", e)
         })?;
         Ok(prs.into_iter().next())
     }
@@ -373,25 +383,29 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "body": body }))
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub reply_to_review_comment", e))?;
+            .map_err(|e| {
+                SharedAdapterError::provider_unreachable("GitHub reply_to_review_comment", e)
+            })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub reply_to_review_comment error");
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub reply_to_review_comment returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         let data: serde_json::Value = resp.json().await.map_err(|e| {
-            AdapterError::provider_response_invalid("GitHub reply_to_review_comment", e)
+            SharedAdapterError::provider_response_invalid("GitHub reply_to_review_comment", e)
         })?;
 
         data.get("id")
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| {
-                AdapterError::AdapterApi("GitHub reply_to_review_comment: missing id".into())
+                SharedAdapterError::AdapterApi("GitHub reply_to_review_comment: missing id".into())
+                    .into()
             })
     }
 
@@ -408,19 +422,20 @@ impl GithubPrApi {
             .request(reqwest::Method::GET, &url)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub get_pr", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub get_pr", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub get_pr returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         resp.json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("GitHub get_pr", e))
+            .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub get_pr", e).into())
     }
 
     /// Fetch PR metadata, polling until GitHub has computed the mergeable
@@ -500,26 +515,28 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "content": content }))
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub create_reaction", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub create_reaction", e))?;
 
         let status = resp.status();
         // GitHub returns 200 (existing) or 201 (created); both contain the reaction body.
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub create_reaction error");
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub create_reaction returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
-        let data: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| AdapterError::provider_response_invalid("GitHub create_reaction", e))?;
+        let data: serde_json::Value = resp.json().await.map_err(|e| {
+            SharedAdapterError::provider_response_invalid("GitHub create_reaction", e)
+        })?;
         let reaction_id = data
             .get("id")
             .and_then(serde_json::Value::as_u64)
-            .ok_or_else(|| AdapterError::AdapterApi("GitHub create_reaction: missing id".into()))?;
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi("GitHub create_reaction: missing id".into())
+            })?;
         Ok(reaction_id)
     }
 
@@ -557,19 +574,20 @@ impl GithubPrApi {
             .query(&[("per_page", "100")])
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub list_reactions", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub list_reactions", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub list_reactions returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
-        resp.json()
-            .await
-            .map_err(|e| AdapterError::provider_response_invalid("GitHub list_reactions", e))
+        resp.json().await.map_err(|e| {
+            SharedAdapterError::provider_response_invalid("GitHub list_reactions", e).into()
+        })
     }
 
     /// Delete a reaction from an issue comment by reaction id.
@@ -607,13 +625,14 @@ impl GithubPrApi {
             .request(reqwest::Method::DELETE, url)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub delete_reaction", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub delete_reaction", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub delete_reaction returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
         Ok(())
     }
@@ -625,22 +644,25 @@ impl GithubPrApi {
             .request(reqwest::Method::GET, &format!("{}/user", self.base_url))
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub user", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub user", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub user returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
         let data: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("GitHub user", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub user", e))?;
         data.get("login")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| AdapterError::AdapterApi("GitHub user: missing login".into()))
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi("GitHub user: missing login".into()).into()
+            })
     }
 
     /// Update a PR's body.
@@ -658,15 +680,16 @@ impl GithubPrApi {
             .json(&serde_json::json!({ "body": body }))
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("GitHub update_pr_body", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub update_pr_body", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub update_pr_body error");
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "GitHub update_pr_body returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         Ok(())
@@ -691,10 +714,10 @@ mod error_source_tests {
             .await
             .expect_err("dead loopback port must fail");
 
-        let AdapterError::ProviderUnreachable {
+        let AdapterError::Shared(SharedAdapterError::ProviderUnreachable {
             ref operation,
             ref source,
-        } = err
+        }) = err
         else {
             panic!("expected ProviderUnreachable, got {err:?}");
         };
@@ -713,7 +736,10 @@ mod error_source_tests {
             .await
             .expect_err("html body must not decode");
 
-        let AdapterError::ProviderResponseInvalid { ref operation, .. } = err else {
+        let AdapterError::Shared(SharedAdapterError::ProviderResponseInvalid {
+            ref operation, ..
+        }) = err
+        else {
             panic!("expected ProviderResponseInvalid, got {err:?}");
         };
         assert_eq!(operation, "GitHub post_comment");
@@ -731,7 +757,10 @@ mod error_source_tests {
             .await
             .expect_err("403 must be an error");
 
-        assert!(matches!(err, AdapterError::AdapterApi(_)), "got {err:?}");
+        assert!(
+            matches!(err, AdapterError::Shared(SharedAdapterError::AdapterApi(_))),
+            "got {err:?}"
+        );
         assert!(err.source().is_none());
     }
 }

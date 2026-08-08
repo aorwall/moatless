@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
 use crate::adapters::delivery::AdapterDeliveryRequest;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch};
 use crate::state::AppState;
@@ -65,21 +65,20 @@ pub(crate) async fn receive(
     } = request;
 
     if event_type.is_empty() {
-        return Err(ingress(AdapterError::BadRequest(
-            "Missing X-GitHub-Event header".into(),
-        )));
+        return Err(ingress(
+            SharedAdapterError::BadRequest("Missing X-GitHub-Event header".into()).into(),
+        ));
     }
 
-    let payload: serde_json::Value = serde_json::from_slice(body)
-        .map_err(|e| ingress(AdapterError::BadRequest(format!("Invalid JSON: {e}"))))?;
+    let payload: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
+        ingress(SharedAdapterError::BadRequest(format!("Invalid JSON: {e}")).into())
+    })?;
 
     let repo_full_name = payload
         .pointer("/repository/full_name")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| {
-            ingress(AdapterError::BadRequest(
-                "Missing repository.full_name".into(),
-            ))
+            ingress(SharedAdapterError::BadRequest("Missing repository.full_name".into()).into())
         })?;
 
     debug!(
@@ -94,9 +93,7 @@ pub(crate) async fn receive(
         .and_then(serde_json::Value::as_str)
         .or_else(|| repo_full_name.split('/').next())
         .ok_or_else(|| {
-            ingress(AdapterError::BadRequest(
-                "Missing repository.owner.login".into(),
-            ))
+            ingress(SharedAdapterError::BadRequest("Missing repository.owner.login".into()).into())
         })?;
 
     let resolved = resolve_provider_event(state, owner_login, repo_full_name)
@@ -135,9 +132,12 @@ pub(crate) async fn receive(
             repo = repo_full_name,
             "GitHub webhook has signature but no secret configured on connection, refusing"
         );
-        return Err(ingress(AdapterError::BadRequest(
-            "Webhook signature provided but no secret configured for connection".into(),
-        )));
+        return Err(ingress(
+            SharedAdapterError::BadRequest(
+                "Webhook signature provided but no secret configured for connection".into(),
+            )
+            .into(),
+        ));
     }
 
     // No delivery-level gate here on purpose. A GitHub redelivery reuses the
@@ -188,9 +188,7 @@ pub(crate) async fn receive(
     }
 
     let (owner, repo) = repo_full_name.split_once('/').ok_or_else(|| {
-        ingress(AdapterError::BadRequest(
-            "Missing repository.full_name".into(),
-        ))
+        ingress(SharedAdapterError::BadRequest("Missing repository.full_name".into()).into())
     })?;
     let normalized = super::webhook::normalize(
         event_type,

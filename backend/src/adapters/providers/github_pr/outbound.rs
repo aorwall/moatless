@@ -1,6 +1,6 @@
 //! Outbound reply capabilities for GitHub pull requests.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
     AdapterConnection, BindingContext, LoopContext, OutboundReply, SubscriptionMatch, TaskBinding,
 };
@@ -20,11 +20,12 @@ impl AdapterBindingReply for GithubPrAdapter {
         _config: &LoopContext,
         _message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        Err(AdapterError::BadRequest(
+        Err(SharedAdapterError::BadRequest(
             "GitHub provider uses binding-based outbound; \
              call send_reply_for_binding"
                 .into(),
-        ))
+        )
+        .into())
     }
 
     async fn send_reply_for_binding(
@@ -116,12 +117,12 @@ mod tests {
 
     use axum::http::{Method, StatusCode};
 
-    use super::super::test_support::{start_github_api_stub, StubResponse};
+    use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
     use crate::adapters::models::{AdapterConnection, OutboundReply, TaskBinding};
     use crate::adapters::{AdapterBindingReply, AdapterMessageReply};
     use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use crate::auth::test_support::{StubProviderTokens, github_row};
 
     #[tokio::test]
     async fn outbound_capabilities_keep_exact_github_request_budgets() {

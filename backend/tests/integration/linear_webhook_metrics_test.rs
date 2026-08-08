@@ -38,12 +38,12 @@ use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use sha2::Sha256;
 use sqlx::PgPool;
 
-use moatless_vibe_backend::adapters::error::AdapterError;
+use moatless_vibe_backend::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
 use moatless_vibe_backend::state::AppState;
 
-use common::{linear_config, test_app_state_with_linear, test_config, USER_1};
+use common::{USER_1, linear_config, test_app_state_with_linear, test_config};
 
 const SECRET: &str = "linear-webhook-secret";
 const ORG: &str = "org-1";
@@ -521,7 +521,7 @@ async fn a_delivery_with_no_identity_is_error_unidentifiable_and_a_400(pool: PgP
     let (result, rows) = captured(deliver(&state, &issue_envelope(false), true)).await;
 
     assert!(
-        matches!(result, Err(AdapterError::BadRequest(ref message))
+        matches!(result, Err(AdapterError::Shared(SharedAdapterError::BadRequest(ref message)))
             if message.contains("webhookTimestamp")),
         "the refusal names the missing field, got {result:?}"
     );

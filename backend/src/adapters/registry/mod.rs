@@ -8,7 +8,7 @@ use crate::adapters::capabilities::{
     AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation,
     AdapterMessageReply, AdapterNewThread, AdapterPostBindingFollowup, AdapterReactions,
 };
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 
 use moatless_api_schemas::enums::AdapterKind;
 
@@ -221,7 +221,7 @@ impl Adapters {
     ) -> Result<&dyn AdapterBindingReply, AdapterError> {
         let adapter_kind = self
             .adapter_kind_for_name(name)
-            .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
+            .ok_or_else(|| SharedAdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
         self.binding_replies
             .get(&adapter_kind)
             .map(Arc::as_ref)
@@ -234,7 +234,7 @@ impl Adapters {
     ) -> Result<&dyn AdapterMessageReply, AdapterError> {
         let adapter_kind = self
             .adapter_kind_for_name(name)
-            .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
+            .ok_or_else(|| SharedAdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
         self.message_replies
             .get(&adapter_kind)
             .map(Arc::as_ref)
@@ -247,7 +247,7 @@ impl Adapters {
     ) -> Result<&dyn AdapterNewThread, AdapterError> {
         let adapter_kind = self
             .adapter_kind_for_name(name)
-            .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
+            .ok_or_else(|| SharedAdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
         self.new_threads
             .get(&adapter_kind)
             .map(Arc::as_ref)
@@ -299,7 +299,7 @@ impl Adapters {
     ) -> Result<&dyn AdapterReactions, AdapterError> {
         let adapter_kind = self
             .adapter_kind_for_name(name)
-            .ok_or_else(|| AdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
+            .ok_or_else(|| SharedAdapterError::BadRequest(format!("Unknown adapter `{name}`")))?;
         self.reactions(adapter_kind)
     }
 
@@ -382,10 +382,11 @@ impl Adapters {
 }
 
 fn unsupported_destination_builder(adapter_kind: AdapterKind) -> AdapterError {
-    AdapterError::BadRequest(format!(
+    SharedAdapterError::BadRequest(format!(
         "{} provider does not support task bindings",
         adapter_kind.as_str()
     ))
+    .into()
 }
 
 #[derive(Copy, Clone)]
@@ -400,29 +401,34 @@ enum OutboundOperation {
 fn unsupported_outbound(adapter_kind: AdapterKind, operation: OutboundOperation) -> AdapterError {
     match operation {
         OutboundOperation::BindingReply | OutboundOperation::MessageReply => {
-            AdapterError::BadRequest(format!(
+            SharedAdapterError::BadRequest(format!(
                 "{} provider does not support outbound replies",
                 adapter_kind.as_str()
             ))
+            .into()
         }
-        OutboundOperation::DirectDestination => AdapterError::BadRequest(format!(
+        OutboundOperation::DirectDestination => SharedAdapterError::BadRequest(format!(
             "{adapter_kind:?} provider does not support direct destination sends"
-        )),
-        OutboundOperation::DirectMessage => AdapterError::BadRequest(format!(
+        ))
+        .into(),
+        OutboundOperation::DirectMessage => SharedAdapterError::BadRequest(format!(
             "User DM is not supported for adapter {}",
             adapter_kind.as_str()
-        )),
+        ))
+        .into(),
         OutboundOperation::NewThread => {
-            AdapterError::Internal(format!("{adapter_kind:?} does not support send_message"))
+            SharedAdapterError::Internal(format!("{adapter_kind:?} does not support send_message"))
+                .into()
         }
     }
 }
 
 fn unsupported_reactions(adapter_kind: AdapterKind) -> AdapterError {
-    AdapterError::BadRequest(format!(
+    SharedAdapterError::BadRequest(format!(
         "Provider {} does not support reactions",
         adapter_kind.as_str()
     ))
+    .into()
 }
 
 #[cfg_attr(
@@ -433,10 +439,11 @@ fn unsupported_reactions(adapter_kind: AdapterKind) -> AdapterError {
     )
 )]
 fn unsupported_inbound_presentation(adapter_kind: AdapterKind) -> AdapterError {
-    AdapterError::BadRequest(format!(
+    SharedAdapterError::BadRequest(format!(
         "{} Adapter does not support inbound presentation",
         adapter_kind.as_str()
     ))
+    .into()
 }
 
 #[cfg(test)]

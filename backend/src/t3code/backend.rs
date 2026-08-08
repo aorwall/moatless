@@ -210,12 +210,14 @@ impl AppStateBoundPullRequests {
 /// a missing credential or a host that refused is surfaced verbatim; anything
 /// else is this deployment's own failure, logged rather than sent.
 fn pull_request_error(error: crate::adapters::error::AdapterError) -> PullRequestError {
-    use crate::adapters::error::AdapterError;
+    use crate::adapters::error::{AdapterError, SharedAdapterError};
     match error {
         AdapterError::UserCredential { .. } => PullRequestError::Unavailable(
             "Connect a GitHub account to resolve pull requests.".to_string(),
         ),
-        AdapterError::AdapterApi(message) => PullRequestError::Unavailable(message),
+        AdapterError::Shared(SharedAdapterError::AdapterApi(message)) => {
+            PullRequestError::Unavailable(message)
+        }
         other => PullRequestError::Failed(other.to_string()),
     }
 }
@@ -900,7 +902,7 @@ mod tests {
     /// this deployment's own bug.
     #[test]
     fn the_two_recognised_adapter_errors_stay_actionable() {
-        use crate::adapters::error::AdapterError;
+        use crate::adapters::error::{AdapterError, SharedAdapterError};
 
         let missing_credential = pull_request_error(AdapterError::UserCredential {
             user_id: "u-1".into(),
@@ -912,7 +914,8 @@ mod tests {
                 if message == "Connect a GitHub account to resolve pull requests."
         ));
 
-        let provider_said_no = pull_request_error(AdapterError::AdapterApi("PR is locked".into()));
+        let provider_said_no =
+            pull_request_error(SharedAdapterError::AdapterApi("PR is locked".into()).into());
         assert!(matches!(
             provider_said_no,
             PullRequestError::Unavailable(message) if message == "PR is locked"

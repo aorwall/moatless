@@ -9,7 +9,7 @@ use tracing::{debug, info, warn};
 use crate::adapters::Adapters;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryFailure;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
@@ -172,7 +172,7 @@ impl RoutingService {
                 &subscription.id,
                 &connection.id,
             );
-            return Err(AdapterError::ConfigNotFound(subscription.id.clone()));
+            return Err(SharedAdapterError::ConfigNotFound(subscription.id.clone()).into());
         }
 
         let binding_repo = self.task_bindings.clone();
@@ -518,7 +518,7 @@ impl RoutingService {
         // The word stays what it has always been for this case — the caller decides
         // whether a subject with nothing on it is a failure of its own.
         if passed_over.is_empty() {
-            return Err(AdapterError::ConfigNotFound(subscription.id.clone()));
+            return Err(SharedAdapterError::ConfigNotFound(subscription.id.clone()).into());
         }
 
         // Something *was* expected and no task got it. This used to be a `debug!`
@@ -548,10 +548,11 @@ impl RoutingService {
         // same bindings is passed over the same way, so retrying only burns the
         // budget. The record lands in `failed` carrying this message, which is the
         // point — the event is not lost quietly.
-        Err(AdapterError::NotFound(format!(
+        Err(SharedAdapterError::NotFound(format!(
             "no task binding on {subject_key} could receive this {adapter_label} event \
              ({active_bindings} passed over: {reasons})"
-        )))
+        ))
+        .into())
     }
 
     /// The task that authored the parent event an [`Audience::ParentAuthor`] names,

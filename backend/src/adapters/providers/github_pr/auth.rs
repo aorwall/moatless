@@ -4,15 +4,15 @@ use std::sync::Arc;
 
 use tracing::debug;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{BindingContext, SubscriptionMatch, TaskBinding};
 use crate::auth::credentials::resolve_user_github_token;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
-use moatless_core::db::DbPool;
 use crate::secret::service::SecretService;
+use moatless_core::db::DbPool;
 
 use super::api::GithubPrApi;
 
@@ -105,7 +105,7 @@ impl GithubPrAuth {
         repository_owner: &str,
     ) -> Result<GithubPrApi, AdapterError> {
         let user_id = outbound_user_id(author_user_id, binding, rule).ok_or_else(|| {
-            AdapterError::AdapterApi(
+            SharedAdapterError::AdapterApi(
                 "Cannot resolve GitHub token: no task owner, binding filter_user_id, \
                  or task trigger attached"
                     .into(),
@@ -136,11 +136,12 @@ impl GithubPrAuth {
         }
 
         self.global_token().map(str::to_string).ok_or_else(|| {
-            AdapterError::AdapterApi(
+            SharedAdapterError::AdapterApi(
                 "No GitHub token available for reactions: binding has no filter_user_id and \
                  GITHUB_CHANNEL_TOKEN env is not set"
                     .into(),
             )
+            .into()
         })
     }
 
@@ -193,9 +194,9 @@ impl GithubPrAuth {
             return Ok(token.to_string());
         }
 
-        Err(AdapterError::AdapterApi(format!(
+        Err(SharedAdapterError::AdapterApi(format!(
             "No GitHub token available: user {user_id} has no GitHub provider token and GITHUB_CHANNEL_TOKEN env is not set"
-        )))
+        )).into())
     }
 
     fn global_token(&self) -> Option<&str> {
@@ -265,7 +266,7 @@ fn binding_filter_user_id<'a>(
 mod tests {
     use super::*;
     use crate::auth::provider_token_dao::ProviderTokenDao;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use crate::auth::test_support::{StubProviderTokens, github_row};
 
     fn fake_github_apps() -> Arc<GitHubAppRegistry> {
         Arc::new(GitHubAppRegistry::default())
@@ -403,10 +404,12 @@ mod tests {
         );
 
         let empty_global = auth_with_tokens(Some(""), Arc::new(StubProviderTokens::default()));
-        assert!(empty_global
-            .reaction_token(&no_filter, "soaplabs")
-            .await
-            .is_err());
+        assert!(
+            empty_global
+                .reaction_token(&no_filter, "soaplabs")
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -423,10 +426,12 @@ mod tests {
         );
 
         let empty_global = auth_with_tokens(Some(""), Arc::new(StubProviderTokens::default()));
-        assert!(empty_global
-            .resolve_token_for_user("unmapped-user", Some("soaplabs"))
-            .await
-            .is_err());
+        assert!(
+            empty_global
+                .resolve_token_for_user("unmapped-user", Some("soaplabs"))
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

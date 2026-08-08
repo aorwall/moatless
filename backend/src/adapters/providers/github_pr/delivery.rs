@@ -67,10 +67,10 @@ use moatless_backend_core::scope::ScopeContext;
 use tracing::info;
 
 use crate::adapters::delivery::{
-    register_typed_delivery, AdapterDeliveryFailure, AdapterDeliveryHandlers,
-    AdapterDeliveryRequest,
+    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
+    register_typed_delivery,
 };
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
 use crate::state::AppState;
 
@@ -158,7 +158,7 @@ impl DeliveryContext {
             .adapter_connections
             .find_by_id(&self.connection_id, &sys_ctx)
             .await
-            .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?
+            .map_err(|e| AdapterDeliveryFailure::retryable(SharedAdapterError::Db(e)))?
             .ok_or_else(|| {
                 // The tenant's connection was deleted after the webhook was
                 // accepted. No retry can bring it back.
@@ -172,7 +172,7 @@ impl DeliveryContext {
                 .loops
                 .find_runnable_subscription_by_id(id)
                 .await
-                .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?,
+                .map_err(|e| AdapterDeliveryFailure::retryable(SharedAdapterError::Db(e)))?,
             None => None,
         };
         Ok((connection, trigger))
@@ -248,7 +248,7 @@ pub(super) fn request(
     payload: &impl serde::Serialize,
 ) -> Result<AdapterDeliveryRequest, AdapterError> {
     let payload = serde_json::to_value(payload).map_err(|e| {
-        AdapterError::Internal(format!("failed to serialize {kind} work payload: {e}"))
+        SharedAdapterError::Internal(format!("failed to serialize {kind} work payload: {e}"))
     })?;
     Ok(AdapterDeliveryRequest {
         adapter: ADAPTER,
@@ -330,8 +330,8 @@ pub(super) fn log_admission(
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::Audience;
 
     use super::*;
 

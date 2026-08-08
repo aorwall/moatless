@@ -279,16 +279,16 @@ mod tests {
     #[test]
     fn only_a_fixable_failure_holds_the_offset_back() {
         use crate::adapters::delivery::AdmitError;
-        use crate::adapters::error::AdapterError;
+        use crate::adapters::error::SharedAdapterError;
 
         assert!(is_worth_redelivering(&IngressError::NotAdmitted(
             AdmitError::AtCapacity { limit: 100 }
         )));
         assert!(is_worth_redelivering(&IngressError::Ingress(
-            AdapterError::Db(sqlx::Error::PoolTimedOut)
+            SharedAdapterError::Db(sqlx::Error::PoolTimedOut).into()
         )));
         assert!(is_worth_redelivering(&IngressError::Ingress(
-            AdapterError::Internal("sandbox refused".into())
+            SharedAdapterError::Internal("sandbox refused".into()).into()
         )));
         assert!(!is_worth_redelivering(&IngressError::Unidentifiable(
             "Missing update_id".into()

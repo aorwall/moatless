@@ -1,5 +1,5 @@
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use chrono::Utc;
 use moatless_api_schemas::adapters::{
     AdapterConnectionResponse, AdapterSendRequest, AdapterSendResponse,
@@ -8,14 +8,14 @@ use moatless_api_schemas::adapters::{
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
 use super::common::{
-    adapter_connection_response, ensure_task_access, resolve_connection,
-    resolve_scope_for_adapter_create, AdapterFilter,
+    AdapterFilter, adapter_connection_response, ensure_task_access, resolve_connection,
+    resolve_scope_for_adapter_create,
 };
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, OutboundReply};
 use crate::adapters::AdapterKind;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::models::{AdapterConnection, OutboundReply};
 use crate::bindings::outbound::{resolve_files, truncate_text};
-use crate::bindings::runtime::{upsert_binding, ORIGIN_CONNECTED_THREAD};
+use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -80,9 +80,9 @@ pub async fn create_adapter_connection(
     Json(req): Json<CreateAdapterConnectionRequest>,
 ) -> Result<Json<AdapterConnectionResponse>, AdapterError> {
     if req.external_account_id.trim().is_empty() {
-        return Err(AdapterError::BadRequest(
-            "external_account_id is required".into(),
-        ));
+        return Err(
+            SharedAdapterError::BadRequest("external_account_id is required".into()).into(),
+        );
     }
 
     let ctx = auth.scope_context();
@@ -130,9 +130,9 @@ pub async fn delete_adapter_connection(
     // cannot control deletes nothing and reads back as not found — the same
     // answer they would get for one that never existed.
     if state.adapter_connections.delete(&id, &ctx).await? == 0 {
-        return Err(AdapterError::NotFound(format!(
-            "Adapter connection not found: {id}"
-        )));
+        return Err(
+            SharedAdapterError::NotFound(format!("Adapter connection not found: {id}")).into(),
+        );
     }
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -162,18 +162,18 @@ pub async fn adapter_send(
     let connection =
         resolve_connection(&state, &ctx, req.adapter, req.connection_id.as_deref()).await?;
 
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("adapters not configured".into()))?;
+    let providers = state.adapters.as_ref().ok_or_else(|| {
+        SharedAdapterError::AdapterNotConfigured("adapters not configured".into())
+    })?;
     let provider = providers.outbound_for_direct_destination(req.adapter)?;
 
     let files = resolve_files(&state, &req.file_ids).await;
     if !files.is_empty() && !provider.supports_files() {
-        return Err(AdapterError::BadRequest(format!(
+        return Err(SharedAdapterError::BadRequest(format!(
             "{} adapter does not support file attachments",
             req.adapter.as_str()
-        )));
+        ))
+        .into());
     }
 
     let reply = OutboundReply {
@@ -248,29 +248,28 @@ pub async fn send_user_dm(
         .users
         .get_user_by_login(&login)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("User {login} not found")))?;
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("User {login} not found")))?;
 
     let provider_user_id = state
         .users
         .get_provider_id(&target.id, &req.provider)
         .await?
         .ok_or_else(|| {
-            AdapterError::NotFound(format!(
+            SharedAdapterError::NotFound(format!(
                 "User {login} has no {} provider id configured",
                 req.provider
             ))
         })?;
 
     let kind = AdapterKind::parse(&req.provider).ok_or_else(|| {
-        AdapterError::BadRequest(format!("Unknown adapter provider: {}", req.provider))
+        SharedAdapterError::BadRequest(format!("Unknown adapter provider: {}", req.provider))
     })?;
 
     let connection = resolve_connection(&state, &ctx, kind, None).await?;
 
-    let providers = state
-        .adapters
-        .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("adapters not configured".into()))?;
+    let providers = state.adapters.as_ref().ok_or_else(|| {
+        SharedAdapterError::AdapterNotConfigured("adapters not configured".into())
+    })?;
     let dm_provider = providers.outbound_for_direct_message(kind)?;
     let send_provider = providers.outbound_for_direct_destination(kind)?;
 
@@ -278,7 +277,7 @@ pub async fn send_user_dm(
         .dm_destination(&provider_user_id)
         .await?
         .ok_or_else(|| {
-            AdapterError::BadRequest(format!(
+            SharedAdapterError::BadRequest(format!(
                 "User DM is not supported for adapter {}",
                 kind.as_str()
             ))

@@ -1,6 +1,6 @@
 //! Slack HMAC-SHA256 webhook signature verification.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::signature::verify_hmac_sha256;
 
 /// Verify the Slack request signature.
@@ -18,13 +18,13 @@ pub fn verify_signature(
     if let Ok(ts) = timestamp.parse::<i64>() {
         let now = chrono::Utc::now().timestamp();
         if (now - ts).unsigned_abs() > 300 {
-            return Err(AdapterError::SignatureInvalid);
+            return Err(SharedAdapterError::SignatureInvalid.into());
         }
     }
 
     let expected_hex = expected_signature
         .strip_prefix("v0=")
-        .ok_or(AdapterError::SignatureInvalid)?;
+        .ok_or(SharedAdapterError::SignatureInvalid)?;
     let sig_basestring = format!("v0:{timestamp}:{}", String::from_utf8_lossy(body));
 
     verify_hmac_sha256(signing_secret, sig_basestring.as_bytes(), expected_hex)

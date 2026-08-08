@@ -1,6 +1,6 @@
 //! Adapter capability interfaces and shared capability value types.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
     AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, NewThreadInfo,
     OutboundReply, SubscriptionMatch, TaskBinding,
@@ -131,10 +131,11 @@ pub(crate) trait AdapterDestinationBuilder: Adapter {
         _rule: &SubscriptionMatch,
         _new_thread_info: &NewThreadInfo,
     ) -> Result<BindingDestination, AdapterError> {
-        Err(AdapterError::BadRequest(format!(
+        Err(SharedAdapterError::BadRequest(format!(
             "{} provider does not support rules-based direct send",
             self.provider_key()
-        )))
+        ))
+        .into())
     }
 }
 
@@ -171,9 +172,10 @@ pub(crate) trait AdapterBindingReply: AdapterOutboundContent {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let Some(rule) = rule else {
-            return Err(AdapterError::BadRequest(
+            return Err(SharedAdapterError::BadRequest(
                 "Provider needs a trigger-backed binding for outbound replies".into(),
-            ));
+            )
+            .into());
         };
         let config =
             moatless_adapter_model::models::subscription_context(rule, self.provider_key());

@@ -8,13 +8,13 @@
 
 use tracing::{debug, info};
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::AdapterDestinationBuilder;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::SubscriptionMatch;
-use crate::adapters::AdapterDestinationBuilder;
-use moatless_core::db::DbPool;
 use crate::state::AppState;
+use moatless_core::db::DbPool;
 
 use super::adapter::TelegramAdapter;
 use super::api::TelegramApi;
@@ -211,7 +211,9 @@ pub(super) async fn receive(
 /// succeed next time.
 fn classify_normalization(error: AdapterError) -> IngressError {
     match error {
-        AdapterError::BadRequest(message) => IngressError::Unidentifiable(message),
+        AdapterError::Shared(SharedAdapterError::BadRequest(message)) => {
+            IngressError::Unidentifiable(message)
+        }
         other => IngressError::Ingress(other),
     }
 }
@@ -232,7 +234,7 @@ fn verify_secret(rule: &SubscriptionMatch, provided: Option<&str>) -> Result<(),
     if provided.unwrap_or("") == expected {
         Ok(())
     } else {
-        Err(AdapterError::SignatureInvalid)
+        Err(SharedAdapterError::SignatureInvalid.into())
     }
 }
 
@@ -313,7 +315,7 @@ mod tests {
             assert!(
                 matches!(
                     verify_secret(&secret, provided),
-                    Err(AdapterError::SignatureInvalid)
+                    Err(AdapterError::Shared(SharedAdapterError::SignatureInvalid))
                 ),
                 "{provided:?} must not pass"
             );
@@ -327,11 +329,11 @@ mod tests {
     #[test]
     fn a_malformed_envelope_is_unidentifiable_and_a_failed_read_is_not() {
         assert!(matches!(
-            classify_normalization(AdapterError::BadRequest("Missing message_id".into())),
+            classify_normalization(SharedAdapterError::BadRequest("Missing message_id".into()).into()),
             IngressError::Unidentifiable(message) if message == "Missing message_id"
         ));
         assert!(matches!(
-            classify_normalization(AdapterError::Db(sqlx::Error::PoolTimedOut)),
+            classify_normalization(SharedAdapterError::Db(sqlx::Error::PoolTimedOut).into()),
             IngressError::Ingress(_)
         ));
     }
@@ -347,7 +349,7 @@ mod tests {
         assert!(verify_secret(&blank, Some("")).is_ok());
         assert!(matches!(
             verify_secret(&blank, Some("anything")),
-            Err(AdapterError::SignatureInvalid)
+            Err(AdapterError::Shared(SharedAdapterError::SignatureInvalid))
         ));
     }
 }

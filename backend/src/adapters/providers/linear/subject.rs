@@ -17,8 +17,8 @@ use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
 use crate::state::AppState;
 
-use super::webhook_payloads::{AgentSession, IssuePayload};
 use super::SUBJECT_KIND_ISSUE;
+use super::webhook_payloads::{AgentSession, IssuePayload};
 
 pub(super) const ADAPTER: &str = "linear";
 /// `task_bindings.subject_kind` for a Binding that names a Linear agent
@@ -91,7 +91,7 @@ pub(super) async fn bindings_in_scope(
     .bind(task_id)
     .fetch_all(&state.db)
     .await
-    .map_err(AdapterError::Db)
+    .map_err(AdapterError::from)
 }
 
 /// Every active Binding of either subject kind listening to `issue_id`, one per

@@ -14,7 +14,7 @@ use crate::adapters::{
 
 use super::adapter::TelegramAdapter;
 use super::subject::{
-    parse_direct_destination, parse_message_target, TelegramDestination, SUBJECT_KIND,
+    SUBJECT_KIND, TelegramDestination, parse_direct_destination, parse_message_target,
 };
 
 /// The message text as Telegram receives it, task link included.
@@ -200,8 +200,9 @@ mod tests {
     use crate::adapters::test_support::stub_provider;
 
     use super::super::api::TelegramApi;
-    use super::super::test_support::{bot_api_stub, test_loop_context, BotApiStub};
+    use super::super::test_support::{BotApiStub, bot_api_stub, test_loop_context};
     use super::*;
+    use crate::adapters::error::SharedAdapterError;
 
     /// A provider whose Bot API calls are recorded rather than sent.
     async fn provider_with_stub() -> (TelegramAdapter, BotApiStub) {
@@ -309,7 +310,7 @@ mod tests {
             .expect_err("destination needs explicit chat prefix");
 
         match err {
-            AdapterError::BadRequest(msg) => {
+            AdapterError::Shared(SharedAdapterError::BadRequest(msg)) => {
                 assert!(msg.contains("chat:<id>"), "unexpected message: {msg}");
             }
             other => panic!("expected BadRequest, got {other:?}"),

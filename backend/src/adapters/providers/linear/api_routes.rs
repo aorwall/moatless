@@ -14,28 +14,28 @@
 //! A raw GraphQL passthrough (`POST /api/v1/linear/graphql`) exists as the
 //! safety valve for operations not yet wrapped by a typed endpoint.
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use moatless_api_schemas::linear::{
     LinearCommentCreateRequest, LinearConnectionParams, LinearGraphqlRequest,
     LinearIssueCreateRequest, LinearIssueResponse, LinearIssueUpdateRequest,
     LinearLabelMutationRequest, LinearLabelOp, LinearLookupParams, LinearLookupResponse,
     LinearOkResponse,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::warn;
 
-use crate::adapters::common::{ensure_task_access, resolve_connection};
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
 use crate::adapters::AdapterKind;
+use crate::adapters::common::{ensure_task_access, resolve_connection};
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
 use crate::bindings::runtime::upsert_binding;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
 
-use super::agent_api::{LinearAgentApi, LookupKind};
 use super::SUBJECT_KIND_ISSUE;
+use super::agent_api::{LinearAgentApi, LookupKind};
 
 const LINEAR_PROVIDER: &str = "linear";
 
@@ -241,7 +241,7 @@ pub async fn update_issue(
                 .pointer("/team/id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    AdapterError::AdapterApi(
+                    SharedAdapterError::AdapterApi(
                         "Issue is missing team.id (cannot resolve cycle)".into(),
                     )
                 })?
@@ -284,9 +284,10 @@ pub async fn update_issue(
     }
 
     if input.as_object().is_none_or(serde_json::Map::is_empty) {
-        return Err(AdapterError::BadRequest(
+        return Err(SharedAdapterError::BadRequest(
             "Update request had no fields to change".into(),
-        ));
+        )
+        .into());
     }
 
     let issue = api.update_issue(&id, input).await?;
@@ -334,7 +335,7 @@ pub async fn create_comment(
     let issue_uuid = issue
         .get("id")
         .and_then(Value::as_str)
-        .ok_or_else(|| AdapterError::NotFound(format!("Linear issue {id} missing id")))?
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Linear issue {id} missing id")))?
         .to_string();
 
     let body = match req.task_id.as_deref() {
@@ -410,7 +411,7 @@ pub async fn mutate_label(
     let issue_uuid = issue
         .get("id")
         .and_then(Value::as_str)
-        .ok_or_else(|| AdapterError::NotFound(format!("Linear issue {id} missing id")))?
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Linear issue {id} missing id")))?
         .to_string();
     let label_id = resolve_required(&api, LookupKind::Label, &req.label).await?;
 
@@ -497,7 +498,7 @@ pub async fn lookup(
         resolve_linear_api(&state, &ctx, conn_params.connection_id.as_deref()).await?;
 
     let kind = LookupKind::parse(&params.kind).ok_or_else(|| {
-        AdapterError::BadRequest(format!(
+        SharedAdapterError::BadRequest(format!(
             "Unknown lookup kind `{}` (use state, label, project, user, team)",
             params.kind
         ))
@@ -533,7 +534,7 @@ async fn resolve_linear_api(
         .provider_handles
         .linear
         .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
+        .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("linear".into()))?;
     let api = linear.agent_api_for_connection(&connection).await?;
     Ok((connection, api))
 }
@@ -556,10 +557,9 @@ async fn resolve_optional(
     if looks_like_uuid(value) {
         return Ok(Some(value.to_string()));
     }
-    let lookup = api
-        .lookup(kind, value)
-        .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Linear {kind:?} `{value}` not found")))?;
+    let lookup = api.lookup(kind, value).await?.ok_or_else(|| {
+        SharedAdapterError::NotFound(format!("Linear {kind:?} `{value}` not found"))
+    })?;
     Ok(Some(lookup.id))
 }
 
@@ -571,7 +571,10 @@ async fn resolve_required(
 ) -> Result<String, AdapterError> {
     resolve_optional(api, kind, Some(value))
         .await?
-        .ok_or_else(|| AdapterError::Internal("resolve_optional returned None unexpectedly".into()))
+        .ok_or_else(|| {
+            SharedAdapterError::Internal("resolve_optional returned None unexpectedly".into())
+                .into()
+        })
 }
 
 /// Resolve a team value (key like `SP`, or UUID). Lookup uses the team's
@@ -596,7 +599,7 @@ async fn resolve_team_id(api: &LinearAgentApi, value: &str) -> Result<String, Ad
     let lookup = api
         .lookup(LookupKind::Team, value)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Linear team `{value}` not found")))?;
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Linear team `{value}` not found")))?;
     Ok(lookup.id)
 }
 
@@ -615,23 +618,25 @@ async fn default_team_id(api: &LinearAgentApi) -> Result<String, AdapterError> {
         .cloned()
         .unwrap_or_default();
     match nodes.len() {
-        0 => Err(AdapterError::BadRequest(
-            "No Linear teams accessible — pass `team`".into(),
-        )),
+        0 => Err(
+            SharedAdapterError::BadRequest("No Linear teams accessible — pass `team`".into())
+                .into(),
+        ),
         1 => nodes[0]
             .get("id")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| AdapterError::AdapterApi("Linear team missing id".into())),
+            .ok_or_else(|| SharedAdapterError::AdapterApi("Linear team missing id".into()).into()),
         _ => {
             let keys: Vec<String> = nodes
                 .iter()
                 .filter_map(|n| n.get("key").and_then(Value::as_str).map(str::to_string))
                 .collect();
-            Err(AdapterError::BadRequest(format!(
+            Err(SharedAdapterError::BadRequest(format!(
                 "Multiple Linear teams accessible: [{}]. Pass `team` to choose.",
                 keys.join(", ")
-            )))
+            ))
+            .into())
         }
     }
 }
@@ -709,9 +714,9 @@ async fn resolve_user_required(
     api: &LinearAgentApi,
     value: &str,
 ) -> Result<ResolvedUser, AdapterError> {
-    resolve_user_opt(api, value)
-        .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Linear user `{value}` not found")))
+    resolve_user_opt(api, value).await?.ok_or_else(|| {
+        SharedAdapterError::NotFound(format!("Linear user `{value}` not found")).into()
+    })
 }
 
 /// Resolve assignee: `me` → viewer.id; UUID → passthrough; email or display
@@ -786,10 +791,9 @@ async fn resolve_optional_issue(
         return Ok(Some(value.to_string()));
     }
     let issue = api.get_issue(value).await?;
-    let id = issue
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| AdapterError::NotFound(format!("Linear issue `{value}` missing id")))?;
+    let id = issue.get("id").and_then(Value::as_str).ok_or_else(|| {
+        SharedAdapterError::NotFound(format!("Linear issue `{value}` missing id"))
+    })?;
     Ok(Some(id.to_string()))
 }
 
@@ -817,7 +821,7 @@ async fn resolve_cycle_id(
             .map(str::to_string));
     }
     let number: i64 = value.parse().map_err(|_| {
-        AdapterError::BadRequest(format!(
+        SharedAdapterError::BadRequest(format!(
             "Invalid cycle value `{value}` (use a number or `active`)"
         ))
     })?;
@@ -844,7 +848,9 @@ async fn create_issue_binding(
     let issue_uuid = issue
         .get("id")
         .and_then(Value::as_str)
-        .ok_or_else(|| AdapterError::AdapterApi("Linear issue missing id for binding".into()))?
+        .ok_or_else(|| {
+            SharedAdapterError::AdapterApi("Linear issue missing id for binding".into())
+        })?
         .to_string();
     let identifier = issue
         .get("identifier")

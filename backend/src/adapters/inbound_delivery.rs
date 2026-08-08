@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::adapters::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryRequest,
 };
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::metrics::record_webhook;
 use crate::adapters::models::InboundMessage;
 use crate::bindings::runtime::RoutingService;
@@ -159,7 +159,7 @@ pub(crate) fn inbound_delivery_request(
     payload: InboundDeliveryPayload,
 ) -> Result<AdapterDeliveryRequest, AdapterError> {
     let payload = serde_json::to_value(payload).map_err(|e| {
-        AdapterError::Internal(format!("Failed to serialize inbound delivery payload: {e}"))
+        SharedAdapterError::Internal(format!("Failed to serialize inbound delivery payload: {e}"))
     })?;
     Ok(AdapterDeliveryRequest {
         adapter,
@@ -172,8 +172,8 @@ pub(crate) fn inbound_delivery_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::models::Audience;
     use crate::adapters::AdapterKind;
+    use crate::adapters::models::Audience;
 
     fn payload() -> InboundDeliveryPayload {
         InboundDeliveryPayload {
@@ -271,13 +271,16 @@ mod tests {
 
     #[test]
     fn a_backend_failure_is_retried_and_keeps_its_cause() {
-        let failure = AdapterDeliveryFailure::from(AdapterError::Db(sqlx::Error::PoolTimedOut));
+        let failure = AdapterDeliveryFailure::from(AdapterError::from(SharedAdapterError::Db(
+            sqlx::Error::PoolTimedOut,
+        )));
         assert!(matches!(failure, AdapterDeliveryFailure::Retryable(_)));
         let source = std::error::Error::source(&failure).expect("the routing error is retained");
         assert!(source.to_string().contains("Database error"));
 
-        let failure =
-            AdapterDeliveryFailure::from(AdapterError::Internal("sandbox refused".into()));
+        let failure = AdapterDeliveryFailure::from(AdapterError::from(
+            SharedAdapterError::Internal("sandbox refused".into()),
+        ));
         assert!(matches!(failure, AdapterDeliveryFailure::Retryable(_)));
     }
 
@@ -286,7 +289,9 @@ mod tests {
         // `route_inbound_message` returns this both for a deactivated Loop
         // and for a subject with nothing left to deliver to. Neither improves
         // by being tried again.
-        let failure = AdapterDeliveryFailure::from(AdapterError::ConfigNotFound("tt_1".into()));
+        let failure = AdapterDeliveryFailure::from(AdapterError::from(
+            SharedAdapterError::ConfigNotFound("tt_1".into()),
+        ));
         assert!(matches!(failure, AdapterDeliveryFailure::Permanent(_)));
         let source = std::error::Error::source(&failure).expect("the routing error is retained");
         assert!(source.to_string().contains("tt_1"));
@@ -300,8 +305,8 @@ mod tests {
     reason = "test assertions; the lints only fire when the db-tests feature is enabled"
 )]
 mod db_tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use sqlx::PgPool;
@@ -329,8 +334,10 @@ mod db_tests {
     impl AdapterDeliveryHandler for FailingRoute {
         async fn execute(&self, _delivery: &AdapterDelivery) -> Result<(), AdapterDeliveryFailure> {
             self.runs.fetch_add(1, Ordering::SeqCst);
-            Err(AdapterDeliveryFailure::from(AdapterError::Internal(
-                "Failed to create task: sandbox provisioning timed out".into(),
+            Err(AdapterDeliveryFailure::from(AdapterError::from(
+                SharedAdapterError::Internal(
+                    "Failed to create task: sandbox provisioning timed out".into(),
+                ),
             )))
         }
     }

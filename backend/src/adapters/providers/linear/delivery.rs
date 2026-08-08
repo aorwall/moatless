@@ -70,10 +70,10 @@
 use tracing::{debug, info, warn};
 
 use crate::adapters::delivery::{
-    register_connection_delivery, AdapterDeliveryFailure, AdapterDeliveryHandlers,
-    AdapterDeliveryRequest, ConnectionDeliveryPayload,
+    AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
+    ConnectionDeliveryPayload, register_connection_delivery,
 };
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::AdapterConnection;
 use crate::state::AppState;
 
@@ -250,7 +250,7 @@ fn request(
     payload: &impl serde::Serialize,
 ) -> Result<AdapterDeliveryRequest, AdapterError> {
     let payload = serde_json::to_value(payload).map_err(|e| {
-        AdapterError::Internal(format!("failed to serialize {kind} work payload: {e}"))
+        SharedAdapterError::Internal(format!("failed to serialize {kind} work payload: {e}"))
     })?;
     Ok(AdapterDeliveryRequest {
         adapter: ADAPTER,

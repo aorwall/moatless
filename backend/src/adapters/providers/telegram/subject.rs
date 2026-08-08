@@ -5,7 +5,7 @@
 //! bag over as a `&serde_json::Value` (spec Open question 3); this module is
 //! where it stops being one.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{NewThreadInfo, SubscriptionMatch};
 use crate::adapters::{AdapterDestinationBuilder, BindingDestination};
 
@@ -45,9 +45,10 @@ impl TelegramDestination {
     /// nowhere to send without a chat id.
     pub(super) fn from_destination_config(value: &serde_json::Value) -> Result<Self, AdapterError> {
         Self::parse(value).ok_or_else(|| {
-            AdapterError::BadRequest(
+            SharedAdapterError::BadRequest(
                 "Telegram binding destination_config has no `chat_id` field".into(),
             )
+            .into()
         })
     }
 
@@ -56,8 +57,9 @@ impl TelegramDestination {
     /// are load-bearing — one is a `400`, the other a `500` — so they stay
     /// distinct.
     pub(super) fn from_thread_context(value: &serde_json::Value) -> Result<Self, AdapterError> {
-        Self::parse(value)
-            .ok_or_else(|| AdapterError::Internal("No chat_id in thread properties".into()))
+        Self::parse(value).ok_or_else(|| {
+            SharedAdapterError::Internal("No chat_id in thread properties".into()).into()
+        })
     }
 
     fn parse(value: &serde_json::Value) -> Option<Self> {
@@ -145,13 +147,14 @@ impl AdapterDestinationBuilder for TelegramAdapter {
 pub(super) fn parse_direct_destination(destination: &str) -> Result<&str, AdapterError> {
     let raw = destination.trim();
     let chat_id = raw.strip_prefix("chat:").ok_or_else(|| {
-        AdapterError::BadRequest("Telegram destination must be `chat:<id>`".into())
+        SharedAdapterError::BadRequest("Telegram destination must be `chat:<id>`".into())
     })?;
     let chat_id = chat_id.trim();
     if chat_id.is_empty() {
-        return Err(AdapterError::BadRequest(
+        return Err(SharedAdapterError::BadRequest(
             "Telegram destination must include a chat id".into(),
-        ));
+        )
+        .into());
     }
     Ok(chat_id)
 }
@@ -162,9 +165,10 @@ pub(super) fn parse_message_target(
     what: &str,
 ) -> Result<i64, AdapterError> {
     super::external_id::message_id_from(target_external_id).ok_or_else(|| {
-        AdapterError::BadRequest(format!(
+        SharedAdapterError::BadRequest(format!(
             "Telegram {what} target `{target_external_id}` is not a tg:m:<id> id"
         ))
+        .into()
     })
 }
 
@@ -265,11 +269,11 @@ mod tests {
 
         assert!(matches!(
             TelegramDestination::from_destination_config(&empty),
-            Err(AdapterError::BadRequest(_))
+            Err(AdapterError::Shared(SharedAdapterError::BadRequest(_)))
         ));
         assert!(matches!(
             TelegramDestination::from_thread_context(&empty),
-            Err(AdapterError::Internal(_))
+            Err(AdapterError::Shared(SharedAdapterError::Internal(_)))
         ));
     }
 

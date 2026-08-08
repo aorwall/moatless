@@ -1,6 +1,6 @@
 //! GitHub webhook HMAC-SHA256 signature verification.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::signature::verify_hmac_sha256;
 
 /// Verify the GitHub webhook signature.
@@ -14,7 +14,7 @@ pub(super) fn verify_signature(
 ) -> Result<(), AdapterError> {
     let expected_hex = signature_header
         .strip_prefix("sha256=")
-        .ok_or(AdapterError::SignatureInvalid)?;
+        .ok_or(SharedAdapterError::SignatureInvalid)?;
     verify_hmac_sha256(secret, body, expected_hex)
 }
 

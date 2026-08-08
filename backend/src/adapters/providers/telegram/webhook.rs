@@ -10,9 +10,9 @@
 
 use tracing::{debug, info};
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AccessDecision, Audience, InboundMessage, LoopContext};
 use crate::adapters::AdapterKind;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::models::{AccessDecision, Audience, InboundMessage, LoopContext};
 use moatless_core::db::DbPool;
 
 use super::access::{self, DmDecision, DmSender};
@@ -76,7 +76,7 @@ pub(super) async fn normalize(
     let update_id = payload
         .get("update_id")
         .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| AdapterError::BadRequest("Missing update_id".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing update_id".into()))?;
 
     // 2. Extract message (message or channel_post)
     let message = payload
@@ -95,12 +95,12 @@ pub(super) async fn normalize(
     let chat_id = message
         .pointer("/chat/id")
         .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| AdapterError::BadRequest("Missing chat.id".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing chat.id".into()))?;
 
     let message_id = message
         .get("message_id")
         .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| AdapterError::BadRequest("Missing message_id".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing message_id".into()))?;
 
     let text = message.get("text").and_then(|v| v.as_str()).unwrap_or("");
 

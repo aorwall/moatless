@@ -37,7 +37,7 @@
 use tracing::{info, warn};
 
 use crate::adapters::delivery::AdapterDeliveryRequest;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch};
 use crate::state::AppState;
 
@@ -138,6 +138,12 @@ pub enum IngressError {
     Ingress(#[from] AdapterError),
 }
 
+impl From<SharedAdapterError> for IngressError {
+    fn from(error: SharedAdapterError) -> Self {
+        Self::Ingress(error.into())
+    }
+}
+
 /// A rejected delivery, and the event type its metric row is labelled with.
 ///
 /// The label is carried here rather than on each variant so [`IngressError`]
@@ -174,8 +180,10 @@ pub async fn receive(
             // No envelope, so no event type: this is the one rejection whose
             // metric row cannot carry the label D2 added.
             return Err(Rejection {
-                error: AdapterError::BadRequest(format!("Invalid Linear webhook payload: {e}"))
-                    .into(),
+                error: SharedAdapterError::BadRequest(format!(
+                    "Invalid Linear webhook payload: {e}"
+                ))
+                .into(),
                 event_type: String::new(),
             });
         }
@@ -220,7 +228,7 @@ async fn dispatch(
         .adapter_connections
         .find_by_external_account("linear", org_id)
         .await
-        .map_err(AdapterError::Db)?;
+        .map_err(SharedAdapterError::Db)?;
     let Some(connection) = connection else {
         return Ok(ignored(envelope, reason::NO_CONNECTION));
     };
@@ -234,7 +242,7 @@ async fn dispatch(
             org_id,
             "Linear webhook rejected: no webhook secret configured on connection or env"
         );
-        return Err(AdapterError::SignatureInvalid.into());
+        return Err(SharedAdapterError::SignatureInvalid.into());
     };
 
     if let Err(e) = super::signature::verify_signature(secret, body, signature) {

@@ -9,7 +9,7 @@ use std::fmt::Write;
 use tracing::{debug, info, warn};
 
 use crate::adapters::AdapterKind;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{Audience, InboundMessage, SubscriptionMatch};
 use moatless_core::db::DbPool;
 
@@ -191,7 +191,7 @@ async fn normalize_pull_request(
             let pr_number = payload
                 .pointer("/pull_request/number")
                 .and_then(serde_json::Value::as_u64)
-                .ok_or_else(|| AdapterError::BadRequest("Missing PR number".into()))?;
+                .ok_or_else(|| SharedAdapterError::BadRequest("Missing PR number".into()))?;
             let merged = payload
                 .pointer("/pull_request/merged")
                 .and_then(serde_json::Value::as_bool)
@@ -226,11 +226,11 @@ async fn normalize_pull_request(
 
     let pr = payload
         .get("pull_request")
-        .ok_or_else(|| AdapterError::BadRequest("Missing pull_request in payload".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing pull_request in payload".into()))?;
     let pr_number = pr
         .get("number")
         .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| AdapterError::BadRequest("Missing PR number".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing PR number".into()))?;
     let title = pr
         .get("title")
         .and_then(serde_json::Value::as_str)
@@ -321,11 +321,11 @@ async fn normalize_pull_request_sync(
 ) -> Result<PrimaryWebhook, AdapterError> {
     let pr = payload
         .get("pull_request")
-        .ok_or_else(|| AdapterError::BadRequest("Missing pull_request in payload".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing pull_request in payload".into()))?;
     let pr_number = pr
         .get("number")
         .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| AdapterError::BadRequest("Missing PR number".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing PR number".into()))?;
     let html_url = pr
         .get("html_url")
         .and_then(serde_json::Value::as_str)
@@ -377,10 +377,10 @@ async fn normalize_issue_comment(
     let pr_number = payload
         .pointer("/issue/number")
         .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| AdapterError::BadRequest("Missing issue number".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing issue number".into()))?;
     let comment = payload
         .get("comment")
-        .ok_or_else(|| AdapterError::BadRequest("Missing comment in payload".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing comment in payload".into()))?;
     let body = comment
         .get("body")
         .and_then(serde_json::Value::as_str)
@@ -415,10 +415,10 @@ async fn normalize_review_comment(
     let pr_number = payload
         .pointer("/pull_request/number")
         .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| AdapterError::BadRequest("Missing PR number".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing PR number".into()))?;
     let comment = payload
         .get("comment")
-        .ok_or_else(|| AdapterError::BadRequest("Missing comment in payload".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing comment in payload".into()))?;
     let body = comment
         .get("body")
         .and_then(serde_json::Value::as_str)
@@ -477,10 +477,10 @@ async fn normalize_review(
     let pr_number = payload
         .pointer("/pull_request/number")
         .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| AdapterError::BadRequest("Missing PR number".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing PR number".into()))?;
     let review = payload
         .get("review")
-        .ok_or_else(|| AdapterError::BadRequest("Missing review in payload".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing review in payload".into()))?;
     let review_body = review
         .get("body")
         .and_then(serde_json::Value::as_str)
@@ -548,7 +548,7 @@ async fn normalize_check_run(
     }
     let check_run = payload
         .get("check_run")
-        .ok_or_else(|| AdapterError::BadRequest("Missing check_run in payload".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing check_run in payload".into()))?;
     let conclusion = check_run
         .get("conclusion")
         .and_then(serde_json::Value::as_str)
@@ -642,7 +642,7 @@ async fn normalize_check_suite(
     }
     let check_suite = payload
         .get("check_suite")
-        .ok_or_else(|| AdapterError::BadRequest("Missing check_suite in payload".into()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Missing check_suite in payload".into()))?;
     if check_suite
         .get("conclusion")
         .and_then(serde_json::Value::as_str)

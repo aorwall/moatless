@@ -1,6 +1,6 @@
 //! Canonical GitHub pull-request subject coordinates.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{BindingContext, TaskBinding};
 use crate::adapters::{AdapterDestinationBuilder, BindingDestination};
 
@@ -49,16 +49,21 @@ impl GithubPrSubject {
 
     pub(super) fn from_thread_properties(value: &serde_json::Value) -> Result<Self, AdapterError> {
         Self::parse(value).map_err(|field| {
-            AdapterError::BadRequest(format!("Missing {} in GitHub PR destination", field.name()))
+            SharedAdapterError::BadRequest(format!(
+                "Missing {} in GitHub PR destination",
+                field.name()
+            ))
+            .into()
         })
     }
 
     pub(super) fn from_binding(binding: &TaskBinding) -> Result<Self, AdapterError> {
         Self::parse(&binding.destination_config).map_err(|field| {
-            AdapterError::Internal(format!(
+            SharedAdapterError::Internal(format!(
                 "Missing {} in binding destination_config",
                 field.name()
             ))
+            .into()
         })
     }
 
@@ -71,7 +76,7 @@ impl GithubPrSubject {
         pr_number: u64,
     ) -> Result<Self, AdapterError> {
         let (owner, repo) = source_id.split_once('/').ok_or_else(|| {
-            AdapterError::BadRequest(format!("Invalid GitHub source_matcher: {source_id}"))
+            SharedAdapterError::BadRequest(format!("Invalid GitHub source_matcher: {source_id}"))
         })?;
         Ok(Self::new(owner, repo, pr_number))
     }
@@ -147,14 +152,14 @@ impl GithubRepository {
             .get("owner")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                AdapterError::BadRequest("Missing owner in binding destination_config".into())
+                SharedAdapterError::BadRequest("Missing owner in binding destination_config".into())
             })?;
         let repo = binding
             .destination_config
             .get("repo")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                AdapterError::BadRequest("Missing repo in binding destination_config".into())
+                SharedAdapterError::BadRequest("Missing repo in binding destination_config".into())
             })?;
         Ok(Self {
             owner: owner.to_string(),
@@ -183,9 +188,10 @@ impl AdapterDestinationBuilder for GithubPrAdapter {
             .filter(|owner| !owner.is_empty())
             .map(str::to_string)
             .ok_or_else(|| {
-                AdapterError::BadRequest(format!(
+                SharedAdapterError::BadRequest(format!(
                     "Invalid GitHub source_id (expected owner/repo): {source_id}"
                 ))
+                .into()
             })
     }
 
@@ -205,7 +211,7 @@ impl AdapterDestinationBuilder for GithubPrAdapter {
         filter_user_id: Option<&str>,
     ) -> Result<BindingDestination, AdapterError> {
         let subject = GithubPrSubject::parse(thread_properties).map_err(|field| {
-            AdapterError::BadRequest(format!(
+            SharedAdapterError::BadRequest(format!(
                 "thread_properties missing required {}",
                 field.name()
             ))
@@ -223,8 +229,8 @@ mod tests {
     use moatless_core::db::DbPool;
 
     use super::*;
-    use crate::adapters::github_pr::adapter::GithubPrAdapter;
     use crate::adapters::AdapterDestinationBuilder;
+    use crate::adapters::github_pr::adapter::GithubPrAdapter;
 
     #[test]
     fn parses_thread_properties_and_builds_canonical_values() {

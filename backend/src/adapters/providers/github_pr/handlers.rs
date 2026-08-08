@@ -5,7 +5,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::warn;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
@@ -26,8 +26,8 @@ pub async fn github_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, AdapterError> {
-    let github_pr_provider =
-        github_pr_provider.ok_or_else(|| AdapterError::AdapterNotConfigured("github_pr".into()))?;
+    let github_pr_provider = github_pr_provider
+        .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("github_pr".into()))?;
 
     let event_type = header_value(&headers, "x-github-event");
     let request = WebhookRequest::new(
@@ -76,7 +76,7 @@ pub async fn github_webhook(
         Err(IngressError::Unidentifiable(missing)) => {
             record_webhook("github_pr", "error", "unidentifiable", event_type, "", "");
             warn!(%missing, "GitHub PR webhook could not be identified");
-            return Err(AdapterError::BadRequest(missing));
+            return Err(SharedAdapterError::BadRequest(missing).into());
         }
         // Every other failure keeps the long-standing behaviour: log it, meter
         // it, and acknowledge. These are rejections of the delivery itself

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::Utc;
 use moatless_api_schemas::bindings::TaskBindingResponse;
 use moatless_api_schemas::enums::TaskStatus;
@@ -14,11 +14,12 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::adapters::common::{
-    ensure_repository_exists, load_adapter_connection_for_auth_with, load_loop_for_auth_with,
-    loop_response, next_fire_at, parse_adapter_kind, resolve_scope_for_adapter_create, LoopFilter,
+    LoopFilter, ensure_repository_exists, load_adapter_connection_for_auth_with,
+    load_loop_for_auth_with, loop_response, next_fire_at, parse_adapter_kind,
+    resolve_scope_for_adapter_create,
 };
 use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::auth::users::UserDao;
 use crate::bindings::dao::{LoopRecentTaskRow, TaskBindingDao};
 use crate::extractors::AuthUser;
@@ -34,9 +35,10 @@ fn require_admin(auth: &AuthUser) -> Result<(), AdapterError> {
     if auth.role.as_deref() == Some("admin") {
         Ok(())
     } else {
-        Err(AdapterError::AccessDenied(
-            "Only administrators can modify Loops".to_string(),
-        ))
+        Err(
+            SharedAdapterError::AccessDenied("Only administrators can modify Loops".to_string())
+                .into(),
+        )
     }
 }
 
@@ -44,7 +46,7 @@ fn require_admin(auth: &AuthUser) -> Result<(), AdapterError> {
 fn require_name(name: &str) -> Result<String, AdapterError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(AdapterError::BadRequest("A Loop needs a name".to_string()));
+        return Err(SharedAdapterError::BadRequest("A Loop needs a name".to_string()).into());
     }
     Ok(trimmed.to_string())
 }
@@ -54,8 +56,9 @@ async fn resolve_run_as_user(users: &dyn UserDao, requested: &str) -> Result<Str
         Ok(id) => users.get_user(&id).await?,
         Err(_) => users.find_user_by_legacy_id(requested).await?,
     };
-    user.map(|user| user.id.to_string())
-        .ok_or_else(|| AdapterError::BadRequest(format!("Run-as user {requested} does not exist")))
+    user.map(|user| user.id.to_string()).ok_or_else(|| {
+        SharedAdapterError::BadRequest(format!("Run-as user {requested} does not exist")).into()
+    })
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -170,9 +173,10 @@ pub async fn create_loop(
     };
     let active = req.active.unwrap_or(false);
     if active && run_as_user_id.is_none() {
-        return Err(AdapterError::BadRequest(
+        return Err(SharedAdapterError::BadRequest(
             "Activating a Loop requires an explicit run-as user".to_string(),
-        ));
+        )
+        .into());
     }
 
     let adapter_source = match (&req.kind, &req.source) {
@@ -189,14 +193,16 @@ pub async fn create_loop(
         _ => None,
     };
     if matches!(req.kind, LoopKind::AdapterEvent) && adapter_source.is_none() {
-        return Err(AdapterError::BadRequest(
+        return Err(SharedAdapterError::BadRequest(
             "adapter_event loops require an adapter-event source".into(),
-        ));
+        )
+        .into());
     }
     if matches!(req.kind, LoopKind::Schedule) && schedule_source.is_none() {
-        return Err(AdapterError::BadRequest(
+        return Err(SharedAdapterError::BadRequest(
             "schedule loops require a schedule source".into(),
-        ));
+        )
+        .into());
     }
 
     if let Some(source) = adapter_source {
@@ -208,10 +214,11 @@ pub async fn create_loop(
         )
         .await?;
         if connection.adapter_kind != adapter_kind {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "Connection {} is for adapter {}, not {}",
                 connection.id, connection.adapter_kind, adapter_kind
-            )));
+            ))
+            .into());
         }
     }
 
@@ -241,8 +248,9 @@ pub async fn create_loop(
             notify_on_success: source.notify_on_success.unwrap_or(false),
         })
     } else if let Some(source) = schedule_source {
-        let next_fire = next_fire
-            .ok_or_else(|| AdapterError::Internal("missing schedule next fire".to_string()))?;
+        let next_fire = next_fire.ok_or_else(|| {
+            SharedAdapterError::Internal("missing schedule next fire".to_string())
+        })?;
         NewLoopSource::Schedule(NewScheduleSource {
             cron_expression: source.cron_expression.clone(),
             timezone: source.timezone.clone().unwrap_or_else(|| "UTC".to_string()),
@@ -285,7 +293,7 @@ pub async fn create_loop(
     let record = loops
         .get(&id, &ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(Json(loop_response(&record)))
 }
 
@@ -308,9 +316,10 @@ pub async fn update_loop(
     let ctx = auth.scope_context();
     let current = load_loop_for_auth_with(loops.as_ref(), &ctx, &id).await?;
     if current.loop_.config_source != "manual" || current.loop_.deleted {
-        return Err(AdapterError::Conflict(
+        return Err(SharedAdapterError::Conflict(
             "Git-synced Loops are read-only; override the Loop before editing it".to_string(),
-        ));
+        )
+        .into());
     }
 
     let next_name = match req.name.as_deref() {
@@ -334,9 +343,10 @@ pub async fn update_loop(
 
     if let Some(UpdateLoopSource::AdapterEvent(source)) = &req.source {
         let LoopSourceRow::AdapterEvent(current_source) = &current.source else {
-            return Err(AdapterError::BadRequest(
+            return Err(SharedAdapterError::BadRequest(
                 "adapter-event source updates are only valid for adapter_event loops".into(),
-            ));
+            )
+            .into());
         };
         let next_connection_id = source
             .connection_id
@@ -349,17 +359,19 @@ pub async fn update_loop(
         )
         .await?;
         if connection.adapter_kind != current_source.adapter_kind {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "Connection {} is for adapter {}, not {}",
                 connection.id, connection.adapter_kind, current_source.adapter_kind
-            )));
+            ))
+            .into());
         }
     }
     let next_fire = if let Some(UpdateLoopSource::Schedule(source)) = &req.source {
         let LoopSourceRow::Schedule(current_source) = &current.source else {
-            return Err(AdapterError::BadRequest(
+            return Err(SharedAdapterError::BadRequest(
                 "schedule source updates are only valid for schedule loops".into(),
-            ));
+            )
+            .into());
         };
         let expr = source
             .cron_expression
@@ -397,9 +409,10 @@ pub async fn update_loop(
     let source_update = match req.source {
         Some(UpdateLoopSource::AdapterEvent(source)) => {
             let LoopSourceRow::AdapterEvent(current_source) = &current.source else {
-                return Err(AdapterError::BadRequest(
+                return Err(SharedAdapterError::BadRequest(
                     "adapter-event source updates are only valid for adapter_event loops".into(),
-                ));
+                )
+                .into());
             };
             Some(StoreUpdateSource::AdapterEvent(AdapterSourceUpdate {
                 connection_id: source
@@ -430,12 +443,14 @@ pub async fn update_loop(
         }
         Some(UpdateLoopSource::Schedule(source)) => {
             let LoopSourceRow::Schedule(current_source) = &current.source else {
-                return Err(AdapterError::BadRequest(
+                return Err(SharedAdapterError::BadRequest(
                     "schedule source updates are only valid for schedule loops".into(),
-                ));
+                )
+                .into());
             };
-            let next_fire = next_fire
-                .ok_or_else(|| AdapterError::Internal("missing schedule next fire".to_string()))?;
+            let next_fire = next_fire.ok_or_else(|| {
+                SharedAdapterError::Internal("missing schedule next fire".to_string())
+            })?;
             Some(StoreUpdateSource::Schedule(NewScheduleSource {
                 cron_expression: source
                     .cron_expression
@@ -467,13 +482,13 @@ pub async fn update_loop(
         .await?;
 
     if !updated {
-        return Err(AdapterError::NotFound(format!("Loop {id}")));
+        return Err(SharedAdapterError::NotFound(format!("Loop {id}")).into());
     }
 
     let record = loops
         .get(&id, &ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(Json(loop_response(&record)))
 }
 
@@ -539,7 +554,7 @@ pub async fn delete_loop(
     let result = loops.delete(&id, &ctx).await?;
 
     if result == 0 {
-        return Err(AdapterError::NotFound(format!("Loop {id}")));
+        return Err(SharedAdapterError::NotFound(format!("Loop {id}")).into());
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -553,7 +568,7 @@ async fn updated_loop(
     let record = loops
         .get(id, ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")))?;
     Ok(Json(loop_response(&record)))
 }
 
@@ -575,7 +590,7 @@ pub async fn activate_loop(
     let ctx = auth.scope_context();
     let run_as_user_id = resolve_run_as_user(users.as_ref(), &req.run_as_user_id).await?;
     if !loops.activate(&id, &run_as_user_id, &ctx).await? {
-        return Err(AdapterError::NotFound(format!("Loop {id} not found")));
+        return Err(SharedAdapterError::NotFound(format!("Loop {id} not found")).into());
     }
     updated_loop(loops.as_ref(), &ctx, &id).await
 }
@@ -594,7 +609,7 @@ pub async fn pause_loop(
     require_admin(&auth)?;
     let ctx = auth.scope_context();
     if !loops.pause(&id, &ctx).await? {
-        return Err(AdapterError::NotFound(format!("Loop {id} not found")));
+        return Err(SharedAdapterError::NotFound(format!("Loop {id} not found")).into());
     }
     updated_loop(loops.as_ref(), &ctx, &id).await
 }
@@ -613,9 +628,10 @@ pub async fn resume_loop(
     require_admin(&auth)?;
     let ctx = auth.scope_context();
     if !loops.resume(&id, &ctx).await? {
-        return Err(AdapterError::Conflict(
+        return Err(SharedAdapterError::Conflict(
             "Loop cannot resume until an administrator selects a run-as user".to_string(),
-        ));
+        )
+        .into());
     }
     updated_loop(loops.as_ref(), &ctx, &id).await
 }
@@ -634,9 +650,10 @@ pub async fn override_loop(
     require_admin(&auth)?;
     let ctx = auth.scope_context();
     if !loops.override_git(&id, &ctx).await? {
-        return Err(AdapterError::Conflict(
+        return Err(SharedAdapterError::Conflict(
             "Only a non-deleted Git-synced Loop can be overridden".to_string(),
-        ));
+        )
+        .into());
     }
     updated_loop(loops.as_ref(), &ctx, &id).await
 }
@@ -659,21 +676,22 @@ pub async fn reset_git_loop(
     let current = loops
         .get(&id, &ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")))?;
     let repository_id = current
         .loop_
         .source_repository_id
         .as_deref()
-        .ok_or_else(|| AdapterError::BadRequest("Loop has no Git provenance".to_string()))?;
-    let source_key = current
-        .loop_
-        .source_key
-        .as_deref()
-        .ok_or_else(|| AdapterError::BadRequest("Loop has no Git source key".to_string()))?;
+        .ok_or_else(|| SharedAdapterError::BadRequest("Loop has no Git provenance".to_string()))?;
+    let source_key =
+        current.loop_.source_key.as_deref().ok_or_else(|| {
+            SharedAdapterError::BadRequest("Loop has no Git source key".to_string())
+        })?;
     let repository = repositories
         .find_by_id(repository_id, &ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Repository {repository_id} not found")))?;
+        .ok_or_else(|| {
+            SharedAdapterError::NotFound(format!("Repository {repository_id} not found"))
+        })?;
 
     let result = loop_sync
         .reset_repo_loop(&repository, &auth, source_key)
@@ -681,7 +699,7 @@ pub async fn reset_git_loop(
     let record = loops
         .get(&id, &ctx)
         .await?
-        .ok_or_else(|| AdapterError::NotFound(format!("Loop {id} not found")))?;
+        .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")))?;
     let (resynced, error) = match result {
         Ok(true) => (true, None),
         Ok(false) => (false, Some("Loop provenance no longer exists".to_string())),

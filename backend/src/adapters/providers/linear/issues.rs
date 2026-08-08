@@ -20,8 +20,8 @@ use std::fmt::Write as _;
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, SubscriptionMatch, ADAPTER_EVENT_BINDING_ORIGIN};
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
 use crate::state::AppState;
 use crate::task::models::Visibility;
 
@@ -230,14 +230,14 @@ async fn provision_issue_task(
         // Preflight failed: surface the reason as an issue comment (the
         // status-entry path has no agent session), then bail out — the errored
         // task gets no binding or prompt.
-        Err(AdapterError::AccessDenied(msg)) => {
+        Err(AdapterError::Shared(SharedAdapterError::AccessDenied(msg))) => {
             if let Err(e) = api
                 .create_comment(&issue.id, &format!("Couldn't start this task: {msg}"))
                 .await
             {
                 warn!(issue = %issue.identifier, error = %e, "Failed to post Linear preflight error");
             }
-            return Err(AdapterError::AccessDenied(msg));
+            return Err(SharedAdapterError::AccessDenied(msg).into());
         }
         Err(e) => return Err(e),
     };
@@ -579,7 +579,9 @@ pub(super) async fn insert_event_task(
     )
     .await
     .map_err(|e| match e {
-        crate::task::creation::TaskCreationError::Preflight(msg) => AdapterError::AccessDenied(msg),
+        crate::task::creation::TaskCreationError::Preflight(msg) => {
+            SharedAdapterError::AccessDenied(msg).into()
+        }
         other => AdapterError::TaskCreation(other),
     })?;
 

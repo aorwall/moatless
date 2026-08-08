@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::{Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent};
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
@@ -61,17 +61,17 @@ impl TelegramAdapter {
         let Some(db) = &self.db else {
             return Ok(self.api.clone());
         };
-        let config = self
-            .config
-            .as_deref()
-            .ok_or_else(|| AdapterError::Internal("Telegram Adapter missing config".into()))?;
+        let config = self.config.as_deref().ok_or_else(|| {
+            SharedAdapterError::Internal("Telegram Adapter missing config".into())
+        })?;
         let Some(app) = crate::adapter_apps::telegram_app_config(db, config, app_key)
             .await
-            .map_err(|e| AdapterError::AdapterApi(e.to_string()))?
+            .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
         else {
-            return Err(AdapterError::AdapterNotConfigured(format!(
+            return Err(SharedAdapterError::AdapterNotConfigured(format!(
                 "telegram app '{app_key}'"
-            )));
+            ))
+            .into());
         };
         Ok(TelegramApi::new(&app.bot_token))
     }

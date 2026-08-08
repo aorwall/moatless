@@ -2,7 +2,7 @@
 
 use tracing::{info, warn};
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_core::db::DbPool;
 
 /// The system user a Telegram sender is linked to, if any.
@@ -21,7 +21,7 @@ pub(super) async fn resolve_sender(
     .bind(telegram_user_id)
     .fetch_optional(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     if let Some((user_id,)) = row {
         info!(telegram_user_id = %telegram_user_id, user_id = %user_id, "Resolved Telegram user to system user");

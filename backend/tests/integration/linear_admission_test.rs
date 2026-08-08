@@ -30,14 +30,14 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use sqlx::Row;
 
-use moatless_vibe_backend::adapters::error::AdapterError;
+use moatless_vibe_backend::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_vibe_backend::adapters::linear;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
 use moatless_vibe_backend::state::AppState;
 
 use common::{
-    drain_linear_adapter_delivery, linear_config, test_app_state_with_linear, test_config, USER_1,
+    USER_1, drain_linear_adapter_delivery, linear_config, test_app_state_with_linear, test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -252,7 +252,10 @@ async fn an_issue_update_without_a_delivery_timestamp_is_refused_rather_than_col
         .await
         .expect_err("the delivery must not be acknowledged");
     assert!(
-        matches!(refused, AdapterError::BadRequest(_)),
+        matches!(
+            refused,
+            AdapterError::Shared(SharedAdapterError::BadRequest(_))
+        ),
         "the delivery is malformed, not the backend unwell: {refused:?}"
     );
     assert!(
@@ -269,7 +272,10 @@ async fn an_issue_update_without_a_delivery_timestamp_is_refused_rather_than_col
         .await
         .expect_err("the second delivery must not be acknowledged either");
     assert!(
-        matches!(refused_again, AdapterError::BadRequest(_)),
+        matches!(
+            refused_again,
+            AdapterError::Shared(SharedAdapterError::BadRequest(_))
+        ),
         "a refusal must leave nothing behind that could swallow the next attempt: \
          {refused_again:?}"
     );
@@ -344,7 +350,7 @@ async fn a_delivery_whose_admission_failed_is_admitted_when_it_is_sent_again(poo
         .await
         .expect_err("a delivery that was not recorded must not be acknowledged");
     assert!(
-        matches!(refused, AdapterError::Db(_)),
+        matches!(refused, AdapterError::Shared(SharedAdapterError::Db(_))),
         "the store failed, so the backend is unwell rather than the delivery malformed: \
          {refused:?}"
     );

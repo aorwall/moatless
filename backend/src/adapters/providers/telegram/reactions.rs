@@ -1,11 +1,11 @@
 //! Reaction capability for Telegram messages.
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::BindingContext;
 use crate::adapters::AdapterReactions;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::models::BindingContext;
 
 use super::adapter::TelegramAdapter;
-use super::subject::{parse_message_target, TelegramDestination};
+use super::subject::{TelegramDestination, parse_message_target};
 
 /// Resolve the `(chat_id, message_id)` pair for a Telegram reaction call.
 ///
@@ -31,7 +31,7 @@ impl AdapterReactions for TelegramAdapter {
         let (chat_id, message_id) = reaction_target(binding, target_external_id)?;
         let trimmed = emoji.trim();
         if trimmed.is_empty() {
-            return Err(AdapterError::BadRequest("Empty emoji".into()));
+            return Err(SharedAdapterError::BadRequest("Empty emoji".into()).into());
         }
         let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
         api.set_message_reaction(&chat_id, message_id, Some(trimmed))

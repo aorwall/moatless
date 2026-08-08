@@ -8,7 +8,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::{info, warn};
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
@@ -29,8 +29,8 @@ pub async fn telegram_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, AdapterError> {
-    let telegram_provider =
-        telegram_provider.ok_or_else(|| AdapterError::AdapterNotConfigured("telegram".into()))?;
+    let telegram_provider = telegram_provider
+        .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("telegram".into()))?;
 
     info!("Telegram webhook received");
 
@@ -68,7 +68,7 @@ pub async fn telegram_webhook(
 fn refusal(error: IngressError) -> AdapterError {
     match error {
         IngressError::NotAdmitted(e) => AdapterError::from(e),
-        IngressError::Unidentifiable(message) => AdapterError::BadRequest(message),
+        IngressError::Unidentifiable(message) => SharedAdapterError::BadRequest(message).into(),
         IngressError::Ingress(e) => e,
     }
 }
@@ -79,7 +79,7 @@ mod tests {
     use axum::response::IntoResponse;
 
     use crate::adapters::delivery::AdmitError;
-    use crate::adapters::error::AdapterError;
+    use crate::adapters::error::SharedAdapterError;
     use crate::adapters::ingress::IngressError;
     use crate::adapters::test_support::response_snapshot;
 
@@ -99,7 +99,7 @@ mod tests {
     async fn no_failure_on_the_telegram_webhook_path_is_acknowledged() {
         for (error, expected) in [
             (
-                IngressError::Ingress(AdapterError::SignatureInvalid),
+                IngressError::Ingress(SharedAdapterError::SignatureInvalid.into()),
                 StatusCode::UNAUTHORIZED,
             ),
             (

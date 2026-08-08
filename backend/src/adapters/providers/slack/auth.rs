@@ -6,7 +6,7 @@
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_core::db::DbPool;
 
 use super::api::{SlackApi, SlackUserInfo};
@@ -113,7 +113,7 @@ pub(super) async fn user_by_slack_id(
     .bind(slack_user_id)
     .fetch_optional(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     if let Some((id,)) = row {
         tracing::debug!(
@@ -138,7 +138,7 @@ pub(super) async fn user_by_email(
             .bind(email)
             .fetch_optional(db)
             .await
-            .map_err(AdapterError::Db)?;
+            .map_err(SharedAdapterError::Db)?;
 
     if let Some((id, login)) = row {
         tracing::info!(slack_user = %identity, email = %email, user_id = %id, login = %login, "Resolved Slack user to system user");
@@ -220,7 +220,7 @@ mod tests {
     use moatless_core::db::DbPool;
 
     use super::super::api::SlackApi;
-    use super::{bot_user_id, resolve_inbound_sender, SenderIdentity};
+    use super::{SenderIdentity, bot_user_id, resolve_inbound_sender};
 
     fn unreachable_pool() -> DbPool {
         sqlx::postgres::PgPoolOptions::new()

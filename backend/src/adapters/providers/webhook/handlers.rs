@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use axum::Json;
 use tracing::{debug, info};
 
 use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{inbound_delivery_request, InboundDeliveryPayload};
+use crate::adapters::error::{AdapterError, SharedAdapterError};
+use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
 use crate::adapters::ingress::admit_delivery;
 use crate::loops::dao::LoopDao;
 
@@ -50,12 +50,13 @@ pub async fn webhook_inbound(
     let subscription = loops
         .find_runnable_subscription_by_id(&loop_id)
         .await?
-        .ok_or_else(|| AdapterError::ConfigNotFound(loop_id.clone()))?;
+        .ok_or_else(|| SharedAdapterError::ConfigNotFound(loop_id.clone()))?;
 
     if subscription.adapter_kind != ADAPTER {
-        return Err(AdapterError::BadRequest(format!(
+        return Err(SharedAdapterError::BadRequest(format!(
             "Loop {loop_id} is not a webhook Subscription"
-        )));
+        ))
+        .into());
     }
 
     let signature = headers

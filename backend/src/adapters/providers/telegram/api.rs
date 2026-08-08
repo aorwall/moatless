@@ -3,7 +3,7 @@
 use reqwest::Client;
 use tracing::warn;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 
 /// Maximum message length for Telegram's sendMessage API.
 const MAX_MESSAGE_LENGTH: usize = 4096;
@@ -84,7 +84,7 @@ impl TelegramApi {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| AdapterError::provider_unreachable("Telegram sendMessage", e))?;
+                .map_err(|e| SharedAdapterError::provider_unreachable("Telegram sendMessage", e))?;
 
             if resp.status().as_u16() == 400 {
                 // Markdown parse error — retry without parse_mode
@@ -108,33 +108,39 @@ impl TelegramApi {
                         .send()
                         .await
                         .map_err(|e| {
-                            AdapterError::provider_unreachable("Telegram sendMessage retry", e)
+                            SharedAdapterError::provider_unreachable(
+                                "Telegram sendMessage retry",
+                                e,
+                            )
                         })?;
                     if !retry_resp.status().is_success() {
                         let status = retry_resp.status();
                         let text = retry_resp.text().await.unwrap_or_default();
                         warn!(status = %status, body = %text, "Telegram sendMessage error (plain text retry)");
-                        return Err(AdapterError::AdapterApi(format!(
+                        return Err(SharedAdapterError::AdapterApi(format!(
                             "Telegram sendMessage returned {status}: {text}"
-                        )));
+                        ))
+                        .into());
                     }
                     let message_id = parse_send_message_id(retry_resp).await?;
                     first_message_id.get_or_insert(message_id);
                     continue;
                 }
                 warn!(status = 400, body = %resp_text, "Telegram sendMessage error");
-                return Err(AdapterError::AdapterApi(format!(
+                return Err(SharedAdapterError::AdapterApi(format!(
                     "Telegram sendMessage returned 400 Bad Request: {resp_text}"
-                )));
+                ))
+                .into());
             }
 
             if !resp.status().is_success() {
                 let status = resp.status();
                 let text = resp.text().await.unwrap_or_default();
                 warn!(status = %status, body = %text, "Telegram sendMessage error");
-                return Err(AdapterError::AdapterApi(format!(
+                return Err(SharedAdapterError::AdapterApi(format!(
                     "Telegram sendMessage returned {status}: {text}"
-                )));
+                ))
+                .into());
             }
 
             let message_id = parse_send_message_id(resp).await?;
@@ -142,7 +148,8 @@ impl TelegramApi {
         }
 
         first_message_id.ok_or_else(|| {
-            AdapterError::AdapterApi("Telegram sendMessage returned no message_id".into())
+            SharedAdapterError::AdapterApi("Telegram sendMessage returned no message_id".into())
+                .into()
         })
     }
 
@@ -154,14 +161,15 @@ impl TelegramApi {
             .post(format!("{}/deleteWebhook", self.base_url))
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("Telegram deleteWebhook", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("Telegram deleteWebhook", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "Telegram deleteWebhook returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         Ok(())
@@ -195,25 +203,27 @@ impl TelegramApi {
             .timeout(std::time::Duration::from_secs(u64::from(timeout) + 10))
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("Telegram getUpdates", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("Telegram getUpdates", e))?;
 
         let status = resp.status();
         if status.as_u16() == 409 {
-            return Err(AdapterError::AdapterApi(
+            return Err(SharedAdapterError::AdapterApi(
                 "Telegram getUpdates 409 Conflict: another bot instance is already polling".into(),
-            ));
+            )
+            .into());
         }
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "Telegram getUpdates returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         let json: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("Telegram getUpdates", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("Telegram getUpdates", e))?;
 
         let updates = json
             .get("result")
@@ -238,7 +248,7 @@ impl TelegramApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("Telegram sendChatAction", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("Telegram sendChatAction", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -275,14 +285,17 @@ impl TelegramApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("Telegram setMessageReaction", e))?;
+            .map_err(|e| {
+                SharedAdapterError::provider_unreachable("Telegram setMessageReaction", e)
+            })?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "Telegram setMessageReaction error");
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "Telegram setMessageReaction returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
         Ok(())
     }
@@ -296,24 +309,25 @@ impl TelegramApi {
             .query(&[("chat_id", chat_id)])
             .send()
             .await
-            .map_err(|e| AdapterError::provider_unreachable("Telegram getChat", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("Telegram getChat", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(AdapterError::AdapterApi(format!(
+            return Err(SharedAdapterError::AdapterApi(format!(
                 "Telegram getChat returned {status}: {text}"
-            )));
+            ))
+            .into());
         }
 
         let body: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| AdapterError::provider_response_invalid("Telegram getChat", e))?;
+            .map_err(|e| SharedAdapterError::provider_response_invalid("Telegram getChat", e))?;
 
-        body.get("result")
-            .cloned()
-            .ok_or_else(|| AdapterError::AdapterApi("Telegram getChat: missing result".into()))
+        body.get("result").cloned().ok_or_else(|| {
+            SharedAdapterError::AdapterApi("Telegram getChat: missing result".into()).into()
+        })
     }
 }
 
@@ -321,10 +335,12 @@ async fn parse_send_message_id(resp: reqwest::Response) -> Result<i64, AdapterEr
     let body: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| AdapterError::provider_response_invalid("Telegram sendMessage", e))?;
+        .map_err(|e| SharedAdapterError::provider_response_invalid("Telegram sendMessage", e))?;
     body.pointer("/result/message_id")
         .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| AdapterError::AdapterApi("Telegram sendMessage: missing message_id".into()))
+        .ok_or_else(|| {
+            SharedAdapterError::AdapterApi("Telegram sendMessage: missing message_id".into()).into()
+        })
 }
 
 /// Split text into chunks of at most `max_len` characters, breaking at newlines when possible.
@@ -390,7 +406,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{stub_provider, UNREACHABLE_BASE};
+    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_telegram_keeps_transport_source() {
@@ -401,10 +417,10 @@ mod error_source_tests {
             .await
             .expect_err("dead loopback port must fail");
 
-        let AdapterError::ProviderUnreachable {
+        let AdapterError::Shared(SharedAdapterError::ProviderUnreachable {
             ref operation,
             ref source,
-        } = err
+        }) = err
         else {
             panic!("expected ProviderUnreachable, got {err:?}");
         };
@@ -423,7 +439,10 @@ mod error_source_tests {
             .await
             .expect_err("plain-text body must not decode");
 
-        let AdapterError::ProviderResponseInvalid { ref operation, .. } = err else {
+        let AdapterError::Shared(SharedAdapterError::ProviderResponseInvalid {
+            ref operation, ..
+        }) = err
+        else {
             panic!("expected ProviderResponseInvalid, got {err:?}");
         };
         assert_eq!(operation, "Telegram sendMessage");
@@ -441,7 +460,10 @@ mod error_source_tests {
             .await
             .expect_err("403 must be an error");
 
-        assert!(matches!(err, AdapterError::AdapterApi(_)), "got {err:?}");
+        assert!(
+            matches!(err, AdapterError::Shared(SharedAdapterError::AdapterApi(_))),
+            "got {err:?}"
+        );
         assert!(err.source().is_none());
     }
 }

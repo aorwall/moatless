@@ -15,9 +15,9 @@ use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::adapters::error::AdapterError;
-use moatless_core::db::DbPool;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::loops::dao::LoopDao;
+use moatless_core::db::DbPool;
 
 use super::config::TelegramAdapterConfig;
 
@@ -64,7 +64,7 @@ pub async fn upsert_pairing_request(
     .bind(provider_user_id)
     .fetch_optional(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     if let Some(req) = existing {
         return Ok(req);
@@ -83,7 +83,7 @@ pub async fn upsert_pairing_request(
     .bind(&meta)
     .fetch_one(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     info!(
         loop_id,
@@ -110,7 +110,7 @@ pub async fn find_by_code(
     .bind(code)
     .fetch_optional(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     Ok(row)
 }
@@ -125,7 +125,7 @@ pub async fn list_pending(db: &DbPool, loop_id: &str) -> Result<Vec<PairingReque
     .bind(loop_id)
     .fetch_all(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     Ok(rows)
 }
@@ -144,7 +144,7 @@ pub async fn list_pending_for_user(
     .bind(user_id)
     .fetch_all(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     Ok(rows)
 }
@@ -156,9 +156,9 @@ pub async fn approve_request(
     code: &str,
 ) -> Result<PairingRequest, AdapterError> {
     // Find the pending request
-    let req = find_by_code(db, loop_id, code)
-        .await?
-        .ok_or_else(|| AdapterError::BadRequest("Pairing code not found or already used".into()))?;
+    let req = find_by_code(db, loop_id, code).await?.ok_or_else(|| {
+        SharedAdapterError::BadRequest("Pairing code not found or already used".into())
+    })?;
 
     // Mark as approved
     sqlx::query(
@@ -168,14 +168,14 @@ pub async fn approve_request(
     .bind(req.id)
     .execute(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     // Read current adapter_config and append user to dm_allowlist
     let store = LoopDao::new(db.clone());
     let current_config = store
         .get_adapter_config(loop_id)
         .await
-        .map_err(AdapterError::Db)?;
+        .map_err(SharedAdapterError::Db)?;
 
     let mut tg_config: TelegramAdapterConfig = current_config
         .as_ref()
@@ -189,12 +189,12 @@ pub async fn approve_request(
     }
 
     let updated_config =
-        serde_json::to_value(&tg_config).map_err(AdapterError::ConfigSerialization)?;
+        serde_json::to_value(&tg_config).map_err(SharedAdapterError::ConfigSerialization)?;
 
     store
         .set_adapter_config(loop_id, &updated_config)
         .await
-        .map_err(AdapterError::Db)?;
+        .map_err(SharedAdapterError::Db)?;
 
     info!(
         loop_id,
@@ -209,7 +209,7 @@ pub async fn approve_request(
             .bind(req.id)
             .fetch_one(db)
             .await
-            .map_err(AdapterError::Db)?;
+            .map_err(SharedAdapterError::Db)?;
 
     Ok(updated)
 }
@@ -222,7 +222,7 @@ pub async fn prune_expired(db: &DbPool) -> Result<u64, AdapterError> {
     )
     .execute(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
 
     let count = result.rows_affected();
     if count > 0 {
@@ -293,22 +293,27 @@ mod error_source_tests {
             .await
             .expect_err("unreachable database must fail");
 
-        assert!(matches!(err, AdapterError::Db(_)), "got {err:?}");
-        assert!(err
-            .source()
-            .and_then(|s| s.downcast_ref::<sqlx::Error>())
-            .is_some());
+        assert!(
+            matches!(err, AdapterError::Shared(SharedAdapterError::Db(_))),
+            "got {err:?}"
+        );
+        assert!(
+            err.source()
+                .and_then(|s| s.downcast_ref::<sqlx::Error>())
+                .is_some()
+        );
     }
 
     #[tokio::test]
     async fn config_serialization_keeps_serde_source_and_redacts() {
         let serde_err = serde_json::from_str::<serde_json::Value>("nope").unwrap_err();
-        let err = AdapterError::ConfigSerialization(serde_err);
+        let err: AdapterError = SharedAdapterError::ConfigSerialization(serde_err).into();
 
-        assert!(err
-            .source()
-            .and_then(|s| s.downcast_ref::<serde_json::Error>())
-            .is_some());
+        assert!(
+            err.source()
+                .and_then(|s| s.downcast_ref::<serde_json::Error>())
+                .is_some()
+        );
 
         let (status, body) = response_snapshot(err.into_response()).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);

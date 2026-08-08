@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use tokio::sync::OnceCell;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::{Adapter, AdapterKind, AdapterOutboundContent};
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
@@ -86,14 +86,14 @@ impl SlackAdapter {
         let config = self
             .config
             .as_deref()
-            .ok_or_else(|| AdapterError::Internal("Slack Adapter missing config".into()))?;
+            .ok_or_else(|| SharedAdapterError::Internal("Slack Adapter missing config".into()))?;
         let Some(app) = crate::adapter_apps::slack_app_config(db, config, app_key)
             .await
-            .map_err(|e| AdapterError::AdapterApi(e.to_string()))?
+            .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
         else {
-            return Err(AdapterError::AdapterNotConfigured(format!(
-                "slack app '{app_key}'"
-            )));
+            return Err(
+                SharedAdapterError::AdapterNotConfigured(format!("slack app '{app_key}'")).into(),
+            );
         };
         Ok(ResolvedSlackApp {
             api: SlackApi::new(&app.bot_token),
@@ -110,7 +110,8 @@ impl SlackAdapter {
                 let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
                 let info = app.api.auth_test().await?;
                 info.team_id.ok_or_else(|| {
-                    AdapterError::AdapterApi("Slack auth.test returned no team_id".into())
+                    SharedAdapterError::AdapterApi("Slack auth.test returned no team_id".into())
+                        .into()
                 })
             })
             .await

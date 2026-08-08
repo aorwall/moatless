@@ -14,7 +14,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::warn;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
 
@@ -35,7 +35,7 @@ pub async fn linear_webhook(
     body: Bytes,
 ) -> Result<StatusCode, AdapterError> {
     let linear_provider =
-        linear_provider.ok_or_else(|| AdapterError::AdapterNotConfigured("linear".into()))?;
+        linear_provider.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("linear".into()))?;
 
     let signature = headers
         .get("linear-signature")
@@ -76,9 +76,10 @@ pub async fn linear_webhook(
                         missing,
                         "Linear webhook refused: the delivery cannot be given an identity"
                     );
-                    return Err(AdapterError::BadRequest(format!(
+                    return Err(SharedAdapterError::BadRequest(format!(
                         "Linear delivery is missing {missing}"
-                    )));
+                    ))
+                    .into());
                 }
                 // Everything else keeps the long-standing behaviour: log it,
                 // meter it, and acknowledge.

@@ -1,7 +1,7 @@
 use crate::adapters::models::{Audience, RoutingMode, SubscriptionMatch};
 use moatless_core::db::DbPool;
 
-use super::{normalize, title_is_ignored, IgnoredWebhook, NormalizeContext, PrimaryWebhook};
+use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
 use crate::adapters::providers::github_pr::status::WebhookStatusObservation;
 
 fn fake_db_pool() -> DbPool {

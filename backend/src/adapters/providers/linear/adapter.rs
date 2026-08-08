@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
     AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
     SubscriptionMatch, TaskBinding,
@@ -17,13 +17,13 @@ use crate::adapters::{
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
     AdapterPostBindingFollowup,
 };
-use moatless_core::db::DbPool;
 use crate::state::AppState;
+use moatless_core::db::DbPool;
 
+use super::SUBJECT_KIND_ISSUE;
 use super::agent_api::LinearAgentApi;
 use super::auth::LinearCredentials;
 use super::status;
-use super::SUBJECT_KIND_ISSUE;
 
 /// Linear adapter.
 pub struct LinearAdapter {
@@ -105,11 +105,12 @@ impl LinearAdapter {
         let app_key = crate::adapter_apps::app_key_from_transport_config(transport_config);
         let Some(app) = crate::adapter_apps::linear_app_config(&self.db, config, app_key)
             .await
-            .map_err(|e| AdapterError::AdapterApi(e.to_string()))?
+            .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
         else {
-            return Err(AdapterError::AdapterNotConfigured(format!(
+            return Err(SharedAdapterError::AdapterNotConfigured(format!(
                 "linear app '{app_key}'"
-            )));
+            ))
+            .into());
         };
         Ok(LinearCredentials::from(&app).api_for_org(self.db.clone(), org_id))
     }
@@ -149,9 +150,10 @@ impl AdapterBindingReply for LinearAdapter {
         _config: &LoopContext,
         _message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        Err(AdapterError::BadRequest(
+        Err(SharedAdapterError::BadRequest(
             "Linear outbound now goes through send_reply_for_binding (Agents API)".into(),
-        ))
+        )
+        .into())
     }
 
     /// Reply to a bound Linear destination. Routes by `subject_kind`:
@@ -183,7 +185,7 @@ impl AdapterBindingReply for LinearAdapter {
                 .get("id")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| {
-                    AdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
+                    SharedAdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
                 })?;
             return Ok(Some(super::external_id::comment(comment_id)));
         }
@@ -197,7 +199,7 @@ impl AdapterBindingReply for LinearAdapter {
             .get("session_id")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                AdapterError::BadRequest(
+                SharedAdapterError::BadRequest(
                     "Linear binding missing session_id in destination_config".into(),
                 )
             })?;
@@ -207,7 +209,7 @@ impl AdapterBindingReply for LinearAdapter {
             .get("issue_id")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                AdapterError::BadRequest(
+                SharedAdapterError::BadRequest(
                     "Linear binding missing issue_id in destination_config".into(),
                 )
             })?;
@@ -263,9 +265,10 @@ impl AdapterDirectDestination for LinearAdapter {
     ) -> Result<crate::adapters::DestinationPostResult, AdapterError> {
         let id_or_key = destination.strip_prefix("issue:").unwrap_or(destination);
         if id_or_key.is_empty() {
-            return Err(AdapterError::BadRequest(
+            return Err(SharedAdapterError::BadRequest(
                 "Linear destination must be `issue:<SP-N>` or `issue:<uuid>`".into(),
-            ));
+            )
+            .into());
         }
 
         let api = super::auth::api_for_single_workspace(self).await?;
@@ -273,7 +276,9 @@ impl AdapterDirectDestination for LinearAdapter {
         let issue_uuid = issue
             .get("id")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| AdapterError::AdapterApi("Linear issue payload missing id".into()))?
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi("Linear issue payload missing id".into())
+            })?
             .to_string();
         let identifier = issue
             .get("identifier")
@@ -290,7 +295,7 @@ impl AdapterDirectDestination for LinearAdapter {
             .get("id")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
-                AdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
+                SharedAdapterError::AdapterApi("Linear commentCreate missing comment.id".into())
             })?
             .to_string();
 

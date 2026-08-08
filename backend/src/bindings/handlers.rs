@@ -17,7 +17,7 @@ use crate::adapters::common::{
     task_binding_response,
 };
 use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::bindings::dao::TaskBindingDao;
 use crate::bindings::reply::ExternalReplyService;
 use crate::extractors::AuthUser;
@@ -69,29 +69,33 @@ pub async fn create_task_binding(
     )
     .await?;
     if connection.adapter_kind != adapter_kind {
-        return Err(AdapterError::BadRequest(format!(
+        return Err(SharedAdapterError::BadRequest(format!(
             "Connection {} is for adapter {}, not {}",
             connection.id, connection.adapter_kind, adapter_kind
-        )));
+        ))
+        .into());
     }
     if let Some(loop_id) = req.loop_id.as_deref() {
         let trigger = load_loop_for_auth_with(loops.as_ref(), &ctx, loop_id).await?;
         let crate::loops::dao::LoopSourceRow::AdapterEvent(source) = trigger.source else {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "Loop {loop_id} is not an adapter-event Loop"
-            )));
+            ))
+            .into());
         };
         if source.adapter_kind != adapter_kind {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "Loop {} is for adapter {}, not {}",
                 trigger.loop_.id, source.adapter_kind, adapter_kind
-            )));
+            ))
+            .into());
         }
         if source.connection_id != req.connection_id {
-            return Err(AdapterError::BadRequest(format!(
+            return Err(SharedAdapterError::BadRequest(format!(
                 "Loop {} belongs to connection {}, not {}",
                 trigger.loop_.id, source.connection_id, req.connection_id
-            )));
+            ))
+            .into());
         }
     }
     let now = Utc::now();
@@ -176,7 +180,7 @@ pub async fn add_message_reaction(
         .await?;
     let providers = adapters
         .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
+        .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("No adapters configured".into()))?;
     let adapter = providers.reactions_by_name(&provider_key)?;
     let binding_ctx = moatless_adapter_model::models::binding_context(&binding);
     let external_id = adapter
@@ -210,7 +214,7 @@ pub async fn remove_message_reaction(
         .await?;
     let providers = adapters
         .as_ref()
-        .ok_or_else(|| AdapterError::AdapterNotConfigured("No adapters configured".into()))?;
+        .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("No adapters configured".into()))?;
     let adapter = providers.reactions_by_name(&provider_key)?;
     let binding_ctx = moatless_adapter_model::models::binding_context(&binding);
     adapter

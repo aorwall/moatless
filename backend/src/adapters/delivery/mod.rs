@@ -124,11 +124,11 @@ pub use models::{
 };
 pub use store::AdapterDeliveryStore;
 pub(crate) use typed::{
-    register_connection_delivery, register_typed_delivery, ConnectionDeliveryPayload,
+    ConnectionDeliveryPayload, register_connection_delivery, register_typed_delivery,
 };
 pub use worker::spawn_adapter_delivery_worker;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 
 /// Admission failures reach the sender as "not accepted, send it again".
 ///
@@ -140,8 +140,8 @@ use crate::adapters::error::AdapterError;
 impl From<AdmitError> for AdapterError {
     fn from(error: AdmitError) -> Self {
         match error {
-            AdmitError::AtCapacity { .. } => Self::Overloaded,
-            AdmitError::Store(source) => Self::Db(source),
+            AdmitError::AtCapacity { .. } => Self::Shared(SharedAdapterError::Overloaded),
+            AdmitError::Store(source) => Self::Shared(SharedAdapterError::Db(source)),
         }
     }
 }
@@ -158,7 +158,7 @@ impl From<AdmitError> for AdapterError {
 /// permanent failure transient only delays the same terminal record by the
 /// attempt budget, and it still lands in `failed` with its cause. So anything
 /// that is not clearly a rejected or missing input is retried — including
-/// [`AdapterError::Internal`], which the adapter runtimes still use for any
+/// [`SharedAdapterError::Internal`], which the adapter runtimes still use for any
 /// state they could not classify.
 ///
 /// The causing error is kept as the source either way, so a terminal record's
@@ -166,49 +166,44 @@ impl From<AdmitError> for AdapterError {
 impl From<AdapterError> for AdapterDeliveryFailure {
     fn from(error: AdapterError) -> Self {
         match error {
-            // Transient: infrastructure, the upstream sender, our own
-            // capacity, or a message this process synthesized for a condition
-            // it could not classify.
-            AdapterError::Db(_)
-            | AdapterError::AdapterApi(_)
-            | AdapterError::Unauthorized(_)
-            | AdapterError::Overloaded
-            | AdapterError::AdapterNotConfigured(_)
-            | AdapterError::Internal(_) => Self::retryable(error),
-            // Transient: we never reached the sender, or it answered with
-            // something we could not decode. Both sit on the same 502 path as
-            // `AdapterApi` and a later attempt can genuinely see a different
-            // answer.
-            AdapterError::ProviderUnreachable { .. }
-            | AdapterError::ProviderResponseInvalid { .. } => Self::retryable(error),
-            // Transient: resolving a credential failed. The token may be
-            // refreshed, or the repository's installation repaired, between
-            // attempts — the work itself was never rejected.
-            AdapterError::RepositoryCredential { .. } | AdapterError::UserCredential { .. } => {
-                Self::retryable(error)
-            }
-            // Transient by construction: `TaskCreation` only carries failures
-            // the call site already decided are worth redelivering (preflight
-            // rejections are handled there and never reach here), and
-            // `MessageDelivery` wraps a storage-layer failure of the task
-            // message flow.
-            AdapterError::TaskCreation(_) | AdapterError::MessageDelivery(_) => {
-                Self::retryable(error)
-            }
-            // Permanent: the input, or the thing it names, is wrong. Redoing
-            // the identical work cannot change that.
-            AdapterError::ConfigNotFound(_)
-            | AdapterError::NotFound(_)
-            | AdapterError::BadRequest(_)
-            | AdapterError::Conflict(_)
-            | AdapterError::SignatureInvalid
-            | AdapterError::AccessDenied(_)
-            | AdapterError::MultipleTargets { .. } => Self::permanent(error),
-            // Permanent: serializing a config we already hold is deterministic,
-            // so every attempt reproduces the identical failure. This is the
-            // one arm where "redoing the identical work" is provably futile
-            // rather than merely unlikely to help.
-            AdapterError::ConfigSerialization(_) => Self::permanent(error),
+            // Transient: resolving a credential failed (the token may be
+            // refreshed or the installation repaired between attempts), or a
+            // task-flow storage failure the call site already decided is worth
+            // redelivering — `TaskCreation`'s preflight rejections are handled
+            // there and never reach here.
+            AdapterError::RepositoryCredential { .. }
+            | AdapterError::UserCredential { .. }
+            | AdapterError::TaskCreation(_)
+            | AdapterError::MessageDelivery(_) => Self::retryable(error),
+            // Transient: infrastructure, the upstream sender, our own capacity,
+            // a message this process synthesized for a condition it could not
+            // classify, or a provider we never reached / could not decode —
+            // the latter two sit on the same 502 path as `AdapterApi` and a
+            // later attempt can genuinely see a different answer.
+            AdapterError::Shared(
+                SharedAdapterError::Db(_)
+                | SharedAdapterError::AdapterApi(_)
+                | SharedAdapterError::Unauthorized(_)
+                | SharedAdapterError::Overloaded
+                | SharedAdapterError::AdapterNotConfigured(_)
+                | SharedAdapterError::Internal(_)
+                | SharedAdapterError::ProviderUnreachable { .. }
+                | SharedAdapterError::ProviderResponseInvalid { .. },
+            ) => Self::retryable(error),
+            // Permanent: the input, or the thing it names, is wrong — redoing
+            // the identical work cannot change that. `ConfigSerialization` is
+            // the one arm where futility is provable rather than merely likely:
+            // serializing a config we already hold is deterministic.
+            AdapterError::Shared(
+                SharedAdapterError::ConfigNotFound(_)
+                | SharedAdapterError::NotFound(_)
+                | SharedAdapterError::BadRequest(_)
+                | SharedAdapterError::Conflict(_)
+                | SharedAdapterError::SignatureInvalid
+                | SharedAdapterError::AccessDenied(_)
+                | SharedAdapterError::MultipleTargets { .. }
+                | SharedAdapterError::ConfigSerialization(_),
+            ) => Self::permanent(error),
         }
     }
 }
@@ -263,17 +258,19 @@ mod tests {
     #[tokio::test]
     async fn every_adapter_error_pins_its_retry_class() {
         let retryable: Vec<AdapterError> = vec![
-            AdapterError::Db(sqlx::Error::PoolTimedOut),
-            AdapterError::AdapterApi("502 from GitHub".into()),
-            AdapterError::Unauthorized("token expired".into()),
-            AdapterError::Overloaded,
-            AdapterError::AdapterNotConfigured("github_pr".into()),
-            AdapterError::Internal("failed to create task: db blip".into()),
-            AdapterError::provider_unreachable("chat.postMessage", transport_error().await),
-            AdapterError::provider_response_invalid(
+            SharedAdapterError::Db(sqlx::Error::PoolTimedOut).into(),
+            SharedAdapterError::AdapterApi("502 from GitHub".into()).into(),
+            SharedAdapterError::Unauthorized("token expired".into()).into(),
+            SharedAdapterError::Overloaded.into(),
+            SharedAdapterError::AdapterNotConfigured("github_pr".into()).into(),
+            SharedAdapterError::Internal("failed to create task: db blip".into()).into(),
+            SharedAdapterError::provider_unreachable("chat.postMessage", transport_error().await)
+                .into(),
+            SharedAdapterError::provider_response_invalid(
                 "Linear JSON",
                 serde_json::from_str::<serde_json::Value>("{oops").unwrap_err(),
-            ),
+            )
+            .into(),
             AdapterError::RepositoryCredential {
                 source: crate::repository::error::RepositoryError::Db(sqlx::Error::PoolClosed),
             },
@@ -297,16 +294,17 @@ mod tests {
         }
 
         let permanent: Vec<AdapterError> = vec![
-            AdapterError::ConfigNotFound("connection".into()),
-            AdapterError::NotFound("task".into()),
-            AdapterError::BadRequest("missing repository.full_name".into()),
-            AdapterError::Conflict("already linked".into()),
-            AdapterError::SignatureInvalid,
-            AdapterError::AccessDenied("not a member".into()),
-            AdapterError::MultipleTargets { targets: vec![] },
-            AdapterError::ConfigSerialization(
+            SharedAdapterError::ConfigNotFound("connection".into()).into(),
+            SharedAdapterError::NotFound("task".into()).into(),
+            SharedAdapterError::BadRequest("missing repository.full_name".into()).into(),
+            SharedAdapterError::Conflict("already linked".into()).into(),
+            SharedAdapterError::SignatureInvalid.into(),
+            SharedAdapterError::AccessDenied("not a member".into()).into(),
+            SharedAdapterError::MultipleTargets { targets: vec![] }.into(),
+            SharedAdapterError::ConfigSerialization(
                 serde_json::from_str::<serde_json::Value>("{oops").unwrap_err(),
-            ),
+            )
+            .into(),
         ];
         for error in permanent {
             let rendered = error.to_string();
@@ -321,7 +319,9 @@ mod tests {
     /// something did.
     #[test]
     fn classification_keeps_the_adapter_error_as_the_cause() {
-        let failure = AdapterDeliveryFailure::from(AdapterError::BadRequest("bad payload".into()));
+        let failure = AdapterDeliveryFailure::from(AdapterError::from(
+            SharedAdapterError::BadRequest("bad payload".into()),
+        ));
         let source = std::error::Error::source(&failure).expect("the adapter error is retained");
         assert!(source.to_string().contains("bad payload"));
     }

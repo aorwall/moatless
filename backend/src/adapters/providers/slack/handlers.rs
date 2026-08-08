@@ -6,7 +6,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
 use crate::state::AppState;
@@ -28,7 +28,7 @@ pub async fn slack_webhook(
     body: Bytes,
 ) -> Result<Response, AdapterError> {
     let slack_provider =
-        slack_provider.ok_or_else(|| AdapterError::AdapterNotConfigured("slack".into()))?;
+        slack_provider.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("slack".into()))?;
 
     let request = WebhookRequest {
         timestamp: header_value(&headers, "x-slack-request-timestamp"),
@@ -66,7 +66,9 @@ pub async fn slack_webhook(
         // capacity and `500` on a failed write; Slack re-delivers either way.
         Err(IngressError::NotAdmitted(e)) => Err(AdapterError::from(e)),
         // No retry supplies what the request was missing.
-        Err(IngressError::Unidentifiable(message)) => Err(AdapterError::BadRequest(message)),
+        Err(IngressError::Unidentifiable(message)) => {
+            Err(SharedAdapterError::BadRequest(message).into())
+        }
         // A rejection of the delivery itself — a failed signature, a failed
         // read. Answered as the failure it is, exactly as before.
         Err(IngressError::Ingress(e)) => Err(e),
@@ -86,7 +88,7 @@ mod tests {
     use axum::response::IntoResponse;
 
     use crate::adapters::delivery::AdmitError;
-    use crate::adapters::error::AdapterError;
+    use crate::adapters::error::{AdapterError, SharedAdapterError};
     use crate::adapters::ingress::IngressError;
     use crate::adapters::test_support::response_snapshot;
 
@@ -101,7 +103,7 @@ mod tests {
     async fn no_failure_on_the_slack_webhook_path_is_acknowledged() {
         for (error, expected) in [
             (
-                IngressError::Ingress(AdapterError::SignatureInvalid),
+                IngressError::Ingress(SharedAdapterError::SignatureInvalid.into()),
                 StatusCode::UNAUTHORIZED,
             ),
             (
@@ -121,7 +123,9 @@ mod tests {
             // handler itself needs an `AppState` to reach.
             let mapped = match error {
                 IngressError::NotAdmitted(e) => AdapterError::from(e),
-                IngressError::Unidentifiable(message) => AdapterError::BadRequest(message),
+                IngressError::Unidentifiable(message) => {
+                    SharedAdapterError::BadRequest(message).into()
+                }
                 IngressError::Ingress(e) => e,
             };
             let (status, _) = response_snapshot(mapped.into_response()).await;

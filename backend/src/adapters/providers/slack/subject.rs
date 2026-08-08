@@ -3,7 +3,7 @@
 //! Every Slack destination — a Binding's thread properties, a `channel:`/`dm:`/
 //! `thread:` string, a reaction target — is read here and nowhere else.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{BindingContext, NewThreadInfo, SubscriptionMatch};
 use crate::adapters::{AdapterDestinationBuilder, BindingDestination};
 
@@ -123,36 +123,39 @@ pub(super) fn parse_destination(
 ) -> Result<(String, Option<String>), AdapterError> {
     let raw = destination.trim();
     if raw.is_empty() {
-        return Err(AdapterError::BadRequest(
-            "Slack destination must not be empty".into(),
-        ));
+        return Err(
+            SharedAdapterError::BadRequest("Slack destination must not be empty".into()).into(),
+        );
     }
     if let Some(rest) = raw.strip_prefix("thread:") {
         let (channel, thread_ts) = rest.split_once('/').ok_or_else(|| {
-            AdapterError::BadRequest(
+            SharedAdapterError::BadRequest(
                 "Slack thread destination must be `thread:<channel>/<thread_ts>`".into(),
             )
         })?;
         if channel.is_empty() || thread_ts.is_empty() {
-            return Err(AdapterError::BadRequest(
+            return Err(SharedAdapterError::BadRequest(
                 "Slack thread destination requires both channel and thread_ts".into(),
-            ));
+            )
+            .into());
         }
         return Ok((channel.to_string(), Some(thread_ts.to_string())));
     }
     if let Some(rest) = raw.strip_prefix("channel:") {
         if rest.is_empty() {
-            return Err(AdapterError::BadRequest(
+            return Err(SharedAdapterError::BadRequest(
                 "Slack channel destination must not be empty".into(),
-            ));
+            )
+            .into());
         }
         return Ok((rest.to_string(), None));
     }
     if let Some(rest) = raw.strip_prefix("dm:") {
         if rest.is_empty() {
-            return Err(AdapterError::BadRequest(
+            return Err(SharedAdapterError::BadRequest(
                 "Slack DM destination must not be empty".into(),
-            ));
+            )
+            .into());
         }
         return Ok((rest.to_string(), None));
     }
@@ -168,14 +171,14 @@ pub(super) fn reaction_target<'a>(
     target_external_id: &'a str,
 ) -> Result<(String, &'a str), AdapterError> {
     let ts = super::external_id::ts_from_message_id(target_external_id).ok_or_else(|| {
-        AdapterError::BadRequest(format!(
+        SharedAdapterError::BadRequest(format!(
             "Slack reaction target `{target_external_id}` is not a valid slack:ts:<ts> id"
         ))
     })?;
     let channel = thread_coordinates(&binding.destination_config)
         .channel
         .ok_or_else(|| {
-            AdapterError::BadRequest(
+            SharedAdapterError::BadRequest(
                 "Slack binding destination_config has no `channel` field".into(),
             )
         })?
@@ -260,8 +263,8 @@ impl AdapterDestinationBuilder for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::{BindingContext, NewThreadInfo, RoutingMode, SubscriptionMatch};
     use crate::adapters::AdapterDestinationBuilder;
+    use crate::adapters::models::{BindingContext, NewThreadInfo, RoutingMode, SubscriptionMatch};
     use moatless_backend_core::scope::Scope;
 
     use super::super::adapter::SlackAdapter;

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use moatless_backend_core::scope::ScopeContext;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::SharedAdapterError;
 use crate::adapters::models::AdapterConnection;
 use crate::state::AppState;
 
@@ -105,7 +105,7 @@ async fn resolve_connection(
         .adapter_connections
         .find_by_id(connection_id, &sys_ctx)
         .await
-        .map_err(|e| AdapterDeliveryFailure::retryable(AdapterError::Db(e)))?
+        .map_err(|e| AdapterDeliveryFailure::retryable(SharedAdapterError::Db(e)))?
         .ok_or_else(|| {
             AdapterDeliveryFailure::permanent(ConnectionGone {
                 connection_id: connection_id.to_string(),

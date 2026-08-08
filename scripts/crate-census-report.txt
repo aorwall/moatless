@@ -1,14 +1,14 @@
 CRATE-CENSUS REPORT
-files parsed: 665
+files parsed: 666
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3862  illegal   90
+CODE       legal  4061  illegal   90
 ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           53  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 1483 point down into the existing crates/* floor
-TEST-CONTEXT 2396  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 2435  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
@@ -43,25 +43,25 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (8 files, 3516 lines)
     sandbox/docker/
 
-  loops  (50 files, 14525 lines)
+  loops  (50 files, 14548 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
-  adapter-github-pr  (24 files, 10562 lines)
+  adapter-github-pr  (24 files, 10604 lines)
     adapters/providers/github_pr/
 
-  adapter-linear  (23 files, 9613 lines)
+  adapter-linear  (23 files, 9660 lines)
     adapters/providers/linear/
 
-  adapter-slack  (18 files, 6121 lines)
+  adapter-slack  (18 files, 6171 lines)
     adapters/providers/slack/
 
-  adapter-telegram  (18 files, 4231 lines)
+  adapter-telegram  (18 files, 4265 lines)
     adapters/providers/telegram/
 
-  adapter-webhook  (6 files, 775 lines)
+  adapter-webhook  (6 files, 777 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11840 lines)
+  server  (32 files, 11843 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (1 files, 203 lines)
@@ -70,7 +70,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 113904 lines
+  TOTAL backend/src: 114105 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (16 classes) ==
 
@@ -86,9 +86,9 @@ adapter-github-pr -> server   x8
 
 adapter-linear -> server   x14
     backend/src/adapters/providers/linear/activity.rs:34  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/adapter.rs:21  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/adapters/providers/linear/adapter.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/api_routes.rs:34  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/auth.rs:26  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/adapters/providers/linear/auth.rs:24  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/close.rs:24  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/comments.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/delivery.rs:78  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -103,12 +103,12 @@ adapter-linear -> server   x14
 adapter-slack -> server   x3
     backend/src/adapters/providers/slack/delivery.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/slack/handlers.rs:12  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/slack/ingress.rs:15  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/adapters/providers/slack/ingress.rs:14  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 adapter-telegram -> server   x4
     backend/src/adapters/providers/telegram/delivery.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/telegram/handlers.rs:14  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/telegram/ingress.rs:17  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/adapters/providers/telegram/ingress.rs:16  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/telegram/poller.rs:12  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 adapter-webhook -> server   x1
@@ -186,7 +186,7 @@ loops -> adapter-webhook   x7
 
 loops -> server   x8
     backend/src/adapters/capabilities.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/common.rs:21  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+    backend/src/adapters/common.rs:22  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/delivery/typed.rs:16  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/handlers.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/registry/bootstrap.rs:5  [CODE] crate::compose::Ports   -> [Step 5 family — composition root (Ports)]

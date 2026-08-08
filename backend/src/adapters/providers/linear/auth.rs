@@ -19,12 +19,12 @@
 //! in place when it is near expiry, so the pool is part of the credential, not
 //! a convenience.
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, TaskBinding};
-use moatless_core::config::LinearConfig;
-use moatless_core::db::DbPool;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::config::LinearConfig;
+use moatless_core::db::DbPool;
 
 use super::adapter::LinearAdapter;
 use super::agent_api::LinearAgentApi;
@@ -83,11 +83,11 @@ pub(super) async fn api_for_connection(
     let app_key = crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
     let app = crate::adapter_apps::linear_app_config(&state.db, &state.config, app_key)
         .await
-        .map_err(|e| AdapterError::AdapterApi(e.to_string()))?;
+        .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?;
     let Some(app) = app else {
-        return Err(AdapterError::AdapterNotConfigured(format!(
-            "linear app '{app_key}'"
-        )));
+        return Err(
+            SharedAdapterError::AdapterNotConfigured(format!("linear app '{app_key}'")).into(),
+        );
     };
     let credentials = LinearCredentials::from(&app);
     Ok(credentials.api_for_org(state.db.clone(), &connection.scope_value))
@@ -159,20 +159,22 @@ pub(super) async fn api_for_single_workspace(
     )
     .fetch_all(db)
     .await
-    .map_err(AdapterError::Db)?;
+    .map_err(SharedAdapterError::Db)?;
     match rows.len() {
-        0 => Err(AdapterError::AdapterNotConfigured(
+        0 => Err(SharedAdapterError::AdapterNotConfigured(
             "No Linear workspace installed — run the Linear OAuth install first".into(),
-        )),
+        )
+        .into()),
         1 => {
             adapter
                 .agent_api_for_transport(&rows[0].0, &rows[0].1)
                 .await
         }
-        _ => Err(AdapterError::BadRequest(
+        _ => Err(SharedAdapterError::BadRequest(
             "Multiple Linear workspaces installed — use the /api/v1/linear/* \
              endpoints with an explicit connectionId"
                 .into(),
-        )),
+        )
+        .into()),
     }
 }

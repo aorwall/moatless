@@ -3,7 +3,7 @@
 
 use tracing::warn;
 
-use crate::adapters::error::AdapterError;
+use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
     AdapterConnection, BindingContext, LoopContext, NewThreadInfo, OutboundReply,
     SubscriptionMatch, TaskBinding,
@@ -44,12 +44,12 @@ impl AdapterBindingReply for SlackAdapter {
     ) -> Result<Option<String>, AdapterError> {
         let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
         let coordinates = subject::thread_coordinates(&thread.destination_config);
-        let channel = coordinates
-            .channel
-            .ok_or_else(|| AdapterError::Internal("No channel in thread properties".into()))?;
-        let thread_ts = coordinates
-            .thread_ts
-            .ok_or_else(|| AdapterError::Internal("No thread_ts in thread properties".into()))?;
+        let channel = coordinates.channel.ok_or_else(|| {
+            SharedAdapterError::Internal("No channel in thread properties".into())
+        })?;
+        let thread_ts = coordinates.thread_ts.ok_or_else(|| {
+            SharedAdapterError::Internal("No thread_ts in thread properties".into())
+        })?;
 
         let text = text::with_task_link(&message.text, message.task_url.as_deref());
 
@@ -103,12 +103,12 @@ impl AdapterBindingReply for SlackAdapter {
             |r| moatless_adapter_model::models::subscription_context(r, "slack"),
         );
         let coordinates = subject::thread_coordinates(&thread.destination_config);
-        let channel = coordinates
-            .channel
-            .ok_or_else(|| AdapterError::Internal("No channel in thread properties".into()))?;
-        let thread_ts = coordinates
-            .thread_ts
-            .ok_or_else(|| AdapterError::Internal("No thread_ts in thread properties".into()))?;
+        let channel = coordinates.channel.ok_or_else(|| {
+            SharedAdapterError::Internal("No channel in thread properties".into())
+        })?;
+        let thread_ts = coordinates.thread_ts.ok_or_else(|| {
+            SharedAdapterError::Internal("No thread_ts in thread properties".into())
+        })?;
 
         let text = text::with_task_link(&message.text, message.task_url.as_deref());
         let ts = app
@@ -151,7 +151,9 @@ impl AdapterDirectDestination for SlackAdapter {
             .api
             .post_message(&channel, &message.text, thread_ts.as_deref())
             .await?
-            .ok_or_else(|| AdapterError::Internal("Slack did not return message ts".into()))?;
+            .ok_or_else(|| {
+                SharedAdapterError::Internal("Slack did not return message ts".into())
+            })?;
 
         // Files upload into the same thread (or top-level when there's no thread).
         let upload_thread_ts = thread_ts.clone().unwrap_or_else(|| ts.clone());
@@ -200,7 +202,9 @@ impl AdapterNewThread for SlackAdapter {
             .api
             .post_message(channel, &text, None)
             .await?
-            .ok_or_else(|| AdapterError::Internal("Slack did not return message ts".into()))?;
+            .ok_or_else(|| {
+                SharedAdapterError::Internal("Slack did not return message ts".into())
+            })?;
 
         upload_files(&app.api, channel, &ts, message).await;
 
@@ -511,9 +515,11 @@ mod tests {
         assert_eq!(stub.paths(), vec!["/chat.postMessage".to_string()]);
         let posted = body(&stub.requests()[0]);
         assert_eq!(posted["channel"], "C1");
-        assert!(posted
-            .get("thread_ts")
-            .is_none_or(serde_json::Value::is_null));
+        assert!(
+            posted
+                .get("thread_ts")
+                .is_none_or(serde_json::Value::is_null)
+        );
         assert_eq!(
             posted["text"],
             "kicking off\n<https://example.test/t/1|View task>"
