@@ -6,12 +6,15 @@
 
 use tracing::{debug, warn};
 
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::error::AdapterError;
 use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::models::{InboundMessage, LoopContext};
 use crate::adapters::{Adapter, BindingDestination};
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
+use crate::task::binding_dao::TaskBindingDao;
 use moatless_core::db::DbPool;
 
 use super::adapter::{ResolvedSlackApp, SlackAdapter};
@@ -99,7 +102,9 @@ fn challenge(payload: &serde_json::Value) -> String {
 /// reads are the routing tables and the Binding index — no write, and nothing
 /// that outlives a rejected signature.
 async fn resolve(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
+    loops: &LoopDao,
+    task_bindings: &dyn TaskBindingDao,
     adapter: &SlackAdapter,
     payload: &serde_json::Value,
     event_type: &str,
@@ -132,15 +137,14 @@ async fn resolve(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
-    let Some((connection, subscription)) =
-        crate::bindings::runtime::resolve_chat_provider_event(
-            state.adapter_connections.as_ref(),
-            state.loops.as_ref(),
-            "slack",
-            team_id,
-            source_id,
-        )
-        .await?
+    let Some((connection, subscription)) = crate::bindings::runtime::resolve_chat_provider_event(
+        adapter_connections,
+        loops,
+        "slack",
+        team_id,
+        source_id,
+    )
+    .await?
     else {
         debug!(
             source_id,
@@ -171,8 +175,7 @@ async fn resolve(
 
     // A reply in a thread a Binding already tracks bypasses the trigger filter.
     let is_tracked_thread = match thread_ts {
-        Some(_) => state
-            .task_bindings
+        Some(_) => task_bindings
             .find_by_subject(
                 adapter.provider_key(),
                 destination.subject_kind,
@@ -211,7 +214,7 @@ fn verify(app: &ResolvedSlackApp, request: &WebhookRequest<'_>) -> Result<(), Ad
 
 /// Normalize one payload and apply what it decided, in that order — the
 /// sequence [`receive`] runs, kept in one function so it can be exercised
-/// without an [`AppState`] behind it.
+/// with an app, a config, and a pool alone — no ingress ports behind it.
 async fn normalize_and_apply(
     app: &ResolvedSlackApp,
     config: &LoopContext,
@@ -267,7 +270,11 @@ fn admission_event_id(payload: &serde_json::Value, msg: &InboundMessage) -> Stri
 
 /// Resolve, verify, normalize, apply, and durably admit one Slack webhook.
 pub(super) async fn receive(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
+    loops: &LoopDao,
+    task_bindings: &dyn TaskBindingDao,
+    db: &DbPool,
+    adapter_delivery: &AdapterDeliveryStore,
     adapter: &SlackAdapter,
     request: WebhookRequest<'_>,
 ) -> Result<Received, IngressError> {
@@ -280,9 +287,16 @@ pub(super) async fn receive(
         .to_string();
     debug!(event_type, "Slack webhook received");
 
-    let verifiable = match resolve(state, adapter, &payload, &event_type)
-        .await
-        .map_err(IngressError::Ingress)?
+    let verifiable = match resolve(
+        adapter_connections,
+        loops,
+        task_bindings,
+        adapter,
+        &payload,
+        &event_type,
+    )
+    .await
+    .map_err(IngressError::Ingress)?
     {
         Routing::Dropped(reason) => {
             return Ok(Received::Delivery(Outcome::ignored(event_type, reason)));
@@ -314,7 +328,7 @@ pub(super) async fn receive(
     let app = adapter.app(&app_key).await.map_err(IngressError::Ingress)?;
     verify(&app, &request).map_err(IngressError::Ingress)?;
 
-    let normalization = normalize_and_apply(&app, &config, &state.db, &payload, is_tracked_thread)
+    let normalization = normalize_and_apply(&app, &config, db, &payload, is_tracked_thread)
         .await
         .map_err(IngressError::Ingress)?;
 
@@ -352,8 +366,7 @@ pub(super) async fn receive(
     // Slack as a failure so it re-delivers, and must never be swallowed into an
     // acknowledgment. The routing itself runs in the Adapter delivery worker,
     // which is also where the webhook outcome metric is recorded.
-    let admission =
-        crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
+    let admission = crate::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
     debug!(
         source_id,
         event_id = %event_id,
@@ -502,12 +515,10 @@ mod characterization {
 
     /// The one seam the stages moved: the body read, verified, and normalized
     /// with its effects applied. [`super::receive`] resolves the routing
-    /// between the read and the verification, which needs an [`AppState`] no
-    /// test here can build; either side of that gap this is the sequence it
-    /// runs. Everything below calls it through here, so the stage that
-    /// relocated it changed this function and not the assertions.
-    ///
-    /// [`AppState`]: crate::state::AppState
+    /// between the read and the verification, which needs the adapter-connection,
+    /// loop and task-binding ports no test here builds; either side of that gap
+    /// this is the sequence it runs. Everything below calls it through here, so
+    /// the stage that relocated it changed this function and not the assertions.
     pub(super) async fn parse(
         adapter: &SlackAdapter,
         body: &str,

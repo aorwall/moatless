@@ -3,10 +3,10 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3466  illegal   17
+CODE       legal  3475  illegal   15
 ATTRIBUTE  legal   274  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    50  illegal    0   (function-like macro-invocation token streams)
-DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
+DOC           45  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 948 point down into the existing crates/* floor
 TEST-CONTEXT 2146  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
@@ -52,7 +52,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   adapter-linear  (23 files, 9950 lines)
     adapters/providers/linear/
 
-  adapter-slack  (18 files, 6043 lines)
+  adapter-slack  (18 files, 6081 lines)
     adapters/providers/slack/
 
   adapter-telegram  (18 files, 4190 lines)
@@ -70,9 +70,9 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 57817 lines
+  TOTAL backend/src: 57855 lines
 
-== ILLEGAL PRODUCTION EDGE CLASSES (4 classes) ==
+== ILLEGAL PRODUCTION EDGE CLASSES (3 classes) ==
 
 adapter-github-pr -> server   x7
     backend/src/adapters/providers/github_pr/api_routes.rs:32  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -89,10 +89,6 @@ adapter-linear -> server   x5
     backend/src/adapters/providers/linear/handlers.rs:19  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/issues.rs:27  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/sessions.rs:30  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-
-adapter-slack -> server   x2
-    backend/src/adapters/providers/slack/handlers.rs:12  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/slack/ingress.rs:14  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 adapter-telegram -> server   x3
     backend/src/adapters/providers/telegram/handlers.rs:14  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -126,13 +122,13 @@ adapter-telegram -> server   x3
   loops              deps: identity, tasks, workspaces                  READY
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 7 illegal outgoing to server(x7)
   adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 5 illegal outgoing to server(x5)
-  adapter-slack      deps: identity, loops                              BLOCKED — 2 illegal outgoing to server(x2)
+  adapter-slack      deps: identity, loops, tasks                       WAITING — no illegal outgoing, but its deps are not extracted yet
   adapter-telegram   deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)
   adapter-webhook    deps: loops                                        WAITING — no illegal outgoing, but its deps are not extracted yet
   server             deps: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, identity, loops, sandbox-control, sandbox-docker, sandbox-k8s, tasks, workspaces WAITING — no illegal outgoing, but its deps are not extracted yet
 
 == TARJAN SCCs (production target-crate graph) ==
-  full graph (legal + illegal edges): CYCLE (5 crates) adapter-telegram <-> adapter-slack <-> adapter-linear <-> server <-> adapter-github-pr
+  full graph (legal + illegal edges): CYCLE (4 crates) adapter-telegram <-> adapter-linear <-> server <-> adapter-github-pr
   legal edges only (illegal removed): DAG — no multi-crate cycle
 
 == macro_rules! INVENTORY (census scope) ==

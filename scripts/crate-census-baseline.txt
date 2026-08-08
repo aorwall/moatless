@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 17
+# Illegal edge count: 15
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -17,8 +17,6 @@ adapter-linear         -> server               [CODE] backend/src/adapters/provi
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/handlers.rs:19  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/issues.rs:27  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/sessions.rs:30  crate::state::AppState
-adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/handlers.rs:12  crate::state::AppState
-adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/ingress.rs:14  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/handlers.rs:14  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/ingress.rs:16  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/poller.rs:12  crate::state::AppState

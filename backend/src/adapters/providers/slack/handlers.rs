@@ -6,10 +6,14 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::ingress::{IngressError, Outcome};
 use crate::adapters::metrics::record_webhook;
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
+use crate::task::binding_dao::TaskBindingDao;
+use moatless_core::db::DbPool;
 
 use super::adapter::SlackAdapter;
 use super::ingress::{Received, WebhookRequest};
@@ -21,8 +25,21 @@ use super::ingress::{Received, WebhookRequest};
     request_body(content = String),
     responses((status = 200, description = "Webhook processed"))
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each of the five downward ports the ingress reads (adapter \
+              connections, loops, task bindings, db, adapter delivery) is its \
+              own `State<Port>` extractor via `FromRef<AppState>`, plus the \
+              provider and the two transport facts; grouping the ports back \
+              into one extractor would reintroduce the AppState-shaped bag this \
+              slice removes"
+)]
 pub async fn slack_webhook(
-    State(state): State<AppState>,
+    State(adapter_connections): State<Arc<dyn AdapterConnectionDao>>,
+    State(loops): State<Arc<LoopDao>>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
+    State(db): State<DbPool>,
+    State(adapter_delivery): State<Arc<AdapterDeliveryStore>>,
     State(slack_provider): State<Option<Arc<SlackAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
@@ -36,7 +53,17 @@ pub async fn slack_webhook(
         body: &body,
     };
 
-    match super::ingress::receive(&state, &slack_provider, request).await {
+    match super::ingress::receive(
+        adapter_connections.as_ref(),
+        &loops,
+        task_bindings.as_ref(),
+        &db,
+        &adapter_delivery,
+        &slack_provider,
+        request,
+    )
+    .await
+    {
         // Slack's endpoint check wants the challenge echoed in the body.
         Ok(Received::Challenge(challenge)) => Ok((StatusCode::OK, challenge).into_response()),
         // No metric: the delivery worker records the outcome of the work that
