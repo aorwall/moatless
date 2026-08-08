@@ -3,12 +3,12 @@ files parsed: 682
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3402  illegal   68
-ATTRIBUTE  legal   253  illegal   16   (utoipa/derive/etc. token streams)
-MACRO      legal    37  illegal   16   (function-like macro-invocation token streams)
-DOC           41  (intra-doc paths — never a Cargo edge, never illegal)
+CODE       legal  3868  illegal   68
+ATTRIBUTE  legal   258  illegal   16   (utoipa/derive/etc. token streams)
+MACRO      legal    47  illegal   16   (function-like macro-invocation token streams)
+DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 1115 point down into the existing crates/* floor
-TEST-CONTEXT 1627  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 2208  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
@@ -18,7 +18,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   surface the backend still composes, not work left to carve. An extracted crate that
   left no stub has no row. So TOTAL does not fall to zero as carving completes — it
   converges to the summed line count of every facade stub that remains.
-  Extracted, keeps a facade row: identity, workspaces.
+  Extracted, keeps a facade row: identity, tasks, workspaces.
   Extracted, left no stub (no row): adapter-model, core.
   TEST-SCAFFOLD collects cfg(test)-only backend-local modules that ship in no crate
   and are never carved. UNASSIGNED collects any top-level module crate_of_backend_mod
@@ -324,28 +324,28 @@ sandbox-docker -> sandbox-k8s   x2
     test:backend :: WorkspacePatch::default   (backend/tests/integration/ui_rpc_shell_test.rs:4574)
     test:backend :: WorkspacePatch::default   (backend/tests/integration/workspace_dao_test.rs:172)
 
-== CARVED BUT UNBANDED (crates/<dir> names a real band but floor_crate_of_dir maps it to floor:<dir>) — 1 ==
-  tasks: band 5 but scores as floor:tasks — add a floor_crate_of_dir("tasks") arm in bands.rs.
+== CARVED BUT UNBANDED (crates/<dir> names a real band but floor_crate_of_dir maps it to floor:<dir>) — 0 ==
+  none — every extracted crates/<dir> that names a real band has its bands.rs arm.
 
 == CARVE READINESS (frontier — legal-dependency order, lowest band first) ==
   READY = no illegal outgoing edge AND every crate it depends on is already
   extracted. EXTRACTED = already carved into crates/*, detected from this run's own
   scan (a crates/<dir> that resolves to a real band, not floor:<dir>) — it has left
-  the frontier and is shown for context, not as work. Extracted carve targets so far: identity, workspaces.
+  the frontier and is shown for context, not as work. Extracted carve targets so far: identity, workspaces, tasks.
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> tasks: READY now (no illegal outgoing; every crate it depends on is extracted).
+  FRONTIER -> sandbox-control: BLOCKED on 1 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
-  tasks              deps: floor / adapter-model only                   READY
-  sandbox-control    deps: identity, workspaces                         BLOCKED — 1 illegal outgoing to server(x1)
-  sandbox-k8s        deps: sandbox-control, workspaces                  WAITING — no illegal outgoing, but its deps are not extracted yet
-  sandbox-docker     deps: sandbox-control, workspaces                  BLOCKED — 2 illegal outgoing to sandbox-k8s(x2)
-  loops              deps: identity, workspaces                         BLOCKED — 67 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x7)
-  adapter-github-pr  deps: identity, loops, workspaces                  BLOCKED — 8 illegal outgoing to server(x8)
-  adapter-linear     deps: identity, loops, sandbox-control             BLOCKED — 14 illegal outgoing to server(x14)
+  tasks              deps: identity, workspaces                         EXTRACTED
+  sandbox-control    deps: identity, tasks, workspaces                  BLOCKED — 1 illegal outgoing to server(x1)
+  sandbox-k8s        deps: sandbox-control, tasks, workspaces           WAITING — no illegal outgoing, but its deps are not extracted yet
+  sandbox-docker     deps: sandbox-control, tasks, workspaces           BLOCKED — 2 illegal outgoing to sandbox-k8s(x2)
+  loops              deps: identity, tasks, workspaces                  BLOCKED — 67 illegal outgoing to adapter-github-pr(x16), adapter-linear(x21), adapter-slack(x8), adapter-telegram(x8), adapter-webhook(x7), server(x7)
+  adapter-github-pr  deps: identity, loops, tasks, workspaces           BLOCKED — 8 illegal outgoing to server(x8)
+  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 14 illegal outgoing to server(x14)
   adapter-slack      deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)
   adapter-telegram   deps: identity, loops                              BLOCKED — 4 illegal outgoing to server(x4)
   adapter-webhook    deps: loops                                        BLOCKED — 1 illegal outgoing to server(x1)

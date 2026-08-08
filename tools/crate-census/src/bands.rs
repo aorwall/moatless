@@ -185,6 +185,16 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // forgotten: it fires the instant a crates/<dir> whose name is a real band
         // still resolves to `floor:<dir>`.
         "workspaces" => "workspaces".to_string(),
+        // `tasks` (10d) is a real band-5 crate (crates/tasks), not the floor. Same
+        // reasoning as `identity`/`workspaces` above: mapping it to `floor:tasks`
+        // drops a whole band-5 crate out of the scored graph — its files score as
+        // floor (excluded), every backend `moatless_tasks::` facade re-export misses
+        // `external_crate` (no census edge), and — worse — its outgoing edges launder
+        // to `floor -> X` (downward-legal), so a future illegal edge out of `tasks`
+        // is never caught. 10d carved the crate physically but this arm was skipped;
+        // the carved-but-unbanded backstop in main.rs flagged it, and this arm is the
+        // fix. A physical carve without its precursor arm silently unbands the crate.
+        "tasks" => "tasks".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -220,6 +230,15 @@ pub fn external_crate(head: &str) -> Option<String> {
         // rather than scored, the export half of workspaces leaving the census graph.
         // Inert until something names `moatless_workspaces::` (the 10c move).
         "moatless_workspaces" => "workspaces",
+        // `moatless_tasks` (10d) resolves to the band-5 tasks crate, so a backend
+        // (band 6..10) reference to it scores as a downward-legal edge and tasks'
+        // own downward deps stay legal. Mirrors `moatless_identity`/`moatless_workspaces`.
+        // Without this arm the head falls to `_ => None` — "no census edge" — and
+        // every backend `moatless_tasks::` facade re-export (feedback, agent, message,
+        // event_ingress, task_event, task_turn, file_storage, credential_sync, …) is
+        // silently dropped rather than scored, the export half of tasks leaving the
+        // census graph. Skipped at the 10d carve; restored here.
+        "moatless_tasks" => "tasks",
         _ => return None,
     };
     Some(id.to_string())
@@ -284,5 +303,32 @@ mod tests {
             panic!("moatless_workspaces must be a known external head");
         };
         assert_eq!(band_of(&id), 4, "moatless_workspaces must resolve to band-4 workspaces");
+    }
+
+    /// The 10d analogue: `crates/tasks` must resolve to the band-5 tasks crate, not
+    /// the `floor:tasks` fallthrough (band 0, excluded from scoring). This is the
+    /// arm 10d's carve skipped — asserting the band, not just non-emptiness, is what
+    /// turns the fallthrough into a test failure rather than a silent whole-crate drop.
+    #[test]
+    fn tasks_dir_resolves_to_the_band_5_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("tasks"), "tasks");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("tasks")),
+            5,
+            "crates/tasks must be the band-5 tasks crate, not floor band 0"
+        );
+        // The trap it must NOT take is band 0.
+        assert_eq!(band_of("floor:tasks"), 0);
+    }
+
+    /// A backend reference to `moatless_tasks::` must resolve to the band-5 tasks
+    /// crate (so it scores downward-legal), mirroring `moatless_identity`/`moatless_workspaces`.
+    #[test]
+    fn moatless_tasks_head_resolves_to_the_band_5_crate() {
+        assert_eq!(external_crate("moatless_tasks"), Some("tasks".to_string()));
+        let Some(id) = external_crate("moatless_tasks") else {
+            panic!("moatless_tasks must be a known external head");
+        };
+        assert_eq!(band_of(&id), 5, "moatless_tasks must resolve to band-5 tasks");
     }
 }

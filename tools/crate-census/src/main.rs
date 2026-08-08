@@ -1396,21 +1396,30 @@ mod tests {
             scope: ScopeKind::Floor,
             source_crate: source.to_string(),
         };
-        // Synthetic omission: crates/tasks exists but nobody added a
-        // floor_crate_of_dir("tasks") arm, so its files resolve to floor:tasks even
-        // though `tasks` is band 5. The guard MUST fire and name it. Constructed via
-        // floor_crate_of_dir so the day someone DOES add the arm, source_crate becomes
-        // "tasks", this stops being a floor: id, and the test breaks loudly rather than
-        // asserting a stale string.
-        let missing = floor_crate_of_dir("tasks");
-        assert_eq!(missing, "floor:tasks", "the omission this test simulates: no bands arm yet");
+        // Synthetic omission tracking the current carve frontier: `sandbox-control`
+        // (band 6) is the next crate to be extracted and has no floor_crate_of_dir
+        // arm yet, so its dir resolves to floor:sandbox-control. The guard MUST fire
+        // and name it. Constructed via floor_crate_of_dir so the day PR-3 adds the
+        // arm, source_crate becomes "sandbox-control", this stops being a floor: id,
+        // and the test breaks loudly — repoint it to the next unbanded frontier
+        // (sandbox-k8s) rather than asserting a stale string. `tasks` used to be this
+        // example until its arm landed; the break is the forcing function that keeps
+        // the guard pointed at a real, current gap.
+        let missing = floor_crate_of_dir("sandbox-control");
+        assert_eq!(
+            missing, "floor:sandbox-control",
+            "the omission this test simulates: no bands arm yet"
+        );
         let files = vec![
-            df(&missing),                        // floor:tasks — band 5, unbanded: FIRES
+            df(&missing),                        // floor:sandbox-control — band 6, unbanded: FIRES
             df(&floor_crate_of_dir("events")),   // floor:events — a real floor crate
             df(&floor_crate_of_dir("identity")), // "identity" — properly banded, extracted
         ];
         let unbanded = carved_but_unbanded(&files);
-        assert!(unbanded.contains("tasks"), "a target-band dir scoring as floor must be surfaced");
+        assert!(
+            unbanded.contains("sandbox-control"),
+            "a target-band dir scoring as floor must be surfaced"
+        );
         assert!(!unbanded.contains("events"), "a genuine floor crate (band 50) must not fire");
         assert!(
             !unbanded.iter().any(|n| n == "identity"),
