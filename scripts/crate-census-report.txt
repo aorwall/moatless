@@ -3,7 +3,7 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3481  illegal   21
+CODE       legal  3480  illegal   20
 ATTRIBUTE  legal   286  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    62  illegal    0   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
@@ -43,10 +43,10 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (0 files, 0 lines)
     (none)
 
-  loops  (49 files, 14150 lines)
+  loops  (49 files, 14084 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
-  adapter-github-pr  (24 files, 10618 lines)
+  adapter-github-pr  (24 files, 10617 lines)
     adapters/providers/github_pr/
 
   adapter-linear  (23 files, 9950 lines)
@@ -70,7 +70,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 58304 lines
+  TOTAL backend/src: 58237 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (5 classes) ==
 
@@ -100,10 +100,9 @@ adapter-telegram -> server   x3
     backend/src/adapters/providers/telegram/ingress.rs:16  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/telegram/poller.rs:12  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-loops -> server   x3
+loops -> server   x2
     backend/src/adapters/handlers.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/bindings/outbound.rs:22  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/bindings/runtime.rs:21  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 == UNPINNED ILLEGAL REFERENCES (headline) — 0 ==
   none
@@ -240,7 +239,7 @@ loops -> server   x3
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> loops: BLOCKED on 3 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> loops: BLOCKED on 2 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
@@ -248,7 +247,7 @@ loops -> server   x3
   sandbox-control    deps: identity, tasks, workspaces                  EXTRACTED
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           EXTRACTED
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
-  loops              deps: identity, tasks, workspaces                  BLOCKED — 3 illegal outgoing to server(x3)
+  loops              deps: identity, tasks, workspaces                  BLOCKED — 2 illegal outgoing to server(x2)
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
   adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 5 illegal outgoing to server(x5)
   adapter-slack      deps: identity, loops                              BLOCKED — 2 illegal outgoing to server(x2)

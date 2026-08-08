@@ -29,7 +29,7 @@ use crate::adapters::AdapterKind;
 use crate::adapters::common::{ensure_task_access_with, resolve_connection};
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
-use crate::bindings::runtime::upsert_binding;
+use crate::bindings::runtime::upsert_binding_into;
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
@@ -872,8 +872,8 @@ async fn create_issue_binding(
         destination_config["url"] = json!(u);
     }
 
-    let binding = upsert_binding(
-        state,
+    let binding = upsert_binding_into(
+        state.task_bindings.as_ref(),
         connection,
         None,
         task_id,

@@ -18,7 +18,6 @@ use crate::loops::firing::inbound;
 use crate::loops::firing::receipts::EventReceiptDao;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
-use crate::state::AppState;
 use crate::task::creation::{TaskCreationError, TaskCreationService};
 use crate::task::dao::TaskDao;
 use crate::task::models::TaskStatus;
@@ -40,14 +39,11 @@ pub use moatless_adapter_model::models::{
 /// Held on `AppState` as `state.routing` and built once at the composition root.
 /// The durable inbound-delivery handler holds a single `Arc<RoutingService>`
 /// rather than a field per port, and `subject_events` routes through it too. The
-/// three provider-facing free functions below (`parent_author_task_id`,
-/// `external_id_aliases`, `upsert_binding`) remain `&AppState` doors that
-/// delegate here, because their callers are provider-band files that still hold
-/// `AppState`; those doors — and `runtime.rs`'s remaining `AppState` edge with
-/// them — close in the provider slices. (`resolve_chat_provider_event` was a
-/// fourth such door; it reads only `adapter_connections` and `loops`, so it now
-/// takes those two ports directly and its Slack/Telegram ingress callers pass
-/// them.) See `docs/deferred-changes.md`.
+/// provider-facing operations (`parent_author_task_id`, `external_id_aliases`,
+/// `upsert_binding`) are reached through the ports they read directly — the
+/// `pub(crate)` methods on `RoutingService` and the `upsert_binding_into` core
+/// below — so provider callers pass those ports and this module names no
+/// `AppState`. See `docs/deferred-changes.md`.
 pub struct RoutingService {
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
@@ -836,71 +832,9 @@ pub struct Fanout<'a> {
     pub new_task_binding_id: Option<&'a str>,
 }
 
-/// `&AppState` door for the provider-band callers of the parent-author lookup.
-///
-/// Delegates to [`RoutingService::parent_author_task_id`]; kept until the
-/// provider slice that owns its one caller moves to the port. See
-/// `docs/deferred-changes.md`.
-pub async fn parent_author_task_id(
-    state: &AppState,
-    adapter_label: &str,
-    audience: &Audience,
-) -> Result<Option<String>, AdapterError> {
-    state
-        .routing
-        .parent_author_task_id(adapter_label, audience)
-        .await
-}
-
-/// `&AppState` door for the provider-band callers of external-id alias
-/// expansion.
-///
-/// Delegates to [`RoutingService::external_id_aliases`]; kept until the provider
-/// slice that owns its one caller moves to the port. See
-/// `docs/deferred-changes.md`.
-pub fn external_id_aliases(
-    state: &AppState,
-    adapter_label: &str,
-    external_id: &str,
-) -> Vec<String> {
-    state
-        .routing
-        .external_id_aliases(adapter_label, external_id)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub async fn upsert_binding(
-    state: &AppState,
-    connection: &AdapterConnection,
-    subscription: Option<&SubscriptionMatch>,
-    task_id: &str,
-    provider: &str,
-    subject_kind: &str,
-    subject_key: &str,
-    destination_config: serde_json::Value,
-    origin: &str,
-    last_external_event_id: Option<String>,
-) -> Result<TaskBinding, AdapterError> {
-    upsert_binding_into(
-        state.task_bindings.as_ref(),
-        connection,
-        subscription,
-        task_id,
-        provider,
-        subject_kind,
-        subject_key,
-        destination_config,
-        origin,
-        last_external_event_id,
-    )
-    .await
-}
-
 /// Upsert a canonical task binding through the one port it needs — the
-/// `task_bindings` DAO; every other parameter is binding-identity data.
-/// [`upsert_binding`] delegates here after reading the port off `AppState`, so a
-/// caller that already holds the port calls this directly and never names
-/// `AppState`.
+/// `task_bindings` DAO; every other parameter is binding-identity data. Callers
+/// hold the port and pass it directly, so this names no `AppState`.
 #[expect(
     clippy::too_many_arguments,
     reason = "nine binding-identity data parameters plus the one task_bindings \

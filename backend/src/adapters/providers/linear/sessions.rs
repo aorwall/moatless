@@ -364,8 +364,8 @@ async fn provision_session_task(
         issue.url.as_deref(),
         &team_id,
     );
-    let binding = crate::bindings::runtime::upsert_binding(
-        state,
+    let binding = crate::bindings::runtime::upsert_binding_into(
+        state.task_bindings.as_ref(),
         connection,
         Some(rule),
         &task_id,

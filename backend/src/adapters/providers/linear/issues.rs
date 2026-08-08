@@ -261,8 +261,8 @@ async fn provision_issue_task(
 
     let team_id = issue.resolved_team_id().unwrap_or_default().to_string();
     let destination_config = super::subject::issue_destination_config(issue, &team_id);
-    let binding = crate::bindings::runtime::upsert_binding(
-        state,
+    let binding = crate::bindings::runtime::upsert_binding_into(
+        state.task_bindings.as_ref(),
         connection,
         Some(rule),
         &task_id,

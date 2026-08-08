@@ -126,8 +126,7 @@ pub(super) async fn route_event(
         Some(task_id) => Some(task_id),
         None => match msg.external_event_id.as_deref() {
             Some(ext_id) => {
-                let candidates =
-                    crate::bindings::runtime::external_id_aliases(state, ADAPTER_LABEL, ext_id);
+                let candidates = state.routing.external_id_aliases(ADAPTER_LABEL, ext_id);
                 state
                     .messages
                     .find_task_id_by_any_external_event_id(&candidates)
@@ -529,7 +528,7 @@ async fn build_close_inbound_message(
 /// Upsert a `github_pr` binding through the shared spine. Parses the PR
 /// coordinates out of `thread_properties` into the `{owner, repo, pr_number}`
 /// destination config, then delegates the row build + persistence to
-/// [`crate::bindings::runtime::upsert_binding`]. PR bindings never seed a
+/// [`crate::bindings::runtime::upsert_binding_into`]. PR bindings never seed a
 /// cursor, so `last_external_event_id` is always `None`.
 async fn upsert_binding(
     state: &AppState,
@@ -543,8 +542,8 @@ async fn upsert_binding(
     let subject_key = subject.key();
     let destination_config = subject.destination_config(None);
 
-    crate::bindings::runtime::upsert_binding(
-        state,
+    crate::bindings::runtime::upsert_binding_into(
+        state.task_bindings.as_ref(),
         connection,
         rule,
         task_id,

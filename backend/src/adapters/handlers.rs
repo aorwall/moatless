@@ -15,7 +15,7 @@ use crate::adapters::AdapterKind;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, OutboundReply};
 use crate::bindings::outbound::{resolve_files, truncate_text};
-use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding};
+use crate::bindings::runtime::{ORIGIN_CONNECTED_THREAD, upsert_binding_into};
 use crate::extractors::AuthUser;
 use crate::state::AppState;
 
@@ -195,8 +195,8 @@ pub async fn adapter_send(
         .await?;
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        let binding = upsert_binding(
-            &state,
+        let binding = upsert_binding_into(
+            state.task_bindings.as_ref(),
             &connection,
             None,
             task_id,
@@ -316,8 +316,8 @@ pub async fn send_user_dm(
         .to_string();
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        let binding = upsert_binding(
-            &state,
+        let binding = upsert_binding_into(
+            state.task_bindings.as_ref(),
             &connection,
             None,
             task_id,

@@ -115,8 +115,8 @@ pub async fn direct_send_to_rule(
         let destination =
             destination_builder.binding_destination_from_new_thread(&rule, &thread_info)?;
 
-        crate::bindings::runtime::upsert_binding(
-            state,
+        crate::bindings::runtime::upsert_binding_into(
+            state.task_bindings.as_ref(),
             &connection,
             Some(&rule),
             tid,
