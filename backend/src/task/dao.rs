@@ -87,7 +87,7 @@ pub struct TaskFilter {
 }
 
 /// DAO trait for task persistence.
-#[cfg_attr(test, mockall::automock)]
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait TaskDao: Send + Sync {
     /// Find by task_id, scoped to access control.
