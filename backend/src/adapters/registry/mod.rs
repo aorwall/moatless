@@ -4,9 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::adapters::capabilities::{
-    Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDestinationBuilder,
-    AdapterDirectDestination, AdapterDirectMessage, AdapterInboundPresentation,
-    AdapterMessageReply, AdapterPostBindingFollowup, AdapterReactions,
+    Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
+    AdapterDirectMessage, AdapterInboundPresentation, AdapterMessageReply,
+    AdapterPostBindingFollowup, AdapterReactions,
 };
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 
@@ -20,7 +20,6 @@ use moatless_api_schemas::enums::AdapterKind;
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
-    destination_builders: HashMap<AdapterKind, Arc<dyn AdapterDestinationBuilder>>,
     binding_replies: HashMap<AdapterKind, Arc<dyn AdapterBindingReply>>,
     message_replies: HashMap<AdapterKind, Arc<dyn AdapterMessageReply>>,
     direct_destinations: HashMap<AdapterKind, Arc<dyn AdapterDirectDestination>>,
@@ -41,7 +40,6 @@ impl Adapters {
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
-            destination_builders: HashMap::new(),
             binding_replies: HashMap::new(),
             message_replies: HashMap::new(),
             direct_destinations: HashMap::new(),
@@ -61,14 +59,6 @@ impl Adapters {
     /// its own `register_into`, or the map and the handle could disagree.
     pub(crate) fn register_trait_object(&mut self, provider: Arc<dyn Adapter>) {
         self.providers.insert(provider.adapter_kind(), provider);
-    }
-
-    pub(crate) fn register_destination_builder(
-        &mut self,
-        kind: AdapterKind,
-        provider: Arc<dyn AdapterDestinationBuilder>,
-    ) {
-        self.destination_builders.insert(kind, provider);
     }
 
     pub(crate) fn register_binding_reply(&mut self, provider: Arc<dyn AdapterBindingReply>) {
@@ -124,16 +114,6 @@ impl Adapters {
 
     pub fn get(&self, adapter_kind: AdapterKind) -> Option<&Arc<dyn Adapter>> {
         self.providers.get(&adapter_kind)
-    }
-
-    pub(crate) fn destination_builder(
-        &self,
-        adapter_kind: AdapterKind,
-    ) -> Result<&dyn AdapterDestinationBuilder, AdapterError> {
-        self.destination_builders
-            .get(&adapter_kind)
-            .map(Arc::as_ref)
-            .ok_or_else(|| unsupported_destination_builder(adapter_kind))
     }
 
     pub(crate) fn outbound_for_binding_reply_by_name(
@@ -287,14 +267,6 @@ impl Adapters {
     pub fn registered_types(&self) -> Vec<AdapterKind> {
         self.providers.keys().copied().collect()
     }
-}
-
-fn unsupported_destination_builder(adapter_kind: AdapterKind) -> AdapterError {
-    SharedAdapterError::BadRequest(format!(
-        "{} provider does not support task bindings",
-        adapter_kind.as_str()
-    ))
-    .into()
 }
 
 #[derive(Copy, Clone)]

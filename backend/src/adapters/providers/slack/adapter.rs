@@ -38,7 +38,6 @@ impl SlackAdapter {
     pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::Slack;
         adapters.register_trait_object(self.clone());
-        adapters.register_destination_builder(kind, self.clone());
         adapters.register_binding_reply(self.clone());
         adapters.register_message_reply(self.clone());
         adapters.register_direct_destination(self.clone());

@@ -76,6 +76,25 @@ pub struct ProviderHandles {
     pub telegram: Option<Arc<crate::adapters::providers::telegram::adapter::TelegramAdapter>>,
 }
 
+impl ProviderHandles {
+    /// The concrete GitHub PR [`AdapterDestinationBuilder`], erased to the trait
+    /// object a loops-band binding connector wants.
+    ///
+    /// The coercion from the concrete `Arc<GithubPrAdapter>` to
+    /// `Arc<dyn AdapterDestinationBuilder>` belongs here, in the server band that
+    /// is allowed to name the provider type — so a caller below the provider band
+    /// receives the specific builder without ever asking the registry for it by
+    /// `AdapterKind` (which would launder a provider self-lookup as a legal port).
+    pub(crate) fn github_destination_builder(
+        &self,
+    ) -> Option<Arc<dyn crate::adapters::AdapterDestinationBuilder>> {
+        match &self.github_pr {
+            Some(adapter) => Some(adapter.clone()),
+            None => None,
+        }
+    }
+}
+
 /// Shared application state for task/message/agent/file routes.
 ///
 /// All fields are cheap to clone (Arc-wrapped or internally Arc'd).

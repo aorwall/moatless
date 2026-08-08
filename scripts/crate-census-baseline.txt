@@ -19,5 +19,5 @@ adapter-linear         -> server               [CODE] backend/src/adapters/provi
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
 # Doc-path count (not in the illegal count above): 2
-adapter-github-pr      -> server               [DOC] backend/src/adapters/providers/github_pr/adapter.rs:96  crate::compose
-adapter-telegram       -> server               [DOC] backend/src/adapters/providers/telegram/adapter.rs:81  crate::compose
+adapter-github-pr      -> server               [DOC] backend/src/adapters/providers/github_pr/adapter.rs:95  crate::compose
+adapter-telegram       -> server               [DOC] backend/src/adapters/providers/telegram/adapter.rs:80  crate::compose

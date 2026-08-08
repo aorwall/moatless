@@ -115,10 +115,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
         AdapterKind::Telegram,
         AdapterKind::GithubPr,
     ] {
-        assert!(
-            providers.destination_builder(kind).is_ok(),
-            "{kind:?} destination builder"
-        );
         assert!(providers.reactions(kind).is_ok(), "{kind:?} reactions");
         assert!(
             providers.inbound_presentation(kind).is_ok(),
@@ -133,8 +129,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
         );
     }
 
-    assert!(providers.destination_builder(AdapterKind::Linear).is_err());
-    assert!(providers.destination_builder(AdapterKind::Webhook).is_err());
     assert!(
         providers
             .outbound_for_direct_destination(AdapterKind::Slack)

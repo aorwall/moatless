@@ -588,7 +588,7 @@ async fn bind_task_to_pr(
         "pr_number": pr_number,
     });
     match crate::loops::firing::listen::Connector::new(
-        state.adapters.clone(),
+        state.provider_handles.github_destination_builder(),
         state.adapter_connections.clone(),
         state.loops.clone(),
         state.task_bindings.clone(),

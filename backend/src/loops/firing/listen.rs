@@ -11,37 +11,47 @@ use tracing::{info, warn};
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use crate::adapters::{AdapterDestinationBuilder, AdapterKind, Adapters};
+use crate::adapters::{AdapterDestinationBuilder, AdapterKind};
 use crate::task::binding_dao::TaskBindingDao;
 use crate::loops::dao::LoopDao;
 
 /// Wires a task to an external Adapter subject: resolves the connection and
 /// (optionally) the Subscription, then upserts the canonical task binding.
 ///
-/// Holds the four ports this module reads as typed fields — the adapter
-/// registry (`adapters`), the adapter-connection DAO (`adapter_connections`),
-/// the Loop DAO (`loops`), and the task-binding DAO (`task_bindings`). Read
-/// ports through those fields; this module no longer names `AppState`.
+/// Holds the four ports this module reads as typed fields — the GitHub PR
+/// destination builder (`github_destination`), the adapter-connection DAO
+/// (`adapter_connections`), the Loop DAO (`loops`), and the task-binding DAO
+/// (`task_bindings`). Read ports through those fields; this module no longer
+/// names `AppState`.
+///
+/// `github_destination` is the *concrete* GitHub PR
+/// [`AdapterDestinationBuilder`], not the adapter registry. A registry field
+/// here would be an upward edge in disguise: this module only ever wants the
+/// one builder named by `AdapterKind::GithubPr`, and reaching it through the
+/// registry (`adapters.destination_builder(GithubPr)`) is a provider self-lookup
+/// laundered through the band-8 aggregate — the caller supplies the concrete
+/// builder instead, so nothing below the provider band names a specific kind to
+/// fetch a provider.
 ///
 /// [`Connector::write_binding`] upserts through the port-typed
 /// [`crate::bindings::runtime::upsert_binding_into`], passing `task_bindings`
 /// directly rather than the whole AppState.
 pub struct Connector {
-    adapters: Option<Arc<Adapters>>,
+    github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
     task_bindings: Arc<dyn TaskBindingDao>,
 }
 
 impl Connector {
-    pub fn new(
-        adapters: Option<Arc<Adapters>>,
+    pub(crate) fn new(
+        github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
         task_bindings: Arc<dyn TaskBindingDao>,
     ) -> Self {
         Self {
-            adapters,
+            github_destination,
             adapter_connections,
             loops,
             task_bindings,
@@ -256,11 +266,10 @@ impl Connector {
         thread_properties: serde_json::Value,
         filter_user_id: Option<&str>,
     ) -> Result<(Option<SubscriptionMatch>, TaskBinding), AdapterError> {
-        let providers = self
-            .adapters
-            .as_ref()
+        let adapter_destination = self
+            .github_destination
+            .as_deref()
             .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("github_pr".into()))?;
-        let adapter_destination = providers.destination_builder(AdapterKind::GithubPr)?;
         self.connect_binding_optional_subscription(
             adapter_destination,
             AdapterKind::GithubPr.as_str(),

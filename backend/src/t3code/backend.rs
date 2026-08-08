@@ -297,7 +297,7 @@ async fn bind_thread_to_open_pr(
         "pr_number": pr.number,
     });
     match crate::loops::firing::listen::Connector::new(
-        state.adapters.clone(),
+        state.provider_handles.github_destination_builder(),
         state.adapter_connections.clone(),
         state.loops.clone(),
         state.task_bindings.clone(),
