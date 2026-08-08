@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 26
+# Illegal edge count: 21
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -23,11 +23,6 @@ adapter-slack          -> server               [CODE] backend/src/adapters/provi
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/handlers.rs:14  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/ingress.rs:16  crate::state::AppState
 adapter-telegram       -> server               [CODE] backend/src/adapters/providers/telegram/poller.rs:12  crate::state::AppState
-loops                  -> adapter-github-pr    [CODE] backend/src/adapters/mod.rs:41  providers::github_pr
-loops                  -> adapter-linear       [CODE] backend/src/adapters/mod.rs:41  providers::linear
-loops                  -> adapter-slack        [CODE] backend/src/adapters/mod.rs:41  providers::slack
-loops                  -> adapter-telegram     [CODE] backend/src/adapters/mod.rs:41  providers::telegram
-loops                  -> adapter-webhook      [CODE] backend/src/adapters/mod.rs:41  providers::webhook
 loops                  -> server               [CODE] backend/src/adapters/handlers.rs:20  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/outbound.rs:22  crate::state::AppState
 loops                  -> server               [CODE] backend/src/bindings/runtime.rs:21  crate::state::AppState

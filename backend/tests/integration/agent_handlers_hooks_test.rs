@@ -7,7 +7,7 @@
 )]
 //! Integration tests for `event_handler::agent_handlers::handle_agent_message`
 //! → `message::hooks::extract_shell_reconcile_targets` and the server-band
-//! dispatch to `adapters::github_pr::shell_reconcile::reconcile_shell_command`.
+//! dispatch to `adapters::providers::github_pr::shell_reconcile::reconcile_shell_command`.
 //!
 //! Covers:
 //! - `gh pr create` tool result auto-connects a `task_bindings` row and

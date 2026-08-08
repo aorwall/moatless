@@ -297,12 +297,12 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
         body.push_str(&footer);
     }
 
-    tokio::spawn(crate::adapters::linear::activity::notify_linear_status(
+    tokio::spawn(crate::adapters::providers::linear::activity::notify_linear_status(
         state.db.clone(),
         state.adapter_connections.clone(),
         state.config.clone(),
         task_id.to_string(),
-        crate::adapters::linear::activity::ActivityKind::Response,
+        crate::adapters::providers::linear::activity::ActivityKind::Response,
         body,
         false,
     ));
@@ -987,7 +987,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             )
             .await;
             for target in reconcile_targets {
-                crate::adapters::github_pr::shell_reconcile::reconcile_shell_command(
+                crate::adapters::providers::github_pr::shell_reconcile::reconcile_shell_command(
                     state,
                     &event.task_id,
                     &target.tool_use_id,

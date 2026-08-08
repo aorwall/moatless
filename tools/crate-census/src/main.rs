@@ -1218,9 +1218,14 @@ fn pin_for(src: &str, dst: &str, path: &str) -> &'static str {
     if path.contains("setup::") {
         return "8h (deferred)";
     }
-    // registry <-> providers: 7d field-widening + 10h provider carve.
+    // loops -> adapter-* is loops naming a *higher* band: an upward edge that must
+    // clear before loops can carve, because a loops crate that `pub use`s the
+    // adapter crates is a dependency cycle. The provider carve is downstream of the
+    // loops carve (providers depend on loops), so it cannot "delete this for free"
+    // ahead of loops — the edge clears BEFORE loops, by deleting the transitional
+    // `adapters/mod.rs` re-export and repointing consumers to `adapters::providers::*`.
     if src == "loops" && dst.starts_with("adapter-") {
-        return "7d + 10h — registry field-widening + provider carve";
+        return "loops-gating — must clear before loops carves (delete adapters/mod.rs re-export)";
     }
     // 10f — the only real sibling edge, the misfiled sandbox helpers.
     if src == "sandbox-docker" && dst == "sandbox-k8s" {

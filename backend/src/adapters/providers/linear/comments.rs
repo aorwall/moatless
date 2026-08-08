@@ -285,7 +285,7 @@ mod tests {
     fn issue_producer(task_id: &str) -> TaskBinding {
         linear_binding(
             task_id,
-            crate::adapters::linear::SUBJECT_KIND_ISSUE,
+            crate::adapters::providers::linear::SUBJECT_KIND_ISSUE,
             crate::adapters::models::TASK_OWNED_BINDING_ORIGIN,
         )
     }

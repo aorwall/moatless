@@ -30,9 +30,9 @@ use sha2::Sha256;
 use sqlx::PgPool;
 
 use moatless_core::scope::Scope;
-use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
-use moatless_vibe_backend::adapters::linear::delivery;
-use moatless_vibe_backend::adapters::linear::ingress::{
+use moatless_vibe_backend::adapters::providers::linear::adapter::LinearAdapter;
+use moatless_vibe_backend::adapters::providers::linear::delivery;
+use moatless_vibe_backend::adapters::providers::linear::ingress::{
     IngressError, Outcome, Rejection, reason, receive,
 };
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch};

@@ -31,9 +31,9 @@ use sqlx::PgPool;
 use sqlx::Row;
 
 use moatless_vibe_backend::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_vibe_backend::adapters::linear;
-use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
-use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
+use moatless_vibe_backend::adapters::providers::linear;
+use moatless_vibe_backend::adapters::providers::linear::adapter::LinearAdapter;
+use moatless_vibe_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_vibe_backend::state::AppState;
 
 use common::{

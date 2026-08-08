@@ -44,17 +44,17 @@ fn lazy_pool() -> DbPool {
 
 fn registry_with_all_current_adapters() -> Adapters {
     let mut providers = Adapters::new();
-    Arc::new(super::super::slack::adapter::SlackAdapter::new(
+    Arc::new(super::super::providers::slack::adapter::SlackAdapter::new(
         "xoxb-test",
         "slack-secret",
         Some("U_BOT".to_string()),
     ))
     .register_into(&mut providers);
-    Arc::new(super::super::telegram::adapter::TelegramAdapter::new(
+    Arc::new(super::super::providers::telegram::adapter::TelegramAdapter::new(
         "telegram-token",
     ))
     .register_into(&mut providers);
-    Arc::new(super::super::github_pr::adapter::GithubPrAdapter::new(
+    Arc::new(super::super::providers::github_pr::adapter::GithubPrAdapter::new(
         None,
         None,
         "http://localhost".to_string(),
@@ -64,12 +64,13 @@ fn registry_with_all_current_adapters() -> Adapters {
         Arc::new(GitHubAppRegistry::default()),
     ))
     .register_into(&mut providers);
-    Arc::new(super::super::linear::adapter::LinearAdapter::new(
+    Arc::new(super::super::providers::linear::adapter::LinearAdapter::new(
         &moatless_core::config::Config::test_minimal().linear,
         lazy_pool(),
     ))
     .register_into(&mut providers);
-    Arc::new(super::super::webhook::adapter::WebhookAdapter::new()).register_into(&mut providers);
+    Arc::new(super::super::providers::webhook::adapter::WebhookAdapter::new())
+        .register_into(&mut providers);
     providers
 }
 

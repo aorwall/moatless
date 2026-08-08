@@ -719,7 +719,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // Optional: losing it degrades the Telegram channel alone,
                         // and its own early-exit branches already log the reason.
                         Criticality::Optional,
-                        adapters::telegram::spawn_telegram_poller(
+                        adapters::providers::telegram::spawn_telegram_poller(
                             app_state.clone(),
                             telegram,
                             cancel.clone(),

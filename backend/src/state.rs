@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::linear::active_turns::ActiveLinearTurns;
+use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::Adapters;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
@@ -70,10 +70,10 @@ use moatless_core::tag::dao::TagDao;
 /// that holds only `dyn Adapter` never reaches up to a provider band.
 #[derive(Clone, Default)]
 pub struct ProviderHandles {
-    pub github_pr: Option<Arc<crate::adapters::github_pr::adapter::GithubPrAdapter>>,
-    pub linear: Option<Arc<crate::adapters::linear::adapter::LinearAdapter>>,
-    pub slack: Option<Arc<crate::adapters::slack::adapter::SlackAdapter>>,
-    pub telegram: Option<Arc<crate::adapters::telegram::adapter::TelegramAdapter>>,
+    pub github_pr: Option<Arc<crate::adapters::providers::github_pr::adapter::GithubPrAdapter>>,
+    pub linear: Option<Arc<crate::adapters::providers::linear::adapter::LinearAdapter>>,
+    pub slack: Option<Arc<crate::adapters::providers::slack::adapter::SlackAdapter>>,
+    pub telegram: Option<Arc<crate::adapters::providers::telegram::adapter::TelegramAdapter>>,
 }
 
 /// Shared application state for task/message/agent/file routes.
@@ -852,7 +852,7 @@ impl axum::extract::FromRef<AppState> for DbPool {
 // need; `None` when there are no adapters, which those handlers answer with
 // `AdapterNotConfigured`.
 impl axum::extract::FromRef<AppState>
-    for Option<Arc<crate::adapters::github_pr::adapter::GithubPrAdapter>>
+    for Option<Arc<crate::adapters::providers::github_pr::adapter::GithubPrAdapter>>
 {
     fn from_ref(state: &AppState) -> Self {
         state.provider_handles.github_pr.clone()
@@ -860,7 +860,7 @@ impl axum::extract::FromRef<AppState>
 }
 
 impl axum::extract::FromRef<AppState>
-    for Option<Arc<crate::adapters::linear::adapter::LinearAdapter>>
+    for Option<Arc<crate::adapters::providers::linear::adapter::LinearAdapter>>
 {
     fn from_ref(state: &AppState) -> Self {
         state.provider_handles.linear.clone()
@@ -868,7 +868,7 @@ impl axum::extract::FromRef<AppState>
 }
 
 impl axum::extract::FromRef<AppState>
-    for Option<Arc<crate::adapters::slack::adapter::SlackAdapter>>
+    for Option<Arc<crate::adapters::providers::slack::adapter::SlackAdapter>>
 {
     fn from_ref(state: &AppState) -> Self {
         state.provider_handles.slack.clone()
@@ -876,7 +876,7 @@ impl axum::extract::FromRef<AppState>
 }
 
 impl axum::extract::FromRef<AppState>
-    for Option<Arc<crate::adapters::telegram::adapter::TelegramAdapter>>
+    for Option<Arc<crate::adapters::providers::telegram::adapter::TelegramAdapter>>
 {
     fn from_ref(state: &AppState) -> Self {
         state.provider_handles.telegram.clone()

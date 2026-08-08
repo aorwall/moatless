@@ -38,7 +38,6 @@ pub use moatless_api_schemas::enums::AdapterKind;
 // this facade. The footer's DAO-loading wrapper `task_comment_footer` is not
 // here — it lives in `bindings::footer`, where the port belongs.
 pub use moatless_adapter_model::{dao, footer, models};
-pub use providers::{github_pr, linear, slack, telegram, webhook};
 pub use registry::Adapters;
 
 pub(crate) use capabilities::{

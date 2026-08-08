@@ -27,7 +27,7 @@ use std::time::Duration;
 use moatless_vibe_backend::adapters::delivery::{
     spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
 };
-use moatless_vibe_backend::adapters::linear;
+use moatless_vibe_backend::adapters::providers::linear;
 use moatless_vibe_backend::state::AppState;
 use sqlx::PgPool;
 use sqlx::Row;

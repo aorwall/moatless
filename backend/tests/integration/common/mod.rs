@@ -379,7 +379,7 @@ pub fn test_app_state_with_adapters(
 )]
 pub fn test_app_state_with_linear(
     pool: PgPool,
-    linear: Arc<moatless_vibe_backend::adapters::linear::adapter::LinearAdapter>,
+    linear: Arc<moatless_vibe_backend::adapters::providers::linear::adapter::LinearAdapter>,
     config: Config,
 ) -> AppState {
     let mut registry = moatless_vibe_backend::adapters::Adapters::new();
@@ -617,7 +617,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
 )]
 pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState) {
     let mut handlers = moatless_vibe_backend::adapters::delivery::AdapterDeliveryHandlers::new();
-    moatless_vibe_backend::adapters::linear::delivery::register(&mut handlers, &worker_state);
+    moatless_vibe_backend::adapters::providers::linear::delivery::register(&mut handlers, &worker_state);
 
     let cancel = tokio_util::sync::CancellationToken::new();
     let handle = moatless_vibe_backend::adapters::delivery::spawn_adapter_delivery_worker(

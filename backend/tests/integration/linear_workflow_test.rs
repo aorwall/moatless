@@ -50,8 +50,8 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use sqlx::Row;
 
-use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
-use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
+use moatless_vibe_backend::adapters::providers::linear::adapter::LinearAdapter;
+use moatless_vibe_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
 use moatless_vibe_backend::adapters::test_support::ProviderStub;
 use moatless_vibe_backend::repository::dao as repository_dao;

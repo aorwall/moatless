@@ -230,7 +230,7 @@ mod tests {
 
     use super::*;
     use crate::adapters::AdapterDestinationBuilder;
-    use crate::adapters::github_pr::adapter::GithubPrAdapter;
+    use crate::adapters::providers::github_pr::adapter::GithubPrAdapter;
 
     #[test]
     fn parses_thread_properties_and_builds_canonical_values() {

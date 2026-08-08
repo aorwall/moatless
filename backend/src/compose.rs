@@ -228,11 +228,11 @@ pub fn register_builtin_delivery_handlers(
     handlers: &mut AdapterDeliveryHandlers,
     state: &AppState,
 ) {
-    crate::adapters::slack::delivery::register(handlers, state.routing.clone());
-    crate::adapters::telegram::delivery::register(handlers, state.routing.clone());
-    crate::adapters::github_pr::delivery::register(handlers, state);
-    crate::adapters::linear::delivery::register(handlers, state);
-    crate::adapters::webhook::delivery::register(handlers, state.routing.clone());
+    crate::adapters::providers::slack::delivery::register(handlers, state.routing.clone());
+    crate::adapters::providers::telegram::delivery::register(handlers, state.routing.clone());
+    crate::adapters::providers::github_pr::delivery::register(handlers, state);
+    crate::adapters::providers::linear::delivery::register(handlers, state);
+    crate::adapters::providers::webhook::delivery::register(handlers, state.routing.clone());
 }
 
 impl Ports {
@@ -354,7 +354,7 @@ impl Adapters {
         let db = pool;
 
         let runtime_config = Arc::new(config.clone());
-        let slack = Arc::new(crate::adapters::slack::adapter::SlackAdapter::from_db(
+        let slack = Arc::new(crate::adapters::providers::slack::adapter::SlackAdapter::from_db(
             runtime_config.clone(),
             db.clone(),
         ));
@@ -362,12 +362,12 @@ impl Adapters {
         tracing::info!("Slack adapter registered");
 
         // Webhook adapter is always available (config is per subscription).
-        Arc::new(crate::adapters::webhook::adapter::WebhookAdapter::new())
+        Arc::new(crate::adapters::providers::webhook::adapter::WebhookAdapter::new())
             .register_into(&mut providers);
         tracing::info!("Webhook adapter configured");
 
         let telegram = Arc::new(
-            crate::adapters::telegram::adapter::TelegramAdapter::from_db(
+            crate::adapters::providers::telegram::adapter::TelegramAdapter::from_db(
                 runtime_config,
                 db.clone(),
             ),
@@ -377,7 +377,7 @@ impl Adapters {
 
         // GitHub PR adapter is always available; config is per subscription.
         let github_pr = Arc::new(
-            crate::adapters::github_pr::adapter::GithubPrAdapter::new(
+            crate::adapters::providers::github_pr::adapter::GithubPrAdapter::new(
                 config.github_pr.webhook_secret.clone(),
                 config.github_pr.bot_token.clone(),
                 config.auth.frontend_url.clone(),
@@ -398,8 +398,11 @@ impl Adapters {
         // attachment it links back onto the issue.
         let task_dao = Arc::new(PgTaskDao(db.clone()));
         let linear = Arc::new(
-            crate::adapters::linear::adapter::LinearAdapter::from_db(Arc::new(config.clone()), db)
-                .with_tasks(task_dao),
+            crate::adapters::providers::linear::adapter::LinearAdapter::from_db(
+                Arc::new(config.clone()),
+                db,
+            )
+            .with_tasks(task_dao),
         );
         linear.clone().register_into(&mut providers);
         tracing::info!("Linear adapter configured");

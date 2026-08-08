@@ -5,7 +5,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use axum::{routing::post, Router};
 
-use super::{github_pr, handlers, linear, slack, telegram, webhook};
+use super::handlers;
+use super::providers::{github_pr, linear, slack, telegram, webhook};
 use crate::bindings;
 use crate::state::AppState;
 

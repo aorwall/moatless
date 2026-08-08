@@ -39,8 +39,8 @@ use sha2::Sha256;
 use sqlx::PgPool;
 
 use moatless_vibe_backend::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
-use moatless_vibe_backend::adapters::linear::handlers::linear_webhook;
+use moatless_vibe_backend::adapters::providers::linear::adapter::LinearAdapter;
+use moatless_vibe_backend::adapters::providers::linear::handlers::linear_webhook;
 use moatless_vibe_backend::state::AppState;
 
 use common::{USER_1, linear_config, test_app_state_with_linear, test_config};
