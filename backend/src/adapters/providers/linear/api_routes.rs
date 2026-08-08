@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::adapters::AdapterKind;
-use crate::adapters::common::{ensure_task_access, resolve_connection};
+use crate::adapters::common::{ensure_task_access_with, resolve_connection};
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
 use crate::bindings::runtime::upsert_binding;
@@ -94,7 +94,7 @@ pub async fn create_issue(
         resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access(&state, &ctx, task_id).await?;
+        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
     }
 
     // Resolve names → UUIDs.
@@ -327,7 +327,7 @@ pub async fn create_comment(
         resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access(&state, &ctx, task_id).await?;
+        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
     }
 
     // commentCreate requires the issue UUID, not the SP-123 identifier.
@@ -529,7 +529,13 @@ async fn resolve_linear_api(
     ctx: &ScopeContext,
     connection_id: Option<&str>,
 ) -> Result<(AdapterConnection, LinearAgentApi), AdapterError> {
-    let connection = resolve_connection(state, ctx, AdapterKind::Linear, connection_id).await?;
+    let connection = resolve_connection(
+        state.adapter_connections.as_ref(),
+        ctx,
+        AdapterKind::Linear,
+        connection_id,
+    )
+    .await?;
     let linear = state
         .provider_handles
         .linear

@@ -8,7 +8,7 @@ use moatless_api_schemas::adapters::{
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
 use super::common::{
-    AdapterFilter, adapter_connection_response, ensure_task_access, resolve_connection,
+    AdapterFilter, adapter_connection_response, ensure_task_access_with, resolve_connection,
     resolve_scope_for_adapter_create,
 };
 use crate::adapters::AdapterKind;
@@ -156,11 +156,16 @@ pub async fn adapter_send(
     let ctx = auth.scope_context();
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access(&state, &ctx, task_id).await?;
+        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
     }
 
-    let connection =
-        resolve_connection(&state, &ctx, req.adapter, req.connection_id.as_deref()).await?;
+    let connection = resolve_connection(
+        state.adapter_connections.as_ref(),
+        &ctx,
+        req.adapter,
+        req.connection_id.as_deref(),
+    )
+    .await?;
 
     let providers = state.adapters.as_ref().ok_or_else(|| {
         SharedAdapterError::AdapterNotConfigured("adapters not configured".into())
@@ -241,7 +246,7 @@ pub async fn send_user_dm(
     let ctx = auth.scope_context();
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access(&state, &ctx, task_id).await?;
+        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
     }
 
     let target = state
@@ -265,7 +270,8 @@ pub async fn send_user_dm(
         SharedAdapterError::BadRequest(format!("Unknown adapter provider: {}", req.provider))
     })?;
 
-    let connection = resolve_connection(&state, &ctx, kind, None).await?;
+    let connection =
+        resolve_connection(state.adapter_connections.as_ref(), &ctx, kind, None).await?;
 
     let providers = state.adapters.as_ref().ok_or_else(|| {
         SharedAdapterError::AdapterNotConfigured("adapters not configured".into())

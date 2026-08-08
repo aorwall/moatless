@@ -19,7 +19,6 @@ use moatless_backend_core::access_control::{
 pub(crate) use crate::adapters::models::parse_adapter_kind;
 use crate::loops::dao::{LoopDao, LoopRecord, LoopSourceRow};
 use crate::repository::dao::RepositoryDao;
-use crate::state::AppState;
 use crate::task::dao::TaskDao;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 
@@ -188,21 +187,12 @@ pub(crate) fn resolve_scope_for_adapter_create(
     Ok(resolve_scope_for_create(ctx, requested_scope)?)
 }
 
-/// Load and authorize an adapter connection for the calling user.
+/// Load and authorize an adapter connection for the calling user, through the
+/// one port it needs — the `adapter_connections` DAO.
 ///
-/// Uses the scoped `find_by_id(id, ctx)` DAO method so only connections
-/// visible to the caller are returned; `None` → `NotFound`.
-pub(crate) async fn load_adapter_connection_for_auth(
-    state: &AppState,
-    ctx: &ScopeContext,
-    id: &str,
-) -> Result<AdapterConnection, AdapterError> {
-    load_adapter_connection_for_auth_with(state.adapter_connections.as_ref(), ctx, id).await
-}
-
-/// [`load_adapter_connection_for_auth`] through the one port it needs — the
-/// `adapter_connections` DAO. A caller that already holds the port calls this
-/// directly and never names `AppState`.
+/// Uses the scoped `find_by_id(id, ctx)` method so only connections visible to
+/// the caller are returned; `None` → `NotFound`. Callers hold the port and pass
+/// it directly, so this names no `AppState`.
 pub(crate) async fn load_adapter_connection_for_auth_with(
     adapter_connections: &dyn AdapterConnectionDao,
     ctx: &ScopeContext,
@@ -233,19 +223,11 @@ pub(crate) async fn load_loop_for_auth_with(
         .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")).into())
 }
 
-/// Load and authorize a task for the calling user.
+/// Load and authorize a task for the calling user, through the one port it
+/// needs — the `tasks` DAO.
 ///
-/// Uses the scoped `find_by_id(id, ctx)` DAO method; `None` → `NotFound`.
-pub(crate) async fn ensure_task_access(
-    state: &AppState,
-    ctx: &ScopeContext,
-    task_id: &str,
-) -> Result<crate::task::models::Task, AdapterError> {
-    ensure_task_access_with(state.tasks.as_ref(), ctx, task_id).await
-}
-
-/// Load and authorize a task over the task DAO alone, for callers that hold the
-/// port rather than the whole `AppState`.
+/// Uses the scoped `find_by_id(id, ctx)` method; `None` → `NotFound`. Callers
+/// hold the port and pass it directly, so this names no `AppState`.
 pub(crate) async fn ensure_task_access_with(
     tasks: &dyn TaskDao,
     ctx: &ScopeContext,
@@ -265,13 +247,13 @@ pub(crate) async fn ensure_task_access_with(
 ///   * 1 → return it
 ///   * 2+ → `BadRequest` with the list of accessible IDs and a hint
 pub(crate) async fn resolve_connection(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
     ctx: &ScopeContext,
     kind: AdapterKind,
     connection_id: Option<&str>,
 ) -> Result<AdapterConnection, AdapterError> {
     if let Some(id) = connection_id {
-        let conn = load_adapter_connection_for_auth(state, ctx, id).await?;
+        let conn = load_adapter_connection_for_auth_with(adapter_connections, ctx, id).await?;
         if conn.adapter_kind != kind.as_str() {
             return Err(SharedAdapterError::BadRequest(format!(
                 "Connection {id} is for adapter {}, not {}",
@@ -282,10 +264,7 @@ pub(crate) async fn resolve_connection(
         }
         return Ok(conn);
     }
-    let rows = state
-        .adapter_connections
-        .list(ctx, Some(kind.as_str()))
-        .await?;
+    let rows = adapter_connections.list(ctx, Some(kind.as_str())).await?;
     let mut iter = rows.into_iter();
     match (iter.next(), iter.next()) {
         (None, _) => Err(SharedAdapterError::BadRequest(format!(

@@ -98,7 +98,11 @@ pub(super) async fn receive(
     // update could route under a Subscription whose secret was never checked
     // (spec Decision 5).
     let Some((connection, subscription)) = crate::bindings::runtime::resolve_chat_provider_event(
-        state, "telegram", "default", &source_id,
+        state.adapter_connections.as_ref(),
+        state.loops.as_ref(),
+        "telegram",
+        "default",
+        &source_id,
     )
     .await
     .map_err(IngressError::Ingress)?

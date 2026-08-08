@@ -40,12 +40,14 @@ pub use moatless_adapter_model::models::{
 /// Held on `AppState` as `state.routing` and built once at the composition root.
 /// The durable inbound-delivery handler holds a single `Arc<RoutingService>`
 /// rather than a field per port, and `subject_events` routes through it too. The
-/// provider-facing free functions below (`resolve_chat_provider_event`,
-/// `parent_author_task_id`, `external_id_aliases`, `upsert_binding`) remain
-/// `&AppState` doors that delegate here, because their callers are provider-band
-/// files that still hold `AppState`; those doors — and `runtime.rs`'s remaining
-/// `AppState` edge with them — close in the provider slices. See
-/// `docs/deferred-changes.md`.
+/// three provider-facing free functions below (`parent_author_task_id`,
+/// `external_id_aliases`, `upsert_binding`) remain `&AppState` doors that
+/// delegate here, because their callers are provider-band files that still hold
+/// `AppState`; those doors — and `runtime.rs`'s remaining `AppState` edge with
+/// them — close in the provider slices. (`resolve_chat_provider_event` was a
+/// fourth such door; it reads only `adapter_connections` and `loops`, so it now
+/// takes those two ports directly and its Slack/Telegram ingress callers pass
+/// them.) See `docs/deferred-changes.md`.
 pub struct RoutingService {
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     loops: Arc<LoopDao>,
@@ -740,12 +742,13 @@ impl RoutingService {
 }
 
 pub async fn resolve_chat_provider_event(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
+    loops: &LoopDao,
     provider: &str,
     scope_value: &str,
     source_id: &str,
 ) -> Result<Option<(AdapterConnection, SubscriptionMatch)>, AdapterError> {
-    let connection_repo = state.adapter_connections.clone();
+    let connection_repo = adapter_connections;
     // Look up exactly the requested scope_value. We deliberately do not fall
     // back to the "default" connection when scope_value is unknown — that would
     // silently route a tenant A event to tenant B's connection. Callers that
@@ -762,7 +765,7 @@ pub async fn resolve_chat_provider_event(
         return Ok(None);
     };
 
-    let subscription_repo = state.loops.clone();
+    let subscription_repo = loops;
     let subscription = subscription_repo
         .find_subscription_by_source_matcher(provider, source_id)
         .await?

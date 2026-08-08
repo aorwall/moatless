@@ -133,8 +133,14 @@ async fn resolve(
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
     let Some((connection, subscription)) =
-        crate::bindings::runtime::resolve_chat_provider_event(state, "slack", team_id, source_id)
-            .await?
+        crate::bindings::runtime::resolve_chat_provider_event(
+            state.adapter_connections.as_ref(),
+            state.loops.as_ref(),
+            "slack",
+            team_id,
+            source_id,
+        )
+        .await?
     else {
         debug!(
             source_id,

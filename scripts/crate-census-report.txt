@@ -3,7 +3,7 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3469  illegal   40
+CODE       legal  3468  illegal   39
 ATTRIBUTE  legal   258  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    35  illegal   16   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
@@ -43,19 +43,19 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (0 files, 0 lines)
     (none)
 
-  loops  (50 files, 14263 lines)
+  loops  (50 files, 14251 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
   adapter-github-pr  (24 files, 10621 lines)
     adapters/providers/github_pr/
 
-  adapter-linear  (23 files, 9887 lines)
+  adapter-linear  (23 files, 9893 lines)
     adapters/providers/linear/
 
-  adapter-slack  (18 files, 6188 lines)
+  adapter-slack  (18 files, 6194 lines)
     adapters/providers/slack/
 
-  adapter-telegram  (18 files, 4282 lines)
+  adapter-telegram  (18 files, 4286 lines)
     adapters/providers/telegram/
 
   adapter-webhook  (6 files, 791 lines)
@@ -70,7 +70,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 58226 lines
+  TOTAL backend/src: 58230 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (10 classes) ==
 
@@ -157,9 +157,8 @@ loops -> adapter-webhook   x5
     backend/src/adapters/routes.rs:8  [CODE] super::webhook   -> [7d + 10h — registry field-widening + provider carve]
     backend/src/adapters/routes.rs:88  [MACRO] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> server   x7
+loops -> server   x6
     backend/src/adapters/capabilities.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/common.rs:22  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/delivery/typed.rs:16  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/handlers.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/routes.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -301,7 +300,7 @@ loops -> server   x7
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> loops: BLOCKED on 53 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> loops: BLOCKED on 52 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
@@ -309,7 +308,7 @@ loops -> server   x7
   sandbox-control    deps: identity, tasks, workspaces                  EXTRACTED
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           EXTRACTED
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
-  loops              deps: identity, tasks, workspaces                  BLOCKED — 53 illegal outgoing to adapter-github-pr(x13), adapter-linear(x18), adapter-slack(x5), adapter-telegram(x5), adapter-webhook(x5), server(x7)
+  loops              deps: identity, tasks, workspaces                  BLOCKED — 52 illegal outgoing to adapter-github-pr(x13), adapter-linear(x18), adapter-slack(x5), adapter-telegram(x5), adapter-webhook(x5), server(x6)
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
   adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 6 illegal outgoing to server(x6)
   adapter-slack      deps: identity, loops                              BLOCKED — 2 illegal outgoing to server(x2)

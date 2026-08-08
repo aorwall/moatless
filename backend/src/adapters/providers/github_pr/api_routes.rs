@@ -25,7 +25,7 @@ use moatless_api_schemas::github::{
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use crate::adapters::common::ensure_task_access;
+use crate::adapters::common::ensure_task_access_with;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::footer::FOOTER_MARKER;
 use crate::extractors::AuthUser;
@@ -59,7 +59,7 @@ pub async fn create_pr(
 ) -> Result<Json<GithubCreatePrResponse>, AdapterError> {
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access(&state, &ctx, task_id).await?;
+        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
     }
 
     let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
@@ -202,7 +202,7 @@ pub async fn post_comment(
 ) -> Result<Json<GithubCommentResponse>, AdapterError> {
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access(&state, &ctx, task_id).await?;
+        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
     }
 
     let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
@@ -267,7 +267,7 @@ pub async fn reply_to_review_comment(
 ) -> Result<Json<GithubCommentResponse>, AdapterError> {
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access(&state, &ctx, task_id).await?;
+        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
     }
 
     let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
@@ -328,7 +328,7 @@ pub async fn bind_pr(
     Json(req): Json<GithubBindPrRequest>,
 ) -> Result<Json<GithubBindPrResponse>, AdapterError> {
     let ctx = auth.scope_context();
-    ensure_task_access(&state, &ctx, &req.task_id).await?;
+    ensure_task_access_with(state.tasks.as_ref(), &ctx, &req.task_id).await?;
 
     let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
     let pr = api.get_pr(&owner, &repo, number).await?;
