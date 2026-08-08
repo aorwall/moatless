@@ -125,7 +125,18 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
             _ => "sandbox-control",
         },
         // -- loops --
-        "loops" | "bindings" => "loops",
+        "loops" => "loops",
+        // `bindings/handlers.rs` is the binding HTTP boundary — the six binding/reply
+        // handlers are the `connections_handlers` shape (10g), server-band orchestration
+        // that relocates with `adapters/handlers.rs`. It already names no `AppState` (its
+        // handlers extract per-port `FromRef` state), so this arm is ceiling-neutral today;
+        // it reflects the file's server home ahead of the carve and keeps a future
+        // server-band reference into it from scoring as a fresh `loops -> server` edge. The
+        // rest of `bindings/` (runtime, outbound, reply, ...) stays loops.
+        "bindings" => match m.get(1).map(String::as_str) {
+            Some("handlers") => "server",
+            _ => "loops",
+        },
         // -- adapters split: providers -> provider crates, routes -> server, rest -> loops --
         "adapters" => match (m.get(1).map(String::as_str), m.get(2).map(String::as_str)) {
             (Some("providers"), Some("github_pr")) => "adapter-github-pr",
@@ -148,6 +159,20 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
             // carve time; the arm reflects that home ahead of the `git mv`, exactly
             // as the `setup`/`repository_sync`/`credential_sync` arms do.
             (Some("routes"), _) => "server",
+            // `handlers.rs` is the adapter HTTP boundary — the six adapter/DM handlers
+            // (`adapter_send`, `send_user_dm`, `list_adapters`, the connection CRUD) take
+            // `State<AppState>` and orchestrate across tasks/loops/adapters/message. That
+            // is the `connections_handlers` shape (10g): its home is server, following
+            // `routes.rs` (arm above) and `bindings/handlers.rs`. Its only production
+            // consumers are server-band (`adapter_router` at main.rs, `AdapterApiDoc` at
+            // startup.rs); its entire outgoing set — `bindings::{outbound,runtime}`,
+            // `adapters::{common,error,models}`, `extractors`, `AppState` — sits at or
+            // below server, so the relocation runs every edge downward-legal and retires
+            // the one `crate::state::AppState` row with no port or seam. (Not to be
+            // confused with the sibling `adapters/delivery/handlers.rs`, which defines the
+            // `AdapterDeliveryHandler` types the loops-band delivery layer consumes and
+            // stays in loops.)
+            (Some("handlers"), _) => "server",
             _ => "loops",
         },
         // -- server -- (`""` is the backend lib root, lib.rs)
