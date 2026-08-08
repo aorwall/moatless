@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 113
+# Illegal edge count: 112
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -117,7 +117,6 @@ sandbox-control        -> server               [CODE] backend/src/sandbox/notify
 sandbox-docker         -> sandbox-k8s          [CODE] backend/src/sandbox/docker/container_builder.rs:20  crate::sandbox::k8s::pod_reader::parse_cpu_to_millicores
 sandbox-docker         -> sandbox-k8s          [CODE] backend/src/sandbox/docker/container_builder.rs:20  crate::sandbox::k8s::pod_reader::parse_memory_to_bytes
 sandbox-docker         -> sandbox-k8s          [CODE] backend/src/sandbox/docker/status_resolver.rs:13  crate::sandbox::k8s::pod_status::DEFAULT_SERVER_READINESS_TIMEOUT_SECS
-tasks                  -> server               [CODE] backend/src/task/routes.rs:7  crate::state::AppState
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
 # Doc-path count (not in the illegal count above): 5

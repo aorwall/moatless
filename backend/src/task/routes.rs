@@ -1,10 +1,30 @@
 //! Task API routes with OpenAPI documentation.
 
+use std::sync::Arc;
+
+use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
-use crate::state::AppState;
+use crate::credential_sync::CredentialSync;
+use crate::extractors::UserTokenVerifier;
+use crate::message::dao::MessageDao;
+use crate::message::send::MessageSendService;
+use crate::repository::dao::RepositoryDao;
+use crate::task::binding_dao::TaskBindingDao;
+use crate::task::closer::TaskCloser;
+use crate::task::creation::{PreflightPort, TaskCreationService};
+use crate::task::dao::TaskDao;
+use crate::task::presenter::TaskPresenter;
+use crate::task::relations::TaskRelationDao;
+use crate::task::sandbox_lifecycle::SandboxLifecycle;
+use crate::task_turn::dao::TaskTurnDao;
+use crate::workspace::dao::WorkspaceDao;
+use crate::workspace::git_sync::GitSyncService;
+use moatless_core::config::Config;
+use moatless_core::events::EventPublisher;
+use moatless_core::tag::dao::TagDao;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -33,7 +53,37 @@ use crate::state::AppState;
 pub struct TaskApiDoc;
 
 /// Build the task router with OpenAPI metadata.
-pub fn task_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenApi) {
+///
+/// Generic over the router state `S` so this module names no root type: the
+/// composition root supplies the concrete state at the call site, and each
+/// registered handler reaches its ports — the task/message/creation services,
+/// the task/binding/relation/turn/message DAOs, the repository/workspace/git
+/// and tag ports, the sandbox lifecycle and preflight ports, the credential
+/// sync and config, and the `UserTokenVerifier` behind `AuthUser` — through
+/// `FromRef<S>`.
+pub fn task_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
+where
+    S: Clone + Send + Sync + 'static,
+    Arc<dyn TaskDao>: FromRef<S>,
+    Arc<dyn TaskBindingDao>: FromRef<S>,
+    Arc<dyn TaskRelationDao>: FromRef<S>,
+    Arc<dyn TaskTurnDao>: FromRef<S>,
+    Arc<dyn MessageDao>: FromRef<S>,
+    Arc<dyn TagDao>: FromRef<S>,
+    Arc<dyn RepositoryDao>: FromRef<S>,
+    Arc<dyn WorkspaceDao>: FromRef<S>,
+    Arc<dyn SandboxLifecycle>: FromRef<S>,
+    Arc<dyn PreflightPort>: FromRef<S>,
+    Arc<dyn UserTokenVerifier>: FromRef<S>,
+    Arc<TaskPresenter>: FromRef<S>,
+    Arc<TaskCloser>: FromRef<S>,
+    Arc<TaskCreationService>: FromRef<S>,
+    Arc<MessageSendService>: FromRef<S>,
+    Arc<CredentialSync>: FromRef<S>,
+    Arc<GitSyncService>: FromRef<S>,
+    Arc<Config>: FromRef<S>,
+    Option<Arc<dyn EventPublisher>>: FromRef<S>,
+{
     let (router, api) = OpenApiRouter::with_openapi(TaskApiDoc::openapi())
         .routes(routes!(handlers::create_task, handlers::list_tasks))
         .routes(routes!(
