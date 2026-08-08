@@ -29,20 +29,20 @@ use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use sqlx::PgPool;
 
+use moatless_core::scope::Scope;
 use moatless_vibe_backend::adapters::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::linear::delivery;
 use moatless_vibe_backend::adapters::linear::ingress::{
-    reason, receive, IngressError, Outcome, Rejection,
+    IngressError, Outcome, Rejection, reason, receive,
 };
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::adapters::test_support::ProviderStub;
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_core::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 
 use common::{
-    linear_config, make_repository_row, seed_linear_app, seed_team, test_app_state_with_linear,
-    test_config, USER_1,
+    USER_1, linear_config, make_repository_row, seed_linear_app, seed_team,
+    test_app_state_with_linear, test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -102,7 +102,17 @@ async fn deliver_signed_bytes(
         .linear
         .as_ref()
         .expect("Linear adapter registered");
-    receive(state, provider, &signature, &body).await
+    receive(
+        state.adapter_connections.as_ref(),
+        &state.loops,
+        &state.db,
+        &state.config,
+        &state.adapter_delivery,
+        provider,
+        &signature,
+        &body,
+    )
+    .await
 }
 
 /// The connection, plus the `adapter_apps` row its client is resolved from.
@@ -586,9 +596,18 @@ async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgP
         .linear
         .as_ref()
         .expect("Linear adapter registered");
-    let rejection = receive(&state, provider, "00ff", &body)
-        .await
-        .expect_err("refused");
+    let rejection = receive(
+        state.adapter_connections.as_ref(),
+        &state.loops,
+        &state.db,
+        &state.config,
+        &state.adapter_delivery,
+        provider,
+        "00ff",
+        &body,
+    )
+    .await
+    .expect_err("refused");
 
     assert!(matches!(rejection.error, IngressError::Ingress(_)));
     assert_eq!(rejection.event_type, "Comment");

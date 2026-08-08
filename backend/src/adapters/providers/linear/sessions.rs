@@ -187,7 +187,7 @@ pub(super) async fn handle_session_prompted(
         warn!(session_id, error = %e, "Failed to emit Linear prompted heartbeat");
     }
 
-    let rule = super::subject::rule_for_binding(state, &bindings[0]).await?;
+    let rule = super::subject::rule_for_binding(&state.loops, &bindings[0]).await?;
 
     for binding in bindings {
         // Re-open the Linear turn gate for this follow-up prompt so the
@@ -379,10 +379,13 @@ async fn provision_session_task(
     .await?;
 
     // Update the session with an externalUrl pointing at the moatless task.
-    let task_url = super::text::task_url(state, &task_id);
-    let attachment_title =
-        super::text::task_attachment_title(state, &task_id, super::text::ATTACHMENT_TITLE_CHILD)
-            .await;
+    let task_url = super::text::task_url(&state.config, &task_id);
+    let attachment_title = super::text::task_attachment_title(
+        state.tasks.as_ref(),
+        &task_id,
+        super::text::ATTACHMENT_TITLE_CHILD,
+    )
+    .await;
     if let Err(e) = api
         .agent_session_update_external_urls(&session.id, &attachment_title, &task_url)
         .await

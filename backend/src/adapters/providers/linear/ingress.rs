@@ -30,16 +30,21 @@
 //!
 //! # Reachable without an HTTP request
 //!
-//! [`receive`] takes an `AppState`, an Adapter, a signature and a body. That is
+//! [`receive`] takes the downward ports it reads (adapter connections, loops,
+//! db, config, adapter delivery), an Adapter, a signature and a body. That is
 //! the seam: every decision below the route is drivable from a test that never
 //! builds a `Request`, and `backend/tests/integration/linear_ingress_test.rs` drives it.
 
 use tracing::{info, warn};
 
-use crate::adapters::delivery::AdapterDeliveryRequest;
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch};
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
 
 use super::adapter::LinearAdapter;
 use super::agent_api::ActivityKind;
@@ -160,8 +165,19 @@ pub struct Rejection {
 }
 
 /// Verify, normalize, plan, and durably admit one Linear webhook.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the five downward ports the ingress path reads (adapter \
+              connections, loops, db, config, adapter delivery) inverted out of \
+              the single AppState the seam used to take; provider, signature and \
+              body are the transport facts the HTTP handler already passed"
+)]
 pub async fn receive(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
+    loops: &LoopDao,
+    db: &DbPool,
+    config: &Config,
+    adapter_delivery: &AdapterDeliveryStore,
     provider: &LinearAdapter,
     signature: &str,
     body: &[u8],
@@ -190,15 +206,35 @@ pub async fn receive(
     };
 
     let event_type = envelope.event_type.clone();
-    dispatch(state, provider, signature, body, &envelope)
-        .await
-        .map_err(|error| Rejection { error, event_type })
+    dispatch(
+        adapter_connections,
+        loops,
+        db,
+        config,
+        adapter_delivery,
+        provider,
+        signature,
+        body,
+        &envelope,
+    )
+    .await
+    .map_err(|error| Rejection { error, event_type })
 }
 
 /// Everything `receive` does once the envelope has parsed and its event type is
 /// in hand for labelling.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the five downward ports `receive` threads in plus the transport \
+              facts and the parsed envelope; each sub-step below takes only the \
+              narrow subset it needs"
+)]
 async fn dispatch(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
+    loops: &LoopDao,
+    db: &DbPool,
+    config: &Config,
+    adapter_delivery: &AdapterDeliveryStore,
     provider: &LinearAdapter,
     signature: &str,
     body: &[u8],
@@ -224,8 +260,7 @@ async fn dispatch(
         return Ok(ignored(envelope, reason::NO_CONNECTION));
     };
 
-    let connection = state
-        .adapter_connections
+    let connection = adapter_connections
         .find_by_external_account("linear", org_id)
         .await
         .map_err(SharedAdapterError::Db)?;
@@ -279,7 +314,7 @@ async fn dispatch(
     // Subscription lookup has always run: a database failure here costs Linear
     // nothing, and moving it below the heartbeat would spend an API call on a
     // delivery that is about to fail anyway.
-    let unmet = !requirement_met(state, &connection, requires.as_ref()).await?;
+    let unmet = !requirement_met(loops, &connection, requires.as_ref()).await?;
 
     if unmet {
         // A created session on a team with no active Subscription. No
@@ -287,16 +322,16 @@ async fn dispatch(
         // terminal activity — close the session here instead. The heartbeat is
         // deliberately skipped: it would only keep the panel `active` before
         // the `error` that immediately follows.
-        decline_sessions(state, &connection, &effects).await;
+        decline_sessions(db, config, &connection, &effects).await;
         return Ok(ignored(envelope, reason::NO_SUBSCRIPTION));
     }
 
-    apply(state, &connection, &effects).await;
+    apply(db, config, &connection, &effects).await;
 
     let mut kinds = Vec::with_capacity(requests.len());
     for request in requests {
         let kind = request.kind;
-        admit(state, request, &event_id).await?;
+        admit(adapter_delivery, request, &event_id).await?;
         kinds.push(kind);
     }
 
@@ -337,7 +372,7 @@ fn ignored(envelope: &LinearWebhookEnvelope, reason: &'static str) -> Outcome {
 
 /// Settle the one precondition [`webhook::normalize`] cannot see.
 async fn requirement_met(
-    state: &AppState,
+    loops: &LoopDao,
     connection: &AdapterConnection,
     requires: Option<&Requirement>,
 ) -> Result<bool, IngressError> {
@@ -347,7 +382,7 @@ async fn requirement_met(
     // Cheap guard only. The actual subscription selection — which may need a
     // `get_issue` round-trip to learn the issue's project/labels — happens
     // inside the admitted work so it never delays Linear's webhook ack.
-    let rules = resolve_rules_for_team(state, connection, team_id).await?;
+    let rules = resolve_rules_for_team(loops, connection, team_id).await?;
     if rules.is_empty() {
         warn!(
             team_id = %team_id,
@@ -363,11 +398,11 @@ async fn requirement_met(
 /// Best-effort by construction: an effect is a notice about work that is about
 /// to be admitted, so a failure to post it is logged and the delivery carries
 /// on. Nothing here decides anything.
-async fn apply(state: &AppState, connection: &AdapterConnection, effects: &[Effect]) {
+async fn apply(db: &DbPool, config: &Config, connection: &AdapterConnection, effects: &[Effect]) {
     if effects.is_empty() {
         return;
     }
-    let api = match super::auth::api_for_connection(state, connection).await {
+    let api = match super::auth::api_for_connection(db, config, connection).await {
         Ok(api) => api,
         Err(e) => {
             warn!(error = %e, "Failed to resolve Linear app config for webhook effect");
@@ -393,11 +428,16 @@ async fn apply(state: &AppState, connection: &AdapterConnection, effects: &[Effe
 /// a terminal one the panel stays `active` indefinitely — this posts the `error`
 /// that closes it. Best-effort, exactly like [`apply`]: a resolve or post
 /// failure is logged and the drop carries on.
-async fn decline_sessions(state: &AppState, connection: &AdapterConnection, effects: &[Effect]) {
+async fn decline_sessions(
+    db: &DbPool,
+    config: &Config,
+    connection: &AdapterConnection,
+    effects: &[Effect],
+) {
     if effects.is_empty() {
         return;
     }
-    let api = match super::auth::api_for_connection(state, connection).await {
+    let api = match super::auth::api_for_connection(db, config, connection).await {
         Ok(api) => api,
         Err(e) => {
             warn!(error = %e, "Failed to resolve Linear app config to decline session");
@@ -419,13 +459,12 @@ async fn decline_sessions(state: &AppState, connection: &AdapterConnection, effe
 /// [`IngressError::NotAdmitted`], which is the one failure the route refuses to
 /// answer with a `200`.
 async fn admit(
-    state: &AppState,
+    adapter_delivery: &AdapterDeliveryStore,
     request: AdapterDeliveryRequest,
     event_id: &str,
 ) -> Result<(), IngressError> {
     let kind = request.kind;
-    let admission =
-        crate::adapters::ingress::admit_delivery(&state.adapter_delivery, request).await?;
+    let admission = crate::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
     super::delivery::log_admission(kind, event_id, admission);
     Ok(())
 }
@@ -438,12 +477,11 @@ async fn admit(
 /// webhook saw, so an operator disabling a loop between admission and
 /// execution stops the work.
 pub(super) async fn resolve_rules_for_team(
-    state: &AppState,
+    loops: &LoopDao,
     connection: &AdapterConnection,
     team_id: &str,
 ) -> Result<Vec<SubscriptionMatch>, AdapterError> {
-    let rules = state
-        .loops
+    let rules = loops
         .list_subscriptions_by_source_matcher(ADAPTER, team_id)
         .await?;
     Ok(rules

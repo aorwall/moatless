@@ -15,9 +15,16 @@
 
 use tracing::debug;
 
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+use moatless_core::events::EventPublisher;
+
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::AdapterConnection;
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
+use crate::sandbox::lifecycle::Lifecycle;
+use crate::task::binding_dao::TaskBindingDao;
+use crate::task::dao::TaskDao;
 
 use super::agent_api::LinearAgentApi;
 use super::close::close_active_bindings_for_issue;
@@ -31,8 +38,21 @@ use super::webhook_payloads::AppUserNotificationData;
 /// (not Issue) webhooks. Acts on the current state alone (the notification
 /// carries no diff). `close_active_bindings_for_issue` is idempotent, so
 /// double delivery from the Issue path is safe.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "this forward-only path threads the union its two callees need — the \
+              loops port `resolve_rules_for_team` reads and the six close ports \
+              `close_active_bindings_for_issue` reads — inverted out of the \
+              single AppState it used to carry"
+)]
 pub(super) async fn handle_issue_status_notification(
-    state: &AppState,
+    db: &DbPool,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
+    config: &Config,
+    sandbox: &Lifecycle,
+    events: Option<&dyn EventPublisher>,
+    loops: &LoopDao,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     notif: &AppUserNotificationData,
@@ -53,7 +73,7 @@ pub(super) async fn handle_issue_status_notification(
         return Ok(());
     };
 
-    let rules = resolve_rules_for_team(state, connection, &team_id).await?;
+    let rules = resolve_rules_for_team(loops, connection, &team_id).await?;
     let Some(rule) = rules.first() else {
         debug!(
             team_id = %team_id,
@@ -67,7 +87,18 @@ pub(super) async fn handle_issue_status_notification(
     if rule_config.close_task_on_close
         && rule_config.terminal_states.iter().any(|s| s == state_kind)
     {
-        close_active_bindings_for_issue(state, api, rule, issue).await?;
+        close_active_bindings_for_issue(
+            db,
+            task_bindings,
+            tasks,
+            config,
+            sandbox,
+            events,
+            api,
+            rule,
+            issue,
+        )
+        .await?;
     }
 
     Ok(())

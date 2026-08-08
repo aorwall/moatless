@@ -13,9 +13,12 @@
 //! sites: `issue_id` is a lookup key, and a provisioning path that spelled it
 //! differently would write a Binding nothing could find.
 
+use moatless_core::db::DbPool;
+
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
+use crate::task::binding_dao::TaskBindingDao;
 
 use super::SUBJECT_KIND_ISSUE;
 use super::webhook_payloads::{AgentSession, IssuePayload};
@@ -54,7 +57,7 @@ pub(super) enum BindingScope<'a> {
 /// to see a Binding in order to decide about it, and the emitters' callers
 /// filter for themselves. Callers that want only live Bindings say so.
 pub(super) async fn bindings_in_scope(
-    state: &AppState,
+    db: &DbPool,
     scope: BindingScope<'_>,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
     let (kinds, issue_id, task_id) = match scope {
@@ -89,7 +92,7 @@ pub(super) async fn bindings_in_scope(
     .bind(&kinds)
     .bind(issue_id)
     .bind(task_id)
-    .fetch_all(&state.db)
+    .fetch_all(db)
     .await
     .map_err(AdapterError::from)
 }
@@ -101,15 +104,14 @@ pub(super) async fn bindings_in_scope(
 /// task holding both kinds on one issue should be reached through the one that
 /// has a Linear panel to heartbeat into.
 pub(super) async fn comment_recipients(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
     connection: &AdapterConnection,
     issue_id: &str,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
-    let binding_repo = state.task_bindings.clone();
     let mut rows = Vec::new();
     for subject_kind in [SUBJECT_KIND_SESSION, SUBJECT_KIND_ISSUE] {
         rows.extend(
-            binding_repo
+            task_bindings
                 .find_active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
                 .await?,
         );
@@ -128,13 +130,12 @@ pub(super) async fn comment_recipients(
 /// Active Bindings of `subject_kind` pointing at `issue_id`, scoped to
 /// `connection`.
 pub(super) async fn active_bindings_on_issue(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
     connection: &AdapterConnection,
     subject_kind: &str,
     issue_id: &str,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
-    let rows = state
-        .task_bindings
+    let rows = task_bindings
         .find_active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
         .await?;
     Ok(rows
@@ -150,11 +151,11 @@ pub(super) async fn active_bindings_on_issue(
 /// keep receiving events; only new trigger-created Task behaviour is gated on
 /// the Subscription.
 pub(super) async fn rule_for_binding(
-    state: &AppState,
+    loops: &LoopDao,
     binding: &TaskBinding,
 ) -> Result<Option<SubscriptionMatch>, AdapterError> {
     match binding.loop_id {
-        Some(ref loop_id) => Ok(state.loops.find_subscription_by_id(loop_id).await?),
+        Some(ref loop_id) => Ok(loops.find_subscription_by_id(loop_id).await?),
         None => Ok(None),
     }
 }

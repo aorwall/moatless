@@ -15,14 +15,15 @@
 use std::fmt::Write as _;
 
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::config::Config;
 
-use crate::state::AppState;
+use crate::task::dao::TaskDao;
 
 use super::webhook_payloads::{AgentSession, IssuePayload};
 
 /// The frontend URL of a Moatless task, as linked from Linear.
-pub(super) fn task_url(state: &AppState, task_id: &str) -> String {
-    let base = state.config.auth.frontend_url.trim_end_matches('/');
+pub(super) fn task_url(config: &Config, task_id: &str) -> String {
+    let base = config.auth.frontend_url.trim_end_matches('/');
     format!("{base}/tasks/{task_id}")
 }
 
@@ -81,13 +82,17 @@ fn format_attachment_title(prefix: &str, name: Option<&str>) -> String {
     }
 }
 
-pub(super) async fn task_attachment_title(state: &AppState, task_id: &str, prefix: &str) -> String {
+pub(super) async fn task_attachment_title(
+    tasks: &dyn TaskDao,
+    task_id: &str,
+    prefix: &str,
+) -> String {
     #[allow(
         clippy::disallowed_methods,
         reason = "attachment title fetch is a background formatting step, no caller identity"
     )]
     let sys = ScopeContext::system();
-    match state.tasks.find_by_id(task_id, &sys).await {
+    match tasks.find_by_id(task_id, &sys).await {
         Ok(Some(task)) => format_attachment_title(prefix, task.name.as_deref()),
         Ok(None) => prefix.to_string(),
         Err(e) => {

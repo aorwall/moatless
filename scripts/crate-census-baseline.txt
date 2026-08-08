@@ -4,7 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 83
+# Illegal edge count: 75
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/handlers.rs:11  crate::state::AppState
@@ -13,20 +13,12 @@ adapter-github-pr      -> server               [CODE] backend/src/adapters/provi
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/post_merge.rs:10  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/routing.rs:17  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/shell_reconcile.rs:46  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/activity.rs:34  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/adapter.rs:20  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/api_routes.rs:34  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/auth.rs:24  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/close.rs:24  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/comments.rs:20  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/delivery.rs:78  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/handlers.rs:19  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/ingress.rs:42  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/issues.rs:25  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/notifications.rs:20  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/sessions.rs:30  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/subject.rs:18  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/text.rs:19  crate::state::AppState
 adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/delivery.rs:7  crate::state::AppState
 adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/handlers.rs:12  crate::state::AppState
 adapter-slack          -> server               [CODE] backend/src/adapters/providers/slack/ingress.rs:14  crate::state::AppState

@@ -3,8 +3,8 @@
 //! Subscribes to `task-events:*` streams using a separate consumer group
 //! from the SSE consumer. Processes `agent.*` and `task.metadata.updated` events.
 
-use redis::aio::ConnectionManager;
 use redis::Value;
+use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -415,7 +415,9 @@ impl EventHandlerConsumer {
                         if self.state.linear_active_turns.is_open(&event.task_id) {
                             tokio::spawn(
                                 crate::adapters::linear::activity::notify_linear_message_activities(
-                                    self.state.clone(),
+                                    self.state.db.clone(),
+                                    self.state.adapter_connections.clone(),
+                                    self.state.config.clone(),
                                     event.task_id.clone(),
                                     message,
                                 ),
@@ -427,7 +429,10 @@ impl EventHandlerConsumer {
                         if self.state.linear_active_turns.is_open(&event.task_id) {
                             tokio::spawn(
                                 crate::adapters::linear::activity::notify_linear_tool_results(
-                                    self.state.clone(),
+                                    self.state.db.clone(),
+                                    self.state.adapter_connections.clone(),
+                                    self.state.config.clone(),
+                                    self.state.messages.clone(),
                                     event.task_id.clone(),
                                     message,
                                 ),
@@ -467,7 +472,9 @@ impl EventHandlerConsumer {
                     .to_string();
                 if self.state.linear_active_turns.is_open(&event.task_id) {
                     tokio::spawn(crate::adapters::linear::activity::notify_linear_status(
-                        self.state.clone(),
+                        self.state.db.clone(),
+                        self.state.adapter_connections.clone(),
+                        self.state.config.clone(),
                         event.task_id.clone(),
                         crate::adapters::linear::activity::ActivityKind::Error,
                         body,
@@ -505,7 +512,9 @@ impl EventHandlerConsumer {
                     .to_string();
                 if self.state.linear_active_turns.is_open(&event.task_id) {
                     tokio::spawn(crate::adapters::linear::activity::notify_linear_status(
-                        self.state.clone(),
+                        self.state.db.clone(),
+                        self.state.adapter_connections.clone(),
+                        self.state.config.clone(),
                         event.task_id.clone(),
                         crate::adapters::linear::activity::ActivityKind::Error,
                         body,
@@ -533,7 +542,9 @@ impl EventHandlerConsumer {
                 .await;
                 if self.state.linear_active_turns.is_open(&event.task_id) {
                     tokio::spawn(crate::adapters::linear::activity::notify_linear_action(
-                        self.state.clone(),
+                        self.state.db.clone(),
+                        self.state.adapter_connections.clone(),
+                        self.state.config.clone(),
                         event.task_id.clone(),
                         "Sandbox".to_string(),
                         status.as_str().to_string(),
@@ -550,7 +561,9 @@ impl EventHandlerConsumer {
             EventKey::Agent(AgentSubType::Started) => {
                 self.state.linear_active_turns.open(&event.task_id);
                 tokio::spawn(crate::adapters::linear::activity::notify_linear_action(
-                    self.state.clone(),
+                    self.state.db.clone(),
+                    self.state.adapter_connections.clone(),
+                    self.state.config.clone(),
                     event.task_id.clone(),
                     "Agent".to_string(),
                     AgentSubType::Started.as_str().to_string(),

@@ -42,7 +42,18 @@ pub async fn linear_webhook(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    match super::ingress::receive(&state, &linear_provider, signature, &body).await {
+    match super::ingress::receive(
+        state.adapter_connections.as_ref(),
+        &state.loops,
+        &state.db,
+        &state.config,
+        &state.adapter_delivery,
+        &linear_provider,
+        signature,
+        &body,
+    )
+    .await
+    {
         Ok(Outcome::Admitted { event_type, .. }) => {
             record_webhook("linear", "success", "", &event_type, "", "");
         }

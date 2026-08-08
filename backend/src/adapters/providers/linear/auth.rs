@@ -19,11 +19,11 @@
 //! in place when it is near expiry, so the pool is part of the credential, not
 //! a convenience.
 
+use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, TaskBinding};
-use crate::state::AppState;
 use moatless_backend_core::scope::ScopeContext;
-use moatless_core::config::LinearConfig;
+use moatless_core::config::{Config, LinearConfig};
 use moatless_core::db::DbPool;
 
 use super::adapter::LinearAdapter;
@@ -77,11 +77,12 @@ impl LinearCredentials {
 }
 
 pub(super) async fn api_for_connection(
-    state: &AppState,
+    db: &DbPool,
+    config: &Config,
     connection: &AdapterConnection,
 ) -> Result<LinearAgentApi, AdapterError> {
     let app_key = crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
-    let app = crate::adapter_apps::linear_app_config(&state.db, &state.config, app_key)
+    let app = crate::adapter_apps::linear_app_config(db, config, app_key)
         .await
         .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?;
     let Some(app) = app else {
@@ -90,7 +91,7 @@ pub(super) async fn api_for_connection(
         );
     };
     let credentials = LinearCredentials::from(&app);
-    Ok(credentials.api_for_org(state.db.clone(), &connection.scope_value))
+    Ok(credentials.api_for_org(db.clone(), &connection.scope_value))
 }
 
 /// A client for the workspace a Binding belongs to.
@@ -100,7 +101,9 @@ pub(super) async fn api_for_connection(
 /// best-effort emitter on the event-consumer hot path, where the alternative to
 /// skipping is bubbling a database error into event handling.
 pub(super) async fn api_for_binding(
-    state: &AppState,
+    adapter_connections: &dyn AdapterConnectionDao,
+    db: &DbPool,
+    config: &Config,
     binding: &TaskBinding,
 ) -> Option<LinearAgentApi> {
     // Column is `external_account_id` on disk; the rest of the codebase reads
@@ -109,12 +112,11 @@ pub(super) async fn api_for_binding(
     // reason: session routing for an agent-side notification; no caller identity
     #[allow(clippy::disallowed_methods)]
     let sys = ScopeContext::system();
-    let connection = state
-        .adapter_connections
+    let connection = adapter_connections
         .find_by_id(&binding.connection_id, &sys)
         .await;
     match connection {
-        Ok(Some(connection)) => match api_for_connection(state, &connection).await {
+        Ok(Some(connection)) => match api_for_connection(db, config, &connection).await {
             Ok(api) => Some(api),
             Err(e) => {
                 tracing::warn!(

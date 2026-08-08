@@ -18,13 +18,15 @@ use std::fmt::Write as _;
 use tracing::{debug, info, warn};
 
 use crate::adapters::error::AdapterError;
-use crate::adapters::models::{SubscriptionMatch, TaskBinding, ADAPTER_EVENT_BINDING_ORIGIN};
+use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
+use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
 use crate::task::binding_dao::TaskBindingDao;
-use crate::sandbox::lifecycle::ArchiveRetention;
-use crate::state::AppState;
-use crate::task::dao::TaskPatch;
+use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::TaskStatus;
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+use moatless_core::events::EventPublisher;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::webhook_payloads::IssuePayload;
@@ -34,35 +36,56 @@ use super::webhook_payloads::IssuePayload;
 /// Scoped by `rule`, not by Adapter connection: a Binding names the trigger
 /// that created it, and only that trigger's terminal states may close it. The
 /// connection is already implied — the trigger belongs to one.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the six downward ports this close path reads (bindings, task, \
+              config, sandbox, events, plus the db the binding query needs) \
+              inverted out of the single AppState it used to carry; there is no \
+              narrower grouping that is not itself an AppState-shaped bag"
+)]
 pub(super) async fn close_active_bindings_for_issue(
-    state: &AppState,
+    db: &DbPool,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
+    config: &Config,
+    sandbox: &Lifecycle,
+    events: Option<&dyn EventPublisher>,
     api: &LinearAgentApi,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
-    let binding_repo = state.task_bindings.as_ref();
     let rows =
-        super::subject::bindings_in_scope(state, super::subject::BindingScope::OnIssue(&issue.id))
+        super::subject::bindings_in_scope(db, super::subject::BindingScope::OnIssue(&issue.id))
             .await?;
 
     for binding in rows {
-        if !binding_is_close_eligible(state, binding_repo, rule, issue, &binding).await {
+        if !binding_is_close_eligible(task_bindings, tasks, rule, issue, &binding).await {
             continue;
         }
-        close_linear_bound_task(state, api, binding_repo, issue, &binding).await;
+        close_linear_bound_task(
+            task_bindings,
+            tasks,
+            config,
+            sandbox,
+            events,
+            api,
+            issue,
+            &binding,
+        )
+        .await;
     }
 
     Ok(())
 }
 
 async fn binding_is_close_eligible(
-    state: &AppState,
-    binding_repo: &dyn TaskBindingDao,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
     rule: &SubscriptionMatch,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) -> bool {
-    if !sole_binding_for_task(binding_repo, issue, binding).await {
+    if !sole_binding_for_task(task_bindings, issue, binding).await {
         return false;
     }
 
@@ -77,7 +100,7 @@ async fn binding_is_close_eligible(
         return false;
     }
 
-    task_can_be_closed(state, issue, binding).await
+    task_can_be_closed(tasks, issue, binding).await
 }
 
 async fn sole_binding_for_task(
@@ -111,13 +134,17 @@ async fn sole_binding_for_task(
     true
 }
 
-async fn task_can_be_closed(state: &AppState, issue: &IssuePayload, binding: &TaskBinding) -> bool {
+async fn task_can_be_closed(
+    tasks: &dyn TaskDao,
+    issue: &IssuePayload,
+    binding: &TaskBinding,
+) -> bool {
     #[allow(
         clippy::disallowed_methods,
         reason = "Linear issue-close handler runs as background system, no caller identity"
     )]
     let sys = ScopeContext::system();
-    match state.tasks.find_by_id(&binding.task_id, &sys).await {
+    match tasks.find_by_id(&binding.task_id, &sys).await {
         Ok(Some(task)) if task.status == TaskStatus::Closed => {
             debug!(task_id = %binding.task_id, issue = %issue.identifier, "Task already closed, skipping");
             false
@@ -134,22 +161,32 @@ async fn task_can_be_closed(state: &AppState, issue: &IssuePayload, binding: &Ta
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the five downward ports the close effects touch (bindings, task, \
+              config, sandbox, events) inverted out of the single AppState it \
+              used to carry; there is no narrower grouping that is not itself an \
+              AppState-shaped bag"
+)]
 async fn close_linear_bound_task(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
+    config: &Config,
+    sandbox: &Lifecycle,
+    events: Option<&dyn EventPublisher>,
     api: &LinearAgentApi,
-    binding_repo: &dyn TaskBindingDao,
     issue: &IssuePayload,
     binding: &TaskBinding,
 ) {
-    emit_linear_close_response(state, api, issue, binding).await;
+    emit_linear_close_response(tasks, config, api, issue, binding).await;
 
-    if !mark_task_closed(state, binding).await {
+    if !mark_task_closed(tasks, binding).await {
         return;
     }
 
-    remove_sandbox_after_linear_close(state, binding).await;
-    deactivate_linear_task_bindings(binding_repo, binding).await;
-    publish_linear_task_closed(state, issue, binding).await;
+    remove_sandbox_after_linear_close(config, sandbox, binding).await;
+    deactivate_linear_task_bindings(task_bindings, binding).await;
+    publish_linear_task_closed(events, issue, binding).await;
 
     info!(
         task_id = %binding.task_id,
@@ -159,7 +196,8 @@ async fn close_linear_bound_task(
 }
 
 async fn emit_linear_close_response(
-    state: &AppState,
+    tasks: &dyn TaskDao,
+    config: &Config,
     api: &LinearAgentApi,
     issue: &IssuePayload,
     binding: &TaskBinding,
@@ -184,8 +222,8 @@ async fn emit_linear_close_response(
     // Append the `Moatless task:` footer so the inbound echo filter drops the
     // resulting webhook instead of forwarding it back into the task.
     if let Some(footer) = crate::bindings::footer::task_comment_footer(
-        state.tasks.as_ref(),
-        &state.config.auth.frontend_url,
+        tasks,
+        &config.auth.frontend_url,
         &binding.task_id,
     )
     .await
@@ -201,14 +239,13 @@ async fn emit_linear_close_response(
     }
 }
 
-async fn mark_task_closed(state: &AppState, binding: &TaskBinding) -> bool {
+async fn mark_task_closed(tasks: &dyn TaskDao, binding: &TaskBinding) -> bool {
     #[allow(
         clippy::disallowed_methods,
         reason = "Linear issue-close handler runs as background system, no caller identity"
     )]
     let sys = ScopeContext::system();
-    match state
-        .tasks
+    match tasks
         .update_task(
             &binding.task_id,
             &TaskPatch {
@@ -227,9 +264,13 @@ async fn mark_task_closed(state: &AppState, binding: &TaskBinding) -> bool {
     }
 }
 
-async fn remove_sandbox_after_linear_close(state: &AppState, binding: &TaskBinding) {
-    let retention = ArchiveRetention::on_close(state.config.sandbox.retain_storage_on_close);
-    if let Err(e) = state.sandbox.remove(&binding.task_id, retention).await {
+async fn remove_sandbox_after_linear_close(
+    config: &Config,
+    sandbox: &Lifecycle,
+    binding: &TaskBinding,
+) {
+    let retention = ArchiveRetention::on_close(config.sandbox.retain_storage_on_close);
+    if let Err(e) = sandbox.remove(&binding.task_id, retention).await {
         warn!(task_id = %binding.task_id, error = %e, "Failed to remove sandbox on Linear close");
     }
 }
@@ -240,8 +281,12 @@ async fn deactivate_linear_task_bindings(binding_repo: &dyn TaskBindingDao, bind
     }
 }
 
-async fn publish_linear_task_closed(state: &AppState, issue: &IssuePayload, binding: &TaskBinding) {
-    if let Some(ref events) = state.events {
+async fn publish_linear_task_closed(
+    events: Option<&dyn EventPublisher>,
+    issue: &IssuePayload,
+    binding: &TaskBinding,
+) {
+    if let Some(events) = events {
         events
             .publish_task_event(
                 &binding.task_id,

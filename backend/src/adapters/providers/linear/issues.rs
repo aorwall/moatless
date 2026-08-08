@@ -81,7 +81,18 @@ pub(super) async fn handle_issue_update(
     if rule_config.close_task_on_close
         && rule_config.terminal_states.iter().any(|s| s == state_kind)
     {
-        close_active_bindings_for_issue(state, api, rule, issue).await?;
+        close_active_bindings_for_issue(
+            &state.db,
+            state.task_bindings.as_ref(),
+            state.tasks.as_ref(),
+            &state.config,
+            &state.sandbox,
+            state.events.as_deref(),
+            api,
+            rule,
+            issue,
+        )
+        .await?;
     }
 
     // Status-entry creation: spawn a fresh task for every rule opted into
@@ -262,10 +273,13 @@ async fn provision_issue_task(
     .await?;
 
     // Link the Moatless task back onto the Linear issue.
-    let task_url = super::text::task_url(state, &task_id);
-    let attachment_title =
-        super::text::task_attachment_title(state, &task_id, super::text::ATTACHMENT_TITLE_CHILD)
-            .await;
+    let task_url = super::text::task_url(&state.config, &task_id);
+    let attachment_title = super::text::task_attachment_title(
+        state.tasks.as_ref(),
+        &task_id,
+        super::text::ATTACHMENT_TITLE_CHILD,
+    )
+    .await;
     if let Err(e) = api
         .attachment_link_url(&issue.id, &task_url, &attachment_title)
         .await
@@ -408,7 +422,7 @@ async fn persist_issue_status(
 
     for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
         let bindings = match super::subject::active_bindings_on_issue(
-            state,
+            state.task_bindings.as_ref(),
             connection,
             subject_kind,
             &issue.id,
@@ -461,20 +475,24 @@ async fn notify_bindings_of_state_change(
     issue: &IssuePayload,
     delivered_at: i64,
 ) {
-    let bindings =
-        match super::subject::active_bindings_on_issue(state, connection, SUBJECT_KIND, &issue.id)
-            .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                warn!(
-                    issue = %issue.identifier,
-                    error = %e,
-                    "Failed to look up bindings for Linear state-change notification"
-                );
-                return;
-            }
-        };
+    let bindings = match super::subject::active_bindings_on_issue(
+        state.task_bindings.as_ref(),
+        connection,
+        SUBJECT_KIND,
+        &issue.id,
+    )
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            warn!(
+                issue = %issue.identifier,
+                error = %e,
+                "Failed to look up bindings for Linear state-change notification"
+            );
+            return;
+        }
+    };
 
     let new_state = issue.state_name();
     let mut body = format!(
@@ -596,10 +614,13 @@ pub(super) async fn attach_parent_task_link(
     issue_uuid: &str,
     task_id: &str,
 ) {
-    let url = super::text::task_url(state, task_id);
-    let title =
-        super::text::task_attachment_title(state, task_id, super::text::ATTACHMENT_TITLE_PARENT)
-            .await;
+    let url = super::text::task_url(&state.config, task_id);
+    let title = super::text::task_attachment_title(
+        state.tasks.as_ref(),
+        task_id,
+        super::text::ATTACHMENT_TITLE_PARENT,
+    )
+    .await;
     if let Err(e) = api.attachment_link_url(issue_uuid, &url, &title).await {
         warn!(
             error = %e,

@@ -3,7 +3,7 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3433  illegal   51
+CODE       legal  3466  illegal   43
 ATTRIBUTE  legal   258  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    35  illegal   16   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
@@ -49,7 +49,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   adapter-github-pr  (24 files, 10621 lines)
     adapters/providers/github_pr/
 
-  adapter-linear  (23 files, 9670 lines)
+  adapter-linear  (23 files, 9887 lines)
     adapters/providers/linear/
 
   adapter-slack  (18 files, 6188 lines)
@@ -61,7 +61,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 791 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11965 lines)
+  server  (32 files, 11980 lines)
     compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
@@ -70,7 +70,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 57994 lines
+  TOTAL backend/src: 58226 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (11 classes) ==
 
@@ -84,21 +84,13 @@ adapter-github-pr -> server   x8
     backend/src/adapters/providers/github_pr/routing.rs:17  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/github_pr/shell_reconcile.rs:46  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-adapter-linear -> server   x14
-    backend/src/adapters/providers/linear/activity.rs:34  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+adapter-linear -> server   x6
     backend/src/adapters/providers/linear/adapter.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/api_routes.rs:34  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/auth.rs:24  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/close.rs:24  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/comments.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/delivery.rs:78  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/handlers.rs:19  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/ingress.rs:42  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/issues.rs:25  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/notifications.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/sessions.rs:30  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/subject.rs:18  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/text.rs:19  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
 adapter-slack -> server   x3
     backend/src/adapters/providers/slack/delivery.rs:7  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
@@ -324,7 +316,7 @@ loops -> server   x7
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
   loops              deps: identity, tasks, workspaces                  BLOCKED — 53 illegal outgoing to adapter-github-pr(x13), adapter-linear(x18), adapter-slack(x5), adapter-telegram(x5), adapter-webhook(x5), server(x7)
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
-  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 14 illegal outgoing to server(x14)
+  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 6 illegal outgoing to server(x6)
   adapter-slack      deps: identity, loops                              BLOCKED — 3 illegal outgoing to server(x3)
   adapter-telegram   deps: identity, loops                              BLOCKED — 4 illegal outgoing to server(x4)
   adapter-webhook    deps: loops                                        BLOCKED — 1 illegal outgoing to server(x1)

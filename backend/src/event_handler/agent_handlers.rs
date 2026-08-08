@@ -298,7 +298,9 @@ async fn notify_linear_response_for_completion(state: &AppState, task_id: &str) 
     }
 
     tokio::spawn(crate::adapters::linear::activity::notify_linear_status(
-        state.clone(),
+        state.db.clone(),
+        state.adapter_connections.clone(),
+        state.config.clone(),
         task_id.to_string(),
         crate::adapters::linear::activity::ActivityKind::Response,
         body,

@@ -29,9 +29,15 @@
 //! there is no caller that could act on it, and an error bubbling out of here
 //! would stall a pipeline whose real work already succeeded.
 
+use std::sync::Arc;
+
 use tracing::{debug, warn};
 
-use crate::state::AppState;
+use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::message::dao::MessageDao;
 
 use super::agent_api::LinearAgentApi;
 
@@ -44,11 +50,13 @@ pub(crate) use super::agent_api::ActivityKind;
 /// Returns an empty vec on any DB error (logged) so callers can skip emission
 /// silently without bubbling errors into the event-handler hot path.
 async fn resolve_linear_sessions_for_task(
-    state: &AppState,
+    db: &DbPool,
+    adapter_connections: &dyn AdapterConnectionDao,
+    config: &Config,
     task_id: &str,
 ) -> Vec<(LinearAgentApi, String)> {
     let rows = match super::subject::bindings_in_scope(
-        state,
+        db,
         super::subject::BindingScope::SessionsOfTask(task_id),
     )
     .await
@@ -71,7 +79,9 @@ async fn resolve_linear_sessions_for_task(
             continue;
         };
 
-        let Some(api) = super::auth::api_for_binding(state, &binding).await else {
+        let Some(api) =
+            super::auth::api_for_binding(adapter_connections, db, config, &binding).await
+        else {
             continue;
         };
 
@@ -85,13 +95,17 @@ async fn resolve_linear_sessions_for_task(
 /// network error, GraphQL rejection) is logged and swallowed — callers in the
 /// event-consumer hot path must not be affected.
 pub(crate) async fn notify_linear_status(
-    state: AppState,
+    db: DbPool,
+    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    config: Arc<Config>,
     task_id: String,
     kind: ActivityKind,
     body: String,
     ephemeral: bool,
 ) {
-    for (api, session_id) in resolve_linear_sessions_for_task(&state, &task_id).await {
+    for (api, session_id) in
+        resolve_linear_sessions_for_task(&db, adapter_connections.as_ref(), &config, &task_id).await
+    {
         if let Err(e) = api
             .agent_activity_create(&session_id, kind, &body, ephemeral)
             .await
@@ -110,15 +124,25 @@ pub(crate) async fn notify_linear_status(
 /// optional `result`) on every active Linear session bound to `task_id`.
 /// Same best-effort semantics: failures are logged and swallowed so callers
 /// in the event-consumer hot path are unaffected.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "three owned downward ports (db, adapter_connections, config) \
+              inverted out of the AppState this fire-and-forget emitter used to \
+              take by value, plus its four activity fields"
+)]
 pub(crate) async fn notify_linear_action(
-    state: AppState,
+    db: DbPool,
+    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    config: Arc<Config>,
     task_id: String,
     action: String,
     parameter: String,
     result: Option<String>,
     ephemeral: bool,
 ) {
-    for (api, session_id) in resolve_linear_sessions_for_task(&state, &task_id).await {
+    for (api, session_id) in
+        resolve_linear_sessions_for_task(&db, adapter_connections.as_ref(), &config, &task_id).await
+    {
         if let Err(e) = api
             .agent_activity_create_action(
                 &session_id,
@@ -151,7 +175,9 @@ pub(crate) async fn notify_linear_action(
 /// - `tool_result` blocks (system/user role messages).
 /// - `text` blocks shorter than 4 chars after trim (Claude connector tokens).
 pub(crate) async fn notify_linear_message_activities(
-    state: AppState,
+    db: DbPool,
+    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    config: Arc<Config>,
     task_id: String,
     message: serde_json::Value,
 ) {
@@ -162,7 +188,9 @@ pub(crate) async fn notify_linear_message_activities(
         return;
     }
 
-    let sessions = resolve_linear_sessions_for_task(&state, &task_id).await;
+    let sessions =
+        resolve_linear_sessions_for_task(&db, adapter_connections.as_ref(), &config, &task_id)
+            .await;
     if sessions.is_empty() {
         return;
     }
@@ -235,7 +263,10 @@ pub(crate) async fn notify_linear_message_activities(
 ///
 /// Fire-and-forget: any DB or GraphQL failure is logged and swallowed.
 pub(crate) async fn notify_linear_tool_results(
-    state: AppState,
+    db: DbPool,
+    adapter_connections: Arc<dyn AdapterConnectionDao>,
+    config: Arc<Config>,
+    messages: Arc<dyn MessageDao>,
     task_id: String,
     message: serde_json::Value,
 ) {
@@ -264,13 +295,15 @@ pub(crate) async fn notify_linear_tool_results(
         return;
     }
 
-    let sessions = resolve_linear_sessions_for_task(&state, &task_id).await;
+    let sessions =
+        resolve_linear_sessions_for_task(&db, adapter_connections.as_ref(), &config, &task_id)
+            .await;
     if sessions.is_empty() {
         return;
     }
 
     for tool_use_id in tool_use_ids {
-        let row = match state.messages.find_tool_call(&task_id, &tool_use_id).await {
+        let row = match messages.find_tool_call(&task_id, &tool_use_id).await {
             Ok(Some(row)) => row,
             Ok(None) => {
                 debug!(

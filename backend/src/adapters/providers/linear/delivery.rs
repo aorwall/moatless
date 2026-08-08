@@ -372,7 +372,7 @@ async fn execute_session_provision(
                 .or_else(|| issue.team.as_ref().map(|t| t.id.clone()))
         })
         .unwrap_or_default();
-    let rules = super::ingress::resolve_rules_for_team(&state, &connection, &team_id)
+    let rules = super::ingress::resolve_rules_for_team(&state.loops, &connection, &team_id)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
 
@@ -388,7 +388,7 @@ async fn execute_session_provision(
         // Resolved here rather than above the guard, and best-effort: there is
         // no work left to redo on this record, so a credential failure must not
         // turn a settled no-op into a retry.
-        match super::auth::api_for_connection(&state, &connection).await {
+        match super::auth::api_for_connection(&state.db, &state.config, &connection).await {
             Ok(api) => {
                 super::sessions::decline_session(
                     &api,
@@ -406,7 +406,7 @@ async fn execute_session_provision(
         return Ok(());
     }
 
-    let api = super::auth::api_for_connection(&state, &connection)
+    let api = super::auth::api_for_connection(&state.db, &state.config, &connection)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     super::sessions::provision_selected_session_task(
@@ -426,7 +426,7 @@ async fn execute_session_prompt(
     connection: AdapterConnection,
     payload: SessionPromptDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let api = super::auth::api_for_connection(&state, &connection)
+    let api = super::auth::api_for_connection(&state.db, &state.config, &connection)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     super::sessions::handle_session_prompted(
@@ -450,7 +450,7 @@ async fn execute_issue_update(
     // handler re-resolves: a rule disabled between admission and execution
     // should stop the work, which is what disabling it means.
     let team_id = payload.issue.resolved_team_id().unwrap_or_default();
-    let rules = super::ingress::resolve_rules_for_team(&state, &connection, team_id)
+    let rules = super::ingress::resolve_rules_for_team(&state.loops, &connection, team_id)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     if rules.is_empty() {
@@ -462,7 +462,7 @@ async fn execute_issue_update(
         return Ok(());
     }
 
-    let api = super::auth::api_for_connection(&state, &connection)
+    let api = super::auth::api_for_connection(&state.db, &state.config, &connection)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     super::issues::handle_issue_update(
@@ -484,11 +484,16 @@ async fn execute_comment(
     connection: AdapterConnection,
     payload: CommentDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let api = super::auth::api_for_connection(&state, &connection)
+    let api = super::auth::api_for_connection(&state.db, &state.config, &connection)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     super::comments::handle_comment_created(
-        &state,
+        &state.config,
+        &state.routing,
+        state.task_bindings.as_ref(),
+        &state.loops,
+        &state.message_send,
+        state.sandbox_waker.as_ref(),
         &api,
         &connection,
         &payload.issue_id,
@@ -519,11 +524,17 @@ async fn execute_notification(
         return Ok(());
     }
 
-    let api = super::auth::api_for_connection(&state, &connection)
+    let api = super::auth::api_for_connection(&state.db, &state.config, &connection)
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     super::notifications::handle_issue_status_notification(
-        &state,
+        &state.db,
+        state.task_bindings.as_ref(),
+        state.tasks.as_ref(),
+        &state.config,
+        &state.sandbox,
+        state.events.as_deref(),
+        &state.loops,
         &api,
         &connection,
         &payload.notification,

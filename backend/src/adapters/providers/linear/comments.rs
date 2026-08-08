@@ -14,10 +14,16 @@
 
 use tracing::{debug, info, warn};
 
+use moatless_core::config::Config;
+
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience};
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
-use crate::state::AppState;
+use crate::bindings::runtime::RoutingService;
+use crate::loops::dao::LoopDao;
+use crate::message::send::MessageSendService;
+use crate::task::binding_dao::TaskBindingDao;
+use crate::task::sandbox_waker::SandboxWaker;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::webhook_payloads::CommentPayloadData;
@@ -43,8 +49,20 @@ const ADAPTER_LABEL: &str = "linear";
 /// `AppState::recently_sent` and persisted to `task_messages.external_event_id`
 /// under the key `linear:comment:<uuid>`. The inbound forward below builds the
 /// same key, so `send_message_flow` also recognises the echo by comment id.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the six downward ports this comment router reads (config, routing, \
+              bindings, loops, message_send, sandbox_waker) inverted out of the \
+              single AppState it used to carry; there is no narrower grouping \
+              that is not itself an AppState-shaped bag"
+)]
 pub(super) async fn handle_comment_created(
-    state: &AppState,
+    config: &Config,
+    routing: &RoutingService,
+    task_bindings: &dyn TaskBindingDao,
+    loops: &LoopDao,
+    message_send: &MessageSendService,
+    sandbox_waker: &dyn SandboxWaker,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     issue_id: &str,
@@ -60,16 +78,15 @@ pub(super) async fn handle_comment_created(
     // Recovering that task id is what lets the resolver drop the comment for the
     // task that authored it. The footer is visible content — nothing to strip,
     // so the body is forwarded unchanged.
-    let author_task_id = crate::adapters::footer::parse_task_id_from_body(
-        &state.config.auth.frontend_url,
-        &comment.body,
-    );
+    let author_task_id =
+        crate::adapters::footer::parse_task_id_from_body(&config.auth.frontend_url, &comment.body);
     let forwarded_body = comment.body.as_str();
 
     let audience = comment_audience(comment);
-    let parent_author_task_id =
-        crate::bindings::runtime::parent_author_task_id(state, ADAPTER_LABEL, &audience).await?;
-    let bindings = super::subject::comment_recipients(state, connection, issue_id).await?;
+    let parent_author_task_id = routing
+        .parent_author_task_id(ADAPTER_LABEL, &audience)
+        .await?;
+    let bindings = super::subject::comment_recipients(task_bindings, connection, issue_id).await?;
     let recipients = resolve_recipients(
         &audience,
         &bindings,
@@ -92,7 +109,7 @@ pub(super) async fn handle_comment_created(
         return Ok(());
     }
 
-    let rule = super::subject::rule_for_binding(state, recipients[0]).await?;
+    let rule = super::subject::rule_for_binding(loops, recipients[0]).await?;
     let author = super::actor_handle(comment.user.as_ref());
 
     for binding in recipients {
@@ -122,8 +139,7 @@ pub(super) async fn handle_comment_created(
         }
 
         let external_event_id = super::external_id::comment(&comment.id);
-        if let Err(e) = state
-            .message_send
+        if let Err(e) = message_send
             .send_message_flow(
                 &binding.task_id,
                 forwarded_body,
@@ -156,7 +172,7 @@ pub(super) async fn handle_comment_created(
             continue;
         }
 
-        if let Err(e) = state.sandbox_waker.wake(&binding.task_id).await {
+        if let Err(e) = sandbox_waker.wake(&binding.task_id).await {
             warn!(
                 task_id = %binding.task_id,
                 error = %e,
