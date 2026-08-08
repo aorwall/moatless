@@ -1,0 +1,40 @@
+[package]
+name = "moatless-sandbox-k8s"
+version = "0.1.0"
+edition = "2021"
+description = "Sandbox-k8s band: the Kubernetes runtime provider behind the moatless-sandbox-control ports"
+
+[dependencies]
+async-stream = "0.3"
+async-trait = "0.1"
+# S3 client type for the node-archive upload path (held as Option<Arc<Client>>).
+aws-sdk-s3 = "1"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+# Node-archive digest hex encoding.
+hex = "0.4"
+# Kubernetes API client + generated resource types. Legal in a provider band
+# (band 7) and invisible to the control band (6) above, which names only ports.
+kube = { version = "3.0", features = ["runtime", "client", "derive"] }
+k8s-openapi = { version = "0.27", features = ["v1_32"] }
+# Raw request construction for the pod log/exec streaming paths.
+hyper = { version = "1", features = ["full"] }
+# Counter/histogram instrumentation for provision/restart durations.
+metrics = "0.24"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Node-archive tarball digesting.
+sha2 = "0.11"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+
+moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
+moatless-core = { path = "../core", features = ["openapi"] }
+moatless-events = { path = "../events", features = ["openapi"] }
+moatless-sandbox-control = { path = "../sandbox-control" }
+moatless-tasks = { path = "../tasks" }
+moatless-workspaces = { path = "../workspaces" }
+
+[lints]
+workspace = true

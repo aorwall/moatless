@@ -207,7 +207,7 @@ pub async fn delete_task_preview_network_policy(
 pub async fn wait_for_task_preview_network_policy_deleted(
     k8s: &K8sClient,
     task_id: &str,
-) -> Result<(), crate::sandbox::error::SandboxError> {
+) -> Result<(), moatless_sandbox_control::error::SandboxError> {
     let api: Api<NetworkPolicy> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let name = generate_preview_network_policy_name(task_id);
     super::wait::wait_absent(

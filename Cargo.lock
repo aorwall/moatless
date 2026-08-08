@@ -3384,6 +3384,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-sandbox-docker"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-s3",
+ "bollard",
+ "chrono",
+ "futures",
+ "moatless-backend-core",
+ "moatless-core",
+ "moatless-events",
+ "moatless-sandbox-control",
+ "moatless-tasks",
+ "moatless-workspaces",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "moatless-sandbox-k8s"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "aws-sdk-s3",
+ "chrono",
+ "futures",
+ "hex",
+ "hyper 1.9.0",
+ "k8s-openapi",
+ "kube",
+ "metrics",
+ "moatless-backend-core",
+ "moatless-core",
+ "moatless-events",
+ "moatless-sandbox-control",
+ "moatless-tasks",
+ "moatless-workspaces",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "moatless-t3code"
 version = "0.1.0"
 dependencies = [
@@ -3466,7 +3516,6 @@ dependencies = [
  "axum",
  "axum-extra",
  "base64",
- "bollard",
  "chrono",
  "clap",
  "claude-agent-sdk",
@@ -3477,11 +3526,8 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "http-body-util",
- "hyper 1.9.0",
  "hyper-util",
  "jsonwebtoken",
- "k8s-openapi",
- "kube",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
@@ -3492,6 +3538,8 @@ dependencies = [
  "moatless-events",
  "moatless-identity",
  "moatless-sandbox-control",
+ "moatless-sandbox-docker",
+ "moatless-sandbox-k8s",
  "moatless-t3code",
  "moatless-tasks",
  "moatless-workspaces",

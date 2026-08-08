@@ -15,12 +15,12 @@ use super::pod_reader;
 use super::pod_status::{
     check_sandbox_permanent_failure, is_sandbox_container_ready, pick_best_pod,
 };
-use crate::repository::models::ServerConfig;
-use crate::sandbox::live_status::{AgentStatus, LiveStatus, derive_live_status};
-use crate::sandbox::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
-use crate::sandbox::models::*;
-use crate::sandbox::schemas::*;
-use crate::task::models::{SandboxDesiredState, TaskStatus};
+use moatless_workspaces::repository::models::ServerConfig;
+use moatless_sandbox_control::live_status::{AgentStatus, LiveStatus, derive_live_status};
+use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
+use moatless_sandbox_control::models::*;
+use moatless_sandbox_control::schemas::*;
+use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
 use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::Config;
 
@@ -101,7 +101,7 @@ impl StatusResolver {
                         url,
                         error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
                         detail: container
-                            .and_then(super::super::models::ContainerObservedStatus::detail_reason),
+                            .and_then(moatless_sandbox_control::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
                     }
@@ -173,7 +173,7 @@ impl StatusResolver {
                         url,
                         error: container.and_then(|cs| cs.error_reason_with_timeout(timeout)),
                         detail: container
-                            .and_then(super::super::models::ContainerObservedStatus::detail_reason),
+                            .and_then(moatless_sandbox_control::models::ContainerObservedStatus::detail_reason),
                         default: config.default,
                         capabilities: server_capabilities_from_config(config),
                     }

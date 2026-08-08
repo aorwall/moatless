@@ -1,0 +1,33 @@
+[package]
+name = "moatless-sandbox-docker"
+version = "0.1.0"
+edition = "2021"
+description = "Sandbox-docker band: the Docker Engine runtime provider behind the moatless-sandbox-control ports"
+
+[dependencies]
+async-trait = "0.1"
+# S3 client type for the transcript-archive cleanup path (held as Option<Arc<Client>>).
+aws-sdk-s3 = "1"
+# Docker Engine API client. Legal in a provider band (7) and invisible to the
+# control band (6) above, which names only ports.
+bollard = "0.21"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+
+moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
+moatless-core = { path = "../core", features = ["openapi"] }
+moatless-events = { path = "../events", features = ["openapi"] }
+moatless-sandbox-control = { path = "../sandbox-control" }
+moatless-tasks = { path = "../tasks" }
+moatless-workspaces = { path = "../workspaces" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Temp dirs for the container-builder / provider unit tests.
+tempfile = "3"

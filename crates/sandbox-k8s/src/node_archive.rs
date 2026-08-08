@@ -24,8 +24,8 @@ use tracing::info;
 use super::client::K8sClient;
 use super::naming::sanitize_k8s_name;
 use moatless_core::config::Config;
-use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
-use crate::sandbox::lifecycle::RuntimeError;
+use moatless_sandbox_control::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
+use moatless_sandbox_control::lifecycle::RuntimeError;
 
 const CLEANUP_MOUNT_PATH: &str = "/host-cache";
 const CLEANUP_TIMEOUT: Duration = Duration::from_mins(5);
@@ -236,7 +236,7 @@ pub(crate) async fn record_observed_pod(
         .labels
         .as_ref()
         .and_then(|labels| generation_from_label(labels.get(OPERATION_GENERATION_LABEL)))
-        .map_or(0, crate::sandbox::lifecycle::OperationGeneration::value);
+        .map_or(0, moatless_sandbox_control::lifecycle::OperationGeneration::value);
     record_node(k8s, task_id, node_name, generation).await
 }
 

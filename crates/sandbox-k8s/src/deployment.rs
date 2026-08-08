@@ -14,12 +14,12 @@ use super::client::K8sClient;
 use super::naming::generate_service_name;
 use super::{pod_builder, pvc};
 use moatless_core::config::Config;
-use crate::sandbox::error::SandboxError;
-use crate::sandbox::lifecycle::runtime::{
+use moatless_sandbox_control::error::SandboxError;
+use moatless_sandbox_control::lifecycle::runtime::{
     generation_from_label, RuntimeOperationContext, OPERATION_GENERATION_LABEL,
 };
-use crate::sandbox::lifecycle::types::OperationGeneration;
-use crate::sandbox::models::ProvisionRequest;
+use moatless_sandbox_control::lifecycle::types::OperationGeneration;
+use moatless_sandbox_control::models::ProvisionRequest;
 
 /// Name + UID of a created (or reused) Deployment.
 ///

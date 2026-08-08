@@ -16,11 +16,11 @@ use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
-use crate::sandbox::error::SandboxError;
-use crate::sandbox::jwt::{self, MintedSandboxTokens};
-use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
-use crate::sandbox::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
-use crate::sandbox::server_runner::build_server_start_script;
+use moatless_sandbox_control::error::SandboxError;
+use moatless_sandbox_control::jwt::{self, MintedSandboxTokens};
+use moatless_sandbox_control::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
+use moatless_sandbox_control::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
+use moatless_sandbox_control::server_runner::build_server_start_script;
 use moatless_core::config::Config;
 
 /// Auth tokens delivered to a sandbox pod.
@@ -173,7 +173,7 @@ pub fn build_pod(
         },
     ];
 
-    let storage_backend = crate::sandbox::storage::StorageBackend::from_plan(
+    let storage_backend = moatless_sandbox_control::storage::StorageBackend::from_plan(
         plan,
         &config.sandbox.default_storage_mode,
     );
@@ -187,7 +187,7 @@ pub fn build_pod(
             }),
             ..Default::default()
         });
-    } else if storage_backend == crate::sandbox::storage::StorageBackend::Node {
+    } else if storage_backend == moatless_sandbox_control::storage::StorageBackend::Node {
         // Node-local tier — a hostPath keyed by task id. Lifecycle records the
         // scheduled node and pins retained replacements back to the newest
         // surviving archive location instead of silently mounting an empty tree
@@ -228,7 +228,7 @@ pub fn build_pod(
     if build_cache_backend.is_node() {
         init_containers.push(build_node_build_cache_setup_container(config, plan));
     }
-    if storage_backend == crate::sandbox::storage::StorageBackend::Node {
+    if storage_backend == moatless_sandbox_control::storage::StorageBackend::Node {
         init_containers.push(build_node_sandbox_setup_container(config, plan));
     }
     if !config.sandbox.cache_volumes.is_empty() {
@@ -855,7 +855,7 @@ fn build_dind_container(config: &Config) -> Container {
 /// storage — or only memory — still gets a fully bounded container instead of a
 /// BestEffort one.
 fn merge_resources(
-    override_cfg: Option<&crate::repository::models::ResourceConfig>,
+    override_cfg: Option<&moatless_workspaces::repository::models::ResourceConfig>,
     default_cpu_request: &str,
     default_memory_request: &str,
     default_cpu_limit: &str,
@@ -944,7 +944,7 @@ fn build_sandbox_container(
     // (no PVC) and syncs the git working tree to S3 via presigned URLs — flag the
     // sandbox so it syncs after terminal agent turns and restores on boot. `ebs`,
     // `node`, and `ephemeral` leave this unset.
-    if crate::sandbox::storage::StorageBackend::from_plan(
+    if moatless_sandbox_control::storage::StorageBackend::from_plan(
         plan,
         &config.sandbox.default_storage_mode,
     )
@@ -1596,8 +1596,8 @@ pub fn admitted_server_ports(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::models::ServerConfig;
-    use crate::sandbox::models::RepoConfig;
+    use moatless_workspaces::repository::models::ServerConfig;
+    use moatless_sandbox_control::models::RepoConfig;
 
     #[test]
     fn admitted_server_ports_drops_reserved_infra_ports() {
@@ -1625,7 +1625,7 @@ mod tests {
         let mut pod = Pod::default();
         stamp_operation_generation(
             &mut pod,
-            RuntimeOperationContext::new(crate::sandbox::lifecycle::OperationGeneration(31)),
+            RuntimeOperationContext::new(moatless_sandbox_control::lifecycle::OperationGeneration(31)),
         );
         assert_eq!(
             pod.metadata
@@ -1976,7 +1976,7 @@ mod tests {
 
     #[test]
     fn sandbox_container_honors_per_repo_resource_override() {
-        use crate::repository::models::ResourceConfig;
+        use moatless_workspaces::repository::models::ResourceConfig;
 
         let config = test_config();
         let mut plan = test_plan();
@@ -2001,7 +2001,7 @@ mod tests {
 
     #[test]
     fn sandbox_container_keeps_defaults_for_keys_the_override_omits() {
-        use crate::repository::models::ResourceConfig;
+        use moatless_workspaces::repository::models::ResourceConfig;
 
         // A memory-only override must not drop the configured CPU request/limit.
         let config = test_config();
@@ -2018,7 +2018,7 @@ mod tests {
 
     #[test]
     fn sandbox_container_stays_bounded_with_a_storage_only_override() {
-        use crate::repository::models::ResourceConfig;
+        use moatless_workspaces::repository::models::ResourceConfig;
 
         // `ResourceConfig` doubles as the storage config. A repo that sets only
         // storage fields must keep the global CPU/memory bounds — an empty
@@ -2086,7 +2086,7 @@ mod tests {
 
     #[test]
     fn ephemeral_tier_mounts_capped_workspace_empty_dir() {
-        use crate::repository::models::ResourceConfig;
+        use moatless_workspaces::repository::models::ResourceConfig;
 
         // No PVC (ephemeral tier) → workspace-data is a node-local emptyDir sized
         // from the repo's resources.storage, mounted at /opt/moatless everywhere.
@@ -2161,7 +2161,7 @@ mod tests {
 
     #[test]
     fn node_tier_remains_available_without_archive_management() {
-        use crate::repository::models::ResourceConfig;
+        use moatless_workspaces::repository::models::ResourceConfig;
 
         let mut config = test_config();
         assert!(!config.sandbox.node_archive_enabled);
@@ -2474,7 +2474,7 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
             docker_storage: Some("50Gi".into()),
             docker_storage_mode: Some("emptyDir".into()),
             ..Default::default()
@@ -2496,7 +2496,7 @@ mod tests {
         assert_eq!(ds_limit.as_deref(), Some("50Gi"));
 
         // EmptyDir mode with no override → global default from config.
-        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
             docker_storage_mode: Some("emptyDir".into()),
             ..Default::default()
         });
@@ -2526,7 +2526,7 @@ mod tests {
         config.sandbox.cache_host_root = "/mnt/cache".into();
         let mut plan = test_plan();
         plan.repo_config.docker_access = Some(true);
-        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
             docker_storage: Some("50Gi".into()),
             ..Default::default()
         });
@@ -3193,7 +3193,7 @@ mod tests {
     fn build_cache_size_can_be_overridden_per_repo() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
             build_cache: Some("40Gi".into()),
             ..Default::default()
         });
@@ -3218,7 +3218,7 @@ mod tests {
     fn build_cache_can_use_task_scoped_node_host_path() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
             build_cache: Some("40Gi".into()),
             build_cache_mode: Some("node".into()),
             build_cache_scope: Some("task".into()),
@@ -3264,7 +3264,7 @@ mod tests {
     fn build_cache_can_use_shared_node_host_path() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
             build_cache_mode: Some("node".into()),
             build_cache_scope: Some("node".into()),
             ..Default::default()

@@ -17,11 +17,11 @@ use super::naming::{
     generate_sandbox_host_path, generate_server_container_name,
 };
 use moatless_core::config::Config;
-use crate::sandbox::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
-use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
-use crate::repository::models::ServerConfig;
-use crate::sandbox::models::{ProvisionPlan, WORKSPACE_REPOS_ENV};
-use crate::sandbox::server_runner::build_server_start_script;
+use moatless_sandbox_control::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
+use moatless_sandbox_control::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
+use moatless_workspaces::repository::models::ServerConfig;
+use moatless_sandbox_control::models::{ProvisionPlan, WORKSPACE_REPOS_ENV};
+use moatless_sandbox_control::server_runner::build_server_start_script;
 
 pub(crate) const CREATED_BY_LABEL: &str = "created-by";
 pub(crate) const CREATED_BY_VALUE: &str = "moatless";
@@ -477,7 +477,7 @@ pub fn build_server_container_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sandbox::models::{ProvisionPlan, RepoConfig};
+    use moatless_sandbox_control::models::{ProvisionPlan, RepoConfig};
 
     fn test_config() -> Config {
         use moatless_core::config::*;
@@ -730,14 +730,14 @@ mod tests {
         let config = test_config();
         let mut plan = test_plan();
         plan.repos = vec![
-            crate::sandbox::models::RepoCheckout {
+            moatless_sandbox_control::models::RepoCheckout {
                 clone_url: "https://github.com/test/repo.git".into(),
                 branch: Some("main".into()),
                 provider: "github".into(),
                 mount_name: "repo".into(),
                 is_primary: true,
             },
-            crate::sandbox::models::RepoCheckout {
+            moatless_sandbox_control::models::RepoCheckout {
                 clone_url: "https://github.com/test/shared.git".into(),
                 branch: None,
                 provider: "github".into(),
@@ -752,7 +752,7 @@ mod tests {
             .iter()
             .find_map(|e| e.strip_prefix(&format!("{WORKSPACE_REPOS_ENV}=")))
             .expect("WORKSPACE_REPOS present");
-        let parsed: Vec<crate::sandbox::models::RepoCheckout> = serde_json::from_str(raw).unwrap();
+        let parsed: Vec<moatless_sandbox_control::models::RepoCheckout> = serde_json::from_str(raw).unwrap();
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[1].mount_name, "shared");
 
@@ -769,7 +769,7 @@ mod tests {
     fn container_config_applies_resource_limits_from_repo_config() {
         let config = test_config();
         let mut plan = test_plan();
-        plan.repo_config.resources = Some(crate::repository::models::ResourceConfig {
+        plan.repo_config.resources = Some(moatless_workspaces::repository::models::ResourceConfig {
             limits: Some(HashMap::from([
                 ("memory".to_string(), "8Gi".to_string()),
                 ("cpu".to_string(), "4".to_string()),
@@ -809,7 +809,7 @@ mod tests {
         let mut cc = build_container_config(&config, "task-1", &plan, None);
         stamp_operation_generation(
             &mut cc,
-            RuntimeOperationContext::new(crate::sandbox::lifecycle::OperationGeneration(17)),
+            RuntimeOperationContext::new(moatless_sandbox_control::lifecycle::OperationGeneration(17)),
         );
         assert_eq!(
             cc.labels

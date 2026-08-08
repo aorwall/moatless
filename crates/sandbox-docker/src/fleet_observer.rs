@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::sandbox::lifecycle::convergence::SandboxObservedStatus;
-use crate::sandbox::lifecycle::observe::confirm;
-use crate::sandbox::lifecycle::reconciler::{FleetObserver, ObserveError, RuntimeObservation};
-use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
-use crate::sandbox::status_reader::SandboxStatusReader;
-use crate::task::models::{SandboxDesiredState, TaskStatus};
+use moatless_sandbox_control::lifecycle::convergence::SandboxObservedStatus;
+use moatless_sandbox_control::lifecycle::observe::confirm;
+use moatless_sandbox_control::lifecycle::reconciler::{FleetObserver, ObserveError, RuntimeObservation};
+use moatless_sandbox_control::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
+use moatless_sandbox_control::status_reader::SandboxStatusReader;
+use moatless_tasks::task::models::{SandboxDesiredState, TaskStatus};
 
 use super::client::DockerClient;
 use super::container_builder::{SANDBOX_SERVICE, SERVICE_LABEL};

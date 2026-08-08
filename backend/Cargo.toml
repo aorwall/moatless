@@ -11,17 +11,15 @@ tokio = { version = "1", features = ["full"] }
 
 # HTTP server + client
 axum = { version = "0.8", features = ["macros", "ws"] }
-hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "http2", "tokio"] }
 http-body-util = "0.1"
 
 # Caching
 moka = { version = "0.12", features = ["future"] }
 
-# Kubernetes
-kube = { version = "3.0", features = ["runtime", "client", "derive"] }
+# TLS crypto provider (installed in main before any TLS use). The Kubernetes SDK
+# (kube/k8s-openapi) moved to moatless-sandbox-k8s with the provider it served.
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
-k8s-openapi = { version = "0.27", features = ["v1_32"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -137,10 +135,14 @@ moatless-workspaces = { path = "../crates/workspaces" }
 # and file storage (lifted out of backend/src). Composed through permanent facade
 # modules that re-export it, so higher bands keep naming `crate::task::…` etc.
 moatless-tasks = { path = "../crates/tasks" }
-# Sandbox-control band (band 6): provider-agnostic lifecycle, gRPC ingress,
-# preflight, secrets, status reads (lifted out of backend/src/sandbox). Composed
-# through the permanent facade at src/sandbox/mod.rs; `k8s`/`docker` stay local.
+# The sandbox subsystem, now three banded crates behind the permanent facade at
+# src/sandbox/mod.rs: control (band 6, provider-agnostic lifecycle/gRPC/secrets/
+# status) and the two runtime providers k8s/docker (band 7), which carry their
+# own SDKs (kube/k8s-openapi, bollard) — no longer the backend's dependency
+# surface.
 moatless-sandbox-control = { path = "../crates/sandbox-control" }
+moatless-sandbox-k8s = { path = "../crates/sandbox-k8s" }
+moatless-sandbox-docker = { path = "../crates/sandbox-docker" }
 moatless-t3code = { path = "../crates/t3code" }
 
 # Claude agent SDK types (for OpenAPI schema generation)
@@ -153,9 +155,6 @@ prost = "0.14"
 
 # URL encoding
 urlencoding = "2"
-
-# Docker Engine API client
-bollard = "0.21"
 
 [features]
 # Gate integration tests that need a running PostgreSQL (DATABASE_URL). Forwards

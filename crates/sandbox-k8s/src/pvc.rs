@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 use super::client::K8sClient;
 use super::naming::generate_pvc_name;
 use moatless_core::config::Config;
-use crate::sandbox::error::SandboxError;
+use moatless_sandbox_control::error::SandboxError;
 
 /// Find existing PVC for a task by label selector
 pub async fn find_task_pvc(k8s: &K8sClient, task_id: &str) -> Option<String> {

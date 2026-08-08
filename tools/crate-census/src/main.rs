@@ -1396,28 +1396,29 @@ mod tests {
             scope: ScopeKind::Floor,
             source_crate: source.to_string(),
         };
-        // Synthetic omission tracking the current carve frontier: `sandbox-k8s`
-        // (band 7) is the next crate to be extracted and has no floor_crate_of_dir
-        // arm yet, so its dir resolves to floor:sandbox-k8s. The guard MUST fire and
-        // name it. Constructed via floor_crate_of_dir so the day PR-4 adds the arm,
-        // source_crate becomes "sandbox-k8s", this stops being a floor: id, and the
-        // test breaks loudly — repoint it to the next unbanded frontier
-        // (sandbox-docker) rather than asserting a stale string. `tasks` then
-        // `sandbox-control` were this example until their arms landed; the break is
-        // the forcing function that keeps the guard pointed at a real, current gap.
-        let missing = floor_crate_of_dir("sandbox-k8s");
+        // Synthetic omission tracking the current carve frontier: `loops` (band 8)
+        // is the next crate to be extracted and has no floor_crate_of_dir arm yet, so
+        // its dir resolves to floor:loops. The guard MUST fire and name it.
+        // Constructed via floor_crate_of_dir so the day the loops slice adds the arm,
+        // source_crate becomes "loops", this stops being a floor: id, and the test
+        // breaks loudly — repoint it to the next unbanded frontier (or drop it once
+        // none remain) rather than asserting a stale string. `tasks`,
+        // `sandbox-control`, `sandbox-k8s`, then `sandbox-docker` were this example
+        // until their arms landed; the break is the forcing function that keeps the
+        // guard pointed at a real, current gap.
+        let missing = floor_crate_of_dir("loops");
         assert_eq!(
-            missing, "floor:sandbox-k8s",
+            missing, "floor:loops",
             "the omission this test simulates: no bands arm yet"
         );
         let files = vec![
-            df(&missing),                        // floor:sandbox-k8s — band 7, unbanded: FIRES
+            df(&missing),                        // floor:loops — band 8, unbanded: FIRES
             df(&floor_crate_of_dir("events")),   // floor:events — a real floor crate
             df(&floor_crate_of_dir("identity")), // "identity" — properly banded, extracted
         ];
         let unbanded = carved_but_unbanded(&files);
         assert!(
-            unbanded.contains("sandbox-k8s"),
+            unbanded.contains("loops"),
             "a target-band dir scoring as floor must be surfaced"
         );
         assert!(!unbanded.contains("events"), "a genuine floor crate (band 50) must not fire");

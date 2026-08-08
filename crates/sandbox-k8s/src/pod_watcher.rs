@@ -37,16 +37,16 @@ use super::pod_observation_policy::{
     should_emit_startup_slow, should_gc_failed_pod,
 };
 use super::pod_status::{extract_container_observed_statuses, is_sandbox_container_ready};
-use crate::sandbox::lifecycle::Lifecycle;
-use crate::sandbox::lifecycle::OperationGeneration;
-use crate::sandbox::lifecycle::classify::ObservedTransition;
-use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
-use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
-use crate::sandbox::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
-use crate::task::dao::{TaskDao, TaskPatch};
-use crate::task::models::{SandboxDesiredState, SandboxStopReason};
-use crate::task_event::dao::TaskEventDao;
-use crate::workspace::dao::WorkspaceDao;
+use moatless_sandbox_control::lifecycle::Lifecycle;
+use moatless_sandbox_control::lifecycle::OperationGeneration;
+use moatless_sandbox_control::lifecycle::classify::ObservedTransition;
+use moatless_sandbox_control::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
+use moatless_sandbox_control::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
+use moatless_sandbox_control::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
+use moatless_tasks::task::dao::{TaskDao, TaskPatch};
+use moatless_tasks::task::models::{SandboxDesiredState, SandboxStopReason};
+use moatless_tasks::task_event::dao::TaskEventDao;
+use moatless_workspaces::workspace::dao::WorkspaceDao;
 use moatless_core::events::EventPublisher;
 
 /// Dependencies the watcher needs to remediate a crash-looping sandbox. The
@@ -1314,7 +1314,7 @@ async fn auto_disable_server(
     };
 
     // Never disable the default server — surface Failed and stop.
-    let is_default = crate::sandbox::auto_provision::get_server_configs_for_task(
+    let is_default = moatless_sandbox_control::auto_provision::get_server_configs_for_task(
         tasks.as_ref(),
         workspaces.as_ref(),
         task_id,
@@ -1348,7 +1348,7 @@ async fn auto_disable_server(
     #[allow(clippy::disallowed_methods)]
     let sys = ScopeContext::system();
     let mut disabled = match tasks.find_by_id(task_id, &sys).await {
-        Ok(Some(task)) => crate::sandbox::auto_provision::parse_disabled_servers(&task),
+        Ok(Some(task)) => moatless_sandbox_control::auto_provision::parse_disabled_servers(&task),
         Ok(None) => {
             warn!(task_id = %task_id, "Task not found while auto-disabling server");
             return;
@@ -2054,7 +2054,7 @@ fn format_sandbox_lifecycle_message(lifecycle_event: &str, error: Option<&str>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sandbox::k8s::pod_status::test_helpers::{
+    use crate::pod_status::test_helpers::{
         pod_with_phase_and_containers, running_container, terminated_container,
     };
 

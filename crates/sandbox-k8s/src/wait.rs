@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tracing::{debug, warn};
 
-use crate::sandbox::error::SandboxError;
+use moatless_sandbox_control::error::SandboxError;
 
 pub async fn wait_absent<F, Fut, E>(
     task_id: &str,

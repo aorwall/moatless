@@ -18,10 +18,10 @@ use super::container_builder::{
     CREATED_BY_LABEL, CREATED_BY_VALUE, SANDBOX_SERVICE, SERVICE_LABEL,
 };
 use moatless_core::events::EventPublisher;
-use crate::sandbox::lifecycle::classify::ObservedTransition;
-use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
-use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
-use crate::sandbox::lifecycle::Lifecycle;
+use moatless_sandbox_control::lifecycle::classify::ObservedTransition;
+use moatless_sandbox_control::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
+use moatless_sandbox_control::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
+use moatless_sandbox_control::lifecycle::Lifecycle;
 
 /// Spawn a background task that watches Docker container events and publishes
 /// lifecycle events to the event system.

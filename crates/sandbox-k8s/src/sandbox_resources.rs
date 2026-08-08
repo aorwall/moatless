@@ -1,5 +1,5 @@
 //! The sandbox-k8s implementation of the reaper's
-//! [`SandboxResources`](crate::task::reaper::SandboxResources) port — the
+//! [`SandboxResources`](moatless_tasks::task::reaper::SandboxResources) port — the
 //! reaper's two k8s-native cycle operations.
 //!
 //! The reaper (tasks band) drives these each cycle but names no Kubernetes type:
@@ -23,8 +23,8 @@ use kube::api::{Api, ListParams};
 use tracing::{info, warn};
 
 use super::client::K8sClient;
-use crate::task::dao::TaskDao;
-use crate::task::reaper::SandboxResources;
+use moatless_tasks::task::dao::TaskDao;
+use moatless_tasks::task::reaper::SandboxResources;
 use moatless_backend_core::scope::ScopeContext;
 
 /// The k8s-backed [`SandboxResources`]: owns a client to talk to the cluster and

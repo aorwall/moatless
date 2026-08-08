@@ -205,6 +205,22 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // arm ships in the same slice as the `git mv`; the carved-but-unbanded
         // backstop in main.rs is the tripwire if it is ever forgotten.
         "sandbox-control" => "sandbox-control".to_string(),
+        // `sandbox-k8s` (10f) is a real band-7 crate (crates/sandbox-k8s), not the
+        // floor. Same reasoning as `sandbox-control` above: mapping it to
+        // `floor:sandbox-k8s` drops a whole band-7 crate out of the scored graph —
+        // its files score as floor (excluded) and its outgoing edges launder to
+        // `floor -> X` (downward-legal), so a future illegal edge out of it (e.g. an
+        // upward reference into `docker` at the same band, or into a server-band
+        // module) is never caught. The arm ships in the same slice as the `git mv`;
+        // the carved-but-unbanded backstop in main.rs is the tripwire if forgotten.
+        "sandbox-k8s" => "sandbox-k8s".to_string(),
+        // `sandbox-docker` (10f) is a real band-7 crate (crates/sandbox-docker), the
+        // sibling of `sandbox-k8s` at the same band. Same reasoning as above: without
+        // the arm its files score as `floor:sandbox-docker` (excluded) and its
+        // outgoing edges launder to downward-legal, so a future illegal edge out of
+        // it (e.g. an upward reference into `sandbox-k8s` at the same band) is never
+        // caught. The arm ships in the same slice as the `git mv`.
+        "sandbox-docker" => "sandbox-docker".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -257,6 +273,22 @@ pub fn external_crate(head: &str) -> Option<String> {
         // `_ => None` ("no census edge") and the export half of sandbox-control
         // leaves the census graph. Mirrors `moatless_tasks`.
         "moatless_sandbox_control" => "sandbox-control",
+        // `moatless_sandbox_k8s` (10f) resolves to the band-7 sandbox-k8s crate, so a
+        // backend (band 8..10) reference to it — every `crate::sandbox::k8s::` access
+        // routed through the `pub use moatless_sandbox_k8s as k8s` facade alias —
+        // scores as a downward-legal edge, and the crate's own downward deps
+        // (sandbox-control, tasks, workspaces, core, …) stay legal. Without this arm
+        // the head falls to `_ => None` ("no census edge") and the export half of
+        // sandbox-k8s leaves the census graph. Mirrors `moatless_sandbox_control`.
+        "moatless_sandbox_k8s" => "sandbox-k8s",
+        // `moatless_sandbox_docker` (10f) resolves to the band-7 sandbox-docker
+        // crate, so a backend (band 8..10) reference to it — every
+        // `crate::sandbox::docker::` access routed through the
+        // `pub use moatless_sandbox_docker as docker` facade alias — scores as a
+        // downward-legal edge, and the crate's own downward deps stay legal. Without
+        // this arm the head falls to `_ => None` ("no census edge") and the export
+        // half of sandbox-docker leaves the census graph. Mirrors `moatless_sandbox_k8s`.
+        "moatless_sandbox_docker" => "sandbox-docker",
         _ => return None,
     };
     Some(id.to_string())
@@ -378,5 +410,64 @@ mod tests {
             panic!("moatless_sandbox_control must be a known external head");
         };
         assert_eq!(band_of(&id), 6, "moatless_sandbox_control must resolve to band-6 sandbox-control");
+    }
+
+    /// The 10f analogue: `crates/sandbox-k8s` must resolve to the band-7 sandbox-k8s
+    /// crate, not the `floor:sandbox-k8s` fallthrough (band 0, excluded from
+    /// scoring). Asserting the band, not just non-emptiness, turns the fallthrough
+    /// into a test failure rather than a silent whole-crate drop.
+    #[test]
+    fn sandbox_k8s_dir_resolves_to_the_band_7_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("sandbox-k8s"), "sandbox-k8s");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("sandbox-k8s")),
+            7,
+            "crates/sandbox-k8s must be the band-7 sandbox-k8s crate, not floor band 0"
+        );
+        // The trap it must NOT take is band 0.
+        assert_eq!(band_of("floor:sandbox-k8s"), 0);
+    }
+
+    /// A backend reference to `moatless_sandbox_k8s::` must resolve to the band-7
+    /// sandbox-k8s crate (so it scores downward-legal), mirroring `moatless_sandbox_control`.
+    #[test]
+    fn moatless_sandbox_k8s_head_resolves_to_the_band_7_crate() {
+        assert_eq!(
+            external_crate("moatless_sandbox_k8s"),
+            Some("sandbox-k8s".to_string())
+        );
+        let Some(id) = external_crate("moatless_sandbox_k8s") else {
+            panic!("moatless_sandbox_k8s must be a known external head");
+        };
+        assert_eq!(band_of(&id), 7, "moatless_sandbox_k8s must resolve to band-7 sandbox-k8s");
+    }
+
+    /// The 10f docker analogue: `crates/sandbox-docker` must resolve to the band-7
+    /// sandbox-docker crate, not the `floor:sandbox-docker` fallthrough (band 0,
+    /// excluded from scoring).
+    #[test]
+    fn sandbox_docker_dir_resolves_to_the_band_7_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("sandbox-docker"), "sandbox-docker");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("sandbox-docker")),
+            7,
+            "crates/sandbox-docker must be the band-7 sandbox-docker crate, not floor band 0"
+        );
+        // The trap it must NOT take is band 0.
+        assert_eq!(band_of("floor:sandbox-docker"), 0);
+    }
+
+    /// A backend reference to `moatless_sandbox_docker::` must resolve to the band-7
+    /// sandbox-docker crate (so it scores downward-legal), mirroring `moatless_sandbox_k8s`.
+    #[test]
+    fn moatless_sandbox_docker_head_resolves_to_the_band_7_crate() {
+        assert_eq!(
+            external_crate("moatless_sandbox_docker"),
+            Some("sandbox-docker".to_string())
+        );
+        let Some(id) = external_crate("moatless_sandbox_docker") else {
+            panic!("moatless_sandbox_docker must be a known external head");
+        };
+        assert_eq!(band_of(&id), 7, "moatless_sandbox_docker must resolve to band-7 sandbox-docker");
     }
 }

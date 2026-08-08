@@ -12,10 +12,10 @@ use tracing::{debug, warn};
 
 use super::client::K8sClient;
 use super::pod_status::{extract_all_container_statuses, extract_container_observed_statuses};
-use crate::sandbox::access::LogOptions;
-use crate::sandbox::models::{ContainerObservedStatus, ContainerState, PodPhase};
-use crate::sandbox::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
-use crate::sandbox::schemas::RuntimeEvent;
+use moatless_sandbox_control::access::LogOptions;
+use moatless_sandbox_control::models::{ContainerObservedStatus, ContainerState, PodPhase};
+use moatless_sandbox_control::resource_parse::{parse_cpu_to_millicores, parse_memory_to_bytes};
+use moatless_sandbox_control::schemas::RuntimeEvent;
 use moatless_backend_core::sandbox::{SandboxDiagnosticsContainer, SandboxDiagnosticsEntry};
 
 /// Errors from log streaming, distinguishing "not ready yet" from other failures.
@@ -153,7 +153,7 @@ pub async fn stream_container_logs_k8s(
     task_id: &str,
     container_name: &str,
     options: LogOptions,
-) -> Result<BoxStream<'static, Result<String, crate::sandbox::error::SandboxError>>, LogStreamError>
+) -> Result<BoxStream<'static, Result<String, moatless_sandbox_control::error::SandboxError>>, LogStreamError>
 {
     let LogOptions {
         previous,
@@ -603,7 +603,7 @@ mod tests {
 
     mod fleet_diagnostics {
         use super::*;
-        use crate::sandbox::k8s::pod_status::test_helpers::{
+        use crate::pod_status::test_helpers::{
             pod_with_phase_and_containers, running_container, waiting_container,
         };
         use k8s_openapi::api::core::v1::PodSpec;

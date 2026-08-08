@@ -22,17 +22,17 @@ use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use super::pvc;
 use super::service;
 use super::status_resolver::StatusResolver;
-use crate::sandbox::client::SandboxClient;
-use crate::sandbox::error::SandboxError;
-use crate::sandbox::lifecycle::outcome::{DegradationWarning, Diagnostics};
-use crate::sandbox::lifecycle::runtime::{
+use moatless_sandbox_control::client::SandboxClient;
+use moatless_sandbox_control::error::SandboxError;
+use moatless_sandbox_control::lifecycle::outcome::{DegradationWarning, Diagnostics};
+use moatless_sandbox_control::lifecycle::runtime::{
     RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
 };
-use crate::sandbox::lifecycle::{ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect};
-use crate::sandbox::models::*;
-use crate::sandbox::schemas::*;
-use crate::sandbox::status_reader::SandboxStatusReader;
-use crate::sandbox::storage::StorageBackend;
+use moatless_sandbox_control::lifecycle::{ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect};
+use moatless_sandbox_control::models::*;
+use moatless_sandbox_control::schemas::*;
+use moatless_sandbox_control::status_reader::SandboxStatusReader;
+use moatless_sandbox_control::storage::StorageBackend;
 use moatless_backend_core::sandbox as core_sandbox;
 use moatless_core::config::Config;
 
@@ -41,7 +41,12 @@ pub struct K8sSandboxAdapter {
     pub config: Arc<Config>,
     pub k8s: K8sClient,
     pub status_resolver: StatusResolver,
-    pub(crate) plan: Option<ProvisionDeps>,
+    // `pub` (not `pub(crate)`) is the carve's declared debt: the backend
+    // composition root (`startup.rs::build_k8s_sandbox_adapter`) builds this
+    // adapter with a struct literal across the crate boundary, and a cross-crate
+    // struct literal requires every field it sets to be `pub`. Visibility follows
+    // the real consumer, which is now in another crate.
+    pub plan: Option<ProvisionDeps>,
     /// Optional S3 client used to delete a task's transcript archive on cleanup.
     /// The sandbox uploads transcripts via backend-proxied gRPC (no pod creds);
     /// the backend owns the credentials, so cleanup of `<prefix>/<task_id>/` lives
@@ -52,19 +57,19 @@ pub struct K8sSandboxAdapter {
 async fn wait_absent<F>(
     resource: &str,
     wait: F,
-) -> Result<(), crate::sandbox::lifecycle::RuntimeError>
+) -> Result<(), moatless_sandbox_control::lifecycle::RuntimeError>
 where
     F: std::future::Future<Output = Result<(), SandboxError>>,
 {
     wait.await.map_err(|error| {
-        crate::sandbox::lifecycle::RuntimeError::NotAbsent(format!("{resource}: {error}"))
+        moatless_sandbox_control::lifecycle::RuntimeError::NotAbsent(format!("{resource}: {error}"))
     })
 }
 
 impl K8sSandboxAdapter {
-    fn require_plan(&self) -> Result<&ProvisionDeps, crate::sandbox::lifecycle::RuntimeError> {
+    fn require_plan(&self) -> Result<&ProvisionDeps, moatless_sandbox_control::lifecycle::RuntimeError> {
         self.plan.as_ref().ok_or_else(|| {
-            crate::sandbox::lifecycle::RuntimeError::Infrastructure(
+            moatless_sandbox_control::lifecycle::RuntimeError::Infrastructure(
                 "sandbox plan repositories unavailable".to_string(),
             )
         })
@@ -318,7 +323,7 @@ impl K8sSandboxAdapter {
         }
         .await;
 
-        crate::sandbox::metrics::record_provision(
+        moatless_sandbox_control::metrics::record_provision(
             backend,
             if result.is_ok() { "ok" } else { "error" },
             started.elapsed(),
@@ -334,7 +339,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
         Box::pin(self.ensure_running_with_request(task_id, &request, ctx))
@@ -347,7 +352,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         &self,
         task_id: &str,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
         info!(task_id = %task_id, "Stopping sandbox (scaling Deployment to 0)");
 
         // Scale Deployment to 0 — keeps Service and IngressRoutes alive
@@ -391,7 +396,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
         info!(task_id = %task_id, "Restarting sandbox (scaling to 0, then back to 1 after termination)");
 
         // Time the restart so the `ebs` path (which pays a pod-drain wait to
@@ -429,7 +434,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // restart_deployment always ends at 1 replica.
         let outcome = deployment::restart_deployment(&self.k8s, task_id, ctx).await;
 
-        crate::sandbox::metrics::record_restart(backend, started.elapsed());
+        moatless_sandbox_control::metrics::record_restart(backend, started.elapsed());
         outcome.map_err(map_sandbox_error)?;
 
         Ok(RuntimeOutcome::applied(ObservedStatus::Starting))
@@ -440,7 +445,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         &self,
         task_id: &str,
         ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
         info!(task_id = %task_id, "Redeploying sandbox (deleting Deployment/Service/IngressRoutes, preserving PVC)");
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
@@ -525,7 +530,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         task_id: &str,
         retention: ArchiveRetention,
         _ctx: RuntimeOperationContext,
-    ) -> Result<RuntimeOutcome, crate::sandbox::lifecycle::RuntimeError> {
+    ) -> Result<RuntimeOutcome, moatless_sandbox_control::lifecycle::RuntimeError> {
         let retain_storage = retention.retains();
         let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
@@ -558,7 +563,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // so the caller retries and the `Removed` completion is withheld. Removal
         // is strict — it reports success only once every resource is observed
         // absent (pods drained, PVC gone) and every owed archive is deleted.
-        let mut first_err: Option<crate::sandbox::lifecycle::RuntimeError> = None;
+        let mut first_err: Option<moatless_sandbox_control::lifecycle::RuntimeError> = None;
 
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Deployment");
@@ -740,8 +745,8 @@ impl SandboxStatusReader for K8sSandboxAdapter {
     async fn sandbox_status(
         &self,
         task_id: &str,
-        task_status: crate::task::models::TaskStatus,
-        desired_state: crate::task::models::SandboxDesiredState,
+        task_status: moatless_tasks::task::models::TaskStatus,
+        desired_state: moatless_tasks::task::models::SandboxDesiredState,
     ) -> Result<SandboxStatusFullResponse, SandboxError> {
         let server_configs = if let Some(plan) = &self.plan {
             plan.server_configs(task_id).await
@@ -758,9 +763,9 @@ impl SandboxStatusReader for K8sSandboxAdapter {
     async fn live_status(
         &self,
         task_id: &str,
-        task_status: crate::task::models::TaskStatus,
-        desired_state: crate::task::models::SandboxDesiredState,
-    ) -> Result<crate::sandbox::live_status::LiveStatus, SandboxError> {
+        task_status: moatless_tasks::task::models::TaskStatus,
+        desired_state: moatless_tasks::task::models::SandboxDesiredState,
+    ) -> Result<moatless_sandbox_control::live_status::LiveStatus, SandboxError> {
         Ok(self
             .status_resolver
             .resolve_live_status(task_id, task_status, desired_state, self)
@@ -771,7 +776,7 @@ impl SandboxStatusReader for K8sSandboxAdapter {
         &self,
         task_id: &str,
         server_name: &str,
-        options: crate::sandbox::access::LogOptions,
+        options: moatless_sandbox_control::access::LogOptions,
     ) -> Result<BoxStream<'static, Result<String, SandboxError>>, SandboxError> {
         let container_name = if server_name == "sandbox" {
             "sandbox".to_string()
@@ -819,7 +824,7 @@ impl core_sandbox::ClusterDiagnostics for K8sSandboxAdapter {
     async fn list_sandbox_diagnostics(
         &self,
     ) -> Result<Vec<core_sandbox::SandboxDiagnosticsEntry>, core_sandbox::SandboxError> {
-        crate::sandbox::k8s::pod_reader::fetch_fleet_diagnostics(&self.k8s)
+        crate::pod_reader::fetch_fleet_diagnostics(&self.k8s)
             .await
             .map_err(|e| core_sandbox::SandboxError::Other(e.to_string()))
     }
@@ -1027,7 +1032,7 @@ impl K8sSandboxAdapter {
             self.config.s3.transcript_prefix.trim_end_matches('/'),
             task_id
         );
-        let deleted = crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+        let deleted = moatless_tasks::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
             .await
             .map_err(|e| {
                 SandboxError::Internal(format!("delete transcripts for {task_id}: {e}"))
@@ -1055,7 +1060,7 @@ impl K8sSandboxAdapter {
             self.config.s3.workspace_prefix.trim_end_matches('/'),
             task_id
         );
-        let deleted = crate::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
+        let deleted = moatless_tasks::file_storage::s3::delete_objects_by_prefix(s3, bucket, &prefix)
             .await
             .map_err(|e| SandboxError::Internal(format!("delete workspace for {task_id}: {e}")))?;
         if deleted > 0 {
