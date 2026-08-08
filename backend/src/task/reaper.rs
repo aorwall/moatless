@@ -1039,6 +1039,14 @@ impl TaskReaper {
 mod tests {
     use super::*;
 
+    use super::super::dao::MockTaskDao;
+    use super::super::sandbox_lifecycle::SandboxOpError;
+    use crate::bindings::dao::LoopRecentTaskRow;
+    use crate::message::dao::MockMessageDao;
+    use crate::task_event::dao::MockTaskEventDao;
+    use crate::task_turn::dao::MockTaskTurnDao;
+    use moatless_adapter_model::models::TaskBinding;
+
     struct RecordingAgentStatus {
         calls: std::sync::Mutex<Vec<String>>,
         response: sandbox_proto::GetAgentStatusResponse,
@@ -1077,13 +1085,240 @@ mod tests {
         }
     }
 
+    /// Every reaper port the orphaned-turn *error* path does not touch. Building a
+    /// real `TaskReaper` means supplying all twelve collaborators; on this path
+    /// only `messages` (the completed-reply guard) and `agent_error_sink` (the
+    /// delivery under test) participate, so the rest `unimplemented!()` — a call
+    /// that should never happen fails the test loudly instead of passing silently.
+    struct InertPorts;
+
+    #[async_trait]
+    impl LeaderGuard for InertPorts {
+        async fn try_acquire_or_renew(
+            &self,
+        ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+            unimplemented!("reaper error path does not elect a leader")
+        }
+    }
+
+    #[async_trait]
+    impl AgentStatusPort for InertPorts {
+        async fn agent_status(
+            &self,
+            _task_id: &str,
+        ) -> Option<sandbox_proto::GetAgentStatusResponse> {
+            unimplemented!("reaper error path does not read agent status")
+        }
+    }
+
+    #[async_trait]
+    impl SandboxLifecycle for InertPorts {
+        async fn start(&self, _task_id: &str) -> Result<(), SandboxOpError> {
+            unimplemented!("reaper error path does not drive sandbox lifecycle")
+        }
+        async fn stop(
+            &self,
+            _task_id: &str,
+            _reason: SandboxStopReason,
+        ) -> Result<(), SandboxOpError> {
+            unimplemented!("reaper error path does not drive sandbox lifecycle")
+        }
+        async fn remove(
+            &self,
+            _task_id: &str,
+            _retention: ArchiveRetention,
+        ) -> Result<(), SandboxOpError> {
+            unimplemented!("reaper error path does not drive sandbox lifecycle")
+        }
+        async fn desired_state(
+            &self,
+            _task_id: &str,
+        ) -> Result<SandboxDesiredState, SandboxOpError> {
+            unimplemented!("reaper error path does not drive sandbox lifecycle")
+        }
+    }
+
+    #[async_trait]
+    impl SandboxResources for InertPorts {
+        async fn list_running_sandbox_ids(
+            &self,
+        ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+            unimplemented!("reaper error path does not list sandbox resources")
+        }
+        async fn gc_orphaned_resources(&self) {
+            unimplemented!("reaper error path does not gc sandbox resources")
+        }
+    }
+
+    #[async_trait]
+    impl TaskBindingDao for InertPorts {
+        async fn find_by_id(&self, _id: &str) -> Result<Option<TaskBinding>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn find_by_subject(
+            &self,
+            _adapter_kind: &str,
+            _subject_kind: &str,
+            _subject_key: &str,
+        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn find_all_by_subject_excluding_task(
+            &self,
+            _adapter_kind: &str,
+            _subject_kind: &str,
+            _subject_key: &str,
+            _exclude_task_id: &str,
+        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn find_by_task_id(&self, _task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn find_by_task_id_and_subject(
+            &self,
+            _task_id: &str,
+            _adapter_kind: &str,
+            _subject_kind: &str,
+            _subject_key: &str,
+        ) -> Result<Option<TaskBinding>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn find_provider_event_created_for_subject(
+            &self,
+            _adapter_kind: &str,
+            _subject_kind: &str,
+            _subject_key: &str,
+        ) -> Result<Option<TaskBinding>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn find_active_by_destination_field(
+            &self,
+            _adapter_kind: &str,
+            _subject_kind: &str,
+            _field_name: &str,
+            _field_value: &str,
+        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn upsert(&self, _row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
+            unimplemented!("reaper error path does not write bindings")
+        }
+        async fn delete(&self, _id: &str) -> Result<u64, sqlx::Error> {
+            unimplemented!("reaper error path does not write bindings")
+        }
+        async fn deactivate_by_task(&self, _task_id: &str) -> Result<u64, sqlx::Error> {
+            unimplemented!("reaper error path does not write bindings")
+        }
+        async fn touch_last_event(&self, _id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("reaper error path does not write bindings")
+        }
+        async fn touch_cursor(
+            &self,
+            _id: &str,
+            _last_external_event_id: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("reaper error path does not write bindings")
+        }
+        async fn update_external_status(
+            &self,
+            _id: &str,
+            _status: Option<&str>,
+            _state_kind: Option<&str>,
+            _raw: &serde_json::Value,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("reaper error path does not write bindings")
+        }
+        async fn update_review_decision(
+            &self,
+            _id: &str,
+            _review_decision: Option<&str>,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("reaper error path does not write bindings")
+        }
+        async fn update_mergeable_state(
+            &self,
+            _id: &str,
+            _mergeable_state: Option<&str>,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("reaper error path does not write bindings")
+        }
+        async fn find_by_task_ids(
+            &self,
+            _task_ids: &[String],
+        ) -> Result<Vec<TaskBinding>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+        async fn find_recent_for_loop(
+            &self,
+            _loop_id: &str,
+            _limit: i64,
+        ) -> Result<Vec<LoopRecentTaskRow>, sqlx::Error> {
+            unimplemented!("reaper error path does not read bindings")
+        }
+    }
+
+    /// The reaper's *invocation* of the error sink, driven through
+    /// `close_orphaned_turn` — the seam the free-function test above cannot reach.
+    /// With the completed-reply guard answering "no final reply landed"
+    /// (`Ok(false)`), the one correct outcome is a single synthetic `agent.error`
+    /// delivered to the sink. Deleting the `close_orphaned_turn_as_error` call this
+    /// drives leaves every other reaper test green while orphaned turns silently
+    /// stop closing; this test is what turns that deletion red.
+    #[tokio::test]
+    async fn close_orphaned_turn_delivers_the_error_to_the_sink_when_no_reply_landed() {
+        let mut messages = MockMessageDao::new();
+        messages
+            .expect_last_message_is_completed_reply()
+            .returning(|_task_id, _turn_number| Ok(false));
+
+        let sink = Arc::new(RecordingAgentErrorSink::default());
+        let inert = Arc::new(InertPorts);
+
+        let reaper = TaskReaper::new(
+            inert.clone(),
+            inert.clone(),
+            Arc::new(messages),
+            Arc::new(MockTaskDao::new()),
+            Arc::new(MockTaskTurnDao::new()),
+            Arc::new(MockTaskEventDao::new()),
+            inert.clone(),
+            inert.clone(),
+            None,
+            Arc::new(Config::test_minimal()),
+            sink.clone(),
+            inert.clone(),
+        );
+
+        let turn = UnclosedTurn {
+            task_id: "task-7".to_string(),
+            turn_number: Some(2),
+            agent_type: Some("claude".to_string()),
+        };
+
+        reaper.close_orphaned_turn(&turn).await;
+
+        let events = sink.events.lock().unwrap();
+        assert_eq!(
+            events.len(),
+            1,
+            "close_orphaned_turn must deliver exactly one synthetic agent.error \
+             through the sink when no final reply landed"
+        );
+        assert_eq!(events[0].event_id, "reconcile-task-7-2");
+        assert_eq!(events[0].sub_type, "error");
+        assert!(events[0].is_error);
+        assert_eq!(events[0].task_id, "task-7");
+        assert_eq!(events[0].turn_number, Some(2));
+    }
+
     /// Holds two things about [`close_orphaned_turn_as_error`]: the reconcile
-    /// event's shape, and that the sink is fired exactly once. It does NOT cover
-    /// the reaper's invocation of this helper from `close_orphaned_turn` —
-    /// deleting that call leaves this green while orphaned turns silently stop
-    /// closing. That edge is unguarded because `TaskReaper` has no integration
-    /// harness (it takes a dozen collaborators, one of them `Lifecycle`); see the
-    /// coverage gap recorded in the Step 9 plan outcome.
+    /// event's shape, and that the sink is fired exactly once. It calls the free
+    /// helper directly and so does NOT cover the reaper's *invocation* of it from
+    /// `close_orphaned_turn`; that seam — where deleting the call leaves this test
+    /// green while orphaned turns silently stop closing — is covered by
+    /// `close_orphaned_turn_delivers_the_error_to_the_sink_when_no_reply_landed`,
+    /// which drives the same delivery through a real `TaskReaper`.
     #[tokio::test]
     async fn close_orphaned_turn_as_error_delivers_reconcile_event_to_sink() {
         let sink = RecordingAgentErrorSink::default();

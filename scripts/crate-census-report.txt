@@ -8,7 +8,7 @@ ATTRIBUTE  legal   259  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    55  illegal   16   (function-like macro-invocation token streams)
 DOC           53  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 1483 point down into the existing crates/* floor
-TEST-CONTEXT 2435  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 2437  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
@@ -31,7 +31,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (5 files, 45 lines)
     credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
-  tasks  (76 files, 20102 lines)
+  tasks  (76 files, 20337 lines)
     agent/ agent_event.rs credential_sync/ event_ingress/ feedback/ file_storage/ message/ task/ task_activities/ task_event/ task_turn/
 
   sandbox-control  (43 files, 18749 lines)
@@ -70,7 +70,7 @@ UNRESOLVED     19  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 114105 lines
+  TOTAL backend/src: 114340 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (16 classes) ==
 
