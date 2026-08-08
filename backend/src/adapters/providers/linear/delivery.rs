@@ -109,32 +109,57 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
     register_connection_delivery::<SessionProvisionDelivery, _, _>(
         handlers,
         SESSION_PROVISION,
-        state,
-        execute_session_provision,
+        state.adapter_connections.clone(),
+        {
+            let state = state.clone();
+            move |delivery, connection, payload| {
+                execute_session_provision(state.clone(), delivery, connection, payload)
+            }
+        },
     );
     register_connection_delivery::<SessionPromptDelivery, _, _>(
         handlers,
         SESSION_PROMPT,
-        state,
-        execute_session_prompt,
+        state.adapter_connections.clone(),
+        {
+            let state = state.clone();
+            move |delivery, connection, payload| {
+                execute_session_prompt(state.clone(), delivery, connection, payload)
+            }
+        },
     );
     register_connection_delivery::<IssueUpdateDelivery, _, _>(
         handlers,
         ISSUE_UPDATE,
-        state,
-        execute_issue_update,
+        state.adapter_connections.clone(),
+        {
+            let state = state.clone();
+            move |delivery, connection, payload| {
+                execute_issue_update(state.clone(), delivery, connection, payload)
+            }
+        },
     );
     register_connection_delivery::<CommentDelivery, _, _>(
         handlers,
         COMMENT,
-        state,
-        execute_comment,
+        state.adapter_connections.clone(),
+        {
+            let state = state.clone();
+            move |delivery, connection, payload| {
+                execute_comment(state.clone(), delivery, connection, payload)
+            }
+        },
     );
     register_connection_delivery::<NotificationDelivery, _, _>(
         handlers,
         NOTIFICATION,
-        state,
-        execute_notification,
+        state.adapter_connections.clone(),
+        {
+            let state = state.clone();
+            move |delivery, connection, payload| {
+                execute_notification(state.clone(), delivery, connection, payload)
+            }
+        },
     );
 }
 

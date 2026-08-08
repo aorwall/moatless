@@ -101,25 +101,22 @@ pub(super) mod kind {
 /// kinds. A build without this call leaves GitHub records for a replica that
 /// has it, rather than failing them.
 pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
-    register_typed_delivery::<PrMessageDelivery, _, _>(
-        handlers,
-        kind::PR_MESSAGE,
-        state,
-        execute_pr_message,
-    );
-    register_typed_delivery::<CloseDelivery, _, _>(handlers, kind::CLOSE, state, execute_close);
-    register_typed_delivery::<PostMergeDelivery, _, _>(
-        handlers,
-        kind::POST_MERGE,
-        state,
-        execute_post_merge,
-    );
-    register_typed_delivery::<MergeConflictDelivery, _, _>(
-        handlers,
-        kind::MERGE_CONFLICT,
-        state,
-        execute_merge_conflict,
-    );
+    register_typed_delivery::<PrMessageDelivery, _, _>(handlers, kind::PR_MESSAGE, {
+        let state = state.clone();
+        move |delivery, payload| execute_pr_message(state.clone(), delivery, payload)
+    });
+    register_typed_delivery::<CloseDelivery, _, _>(handlers, kind::CLOSE, {
+        let state = state.clone();
+        move |delivery, payload| execute_close(state.clone(), delivery, payload)
+    });
+    register_typed_delivery::<PostMergeDelivery, _, _>(handlers, kind::POST_MERGE, {
+        let state = state.clone();
+        move |delivery, payload| execute_post_merge(state.clone(), delivery, payload)
+    });
+    register_typed_delivery::<MergeConflictDelivery, _, _>(handlers, kind::MERGE_CONFLICT, {
+        let state = state.clone();
+        move |delivery, payload| execute_merge_conflict(state.clone(), delivery, payload)
+    });
 }
 
 // =============================================================================
