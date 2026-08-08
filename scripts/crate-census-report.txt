@@ -3,7 +3,7 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3868  illegal   65
+CODE       legal  3872  illegal   65
 ATTRIBUTE  legal   258  illegal   16   (utoipa/derive/etc. token streams)
 MACRO      legal    47  illegal   16   (function-like macro-invocation token streams)
 DOC           47  (intra-doc paths — never a Cargo edge, never illegal)
@@ -34,10 +34,10 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   tasks  (11 files, 90 lines)
     agent.rs agent_event.rs credential_sync.rs event_ingress.rs feedback.rs file_storage.rs message.rs task.rs task_activities.rs task_event.rs task_turn.rs
 
-  sandbox-control  (45 files, 19225 lines)
+  sandbox-control  (45 files, 19219 lines)
     sandbox/access.rs sandbox/auto_provision.rs sandbox/client.rs sandbox/error.rs sandbox/event_dedup.rs sandbox/file_handlers.rs sandbox/grpc_server.rs sandbox/handlers.rs sandbox/jwt.rs sandbox/lifecycle/ sandbox/live_status.rs sandbox/metrics.rs sandbox/mod.rs sandbox/models.rs sandbox/notify.rs sandbox/preflight.rs sandbox/resource_parse.rs sandbox/routes.rs sandbox/schemas.rs sandbox/secrets.rs sandbox/server_runner.rs sandbox/status_reader.rs sandbox/storage.rs
 
-  sandbox-k8s  (21 files, 13085 lines)
+  sandbox-k8s  (21 files, 13092 lines)
     sandbox/k8s/
 
   sandbox-docker  (8 files, 3516 lines)
@@ -70,7 +70,7 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 93778 lines
+  TOTAL backend/src: 93779 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (11 classes) ==
 

@@ -116,7 +116,7 @@ impl K8sSandboxAdapter {
             ExistingPodResult::Stopped { current_image } => {
                 let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
                     .await
-                    .map_err(SandboxError::KubeError)?
+                    .map_err(|e| SandboxError::KubeError(Box::new(e)))?
                     .ok_or_else(|| {
                         SandboxError::Internal(
                             "stopped sandbox Deployment vanished before start".to_string(),
@@ -157,14 +157,14 @@ impl K8sSandboxAdapter {
                             require_node,
                         )
                         .await
-                        .map_err(SandboxError::KubeError)?;
+                        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
                     }
                     deployment::stamp_operation_generation(&self.k8s, task_id, ctx)
                         .await
-                        .map_err(SandboxError::KubeError)?;
+                        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
                     deployment::scale_deployment(&self.k8s, task_id, 1)
                         .await
-                        .map_err(SandboxError::KubeError)?;
+                        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
                 } else {
                     // Tag changed — rebuild the Deployment from the fresh plan.
                     info!(
@@ -272,7 +272,8 @@ impl K8sSandboxAdapter {
             self.config.sandbox.grpc_port,
             owner.as_ref(),
         )
-        .await?;
+        .await
+        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
 
         // 5b. Create Traefik IngressRoutes + the preview NetworkPolicy admitting
         //     Traefik to those same ports (if proxy_domain is configured).
@@ -366,7 +367,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 }
                 deployment::scale_deployment(&self.k8s, task_id, 0)
                     .await
-                    .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+                    .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
                 RuntimeEffect::Applied
             }
             Ok(None) => {
@@ -374,7 +375,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 RuntimeEffect::NoOp
             }
             Err(e) => {
-                return Err(map_sandbox_error(SandboxError::KubeError(e)));
+                return Err(map_sandbox_error(SandboxError::KubeError(Box::new(e))));
             }
         };
 
@@ -401,7 +402,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         let started = std::time::Instant::now();
         let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         if self.config.sandbox.node_archive_enabled
             && existing_deployment
                 .as_ref()
@@ -420,7 +421,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
                 require_node,
             )
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         }
 
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
@@ -445,7 +446,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         let request = plan.build_request(task_id).await?;
         let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         if self.config.sandbox.node_archive_enabled
             && existing_deployment
                 .as_ref()
@@ -467,7 +468,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         //    success, so this only fails on a genuine API error.
         deployment::delete_deployment(&self.k8s, task_id)
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         // 1b. Wait for the old pod to fully terminate before reprovisioning, so
         //     the new pod doesn't race the ReadWriteOnce PVC still attached to
         //     the terminating pod's node ("Multi-Attach" stall).
@@ -485,13 +486,13 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // rebuilding, so 409 reuse cannot preserve stale routing configuration.
         service::delete_sandbox_service(&self.k8s, task_id)
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         ingress::delete_task_ingress_routes(&self.k8s, task_id)
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         networkpolicy::delete_task_preview_network_policy(&self.k8s, task_id)
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         wait_absent(
             "Service",
             service::wait_for_sandbox_service_deleted(&self.k8s, task_id),
@@ -528,7 +529,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         let retain_storage = retention.retains();
         let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
             .await
-            .map_err(|error| map_sandbox_error(SandboxError::KubeError(error)))?;
+            .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
         // Capture the current scheduled node before deleting the Deployment.
         // This synchronous merge is load-bearing; the watcher's write is only a
         // latency optimization and may have failed.
@@ -561,20 +562,20 @@ impl SandboxRuntime for K8sSandboxAdapter {
 
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Deployment");
-            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(Box::new(e))));
         }
         if let Err(e) = service::delete_sandbox_service(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete Service");
-            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(Box::new(e))));
         }
         if let Err(e) = ingress::delete_task_ingress_routes(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes");
-            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(Box::new(e))));
         }
         if let Err(e) = networkpolicy::delete_task_preview_network_policy(&self.k8s, task_id).await
         {
             warn!(task_id = %task_id, error = %e, "Failed to delete preview NetworkPolicy");
-            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(Box::new(e))));
         }
 
         // Observe every runtime resource absent before deleting archives or
@@ -637,7 +638,7 @@ impl SandboxRuntime for K8sSandboxAdapter {
         }
         if let Err(e) = pvc::delete_task_pvc(&self.k8s, task_id).await {
             warn!(task_id = %task_id, error = %e, "Failed to delete PVC");
-            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
+            first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(Box::new(e))));
         }
         // Strict absence: a delete request returns before reclaim completes, so
         // await the PVC actually vanishing before reporting success.
@@ -885,7 +886,7 @@ impl K8sSandboxAdapter {
                 match deployment::find_deployment(&self.k8s, task_id).await {
                     Ok(None) => Err(SandboxError::NotReady("Sandbox not provisioned".into())),
                     Ok(Some(_)) => Ok(()), // exists but replicas check failed — try gRPC anyway
-                    Err(e) => Err(SandboxError::KubeError(e)),
+                    Err(e) => Err(SandboxError::KubeError(Box::new(e))),
                 }
             }
         }

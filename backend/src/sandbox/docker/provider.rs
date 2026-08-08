@@ -117,7 +117,7 @@ impl DockerSandboxAdapter {
                         .await
                         .map_err(|source| SandboxError::Docker {
                             operation: "inspecting a stopped container before recreation",
-                            source,
+                            source: Box::new(source),
                         })?;
                     let container_config = recreate_config(inspected, ctx)?;
                     self.force_remove_container(&container_name).await?;
@@ -134,7 +134,7 @@ impl DockerSandboxAdapter {
                         .await
                         .map_err(|source| SandboxError::Docker {
                             operation: "recreating a stopped container",
-                            source,
+                            source: Box::new(source),
                         })?;
                     self.client
                         .docker
@@ -142,7 +142,7 @@ impl DockerSandboxAdapter {
                         .await
                         .map_err(|source| SandboxError::Docker {
                             operation: "starting a recreated container",
-                            source,
+                            source: Box::new(source),
                         })?;
 
                     return Ok(RuntimeOutcome {
@@ -247,7 +247,7 @@ impl DockerSandboxAdapter {
             .await
             .map_err(|source| SandboxError::Docker {
                 operation: "creating the sandbox container",
-                source,
+                source: Box::new(source),
             })?;
 
         self.client
@@ -256,7 +256,7 @@ impl DockerSandboxAdapter {
             .await
             .map_err(|source| SandboxError::Docker {
                 operation: "starting the sandbox container",
-                source,
+                source: Box::new(source),
             })?;
 
         info!(
@@ -398,7 +398,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
                     .map_err(|source| {
                         map_sandbox_error(SandboxError::Docker {
                             operation: "stopping the sandbox container",
-                            source,
+                            source: Box::new(source),
                         })
                     })?;
                 RuntimeEffect::Applied
@@ -410,7 +410,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
             Err(source) => {
                 return Err(map_sandbox_error(SandboxError::Docker {
                     operation: "inspecting the sandbox container before stop",
-                    source,
+                    source: Box::new(source),
                 }));
             }
         };
@@ -438,7 +438,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
             .map_err(|source| {
                 map_sandbox_error(SandboxError::Docker {
                     operation: "inspecting the sandbox container before restart",
-                    source,
+                    source: Box::new(source),
                 })
             })?;
         let container_config = recreate_config(inspected, ctx).map_err(map_sandbox_error)?;
@@ -465,7 +465,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
             .map_err(|source| {
                 map_sandbox_error(SandboxError::Docker {
                     operation: "recreating the sandbox container during restart",
-                    source,
+                    source: Box::new(source),
                 })
             })?;
         self.client
@@ -475,7 +475,7 @@ impl SandboxRuntime for DockerSandboxAdapter {
             .map_err(|source| {
                 map_sandbox_error(SandboxError::Docker {
                     operation: "starting the replacement container during restart",
-                    source,
+                    source: Box::new(source),
                 })
             })?;
 
@@ -732,7 +732,7 @@ impl DockerSandboxAdapter {
             }) => Err(SandboxError::NotReady("Sandbox not provisioned".into())),
             Err(source) => Err(SandboxError::Docker {
                 operation: "inspecting the sandbox container",
-                source,
+                source: Box::new(source),
             }),
         }
     }
@@ -760,7 +760,7 @@ impl DockerSandboxAdapter {
                     .await
                     .map_err(|source| SandboxError::Docker {
                         operation: "starting an existing server container",
-                        source,
+                        source: Box::new(source),
                     })?;
                 return Ok(());
             }
@@ -787,7 +787,7 @@ impl DockerSandboxAdapter {
             .await
             .map_err(|source| SandboxError::Docker {
                 operation: "creating a server container",
-                source,
+                source: Box::new(source),
             })?;
 
         self.client
@@ -796,7 +796,7 @@ impl DockerSandboxAdapter {
             .await
             .map_err(|source| SandboxError::Docker {
                 operation: "starting a server container",
-                source,
+                source: Box::new(source),
             })?;
 
         info!(
@@ -850,7 +850,7 @@ impl DockerSandboxAdapter {
             })
             .map_err(|source| SandboxError::Docker {
                 operation: "listing server containers",
-                source,
+                source: Box::new(source),
             })
     }
 
@@ -957,7 +957,7 @@ impl DockerSandboxAdapter {
             }) => Ok(()),
             Err(source) => Err(SandboxError::Docker {
                 operation: "removing a container",
-                source,
+                source: Box::new(source),
             }),
         }
     }
@@ -975,7 +975,7 @@ impl DockerSandboxAdapter {
             }) => Ok(false),
             Err(source) => Err(SandboxError::Docker {
                 operation: "inspecting a container by name",
-                source,
+                source: Box::new(source),
             }),
         }
     }

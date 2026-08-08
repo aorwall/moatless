@@ -150,7 +150,7 @@ pub async fn create_sandbox_deployment(
                 }
             }
         }
-        Err(e) => return Err(SandboxError::KubeError(e)),
+        Err(e) => return Err(SandboxError::KubeError(Box::new(e))),
     };
 
     Ok(DeploymentHandle {
@@ -304,10 +304,16 @@ pub async fn restart_deployment(
     task_id: &str,
     ctx: RuntimeOperationContext,
 ) -> Result<(), SandboxError> {
-    scale_deployment(k8s, task_id, 0).await?;
+    scale_deployment(k8s, task_id, 0)
+        .await
+        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
     wait_for_pods_deleted(k8s, task_id).await?;
-    stamp_operation_generation(k8s, task_id, ctx).await?;
-    scale_deployment(k8s, task_id, 1).await?;
+    stamp_operation_generation(k8s, task_id, ctx)
+        .await
+        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
+    scale_deployment(k8s, task_id, 1)
+        .await
+        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
     info!(
         task_id,
         "Deployment restarted (scaled 0 -> 1 after termination)"
@@ -366,7 +372,7 @@ pub async fn redeploy_with_plan(
             deployments
                 .replace(&deployment_name, &PostParams::default(), &deployment)
                 .await
-                .map_err(SandboxError::KubeError)?;
+                .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
             info!(task_id, deployment_name = %deployment_name, "Deployment replaced in place with updated pod spec");
         }
         Err(kube::Error::Api(ref e)) if e.code == 404 => {
@@ -374,10 +380,10 @@ pub async fn redeploy_with_plan(
             deployments
                 .create(&PostParams::default(), &deployment)
                 .await
-                .map_err(SandboxError::KubeError)?;
+                .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
             info!(task_id, deployment_name = %deployment_name, "Deployment created (was missing during redeploy)");
         }
-        Err(e) => return Err(SandboxError::KubeError(e)),
+        Err(e) => return Err(SandboxError::KubeError(Box::new(e))),
     }
     Ok(())
 }

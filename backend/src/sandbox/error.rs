@@ -26,8 +26,13 @@ pub enum SandboxError {
         source: jsonwebtoken::errors::Error,
     },
 
+    /// A Kubernetes API call failed. The `kube` error is boxed at the provider
+    /// call site so this band's error type names no provider SDK — the orphan
+    /// rule forbids a `From<kube::Error>` here anyway, since both types are
+    /// foreign to band 7. Boxed rather than stringified so the cause stays on
+    /// the source chain for `causal_chain`.
     #[error("Kubernetes API error: {0}")]
-    KubeError(#[from] kube::Error),
+    KubeError(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("Pod build failed: {0}")]
     PodBuildError(String),
@@ -39,12 +44,15 @@ pub enum SandboxError {
     DockerError(String),
 
     /// A Docker Engine call failed. `operation` names the call so the log says
-    /// what was attempted without the caller having to re-describe it.
+    /// what was attempted without the caller having to re-describe it. The
+    /// `bollard` error is boxed at the provider call site so this band's error
+    /// type names no provider SDK; boxed rather than stringified so the cause
+    /// stays on the source chain for `causal_chain`.
     #[error("Docker API error during {operation}")]
     Docker {
         operation: &'static str,
         #[source]
-        source: bollard::errors::Error,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     /// Re-encoding an inspected container's config so it can be recreated
@@ -315,14 +323,6 @@ mod tests {
     use super::*;
     use core_sandbox::{ProviderKind, SandboxError as ContractError};
 
-    fn kube_error() -> kube::Error {
-        kube::Error::Api(
-            kube::core::Status::failure("pods \"sandbox-t-1\" not found", "NotFound")
-                .with_code(404)
-                .boxed(),
-        )
-    }
-
     /// The contract must be satisfiable without compiling either container
     /// runtime, so every `kube`- and `bollard`-shaped failure has to arrive as a
     /// kind and a message.
@@ -330,7 +330,7 @@ mod tests {
     fn container_runtime_failures_reach_the_contract_provider_classified() {
         let cases = vec![
             (
-                SandboxError::KubeError(kube_error()),
+                SandboxError::KubeError("pods \"sandbox-t-1\" not found".into()),
                 ProviderKind::Kubernetes,
             ),
             (
@@ -344,10 +344,7 @@ mod tests {
             (
                 SandboxError::Docker {
                     operation: "creating the sandbox container",
-                    source: bollard::errors::Error::DockerResponseServerError {
-                        status_code: 500,
-                        message: "/var/run/docker.sock: permission denied".to_string(),
-                    },
+                    source: "/var/run/docker.sock: permission denied".into(),
                 },
                 ProviderKind::Docker,
             ),
@@ -527,10 +524,7 @@ mod tests {
             (
                 SandboxError::Docker {
                     operation: "creating the sandbox container",
-                    source: bollard::errors::Error::DockerResponseServerError {
-                        status_code: 500,
-                        message: "/var/run/docker.sock: permission denied".to_string(),
-                    },
+                    source: "/var/run/docker.sock: permission denied".into(),
                 },
                 "docker.sock",
             ),
