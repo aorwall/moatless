@@ -126,13 +126,28 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
         },
         // -- loops --
         "loops" | "bindings" => "loops",
-        // -- adapters split: providers -> provider crates, rest -> loops --
+        // -- adapters split: providers -> provider crates, routes -> server, rest -> loops --
         "adapters" => match (m.get(1).map(String::as_str), m.get(2).map(String::as_str)) {
             (Some("providers"), Some("github_pr")) => "adapter-github-pr",
             (Some("providers"), Some("linear")) => "adapter-linear",
             (Some("providers"), Some("slack")) => "adapter-slack",
             (Some("providers"), Some("telegram")) => "adapter-telegram",
             (Some("providers"), Some("webhook")) => "adapter-webhook",
+            // `routes.rs` is the adapter API router + OpenAPI doc: `adapter_router`
+            // takes `AppState` and composes every provider handler into an axum
+            // `Router` (`.with_state(state)`), and `AdapterApiDoc` aggregates their
+            // OpenAPI paths. Its entire outgoing set — the five provider crates
+            // (band 9), `bindings::handlers` (loops, 8), `handlers` (loops, 8),
+            // `AppState` (server, 10) — sits at or below server, and its only two
+            // production consumers are server-band (`adapter_router` at main.rs:463,
+            // `AdapterApiDoc` at startup.rs:742/827; the remaining callers are
+            // dev-dependency test edges). Every reference sits at or below its
+            // consumer's band, so this is a placement, not a seam (the 8h
+            // precedent): its home is server, where each provider reference runs
+            // downward-legal. Carves out of `adapters/` into the server crate at
+            // carve time; the arm reflects that home ahead of the `git mv`, exactly
+            // as the `setup`/`repository_sync`/`credential_sync` arms do.
+            (Some("routes"), _) => "server",
             _ => "loops",
         },
         // -- server -- (`""` is the backend lib root, lib.rs)

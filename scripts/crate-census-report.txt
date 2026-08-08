@@ -3,9 +3,9 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3468  illegal   39
-ATTRIBUTE  legal   258  illegal   16   (utoipa/derive/etc. token streams)
-MACRO      legal    35  illegal   16   (function-like macro-invocation token streams)
+CODE       legal  3477  illegal   29
+ATTRIBUTE  legal   286  illegal    0   (utoipa/derive/etc. token streams)
+MACRO      legal    62  illegal    0   (function-like macro-invocation token streams)
 DOC           46  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 957 point down into the existing crates/* floor
 TEST-CONTEXT 2025  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
@@ -43,8 +43,8 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (0 files, 0 lines)
     (none)
 
-  loops  (50 files, 14251 lines)
-    adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/routes.rs adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
+  loops  (49 files, 14137 lines)
+    adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/handlers.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
   adapter-github-pr  (24 files, 10621 lines)
     adapters/providers/github_pr/
@@ -61,8 +61,8 @@ UNRESOLVED    118  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 791 lines)
     adapters/providers/webhook/
 
-  server  (32 files, 11980 lines)
-    compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
+  server  (33 files, 12094 lines)
+    adapters/routes.rs compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
     (none)
@@ -101,67 +101,25 @@ adapter-telegram -> server   x3
     backend/src/adapters/providers/telegram/ingress.rs:16  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/telegram/poller.rs:12  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-loops -> adapter-github-pr   x13
+loops -> adapter-github-pr   x1
     backend/src/adapters/mod.rs:41  [CODE] providers::github_pr   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:107  [CODE] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:36  [ATTR] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:37  [ATTR] github_pr::api_routes::create_pr   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:38  [ATTR] github_pr::api_routes::post_comment   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:39  [ATTR] github_pr::api_routes::reply_to_review_comment   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:40  [ATTR] github_pr::api_routes::bind_pr   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:75  [MACRO] github_pr::handlers::github_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:76  [MACRO] github_pr::api_routes::create_pr   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:77  [MACRO] github_pr::api_routes::post_comment   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:78  [MACRO] github_pr::api_routes::reply_to_review_comment   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:79  [MACRO] github_pr::api_routes::bind_pr   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:8  [CODE] super::github_pr   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> adapter-linear   x18
+loops -> adapter-linear   x1
     backend/src/adapters/mod.rs:41  [CODE] providers::linear   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:41  [ATTR] linear::handlers::linear_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:42  [ATTR] linear::api_routes::get_issue   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:43  [ATTR] linear::api_routes::create_issue   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:44  [ATTR] linear::api_routes::update_issue   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:45  [ATTR] linear::api_routes::create_comment   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:46  [ATTR] linear::api_routes::mutate_label   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:47  [ATTR] linear::api_routes::graphql_passthrough   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:48  [ATTR] linear::api_routes::lookup   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:8  [CODE] super::linear   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:80  [MACRO] linear::handlers::linear_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:81  [MACRO] linear::api_routes::get_issue   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:82  [MACRO] linear::api_routes::create_issue   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:83  [MACRO] linear::api_routes::update_issue   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:84  [MACRO] linear::api_routes::create_comment   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:85  [MACRO] linear::api_routes::mutate_label   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:86  [MACRO] linear::api_routes::graphql_passthrough   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:87  [MACRO] linear::api_routes::lookup   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> adapter-slack   x5
+loops -> adapter-slack   x1
     backend/src/adapters/mod.rs:41  [CODE] providers::slack   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:34  [ATTR] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:73  [MACRO] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:8  [CODE] super::slack   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:99  [CODE] slack::handlers::slack_webhook   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> adapter-telegram   x5
+loops -> adapter-telegram   x1
     backend/src/adapters/mod.rs:41  [CODE] providers::telegram   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:103  [CODE] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:35  [ATTR] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:74  [MACRO] telegram::handlers::telegram_webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:8  [CODE] super::telegram   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> adapter-webhook   x5
+loops -> adapter-webhook   x1
     backend/src/adapters/mod.rs:41  [CODE] providers::webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:111  [CODE] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:49  [ATTR] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:8  [CODE] super::webhook   -> [7d + 10h — registry field-widening + provider carve]
-    backend/src/adapters/routes.rs:88  [MACRO] webhook::handlers::webhook_inbound   -> [7d + 10h — registry field-widening + provider carve]
 
-loops -> server   x6
+loops -> server   x5
     backend/src/adapters/capabilities.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/delivery/typed.rs:16  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/handlers.rs:20  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/routes.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/bindings/outbound.rs:22  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/bindings/runtime.rs:21  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
@@ -300,7 +258,7 @@ loops -> server   x6
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> loops: BLOCKED on 52 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> loops: BLOCKED on 10 illegal outgoing. No crate is carvable until it clears.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
@@ -308,7 +266,7 @@ loops -> server   x6
   sandbox-control    deps: identity, tasks, workspaces                  EXTRACTED
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           EXTRACTED
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
-  loops              deps: identity, tasks, workspaces                  BLOCKED — 52 illegal outgoing to adapter-github-pr(x13), adapter-linear(x18), adapter-slack(x5), adapter-telegram(x5), adapter-webhook(x5), server(x6)
+  loops              deps: identity, tasks, workspaces                  BLOCKED — 10 illegal outgoing to adapter-github-pr(x1), adapter-linear(x1), adapter-slack(x1), adapter-telegram(x1), adapter-webhook(x1), server(x5)
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 8 illegal outgoing to server(x8)
   adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 6 illegal outgoing to server(x6)
   adapter-slack      deps: identity, loops                              BLOCKED — 2 illegal outgoing to server(x2)
