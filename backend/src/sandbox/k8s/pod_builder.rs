@@ -16,12 +16,12 @@ use std::collections::{BTreeMap, HashMap};
 use tracing::{debug, info, warn};
 
 use super::naming::generate_pod_name;
-use moatless_core::config::Config;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::jwt::{self, MintedSandboxTokens};
-use crate::sandbox::lifecycle::runtime::{RuntimeOperationContext, OPERATION_GENERATION_LABEL};
+use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, RuntimeOperationContext};
 use crate::sandbox::models::{ProvisionPlan, RepoCheckout, WORKSPACE_REPOS_ENV};
 use crate::sandbox::server_runner::build_server_start_script;
+use moatless_core::config::Config;
 
 /// Auth tokens delivered to a sandbox pod.
 ///
@@ -173,8 +173,10 @@ pub fn build_pod(
         },
     ];
 
-    let storage_backend =
-        super::storage::StorageBackend::from_plan(plan, &config.sandbox.default_storage_mode);
+    let storage_backend = crate::sandbox::storage::StorageBackend::from_plan(
+        plan,
+        &config.sandbox.default_storage_mode,
+    );
 
     if let Some(pvc) = pvc_name {
         volumes.push(Volume {
@@ -185,7 +187,7 @@ pub fn build_pod(
             }),
             ..Default::default()
         });
-    } else if storage_backend == super::storage::StorageBackend::Node {
+    } else if storage_backend == crate::sandbox::storage::StorageBackend::Node {
         // Node-local tier — a hostPath keyed by task id. Lifecycle records the
         // scheduled node and pins retained replacements back to the newest
         // surviving archive location instead of silently mounting an empty tree
@@ -226,7 +228,7 @@ pub fn build_pod(
     if build_cache_backend.is_node() {
         init_containers.push(build_node_build_cache_setup_container(config, plan));
     }
-    if storage_backend == super::storage::StorageBackend::Node {
+    if storage_backend == crate::sandbox::storage::StorageBackend::Node {
         init_containers.push(build_node_sandbox_setup_container(config, plan));
     }
     if !config.sandbox.cache_volumes.is_empty() {
@@ -942,8 +944,11 @@ fn build_sandbox_container(
     // (no PVC) and syncs the git working tree to S3 via presigned URLs — flag the
     // sandbox so it syncs after terminal agent turns and restores on boot. `ebs`,
     // `node`, and `ephemeral` leave this unset.
-    if super::storage::StorageBackend::from_plan(plan, &config.sandbox.default_storage_mode)
-        .syncs_sandbox()
+    if crate::sandbox::storage::StorageBackend::from_plan(
+        plan,
+        &config.sandbox.default_storage_mode,
+    )
+    .syncs_sandbox()
     {
         env.push(env_var("WORKSPACE_SYNC_ENABLED", "true"));
     }
@@ -3132,14 +3137,18 @@ mod tests {
             .resources
             .as_ref()
             .expect("nvme-setup must declare resources");
-        assert!(resources
-            .requests
-            .as_ref()
-            .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory")));
-        assert!(resources
-            .limits
-            .as_ref()
-            .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory")));
+        assert!(
+            resources
+                .requests
+                .as_ref()
+                .is_some_and(|r| r.contains_key("cpu") && r.contains_key("memory"))
+        );
+        assert!(
+            resources
+                .limits
+                .as_ref()
+                .is_some_and(|l| l.contains_key("cpu") && l.contains_key("memory"))
+        );
     }
 
     /// The toolchain-persistence and cargo-target flags are off by default —
@@ -3277,12 +3286,13 @@ mod tests {
                 .map(|host_path| host_path.path.as_str()),
             Some("/mnt/cache/build-cache/shared")
         );
-        assert!(spec
-            .init_containers
-            .as_ref()
-            .unwrap()
-            .iter()
-            .any(|container| container.name == "build-cache-setup"));
+        assert!(
+            spec.init_containers
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|container| container.name == "build-cache-setup")
+        );
     }
 
     /// With the flags on: cargo registry/git ride `workspace-data` subPaths
@@ -3361,9 +3371,11 @@ mod tests {
             only_match_field(&selector.node_selector_terms[0]),
             ("metadata.name", "node-a")
         );
-        assert!(node_affinity
-            .preferred_during_scheduling_ignored_during_execution
-            .is_none());
+        assert!(
+            node_affinity
+                .preferred_during_scheduling_ignored_during_execution
+                .is_none()
+        );
     }
 
     #[test]
@@ -3378,9 +3390,11 @@ mod tests {
             only_match_field(&preferred[0].preference),
             ("metadata.name", "node-a")
         );
-        assert!(node_affinity
-            .required_during_scheduling_ignored_during_execution
-            .is_none());
+        assert!(
+            node_affinity
+                .required_during_scheduling_ignored_during_execution
+                .is_none()
+        );
     }
 
     #[test]

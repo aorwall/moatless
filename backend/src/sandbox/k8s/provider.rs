@@ -22,19 +22,19 @@ use super::pod_status::{is_sandbox_container_ready, pick_best_pod};
 use super::pvc;
 use super::service;
 use super::status_resolver::StatusResolver;
-use super::storage::StorageBackend;
-use moatless_core::config::Config;
-use crate::sandbox::status_reader::SandboxStatusReader;
-use moatless_backend_core::sandbox as core_sandbox;
 use crate::sandbox::client::SandboxClient;
 use crate::sandbox::error::SandboxError;
 use crate::sandbox::lifecycle::outcome::{DegradationWarning, Diagnostics};
 use crate::sandbox::lifecycle::runtime::{
-    map_sandbox_error, RuntimeOperationContext, RuntimeOutcome, SandboxRuntime,
+    RuntimeOperationContext, RuntimeOutcome, SandboxRuntime, map_sandbox_error,
 };
 use crate::sandbox::lifecycle::{ArchiveRetention, ObservedStatus, ProvisionDeps, RuntimeEffect};
 use crate::sandbox::models::*;
 use crate::sandbox::schemas::*;
+use crate::sandbox::status_reader::SandboxStatusReader;
+use crate::sandbox::storage::StorageBackend;
+use moatless_backend_core::sandbox as core_sandbox;
+use moatless_core::config::Config;
 
 /// Kubernetes adapter for lifecycle mutation, observation, and connection.
 pub struct K8sSandboxAdapter {
@@ -571,7 +571,8 @@ impl SandboxRuntime for K8sSandboxAdapter {
             warn!(task_id = %task_id, error = %e, "Failed to delete IngressRoutes");
             first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
         }
-        if let Err(e) = networkpolicy::delete_task_preview_network_policy(&self.k8s, task_id).await {
+        if let Err(e) = networkpolicy::delete_task_preview_network_policy(&self.k8s, task_id).await
+        {
             warn!(task_id = %task_id, error = %e, "Failed to delete preview NetworkPolicy");
             first_err.get_or_insert(map_sandbox_error(SandboxError::KubeError(e)));
         }

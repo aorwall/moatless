@@ -33,23 +33,21 @@ use super::client::K8sClient;
 use super::deployment;
 use super::leader_election::LeaderElection;
 use super::pod_observation_policy::{
-    should_emit_scheduling_blocked, should_emit_startup_slow, should_gc_failed_pod,
-    ObservationContext, PodObservationPolicy,
+    ObservationContext, PodObservationPolicy, should_emit_scheduling_blocked,
+    should_emit_startup_slow, should_gc_failed_pod,
 };
-use super::pod_status::{
-    extract_container_observed_statuses, is_sandbox_container_ready,
-    DEFAULT_SERVER_READINESS_TIMEOUT_SECS,
-};
-use moatless_core::events::EventPublisher;
-use crate::sandbox::lifecycle::classify::ObservedTransition;
-use crate::sandbox::lifecycle::runtime::{generation_from_label, OPERATION_GENERATION_LABEL};
-use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
+use super::pod_status::{extract_container_observed_statuses, is_sandbox_container_ready};
 use crate::sandbox::lifecycle::Lifecycle;
 use crate::sandbox::lifecycle::OperationGeneration;
+use crate::sandbox::lifecycle::classify::ObservedTransition;
+use crate::sandbox::lifecycle::runtime::{OPERATION_GENERATION_LABEL, generation_from_label};
+use crate::sandbox::lifecycle::watcher::{classify_observation, publish_sandbox_observation};
+use crate::sandbox::models::DEFAULT_SERVER_READINESS_TIMEOUT_SECS;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::models::{SandboxDesiredState, SandboxStopReason};
 use crate::task_event::dao::TaskEventDao;
 use crate::workspace::dao::WorkspaceDao;
+use moatless_core::events::EventPublisher;
 
 /// Dependencies the watcher needs to remediate a crash-looping sandbox. The
 /// lifecycle owns plan construction and intent, so the watcher only carries the

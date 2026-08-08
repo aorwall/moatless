@@ -3,7 +3,6 @@
 //! Contains all K8s-specific code: client, pod building, PVC,
 //! service, pod reading, and status resolution.
 
-pub mod auto_provision;
 pub mod client;
 pub mod deployment;
 pub mod fleet_observer;
@@ -23,5 +22,4 @@ pub mod pvc;
 pub mod sandbox_resources;
 pub mod service;
 pub mod status_resolver;
-pub mod storage;
 pub mod wait;

@@ -28,16 +28,6 @@ pub const SANDBOX_PERMANENT_FAILURE_REASONS: &[&str] = &[
     "CrashLoopBackOff",
 ];
 
-/// Waiting reasons that map a *server* container to `"failed"` status.
-/// Used by `ContainerObservedStatus::to_server_status()` in `types.rs`.
-pub const SERVER_FAILURE_REASONS: &[&str] = &[
-    "ErrImagePull",
-    "ImagePullBackOff",
-    "InvalidImageName",
-    "CreateContainerConfigError",
-    "CrashLoopBackOff",
-];
-
 // =============================================================================
 // Pod inspection functions
 // =============================================================================
@@ -146,9 +136,6 @@ pub fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
         .min_by_key(|p| phase_priority(p))
         .or(terminating.first().copied())
 }
-
-/// Default readiness grace period for pod watcher (no per-server config available).
-pub const DEFAULT_SERVER_READINESS_TIMEOUT_SECS: u32 = 120;
 
 /// Extract observed statuses for **all** containers in a K8s Pod.
 ///

@@ -1,7 +1,7 @@
 //! Prometheus metrics for sandbox storage backends.
 //!
 //! These exist to compare the storage backends (see
-//! [`crate::sandbox::k8s::storage::StorageBackend`]) head-to-head — the EBS PVC
+//! [`crate::sandbox::storage::StorageBackend`]) head-to-head — the EBS PVC
 //! path vs. node-local paths — so a default change can be made on evidence
 //! rather than intuition.
 //!
@@ -18,7 +18,7 @@
 
 use std::time::Duration;
 
-use super::k8s::storage::StorageBackend;
+use super::storage::StorageBackend;
 
 /// Wall-clock duration of a `provision` call by `storage_backend` and `outcome`
 /// (histogram). Captures the cost of standing up sandbox resources — for `ebs`

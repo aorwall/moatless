@@ -5,12 +5,27 @@ use std::collections::{BTreeMap, HashMap};
 use utoipa::ToSchema;
 
 pub use moatless_api_schemas::sandbox::{
-    derive_mount_name, sanitize_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV,
+    RepoCheckout, WORKSPACE_REPOS_ENV, derive_mount_name, sanitize_mount_name,
 };
 
-// Keep pod-status extraction available from the sandbox model surface.
-pub use crate::sandbox::k8s::pod_status::extract_container_observed_statuses;
 use crate::repository::models::ServerConfig;
+
+/// Waiting reasons that map a *server* container to `"failed"` status. Read by
+/// `ContainerObservedStatus::to_server_status()` below — pure string data, so it
+/// lives in the sandbox-control domain model, not under `k8s/`. Both the k8s and
+/// docker status resolvers reach it here on a legal downward edge.
+pub const SERVER_FAILURE_REASONS: &[&str] = &[
+    "ErrImagePull",
+    "ImagePullBackOff",
+    "InvalidImageName",
+    "CreateContainerConfigError",
+    "CrashLoopBackOff",
+];
+
+/// Default readiness grace period for the pod watcher (no per-server config
+/// available). Provider-agnostic, so it lives in the control-band model beside
+/// the status logic that consumes it, not under `k8s/`.
+pub const DEFAULT_SERVER_READINESS_TIMEOUT_SECS: u32 = 120;
 
 /// Provision plan sent from TS backend
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -314,8 +329,6 @@ pub struct ContainerObservedStatus {
 impl ContainerObservedStatus {
     /// Map container probes to a server status for the frontend.
     pub fn to_server_status(&self) -> ServerStatus {
-        use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
-
         // Terminated containers: OOMKilled or non-zero exit → Failed, else Stopped.
         if matches!(self.state, ContainerState::Terminated) {
             if self.terminated_reason.as_deref() == Some("OOMKilled") {
@@ -368,8 +381,6 @@ impl ContainerObservedStatus {
 
     /// Return the error reason — terminated reasons take priority, then waiting reasons.
     pub fn error_reason(&self) -> Option<String> {
-        use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
-
         // Terminated reason (e.g. OOMKilled, Error)
         if let Some(reason) = &self.terminated_reason {
             if reason != "Completed" {
@@ -411,8 +422,6 @@ impl ContainerObservedStatus {
 
     /// Return the waiting reason only if it is a non-error detail (e.g. ContainerCreating).
     pub fn detail_reason(&self) -> Option<String> {
-        use crate::sandbox::k8s::pod_status::SERVER_FAILURE_REASONS;
-
         self.waiting_reason.as_deref().and_then(|r| {
             if SERVER_FAILURE_REASONS.contains(&r) {
                 None
