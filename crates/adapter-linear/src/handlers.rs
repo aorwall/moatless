@@ -14,8 +14,8 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::warn;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::metrics::record_webhook;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::metrics::record_webhook;
 
 use super::adapter::LinearAdapter;
 use super::ingress::{IngressError, Outcome};

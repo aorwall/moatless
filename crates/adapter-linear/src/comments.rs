@@ -16,14 +16,14 @@ use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, Audience};
-use crate::bindings::recipients::{EventProvenance, resolve_recipients};
-use crate::bindings::runtime::RoutingService;
-use crate::loops::dao::LoopDao;
-use crate::message::send::MessageSendService;
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::sandbox_waker::SandboxWaker;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{AdapterConnection, Audience};
+use moatless_loops::bindings::recipients::{EventProvenance, resolve_recipients};
+use moatless_loops::bindings::runtime::RoutingService;
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::message::send::MessageSendService;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::sandbox_waker::SandboxWaker;
 
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::webhook_payloads::CommentPayloadData;
@@ -79,7 +79,7 @@ pub(super) async fn handle_comment_created(
     // task that authored it. The footer is visible content — nothing to strip,
     // so the body is forwarded unchanged.
     let author_task_id =
-        crate::adapters::footer::parse_task_id_from_body(&config.auth.frontend_url, &comment.body);
+        moatless_loops::adapters::footer::parse_task_id_from_body(&config.auth.frontend_url, &comment.body);
     let forwarded_body = comment.body.as_str();
 
     let audience = comment_audience(comment);
@@ -149,7 +149,7 @@ pub(super) async fn handle_comment_created(
                 &[],
                 &[],
                 true,
-                crate::message::send::ExternalOrigin {
+                moatless_tasks::message::send::ExternalOrigin {
                     event_id: Some(&external_event_id),
                     adapter: Some(ADAPTER_LABEL),
                     subject_key: Some(&binding.subject_key),
@@ -210,8 +210,8 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
-    use crate::adapters::providers::linear::subject::{
+    use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, TaskBinding};
+    use crate::subject::{
         ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND,
     };
 
@@ -221,7 +221,7 @@ mod tests {
     // classification below is Linear's: only Linear knows a `parentId` makes a
     // comment a threaded reply. Turning that into recipients is
     // `resolve_recipients`, shared with GitHub PR and exhaustively tabled in
-    // `crate::bindings::recipients` — what the delivery cases here assert is
+    // `moatless_loops::bindings::recipients` — what the delivery cases here assert is
     // that Linear's own binding shapes fall where the ticket says they fall.
 
     fn comment_with_parent(parent_id: Option<&str>) -> CommentPayloadData {
@@ -285,8 +285,8 @@ mod tests {
     fn issue_producer(task_id: &str) -> TaskBinding {
         linear_binding(
             task_id,
-            crate::adapters::providers::linear::SUBJECT_KIND_ISSUE,
-            crate::adapters::models::TASK_OWNED_BINDING_ORIGIN,
+            crate::SUBJECT_KIND_ISSUE,
+            moatless_loops::adapters::models::TASK_OWNED_BINDING_ORIGIN,
         )
     }
 

@@ -25,17 +25,17 @@ use tracing::{info, warn};
 
 use moatless_core::config::Config;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{
     ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding,
 };
-use crate::loops::dao::LoopDao;
-use crate::message::send::MessageSendService;
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::creation::TaskCreationService;
-use crate::task::dao::TaskDao;
-use crate::task::relations::TaskRelationDao;
-use crate::task::sandbox_waker::SandboxWaker;
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::message::send::MessageSendService;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::creation::TaskCreationService;
+use moatless_tasks::task::dao::TaskDao;
+use moatless_tasks::task::relations::TaskRelationDao;
+use moatless_tasks::task::sandbox_waker::SandboxWaker;
 
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{ActivityKind, LinearAgentApi};
@@ -250,7 +250,7 @@ pub(super) async fn handle_session_prompted(
                 &[],
                 &[],
                 true,
-                crate::message::send::ExternalOrigin {
+                moatless_tasks::message::send::ExternalOrigin {
                     event_id: Some(&external_event_id),
                     adapter: Some(ADAPTER_LABEL),
                     subject_key: Some(&binding.subject_key),
@@ -355,7 +355,7 @@ async fn provision_session_task(
         Ok(bindings) => bindings
             .into_iter()
             .next()
-            .map(|b| crate::task::relations::RelatedTask {
+            .map(|b| moatless_tasks::task::relations::RelatedTask {
                 related_task_id: b.task_id.clone(),
                 context: serde_json::json!({
                     "via": "linear_session_created",
@@ -409,7 +409,7 @@ async fn provision_session_task(
         Err(e) => return Err(e),
     };
     if let Some(ref r) = related {
-        crate::task::relations::record_related_to(task_relations, &task_id, r).await;
+        moatless_tasks::task::relations::record_related_to(task_relations, &task_id, r).await;
     }
     // Open the Linear turn gate so subsequent sandbox lifecycle / agent events
     // on this task surface in Linear's UI.
@@ -427,7 +427,7 @@ async fn provision_session_task(
         issue.url.as_deref(),
         &team_id,
     );
-    let binding = crate::bindings::runtime::upsert_binding_into(
+    let binding = moatless_loops::bindings::runtime::upsert_binding_into(
         task_bindings,
         connection,
         Some(rule),
@@ -481,7 +481,7 @@ async fn provision_session_task(
             &[],
             &[],
             false,
-            crate::message::send::ExternalOrigin {
+            moatless_tasks::message::send::ExternalOrigin {
                 event_id: Some(&external_event_id),
                 adapter: Some(ADAPTER_LABEL),
                 subject_key: Some(&binding.subject_key),

@@ -4,7 +4,7 @@
 //! [`LinearAdapter`](super::adapter::LinearAdapter) (which needs a database
 //! pool). The `Adapter` trait methods delegate here.
 
-use crate::adapters::models::{ExternalStatus, TaskBinding};
+use moatless_loops::adapters::models::{ExternalStatus, TaskBinding};
 
 /// Linear `state.type` values that mean the issue is finished. A reactivated
 /// issue leaves this set, but only a webhook can tell us so.

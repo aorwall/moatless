@@ -19,12 +19,12 @@ use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::AdapterConnection;
-use crate::loops::dao::LoopDao;
-use crate::sandbox::lifecycle::Lifecycle;
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::dao::TaskDao;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::AdapterConnection;
+use moatless_loops::loops::dao::LoopDao;
+use moatless_sandbox_control::lifecycle::Lifecycle;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::dao::TaskDao;
 
 use super::agent_api::LinearAgentApi;
 use super::close::close_active_bindings_for_issue;

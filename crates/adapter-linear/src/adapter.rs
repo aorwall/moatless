@@ -7,20 +7,20 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{
     AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
     SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::{
+use moatless_loops::adapters::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
     AdapterPostBindingFollowup, Adapters,
 };
-use crate::loops::dao::LoopDao;
-use crate::task::dao::TaskDao;
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::task::dao::TaskDao;
 use moatless_core::db::DbPool;
 
 use super::SUBJECT_KIND_ISSUE;
@@ -200,8 +200,8 @@ impl LinearAdapter {
         let Some(config) = self.config.as_deref() else {
             return Ok(self.agent_api_for_org(org_id));
         };
-        let app_key = crate::adapter_apps::app_key_from_transport_config(transport_config);
-        let Some(app) = crate::adapter_apps::linear_app_config(&self.db, config, app_key)
+        let app_key = moatless_identity::adapter_apps::app_key_from_transport_config(transport_config);
+        let Some(app) = moatless_identity::adapter_apps::linear_app_config(&self.db, config, app_key)
             .await
             .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
         else {
@@ -360,7 +360,7 @@ impl AdapterDirectDestination for LinearAdapter {
         &self,
         destination: &str,
         message: &OutboundReply,
-    ) -> Result<crate::adapters::DestinationPostResult, AdapterError> {
+    ) -> Result<moatless_loops::adapters::DestinationPostResult, AdapterError> {
         let id_or_key = destination.strip_prefix("issue:").unwrap_or(destination);
         if id_or_key.is_empty() {
             return Err(SharedAdapterError::BadRequest(
@@ -405,7 +405,7 @@ impl AdapterDirectDestination for LinearAdapter {
             destination_config["url"] = serde_json::Value::String(u);
         }
 
-        Ok(crate::adapters::DestinationPostResult {
+        Ok(moatless_loops::adapters::DestinationPostResult {
             message_external_id: super::external_id::comment(&comment_id),
             subject_kind: SUBJECT_KIND_ISSUE,
             subject_key: issue_uuid,
@@ -565,7 +565,7 @@ impl AdapterBindingStatus for LinearAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::footer::parse_task_id_from_body;
+    use moatless_loops::adapters::footer::parse_task_id_from_body;
 
     fn reply(text: &str, footer: Option<&str>) -> OutboundReply {
         OutboundReply {

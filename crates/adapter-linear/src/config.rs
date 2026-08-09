@@ -4,7 +4,7 @@
 //! share a single Linear team UUID (multi-listener support is what migration
 //! `0036` enables) — each one is evaluated independently.
 
-use crate::adapters::models::SubscriptionMatch;
+use moatless_loops::adapters::models::SubscriptionMatch;
 
 /// Default workflow state names whose ENTRY fires task creation.
 const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
@@ -204,7 +204,7 @@ pub fn rules_need_issue_fetch(rules: &[SubscriptionMatch]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::models::RoutingMode;
+    use moatless_loops::adapters::models::RoutingMode;
     use chrono::Utc;
     use moatless_backend_core::scope::Scope;
 

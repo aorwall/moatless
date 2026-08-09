@@ -17,12 +17,12 @@ use std::fmt::Write as _;
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
-use crate::sandbox::lifecycle::{ArchiveRetention, Lifecycle};
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::dao::{TaskDao, TaskPatch};
-use crate::task::models::TaskStatus;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, SubscriptionMatch, TaskBinding};
+use moatless_sandbox_control::lifecycle::{ArchiveRetention, Lifecycle};
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::dao::{TaskDao, TaskPatch};
+use moatless_tasks::task::models::TaskStatus;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
@@ -221,7 +221,7 @@ async fn emit_linear_close_response(
     }
     // Append the `Moatless task:` footer so the inbound echo filter drops the
     // resulting webhook instead of forwarding it back into the task.
-    if let Some(footer) = crate::bindings::footer::task_comment_footer(
+    if let Some(footer) = moatless_loops::bindings::footer::task_comment_footer(
         tasks,
         &config.auth.frontend_url,
         &binding.task_id,

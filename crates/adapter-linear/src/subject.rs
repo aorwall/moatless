@@ -15,10 +15,10 @@
 
 use moatless_core::db::DbPool;
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
-use crate::loops::dao::LoopDao;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch, TaskBinding};
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
 
 use super::SUBJECT_KIND_ISSUE;
 use super::webhook_payloads::{AgentSession, IssuePayload};

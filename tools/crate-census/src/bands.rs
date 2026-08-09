@@ -294,6 +294,13 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // into another adapter at the same band or into the server band — is never
         // caught. The arm ships in the same slice as the `git mv`.
         "adapter-slack" => "adapter-slack".to_string(),
+        // `adapter-linear` (10h) is a real band-9 crate
+        // (crates/adapter-linear), not the floor. Without the arm its files score
+        // as `floor:adapter-linear` (excluded from the graph) and its outgoing
+        // edges launder to downward-legal, so a future illegal edge out of it —
+        // into another adapter at the same band or into the server band — is never
+        // caught. The arm ships in the same slice as the `git mv`.
+        "adapter-linear" => "adapter-linear".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -397,6 +404,13 @@ pub fn external_crate(head: &str) -> Option<String> {
         // `moatless_adapter_webhook` and is paired with the
         // `floor_crate_of_dir("adapter-slack")` arm above.
         "moatless_adapter_slack" => "adapter-slack",
+        // `moatless_adapter_linear` resolves to the band-9 Linear Adapter crate.
+        // Without this arm the head falls to `None` ("no census edge"), and every
+        // backend facade or server reference to the carved Adapter is silently
+        // subtracted from the graph rather than scored. Mirrors
+        // `moatless_adapter_webhook` and is paired with the
+        // `floor_crate_of_dir("adapter-linear")` arm above.
+        "moatless_adapter_linear" => "adapter-linear",
         _ => return None,
     };
     Some(id.to_string())
@@ -728,6 +742,40 @@ mod tests {
             band_of(&id),
             9,
             "moatless_adapter_slack must resolve to band-9 adapter-slack",
+        );
+    }
+
+    /// The 10h Linear Adapter carve must resolve `crates/adapter-linear` to the
+    /// band-9 adapter crate, not the `floor:adapter-linear` fallthrough (band 0,
+    /// excluded from scoring). Asserting the band turns the fallthrough into a
+    /// test failure rather than a silent whole-crate drop.
+    #[test]
+    fn adapter_linear_dir_resolves_to_the_band_9_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("adapter-linear"), "adapter-linear");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("adapter-linear")),
+            9,
+            "crates/adapter-linear must be the band-9 Linear Adapter crate, not floor band 0",
+        );
+        assert_eq!(band_of("floor:adapter-linear"), 0);
+    }
+
+    /// A backend reference to `moatless_adapter_linear::` must resolve to the
+    /// band-9 Linear Adapter crate so the facade edge is scored instead of
+    /// silently subtracted from the graph.
+    #[test]
+    fn moatless_adapter_linear_head_resolves_to_the_band_9_crate() {
+        assert_eq!(
+            external_crate("moatless_adapter_linear"),
+            Some("adapter-linear".to_string())
+        );
+        let Some(id) = external_crate("moatless_adapter_linear") else {
+            panic!("moatless_adapter_linear must be a known external head");
+        };
+        assert_eq!(
+            band_of(&id),
+            9,
+            "moatless_adapter_linear must resolve to band-9 adapter-linear",
         );
     }
 }

@@ -19,9 +19,9 @@
 //! in place when it is near expiry, so the pool is part of the credential, not
 //! a convenience.
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{AdapterConnection, TaskBinding};
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{AdapterConnection, TaskBinding};
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::config::{Config, LinearConfig};
 use moatless_core::db::DbPool;
@@ -53,8 +53,8 @@ impl From<&LinearConfig> for LinearCredentials {
     }
 }
 
-impl From<&crate::adapter_apps::LinearAppConfig> for LinearCredentials {
-    fn from(config: &crate::adapter_apps::LinearAppConfig) -> Self {
+impl From<&moatless_identity::adapter_apps::LinearAppConfig> for LinearCredentials {
+    fn from(config: &moatless_identity::adapter_apps::LinearAppConfig) -> Self {
         Self {
             oauth_client_id: config.oauth_client_id.clone(),
             oauth_client_secret: config.oauth_client_secret.clone(),
@@ -81,8 +81,8 @@ pub(super) async fn api_for_connection(
     config: &Config,
     connection: &AdapterConnection,
 ) -> Result<LinearAgentApi, AdapterError> {
-    let app_key = crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
-    let app = crate::adapter_apps::linear_app_config(db, config, app_key)
+    let app_key = moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config);
+    let app = moatless_identity::adapter_apps::linear_app_config(db, config, app_key)
         .await
         .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?;
     let Some(app) = app else {
@@ -149,7 +149,7 @@ pub(super) async fn api_for_binding(
 /// issue and nothing else. Refusing when more than one workspace is installed
 /// is the point: guessing would post a comment into the wrong company's Linear.
 ///
-/// [`AdapterDirectDestination::post_to_destination`]: crate::adapters::AdapterDirectDestination::post_to_destination
+/// [`AdapterDirectDestination::post_to_destination`]: moatless_loops::adapters::AdapterDirectDestination::post_to_destination
 pub(super) async fn api_for_single_workspace(
     adapter: &LinearAdapter,
 ) -> Result<LinearAgentApi, AdapterError> {

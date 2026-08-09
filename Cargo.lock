@@ -3151,6 +3151,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-adapter-linear"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "hex",
+ "hmac 0.13.0",
+ "moatless-adapter-model",
+ "moatless-api-schemas",
+ "moatless-backend-core",
+ "moatless-core",
+ "moatless-events",
+ "moatless-identity",
+ "moatless-loops",
+ "moatless-sandbox-control",
+ "moatless-tasks",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
 name = "moatless-adapter-model"
 version = "0.1.0"
 dependencies = [
@@ -3643,6 +3673,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
+ "moatless-adapter-linear",
  "moatless-adapter-model",
  "moatless-adapter-slack",
  "moatless-adapter-telegram",

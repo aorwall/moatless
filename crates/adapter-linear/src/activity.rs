@@ -36,12 +36,12 @@ use tracing::{debug, warn};
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::message::dao::MessageDao;
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_tasks::message::dao::MessageDao;
 
 use super::agent_api::LinearAgentApi;
 
-pub(crate) use super::agent_api::ActivityKind;
+pub use super::agent_api::ActivityKind;
 
 /// Resolve every active Linear `(api, session_id)` pair bound to `task_id`.
 /// Internal helper used by every fire-and-forget activity emitter — keeps the
@@ -94,7 +94,7 @@ async fn resolve_linear_sessions_for_task(
 /// `task_id`. Fire-and-forget: any failure (no binding, missing connection,
 /// network error, GraphQL rejection) is logged and swallowed — callers in the
 /// event-consumer hot path must not be affected.
-pub(crate) async fn notify_linear_status(
+pub async fn notify_linear_status(
     db: DbPool,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
@@ -130,7 +130,7 @@ pub(crate) async fn notify_linear_status(
               inverted out of the AppState this fire-and-forget emitter used to \
               take by value, plus its four activity fields"
 )]
-pub(crate) async fn notify_linear_action(
+pub async fn notify_linear_action(
     db: DbPool,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
@@ -174,7 +174,7 @@ pub(crate) async fn notify_linear_action(
 /// Skips:
 /// - `tool_result` blocks (system/user role messages).
 /// - `text` blocks shorter than 4 chars after trim (Claude connector tokens).
-pub(crate) async fn notify_linear_message_activities(
+pub async fn notify_linear_message_activities(
     db: DbPool,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,
@@ -262,7 +262,7 @@ pub(crate) async fn notify_linear_message_activities(
 /// sees both the call and its outcome.
 ///
 /// Fire-and-forget: any DB or GraphQL failure is logged and swallowed.
-pub(crate) async fn notify_linear_tool_results(
+pub async fn notify_linear_tool_results(
     db: DbPool,
     adapter_connections: Arc<dyn AdapterConnectionDao>,
     config: Arc<Config>,

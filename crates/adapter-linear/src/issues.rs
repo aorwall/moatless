@@ -24,15 +24,15 @@ use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
-use crate::message::send::MessageSendService;
-use crate::sandbox::lifecycle::Lifecycle;
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::creation::TaskCreationService;
-use crate::task::dao::TaskDao;
-use crate::task::models::Visibility;
-use crate::task::sandbox_waker::SandboxWaker;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
+use moatless_tasks::message::send::MessageSendService;
+use moatless_sandbox_control::lifecycle::Lifecycle;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::creation::TaskCreationService;
+use moatless_tasks::task::dao::TaskDao;
+use moatless_tasks::task::models::Visibility;
+use moatless_tasks::task::sandbox_waker::SandboxWaker;
 
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::LinearAgentApi;
@@ -347,7 +347,7 @@ async fn provision_issue_task(
 
     let team_id = issue.resolved_team_id().unwrap_or_default().to_string();
     let destination_config = super::subject::issue_destination_config(issue, &team_id);
-    let binding = crate::bindings::runtime::upsert_binding_into(
+    let binding = moatless_loops::bindings::runtime::upsert_binding_into(
         task_bindings,
         connection,
         Some(rule),
@@ -390,7 +390,7 @@ async fn provision_issue_task(
             &[],
             &[],
             false,
-            crate::message::send::ExternalOrigin {
+            moatless_tasks::message::send::ExternalOrigin {
                 event_id: Some(&external_event_id),
                 adapter: Some(ADAPTER_LABEL),
                 subject_key: Some(&binding.subject_key),
@@ -601,7 +601,7 @@ async fn notify_bindings_of_state_change(
                 &[],
                 &[],
                 true,
-                crate::message::send::ExternalOrigin {
+                moatless_tasks::message::send::ExternalOrigin {
                     event_id: Some(&external_event_id),
                     adapter: Some(ADAPTER_LABEL),
                     subject_key: Some(&binding.subject_key),
@@ -659,15 +659,15 @@ pub(super) async fn insert_event_task(
     // service's error event alone stays invisible there because no turn gate is
     // open for a task that never got a binding.
     let config = moatless_adapter_model::models::subscription_context(rule, ADAPTER_LABEL);
-    let outcome = crate::loops::firing::inbound::create_task_from_loop(
+    let outcome = moatless_loops::loops::firing::inbound::create_task_from_loop(
         task_creation,
         &config,
-        crate::loops::firing::inbound::CreateTaskParams {
+        moatless_loops::loops::firing::inbound::CreateTaskParams {
             name: rule
                 .task_name
                 .clone()
                 .or_else(|| Some(format!("{identifier} — {title}"))),
-            description: crate::bindings::outbound::truncate_text(preview, 200),
+            description: moatless_loops::bindings::outbound::truncate_text(preview, 200),
             visibility: Visibility::Public,
             origin_prelude: None,
             // This path is the Linear adapter, so it supplies its own reply
@@ -682,7 +682,7 @@ pub(super) async fn insert_event_task(
     )
     .await
     .map_err(|e| match e {
-        crate::task::creation::TaskCreationError::Preflight(msg) => {
+        moatless_tasks::task::creation::TaskCreationError::Preflight(msg) => {
             SharedAdapterError::AccessDenied(msg).into()
         }
         other => AdapterError::TaskCreation(other),

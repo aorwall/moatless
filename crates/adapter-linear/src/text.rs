@@ -17,7 +17,7 @@ use std::fmt::Write as _;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::config::Config;
 
-use crate::task::dao::TaskDao;
+use moatless_tasks::task::dao::TaskDao;
 
 use super::webhook_payloads::{AgentSession, IssuePayload};
 
@@ -109,7 +109,7 @@ pub(super) async fn task_attachment_title(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::providers::linear::webhook_payloads::{
+    use crate::webhook_payloads::{
         AgentSessionComment, AgentSessionIssue, LinearActor,
     };
 
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn build_issue_inbound_text_matches_session_variant() {
-        use crate::adapters::providers::linear::webhook_payloads::IssuePayload;
+        use crate::webhook_payloads::IssuePayload;
         let issue = IssuePayload {
             id: "issue-1".into(),
             identifier: "SP-1".into(),

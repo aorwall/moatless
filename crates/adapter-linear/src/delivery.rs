@@ -8,7 +8,7 @@
 //! acknowledged delivery finished and does not send it again, so a deploy, an
 //! out-of-memory kill, or a panic lost the work permanently and with no trace.
 //!
-//! All five are now admitted into [`crate::adapters::delivery`] before the response
+//! All five are now admitted into [`moatless_loops::adapters::delivery`] before the response
 //! is returned. The admission contract lives in that module and is not restated
 //! here; what this module owns is the Linear-specific half: the kinds, the
 //! payloads, and the idempotency key.
@@ -53,7 +53,7 @@
 //! # Execution deadline
 //!
 //! Provisioning is the slow work this seam exists for, and
-//! [`AdapterDeliveryPolicy::execution_timeout`](crate::adapters::delivery::AdapterDeliveryPolicy)
+//! [`AdapterDeliveryPolicy::execution_timeout`](moatless_loops::adapters::delivery::AdapterDeliveryPolicy)
 //! is 2 minutes. If it is exceeded the attempt is abandoned and retried, and
 //! the retry converges on the binding guard in `provision_session_task` rather
 //! than creating a second task. The uncovered window is a timeout landing
@@ -75,22 +75,22 @@ use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::delivery::{
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::adapters::delivery::{
     AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
     ConnectionDeliveryPayload, register_connection_delivery,
 };
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::AdapterConnection;
-use crate::bindings::runtime::RoutingService;
-use crate::loops::dao::LoopDao;
-use crate::message::send::MessageSendService;
-use crate::sandbox::lifecycle::Lifecycle;
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::creation::TaskCreationService;
-use crate::task::dao::TaskDao;
-use crate::task::relations::TaskRelationDao;
-use crate::task::sandbox_waker::SandboxWaker;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::AdapterConnection;
+use moatless_loops::bindings::runtime::RoutingService;
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::message::send::MessageSendService;
+use moatless_sandbox_control::lifecycle::Lifecycle;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::creation::TaskCreationService;
+use moatless_tasks::task::dao::TaskDao;
+use moatless_tasks::task::relations::TaskRelationDao;
+use moatless_tasks::task::sandbox_waker::SandboxWaker;
 
 use super::active_turns::ActiveLinearTurns;
 use super::webhook_payloads::{
@@ -474,7 +474,7 @@ pub(super) fn notification_request(
 impl LinearInboundRouter {
     async fn session_provision(
         &self,
-        _delivery: crate::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: SessionProvisionDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -548,7 +548,7 @@ impl LinearInboundRouter {
 
     async fn session_prompt(
         &self,
-        _delivery: crate::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: SessionPromptDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -572,7 +572,7 @@ impl LinearInboundRouter {
 
     async fn issue_update(
         &self,
-        _delivery: crate::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: IssueUpdateDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -619,7 +619,7 @@ impl LinearInboundRouter {
 
     async fn comment(
         &self,
-        _delivery: crate::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: CommentDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -644,7 +644,7 @@ impl LinearInboundRouter {
 
     async fn notification(
         &self,
-        _delivery: crate::adapters::delivery::AdapterDelivery,
+        _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
         connection: AdapterConnection,
         payload: NotificationDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
@@ -688,9 +688,9 @@ impl LinearInboundRouter {
 pub(super) fn log_admission(
     kind: &'static str,
     event_id: &str,
-    admission: crate::adapters::delivery::Admission,
+    admission: moatless_loops::adapters::delivery::Admission,
 ) {
-    crate::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
+    moatless_loops::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
 }
 
 #[cfg(test)]

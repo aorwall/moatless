@@ -21,6 +21,7 @@ members = [
     "crates/adapter-telegram",
     "crates/adapter-webhook",
     "crates/adapter-slack",
+    "crates/adapter-linear",
     "crates/t3code",
     # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
     "tools/crate-census",

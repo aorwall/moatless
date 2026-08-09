@@ -27,15 +27,15 @@ use moatless_api_schemas::linear::{
 use serde_json::{Value, json};
 use tracing::warn;
 
-use crate::adapters::AdapterKind;
-use crate::adapters::common::{ensure_task_access_with, resolve_connection};
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
-use crate::auth::users::UserDao;
-use crate::bindings::runtime::upsert_binding_into;
-use crate::extractors::AuthUser;
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::dao::TaskDao;
+use moatless_loops::adapters::AdapterKind;
+use moatless_loops::adapters::common::{ensure_task_access_with, resolve_connection};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
+use moatless_identity::auth::users::UserDao;
+use moatless_loops::bindings::runtime::upsert_binding_into;
+use moatless_identity::extractors::AuthUser;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::dao::TaskDao;
 use moatless_backend_core::scope::ScopeContext;
 use moatless_core::config::Config;
 
@@ -362,7 +362,7 @@ pub async fn create_comment(
 
     let body = match req.task_id.as_deref() {
         Some(task_id) => {
-            match crate::bindings::footer::task_comment_footer(
+            match moatless_loops::bindings::footer::task_comment_footer(
                 tasks.as_ref(),
                 &linear.require_config()?.auth.frontend_url,
                 task_id,
