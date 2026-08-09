@@ -345,9 +345,10 @@ jobs:
           # - crates/backend/Cargo.toml pulls moatless-core with `features = ["openapi"]`,
           #   so under --workspace the floor ALWAYS lints core openapi-ON. It thus
           #   proves neither the openapi-off compile nor that the feature stays
-          #   droppable — only the second `-p` run (openapi off) does. The first
-          #   run pins the openapi-on paths (ToSchema derives, utoipa::path attrs,
-          #   tag routes module) in isolation from the graph's unification.
+          #   droppable — only the default `-p` run below covers that graph. The
+          #   explicit openapi run pins the openapi-on paths (ToSchema derives,
+          #   utoipa::path attrs, tag routes module) in isolation from the graph's
+          #   unification.
           cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
           cargo clippy -p moatless-core --all-targets -- -D warnings
           # - moatless-backend-core with every feature on: `database` gates the
@@ -359,9 +360,28 @@ jobs:
           #   a second hand-maintained CI list.
           DB_TEST_PACKAGES=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.features["db-tests"] != null) | .name')
-          for package in $DB_TEST_PACKAGES; do
-            cargo clippy -p "$package" --all-targets --features db-tests -- -D warnings
-          done
+          # PRs use one unified db-tests pass so cargo checks the overlapping
+          # graph once; main pushes keep the isolated loop because unified sibling
+          # features can mask a crate that only compiles when another package
+          # enables test-support.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            DB_TEST_ARGS=""
+            DB_TEST_FEATURES=""
+            for package in $DB_TEST_PACKAGES; do
+              DB_TEST_ARGS="$DB_TEST_ARGS -p $package"
+              if [ -n "$DB_TEST_FEATURES" ]; then
+                DB_TEST_FEATURES="$DB_TEST_FEATURES,$package/db-tests"
+              else
+                DB_TEST_FEATURES="$package/db-tests"
+              fi
+            done
+            # shellcheck disable=SC2086
+            cargo clippy --all-targets $DB_TEST_ARGS --features "$DB_TEST_FEATURES" -- -D warnings
+          else
+            for package in $DB_TEST_PACKAGES; do
+              cargo clippy -p "$package" --all-targets --features db-tests -- -D warnings
+            done
+          fi
 
       # Resolves a different graph (no sqlx/rustls), so it rebuilds the
       # closure. Guards that `database` stays droppable — manifest-only concern.
@@ -505,16 +525,43 @@ jobs:
           # the feature gets linked, and unselected packages stay narrowed out.
           DB_TEST_PACKAGES=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.features["db-tests"] != null) | .name')
+          DB_TEST_ARGS=""
+          DB_TEST_FEATURES=""
           for package in $DB_TEST_PACKAGES; do
             case " $PKGS " in
               *" -p ${package} "*)
-                cargo nextest run -p "$package" --features db-tests --no-run
+                DB_TEST_ARGS="$DB_TEST_ARGS -p $package"
+                if [ -n "$DB_TEST_FEATURES" ]; then
+                  DB_TEST_FEATURES="$DB_TEST_FEATURES,$package/db-tests"
+                else
+                  DB_TEST_FEATURES="$package/db-tests"
+                fi
                 ;;
               *)
                 echo "::notice::Skipping ${package} db-tests no-run — package not selected"
                 ;;
             esac
           done
+          if [ -n "$DB_TEST_ARGS" ]; then
+            # PRs use one unified db-tests pass so cargo links the overlapping
+            # graph once; main pushes keep the isolated loop because unified
+            # sibling features can mask a crate that only links when another
+            # package enables test-support.
+            if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+              # shellcheck disable=SC2086
+              cargo nextest run $DB_TEST_ARGS --features "$DB_TEST_FEATURES" --no-run
+            else
+              for package in $DB_TEST_PACKAGES; do
+                case " $PKGS " in
+                  *" -p ${package} "*)
+                    cargo nextest run -p "$package" --features db-tests --no-run
+                    ;;
+                esac
+              done
+            fi
+          else
+            echo "No selected package declares db-tests — skipping db-tests no-run."
+          fi
 
       - name: Upload test results
         if: always()

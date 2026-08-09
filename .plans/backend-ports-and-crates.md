@@ -591,7 +591,7 @@ The last row is the dangerous one, because it *removes* edges rather than adding
 
 At every point the workspace builds and the full gate runs. The crate count goes up and nothing else changes.
 
-After 10i, `backend/` no longer exists as a source directory. `backend/Cargo.toml` becomes `crates/backend/Cargo.toml`; the workspace `members` list gains thirteen entries and loses one. `tools/crate-census` is deleted, because Cargo now enforces what it measured.
+After 10i, `backend/` no longer exists as a source directory. `backend/Cargo.toml` becomes `crates/backend/Cargo.toml`; the workspace `members` list gains thirteen entries and loses one. `tools/crate-census` stays: Cargo enforces acyclicity, not band order, so `sandbox-k8s` (band 7) can depend on `loops` (band 8) acyclically while the census rejects that edge as `7 <= 8`.
 
 #### Step 11 — Package rename record
 
