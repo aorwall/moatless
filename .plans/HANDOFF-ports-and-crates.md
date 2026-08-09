@@ -341,6 +341,24 @@ with no runs. Measured: three calls with `a73afacfdb02` returned `0`; the full S
 you use it, pipe the SHA in — `--commit $(gh pr view N --json headRefOid --jq .headRefOid)` — rather
 than retyping it. See "an empty result is not a finding" under the rules.
 
+**Sandbox disk — this will evict you if you ignore it.** The agent workspace is a 10Gi EmptyDir
+volume. The checkout is ~176M, so effectively all of it is Rust `target/`, and this workspace has no
+`.cargo/config.toml` while the root `Cargo.toml` overrides only `[profile.release]` and
+`[profile.ci]` — nothing lowers `debug` for the dev or test profiles. Full debug info is usually the
+majority of target size, and `--all-targets --features db-tests` multiplies it. Two lanes were
+evicted mid-carve this way (`Usage of EmptyDir volume "workspace-data" exceeds the limit "10Gi"`).
+
+Export these before any cargo command:
+```bash
+export CARGO_PROFILE_DEV_DEBUG=0
+export CARGO_PROFILE_TEST_DEBUG=0
+```
+They change nothing a gate measures — clippy lints, test outcomes and the census are identical; you
+lose line numbers in backtraces. Then prefer `cargo check` over `cargo build`, watch `du -sh target`
+between phases, and `cargo clean` past ~6G. A cold cache costs minutes; an eviction costs the
+sandbox. **If disk pressure forces you to skip a gate, push and let CI run it — but report it as
+"deferred to CI", never as green.** A gate not run and a gate that passed read identically.
+
 **Formatting.** Do **not** run `cargo fmt`. The tree is not fmt-clean, CI has no `fmt --check`, and a
 run rewrites ~194 files and collides with every concurrent lane. Match neighbours by hand. Never run
 `rustfmt` on a file your edit did not already reformat. See the parked entry in the spec.
