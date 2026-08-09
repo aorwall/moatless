@@ -12,8 +12,8 @@ use crate::model::ModPath;
 
 /// Census roots and the scope each carries.
 pub const CENSUS_ROOTS: &[(&str, ScopeKind)] = &[
-    ("backend/src", ScopeKind::Backend),
-    ("backend/tests", ScopeKind::BackendTest),
+    ("crates/backend/src", ScopeKind::Backend),
+    ("crates/backend/tests", ScopeKind::BackendTest),
     ("crates", ScopeKind::Floor), // src and tests distinguished per-file
 ];
 
@@ -94,7 +94,7 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
     // except `adapters` and `sandbox`, which split on the second.
     let id = match top {
         // -- core is now the `moatless-core` crate (crates/core), no longer in
-        // backend/src. Its modules (config, db, error, events, feature_flags,
+        // crates/backend/src. Its modules (config, db, error, events, feature_flags,
         // git_provider, github_client, leader, metrics, scope, shared_models, tag,
         // task_listing) are scored via `external_crate("moatless_core")`. The one
         // former-core file that stays here is `test_support` (below); `""` is the

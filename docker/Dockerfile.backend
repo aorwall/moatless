@@ -58,7 +58,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     elif [ "$TARGETARCH" = "arm64" ] && [ "$(uname -m)" != "aarch64" ]; then \
       TARGET_FLAG="--target aarch64-unknown-linux-gnu"; \
     fi && \
-    cargo chef cook --release $TARGET_FLAG --recipe-path recipe.json -p moatless-vibe-backend
+    cargo chef cook --release $TARGET_FLAG --recipe-path recipe.json -p moatless-backend
 
 # Build the actual binary
 COPY . .
@@ -66,18 +66,18 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
     if [ "$TARGETARCH" = "amd64" ] && [ "$(uname -m)" != "x86_64" ]; then \
-      cargo build --release --target x86_64-unknown-linux-gnu -p moatless-vibe-backend && \
-      cp target/x86_64-unknown-linux-gnu/release/moatless-vibe-backend /app/moatless-vibe-backend; \
+      cargo build --release --target x86_64-unknown-linux-gnu -p moatless-backend && \
+      cp target/x86_64-unknown-linux-gnu/release/moatless-backend /app/moatless-backend; \
     elif [ "$TARGETARCH" = "arm64" ] && [ "$(uname -m)" != "aarch64" ]; then \
-      cargo build --release --target aarch64-unknown-linux-gnu -p moatless-vibe-backend && \
-      cp target/aarch64-unknown-linux-gnu/release/moatless-vibe-backend /app/moatless-vibe-backend; \
+      cargo build --release --target aarch64-unknown-linux-gnu -p moatless-backend && \
+      cp target/aarch64-unknown-linux-gnu/release/moatless-backend /app/moatless-backend; \
     else \
-      cargo build --release -p moatless-vibe-backend && \
-      cp target/release/moatless-vibe-backend /app/moatless-vibe-backend; \
+      cargo build --release -p moatless-backend && \
+      cp target/release/moatless-backend /app/moatless-backend; \
     fi
 
 # --- Runtime stage (target platform) ---
 FROM gcr.io/distroless/cc-debian13
-COPY --from=builder /app/moatless-vibe-backend /
+COPY --from=builder /app/moatless-backend /
 EXPOSE 8080 9090
-CMD ["/moatless-vibe-backend"]
+CMD ["/moatless-backend"]

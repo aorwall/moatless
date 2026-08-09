@@ -33,7 +33,7 @@ TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
 PROFILE="${SHADOW_CARGO_PROFILE:-release}"
 # `dev` is the one profile whose artifacts do not land in target/<profile>/.
 if [ "$PROFILE" = "dev" ]; then PROFILE_DIR="debug"; else PROFILE_DIR="$PROFILE"; fi
-BIN="${TARGET_DIR}/${PROFILE_DIR}/moatless-vibe-backend"
+BIN="${TARGET_DIR}/${PROFILE_DIR}/moatless-backend"
 # The dev image bakes a *release* binary and stamps its commit at the target
 # root. On any other profile there is no baked binary, so the check below must
 # never match — an empty stamp path makes it fail fast.
@@ -52,11 +52,11 @@ scripts/shadow/sync-env.sh "$ENV_FILE"
 
 build() {
   if [ -d "${TARGET_DIR}/${PROFILE_DIR}/deps" ]; then
-    echo "==> Building moatless-vibe-backend (${PROFILE}, warm cache: ${TARGET_DIR})"
+    echo "==> Building moatless-backend (${PROFILE}, warm cache: ${TARGET_DIR})"
   else
-    echo "==> Building moatless-vibe-backend (${PROFILE}, COLD - no baked cache at ${TARGET_DIR})"
+    echo "==> Building moatless-backend (${PROFILE}, COLD - no baked cache at ${TARGET_DIR})"
   fi
-  cargo build --profile "$PROFILE" -p moatless-vibe-backend
+  cargo build --profile "$PROFILE" -p moatless-backend
 }
 
 baked_binary_matches_checkout() {
@@ -72,11 +72,11 @@ baked_binary_matches_checkout() {
 
   # The baked binary is only safe before Rust-relevant local edits. After edits,
   # rebuild.sh touches the trigger and the loop below always runs cargo build.
-  [ -z "$(git status --porcelain -- Cargo.toml Cargo.lock rust-toolchain.toml .cargo backend crates 2>/dev/null)" ]
+  [ -z "$(git status --porcelain -- Cargo.toml Cargo.lock rust-toolchain.toml .cargo crates/backend crates 2>/dev/null)" ]
 }
 
 if baked_binary_matches_checkout; then
-  echo "==> Using baked moatless-vibe-backend from ${TARGET_DIR} (source ${BAKED_COMMIT})"
+  echo "==> Using baked moatless-backend from ${TARGET_DIR} (source ${BAKED_COMMIT})"
 else
   build
 fi

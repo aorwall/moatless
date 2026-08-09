@@ -14,7 +14,7 @@ set -euo pipefail
 #
 # Two host-supplied binaries change how much of that work happens here:
 #
-#   BACKEND_BINARY — a `moatless-vibe-backend` already compiled for this
+#   BACKEND_BINARY — a `moatless-backend` already compiled for this
 #     architecture. With it the backend image is the distroless runtime stage
 #     alone (docker/Dockerfile.backend-cross), a few seconds. Without it the
 #     image compiles the backend from source in a `--release` build that shares
@@ -55,7 +55,7 @@ Environment variables (passthrough):
   TASK_TOKEN_SECRET      Auto-generated if unset
   DATA_DIR               Default: \$HOME/.moatless/data
   DOCKER_COMPOSE_URL     Override the target URL (default: per-suite in-network)
-  BACKEND_BINARY         Prebuilt moatless-vibe-backend; skips compiling in Docker
+  BACKEND_BINARY         Prebuilt moatless-backend; skips compiling in Docker
   MOAT_BIN_SRC           Prebuilt moat CLI the suites drive the product through
   E2E_WORKERS            Playwright workers (default: 1 under CI, per-suite locally)
 
@@ -106,7 +106,7 @@ if [ -z "${GITHUB_PAT:-}" ]; then
   echo -e "${YELLOW}Warning: GITHUB_PAT is unset — the Repository CRUD chain will skip, and the backend clones the template unauthenticated.${NC}"
 fi
 
-export APP_IMAGE="aorwall/moatless-vibe-backend:latest"
+export APP_IMAGE="aorwall/moatless-backend:latest"
 # Must match docker/build-app.sh's output image (${REGISTRY_ORG:-aorwall}/moatless-frontend)
 # so `--suite ui` runs the freshly built frontend, not a stale published tag.
 export FRONTEND_IMAGE="${FRONTEND_IMAGE:-${REGISTRY_ORG:-aorwall}/moatless-frontend:latest}"
@@ -143,8 +143,8 @@ if [ "$SKIP_BUILD" = false ]; then
     # ci.yml's build-backend-image job makes.
     BINARY_CTX=$(mktemp -d)
     trap 'rm -rf "$BINARY_CTX"' EXIT
-    cp "$BACKEND_BINARY" "$BINARY_CTX/moatless-vibe-backend"
-    chmod +x "$BINARY_CTX/moatless-vibe-backend"
+    cp "$BACKEND_BINARY" "$BINARY_CTX/moatless-backend"
+    chmod +x "$BINARY_CTX/moatless-backend"
     # --build-context is a BuildKit flag; the classic builder ignores the
     # Dockerfile's `--from=binary` and fails on an empty stage.
     DOCKER_BUILDKIT=1 docker build -t "$APP_IMAGE" -f docker/Dockerfile.backend-cross \

@@ -24,7 +24,7 @@
 #
 # WHEN TO REGENERATE: after any commit that touches Rust, not only one that
 # moves an edge or adds a file. The report carries a `wc -l` total per band and
-# one for `backend/src`, so a single line added to a `#[cfg(test)]` module makes
+# one for `crates/backend/src`, so a single line added to a `#[cfg(test)]` module makes
 # it stale while every illegal count stays put. Run `cargo run -p crate-census`
 # last, and commit BOTH files.
 #

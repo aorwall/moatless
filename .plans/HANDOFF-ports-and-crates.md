@@ -206,7 +206,7 @@ just "does it build".
   invisible, and why the ceiling is the wrong place to look for it — check the **report** diff.
 - **Sweep the carved name in both spellings, and price the facade off the external one.** An
   integration test under `backend/tests/` reaches the provider from outside the crate, so it spells
-  the path `moatless_vibe_backend::adapters::providers::<name>` where in-crate code spells it
+  the path `moatless_backend::adapters::providers::<name>` where in-crate code spells it
   `crate::adapters::providers::<name>`. A sweep keyed on the `crate::` prefix skips the external
   spelling silently, and the omission compiles in-crate — it fails only in the integration-test
   target. `linear` is the crate this bites hardest: `backend/tests/integration/` names
@@ -413,7 +413,7 @@ backup.
 
 **Do not verify locally at full scale.** A workspace-wide `cargo test` or `clippy --all-targets` is
 what fills the volume. Run targeted checks locally — `cargo check -p <the-new-crate>`, then
-`cargo check -p moatless-vibe-backend` — and let CI carry `--all-targets` and the test run. CI is the
+`cargo check -p moatless-backend` — and let CI carry `--all-targets` and the test run. CI is the
 actual gate and it has the disk. This changes what you may *claim*, not what gets checked: say which
 checks ran locally and which were left to CI, and never report a gate as passing on the assumption
 that CI will pass it.

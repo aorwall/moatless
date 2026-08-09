@@ -33,7 +33,7 @@ tasks:
   generate:spec:
     desc: Regenerate OpenAPI spec from backend
     cmds:
-      - cargo run -p moatless-vibe-backend -- --dump-openapi > openapi-specs.json
+      - cargo run -p moatless-backend -- --dump-openapi > openapi-specs.json
       - echo "OpenAPI spec regenerated at openapi-specs.json"
 
   generate:client:ts:
@@ -60,7 +60,7 @@ tasks:
   check:spec:
     desc: Verify committed OpenAPI spec matches backend (fails if stale)
     cmds:
-      - cargo run -p moatless-vibe-backend -- --dump-openapi > /tmp/openapi-specs-check.json
+      - cargo run -p moatless-backend -- --dump-openapi > /tmp/openapi-specs-check.json
       - 'diff -q openapi-specs.json /tmp/openapi-specs-check.json || (echo "ERROR: openapi-specs.json is stale. Run ''task generate'' to update." && exit 1)'
       - echo "OpenAPI spec is up-to-date"
 
@@ -79,7 +79,7 @@ tasks:
     vars:
       PROFILE: '{{.PROFILE | default "release"}}'
     cmds:
-      - bash -c 'ulimit -n 10240 && cargo zigbuild -p moatless-vibe-backend --profile {{.PROFILE}} --target {{.RUST_TARGET}}'
+      - bash -c 'ulimit -n 10240 && cargo zigbuild -p moatless-backend --profile {{.PROFILE}} --target {{.RUST_TARGET}}'
       - >-
         docker buildx build
         --platform {{.DOCKER_PLATFORM}}
@@ -108,7 +108,7 @@ tasks:
   push:backend:
     desc: Build and push backend image
     cmds:
-      - bash -c 'ulimit -n 10240 && cargo zigbuild -p moatless-vibe-backend --release --target x86_64-unknown-linux-gnu.2.36'
+      - bash -c 'ulimit -n 10240 && cargo zigbuild -p moatless-backend --release --target x86_64-unknown-linux-gnu.2.36'
       - >-
         docker buildx build
         --platform linux/amd64
@@ -340,7 +340,7 @@ tasks:
   test:integration:
     desc: Run backend integration tests (requires DATABASE_URL)
     cmds:
-      - cargo test -p moatless-vibe-backend --features db-tests
+      - cargo test -p moatless-backend --features db-tests
 
   test:api:
     desc: Run API E2E tests (Playwright, no browser)

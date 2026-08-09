@@ -18,17 +18,17 @@ cd apps/frontend && bunx shadcn@latest add [component]
 
 ### Rust backend & sandbox
 ```bash
-cargo build -p moatless-vibe-backend        # or moatless-sandbox
+cargo build -p moatless-backend        # or moatless-sandbox
 cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
 cargo clippy -p moatless-core --all-targets -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
 cargo clippy -p moatless-t3code --all-targets -- -D warnings
-cargo clippy -p moatless-vibe-backend --all-targets --features db-tests -- -D warnings
+cargo clippy -p moatless-backend --all-targets --features db-tests -- -D warnings
 cargo clippy -p moatless-sandbox -- -D warnings   # also claude-agent-sdk, moatless-events
 cargo clippy -p crate-census --all-targets -- -D warnings   # Step-10 cross-crate census tool; deleted at 10i
 cargo run -p crate-census                   # regenerate scripts/crate-census-{baseline,report}.txt
-cargo test -p moatless-vibe-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
+cargo test -p moatless-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
 cargo test -p moatless-core
 cargo test -p moatless-backend-core
 cargo test -p moatless-t3code
@@ -73,9 +73,9 @@ locally, because `cargo test` under a feature is a separate cargo unit and the
 first build of it recompiles the dependency graph again.
 
 The backend integration modules are one test target,
-`backend/tests/integration/main.rs`, not one target per file: each links the
+`crates/backend/tests/integration/main.rs`, not one target per file: each links the
 whole backend closure, so link time scales with the target count. A new
-integration test is a file in `backend/tests/integration/` plus a `mod` line in
+integration test is a file in `crates/backend/tests/integration/` plus a `mod` line in
 `main.rs`, and reaches the shared helpers through `use crate::common;`. nextest
 gives each test its own process, so a test may still set env vars without
 disturbing its neighbours.
@@ -142,6 +142,6 @@ Pre-push runs `bun run test:fast`.
 - Do not write essays in code comments. Comments should explain local intent, invariants, or non-obvious mechanics; durable rationale and cross-cutting decisions belong in the nearest relevant `AGENTS.md`.
 - Never describe a change as replacing, superseding, or differing from legacy code or old instructions in code comments or durable docs. State the current state and rule only.
 - Rust conventions live in the model-invoked `rust-dev-guidelines` skill for
-  `backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions live in
+  `crates/backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions live in
   `.agents/skills/frontend-dev-guidelines/SKILL.md` and its resources.
 - `routeTree.gen.ts` is generated — excluded from lint/format. File naming: kebab-case (frontend, enforced by Biome), snake_case (Rust).

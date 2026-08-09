@@ -138,7 +138,7 @@ jobs:
       # `ci` inherits `release`, so the backend under test is optimised the way
       # the published image is — the suite is not exercising a debug build.
       - name: Build binaries (ci profile)
-        run: cargo build --profile ci -p moatless-vibe-backend -p moatless-cli
+        run: cargo build --profile ci -p moatless-backend -p moatless-cli
 
       - name: Summarize Rust build
         if: always()
@@ -159,7 +159,7 @@ jobs:
         with:
           name: e2e-binaries
           path: |
-            target/ci/moatless-vibe-backend
+            target/ci/moatless-backend
             target/ci/moat
           retention-days: 1
           if-no-files-found: error
@@ -180,13 +180,13 @@ jobs:
           path: /tmp/e2e-binaries
 
       - name: Make binaries executable
-        run: chmod +x /tmp/e2e-binaries/moatless-vibe-backend /tmp/e2e-binaries/moat
+        run: chmod +x /tmp/e2e-binaries/moatless-backend /tmp/e2e-binaries/moat
 
       - name: Run Playwright suite in Docker
         env:
           # The backend image becomes the distroless runtime stage alone, and
           # the suite drives this moat rather than looking for one on PATH.
-          BACKEND_BINARY: /tmp/e2e-binaries/moatless-vibe-backend
+          BACKEND_BINARY: /tmp/e2e-binaries/moatless-backend
           MOAT_BIN_SRC: /tmp/e2e-binaries/moat
           E2E_WORKERS: ${{ inputs.workers }}
           GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}

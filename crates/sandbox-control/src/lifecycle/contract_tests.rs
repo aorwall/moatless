@@ -8,7 +8,7 @@
 //! orchestrator's permanent-rejection (bad-plan) handling.
 //!
 //! Gated on `db-tests`; run with
-//! `cargo test -p moatless-vibe-backend --features db-tests --lib`.
+//! `cargo test -p moatless-backend --features db-tests --lib`.
 
 use std::sync::{Arc, Mutex};
 

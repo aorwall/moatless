@@ -155,7 +155,7 @@ impl RefRecord {
 /// real crates whose dependency order Cargo already enforces, so a `floor -> floor`
 /// edge is a legal, existing dependency and a `target -> floor` edge is downward
 /// by construction. The census scores only the 15 target crates carved from
-/// `backend/src`.
+/// `crates/backend/src`.
 pub fn classify_edge(src: &str, dst: &str) -> bool {
     if src == dst {
         return false;

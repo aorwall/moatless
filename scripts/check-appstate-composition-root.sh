@@ -2,7 +2,7 @@
 #
 # Step 5 invariant — AppState is named by the composition root and nothing else.
 #
-# The god object `AppState` (backend/src/state.rs) is decomposed into per-handler
+# The god object `AppState` (crates/backend/src/state.rs) is decomposed into per-handler
 # ports: a handler takes `State(port): State<Arc<dyn Port>>` and a helper takes
 # the ports it uses, both extracted from the one router-held `AppState` through
 # `axum::extract::FromRef`. Once a module is swept it stops naming `AppState`
@@ -10,10 +10,10 @@
 #
 # Where it must:
 #
-#   - backend/src/{main,state,compose}.rs — the composition root: `state.rs`
+#   - crates/backend/src/{main,state,compose}.rs — the composition root: `state.rs`
 #     defines `AppState` and its `FromRef` impls, `compose.rs`/`main.rs` build and
 #     wire it.
-#   - every `*/routes.rs` and `backend/src/loops/http/mod.rs` — routing tables,
+#   - every `*/routes.rs` and `crates/backend/src/loops/http/mod.rs` — routing tables,
 #     but only while they still register a handler that names `AppState`. A
 #     router-assembly fn names `AppState` to hand it to the router:
 #     ".plans/backend-ports-and-crates.md" Step 5 — "The root remains one struct,
@@ -53,7 +53,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-SRC="backend/src"
+SRC="crates/backend/src"
 BASELINE="scripts/appstate-composition-root-baseline.txt"
 
 # ── Whitelist ────────────────────────────────────────────────────────────────

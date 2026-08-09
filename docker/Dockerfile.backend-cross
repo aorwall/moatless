@@ -2,6 +2,6 @@
 
 # Minimal runtime image — binary is cross-compiled on the host
 FROM gcr.io/distroless/cc-debian13
-COPY --from=binary /moatless-vibe-backend /
+COPY --from=binary /moatless-backend /
 EXPOSE 8080 9090
-CMD ["/moatless-vibe-backend"]
+CMD ["/moatless-backend"]

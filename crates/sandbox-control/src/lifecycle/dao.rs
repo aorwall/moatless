@@ -346,7 +346,7 @@ mod tests {
 }
 
 /// Postgres-backed store tests. Gated on `db-tests` and run in isolation
-/// (`cargo test -p moatless-vibe-backend --features db-tests --lib`) against a
+/// (`cargo test -p moatless-backend --features db-tests --lib`) against a
 /// live Postgres via `#[sqlx::test]`, which provisions an isolated database and
 /// applies `backend/migrations` (including the `sandboxes` table).
 #[cfg(all(test, feature = "db-tests"))]

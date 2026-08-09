@@ -1,4 +1,4 @@
-//! `moatless-vibe-backend secrets …` CLI entry.
+//! `moatless-backend secrets …` CLI entry.
 //!
 //! The CLI reuses the same binary and the same `SecretService`/`LocalEnvelopeSecretCipher`
 //! the HTTP server uses. It runs as an admin `ScopeContext` (actor id `cli`).

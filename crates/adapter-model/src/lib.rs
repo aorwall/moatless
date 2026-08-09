@@ -6,7 +6,7 @@
 //! messages, access-control vocabularies) and `adapter_connections`
 //! persistence.
 //!
-//! Lifted out of `moatless-vibe-backend::adapters` so the binding and adapter
+//! Lifted out of `moatless-backend::adapters` so the binding and adapter
 //! layers can name these types without pulling in the whole backend.
 
 pub mod dao;

@@ -69,7 +69,7 @@ COPY . /tmp/moatless-vibe-src
 # which persists as a layer.
 RUN --mount=type=cache,id=moatless-dev-target,target=/tmp/dev-target \
     cd /tmp/moatless-vibe-src \
-    && cargo build --release -p moatless-vibe-backend --target-dir /tmp/dev-target \
+    && cargo build --release -p moatless-backend --target-dir /tmp/dev-target \
     && mkdir -p /opt/cargo-target \
     && cp -a /tmp/dev-target/. /opt/cargo-target/ \
     && printf '%s\n' "$SOURCE_COMMIT" > /opt/cargo-target/.moatless-vibe-source-commit \

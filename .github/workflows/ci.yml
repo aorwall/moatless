@@ -99,7 +99,7 @@ jobs:
               - 'rust-toolchain.toml'
               - 'clippy.toml'
             rust:
-              - 'backend/**'
+              - 'crates/backend/**'
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -111,7 +111,7 @@ jobs:
               - 'packages/**'
               - 'docker/Dockerfile.app'
             docker-backend:
-              - 'backend/**'
+              - 'crates/backend/**'
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -155,7 +155,7 @@ jobs:
   # pin — fail fast when rust-toolchain.toml and Dockerfile.sandbox-base
   # diverge. Cheap (no checkout beyond the two files), runs on every PR/push
   # regardless of change filters so drift is caught wherever it's introduced.
-  # The composition root (backend/src/compose.rs) is the only place a concrete
+  # The composition root (crates/backend/src/compose.rs) is the only place a concrete
   # `Pg*Dao` is constructed; every other production site takes an `Arc<dyn *Dao>`
   # port. A syntactic grep is the right instrument because the tuple-struct
   # constructor is exactly the banned single expression. Cheap, no Rust build.
@@ -342,7 +342,7 @@ jobs:
           # and reaches neither a feature's off-state nor a different graph. These
           # `-p` runs survive because the floor structurally cannot cover them,
           # not out of caution:
-          # - backend/Cargo.toml pulls moatless-core with `features = ["openapi"]`,
+          # - crates/backend/Cargo.toml pulls moatless-core with `features = ["openapi"]`,
           #   so under --workspace the floor ALWAYS lints core openapi-ON. It thus
           #   proves neither the openapi-off compile nor that the feature stays
           #   droppable — only the second `-p` run (openapi off) does. The first
@@ -644,7 +644,7 @@ jobs:
         run: |
           PACKAGES=""
           if [ "$BUILD_BACKEND" = "true" ]; then
-            PACKAGES="$PACKAGES -p moatless-vibe-backend"
+            PACKAGES="$PACKAGES -p moatless-backend"
           fi
           if [ "$BUILD_SANDBOX" = "true" ]; then
             PACKAGES="$PACKAGES -p moatless-sandbox -p moatless-cli"
@@ -680,13 +680,13 @@ jobs:
       # This container already has both the binary and the right GLIBC.
       - name: Generate OpenAPI spec
         if: env.BUILD_BACKEND == 'true'
-        run: target/ci/moatless-vibe-backend --dump-openapi > openapi-specs.json
+        run: target/ci/moatless-backend --dump-openapi > openapi-specs.json
 
       - name: Cache backend binary for downstream jobs
         if: env.BUILD_BACKEND == 'true'
         uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          path: target/ci/moatless-vibe-backend
+          path: target/ci/moatless-backend
           key: backend-binary-${{ github.sha }}
 
       - name: Cache OpenAPI spec for downstream jobs
@@ -907,7 +907,7 @@ jobs:
       - name: Restore backend binary
         uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          path: target/ci/moatless-vibe-backend
+          path: target/ci/moatless-backend
           key: backend-binary-${{ github.sha }}
           fail-on-cache-miss: true
 
@@ -916,8 +916,8 @@ jobs:
       - name: Prepare binary
         run: |
           mkdir -p /tmp/backend-binary
-          cp target/ci/moatless-vibe-backend /tmp/backend-binary/
-          chmod +x /tmp/backend-binary/moatless-vibe-backend
+          cp target/ci/moatless-backend /tmp/backend-binary/
+          chmod +x /tmp/backend-binary/moatless-backend
 
       - name: Compute short SHA
         id: sha

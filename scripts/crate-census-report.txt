@@ -8,17 +8,17 @@ ATTRIBUTE  legal   280  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    48  illegal    0   (function-like macro-invocation token streams)
 DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 849 point down into the existing crates/* floor
-TEST-CONTEXT 1991  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 1991  (crates/backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
 
-== CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
-  Line counts are newline counts (wc -l). Every row counts the backend/src files
+== CRATE MEMBERSHIP (crates/backend/src -> target crate; generated from bands.rs) ==
+  Line counts are newline counts (wc -l). Every row counts the crates/backend/src files
   crate_of_backend_mod maps to that crate. An extracted crate keeps a row here only
-  if it left permanent facade stubs in backend/src: the row then measures that facade
+  if it left permanent facade stubs in crates/backend/src: the row then measures that facade
   surface the backend still composes, not work left to carve. An extracted crate that
   left no stub has no row. So TOTAL does not fall to zero as carving completes — it
   converges to the summed line count of every facade stub that remains.
-  Extracted, keeps a facade row: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, identity, loops, sandbox-control, tasks, workspaces.
+  Extracted, keeps a facade row: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, identity, loops, sandbox-control, server, tasks, workspaces.
   Extracted, left no stub (no row): adapter-model, core, sandbox-docker, sandbox-k8s.
   TEST-SCAFFOLD collects cfg(test)-only backend-local modules that ship in no crate
   and are never carved. UNASSIGNED collects any top-level module crate_of_backend_mod
@@ -70,7 +70,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 13168 lines
+  TOTAL crates/backend/src: 13168 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (0 classes) ==
 
@@ -86,11 +86,11 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   READY = no illegal outgoing edge AND every crate it depends on is already
   extracted. EXTRACTED = already carved into crates/*, detected from this run's own
   scan (a crates/<dir> that resolves to a real band, not floor:<dir>) — it has left
-  the frontier and is shown for context, not as work. Extracted carve targets so far: identity, workspaces, tasks, sandbox-control, sandbox-k8s, sandbox-docker, loops, adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook.
+  the frontier and is shown for context, not as work. Extracted carve targets so far: identity, workspaces, tasks, sandbox-control, sandbox-k8s, sandbox-docker, loops, adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, server.
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> server: READY now (no illegal outgoing; every crate it depends on is extracted).
+  FRONTIER -> complete: every carve-target crate is extracted.
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
@@ -104,7 +104,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   adapter-slack      deps: identity, loops, tasks                       EXTRACTED
   adapter-telegram   deps: identity, loops                              EXTRACTED
   adapter-webhook    deps: loops                                        EXTRACTED
-  server             deps: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, identity, loops, sandbox-control, sandbox-docker, sandbox-k8s, tasks, workspaces READY
+  server             deps: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, identity, loops, sandbox-control, sandbox-docker, sandbox-k8s, tasks, workspaces EXTRACTED
 
 == TARJAN SCCs (production target-crate graph) ==
   full graph (legal + illegal edges): DAG — no multi-crate cycle

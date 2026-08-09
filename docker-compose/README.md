@@ -103,7 +103,7 @@ unchanged.
 - **Config**: Custom `nginx.conf` mounted to handle SPA routing + API proxy
 
 #### Backend
-- **Image**: `aorwall/moatless-vibe-backend:latest` (Rust/Axum)
+- **Image**: `aorwall/moatless-backend:latest` (Rust/Axum)
 - **Purpose**: API server, sandbox orchestration, database migrations
 - **Port**: 8080 (configurable via `BACKEND_PORT`)
 - **Key Features**:
@@ -385,7 +385,7 @@ docker/build-sandbox.sh --local
 
 ### Backend Image
 ```bash
-docker build -t aorwall/moatless-vibe-backend:latest -f backend/Dockerfile .
+docker build -t aorwall/moatless-backend:latest -f docker/Dockerfile.backend .
 ```
 
 The `dev-docker.sh` script builds the backend image automatically.

@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "backend",
+    "crates/backend",
     "sandbox",
     "crates/events",
     "crates/claude-agent-sdk",

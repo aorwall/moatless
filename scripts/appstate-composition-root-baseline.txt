@@ -15,8 +15,8 @@
 #
 # Do not add entries to grow coverage — the baseline only shrinks. Order is the
 # `find | sort` order the check walks, so a regenerated list diffs cleanly.
-backend/src/adapters/handlers.rs
-backend/src/event_handler/agent_handlers.rs
-backend/src/event_handler/consumer.rs
-backend/src/event_handler/mod.rs
-backend/src/t3code/backend.rs
+crates/backend/src/adapters/handlers.rs
+crates/backend/src/event_handler/agent_handlers.rs
+crates/backend/src/event_handler/consumer.rs
+crates/backend/src/event_handler/mod.rs
+crates/backend/src/t3code/backend.rs

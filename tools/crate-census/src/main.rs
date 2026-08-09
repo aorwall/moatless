@@ -381,7 +381,7 @@ fn discover(root: &Path) -> Vec<DiscoveredFile> {
 fn classify_file(root: &Path, abs: &Path, rel: &str, scope: ScopeKind) -> Option<DiscoveredFile> {
     match scope {
         ScopeKind::Backend => {
-            let inner = rel.strip_prefix("backend/src/")?;
+            let inner = rel.strip_prefix("crates/backend/src/")?;
             if inner == "main.rs" {
                 return Some(DiscoveredFile {
                     abs: abs.to_path_buf(),
@@ -405,11 +405,11 @@ fn classify_file(root: &Path, abs: &Path, rel: &str, scope: ScopeKind) -> Option
             // A backend integration test is its own crate (one binary per file),
             // NOT part of the backend lib — so root its module tree under a
             // per-crate sentinel instead of the lib's `[]`. Otherwise every
-            // `backend/tests/*` file and every `crates/*` file share key `[]`, and
+            // `crates/backend/tests/*` file and every `crates/*` file share key `[]`, and
             // `commit`'s sorted merge lets a floor file's `use super::...` clobber a
-            // test's `use moatless_vibe_backend::...` alias, stranding the test ref
+            // test's `use moatless_backend::...` alias, stranding the test ref
             // as `super-above-root`.
-            let inner = rel.strip_prefix("backend/tests/")?;
+            let inner = rel.strip_prefix("crates/backend/tests/")?;
             let mut base_mod = vec![synthetic_root("test:backend")];
             base_mod.extend(file_to_modpath(inner));
             Some(DiscoveredFile {
@@ -426,7 +426,9 @@ fn classify_file(root: &Path, abs: &Path, rel: &str, scope: ScopeKind) -> Option
             let mut parts = inner.split('/');
             let name = parts.next()?;
             // codex-sdk is excluded from the workspace (its own dep graph).
-            if name == "codex-sdk" {
+            // backend is scanned explicitly as the Backend/BackendTest root above;
+            // walking it again as a floor crate would double-count every file.
+            if name == "codex-sdk" || name == "backend" {
                 return None;
             }
             let sub = parts.next()?;
@@ -472,8 +474,8 @@ fn file_to_modpath(inner: &str) -> ModPath {
 /// gets as `\u{0}bin`). Rooting these files under a per-crate sentinel keeps their
 /// `use` / inline-module / `defined` tables out of the backend lib's `[]`
 /// namespace: every such file used to land at `[]`, so `commit`'s sorted merge let
-/// a later `crates/*` file's `use super::models::X` overwrite a `backend/tests/*`
-/// file's real `use moatless_vibe_backend::...::X` at that key, and the test ref
+/// a later `crates/*` file's `use super::models::X` overwrite a `crates/backend/tests/*`
+/// file's real `use moatless_backend::...::X` at that key, and the test ref
 /// then resolved through the floor `super::` and stranded as `super-above-root`.
 /// Backend resolution never walks into these sentinel roots (floor refs resolve by
 /// external-crate head, and `crate::`/`moatless_vibe_backend::`/`moatless_backend::`
@@ -569,7 +571,7 @@ const UNASSIGNED: &str = "UNASSIGNED";
 /// because it is test-only, which is a different fact from nobody having classified it.
 const TEST_SCAFFOLD: &str = "TEST-SCAFFOLD (cfg(test), not carved)";
 
-/// Per-crate membership of `backend/src`, generated from `bands.rs`: the top-level
+/// Per-crate membership of `crates/backend/src`, generated from `bands.rs`: the top-level
 /// modules each target crate owns and their combined line count. A module that
 /// `crate_of_backend_mod` does not name lands in the `UNASSIGNED` row instead of
 /// being folded into `server` — the reason it returns a distinct `Fallthrough`.
@@ -630,12 +632,23 @@ fn build_membership(files: &[DiscoveredFile]) -> Membership {
 /// table keys on it so a carved crate reads EXTRACTED, not READY, and its dependents
 /// flip to READY. A hardcoded "identity is done" list is exactly what this avoids.
 fn extracted_crates(files: &[DiscoveredFile]) -> BTreeSet<String> {
-    files
+    let mut extracted: BTreeSet<String> = files
         .iter()
         .filter(|f| matches!(f.scope, ScopeKind::Floor | ScopeKind::FloorTest))
         .map(|f| f.source_crate.clone())
         .filter(|c| !c.starts_with("floor:"))
-        .collect()
+        .collect();
+    if files.iter().any(|f| f.scope == ScopeKind::Backend && f.rel.starts_with("crates/backend/src/")) {
+        extracted.insert("server".to_string());
+    }
+    extracted
+}
+
+fn band_id_for_crate_dir_name(dir_name: &str) -> &str {
+    match dir_name {
+        "backend" => "server",
+        other => other,
+    }
 }
 
 /// Crate dirs physically extracted under `crates/<dir>` whose `<dir>` names a real
@@ -659,7 +672,7 @@ fn carved_but_unbanded(files: &[DiscoveredFile]) -> BTreeSet<String> {
         .iter()
         .filter(|f| matches!(f.scope, ScopeKind::Floor | ScopeKind::FloorTest))
         .filter_map(|f| f.source_crate.strip_prefix("floor:"))
-        .filter(|name| (1..=10).contains(&band_of(name)))
+        .filter(|name| (1..=10).contains(&band_of(band_id_for_crate_dir_name(name))))
         .map(str::to_string)
         .collect()
 }
@@ -670,7 +683,7 @@ fn carved_but_unbanded(files: &[DiscoveredFile]) -> BTreeSet<String> {
 /// that depth (else three sandbox crates all read `sandbox/`). A prefix with files
 /// beneath it renders as `a/b/`; a leaf file keeps its name (`config.rs`).
 fn membership_module_name(rel: &str) -> String {
-    let Some(rest) = rel.strip_prefix("backend/src/") else {
+    let Some(rest) = rel.strip_prefix("crates/backend/src/") else {
         return rel.to_string();
     };
     let comps: Vec<&str> = rest.split('/').collect();
@@ -690,7 +703,7 @@ fn membership_module_name(rel: &str) -> String {
 /// The membership table's header. Derived from the live `extracted` set and the row
 /// crate ids rather than hardcoded, so the prose cannot drift out of step with the
 /// table the way a hand-written "(core, adapter-model) has no row" line did once
-/// identity and workspaces began leaving permanent facade stubs in `backend/src`: an
+/// identity and workspaces began leaving permanent facade stubs in `crates/backend/src`: an
 /// extracted crate is enumerated as keeping a facade row or as having left no stub
 /// according to whether `build_membership` actually produced a row for it, and the
 /// two states print on separate lines so a test can assert each crate lands on the
@@ -710,10 +723,10 @@ fn membership_header(m: &Membership, extracted: &BTreeSet<String>) -> String {
     let no_row: Vec<&str> = extracted.iter().map(String::as_str).filter(|c| !row_ids.contains(c)).collect();
     let join = |v: &[&str]| if v.is_empty() { "(none)".to_string() } else { v.join(", ") };
     let mut h = String::new();
-    let _ = writeln!(h, "== CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==");
-    let _ = writeln!(h, "  Line counts are newline counts (wc -l). Every row counts the backend/src files");
+    let _ = writeln!(h, "== CRATE MEMBERSHIP (crates/backend/src -> target crate; generated from bands.rs) ==");
+    let _ = writeln!(h, "  Line counts are newline counts (wc -l). Every row counts the crates/backend/src files");
     let _ = writeln!(h, "  crate_of_backend_mod maps to that crate. An extracted crate keeps a row here only");
-    let _ = writeln!(h, "  if it left permanent facade stubs in backend/src: the row then measures that facade");
+    let _ = writeln!(h, "  if it left permanent facade stubs in crates/backend/src: the row then measures that facade");
     let _ = writeln!(h, "  surface the backend still composes, not work left to carve. An extracted crate that");
     let _ = writeln!(h, "  left no stub has no row. So TOTAL does not fall to zero as carving completes — it");
     let _ = writeln!(h, "  converges to the summed line count of every facade stub that remains.");
@@ -739,7 +752,7 @@ fn write_membership(s: &mut String, m: &Membership, extracted: &BTreeSet<String>
         let _ = writeln!(s, "\n  {}  ({} files, {} lines)", row.crate_id, row.files, row.lines);
         let _ = writeln!(s, "    {mods}");
     }
-    let _ = writeln!(s, "\n  TOTAL backend/src: {total} lines");
+    let _ = writeln!(s, "\n  TOTAL crates/backend/src: {total} lines");
     let _ = writeln!(s);
 }
 
@@ -828,7 +841,7 @@ fn build_report(
     );
     let _ = writeln!(s, "DOC        {doc_total:>5}  (intra-doc paths — never a Cargo edge, never illegal)");
     let _ = writeln!(s, "  of the legal CODE edges, {to_floor} point down into the existing crates/* floor");
-    let _ = writeln!(s, "TEST-CONTEXT {test_ctx:>4}  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)");
+    let _ = writeln!(s, "TEST-CONTEXT {test_ctx:>4}  (crates/backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)");
     let _ = writeln!(s, "UNRESOLVED  {unresolved:>5}  (glob-through-facade / prelude / macro-var — audited below)");
     let _ = writeln!(s);
 
@@ -1075,13 +1088,15 @@ fn write_carve_analysis(s: &mut String, records: &[RefRecord], extracted: &BTree
     let _ = writeln!(s, "  A crate with no illegal outgoing whose carve-target deps are all extracted reads");
     let _ = writeln!(s, "  READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each");
     let _ = writeln!(s, "  carve; the frontier is the first crate below that is READY.");
-    let frontier =
-        order.iter().find(|c| !extracted.contains(c.as_str())).cloned().unwrap_or_default();
-    let frontier_illegal: usize = blockers.get(frontier.as_str()).map_or(0, |e| e.values().sum());
-    if frontier_illegal == 0 {
-        let _ = writeln!(s, "  FRONTIER -> {frontier}: READY now (no illegal outgoing; every crate it depends on is extracted).");
+    if let Some(frontier) = order.iter().find(|c| !extracted.contains(c.as_str())) {
+        let frontier_illegal: usize = blockers.get(frontier.as_str()).map_or(0, |e| e.values().sum());
+        if frontier_illegal == 0 {
+            let _ = writeln!(s, "  FRONTIER -> {frontier}: READY now (no illegal outgoing; every crate it depends on is extracted).");
+        } else {
+            let _ = writeln!(s, "  FRONTIER -> {frontier}: BLOCKED on {frontier_illegal} illegal outgoing. No crate is carvable until it clears.");
+        }
     } else {
-        let _ = writeln!(s, "  FRONTIER -> {frontier}: BLOCKED on {frontier_illegal} illegal outgoing. No crate is carvable until it clears.");
+        let _ = writeln!(s, "  FRONTIER -> complete: every carve-target crate is extracted.");
     }
     let _ = writeln!(s);
     let empty: BTreeSet<String> = BTreeSet::new();

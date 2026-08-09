@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # rebuild.sh — Trigger a shadow-backend rebuild + restart.
 #
-# Run this after editing backend/ (or a shared crate). It compiles in your
+# Run this after editing crates/backend/ (or a shared crate). It compiles in your
 # terminal for fast feedback, then bumps the trigger file that up.sh watches so
 # the running backend restarts with the new binary. Frontend changes need no
 # action — the bun dev server hot-reloads them already.
@@ -15,8 +15,8 @@ mkdir -p "$(dirname "$TRIGGER")"
 # backend keeps running the other. Defaults to `release`; `dev` is ~13x faster.
 PROFILE="${SHADOW_CARGO_PROFILE:-release}"
 
-echo "==> Building moatless-vibe-backend (${PROFILE})"
-cargo build --profile "$PROFILE" -p moatless-vibe-backend
+echo "==> Building moatless-backend (${PROFILE})"
+cargo build --profile "$PROFILE" -p moatless-backend
 
 # Bump the trigger's mtime so up.sh restarts the process.
 touch "$TRIGGER"

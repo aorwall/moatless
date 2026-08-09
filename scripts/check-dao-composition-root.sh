@@ -2,7 +2,7 @@
 #
 # Step 3 invariant — the port is the only way to the table.
 #
-# The composition root (backend/src/compose.rs) is the single place a concrete
+# The composition root (crates/backend/src/compose.rs) is the single place a concrete
 # `Pg*Dao` is constructed; every other production site takes an `Arc<dyn *Dao>`
 # port instead. A `Pg*Dao(pool)` / `Pg*Dao::new(pool)` construction anywhere
 # else is a bypass of the port abstraction, and this check fails on it, naming
@@ -10,10 +10,10 @@
 #
 # Exclusions, each deliberate and stated (not a pattern narrowed until green):
 #
-#   - backend/src/**/dao.rs      the DAO *definitions* live here: the trait, the
+#   - crates/backend/src/**/dao.rs      the DAO *definitions* live here: the trait, the
 #                                `Pg*Dao` struct, and its inherent impls.
-#   - backend/src/compose.rs     the composition root itself.
-#   - backend/src/secret/cli.rs  a second entry path in the same binary (there is
+#   - crates/backend/src/compose.rs     the composition root itself.
+#   - crates/backend/src/secret/cli.rs  a second entry path in the same binary (there is
 #                                no `[[bin]]`): the `secrets` subcommand is
 #                                dispatched at main.rs:50, before the server
 #                                runtime and its composed `Ports` exist. It builds
@@ -26,7 +26,7 @@
 #                                constructing a `Pg*Dao` against a real pool is
 #                                what an integration test *is*. The invariant
 #                                protects production wiring, not test setup.
-#   - backend/tests/**           the same reason; integration tests are not
+#   - crates/backend/tests/**           the same reason; integration tests are not
 #                                scanned here at all.
 #
 set -euo pipefail
@@ -34,7 +34,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-SRC="backend/src"
+SRC="crates/backend/src"
 
 # ── 1. Module files that are test-only ───────────────────────────────────────
 # A file whose module is declared `#[cfg(<test>)] mod NAME;` in its parent is
@@ -144,7 +144,7 @@ if [ "$violations" -gt 0 ]; then
   echo ""
   echo "::error::A concrete Pg*Dao is constructed outside the composition root."
   echo "Take an Arc<dyn *Dao> port from Ports/AppState instead of building one"
-  echo "from a pool. See backend/src/compose.rs and .plans/backend-ports-and-crates.md Step 3."
+  echo "from a pool. See crates/backend/src/compose.rs and .plans/backend-ports-and-crates.md Step 3."
   exit 1
 fi
 

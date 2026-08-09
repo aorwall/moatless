@@ -31,7 +31,7 @@ if [ "${USE_REGISTRY_CACHE:-0}" = "1" ]; then
 fi
 
 echo -e "${YELLOW}==> Cross-compiling for x86_64-unknown-linux-gnu (glibc 2.36)...${NC}"
-cargo zigbuild -p moatless-vibe-backend --release --target x86_64-unknown-linux-gnu.2.36
+cargo zigbuild -p moatless-backend --release --target x86_64-unknown-linux-gnu.2.36
 
 # Resolve the workspace target directory (cargo puts binaries at workspace root)
 TARGET_DIR="$(cargo metadata --format-version 1 --no-deps 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')"

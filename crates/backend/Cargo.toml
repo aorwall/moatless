@@ -1,0 +1,240 @@
+[package]
+name = "moatless-backend"
+version = "0.1.0"
+edition = "2021"
+authors = ["Moatless Team"]
+description = "Backend service for Moatless Vibe (sandbox orchestration, auth, tasks, agent)"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP server + client
+axum = { version = "0.8", features = ["macros", "ws"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "http2", "tokio"] }
+http-body-util = "0.1"
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+# TLS crypto provider (installed in main before any TLS use). The Kubernetes SDK
+# (kube/k8s-openapi) moved to moatless-sandbox-k8s with the provider it served.
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# JWT
+# jsonwebtoken 10's default features only enable `use_pem` — no crypto backend.
+# Without exactly one of `aws_lc_rs`/`rust_crypto`, it panics at runtime trying to
+# resolve a CryptoProvider. Enable aws_lc_rs to match the rest of the TLS stack.
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
+
+# OTel tracing, exported to Tempo (crates/backend/src/startup.rs::init_tracing). Off
+# unless an OTLP endpoint is configured — see OtelConfig. Metrics/logs features
+# are left out: Prometheus stays the metrics pipeline (see `metrics` above).
+opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = { version = "0.33", default-features = false }
+
+# Config
+dotenvy = "0.15"
+
+# Database
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
+
+# Redis
+redis = { version = "1.2", features = ["tokio-comp", "connection-manager"] }
+
+# UUID + timestamps
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP client (OAuth token exchange)
+reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
+
+# Crypto (API key hashing)
+aes-gcm = "0.11"
+rand = "0.10"
+argon2 = { version = "0.5", features = ["std"] }
+base64 = "0.22"
+
+# URL encoding
+serde_urlencoded = "0.7"
+
+# Regex (Slack mrkdwn parsing)
+regex = "1"
+
+# Cookie parsing/building
+cookie = "0.18"
+
+# Error handling
+thiserror = "2"
+
+# OpenAPI documentation
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+
+# Async streams
+futures = "0.3"
+async-stream = "0.3"
+
+# Cancellation
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Async traits
+async-trait = "0.1"
+
+# S3 file storage
+aws-sdk-s3 = "1"
+aws-config = "1"
+
+# Multipart uploads
+axum-extra = { version = "0.12", features = ["multipart"] }
+
+# Cron scheduling
+cron = "0.17"
+
+# ID generation
+nanoid = "0.5"
+
+# CLI parsing (secrets subcommand on the backend binary)
+clap = { version = "4", features = ["derive"] }
+
+# Typed event system (shared with sandbox)
+moatless-events = { path = "../events", features = ["openapi"] }
+
+# Shared API schemas (DTOs shared with CLI)
+moatless-api-schemas = { path = "../api-schemas", features = ["openapi", "database"] }
+
+# Pure backend access-control policy and scope types
+moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
+# Lowest-band crate: config, db, error, events, and the core-clean vocabularies
+moatless-core = { path = "../core", features = ["openapi"] }
+# Adapter domain types + adapter_connections persistence (lifted out of adapters/)
+moatless-adapter-model = { path = "../adapter-model" }
+# Identity band: auth, extractors, team, adapter apps, secrets, setup (lifted out
+# of crates/backend/src). Composed through permanent facade modules that re-export it.
+moatless-identity = { path = "../identity" }
+# Workspaces band: workspace sync, repository, skill, plugin, credentials (lifted
+# out of crates/backend/src). Composed through permanent facade modules that re-export it.
+moatless-workspaces = { path = "../workspaces" }
+# Tasks band: task lifecycle, messages, agent turns, activities, ingress, feedback,
+# and file storage (lifted out of crates/backend/src). Composed through permanent facade
+# modules that re-export it, so higher bands keep naming `crate::task::…` etc.
+moatless-tasks = { path = "../tasks" }
+# Loops band: loops, bindings, and the Adapter core that no single Adapter owns
+# (lifted out of crates/backend/src). Composed through permanent facade modules that
+# re-export it, so higher bands keep naming `crate::adapters::…`, `crate::bindings`
+# and `crate::loops`.
+moatless-loops = { path = "../loops" }
+# The generic Webhook Adapter. Composed through the permanent facade at
+# src/adapters/providers/webhook.rs while the backend stays the composition root.
+moatless-adapter-webhook = { path = "../adapter-webhook" }
+# The Slack Adapter. Composed through the permanent facade at
+# src/adapters/providers/slack.rs while the backend stays the composition root.
+moatless-adapter-slack = { path = "../adapter-slack" }
+# The Telegram Adapter. Composed through the permanent facade at
+# src/adapters/providers/telegram.rs while the backend stays the composition root.
+moatless-adapter-telegram = { path = "../adapter-telegram" }
+# The Linear Adapter. Composed through the permanent facade at
+# src/adapters/providers/linear.rs while the backend stays the composition root.
+moatless-adapter-linear = { path = "../adapter-linear" }
+# The GitHub PR Adapter. Composed through the permanent facade at
+# src/adapters/providers/github_pr.rs while the backend stays the composition root.
+moatless-adapter-github-pr = { path = "../adapter-github-pr" }
+# The sandbox subsystem, now three banded crates behind the permanent facade at
+# src/sandbox/mod.rs: control (band 6, provider-agnostic lifecycle/gRPC/secrets/
+# status) and the two runtime providers k8s/docker (band 7), which carry their
+# own SDKs (kube/k8s-openapi, bollard) — no longer the backend's dependency
+# surface.
+moatless-sandbox-control = { path = "../sandbox-control" }
+moatless-sandbox-k8s = { path = "../sandbox-k8s" }
+moatless-sandbox-docker = { path = "../sandbox-docker" }
+moatless-t3code = { path = "../t3code" }
+
+# Claude agent SDK types (for OpenAPI schema generation)
+claude-agent-sdk = { path = "../claude-agent-sdk", features = ["openapi"] }
+
+# gRPC (sandbox ↔ backend communication)
+sandbox-proto = { path = "../sandbox-proto" }
+tonic = "0.14"
+prost = "0.14"
+
+# URL encoding
+urlencoding = "2"
+
+[features]
+# Gate integration tests that need a running PostgreSQL (DATABASE_URL). Forwards
+# to core's test-support so the db-tests-gated `Config::test_minimal` caller
+# (sandbox::grpc_server::for_ingress_tests) compiles; no shipping build enables it.
+db-tests = [
+    "moatless-core/test-support",
+    "moatless-identity/test-support",
+    "moatless-tasks/test-support",
+    # Forwards so the control crate's `for_ingress_tests` harness, reached from
+    # crates/backend/tests/integration, compiles with its DB-backed blocks.
+    "moatless-sandbox-control/db-tests",
+    # The `adapters::test_support` facade re-export is gated `#[cfg(any(test,
+    # feature = "db-tests"))]`, so under db-tests it is part of the *library*, not
+    # a test target — the dev-dependency's test-support feature does not reach it.
+    # Forward it on the normal moatless-loops dependency so the re-exported module
+    # is compiled whenever this facade is.
+    "moatless-loops/test-support",
+]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# core's test-support (Config::test_minimal, MockTagDao) for the backend's own
+# `#[cfg(test)]` unit tests. Dev-dependency features do not unify into the normal
+# build under resolver 2, so this stays out of `cargo build`.
+moatless-core = { path = "../core", features = ["test-support"] }
+# identity's test fakes (auth/secret `test_support`) for the backend's own unit
+# tests, exposed through the facade under `#[cfg(any(test, feature = "db-tests"))]`.
+moatless-identity = { path = "../identity", features = ["test-support"] }
+# workspaces' `MockRepositoryDao` for the backend's own `#[cfg(test)]` unit tests
+# (task::creation, repository::handlers), reached through the facade. Dev-dependency
+# features do not unify into the normal build under resolver 2, so this stays out of
+# `cargo build`. No `db-tests` forward: no integration test names a workspaces mock.
+moatless-workspaces = { path = "../workspaces", features = ["test-support"] }
+# tasks' `MockTaskDao` (automock on `TaskDao`) for the backend's own `#[cfg(test)]`
+# unit tests (sandbox::handlers, sandbox::grpc_server, provider_settings::codex_save),
+# reached through the `task` facade. Dev-dependency features do not unify into the
+# normal build under resolver 2, so this stays out of `cargo build`.
+moatless-tasks = { path = "../tasks", features = ["test-support"] }
+# loops' adapter/bindings test-support fakes for the backend's own `#[cfg(test)]`
+# unit tests (provider handlers, event_handler), reached through the facade.
+moatless-loops = { path = "../loops", features = ["test-support"] }
+tokio-test = "0.4"
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "migrate"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+mockall = "0.15"
+tempfile = "3"
+# Webhook signature helpers used by backend integration tests.
+hex = "0.4"
+hmac = "0.13"
+sha2 = "0.11"
+# Thread-local recorder + snapshotter, so a test can assert what a code path
+# actually wrote to a counter rather than that it compiled. Used by
+# `tests/integration/telegram_ingress_test.rs`, which only builds under `db-tests`.
+metrics-util = { version = "0.20", features = ["debugging"], default-features = false }
+
+# In-memory span exporter, so ui_rpc::tests can assert a request's spans share
+# the client's trace id without a real OTLP collector.
+opentelemetry_sdk = { version = "0.32", features = ["testing"] }
+
+[[example]]
+name = "codex_refresh_smoke"
+path = "examples/codex_refresh_smoke.rs"
