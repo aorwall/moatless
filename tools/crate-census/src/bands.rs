@@ -307,19 +307,19 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // into another adapter at the same band or into the server band — is never
         // caught. The arm ships in the same slice as the `git mv`.
         "adapter-linear" => "adapter-linear".to_string(),
-        // `backend` is the physical directory for the band-10 server layer
-        // (crates/backend). The band id stays `server`: it is a layer name, not
-        // the package or directory name. Without this arm the final carved crate
-        // leaves the scored graph just as the ratchet reaches its last subject.
-        // The arm is measured before the move that creates crates/backend.
+        // Defensive: `classify_file` currently skips `crates/backend` in the
+        // Floor/FloorTest walk because the backend is scanned as the Backend root
+        // above. If that exclusion is removed, `backend` still names the band-10
+        // server layer rather than the floor. The band id stays `server`: it is a
+        // layer name, not the package or directory name.
         "backend" => "server".to_string(),
         other => format!("floor:{other}"),
     }
 }
 
 /// Maps an external crate-name path head to a crate id, or `None` if it is std /
-/// a third-party crate (no census edge). `moatless_vibe_backend` is handled by
-/// the caller (it resolves back into the backend module tree).
+/// a third-party crate (no census edge). `moatless_backend` is handled by the
+/// caller (it resolves back into the backend module tree).
 pub fn external_crate(head: &str) -> Option<String> {
     let id = match head {
         "moatless_events" => "floor:events",

@@ -478,7 +478,7 @@ fn file_to_modpath(inner: &str) -> ModPath {
 /// file's real `use moatless_backend::...::X` at that key, and the test ref
 /// then resolved through the floor `super::` and stranded as `super-above-root`.
 /// Backend resolution never walks into these sentinel roots (floor refs resolve by
-/// external-crate head, and `crate::`/`moatless_vibe_backend::`/`moatless_backend::`
+/// external-crate head, and `crate::`/`moatless_backend::`
 /// anchor at `[]`), so
 /// isolating them changes no production edge — only the spurious unresolved count.
 fn synthetic_root(crate_tag: &str) -> String {
@@ -646,6 +646,11 @@ fn extracted_crates(files: &[DiscoveredFile]) -> BTreeSet<String> {
 
 fn band_id_for_crate_dir_name(dir_name: &str) -> &str {
     match dir_name {
+        // Defensive only today: the production Floor/FloorTest walk skips
+        // `crates/backend`, so `carved_but_unbanded` reaches this only if that
+        // exclusion is removed. Keep the mapping so a floor-scored backend still
+        // reports as the band-10 server layer rather than disappearing as an
+        // unrecognised floor crate.
         "backend" => "server",
         other => other,
     }
