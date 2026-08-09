@@ -15,12 +15,12 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use crate::adapters::delivery::Admission;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{
+use moatless_loops::adapters::delivery::Admission;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{
     Audience, BindingContext, InboundMessage, LoopContext, OutboundReply,
 };
-use crate::adapters::{
+use moatless_loops::adapters::{
     Adapter, AdapterBindingReply, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
     Adapters,
 };
@@ -107,7 +107,7 @@ impl WebhookAdapter {
     /// The Webhook adapter has no concrete-only methods, so no handler needs a
     /// concrete handle to it: it has no `ProviderHandles` entry and lives only
     /// as a trait object.
-    pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+    pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         adapters.register_trait_object(self.clone());
         adapters.register_binding_reply(self.clone());
         adapters.register_message_reply(self);
@@ -293,9 +293,9 @@ impl AdapterBindingReply for WebhookAdapter {
 impl AdapterMessageReply for WebhookAdapter {
     async fn reply_to_message(
         &self,
-        binding: &crate::adapters::models::TaskBinding,
-        connection: &crate::adapters::models::AdapterConnection,
-        rule: Option<&crate::adapters::models::SubscriptionMatch>,
+        binding: &moatless_loops::adapters::models::TaskBinding,
+        connection: &moatless_loops::adapters::models::AdapterConnection,
+        rule: Option<&moatless_loops::adapters::models::SubscriptionMatch>,
         _target_external_id: &str,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
@@ -307,7 +307,7 @@ impl AdapterMessageReply for WebhookAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::models::RoutingMode;
+    use moatless_loops::adapters::models::RoutingMode;
 
     fn test_config(adapter_config: Option<serde_json::Value>) -> LoopContext {
         LoopContext {

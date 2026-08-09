@@ -1,0 +1,28 @@
+[package]
+name = "moatless-adapter-webhook"
+version = "0.1.0"
+edition = "2021"
+description = "Webhook Adapter: generic HTTP inbound delivery and callback outbound for Moatless"
+
+[dependencies]
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros"] }
+reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+utoipa = { version = "5", features = ["axum_extras"] }
+uuid = { version = "1", features = ["v4"] }
+
+moatless-adapter-model = { path = "../adapter-model" }
+moatless-loops = { path = "../loops" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+hmac = "0.13"
+moatless-backend-core = { path = "../backend-core", features = ["database"] }
+sha2 = "0.11"

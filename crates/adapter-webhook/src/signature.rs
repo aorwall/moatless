@@ -2,8 +2,8 @@
 //!
 //! Verifies `X-Webhook-Signature` header using `HMAC-SHA256(secret, body)`.
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::signature::verify_hmac_sha256;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::signature::verify_hmac_sha256;
 
 /// Verify the webhook request signature.
 ///

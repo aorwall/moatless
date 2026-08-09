@@ -140,6 +140,9 @@ moatless-tasks = { path = "../crates/tasks" }
 # re-export it, so higher bands keep naming `crate::adapters::…`, `crate::bindings`
 # and `crate::loops`.
 moatless-loops = { path = "../crates/loops" }
+# The generic Webhook Adapter. Composed through the permanent facade at
+# src/adapters/providers/webhook.rs while the backend stays the composition root.
+moatless-adapter-webhook = { path = "../crates/adapter-webhook" }
 # The sandbox subsystem, now three banded crates behind the permanent facade at
 # src/sandbox/mod.rs: control (band 6, provider-agnostic lifecycle/gRPC/secrets/
 # status) and the two runtime providers k8s/docker (band 7), which carry their

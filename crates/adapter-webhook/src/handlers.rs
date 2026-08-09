@@ -6,11 +6,13 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use tracing::{debug, info};
 
-use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
-use crate::adapters::ingress::admit_delivery;
-use crate::loops::dao::LoopDao;
+use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::inbound_delivery::{
+    InboundDeliveryPayload, inbound_delivery_request,
+};
+use moatless_loops::adapters::ingress::admit_delivery;
+use moatless_loops::loops::dao::LoopDao;
 
 use super::adapter::{WebhookAccepted, WebhookAdapter};
 use super::delivery::{ADAPTER, INBOUND_MESSAGE, SUBJECT_KIND};

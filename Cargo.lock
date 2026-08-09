@@ -3166,6 +3166,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-adapter-webhook"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "hex",
+ "hmac 0.13.0",
+ "moatless-adapter-model",
+ "moatless-backend-core",
+ "moatless-loops",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tracing",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
 name = "moatless-api-client"
 version = "0.1.0"
 dependencies = [
@@ -3572,6 +3593,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "metrics-util",
  "moatless-adapter-model",
+ "moatless-adapter-webhook",
  "moatless-api-schemas",
  "moatless-backend-core",
  "moatless-core",

@@ -54,7 +54,7 @@ are `soaplabs/t3code`. Both are ours.
 | `backend/src/adapters/providers/telegram/webhook.rs:282` | Telegram's `InboundMessage` construction |
 | `backend/src/adapters/providers/linear/comments.rs:123` | Linear's comment ingress |
 | `backend/src/adapters/providers/linear/adapter.rs:295` | Where the Linear issue `url` and `identifier` are written to `destination_config` |
-| `backend/src/adapters/providers/webhook/adapter.rs:193` | The Webhook Adapter's `InboundMessage` |
+| `crates/adapter-webhook/src/adapter.rs:194` | The Webhook Adapter's `InboundMessage` |
 | `backend/migrations/0052_external_message_metadata.sql` | The provenance columns' current names |
 | `backend/migrations/0063_external_subject_key.sql:1` | `external_subject_key` |
 | `backend/migrations/0051_integrations_triggers_bindings.sql:295` | `task_bindings_task_subject_idx` on `(task_id, adapter_kind, subject_kind, subject_key)` |

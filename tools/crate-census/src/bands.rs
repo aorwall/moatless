@@ -269,6 +269,13 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // `git mv`, and the carved-but-unbanded backstop in main.rs is the tripwire if
         // it is ever forgotten.
         "loops" => "loops".to_string(),
+        // `adapter-webhook` (10h) is a real band-9 crate
+        // (crates/adapter-webhook), not the floor. Without the arm its files score
+        // as `floor:adapter-webhook` (excluded from the graph) and its outgoing
+        // edges launder to downward-legal, so a future illegal edge out of it —
+        // into another adapter at the same band or into the server band — is never
+        // caught. The arm ships in the same slice as the `git mv`.
+        "adapter-webhook" => "adapter-webhook".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -352,6 +359,12 @@ pub fn external_crate(head: &str) -> Option<String> {
         // indistinguishable from legal in the output; this arm keeps the export half
         // of loops in the graph so the ratchet can still see an edge into it.
         "moatless_loops" => "loops",
+        // `moatless_adapter_webhook` resolves to the band-9 Webhook Adapter crate.
+        // Without this arm the head falls to `None` ("no census edge"), and every
+        // backend facade or server reference to the carved Adapter is silently
+        // subtracted from the graph rather than scored. Mirrors `moatless_loops`
+        // and is paired with the `floor_crate_of_dir("adapter-webhook")` arm above.
+        "moatless_adapter_webhook" => "adapter-webhook",
         _ => return None,
     };
     Some(id.to_string())
@@ -581,6 +594,40 @@ mod tests {
             band_of(&id),
             8,
             "moatless_loops must resolve to band-8 loops",
+        );
+    }
+
+    /// The 10h Webhook Adapter carve must resolve `crates/adapter-webhook` to the
+    /// band-9 adapter crate, not the `floor:adapter-webhook` fallthrough (band 0,
+    /// excluded from scoring). Asserting the band turns the fallthrough into a
+    /// test failure rather than a silent whole-crate drop.
+    #[test]
+    fn adapter_webhook_dir_resolves_to_the_band_9_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("adapter-webhook"), "adapter-webhook");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("adapter-webhook")),
+            9,
+            "crates/adapter-webhook must be the band-9 Webhook Adapter crate, not floor band 0",
+        );
+        assert_eq!(band_of("floor:adapter-webhook"), 0);
+    }
+
+    /// A backend reference to `moatless_adapter_webhook::` must resolve to the
+    /// band-9 Webhook Adapter crate so the facade edge is scored instead of
+    /// silently subtracted from the graph.
+    #[test]
+    fn moatless_adapter_webhook_head_resolves_to_the_band_9_crate() {
+        assert_eq!(
+            external_crate("moatless_adapter_webhook"),
+            Some("adapter-webhook".to_string())
+        );
+        let Some(id) = external_crate("moatless_adapter_webhook") else {
+            panic!("moatless_adapter_webhook must be a known external head");
+        };
+        assert_eq!(
+            band_of(&id),
+            9,
+            "moatless_adapter_webhook must resolve to band-9 adapter-webhook",
         );
     }
 }
