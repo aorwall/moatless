@@ -115,9 +115,7 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
         // and its sub-server callers (`sandbox/secrets`, `task/service`) would name it
         // upward — the trap this placement avoids.
         "task" | "message" | "task_activities" | "task_turn" | "agent" | "event_ingress"
-        | "feedback" | "agent_event" | "file_storage" | "task_event" | "credential_sync" => {
-            "tasks"
-        }
+        | "feedback" | "agent_event" | "file_storage" | "task_event" | "credential_sync" => "tasks",
         // -- sandbox split --
         "sandbox" => match m.get(1).map(String::as_str) {
             Some("k8s") => "sandbox-k8s",
@@ -182,8 +180,9 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
         // would trap that module — so the cross-band orchestration lives here. The
         // reverse of `setup` moving OUT of this arm into identity.
         "main" | "startup" | "state" | "supervisor" | "compose" | "sse" | "t3code"
-        | "event_handler" | "provider_settings" | "task_connections" | "repository_sync"
-        | "" => "server",
+        | "event_handler" | "provider_settings" | "task_connections" | "repository_sync" | "" => {
+            "server"
+        }
         // the synthetic bin root
         "\u{0}bin" => "server",
         // Unknown top-level module: no arm claims it. Edge resolution treats it as
@@ -261,6 +260,15 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // it (e.g. an upward reference into `sandbox-k8s` at the same band) is never
         // caught. The arm ships in the same slice as the `git mv`.
         "sandbox-docker" => "sandbox-docker".to_string(),
+        // `loops` (Step 8/10) is a real band-8 crate (crates/loops), not the floor.
+        // Same reasoning as `tasks`/`sandbox-*` above: without the arm its files score
+        // as `floor:loops` (excluded from the graph) and its outgoing edges launder to
+        // `floor -> X` (downward-legal), so a future illegal edge out of it — an upward
+        // reference into a provider (band 9) or a server-band module — is never caught.
+        // `band_of("loops")` already returns 8; this arm ships in the same slice as the
+        // `git mv`, and the carved-but-unbanded backstop in main.rs is the tripwire if
+        // it is ever forgotten.
+        "loops" => "loops".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -361,11 +369,18 @@ mod tests {
     /// and `moatless_adapter_model` resolve to their bands.
     #[test]
     fn moatless_identity_head_resolves_to_the_band_3_crate() {
-        assert_eq!(external_crate("moatless_identity"), Some("identity".to_string()));
+        assert_eq!(
+            external_crate("moatless_identity"),
+            Some("identity".to_string())
+        );
         let Some(id) = external_crate("moatless_identity") else {
             panic!("moatless_identity must be a known external head");
         };
-        assert_eq!(band_of(&id), 3, "moatless_identity must resolve to band-3 identity");
+        assert_eq!(
+            band_of(&id),
+            3,
+            "moatless_identity must resolve to band-3 identity"
+        );
     }
 
     /// The 10c analogue of the identity band-pin: `crates/workspaces` must resolve to
@@ -388,11 +403,18 @@ mod tests {
     /// workspaces crate (so it scores downward-legal), mirroring `moatless_identity`.
     #[test]
     fn moatless_workspaces_head_resolves_to_the_band_4_crate() {
-        assert_eq!(external_crate("moatless_workspaces"), Some("workspaces".to_string()));
+        assert_eq!(
+            external_crate("moatless_workspaces"),
+            Some("workspaces".to_string())
+        );
         let Some(id) = external_crate("moatless_workspaces") else {
             panic!("moatless_workspaces must be a known external head");
         };
-        assert_eq!(band_of(&id), 4, "moatless_workspaces must resolve to band-4 workspaces");
+        assert_eq!(
+            band_of(&id),
+            4,
+            "moatless_workspaces must resolve to band-4 workspaces"
+        );
     }
 
     /// The 10d analogue: `crates/tasks` must resolve to the band-5 tasks crate, not
@@ -419,7 +441,11 @@ mod tests {
         let Some(id) = external_crate("moatless_tasks") else {
             panic!("moatless_tasks must be a known external head");
         };
-        assert_eq!(band_of(&id), 5, "moatless_tasks must resolve to band-5 tasks");
+        assert_eq!(
+            band_of(&id),
+            5,
+            "moatless_tasks must resolve to band-5 tasks"
+        );
     }
 
     /// The 10e analogue: `crates/sandbox-control` must resolve to the band-6
@@ -449,7 +475,11 @@ mod tests {
         let Some(id) = external_crate("moatless_sandbox_control") else {
             panic!("moatless_sandbox_control must be a known external head");
         };
-        assert_eq!(band_of(&id), 6, "moatless_sandbox_control must resolve to band-6 sandbox-control");
+        assert_eq!(
+            band_of(&id),
+            6,
+            "moatless_sandbox_control must resolve to band-6 sandbox-control"
+        );
     }
 
     /// The 10f analogue: `crates/sandbox-k8s` must resolve to the band-7 sandbox-k8s
@@ -479,7 +509,11 @@ mod tests {
         let Some(id) = external_crate("moatless_sandbox_k8s") else {
             panic!("moatless_sandbox_k8s must be a known external head");
         };
-        assert_eq!(band_of(&id), 7, "moatless_sandbox_k8s must resolve to band-7 sandbox-k8s");
+        assert_eq!(
+            band_of(&id),
+            7,
+            "moatless_sandbox_k8s must resolve to band-7 sandbox-k8s"
+        );
     }
 
     /// The 10f docker analogue: `crates/sandbox-docker` must resolve to the band-7
@@ -508,6 +542,10 @@ mod tests {
         let Some(id) = external_crate("moatless_sandbox_docker") else {
             panic!("moatless_sandbox_docker must be a known external head");
         };
-        assert_eq!(band_of(&id), 7, "moatless_sandbox_docker must resolve to band-7 sandbox-docker");
+        assert_eq!(
+            band_of(&id),
+            7,
+            "moatless_sandbox_docker must resolve to band-7 sandbox-docker"
+        );
     }
 }

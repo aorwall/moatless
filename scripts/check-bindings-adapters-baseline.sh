@@ -8,7 +8,7 @@
 # the set of files still naming it only ever shrinks.
 #
 # The baseline (scripts/bindings-adapters-baseline.txt) lists every file under
-# backend/src/bindings/ that still names `crate::adapters` in non-test code. It
+# crates/loops/src/bindings/ that still names `crate::adapters` in non-test code. It
 # is a ratchet in the shape of the repo's lint baseline (AGENTS.md: "the
 # baseline only shrinks"): every slice deletes the entries it clears, a baseline
 # entry that no longer names `crate::adapters` is a failure (you cleared it — so
@@ -32,7 +32,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-DIR="backend/src/bindings"
+DIR="crates/loops/src/bindings"
 BASELINE="scripts/bindings-adapters-baseline.txt"
 
 # ── Tokenize + classify one file ─────────────────────────────────────────────

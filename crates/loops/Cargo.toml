@@ -1,0 +1,70 @@
+[package]
+name = "moatless-loops"
+version = "0.1.0"
+edition = "2021"
+description = "Loops band: loops, bindings, and the Adapter core that no single Adapter owns"
+
+[dependencies]
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+# Cron-expression parsing for loop schedules (loops/firing).
+cron = "0.17"
+futures = "0.3"
+hex = "0.4"
+# HMAC-SHA256 webhook-signature verification (adapters/signature).
+hmac = "0.13"
+http = "1"
+# Counter/gauge instrumentation (adapters/metrics, delivery, bindings, firing).
+metrics = "0.24"
+# In-memory caches (loops/sync fetcher, dedup).
+moka = { version = "0.12", features = ["future"] }
+reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# LOOP.md manifest parsing (loops/sync).
+serde_yaml = "0.9"
+sha2 = "0.11"
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+# Percent-encoding for outbound provider URLs.
+urlencoding = "2"
+
+moatless-adapter-model = { path = "../adapter-model" }
+moatless-api-schemas = { path = "../api-schemas", features = ["openapi", "database"] }
+moatless-backend-core = { path = "../backend-core", features = ["database", "openapi"] }
+moatless-core = { path = "../core", features = ["openapi"] }
+moatless-events = { path = "../events" }
+moatless-identity = { path = "../identity" }
+moatless-tasks = { path = "../tasks" }
+moatless-workspaces = { path = "../workspaces" }
+
+[features]
+# Exposes the adapter/bindings test-support fakes to other crates' test builds
+# (the provider and server bands still in the backend reach them across the
+# facade). The `test,` disjunct stays FIRST so the census keeps items gated this
+# way in test-context (crate-census scan.rs keys on the substring "test").
+test-support = []
+# Gate the `#[sqlx::test]` blocks that need a running PostgreSQL. Empty because
+# those blocks reach helpers through the crate's own `test` cfg.
+db-tests = []
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+async-trait = "0.1"
+http-body-util = "0.1"
+tokio-test = "0.4"
+# Test-support fakes/seeders reached across crate boundaries by this crate's own
+# tests (Config::test_minimal, auth::test_support::StubProviderTokens, etc.).
+moatless-core = { path = "../core", features = ["test-support"] }
+moatless-identity = { path = "../identity", features = ["test-support"] }
+moatless-tasks = { path = "../tasks", features = ["test-support"] }
+moatless-workspaces = { path = "../workspaces", features = ["test-support"] }

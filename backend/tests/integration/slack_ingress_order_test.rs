@@ -32,7 +32,6 @@ use sqlx::PgPool;
 use tower::ServiceExt as _;
 
 use moatless_vibe_backend::adapters::routes::adapter_router;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::compose::compose;
 use moatless_vibe_backend::state::AppState;
 
@@ -54,7 +53,7 @@ async fn replica(pool: &PgPool) -> AppState {
     config.slack.bot_user_id = Some("U0BOT".to_string());
 
     let ports = compose(pool.clone(), &config);
-    let (adapters, handles) = Adapters::from_config(
+    let (adapters, handles) = moatless_vibe_backend::compose::from_config(
         &config,
         ports.pool.clone(),
         ports.provider_tokens.clone(),

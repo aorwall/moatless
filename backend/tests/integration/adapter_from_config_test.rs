@@ -11,7 +11,7 @@
 
 use crate::common;
 
-use moatless_vibe_backend::adapters::{AdapterKind, Adapters};
+use moatless_vibe_backend::adapters::AdapterKind;
 use moatless_vibe_backend::compose::compose;
 use sqlx::PgPool;
 
@@ -21,7 +21,7 @@ use common::test_config;
 async fn from_config_populates_both_the_registry_and_the_handles(pool: PgPool) {
     let config = test_config();
     let ports = compose(pool.clone(), &config);
-    let (adapters, handles) = Adapters::from_config(
+    let (adapters, handles) = moatless_vibe_backend::compose::from_config(
         &config,
         ports.pool.clone(),
         ports.provider_tokens.clone(),

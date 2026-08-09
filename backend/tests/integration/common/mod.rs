@@ -372,7 +372,7 @@ pub fn test_app_state_with_adapters(
 /// `Arc` rather than a whole `ProviderHandles` is what makes the two agree by
 /// construction — there is no way to pass a handle the registry does not get.
 /// Linear is the only provider any test builds by hand; the rest reach the
-/// registry through `Adapters::from_config`.
+/// registry through `compose::from_config`.
 #[allow(
     dead_code,
     reason = "this module is compiled into every test binary; each one uses a subset of it"

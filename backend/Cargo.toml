@@ -135,6 +135,11 @@ moatless-workspaces = { path = "../crates/workspaces" }
 # and file storage (lifted out of backend/src). Composed through permanent facade
 # modules that re-export it, so higher bands keep naming `crate::task::…` etc.
 moatless-tasks = { path = "../crates/tasks" }
+# Loops band: loops, bindings, and the Adapter core that no single Adapter owns
+# (lifted out of backend/src). Composed through permanent facade modules that
+# re-export it, so higher bands keep naming `crate::adapters::…`, `crate::bindings`
+# and `crate::loops`.
+moatless-loops = { path = "../crates/loops" }
 # The sandbox subsystem, now three banded crates behind the permanent facade at
 # src/sandbox/mod.rs: control (band 6, provider-agnostic lifecycle/gRPC/secrets/
 # status) and the two runtime providers k8s/docker (band 7), which carry their
@@ -167,6 +172,12 @@ db-tests = [
     # Forwards so the control crate's `for_ingress_tests` harness, reached from
     # backend/tests/integration, compiles with its DB-backed blocks.
     "moatless-sandbox-control/db-tests",
+    # The `adapters::test_support` facade re-export is gated `#[cfg(any(test,
+    # feature = "db-tests"))]`, so under db-tests it is part of the *library*, not
+    # a test target — the dev-dependency's test-support feature does not reach it.
+    # Forward it on the normal moatless-loops dependency so the re-exported module
+    # is compiled whenever this facade is.
+    "moatless-loops/test-support",
 ]
 
 [lints]
@@ -190,6 +201,9 @@ moatless-workspaces = { path = "../crates/workspaces", features = ["test-support
 # reached through the `task` facade. Dev-dependency features do not unify into the
 # normal build under resolver 2, so this stays out of `cargo build`.
 moatless-tasks = { path = "../crates/tasks", features = ["test-support"] }
+# loops' adapter/bindings test-support fakes for the backend's own `#[cfg(test)]`
+# unit tests (provider handlers, event_handler), reached through the facade.
+moatless-loops = { path = "../crates/loops", features = ["test-support"] }
 tokio-test = "0.4"
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "migrate"] }
 tower = { version = "0.5", features = ["util"] }

@@ -35,7 +35,6 @@ use moatless_vibe_backend::adapters::delivery::{
     spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
 };
 use moatless_vibe_backend::adapters::routes::adapter_router;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::compose::compose;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_vibe_backend::state::AppState;
@@ -176,7 +175,7 @@ async fn registered_replica(
     config.github_pr.webhook_secret = webhook_secret.map(str::to_string);
     config.github_pr.bot_token = bot_token.map(str::to_string);
     let ports = compose(pool.clone(), &config);
-    let (adapters, handles) = Adapters::from_config(
+    let (adapters, handles) = moatless_vibe_backend::compose::from_config(
         &config,
         ports.pool.clone(),
         ports.provider_tokens.clone(),

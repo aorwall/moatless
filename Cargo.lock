@@ -3318,6 +3318,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "moatless-loops"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "cron",
+ "futures",
+ "hex",
+ "hmac 0.13.0",
+ "http 1.4.0",
+ "http-body-util",
+ "metrics",
+ "moatless-adapter-model",
+ "moatless-api-schemas",
+ "moatless-backend-core",
+ "moatless-core",
+ "moatless-events",
+ "moatless-identity",
+ "moatless-tasks",
+ "moatless-workspaces",
+ "moka",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.11.0",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "tracing",
+ "urlencoding",
+ "utoipa",
+ "utoipa-axum",
+ "uuid",
+]
+
+[[package]]
 name = "moatless-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -3537,6 +3577,7 @@ dependencies = [
  "moatless-core",
  "moatless-events",
  "moatless-identity",
+ "moatless-loops",
  "moatless-sandbox-control",
  "moatless-sandbox-docker",
  "moatless-sandbox-k8s",

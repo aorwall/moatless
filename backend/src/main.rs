@@ -17,7 +17,7 @@ use moatless_core::leader::LeaderGuard;
 use moatless_core::tag;
 use moatless_vibe_backend::agent;
 use moatless_vibe_backend::auth;
-use moatless_vibe_backend::compose::{Ports, compose, register_builtin_delivery_handlers};
+use moatless_vibe_backend::compose::{Ports, compose, from_config, register_builtin_delivery_handlers};
 use moatless_vibe_backend::event_handler;
 use moatless_vibe_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
 use moatless_vibe_backend::sandbox;
@@ -394,7 +394,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Domain routes (need DB)
     if let Some(ports) = ports {
-        let (adapter_registry, provider_handles) = adapters::Adapters::from_config(
+        let (adapter_registry, provider_handles) = from_config(
             &config,
             ports.pool.clone(),
             ports.provider_tokens.clone(),

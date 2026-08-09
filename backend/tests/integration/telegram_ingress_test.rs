@@ -34,7 +34,6 @@ use chrono::Utc;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch};
 use moatless_vibe_backend::adapters::routes::adapter_router;
-use moatless_vibe_backend::adapters::Adapters;
 use moatless_vibe_backend::compose::compose;
 use moatless_vibe_backend::repository::dao as repository_dao;
 use moatless_core::scope::Scope;
@@ -58,7 +57,7 @@ async fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.telegram.bot_token = Some("fake-token".to_string());
     let ports = compose(pool.clone(), &config);
-    let (adapters, handles) = Adapters::from_config(
+    let (adapters, handles) = moatless_vibe_backend::compose::from_config(
         &config,
         ports.pool.clone(),
         ports.provider_tokens.clone(),

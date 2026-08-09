@@ -334,140 +334,137 @@ impl Ports {
     }
 }
 
-impl Adapters {
-    /// Build adapters from application config and the composed ports, returning
-    /// the trait-object registry and the concrete per-provider handles the root
-    /// hands to each provider's own handlers.
-    ///
-    /// The composition root is the only place a concrete provider type is
-    /// named: each provider is constructed here and registers its own
-    /// capabilities through [`register_into`](crate::adapters::providers), so
-    /// the loops-band registry never sees a concrete adapter type.
-    ///
-    /// Every provider (Slack, Webhook, Telegram, GitHub PR, Linear) is
-    /// registered unconditionally — their per-workspace config is resolved per
-    /// subscription, not at registration — so the registry is always populated,
-    /// and every concrete-handle field of the returned `ProviderHandles` is
-    /// `Some`.
-    ///
-    /// `github_apps` is the shared App registry, so the `GithubPrAdapter`
-    /// and `AppState` hit the same token cache. The `GithubPrAdapter` resolves
-    /// runtime GitHub tokens through the canonical resolver, which needs the
-    /// registry to mint installation tokens for bot users (`auth_method =
-    /// 'github_app_installation'`). Slack, Telegram and Linear read their own
-    /// per-workspace rows straight off `pool`.
-    pub async fn from_config(
-        config: &Config,
-        pool: DbPool,
-        provider_tokens: Arc<dyn ProviderTokenDao>,
-        provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
-        github_apps: Arc<GitHubAppRegistry>,
-        github_app_service: Option<Arc<GitHubAppService>>,
-        // Needed so the GitHub adapter can resolve `secret_ref` provider tokens
-        // (validated PATs live in `secrets`, not `provider_tokens`).
-        secrets: Arc<SecretService>,
-    ) -> (Self, ProviderHandles) {
-        let mut providers = Self::new();
+/// Build adapters from application config and the composed ports, returning
+/// the trait-object registry and the concrete per-provider handles the root
+/// hands to each provider's own handlers.
+///
+/// The composition root is the only place a concrete provider type is
+/// named: each provider is constructed here and registers its own
+/// capabilities through [`register_into`](crate::adapters::providers), so
+/// the loops-band registry never sees a concrete adapter type.
+///
+/// Every provider (Slack, Webhook, Telegram, GitHub PR, Linear) is
+/// registered unconditionally — their per-workspace config is resolved per
+/// subscription, not at registration — so the registry is always populated,
+/// and every concrete-handle field of the returned `ProviderHandles` is
+/// `Some`.
+///
+/// `github_apps` is the shared App registry, so the `GithubPrAdapter`
+/// and `AppState` hit the same token cache. The `GithubPrAdapter` resolves
+/// runtime GitHub tokens through the canonical resolver, which needs the
+/// registry to mint installation tokens for bot users (`auth_method =
+/// 'github_app_installation'`). Slack, Telegram and Linear read their own
+/// per-workspace rows straight off `pool`.
+pub async fn from_config(
+    config: &Config,
+    pool: DbPool,
+    provider_tokens: Arc<dyn ProviderTokenDao>,
+    provider_token_auth: Arc<dyn ProviderTokenAuthDao>,
+    github_apps: Arc<GitHubAppRegistry>,
+    github_app_service: Option<Arc<GitHubAppService>>,
+    // Needed so the GitHub adapter can resolve `secret_ref` provider tokens
+    // (validated PATs live in `secrets`, not `provider_tokens`).
+    secrets: Arc<SecretService>,
+) -> (Adapters, ProviderHandles) {
+    let mut providers = Adapters::new();
 
-        let db = pool;
+    let db = pool;
 
-        let runtime_config = Arc::new(config.clone());
-        let slack = Arc::new(
-            crate::adapters::providers::slack::adapter::SlackAdapter::from_db(
-                runtime_config.clone(),
-                db.clone(),
-            ),
-        );
-        slack.clone().register_into(&mut providers);
-        tracing::info!("Slack adapter registered");
+    let runtime_config = Arc::new(config.clone());
+    let slack = Arc::new(
+        crate::adapters::providers::slack::adapter::SlackAdapter::from_db(
+            runtime_config.clone(),
+            db.clone(),
+        ),
+    );
+    slack.clone().register_into(&mut providers);
+    tracing::info!("Slack adapter registered");
 
-        // Webhook adapter is always available (config is per subscription).
-        Arc::new(crate::adapters::providers::webhook::adapter::WebhookAdapter::new())
-            .register_into(&mut providers);
-        tracing::info!("Webhook adapter configured");
+    // Webhook adapter is always available (config is per subscription).
+    Arc::new(crate::adapters::providers::webhook::adapter::WebhookAdapter::new())
+        .register_into(&mut providers);
+    tracing::info!("Webhook adapter configured");
 
-        // Telegram carries its ingress ports (connections, loops, delivery) so
-        // its webhook route and poller read them through the adapter rather
-        // than an `AppState`. Built locally from the pool, the same move as
-        // Linear's `with_tasks` above.
-        let telegram_connections: Arc<dyn AdapterConnectionDao> =
-            Arc::new(PgAdapterConnectionDao::new(db.clone()));
-        let telegram = Arc::new(
-            crate::adapters::providers::telegram::adapter::TelegramAdapter::from_db(
-                runtime_config,
-                db.clone(),
-            )
-            .with_ingress_ports(
-                telegram_connections,
-                Arc::new(LoopDao::new(db.clone())),
-                Arc::new(AdapterDeliveryStore::new(db.clone())),
-            ),
-        );
-        telegram.clone().register_into(&mut providers);
-        tracing::info!("Telegram adapter registered");
+    // Telegram carries its ingress ports (connections, loops, delivery) so
+    // its webhook route and poller read them through the adapter rather
+    // than an `AppState`. Built locally from the pool, the same move as
+    // Linear's `with_tasks` above.
+    let telegram_connections: Arc<dyn AdapterConnectionDao> =
+        Arc::new(PgAdapterConnectionDao::new(db.clone()));
+    let telegram = Arc::new(
+        crate::adapters::providers::telegram::adapter::TelegramAdapter::from_db(
+            runtime_config,
+            db.clone(),
+        )
+        .with_ingress_ports(
+            telegram_connections,
+            Arc::new(LoopDao::new(db.clone())),
+            Arc::new(AdapterDeliveryStore::new(db.clone())),
+        ),
+    );
+    telegram.clone().register_into(&mut providers);
+    tracing::info!("Telegram adapter registered");
 
-        // GitHub PR adapter is always available; config is per subscription. It
-        // carries the ingress ports its webhook route reads (connections, loops,
-        // db, bindings, delivery) so `github_webhook` takes no `AppState` — the
-        // same local-construction move as Telegram above.
-        let github_pr_connections: Arc<dyn AdapterConnectionDao> =
-            Arc::new(PgAdapterConnectionDao::new(db.clone()));
-        let github_pr_bindings: Arc<dyn TaskBindingDao> =
-            Arc::new(PgTaskBindingDao::new(db.clone()));
-        let github_pr = Arc::new(
-            crate::adapters::providers::github_pr::adapter::GithubPrAdapter::new(
-                config.github_pr.webhook_secret.clone(),
-                config.github_pr.bot_token.clone(),
-                config.auth.frontend_url.clone(),
-                provider_tokens.clone(),
-                Some(provider_token_auth.clone()),
-                github_app_service.clone(),
-                github_apps.clone(),
-            )
-            .with_secrets(secrets.clone())
-            .with_ingress_ports(
-                github_pr_connections,
-                Arc::new(LoopDao::new(db.clone())),
-                db.clone(),
-                github_pr_bindings,
-                Arc::new(AdapterDeliveryStore::new(db.clone())),
-            ),
-        );
-        github_pr.clone().register_into(&mut providers);
-        tracing::info!("GitHub PR adapter configured");
+    // GitHub PR adapter is always available; config is per subscription. It
+    // carries the ingress ports its webhook route reads (connections, loops,
+    // db, bindings, delivery) so `github_webhook` takes no `AppState` — the
+    // same local-construction move as Telegram above.
+    let github_pr_connections: Arc<dyn AdapterConnectionDao> =
+        Arc::new(PgAdapterConnectionDao::new(db.clone()));
+    let github_pr_bindings: Arc<dyn TaskBindingDao> = Arc::new(PgTaskBindingDao::new(db.clone()));
+    let github_pr = Arc::new(
+        crate::adapters::providers::github_pr::adapter::GithubPrAdapter::new(
+            config.github_pr.webhook_secret.clone(),
+            config.github_pr.bot_token.clone(),
+            config.auth.frontend_url.clone(),
+            provider_tokens.clone(),
+            Some(provider_token_auth.clone()),
+            github_app_service.clone(),
+            github_apps.clone(),
+        )
+        .with_secrets(secrets.clone())
+        .with_ingress_ports(
+            github_pr_connections,
+            Arc::new(LoopDao::new(db.clone())),
+            db.clone(),
+            github_pr_bindings,
+            Arc::new(AdapterDeliveryStore::new(db.clone())),
+        ),
+    );
+    github_pr.clone().register_into(&mut providers);
+    tracing::info!("GitHub PR adapter configured");
 
-        // Linear adapter — workspace tokens come from the OAuth install
-        // flow (provider_tokens, team_id=<linear org uuid>). OAuth client
-        // credentials are needed to refresh expired access tokens. It owns a
-        // task store for the post-binding follow-up, which titles the
-        // attachment it links back onto the issue.
-        let task_dao = Arc::new(PgTaskDao(db.clone()));
-        // Linear carries its ingress ports (connections, loops, delivery) so its
-        // webhook route reads them through the adapter rather than an `AppState`,
-        // the same move as Telegram above.
-        let linear_connections: Arc<dyn AdapterConnectionDao> =
-            Arc::new(PgAdapterConnectionDao::new(db.clone()));
-        let linear = Arc::new(
-            crate::adapters::providers::linear::adapter::LinearAdapter::from_db(
-                Arc::new(config.clone()),
-                db.clone(),
-            )
-            .with_tasks(task_dao)
-            .with_ingress_ports(
-                linear_connections,
-                Arc::new(LoopDao::new(db.clone())),
-                Arc::new(AdapterDeliveryStore::new(db)),
-            ),
-        );
-        linear.clone().register_into(&mut providers);
-        tracing::info!("Linear adapter configured");
+    // Linear adapter — workspace tokens come from the OAuth install
+    // flow (provider_tokens, team_id=<linear org uuid>). OAuth client
+    // credentials are needed to refresh expired access tokens. It owns a
+    // task store for the post-binding follow-up, which titles the
+    // attachment it links back onto the issue.
+    let task_dao = Arc::new(PgTaskDao(db.clone()));
+    // Linear carries its ingress ports (connections, loops, delivery) so its
+    // webhook route reads them through the adapter rather than an `AppState`,
+    // the same move as Telegram above.
+    let linear_connections: Arc<dyn AdapterConnectionDao> =
+        Arc::new(PgAdapterConnectionDao::new(db.clone()));
+    let linear = Arc::new(
+        crate::adapters::providers::linear::adapter::LinearAdapter::from_db(
+            Arc::new(config.clone()),
+            db.clone(),
+        )
+        .with_tasks(task_dao)
+        .with_ingress_ports(
+            linear_connections,
+            Arc::new(LoopDao::new(db.clone())),
+            Arc::new(AdapterDeliveryStore::new(db)),
+        ),
+    );
+    linear.clone().register_into(&mut providers);
+    tracing::info!("Linear adapter configured");
 
-        let handles = ProviderHandles {
-            github_pr: Some(github_pr),
-            linear: Some(linear),
-            slack: Some(slack),
-            telegram: Some(telegram),
-        };
-        (providers, handles)
-    }
+    let handles = ProviderHandles {
+        github_pr: Some(github_pr),
+        linear: Some(linear),
+        slack: Some(slack),
+        telegram: Some(telegram),
+    };
+    (providers, handles)
 }
