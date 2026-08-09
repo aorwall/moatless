@@ -5,18 +5,18 @@ use std::fmt::Write as _;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::adapters::AdapterInboundPresentation;
-use crate::adapters::AdapterKind;
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{
+use moatless_loops::adapters::AdapterInboundPresentation;
+use moatless_loops::adapters::AdapterKind;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{
     ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, Audience, CONNECTED_THREAD_BINDING_ORIGIN,
     InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
 };
-use crate::bindings::metrics::{inbound_reason, record_inbound};
-use crate::bindings::recently_sent::RecentlySent;
-use crate::task::closer::CloseEvent;
-use crate::task::creation::TaskCreationError;
-use crate::task::models::{TaskStatus, Visibility};
+use moatless_loops::bindings::metrics::{inbound_reason, record_inbound};
+use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_tasks::task::closer::CloseEvent;
+use moatless_tasks::task::creation::TaskCreationError;
+use moatless_tasks::task::models::{TaskStatus, Visibility};
 use moatless_backend_core::scope::ScopeContext;
 
 use super::router::GithubPrInboundRouter;
@@ -85,7 +85,7 @@ impl GithubPrInboundRouter {
     /// What is GitHub's about routing is assembling the bindings: attaching one for
     /// a task the event names as its author, and spawning the review task a freshly
     /// opened pull request calls for. Which of them receive the event is not — that
-    /// is [`crate::bindings::runtime::fan_out`], deciding from the audience
+    /// is [`moatless_loops::bindings::runtime::fan_out`], deciding from the audience
     /// `adapter.rs` classified the event into. This function used to answer both,
     /// through a ladder of guards whose last rung compared the sender's identity to
     /// the bound task's owner; a real review reached no task because of what two of
@@ -209,7 +209,7 @@ impl GithubPrInboundRouter {
                 let related = originator_binding_summary
                     .as_ref()
                     .map(
-                        |(task_id, binding_id)| crate::task::relations::RelatedTask {
+                        |(task_id, binding_id)| moatless_tasks::task::relations::RelatedTask {
                             related_task_id: task_id.clone(),
                             context: serde_json::json!({
                                 "via": "github_pr_webhook",
@@ -224,7 +224,7 @@ impl GithubPrInboundRouter {
                 match self.create_provider_event_task(rule, &msg).await {
                     Ok(task_id) => {
                         if let Some(ref r) = related {
-                            crate::task::relations::record_related_to(
+                            moatless_tasks::task::relations::record_related_to(
                                 self.task_relations.as_ref(),
                                 &task_id,
                                 r,
@@ -318,12 +318,12 @@ impl GithubPrInboundRouter {
             )
         });
 
-        crate::adapters::subject_events::route_subject_event(
+        moatless_loops::adapters::subject_events::route_subject_event(
             &self.routing,
             connection,
             &delivery_rule,
             &msg,
-            crate::adapters::subject_events::SubjectEvent {
+            moatless_loops::adapters::subject_events::SubjectEvent {
                 adapter_label: ADAPTER_LABEL,
                 binding_provider: ADAPTER,
                 subject_kind: SUBJECT_KIND,
@@ -486,7 +486,7 @@ impl GithubPrInboundRouter {
             thread_id: None, // skip thread-context fetch (matches `opened`)
             message_thread_id: info.pr_number.to_string(),
             user_id,
-            author: crate::adapters::models::author_handle(&info.sender_login),
+            author: moatless_loops::adapters::models::author_handle(&info.sender_login),
             text,
             file_ids: vec![],
             thread_properties: serde_json::json!({
@@ -504,7 +504,7 @@ impl GithubPrInboundRouter {
     /// Upsert a `github_pr` binding through the shared spine. Parses the PR
     /// coordinates out of `thread_properties` into the `{owner, repo, pr_number}`
     /// destination config, then delegates the row build + persistence to
-    /// [`crate::bindings::runtime::upsert_binding_into`]. PR bindings never seed a
+    /// [`moatless_loops::bindings::runtime::upsert_binding_into`]. PR bindings never seed a
     /// cursor, so `last_external_event_id` is always `None`.
     async fn upsert_binding(
         &self,
@@ -518,7 +518,7 @@ impl GithubPrInboundRouter {
         let subject_key = subject.key();
         let destination_config = subject.destination_config(None);
 
-        crate::bindings::runtime::upsert_binding_into(
+        moatless_loops::bindings::runtime::upsert_binding_into(
             self.task_bindings.as_ref(),
             connection,
             rule,
@@ -564,12 +564,12 @@ impl GithubPrInboundRouter {
             .adapter
             .as_ref()
             .and_then(|adapter| adapter.reply_instructions());
-        let outcome = crate::loops::firing::inbound::create_task_from_loop(
+        let outcome = moatless_loops::loops::firing::inbound::create_task_from_loop(
             &self.task_creation,
             &config,
-            crate::loops::firing::inbound::CreateTaskParams {
+            moatless_loops::loops::firing::inbound::CreateTaskParams {
                 name: rule.task_name.clone(),
-                description: crate::bindings::outbound::truncate_text(&msg.text, 200),
+                description: moatless_loops::bindings::outbound::truncate_text(&msg.text, 200),
                 visibility: Visibility::Public,
                 origin_prelude: Some(PR_ORIGIN_CONTEXT),
                 reply_instructions,
@@ -612,7 +612,7 @@ impl GithubPrInboundRouter {
                 &msg.file_ids,
                 &[],
                 false,
-                crate::message::send::ExternalOrigin {
+                moatless_tasks::message::send::ExternalOrigin {
                     event_id: msg.external_event_id.as_deref(),
                     adapter: Some(ADAPTER_LABEL),
                     subject_key: Some(&binding.subject_key),
@@ -675,7 +675,7 @@ fn task_that_pushed(
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::AdapterConnection;
+    use moatless_loops::adapters::models::AdapterConnection;
     use chrono::Utc;
     use moatless_backend_core::scope::Scope;
 
@@ -713,9 +713,9 @@ mod tests {
 
     mod push_claim {
         use super::super::task_that_pushed;
-        use crate::adapters::models::{CONNECTED_THREAD_BINDING_ORIGIN, TaskBinding};
-        use crate::adapters::providers::github_pr::external_id;
-        use crate::bindings::recently_sent::RecentlySent;
+        use moatless_loops::adapters::models::{CONNECTED_THREAD_BINDING_ORIGIN, TaskBinding};
+        use crate::external_id;
+        use moatless_loops::bindings::recently_sent::RecentlySent;
         use chrono::Utc;
 
         const FULL_SHA: &str = "7fc0612a1b2c3d4e5f60718293a4b5c6d7e8f901";

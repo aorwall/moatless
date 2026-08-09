@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use tracing::debug;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{BindingContext, SubscriptionMatch, TaskBinding};
-use crate::auth::credentials::resolve_user_github_token;
-use crate::auth::github::registry::GitHubAppRegistry;
-use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::provider_tokens::ProviderTokenAuthDao;
-use crate::secret::service::SecretService;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{BindingContext, SubscriptionMatch, TaskBinding};
+use moatless_identity::auth::credentials::resolve_user_github_token;
+use moatless_identity::auth::github::registry::GitHubAppRegistry;
+use moatless_identity::auth::github::service::GitHubAppService;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
+use moatless_identity::secret::service::SecretService;
 use moatless_core::db::DbPool;
 
 use super::api::GithubPrApi;
@@ -168,7 +168,7 @@ impl GithubPrAuth {
     /// `owner`/`repo` — the `moat gh` typed-API path (SP-2457), where the
     /// identity that pushed the branch is the identity that opens the PR or
     /// posts the comment. Wraps
-    /// [`crate::auth::credentials::resolve_run_as_user_github_token`], which
+    /// [`moatless_identity::auth::credentials::resolve_run_as_user_github_token`], which
     /// reads only the user's own row keyed on `owner`+`repo`.
     ///
     /// What it deliberately does NOT do, unlike [`Self::client_for_user`]:
@@ -196,7 +196,7 @@ impl GithubPrAuth {
         owner: &str,
         repo: &str,
     ) -> Result<GithubPrApi, AdapterError> {
-        let token = crate::auth::credentials::resolve_run_as_user_github_token(
+        let token = moatless_identity::auth::credentials::resolve_run_as_user_github_token(
             self.provider_tokens.as_ref(),
             self.provider_token_auth.as_deref(),
             self.github_app_service.as_deref(),
@@ -320,8 +320,8 @@ fn binding_filter_user_id<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::provider_token_dao::ProviderTokenDao;
-    use crate::auth::test_support::{StubProviderTokens, github_row};
+    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+    use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
 
     fn fake_github_apps() -> Arc<GitHubAppRegistry> {
         Arc::new(GitHubAppRegistry::default())
@@ -369,7 +369,7 @@ mod tests {
     }
 
     fn rule_with_run_as(user_id: &str) -> SubscriptionMatch {
-        use crate::adapters::models::RoutingMode;
+        use moatless_loops::adapters::models::RoutingMode;
         use chrono::Utc;
         use moatless_backend_core::scope::Scope;
 
@@ -492,8 +492,8 @@ mod tests {
     #[tokio::test]
     async fn github_app_installation_resolution_keeps_repository_owner_context() {
         let mut row = github_row(
-            crate::auth::provider_tokens::AUTH_METHOD_APP_INSTALLATION,
-            crate::auth::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER,
+            moatless_identity::auth::provider_tokens::AUTH_METHOD_APP_INSTALLATION,
+            moatless_identity::auth::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER,
         );
         row.provider_user_id = Some("missing-test-app".to_string());
         let auth = auth_with_tokens(

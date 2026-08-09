@@ -1,8 +1,8 @@
 //! Reaction capability for GitHub pull request comments.
 
-use crate::adapters::AdapterReactions;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::BindingContext;
+use moatless_loops::adapters::AdapterReactions;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::BindingContext;
 
 use super::adapter::GithubPrAdapter;
 use super::external_id::{self, CommentTarget};
@@ -150,9 +150,9 @@ mod tests {
 
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
-    use crate::adapters::models::BindingContext;
-    use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{StubProviderTokens, github_row};
+    use moatless_loops::adapters::models::BindingContext;
+    use moatless_identity::auth::github::registry::GitHubAppRegistry;
+    use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
 
     #[test]
     fn github_content_accepts_canonical_and_aliases() {

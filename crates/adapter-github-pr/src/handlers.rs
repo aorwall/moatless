@@ -5,9 +5,9 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::warn;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::ingress::{IngressError, Outcome};
-use crate::adapters::metrics::record_webhook;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_loops::adapters::metrics::record_webhook;
 
 use super::adapter::GithubPrAdapter;
 use super::ingress::WebhookRequest;

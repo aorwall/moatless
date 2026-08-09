@@ -274,6 +274,12 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // `git mv`, and the carved-but-unbanded backstop in main.rs is the tripwire if
         // it is ever forgotten.
         "loops" => "loops".to_string(),
+        // `adapter-github-pr` is a real band-9 crate
+        // (crates/adapter-github-pr), not the floor. Without the arm its files
+        // score as `floor:adapter-github-pr` (excluded from the graph) and its
+        // outgoing edges launder to downward-legal, so a future illegal edge out
+        // of it is never caught. The arm ships in the same slice as the `git mv`.
+        "adapter-github-pr" => "adapter-github-pr".to_string(),
         // `adapter-telegram` is a real band-9 crate (crates/adapter-telegram),
         // not the floor. Without the arm its files score as
         // `floor:adapter-telegram` (excluded from the graph) and its outgoing
@@ -411,6 +417,13 @@ pub fn external_crate(head: &str) -> Option<String> {
         // `moatless_adapter_webhook` and is paired with the
         // `floor_crate_of_dir("adapter-linear")` arm above.
         "moatless_adapter_linear" => "adapter-linear",
+        // `moatless_adapter_github_pr` resolves to the band-9 GitHub PR Adapter
+        // crate. Without this arm the head falls to `None` ("no census edge"),
+        // and every backend facade or server reference to the carved Adapter is
+        // silently subtracted from the graph rather than scored. Mirrors
+        // `moatless_adapter_slack` and is paired with the
+        // `floor_crate_of_dir("adapter-github-pr")` arm above.
+        "moatless_adapter_github_pr" => "adapter-github-pr",
         _ => return None,
     };
     Some(id.to_string())
@@ -776,6 +789,40 @@ mod tests {
             band_of(&id),
             9,
             "moatless_adapter_linear must resolve to band-9 adapter-linear",
+        );
+    }
+
+    /// The GitHub PR Adapter carve must resolve `crates/adapter-github-pr` to
+    /// the band-9 adapter crate, not the `floor:adapter-github-pr` fallthrough
+    /// (band 0, excluded from scoring). Asserting the band turns the
+    /// fallthrough into a test failure rather than a silent whole-crate drop.
+    #[test]
+    fn adapter_github_pr_dir_resolves_to_the_band_9_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("adapter-github-pr"), "adapter-github-pr");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("adapter-github-pr")),
+            9,
+            "crates/adapter-github-pr must be the band-9 GitHub PR Adapter crate, not floor band 0",
+        );
+        assert_eq!(band_of("floor:adapter-github-pr"), 0);
+    }
+
+    /// A backend reference to `moatless_adapter_github_pr::` must resolve to
+    /// the band-9 GitHub PR Adapter crate so the facade edge is scored instead
+    /// of silently subtracted from the graph.
+    #[test]
+    fn moatless_adapter_github_pr_head_resolves_to_the_band_9_crate() {
+        assert_eq!(
+            external_crate("moatless_adapter_github_pr"),
+            Some("adapter-github-pr".to_string())
+        );
+        let Some(id) = external_crate("moatless_adapter_github_pr") else {
+            panic!("moatless_adapter_github_pr must be a known external head");
+        };
+        assert_eq!(
+            band_of(&id),
+            9,
+            "moatless_adapter_github_pr must resolve to band-9 adapter-github-pr",
         );
     }
 }

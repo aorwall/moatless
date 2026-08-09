@@ -7,7 +7,7 @@
 //! check. A deploy, an OOM kill, or a panic lost all four with no trace, and
 //! GitHub had already been told the delivery was accepted.
 //!
-//! Each is now admitted into [`crate::adapters::delivery`] inside the request
+//! Each is now admitted into [`moatless_loops::adapters::delivery`] inside the request
 //! handler and executed by the supervised worker. The admission contract —
 //! when the producer may be acknowledged, what is durable, how retries and
 //! deduplication work, what happens at capacity, and how shutdown drains — is
@@ -38,7 +38,7 @@
 //!
 //! One consequence must be stated rather than assumed away: GitHub's manual
 //! redelivery window is 30 days, which is longer than
-//! [`AdapterDeliveryPolicy::succeeded_retention`](crate::adapters::delivery::AdapterDeliveryPolicy)
+//! [`AdapterDeliveryPolicy::succeeded_retention`](moatless_loops::adapters::delivery::AdapterDeliveryPolicy)
 //! (7 days). A manual redelivery past that horizon is not a duplicate to the
 //! index and the work runs again. That is acceptable because every effect
 //! downstream is separately idempotent (per-binding event receipts keyed on
@@ -50,7 +50,7 @@
 //!
 //! # Execution deadline
 //!
-//! [`AdapterDeliveryPolicy::execution_timeout`](crate::adapters::delivery::AdapterDeliveryPolicy)
+//! [`AdapterDeliveryPolicy::execution_timeout`](moatless_loops::adapters::delivery::AdapterDeliveryPolicy)
 //! is 2 minutes. [`kind::PR_MESSAGE`] is the one kind that can plausibly reach
 //! it, because routing a `pull_request.opened` event creates a task and starts
 //! its sandbox. If it does, the attempt is abandoned at the deadline and
@@ -68,12 +68,12 @@ use moatless_backend_core::scope::ScopeContext;
 
 use tracing::info;
 
-use crate::adapters::delivery::{
+use moatless_loops::adapters::delivery::{
     AdapterDeliveryFailure, AdapterDeliveryHandlers, AdapterDeliveryRequest,
     register_typed_delivery,
 };
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
 
 use super::router::GithubPrInboundRouter;
 use super::webhook::PrCloseInfo;
@@ -259,7 +259,7 @@ pub(super) fn request(
 
 async fn execute_pr_message(
     router: Arc<GithubPrInboundRouter>,
-    _delivery: crate::adapters::delivery::AdapterDelivery,
+    _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
     payload: PrMessageDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
@@ -271,7 +271,7 @@ async fn execute_pr_message(
 
 async fn execute_close(
     router: Arc<GithubPrInboundRouter>,
-    delivery: crate::adapters::delivery::AdapterDelivery,
+    delivery: moatless_loops::adapters::delivery::AdapterDelivery,
     payload: CloseDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (_connection, trigger) = payload.context.resolve(&router).await?;
@@ -293,7 +293,7 @@ async fn execute_close(
 
 async fn execute_post_merge(
     router: Arc<GithubPrInboundRouter>,
-    _delivery: crate::adapters::delivery::AdapterDelivery,
+    _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
     payload: PostMergeDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
@@ -308,7 +308,7 @@ async fn execute_post_merge(
 
 async fn execute_merge_conflict(
     router: Arc<GithubPrInboundRouter>,
-    _delivery: crate::adapters::delivery::AdapterDelivery,
+    _delivery: moatless_loops::adapters::delivery::AdapterDelivery,
     payload: MergeConflictDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
@@ -326,15 +326,15 @@ async fn execute_merge_conflict(
 pub(super) fn log_admission(
     kind: &'static str,
     event_id: &str,
-    admission: crate::adapters::delivery::Admission,
+    admission: moatless_loops::adapters::delivery::Admission,
 ) {
-    crate::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
+    moatless_loops::adapters::ingress::log_admission(ADAPTER, kind, event_id, admission);
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterKind;
-    use crate::adapters::models::Audience;
+    use moatless_loops::adapters::AdapterKind;
+    use moatless_loops::adapters::models::Audience;
 
     use super::*;
 

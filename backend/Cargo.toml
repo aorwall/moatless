@@ -62,13 +62,10 @@ chrono = { version = "0.4", features = ["serde"] }
 # HTTP client (OAuth token exchange)
 reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
 
-# Crypto (API key hashing, Slack webhook HMAC)
-sha2 = "0.11"
-hmac = "0.13"
+# Crypto (API key hashing)
 aes-gcm = "0.11"
 rand = "0.10"
 argon2 = { version = "0.5", features = ["std"] }
-hex = "0.4"
 base64 = "0.22"
 
 # URL encoding
@@ -152,6 +149,9 @@ moatless-adapter-telegram = { path = "../crates/adapter-telegram" }
 # The Linear Adapter. Composed through the permanent facade at
 # src/adapters/providers/linear.rs while the backend stays the composition root.
 moatless-adapter-linear = { path = "../crates/adapter-linear" }
+# The GitHub PR Adapter. Composed through the permanent facade at
+# src/adapters/providers/github_pr.rs while the backend stays the composition root.
+moatless-adapter-github-pr = { path = "../crates/adapter-github-pr" }
 # The sandbox subsystem, now three banded crates behind the permanent facade at
 # src/sandbox/mod.rs: control (band 6, provider-agnostic lifecycle/gRPC/secrets/
 # status) and the two runtime providers k8s/docker (band 7), which carry their
@@ -222,6 +222,10 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 mockall = "0.15"
 tempfile = "3"
+# Webhook signature helpers used by backend integration tests.
+hex = "0.4"
+hmac = "0.13"
+sha2 = "0.11"
 # Thread-local recorder + snapshotter, so a test can assert what a code path
 # actually wrote to a counter rather than that it compiled. Used by
 # `tests/integration/telegram_ingress_test.rs`, which only builds under `db-tests`.

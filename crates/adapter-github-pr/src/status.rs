@@ -2,11 +2,11 @@
 
 use tracing::warn;
 
-use crate::adapters::models::{ExternalStatus, TaskBinding};
-use crate::adapters::AdapterBindingStatus;
+use moatless_loops::adapters::models::{ExternalStatus, TaskBinding};
+use moatless_loops::adapters::AdapterBindingStatus;
 use std::sync::Arc;
 
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
 
 use super::adapter::GithubPrAdapter;
 use super::api::PrInfo;
@@ -252,8 +252,8 @@ mod tests {
 
     use super::super::test_support::{start_github_api_stub, StubResponse};
     use super::*;
-    use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{github_row, StubProviderTokens};
+    use moatless_identity::auth::github::registry::GitHubAppRegistry;
+    use moatless_identity::auth::test_support::{github_row, StubProviderTokens};
 
     fn binding_with_config(config: serde_json::Value) -> TaskBinding {
         let now = chrono::Utc::now();

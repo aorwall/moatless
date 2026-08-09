@@ -11,13 +11,13 @@ use tracing::{debug, warn};
 
 use moatless_core::db::DbPool;
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::ingress::{IngressError, Outcome};
-use crate::adapters::models::{AdapterConnection, SubscriptionMatch};
-use crate::loops::dao::LoopDao;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::adapters::delivery::{AdapterDeliveryRequest, AdapterDeliveryStore};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_loops::adapters::models::{AdapterConnection, SubscriptionMatch};
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
 
 use super::adapter::GithubPrAdapter;
 use super::config::GithubPrRuleConfig;
@@ -391,7 +391,7 @@ async fn admit_sequentially(
     for request in plan {
         let kind = request.kind;
         let event_id = request.event_id.clone();
-        let admission = crate::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
+        let admission = moatless_loops::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
         super::delivery::log_admission(kind, &event_id, admission);
     }
     Ok(())

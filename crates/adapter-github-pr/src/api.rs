@@ -6,7 +6,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::warn;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 
 /// Maximum comment length for GitHub's API (64 KB).
 pub(super) const MAX_COMMENT_LENGTH: usize = 65_536;
@@ -703,7 +703,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
+    use moatless_loops::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_github_keeps_transport_source() {

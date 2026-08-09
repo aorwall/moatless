@@ -20,23 +20,23 @@ use std::sync::Arc;
 
 use moatless_core::db::DbPool;
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::bindings::recently_sent::RecentlySent;
-use crate::bindings::runtime::RoutingService;
-use crate::loops::dao::LoopDao;
-use crate::message::dao::MessageDao;
-use crate::message::send::MessageSendService;
-use crate::task::binding_dao::TaskBindingDao;
-use crate::task::closer::TaskCloser;
-use crate::task::creation::TaskCreationService;
-use crate::task::dao::TaskDao;
-use crate::task::relations::TaskRelationDao;
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_loops::bindings::runtime::RoutingService;
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::message::dao::MessageDao;
+use moatless_tasks::message::send::MessageSendService;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
+use moatless_tasks::task::closer::TaskCloser;
+use moatless_tasks::task::creation::TaskCreationService;
+use moatless_tasks::task::dao::TaskDao;
+use moatless_tasks::task::relations::TaskRelationDao;
 
 use super::adapter::GithubPrAdapter;
 
 /// Constructed-once inbound-routing service for the GitHub PR adapter. Holds the
 /// downward ports the four delivery handlers read; see the module doc.
-pub(crate) struct GithubPrInboundRouter {
+pub struct GithubPrInboundRouter {
     /// Per-provider connection records — resolves a delivery to its connection.
     pub(super) adapter_connections: Arc<dyn AdapterConnectionDao>,
     /// Subscription/trigger lookup — resolves a delivery to its trigger.
@@ -75,7 +75,7 @@ impl GithubPrInboundRouter {
         clippy::too_many_arguments,
         reason = "the inbound-routing substrate is genuinely wide — thirteen downward ports the four delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, the four delivery closures, and every handler, which is the whole point of a constructed-once service."
     )]
-    pub(crate) fn new(
+    pub fn new(
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
         task_bindings: Arc<dyn TaskBindingDao>,

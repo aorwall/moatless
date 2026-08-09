@@ -1,8 +1,8 @@
 //! Canonical GitHub pull-request subject coordinates.
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{BindingContext, TaskBinding};
-use crate::adapters::{AdapterDestinationBuilder, BindingDestination};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{BindingContext, TaskBinding};
+use moatless_loops::adapters::{AdapterDestinationBuilder, BindingDestination};
 
 use super::adapter::GithubPrAdapter;
 
@@ -224,13 +224,13 @@ impl AdapterDestinationBuilder for GithubPrAdapter {
 mod tests {
     use std::sync::Arc;
 
-    use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::provider_token_dao::ProviderTokenDao;
+    use moatless_identity::auth::github::registry::GitHubAppRegistry;
+    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use moatless_core::db::DbPool;
 
     use super::*;
-    use crate::adapters::AdapterDestinationBuilder;
-    use crate::adapters::providers::github_pr::adapter::GithubPrAdapter;
+    use moatless_loops::adapters::AdapterDestinationBuilder;
+    use crate::adapter::GithubPrAdapter;
 
     #[test]
     fn parses_thread_properties_and_builds_canonical_values() {
@@ -327,7 +327,7 @@ mod tests {
     }
 
     fn fake_provider_tokens() -> Arc<dyn ProviderTokenDao> {
-        Arc::new(crate::auth::provider_token_dao::PgProviderTokenDao(
+        Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(
             fake_db_pool(),
         ))
     }

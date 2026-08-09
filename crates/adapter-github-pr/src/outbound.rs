@@ -1,10 +1,10 @@
 //! Outbound reply capabilities for GitHub pull requests.
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{
     AdapterConnection, BindingContext, LoopContext, OutboundReply, SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::{AdapterBindingReply, AdapterMessageReply};
+use moatless_loops::adapters::{AdapterBindingReply, AdapterMessageReply};
 
 use super::adapter::GithubPrAdapter;
 use super::external_id::{self, CommentTarget};
@@ -119,10 +119,10 @@ mod tests {
 
     use super::super::test_support::{StubResponse, start_github_api_stub};
     use super::*;
-    use crate::adapters::models::{AdapterConnection, OutboundReply, TaskBinding};
-    use crate::adapters::{AdapterBindingReply, AdapterMessageReply};
-    use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::test_support::{StubProviderTokens, github_row};
+    use moatless_loops::adapters::models::{AdapterConnection, OutboundReply, TaskBinding};
+    use moatless_loops::adapters::{AdapterBindingReply, AdapterMessageReply};
+    use moatless_identity::auth::github::registry::GitHubAppRegistry;
+    use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
 
     #[tokio::test]
     async fn outbound_capabilities_keep_exact_github_request_budgets() {

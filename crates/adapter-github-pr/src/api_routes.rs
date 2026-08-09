@@ -27,13 +27,13 @@ use moatless_api_schemas::github::{
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use crate::adapters::common::ensure_task_access_with;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::footer::FOOTER_MARKER;
-use crate::adapters::AdapterDestinationBuilder;
-use crate::bindings::recently_sent::RecentlySent;
-use crate::extractors::AuthUser;
-use crate::task::dao::TaskDao;
+use moatless_loops::adapters::common::ensure_task_access_with;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::footer::FOOTER_MARKER;
+use moatless_loops::adapters::AdapterDestinationBuilder;
+use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_identity::extractors::AuthUser;
+use moatless_tasks::task::dao::TaskDao;
 
 use super::adapter::GithubPrAdapter;
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
@@ -412,7 +412,7 @@ async fn resolve_github_api(
 
 /// A pull request resolved for the T3 attach-PR dialog and the creation-time
 /// binding, in the shape T3's `GitResolvedPullRequest` reports.
-pub(crate) struct DialogPullRequest {
+pub struct DialogPullRequest {
     pub number: u64,
     pub title: String,
     pub url: String,
@@ -425,7 +425,7 @@ pub(crate) struct DialogPullRequest {
 /// Resolve an attach-PR reference against the cwd's `repo_owner/repo_name`,
 /// following an `owner/repo#N` or PR-URL reference to the repository it names.
 /// `Ok(None)` when the reference is not one this resolver understands.
-pub(crate) async fn resolve_reference_for_dialog(
+pub async fn resolve_reference_for_dialog(
     adapter: &GithubPrAdapter,
     user_id: &str,
     repo_owner: &str,
@@ -444,7 +444,7 @@ pub(crate) async fn resolve_reference_for_dialog(
 
 /// The open pull request whose head branch is `head`, for binding a Task created
 /// on a PR's head branch.
-pub(crate) async fn find_open_pull_request_for_head(
+pub async fn find_open_pull_request_for_head(
     adapter: &GithubPrAdapter,
     user_id: &str,
     owner: &str,
@@ -555,7 +555,7 @@ async fn body_with_task_footer(
     body: &str,
 ) -> String {
     let footer = match task_id {
-        Some(tid) => crate::bindings::footer::task_comment_footer(tasks, frontend_url, tid).await,
+        Some(tid) => moatless_loops::bindings::footer::task_comment_footer(tasks, frontend_url, tid).await,
         None => None,
     };
     match footer {
@@ -607,7 +607,7 @@ async fn bind_task_to_pr(
         "repo": repo,
         "pr_number": pr_number,
     });
-    match crate::loops::firing::listen::Connector::new(
+    match moatless_loops::loops::firing::listen::Connector::new(
         Some(github_destination),
         adapter_connections,
         loops,

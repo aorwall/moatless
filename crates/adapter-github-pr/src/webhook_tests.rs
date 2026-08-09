@@ -1,8 +1,8 @@
-use crate::adapters::models::{Audience, RoutingMode, SubscriptionMatch};
+use moatless_loops::adapters::models::{Audience, RoutingMode, SubscriptionMatch};
 use moatless_core::db::DbPool;
 
 use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
-use crate::adapters::providers::github_pr::status::WebhookStatusObservation;
+use crate::status::WebhookStatusObservation;
 
 fn fake_db_pool() -> DbPool {
     sqlx::postgres::PgPoolOptions::new()
@@ -70,8 +70,8 @@ async fn normalize_payload(
 }
 
 fn message(
-    primary: Result<PrimaryWebhook, crate::adapters::error::AdapterError>,
-) -> Box<crate::adapters::models::InboundMessage> {
+    primary: Result<PrimaryWebhook, moatless_loops::adapters::error::AdapterError>,
+) -> Box<moatless_loops::adapters::models::InboundMessage> {
     match primary.expect("normalization should succeed") {
         PrimaryWebhook::Message(message) => message,
         PrimaryWebhook::CloseTask(_) => panic!("expected message, got close"),

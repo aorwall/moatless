@@ -2,19 +2,19 @@
 
 use std::sync::Arc;
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::{
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::{
     Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
 };
-use crate::auth::github::registry::GitHubAppRegistry;
-use crate::auth::github::service::GitHubAppService;
-use crate::auth::provider_token_dao::ProviderTokenDao;
-use crate::auth::provider_tokens::ProviderTokenAuthDao;
-use crate::loops::dao::LoopDao;
-use crate::secret::service::SecretService;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_identity::auth::github::registry::GitHubAppRegistry;
+use moatless_identity::auth::github::service::GitHubAppService;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
+use moatless_loops::loops::dao::LoopDao;
+use moatless_identity::secret::service::SecretService;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_core::db::DbPool;
 
 use super::auth::GithubPrAuth;
@@ -50,7 +50,7 @@ fn missing_port(name: &str) -> AdapterError {
 }
 
 /// The three owned DAO handles [`GithubPrAdapter::require_binding_ports`] hands
-/// the typed-API bind path for a [`crate::loops::firing::listen::Connector`] —
+/// the typed-API bind path for a [`moatless_loops::loops::firing::listen::Connector`] —
 /// the connection store, the Loop store, and the binding store. A transient
 /// return shape destructured at the call site, not a stored bundle.
 type BindingPorts = (
@@ -64,7 +64,7 @@ impl GithubPrAdapter {
     ///
     /// Construction lives at the composition root; the provider owns the
     /// mapping from itself to the capability surfaces it implements.
-    pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+    pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::GithubPr;
         adapters.register_trait_object(self.clone());
         adapters.register_binding_reply(self.clone());
@@ -74,7 +74,7 @@ impl GithubPrAdapter {
         adapters.register_binding_status(kind, self);
     }
 
-    pub(crate) fn new(
+    pub fn new(
         global_webhook_secret: Option<String>,
         global_bot_token: Option<String>,
         frontend_url: String,
@@ -113,7 +113,7 @@ impl GithubPrAdapter {
     /// carries the one non-obvious case — policy state — and pins the invariant
     /// at its own definition).
     #[must_use]
-    pub(crate) fn with_ingress_ports(
+    pub fn with_ingress_ports(
         mut self,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
         loops: Arc<LoopDao>,
@@ -164,7 +164,7 @@ impl GithubPrAdapter {
     }
 
     /// The three DAOs the typed-API bind path hands to a
-    /// [`crate::loops::firing::listen::Connector`], as owned `Arc`s — the
+    /// [`moatless_loops::loops::firing::listen::Connector`], as owned `Arc`s — the
     /// connection store, the Loop store, and the binding store. `Connector::new`
     /// takes them by value, so this clones rather than borrowing (unlike the
     /// ingress accessors above, which lend `receive` its borrows). `Err` only if
@@ -183,7 +183,7 @@ impl GithubPrAdapter {
 
     /// Wire the secret service used to resolve `secret_ref` provider tokens.
     #[must_use]
-    pub(crate) fn with_secrets(mut self, secrets: Arc<SecretService>) -> Self {
+    pub fn with_secrets(mut self, secrets: Arc<SecretService>) -> Self {
         self.auth.set_secrets(secrets);
         self
     }
@@ -273,11 +273,11 @@ impl AdapterInboundPresentation for GithubPrAdapter {
 mod tests {
     use std::sync::Arc;
 
-    use crate::adapters::{
+    use moatless_loops::adapters::{
         Adapter, AdapterDestinationBuilder, AdapterInboundPresentation, AdapterOutboundContent,
     };
-    use crate::auth::github::registry::GitHubAppRegistry;
-    use crate::auth::provider_token_dao::ProviderTokenDao;
+    use moatless_identity::auth::github::registry::GitHubAppRegistry;
+    use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
     use moatless_core::db::DbPool;
 
     use super::GithubPrAdapter;
@@ -343,7 +343,7 @@ mod tests {
     }
 
     fn fake_provider_tokens() -> Arc<dyn ProviderTokenDao> {
-        Arc::new(crate::auth::provider_token_dao::PgProviderTokenDao(
+        Arc::new(moatless_identity::auth::provider_token_dao::PgProviderTokenDao(
             fake_db_pool(),
         ))
     }

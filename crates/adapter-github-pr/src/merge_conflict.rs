@@ -2,9 +2,9 @@
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
-use crate::adapters::AdapterKind;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
+use moatless_loops::adapters::AdapterKind;
 
 use super::router::GithubPrInboundRouter;
 use super::signals::MergeableState;

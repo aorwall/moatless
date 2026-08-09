@@ -1,6 +1,6 @@
 //! Typed view of GitHub PR subscription-loop fields used by the webhook parser.
 
-use crate::adapters::models::SubscriptionMatch;
+use moatless_loops::adapters::models::SubscriptionMatch;
 
 /// Senders ignored by default when `adapter_config.ignored_senders` is not
 /// set. `linear-code[bot]` is Linear's GitHub App: their servers post
@@ -206,7 +206,7 @@ mod tests {
             connection_id: "pc_test".into(),
             source_matcher: "soaplabs/repo".into(),
             source_name: None,
-            routing_mode: crate::adapters::models::RoutingMode::BySubject,
+            routing_mode: moatless_loops::adapters::models::RoutingMode::BySubject,
             event_filter: events_filter,
             repository_id: "repo-1".into(),
             prompt_template: None,

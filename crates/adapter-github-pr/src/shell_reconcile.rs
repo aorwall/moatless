@@ -43,14 +43,14 @@ use tracing::{debug, info, warn};
 
 use super::adapter::GithubPrAdapter;
 use super::api::GithubPrApi;
-use crate::adapters::footer::FOOTER_MARKER;
-use crate::adapters::metrics::record_shell_claim;
-use crate::adapters::AdapterDestinationBuilder;
-use crate::bindings::recently_sent::RecentlySent;
-use crate::message::dao::MessageDao;
-use crate::repository::access::RepositoryTokenResolver;
-use crate::repository::dao::RepositoryDao;
-use crate::task::dao::TaskDao;
+use moatless_loops::adapters::footer::FOOTER_MARKER;
+use moatless_loops::adapters::metrics::record_shell_claim;
+use moatless_loops::adapters::AdapterDestinationBuilder;
+use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_tasks::message::dao::MessageDao;
+use moatless_workspaces::repository::access::RepositoryTokenResolver;
+use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_tasks::task::dao::TaskDao;
 use moatless_backend_core::scope::ScopeContext;
 
 /// Adapter label on claim metrics and on the tagged assistant row.
@@ -102,7 +102,7 @@ impl ParsedPr {
               `agent_handlers.rs`, which would put `gh`-command parsing — provider \
               domain knowledge — into the server band that only composes."
 )]
-pub(crate) async fn reconcile_shell_command(
+pub async fn reconcile_shell_command(
     adapter: Option<&Arc<GithubPrAdapter>>,
     recently_sent: &RecentlySent,
     messages: &dyn MessageDao,
@@ -267,7 +267,7 @@ async fn handle_gh_pr_create(
         match adapter.require_binding_ports() {
             Ok((adapter_connections, loops, task_bindings)) => {
                 let github_destination: Arc<dyn AdapterDestinationBuilder> = adapter.clone();
-                match crate::loops::firing::listen::Connector::new(
+                match moatless_loops::loops::firing::listen::Connector::new(
                     Some(github_destination),
                     adapter_connections,
                     loops,
@@ -543,7 +543,7 @@ struct GitPushTarget {
     branch: String,
     /// The new-commit side of the status line's `<old>..<new>` range, as
     /// printed — abbreviated, and not yet checked for plausibility; that is
-    /// [`crate::bindings::recently_sent::RecentlySent::note_commit`]'s call.
+    /// [`moatless_loops::bindings::recently_sent::RecentlySent::note_commit`]'s call.
     ///
     /// `None` when the line carried no range at all: ref creation
     /// (`* [new branch]`) and deletion (`- [deleted]`) name no commit. A branch
@@ -655,10 +655,10 @@ async fn handle_git_push(
 async fn resolve_task_repository_github_token(
     repositories: &dyn RepositoryDao,
     repo_token_resolver: &RepositoryTokenResolver,
-    task: &crate::task::models::Task,
+    task: &moatless_tasks::task::models::Task,
     owner: &str,
     repo_name: &str,
-) -> Result<Option<String>, crate::repository::error::RepositoryError> {
+) -> Result<Option<String>, moatless_workspaces::repository::error::RepositoryError> {
     // reason: hook runs in the agent's background flow; the task row was
     // already resolved for this flow and the repo is its configured one.
     #[allow(clippy::disallowed_methods)]
@@ -667,14 +667,14 @@ async fn resolve_task_repository_github_token(
         .find_by_id(&task.repository_id, &sys_ctx)
         .await?
         .ok_or_else(|| {
-            crate::repository::error::RepositoryError::NotFound(task.repository_id.clone())
+            moatless_workspaces::repository::error::RepositoryError::NotFound(task.repository_id.clone())
         })?;
     let remote_url = repository.remote_url.as_deref().ok_or_else(|| {
-        crate::repository::error::RepositoryError::BadRequest(
+        moatless_workspaces::repository::error::RepositoryError::BadRequest(
             "Task repository has no remote URL".to_string(),
         )
     })?;
-    let persisted = crate::repository::access::parse_github_owner_repo(remote_url);
+    let persisted = moatless_workspaces::repository::access::parse_github_owner_repo(remote_url);
     if persisted
         .as_ref()
         .is_none_or(|(persisted_owner, persisted_repo)| {
@@ -682,7 +682,7 @@ async fn resolve_task_repository_github_token(
                 || !persisted_repo.eq_ignore_ascii_case(repo_name)
         })
     {
-        return Err(crate::repository::error::RepositoryError::BadRequest(
+        return Err(moatless_workspaces::repository::error::RepositoryError::BadRequest(
             "GitHub target does not match the task repository".to_string(),
         ));
     }
@@ -752,7 +752,7 @@ fn parse_git_push(text: &str) -> Option<GitPushTarget> {
 /// `[deleted]` instead of a range, and carry no commit at all — hence `None`.
 ///
 /// What comes back is whatever git printed. Whether it is long enough to name
-/// one commit is [`crate::bindings::recently_sent::RecentlySent::note_commit`]'s
+/// one commit is [`moatless_loops::bindings::recently_sent::RecentlySent::note_commit`]'s
 /// judgement, so that rule lives in one place.
 fn parse_pushed_commit(before_mapping: &str) -> Option<String> {
     let range = before_mapping
@@ -1267,8 +1267,8 @@ mod tests {
     // The Message domain owns unwrapping the agent harness's shell wrapper and
     // joining line continuations; these tests assert the GitHub classifiers
     // still match what it hands over.
-    use crate::bindings::recently_sent::RecentlySent;
-    use crate::message::hooks::{normalize_line_continuations, unwrap_shell_wrapper};
+    use moatless_loops::bindings::recently_sent::RecentlySent;
+    use moatless_tasks::message::hooks::{normalize_line_continuations, unwrap_shell_wrapper};
 
     #[test]
     fn parse_pr_url_basic() {
