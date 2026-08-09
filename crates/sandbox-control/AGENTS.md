@@ -54,6 +54,10 @@ provider SDK (`kube`/`bollard`) — its error type boxes any provider error behi
   error source while mapping client-visible status codes.
 - Provision-plan construction and expected-image selection stay behind lifecycle
   and the concrete runtime adapters.
+- Provision-plan construction must reject tasks whose sandbox identity cannot
+  control the task before any runtime resource is created. The check belongs in
+  this provider-agnostic band and must continue to match the gRPC
+  `ScopeContext::can_control` gate.
 
 ## The provider contract (honored by band 7)
 

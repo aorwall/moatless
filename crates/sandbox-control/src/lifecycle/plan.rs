@@ -9,6 +9,7 @@ use std::sync::Arc;
 use moatless_backend_core::scope::ScopeContext;
 
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::users::UserDao;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use crate::auto_provision::{build_provision_request, get_server_configs_for_task};
@@ -21,6 +22,8 @@ use super::error::RuntimeError;
 use super::runtime::map_sandbox_error;
 
 /// Repositories needed to assemble fresh runtime plans and status config.
+/// `users` resolves the platform-admin flag for the control check every plan is
+/// gated on.
 #[derive(Clone)]
 pub struct ProvisionDeps {
     tasks: Arc<dyn TaskDao>,
@@ -28,11 +31,12 @@ pub struct ProvisionDeps {
     provider_tokens: Arc<dyn ProviderTokenDao>,
     plugins: Arc<dyn PluginDao>,
     workspaces: Arc<dyn WorkspaceDao>,
+    users: Arc<dyn UserDao>,
 }
 
 impl ProvisionDeps {
     /// Assemble from the composed ports. The composition root is the only place
-    /// a `Pg*Dao` is constructed, so this takes the five ports it needs rather
+    /// a `Pg*Dao` is constructed, so this takes the six ports it needs rather
     /// than a pool.
     pub fn new(
         tasks: Arc<dyn TaskDao>,
@@ -40,6 +44,7 @@ impl ProvisionDeps {
         provider_tokens: Arc<dyn ProviderTokenDao>,
         plugins: Arc<dyn PluginDao>,
         workspaces: Arc<dyn WorkspaceDao>,
+        users: Arc<dyn UserDao>,
     ) -> Self {
         Self {
             tasks,
@@ -47,6 +52,7 @@ impl ProvisionDeps {
             provider_tokens,
             plugins,
             workspaces,
+            users,
         }
     }
 
@@ -60,6 +66,7 @@ impl ProvisionDeps {
             self.provider_tokens.as_ref(),
             self.plugins.as_ref(),
             self.workspaces.as_ref(),
+            self.users.as_ref(),
             task_id,
         )
         .await
@@ -118,6 +125,7 @@ mod db_tests {
             )),
             Arc::new(moatless_workspaces::plugin::dao::PgPluginDao(pool.clone())),
             Arc::new(moatless_workspaces::workspace::dao::PgWorkspaceDao(pool.clone())),
+            Arc::new(moatless_identity::auth::users::PgUserDao(pool.clone())),
         )
     }
 

@@ -34,8 +34,8 @@ use moatless_workspaces::repository::models::RepositoryKind;
 use crate::task::models::Visibility;
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
-use moatless_backend_core::access_control::{ensure_can_use_repository, resolve_scope_for_create};
-use moatless_backend_core::scope::{Scope, ScopeContext, ScopedResource};
+use moatless_backend_core::access_control::ensure_can_use_repository;
+use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_core::shared_models::AgentType;
@@ -238,13 +238,6 @@ pub async fn normalize(
 
     let is_template = repo.kind == RepositoryKind::Template;
 
-    // Resolve scope for the new task. Repositories are always user- or
-    // global-scoped now; tasks always inherit User scope owned by the creator.
-    // `resolve_scope_for_create` is sync and pure: no DB or team lookup needed.
-    let resolved_scope = resolve_scope_for_create(scope_ctx, Some(Scope::User))
-        .map_err(|e| TaskError::Forbidden(e.to_string()))?;
-    let (task_scope, task_owner_user_id) = (resolved_scope.scope, resolved_scope.owner_user_id);
-
     // Fast-fail codex tasks with no usable credential: a missing connection
     // or permanent refresh failure would otherwise surface minutes later as
     // a sandbox that dies on sign-in. Transient refresh errors (upstream
@@ -275,8 +268,6 @@ pub async fn normalize(
         created_by: Some(user_id.to_string()),
         headless: req.headless.unwrap_or(false),
         visibility: Visibility::Private,
-        scope: task_scope,
-        owner_user_id: task_owner_user_id,
         loop_id: None,
         workspace_id: req.workspace_id.clone(),
         template_id: if is_template {

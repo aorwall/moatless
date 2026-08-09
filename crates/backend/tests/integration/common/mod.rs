@@ -423,6 +423,7 @@ pub fn test_app_state_with_config(
             ports.provider_tokens.clone(),
             ports.plugins.clone(),
             ports.workspaces.clone(),
+            ports.users.clone(),
         ),
         Arc::new(MockSandboxRuntime),
         connector.clone(),

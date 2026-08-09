@@ -167,6 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             p.provider_tokens.clone(),
             p.plugins.clone(),
             p.workspaces.clone(),
+            p.users.clone(),
         )
     });
     // Build the configured runtime/observer/connector adapter once. The rich

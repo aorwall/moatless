@@ -73,6 +73,7 @@ in the change that found them.
 |---|---|---|
 | Control-scoped writes discard the bool that denies them | `workspace/handlers.rs` — `create_workspace`, `update_workspace`, `override_workspace`, `add_workspace_repo`, `remove_workspace_repo`, `set_workspace_primary_repo` (nine call sites) | Needs a design decision plus a new test; see below |
 | The docker preview-server readiness timeout never fires | `sandbox/docker/status_resolver.rs::inspect_server_container` | Tracked by the `test.fixme` on SERVER-02 in `tests/api/specs/sandbox-errors.spec.ts` |
+| The GitHub preflight never runs on a restart | `crates/sandbox-control/src/auto_provision.rs::build_provision_request` runs only `preflight::preflight_validate_task_control`; `RealPreflight`'s repo-access probe reaches only creation and task start | When `SandboxRuntime::ensure_running` no longer builds a plan on the reuse path; see below |
 
 **Workspace control-filter writes.** `WorkspaceDao`'s `update`, `add_repo`,
 `remove_repo` and `set_primary` all return `bool`, and the trait documents it:
@@ -113,6 +114,24 @@ against. The fix threads a "start requested at" instant through the signature.
 The doc comment on that function is accurate — it scopes its guarantee to
 `running` — so this is a design gap, not a stale comment; update it when the
 behaviour widens.
+
+**The GitHub half of the preflight on the provision path.** A task whose GitHub
+token has been revoked since it was created still gets a pod on restart, and
+fails in-pod at clone time rather than as one `sandbox.error` before any
+infrastructure exists — the same shape the control check now closes.
+
+The gate cannot simply widen to the full `PreflightPort`, which is why this is
+recorded rather than done. `K8sSandboxAdapter::ensure_running` and
+`DockerSandboxAdapter::ensure_running` call `ProvisionDeps::build_request`
+unconditionally, before their ready-container reuse paths, and every message
+wake of a running task goes through it. A `GET /repos/{owner}/{repo}` there
+would put message delivery behind GitHub's availability and bill a call per
+message, and the rejection class is permanent — a GitHub 5xx would fail the
+wake outright. The control check is one indexed read and carries none of that.
+
+Widen it when `ensure_running` can tell "reuse a live sandbox" from "create or
+start one" without building the plan first; the probe then belongs on the
+second branch only.
 
 ## Test and CI structure
 

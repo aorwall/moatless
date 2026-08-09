@@ -19,7 +19,9 @@
 //!   rather than letting a doomed task proceed to a dead sandbox;
 //! * **provision-failure events** — a failed `sandbox.start` publishes a
 //!   `SandboxStatus::Error` event so the task shows as errored instead of
-//!   silently sitting dead, while creation itself still succeeds.
+//!   silently sitting dead, while creation itself still succeeds;
+//! * **one scope rule** — every task persists as `Scope::User` owned by
+//!   `created_by`, derived here rather than accepted from the caller.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -67,6 +69,10 @@ pub struct PreflightRejection {
 /// Normalised task-creation input. Every call path (HTTP handler, loops,
 /// adapters) translates its domain input into this; the service never inspects
 /// HTTP payloads, webhooks, or loop configs.
+///
+/// Scope and ownership are deliberately absent: the service derives them from
+/// `created_by` (see [`TaskCreationService::create`]), so no caller can mint a
+/// task its own sandbox cannot control.
 pub struct NewTaskRequest {
     pub repository_id: String,
     pub agent_type: AgentType,
@@ -77,8 +83,6 @@ pub struct NewTaskRequest {
     pub created_by: Option<String>,
     pub headless: bool,
     pub visibility: Visibility,
-    pub scope: Scope,
-    pub owner_user_id: Option<String>,
     pub loop_id: Option<String>,
     pub workspace_id: Option<String>,
     pub template_id: Option<String>,
@@ -248,6 +252,7 @@ impl TaskCreationService {
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let short_id = self.generate_unique_short_id().await?;
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let owner_user_id = req.created_by.clone();
 
         let mut row = Task {
             task_id: task_id.clone(),
@@ -269,8 +274,8 @@ impl TaskCreationService {
             model: req.model.clone(),
             created_by: req.created_by.clone(),
             visibility: req.visibility,
-            scope: req.scope,
-            owner_user_id: req.owner_user_id.clone(),
+            scope: Scope::User,
+            owner_user_id,
             created_at_db: None,
             updated_at: None,
             append_system_prompt: req.append_system_prompt.clone(),
@@ -488,8 +493,6 @@ mod tests {
             created_by: Some("user1".into()),
             headless: false,
             visibility: Visibility::Private,
-            scope: Scope::User,
-            owner_user_id: Some("user1".into()),
             loop_id: None,
             task_id: None,
             provision: true,
@@ -594,6 +597,38 @@ mod tests {
             .expect("creation succeeds");
 
         assert_eq!(outcome.task.workspace_id.as_deref(), Some(SHADOW_WORKSPACE));
+    }
+
+    /// A global-scoped loop fires as its bot user. The task it spawns must
+    /// still be `Scope::User` owned by that bot: the pod authenticates as
+    /// `created_by`, and the gRPC control gate refuses a global or ownerless
+    /// row, so anything else is a sandbox that can never fetch credentials.
+    #[tokio::test]
+    async fn a_task_is_always_user_scoped_and_owned_by_its_creator() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+        tasks
+            .expect_insert_task()
+            .withf(|row| {
+                row.scope == Scope::User && row.owner_user_id.as_deref() == Some("bot1")
+            })
+            .times(1)
+            .returning(|_| Ok(SHADOW_WORKSPACE.to_string()));
+        let mut starter = MockStarter::new();
+        starter.expect_start().returning(|_| Ok(()));
+
+        let publisher = Arc::new(RecordingPublisher::new());
+        let svc = service(tasks, starter, preflight_ok(), publisher);
+        let mut req = sample_request();
+        req.created_by = Some("bot1".into());
+
+        let outcome = svc
+            .create(req, empty_payload, no_message)
+            .await
+            .expect("creation succeeds");
+
+        assert_eq!(outcome.task.scope, Scope::User);
+        assert_eq!(outcome.task.owner_user_id.as_deref(), Some("bot1"));
     }
 
     #[tokio::test]

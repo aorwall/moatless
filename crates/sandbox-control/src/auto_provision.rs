@@ -13,6 +13,7 @@ use tracing::{info, warn};
 use moatless_backend_core::scope::ScopeContext;
 
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::auth::users::UserDao;
 use moatless_workspaces::plugin::activation;
 use moatless_workspaces::plugin::dao::PluginDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
@@ -22,6 +23,7 @@ use crate::error::SandboxError;
 use crate::models::{
     ProvisionRequest, RepoCheckout, RepoConfig, derive_mount_name, sanitize_mount_name,
 };
+use crate::preflight::preflight_validate_task_control;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::models::Task;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
@@ -196,14 +198,28 @@ fn assign_missing_ports(servers: &mut [ServerConfig]) {
 /// 1. Read the task row to get the workspace/repository reference + branch
 /// 2. Resolve the primary repository (via the workspace when present) and read
 ///    its row to get repo config
-/// 3. Assemble the ProvisionRequest. Runtime credentials are fetched later
+/// 3. Check the sandbox's own identity can control the task
+/// 4. Assemble the ProvisionRequest. Runtime credentials are fetched later
 ///    over gRPC by the sandbox.
+///
+/// Every path to a pod builds its plan here — a first start, a wake, a restart,
+/// a reconciler retry, the scale-up of a reaped sandbox — so step 3 is what
+/// keeps a task whose pod would be refused its credentials from being
+/// re-provisioned indefinitely. It rejects as [`SandboxError::Forbidden`],
+/// which lifecycle classifies as permanent, so the failure is published once
+/// instead of retried.
+///
+/// Only the control half of the preflight runs here. The GitHub probe stays on
+/// creation and task-start: this function also runs on every message wake of an
+/// already-running sandbox, and a network call on that path would put message
+/// delivery behind GitHub's availability.
 pub async fn build_provision_request(
     tasks: &dyn TaskDao,
     repos: &dyn RepositoryDao,
     _provider_tokens: &dyn ProviderTokenDao,
     plugins: &dyn PluginDao,
     workspaces: &dyn WorkspaceDao,
+    users: &dyn UserDao,
     task_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read task from DB
@@ -258,6 +274,16 @@ pub async fn build_provision_request(
                 "Repository '{repository_id}' not found in database"
             ))
         })?;
+
+    // 3. Control check, before anything is built or scheduled.
+    if let Err(e) = preflight_validate_task_control(users, &task).await {
+        warn!(
+            task_id = %task_id,
+            error = %e,
+            "Auto-provision: the sandbox's user cannot control this task; refusing to provision"
+        );
+        return Err(SandboxError::Forbidden(e.user_message()));
+    }
 
     let git_provider = repo.provider.unwrap_or(RepositoryProvider::Github);
 

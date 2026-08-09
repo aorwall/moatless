@@ -1,15 +1,24 @@
-//! Pre-provision validation of GitHub credentials.
+//! Pre-provision validation of a task's sandbox credentials.
 //!
 //! Runs synchronously before lifecycle provisions the sandbox so that a task
-//! with a stale or unauthorised GitHub token fails fast — no Deployment,
-//! PVC, or pod is ever created — and the failure is surfaced as a single
-//! clear `sandbox.error` event on the task instead of a buried `Sandbox
-//! stopped: permanent init failure.` log dump from the pod watcher.
+//! whose pod could never authenticate fails fast — no Deployment, PVC, or pod
+//! is ever created — and the failure is surfaced as a single clear
+//! `sandbox.error` event on the task instead of a buried `Sandbox stopped:
+//! permanent init failure.` log dump from the pod watcher.
 //!
-//! The check probes `GET /repos/{owner}/{repo}` directly. Installation tokens
-//! are repository credentials and cannot use the user-only `/user` endpoint.
-//! The probe runs only when the repo URL is a
-//!    parseable `github.com` URL.
+//! Two checks run, in order:
+//!
+//! 1. **Task control** — the pod authenticates back to the backend as the
+//!    task's `created_by`, and the gRPC control gate then requires
+//!    `ScopeContext::can_control` on the task row. This evaluates the same
+//!    predicate up front so the two cannot drift.
+//! 2. **GitHub credentials** — the token the pod will be handed exists and can
+//!    see the repository.
+//!
+//! The GitHub check probes `GET /repos/{owner}/{repo}` directly. Installation
+//! tokens are repository credentials and cannot use the user-only `/user`
+//! endpoint. The probe runs only when the repo URL is a parseable `github.com`
+//! URL.
 //!
 //! Token resolution mirrors `resolve_task_credentials`: the persisted
 //! repository scope selects exactly one credential row. User repositories use
@@ -22,6 +31,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::warn;
 
+use moatless_backend_core::scope::{Scope, ScopeContext};
+use moatless_identity::auth::models::UserRole;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
@@ -35,9 +46,9 @@ use moatless_identity::secret::service::SecretService;
 use moatless_tasks::task::creation::{PreflightPort, PreflightRejection};
 use moatless_tasks::task::models::Task;
 
-/// The exact set of credential-resolution dependencies the GitHub preflight
-/// consumes. Assembled once at the composition root and consumed by
-/// `RealPreflight`, which is held on `AppState` as `preflight` and shared by
+/// The exact set of credential-resolution dependencies the preflight consumes.
+/// Assembled once at the composition root and consumed by `RealPreflight`,
+/// which is held on `AppState` as `preflight` and shared by
 /// `TaskCreationService` and the task-start handler. All fields are cheap
 /// `Arc` clones.
 #[derive(Clone)]
@@ -54,6 +65,14 @@ pub struct PreflightCredentials {
 /// Failure modes for the pre-flight check.
 #[derive(Debug, thiserror::Error)]
 pub enum PreflightError {
+    #[error("user {user_id} cannot control task {task_id} (scope {scope}, owner {owner:?})")]
+    NoTaskControl {
+        task_id: String,
+        user_id: String,
+        scope: Scope,
+        owner: Option<String>,
+    },
+
     #[error("GitHub account not connected for user {user_id}")]
     NoGithubToken { user_id: String },
 
@@ -74,6 +93,10 @@ impl PreflightError {
     /// "token expired" from "token can't see this repo" at a glance.
     pub fn user_message(&self) -> String {
         match self {
+            Self::NoTaskControl { user_id, scope, .. } => format!(
+                "The sandbox runs as {user_id}, who cannot control this {scope}-scoped task. \
+                Recreate the task so it is owned by the user it runs as."
+            ),
             Self::NoGithubToken { .. } => "GitHub access is not configured for this repository \
                 scope. Configure it before starting this task."
                 .to_string(),
@@ -124,18 +147,63 @@ impl RealPreflight {
     pub fn new(creds: PreflightCredentials, validator: Arc<dyn GithubValidator>) -> Self {
         Self { creds, validator }
     }
+
+    /// Both checks, cheapest first, in the rich error type.
+    async fn check(&self, task: &Task, repo: &Repository) -> Result<(), PreflightError> {
+        preflight_validate_task_control(self.creds.users.as_ref(), task).await?;
+        preflight_validate_github_token(&self.creds, task, repo, self.validator.as_ref()).await
+    }
 }
 
 #[async_trait]
 impl PreflightPort for RealPreflight {
     async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightRejection> {
-        preflight_validate_github_token(&self.creds, task, repo, self.validator.as_ref())
+        self.check(task, repo)
             .await
             .map_err(|e| PreflightRejection {
                 user_message: e.user_message(),
                 detail: e.to_string(),
             })
     }
+}
+
+/// Verify the sandbox's own identity can control the task before provisioning.
+///
+/// The pod authenticates back as `task.created_by`
+/// (`auto_provision::build_provision_request`), and every sandbox gRPC call —
+/// `GetCredentials` first among them — is gated on
+/// [`ScopeContext::can_control`]. A task that fails this check yields a pod
+/// that is refused its credentials, never completes init, fails its startup
+/// probe, and crash-loops. Evaluating the identical predicate here turns that
+/// into one error before any infrastructure exists.
+pub async fn preflight_validate_task_control(
+    users: &dyn UserDao,
+    task: &Task,
+) -> Result<(), PreflightError> {
+    let user_id = task.created_by.as_deref().unwrap_or("system");
+    let ctx = ScopeContext {
+        user_id: user_id.to_string(),
+        is_admin: is_platform_admin(users, user_id).await,
+    };
+    let resource = task.scoped_resource();
+    if ctx.can_control(&resource) {
+        return Ok(());
+    }
+    Err(PreflightError::NoTaskControl {
+        task_id: task.task_id.clone(),
+        user_id: user_id.to_string(),
+        scope: resource.scope,
+        owner: resource.owner_user_id,
+    })
+}
+
+/// Platform-admin lookup, mirroring the gRPC control gate: a non-uuid id (the
+/// `system` sentinel, a `bot:` value) or a failed read is "not admin".
+async fn is_platform_admin(users: &dyn UserDao, user_id: &str) -> bool {
+    let Ok(uuid) = user_id.parse::<uuid::Uuid>() else {
+        return false;
+    };
+    matches!(users.get_user(&uuid).await, Ok(Some(u)) if u.role == UserRole::Admin)
 }
 
 /// Verify the GitHub token + repo access before provisioning a sandbox.
@@ -273,8 +341,151 @@ mod tests {
         }
     }
 
+    /// Deterministic uuid per name, so a fixture's id is stable and readable.
+    fn uid(name: &str) -> uuid::Uuid {
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes())
+    }
+
+    /// A `Task` fixture carrying only the columns the control gate reads.
+    fn task(scope: Scope, created_by: Option<&str>, owner_user_id: Option<&str>) -> Task {
+        Task {
+            task_id: "task-1".to_string(),
+            short_id: None,
+            created_at: String::new(),
+            last_message_at: String::new(),
+            agent_type: moatless_core::shared_models::AgentType("claude-code".to_string()),
+            repository_id: "r".to_string(),
+            status: moatless_tasks::task::models::TaskStatus::Open,
+            total_cost_usd: 0.0,
+            site_url: None,
+            template_id: None,
+            vibe: None,
+            name: None,
+            description: None,
+            site_id: None,
+            site_provider: None,
+            branch: None,
+            model: None,
+            created_by: created_by.map(|u| uid(u).to_string()),
+            visibility: moatless_tasks::task::models::Visibility::Private,
+            scope,
+            owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
+            created_at_db: None,
+            updated_at: None,
+            append_system_prompt: None,
+            headless: false,
+            ttl_minutes: 0,
+            inactive_ttl_days: 0,
+            loop_id: None,
+            workspace_id: None,
+            disabled_servers: None,
+        }
+    }
+
+    fn user(id: &uuid::Uuid, role: UserRole) -> moatless_identity::auth::users::User {
+        moatless_identity::auth::users::User {
+            id: *id,
+            provider_user_id: None,
+            login: id.to_string(),
+            email: None,
+            name: None,
+            avatar_url: None,
+            provider: "test".to_string(),
+            role,
+            created_at: chrono::DateTime::UNIX_EPOCH,
+            last_login_at: chrono::DateTime::UNIX_EPOCH,
+            settings: serde_json::json!({}),
+            is_bot: false,
+        }
+    }
+
+    /// A `UserDao` that reports one role for every lookup.
+    fn users_with_role(role: UserRole) -> moatless_identity::auth::users::MockUserDao {
+        let mut users = moatless_identity::auth::users::MockUserDao::new();
+        users
+            .expect_get_user()
+            .returning(move |id| Ok(Some(user(id, role))));
+        users
+    }
+
+    /// The bug this gate exists for: a global loop firing as a bot yielded a
+    /// global, ownerless task. Its pod authenticates as the bot, and the gRPC
+    /// gate grants control only to a user-scoped row's owner — so `GetCredentials`
+    /// is refused and the pod crash-loops. Reject before any pod exists.
+    #[tokio::test]
+    async fn a_global_task_cannot_be_controlled_by_the_user_its_sandbox_runs_as() {
+        let users = users_with_role(UserRole::User);
+        let task = task(Scope::Global, Some("bot"), None);
+
+        let err = preflight_validate_task_control(&users, &task)
+            .await
+            .expect_err("a global task is uncontrollable");
+
+        assert!(matches!(err, PreflightError::NoTaskControl { .. }));
+        assert!(err.user_message().contains("cannot control"));
+    }
+
+    #[tokio::test]
+    async fn a_user_task_owned_by_its_creator_passes() {
+        let users = users_with_role(UserRole::User);
+        let task = task(Scope::User, Some("alice"), Some("alice"));
+
+        assert!(preflight_validate_task_control(&users, &task).await.is_ok());
+    }
+
+    /// Ownership falls back to `created_by` for rows predating the
+    /// `owner_user_id` column, matching `Task::scoped_resource`.
+    #[tokio::test]
+    async fn a_user_task_with_only_created_by_passes() {
+        let users = users_with_role(UserRole::User);
+        let task = task(Scope::User, Some("alice"), None);
+
+        assert!(preflight_validate_task_control(&users, &task).await.is_ok());
+    }
+
+    /// A user-scoped row owned by somebody else is exactly as unreachable as a
+    /// global one — the pod runs as `created_by`.
+    #[tokio::test]
+    async fn a_user_task_owned_by_someone_else_is_rejected() {
+        let users = users_with_role(UserRole::User);
+        let task = task(Scope::User, Some("alice"), Some("bob"));
+
+        assert!(preflight_validate_task_control(&users, &task)
+            .await
+            .is_err());
+    }
+
+    /// Platform admin short-circuits `can_control`, so the gate would admit the
+    /// pod. Preflight must agree, or it rejects tasks that in fact work.
+    #[tokio::test]
+    async fn an_admin_creator_controls_even_a_global_task() {
+        let users = users_with_role(UserRole::Admin);
+        let task = task(Scope::Global, Some("root"), None);
+
+        assert!(preflight_validate_task_control(&users, &task).await.is_ok());
+    }
+
+    /// A task with no creator provisions as the `system` sentinel, which is not
+    /// a uuid and so never resolves to an admin.
+    #[tokio::test]
+    async fn a_creatorless_task_is_rejected() {
+        let mut users = moatless_identity::auth::users::MockUserDao::new();
+        users.expect_get_user().never();
+        let task = task(Scope::User, None, None);
+
+        assert!(preflight_validate_task_control(&users, &task)
+            .await
+            .is_err());
+    }
+
     #[test]
     fn preflight_error_user_message_distinct_per_variant() {
+        let no_control = PreflightError::NoTaskControl {
+            task_id: "t".to_string(),
+            user_id: "u".to_string(),
+            scope: Scope::Global,
+            owner: None,
+        };
         let no_token = PreflightError::NoGithubToken {
             user_id: "u".to_string(),
         };
@@ -286,6 +497,7 @@ mod tests {
             repo: "r".to_string(),
             reason: "404".to_string(),
         };
+        assert!(no_control.user_message().contains("cannot control"));
         assert!(no_token.user_message().contains("not configured"));
         assert!(invalid.user_message().contains("invalid or expired"));
         assert!(no_access.user_message().contains("o/r"));

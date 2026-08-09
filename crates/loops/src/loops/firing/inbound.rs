@@ -80,6 +80,9 @@ pub struct CreateTaskParams<'a> {
 /// [`TaskCreationService`]. No first message is passed — every adapter delivers
 /// its inbound prompt separately through the binding.
 ///
+/// A Loop is shared and may be global-scoped; the task it fires is not. The
+/// creation service owns that rule and derives scope from `created_by`.
+///
 /// Surfaces the service's typed [`TaskCreationError`] verbatim so callers can
 /// tell a permanent [`TaskCreationError::Preflight`] failure apart from a
 /// transient one (`Db` / `ShortId` / `RepoNotFound`).
@@ -106,9 +109,6 @@ pub async fn create_task_from_loop(
         created_by: Some(config.effective_user_id().to_string()),
         headless: true,
         visibility: params.visibility,
-        scope: config.scope,
-        owner_user_id: (config.scope == moatless_backend_core::scope::Scope::User)
-            .then(|| config.effective_user_id().to_string()),
         loop_id: Some(config.id.clone()),
         workspace_id: None,
         template_id: None,

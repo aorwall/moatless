@@ -66,6 +66,20 @@ const AGENT_EXCLUDED_KEYS: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN", "GIT_TOKEN"];
 /// agent subprocess env, `server.env`, or agent credentials.
 const USER_AUTH_TOKEN_KEY: &str = "USER_AUTH_TOKEN";
 
+/// Wall-clock ceiling on the credential-fetch retry loop.
+///
+/// The pod's startup probe kills the container after
+/// `K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6` failed `/health` checks at 5s spacing
+/// — 150s at the default. `/health` stays 503 for the whole of init, so a retry
+/// loop that outlasts that budget is SIGKILLed mid-backoff and never reports
+/// why it was failing. Staying well under the smallest such window means the
+/// loop always returns its own error, and the container restart is the outer
+/// retry for anything longer.
+const RETRY_BUDGET: Duration = Duration::from_secs(90);
+
+/// Longest single backoff between attempts.
+const MAX_RETRY_DELAY: Duration = Duration::from_mins(1);
+
 /// Produce the credential map passed to the agent subprocess env.
 ///
 /// Strips git-provider tokens that would otherwise freeze to whatever value was
@@ -103,7 +117,7 @@ pub enum PersistMode {
 
 /// Fetch credentials from backend and apply them.
 ///
-/// Retries with exponential backoff (3s, 6s, 12s... up to 10 attempts).
+/// Retries with exponential backoff inside [`RETRY_BUDGET`].
 /// The backend may not be routable when the sandbox pod first starts.
 pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), CredentialFetchError> {
     fetch_and_apply_credentials_with_mode(state, PersistMode::Initial).await
@@ -118,12 +132,13 @@ pub async fn fetch_and_apply_credentials_with_mode(
 ) -> Result<(), CredentialFetchError> {
     let backend_client = &state.backend_client;
     let task_id = &state.config.task_id;
-    let max_retries = 10;
     let mut delay = Duration::from_secs(3);
+    let started = std::time::Instant::now();
+    let mut attempt = 1;
 
     let mut fallbacks = fallback_tokens(&state.config, mode);
 
-    for attempt in 1..=max_retries {
+    loop {
         match backend_client.get_credentials(task_id).await {
             Ok(mut resp) => {
                 let credential_names: Vec<&str> = resp
@@ -218,6 +233,14 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 return Ok(());
             }
             Err(e) => {
+                // A rejection no retry can change: fail permanently with an
+                // actionable message so the pod watcher stops the crash loop
+                // instead of restarting into the same refusal.
+                if let Some(reason) = terminal_rejection_reason(mode, e.code()) {
+                    return Err(CredentialFetchError::Permanent(format!(
+                        "{reason} (backend rejected credential fetch: {e})"
+                    )));
+                }
                 if is_auth_rejection(mode, e.code()) {
                     // The token the client presented was refused. Which store
                     // holds a live one depends on the runtime, so try the rest
@@ -231,6 +254,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
                             "Backend refused the sandbox auth token, trying the next one"
                         );
                         backend_client.update_auth_token(next);
+                        attempt += 1;
                         continue;
                     }
                     // Every token this pod holds has been refused, and all of
@@ -245,25 +269,25 @@ pub async fn fetch_and_apply_credentials_with_mode(
                          the task to re-provision (credential fetch failed: {e})"
                     )));
                 }
-                if attempt == max_retries {
+                let elapsed = started.elapsed();
+                if elapsed + delay >= RETRY_BUDGET {
                     return Err(CredentialFetchError::Transient(format!(
-                        "Failed after {max_retries} attempts: {e}"
+                        "Failed after {attempt} attempts in {}s: {e}",
+                        elapsed.as_secs()
                     )));
                 }
                 warn!(
                     attempt,
-                    max_retries,
                     error = %e,
                     delay_secs = delay.as_secs(),
                     "Credential fetch failed, retrying"
                 );
                 tokio::time::sleep(delay).await;
-                delay = (delay * 2).min(Duration::from_mins(1));
+                delay = (delay * 2).min(MAX_RETRY_DELAY);
+                attempt += 1;
             }
         }
     }
-
-    unreachable!()
 }
 
 /// The tokens init falls back to, in order, when the backend refuses the one the
@@ -292,6 +316,21 @@ fn fallback_tokens(config: &Config, mode: PersistMode) -> Vec<String> {
 /// next cycle.
 fn is_auth_rejection(mode: PersistMode, code: tonic::Code) -> bool {
     mode == PersistMode::Initial && code == tonic::Code::Unauthenticated
+}
+
+/// Why a failed credential fetch is unrecoverable, or `None` if retrying may
+/// still succeed (→ [`CredentialFetchError::Permanent`] vs `Transient`).
+///
+/// `PermissionDenied` is an authorization decision, in either mode. It does
+/// not change on retry, and a container restart presents the same identity
+/// from the same ReplicaSet, so only fixing the task itself helps.
+fn terminal_rejection_reason(_mode: PersistMode, code: tonic::Code) -> Option<&'static str> {
+    match code {
+        tonic::Code::PermissionDenied => Some(
+            "not authorized for this task; its sandbox runs as a user that cannot control it",
+        ),
+        _ => None,
+    }
 }
 
 /// Persist credential files used by local agent runtimes.
@@ -498,13 +537,15 @@ async fn write_onboarding_flag(claude_config_dir: &str) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::time::Duration;
 
     use tempfile::TempDir;
 
     use super::{
         PersistMode, exposed_user_token_paths, fallback_tokens, filter_agent_credentials,
         is_auth_rejection, persist_agent_credentials, persist_user_auth_token,
-        purge_exposed_user_tokens, server_sidecar_env,
+        purge_exposed_user_tokens, server_sidecar_env, terminal_rejection_reason,
+        MAX_RETRY_DELAY, RETRY_BUDGET,
     };
     use crate::config::{AgentConfig, Config, ProxyConfig};
 
@@ -565,6 +606,53 @@ mod tests {
             PersistMode::Refresh,
             Code::Unauthenticated,
         ));
+    }
+
+    /// The backend refuses a task the sandbox's own user cannot control with
+    /// `PermissionDenied`. That is a decision, not a blip: retrying burns the
+    /// startup-probe budget and a restart presents the same identity. Terminal
+    /// in either mode.
+    #[test]
+    fn permission_denied_is_terminal_in_both_modes() {
+        use tonic::Code;
+
+        for mode in [PersistMode::Initial, PersistMode::Refresh] {
+            assert!(
+                terminal_rejection_reason(mode, Code::PermissionDenied)
+                    .is_some_and(|r| r.contains("not authorized")),
+                "expected terminal for {mode:?}"
+            );
+        }
+    }
+
+    /// The startup probe kills the container at
+    /// `K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6` failures x 5s — 150s at the
+    /// default. A retry loop that outlasts that is SIGKILLed mid-backoff and
+    /// the failure is never reported, which is exactly the "no recent error
+    /// events" symptom. Assert the whole schedule fits with room to spare.
+    #[test]
+    fn the_retry_schedule_finishes_before_the_startup_probe_gives_up() {
+        const PROBE_PERIOD_SECS: u64 = 5;
+        const DEFAULT_STARTUP_TIMEOUT_SECS: u64 = 120;
+        let smallest_probe_window = Duration::from_secs(
+            (DEFAULT_STARTUP_TIMEOUT_SECS / PROBE_PERIOD_SECS + 6) * PROBE_PERIOD_SECS,
+        );
+
+        let mut elapsed = Duration::ZERO;
+        let mut delay = Duration::from_secs(3);
+        let mut attempts = 1;
+        while elapsed + delay < RETRY_BUDGET {
+            elapsed += delay;
+            delay = (delay * 2).min(MAX_RETRY_DELAY);
+            attempts += 1;
+        }
+
+        assert!(elapsed < RETRY_BUDGET, "backoff exceeded its own budget");
+        assert!(
+            RETRY_BUDGET < smallest_probe_window,
+            "the loop must give up and report before the probe kills the container"
+        );
+        assert!(attempts > 1, "the loop must still retry a transient blip");
     }
 
     #[tokio::test]
