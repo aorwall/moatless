@@ -34,10 +34,11 @@ use moatless_sandbox::shutdown;
 use moatless_sandbox::state::SandboxState;
 use moatless_sandbox::supervisor::{Criticality, Supervisor, SHUTDOWN_JOIN_DEADLINE};
 
-/// Unix socket path for the in-pod credential broker.
+/// Unix socket file for the in-pod credential broker, inside
+/// [`config::RUNTIME_DIR`].
 ///
-/// Must match the path baked into `docker/moatless-git-cred.sh`.
-const CREDENTIAL_BROKER_SOCKET: &str = "/run/moatless/credentials.sock";
+/// The joined path must match the one baked into `docker/moatless-git-cred.sh`.
+const CREDENTIAL_BROKER_SOCKET_FILE: &str = "credentials.sock";
 
 /// Where the Claude CLI writes its debug logs — pointed at `/tmp` to work around
 /// an SDK lazy-init race. Child CLI processes inherit it from this process.
@@ -272,7 +273,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     //
     // Spawned BEFORE the init task so the socket exists by the time
     // `init/git.rs` wires the helper into git config.
-    let broker_socket = std::path::PathBuf::from(CREDENTIAL_BROKER_SOCKET);
+    let broker_socket =
+        std::path::Path::new(&state.config.runtime_dir).join(CREDENTIAL_BROKER_SOCKET_FILE);
     let broker_state = BrokerState {
         task_id: state.config.task_id.clone(),
         backend_client: Arc::clone(&state.backend_client),

@@ -566,6 +566,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         workspace_dir: path("workspace"),
         repo_dir: path("workspace"),
         data_dir: path("data"),
+        runtime_dir: path("run"),
         upload_dir: path("upload"),
         home_dir: path("home"),
         codex_home_dir: path("codex-home"),

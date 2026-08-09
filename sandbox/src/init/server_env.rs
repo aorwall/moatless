@@ -79,6 +79,7 @@ mod tests {
             workspace_dir: tmp.path().join("workspace").display().to_string(),
             repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().display().to_string(),
+            runtime_dir: tmp.path().join("run").display().to_string(),
             upload_dir: tmp.path().join("uploads").display().to_string(),
             log_level: "info".to_string(),
             backend_grpc_url: "http://backend:50051".to_string(),

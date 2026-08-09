@@ -86,8 +86,8 @@ async fn refresh_once(state: &SandboxState, interval: Duration) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use sandbox_proto::{GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest};
@@ -99,8 +99,8 @@ mod tests {
     use crate::agent::handle::spawn_agent;
     use crate::backend_client::BackendClient;
     use crate::config::{AgentConfig, Config, ProxyConfig};
-    use crate::credentials::recovery::CredentialFailureDetector;
     use crate::credentials::Dispatcher;
+    use crate::credentials::recovery::CredentialFailureDetector;
     use crate::events::GrpcEventPublisher;
     use crate::init::InitPhase;
     use crate::state::SandboxState;
@@ -196,6 +196,7 @@ mod tests {
             workspace_dir: tmp.path().join("workspace").display().to_string(),
             repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().join("data").display().to_string(),
+            runtime_dir: tmp.path().join("run").display().to_string(),
             upload_dir: tmp.path().join("uploads").display().to_string(),
             log_level: "info".to_string(),
             backend_grpc_url: "http://localhost:50051".to_string(),

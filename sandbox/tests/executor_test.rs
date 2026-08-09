@@ -188,6 +188,7 @@ fn test_config() -> Config {
         workspace_dir: "/tmp/test-workspace".to_string(),
         repo_dir: "/tmp/test-workspace".to_string(),
         data_dir: "/tmp/test-data".to_string(),
+        runtime_dir: "/tmp/test-run".to_string(),
         upload_dir: "/tmp/test-upload".to_string(),
         home_dir: "/tmp/test-home".to_string(),
         codex_home_dir: "/tmp/test-codex-home".to_string(),

@@ -19,7 +19,7 @@ use tracing::{info, warn};
 use super::gh_hosts;
 use super::server_env;
 use super::ssh;
-use crate::config::{Config, InitialAuthTokenSource};
+use crate::config::Config;
 use crate::state::SandboxState;
 
 /// Outcome of a failed credential fetch, so init can pick the right exit code.
@@ -28,10 +28,10 @@ pub enum CredentialFetchError {
     /// Retriable — e.g. the backend is not yet routable, or a temporary error.
     /// K8s restarts the container and init tries again.
     Transient(String),
-    /// Unrecoverable without re-provisioning. Emitted when the only credential
-    /// the pod holds is a bootstrap token the backend rejects as expired: retries
-    /// and pod restarts (same ReplicaSet → same expired env) keep failing, so we
-    /// surface an actionable error and stop the crash loop instead.
+    /// Unrecoverable without re-provisioning. Emitted once the backend has
+    /// refused every token this sandbox can present: retries and container
+    /// restarts offer the same set again, so we surface an actionable error and
+    /// stop the crash loop instead.
     Permanent(String),
 }
 
@@ -121,13 +121,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
     let max_retries = 10;
     let mut delay = Duration::from_secs(3);
 
-    // Source of the token we're presenting. If it's a bootstrap token and the
-    // backend rejects it as unauthenticated, that's a permanent failure — see
-    // the error branch below.
-    let token_source = state
-        .config
-        .resolve_initial_auth_token_with_source()
-        .map(|(_, source)| source);
+    let mut fallbacks = fallback_tokens(&state.config, mode);
 
     for attempt in 1..=max_retries {
         match backend_client.get_credentials(task_id).await {
@@ -224,16 +218,31 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 return Ok(());
             }
             Err(e) => {
-                // An Unauthenticated rejection of a bootstrap token means the
-                // short-lived token has expired (a pod that outlived it was
-                // replaced without re-provisioning). Retrying — or letting K8s
-                // restart the container into the same expired env — cannot fix
-                // it; only re-provisioning can. Fail permanently with an
-                // actionable message so the pod watcher stops the crash loop.
-                if is_expired_bootstrap_rejection(mode, e.code(), token_source) {
+                if is_auth_rejection(mode, e.code()) {
+                    // The token the client presented was refused. Which store
+                    // holds a live one depends on the runtime, so try the rest
+                    // before concluding anything.
+                    if !fallbacks.is_empty() {
+                        let next = fallbacks.remove(0);
+                        warn!(
+                            attempt,
+                            remaining = fallbacks.len(),
+                            error = %e,
+                            "Backend refused the sandbox auth token, trying the next one"
+                        );
+                        backend_client.update_auth_token(next);
+                        continue;
+                    }
+                    // Every token this pod holds has been refused, and all of
+                    // them are fixed for its lifetime — retrying, or letting K8s
+                    // restart the container into the same env and the same
+                    // persisted file, presents the same set again. Only
+                    // re-provisioning mints new ones, so fail permanently with an
+                    // actionable message and let the pod watcher stop the crash
+                    // loop.
                     return Err(CredentialFetchError::Permanent(format!(
-                        "bootstrap token expired; restart the task to re-provision \
-                         (backend rejected credential fetch: {e})"
+                        "backend rejected every auth token this sandbox holds; restart \
+                         the task to re-provision (credential fetch failed: {e})"
                     )));
                 }
                 if attempt == max_retries {
@@ -257,22 +266,32 @@ pub async fn fetch_and_apply_credentials_with_mode(
     unreachable!()
 }
 
-/// Whether a failed credential fetch is an unrecoverable expired-bootstrap
-/// rejection (→ [`CredentialFetchError::Permanent`]).
+/// The tokens init falls back to, in order, when the backend refuses the one the
+/// gRPC client is presenting.
 ///
-/// True only on the *initial* fetch when the backend returns `Unauthenticated`
-/// and the token the sandbox presented was the short-lived bootstrap token. In
-/// that case neither retrying nor a pod restart (same ReplicaSet → same expired
-/// env) can succeed — only re-provisioning mints a fresh token. Refresh-mode
-/// failures and rejections of a long-lived token stay transient.
-fn is_expired_bootstrap_rejection(
-    mode: PersistMode,
-    code: tonic::Code,
-    token_source: Option<InitialAuthTokenSource>,
-) -> bool {
-    mode == PersistMode::Initial
-        && code == tonic::Code::Unauthenticated
-        && token_source == Some(InitialAuthTokenSource::Bootstrap)
+/// The client boots on the first of [`Config::initial_auth_token_candidates`],
+/// so the fallbacks are the rest. A refresh has none: the sandbox keeps the
+/// token it already authenticated with.
+fn fallback_tokens(config: &Config, mode: PersistMode) -> Vec<String> {
+    match mode {
+        PersistMode::Initial => config
+            .initial_auth_token_candidates()
+            .into_iter()
+            .skip(1)
+            .collect(),
+        PersistMode::Refresh => Vec::new(),
+    }
+}
+
+/// Whether the backend refused the auth token on an *initial* fetch, meaning
+/// init should present its next candidate and, once they run out, give up
+/// permanently.
+///
+/// Refresh-mode failures are never treated this way: the running sandbox keeps
+/// the token it already authenticated with, and the refresher retries on its
+/// next cycle.
+fn is_auth_rejection(mode: PersistMode, code: tonic::Code) -> bool {
+    mode == PersistMode::Initial && code == tonic::Code::Unauthenticated
 }
 
 /// Persist credential files used by local agent runtimes.
@@ -318,6 +337,8 @@ pub async fn persist_agent_credentials(
 /// Best-effort: a write failure only means the sandbox falls back to the
 /// initial token on the next restart, so failures are logged not fatal.
 async fn persist_user_auth_token(config: &Config, token: &str) {
+    purge_exposed_user_tokens(config).await;
+
     let path = config.persisted_user_token_path();
     if let Some(parent) = path.parent() {
         if let Err(e) = fs::create_dir_all(parent).await {
@@ -334,6 +355,34 @@ async fn persist_user_auth_token(config: &Config, token: &str) {
             }
         }
         Err(e) => warn!(error = %e, "Failed to persist user auth token"),
+    }
+}
+
+/// Paths that must never hold the user auth token, because the agent and the
+/// repo code in the server sidecars can reach them.
+///
+/// Under the workspace tree `workspace_sync` would archive the token into the
+/// task's snapshot and restore it into pods it was not minted for; under
+/// `data_dir` it would sit in the directory every server sidecar mounts.
+fn exposed_user_token_paths(config: &Config) -> [std::path::PathBuf; 2] {
+    [
+        std::path::Path::new(&config.workspace_dir)
+            .join(".moatless")
+            .join(".user_auth_token"),
+        std::path::Path::new(&config.data_dir).join(".user_auth_token"),
+    ]
+}
+
+/// Drop any user auth token sitting somewhere it can be read. Best-effort.
+async fn purge_exposed_user_tokens(config: &Config) {
+    for path in exposed_user_token_paths(config) {
+        match fs::remove_file(&path).await {
+            Ok(()) => info!(path = %path.display(), "Removed exposed user auth token"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                warn!(error = %e, path = %path.display(), "Failed to remove exposed user auth token");
+            }
+        }
     }
 }
 
@@ -453,48 +502,116 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        filter_agent_credentials, is_expired_bootstrap_rejection, persist_agent_credentials,
-        server_sidecar_env, PersistMode,
+        PersistMode, exposed_user_token_paths, fallback_tokens, filter_agent_credentials,
+        is_auth_rejection, persist_agent_credentials, persist_user_auth_token,
+        purge_exposed_user_tokens, server_sidecar_env,
     };
-    use crate::config::{AgentConfig, Config, InitialAuthTokenSource, ProxyConfig};
+    use crate::config::{AgentConfig, Config, ProxyConfig};
+
+    /// Write a persisted token where `Config::persisted_user_token_path` reads it.
+    fn write_persisted_token(config: &Config, token: &str) {
+        let path = config.persisted_user_token_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, token).unwrap();
+    }
 
     #[test]
-    fn expired_bootstrap_rejection_only_on_initial_unauth_bootstrap() {
+    fn a_stale_persisted_token_does_not_mask_a_freshly_minted_env_token() {
+        // Docker mints a new USER_AUTH_TOKEN for every container it creates, so
+        // a persisted file that survived can be older than the env token. Being
+        // tried first must not be the last word.
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.user_auth_token = Some("freshly-minted-env".to_string());
+        config.bootstrap_token = Some("bootstrap".to_string());
+        write_persisted_token(&config, "expired-from-previous-container\n");
+
+        assert_eq!(
+            config.resolve_initial_auth_token().as_deref(),
+            Some("expired-from-previous-container"),
+        );
+        assert_eq!(
+            fallback_tokens(&config, PersistMode::Initial),
+            vec!["freshly-minted-env".to_string(), "bootstrap".to_string()],
+            "the env and bootstrap tokens must remain reachable after a rejection"
+        );
+    }
+
+    #[test]
+    fn a_refresh_never_falls_back_off_its_working_token() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.user_auth_token = Some("env".to_string());
+        config.bootstrap_token = Some("bootstrap".to_string());
+        write_persisted_token(&config, "persisted");
+
+        assert!(fallback_tokens(&config, PersistMode::Refresh).is_empty());
+    }
+
+    #[test]
+    fn auth_rejection_is_recognised_only_on_initial_unauthenticated() {
         use tonic::Code;
 
-        // The one permanent case: initial fetch, Unauthenticated, bootstrap token.
-        assert!(is_expired_bootstrap_rejection(
+        assert!(is_auth_rejection(
             PersistMode::Initial,
             Code::Unauthenticated,
-            Some(InitialAuthTokenSource::Bootstrap),
         ));
 
-        // A long-lived token rejection stays transient: it may be a backend
-        // blip, and a restart could resolve it.
-        assert!(!is_expired_bootstrap_rejection(
-            PersistMode::Initial,
-            Code::Unauthenticated,
-            Some(InitialAuthTokenSource::Persisted),
-        ));
-        assert!(!is_expired_bootstrap_rejection(
-            PersistMode::Initial,
-            Code::Unauthenticated,
-            Some(InitialAuthTokenSource::LegacyEnv),
-        ));
+        // Non-auth failures (e.g. backend unreachable) are ordinary retries.
+        assert!(!is_auth_rejection(PersistMode::Initial, Code::Unavailable));
 
-        // Non-auth failures (e.g. backend unreachable) stay transient.
-        assert!(!is_expired_bootstrap_rejection(
-            PersistMode::Initial,
-            Code::Unavailable,
-            Some(InitialAuthTokenSource::Bootstrap),
-        ));
-
-        // Refresh-mode failures never exit the pod — the loop just retries later.
-        assert!(!is_expired_bootstrap_rejection(
+        // A refresh keeps the token the sandbox already authenticated with.
+        assert!(!is_auth_rejection(
             PersistMode::Refresh,
             Code::Unauthenticated,
-            Some(InitialAuthTokenSource::Bootstrap),
         ));
+    }
+
+    #[tokio::test]
+    async fn persisting_the_token_purges_copies_the_agent_could_read() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+
+        for stale in exposed_user_token_paths(&config) {
+            tokio::fs::create_dir_all(stale.parent().unwrap())
+                .await
+                .unwrap();
+            tokio::fs::write(&stale, "token-from-another-container")
+                .await
+                .unwrap();
+        }
+
+        purge_exposed_user_tokens(&config).await;
+
+        for stale in exposed_user_token_paths(&config) {
+            assert!(
+                !stale.exists(),
+                "{} is reachable by the agent or the server sidecars",
+                stale.display()
+            );
+        }
+        // Absent is the normal case and must stay quiet.
+        purge_exposed_user_tokens(&config).await;
+    }
+
+    #[tokio::test]
+    async fn the_persisted_token_lands_outside_every_exposed_directory() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+
+        persist_user_auth_token(&config, "live-token").await;
+
+        let path = config.persisted_user_token_path();
+        assert_eq!(
+            tokio::fs::read_to_string(&path).await.unwrap(),
+            "live-token"
+        );
+        assert!(
+            !exposed_user_token_paths(&config).contains(&path),
+            "the live token must not sit where the purge sweeps"
+        );
+        assert!(!path.starts_with(&config.workspace_dir));
+        assert!(!path.starts_with(&config.data_dir));
     }
 
     fn test_config(tmp: &TempDir) -> Config {
@@ -510,6 +627,7 @@ mod tests {
             workspace_dir: tmp.path().join("workspace").display().to_string(),
             repo_dir: tmp.path().join("workspace").display().to_string(),
             data_dir: tmp.path().join("data").display().to_string(),
+            runtime_dir: tmp.path().join("run").display().to_string(),
             upload_dir: tmp.path().join("uploads").display().to_string(),
             log_level: "info".to_string(),
             backend_grpc_url: "http://backend:50051".to_string(),

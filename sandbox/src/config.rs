@@ -10,6 +10,18 @@ use moatless_api_schemas::plugin::PluginDelivery;
 use moatless_api_schemas::sandbox::{derive_mount_name, RepoCheckout, WORKSPACE_REPOS_ENV};
 use serde::Deserialize;
 
+/// Sandbox-private runtime directory.
+///
+/// Its volume is mounted into the sandbox container alone — not into the server
+/// sidecars, which run repo code — and it sits outside `workspace_dir`, so
+/// nothing here reaches the workspace snapshot. Credential material that must
+/// not travel lives here: the credential broker socket and the persisted user
+/// auth token.
+///
+/// Fixed rather than configurable because `docker/moatless-git-cred.sh`
+/// hardcodes the broker socket beneath it.
+pub const RUNTIME_DIR: &str = "/run/moatless";
+
 /// Agent-specific configuration parsed from REPO_CONFIG.
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
@@ -127,6 +139,9 @@ pub struct Config {
     pub repo_dir: String,
     /// Data directory for server artifacts
     pub data_dir: String,
+    /// Sandbox-private runtime directory ([`RUNTIME_DIR`]), for credential
+    /// material that must not reach repo code or the workspace snapshot.
+    pub runtime_dir: String,
     /// Upload directory
     pub upload_dir: String,
     /// Log level
@@ -436,6 +451,8 @@ impl Config {
             data_dir: env::var("DATA_DIR")
                 .unwrap_or_else(|_| "/opt/moatless/data".to_string()),
 
+            runtime_dir: RUNTIME_DIR.to_string(),
+
             upload_dir: env::var("UPLOAD_DIR")
                 .unwrap_or_else(|_| "/mnt/uploads".to_string()),
 
@@ -495,83 +512,55 @@ impl Config {
     /// Filesystem path where the long-lived user auth token is persisted after it
     /// is fetched over `GetCredentials`.
     ///
-    /// Written under `workspace_dir` (`/opt/moatless`), which on the default tier
-    /// is an EBS-backed PVC. That volume survives not just container restarts but
-    /// full **pod replacement** (eviction, node death) — which does not call
-    /// `provision()` and so never re-mints tokens. A replacement pod can therefore
-    /// recover with this persisted long-lived token even after its spec's
-    /// short-lived bootstrap token has expired.
+    /// Lives in [`RUNTIME_DIR`], the one directory that is neither archived into
+    /// the workspace snapshot nor mounted into the server sidecars. Off the
+    /// `workspace_dir` tree a token cannot outlive the pod it was minted for by
+    /// riding the snapshot into a replacement; out of `data_dir` it is not
+    /// readable by the repo code those sidecars run.
     ///
-    /// On the ephemeral (no-PVC) tier `workspace_dir` is a node-local emptyDir
-    /// that dies with the pod, so this degrades to container-restart durability
-    /// only.
+    /// How long the file survives is the runtime's business — the volume is
+    /// pod-scoped under K8s and container-scoped under Docker — which is why it
+    /// is one candidate in [`Self::initial_auth_token_candidates`] rather than
+    /// the answer.
     pub fn persisted_user_token_path(&self) -> std::path::PathBuf {
-        std::path::Path::new(&self.workspace_dir)
-            .join(".moatless")
-            .join(".user_auth_token")
+        std::path::Path::new(&self.runtime_dir).join(".user_auth_token")
     }
 
-    /// Persisted-token fallback location under `data_dir` (the `shared-data`
-    /// emptyDir).
-    fn legacy_persisted_user_token_path(&self) -> std::path::PathBuf {
-        std::path::Path::new(&self.data_dir).join(".user_auth_token")
-    }
-
-    /// Resolve the token the sandbox should present on its very first gRPC calls,
-    /// before `GetCredentials` delivers a fresh long-lived token.
+    /// Every token the sandbox can present on its first gRPC calls, in the order
+    /// init should try them, without repeats.
     ///
-    /// Resolution order (most to least durable):
-    /// 1. A persisted long-lived token (survives container restart, and pod
-    ///    replacement on the PVC tier). The PVC-backed path is preferred, with
-    ///    the `data_dir` path read as a fallback.
-    /// 2. The `USER_AUTH_TOKEN` env, when present. This long-lived token keeps
-    ///    stop/start and pod reschedules working after the short-lived bootstrap
-    ///    token would have expired.
-    /// 3. The short-lived bootstrap token.
-    pub fn resolve_initial_auth_token(&self) -> Option<String> {
-        self.resolve_initial_auth_token_with_source()
-            .map(|(token, _)| token)
-    }
+    /// No single one of these is reliably the freshest. The persisted file is
+    /// rewritten on every credential refresh but survives only as long as
+    /// [`RUNTIME_DIR`] does; `USER_AUTH_TOKEN` and the bootstrap token are minted
+    /// when the pod or container was created and then fixed. Init therefore
+    /// works down this list on an `Unauthenticated` rejection instead of betting
+    /// on one store.
+    pub fn initial_auth_token_candidates(&self) -> Vec<String> {
+        let persisted = std::fs::read_to_string(self.persisted_user_token_path())
+            .ok()
+            .map(|token| token.trim().to_string());
 
-    /// Like [`Self::resolve_initial_auth_token`] but also reports which source the
-    /// token came from, so init can tell an expired-bootstrap failure (permanent —
-    /// only re-provisioning helps) apart from a transient backend outage.
-    pub fn resolve_initial_auth_token_with_source(
-        &self,
-    ) -> Option<(String, InitialAuthTokenSource)> {
-        for path in [
-            self.persisted_user_token_path(),
-            self.legacy_persisted_user_token_path(),
-        ] {
-            if let Ok(token) = std::fs::read_to_string(&path) {
-                let token = token.trim();
-                if !token.is_empty() {
-                    return Some((token.to_string(), InitialAuthTokenSource::Persisted));
-                }
+        let mut candidates = Vec::new();
+        for token in [
+            persisted,
+            self.user_auth_token.clone(),
+            self.bootstrap_token.clone(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !token.is_empty() && !candidates.contains(&token) {
+                candidates.push(token);
             }
         }
-        if let Some(token) = self.user_auth_token.clone() {
-            return Some((token, InitialAuthTokenSource::LegacyEnv));
-        }
-        self.bootstrap_token
-            .clone()
-            .map(|token| (token, InitialAuthTokenSource::Bootstrap))
+        candidates
     }
-}
 
-/// Where the sandbox's initial backend-auth token came from — determines whether
-/// an `Unauthenticated` credential-fetch failure is recoverable.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum InitialAuthTokenSource {
-    /// Long-lived token restored from disk (survives restart; survives pod
-    /// replacement on the PVC tier).
-    Persisted,
-    /// Long-lived `USER_AUTH_TOKEN` env.
-    LegacyEnv,
-    /// Short-lived bootstrap token. If rejected, it has almost certainly expired
-    /// and a pod restart would present the same expired env, so re-provisioning
-    /// is required.
-    Bootstrap,
+    /// The token the sandbox presents before `GetCredentials` delivers a fresh
+    /// long-lived one — the first of [`Self::initial_auth_token_candidates`].
+    pub fn resolve_initial_auth_token(&self) -> Option<String> {
+        self.initial_auth_token_candidates().into_iter().next()
+    }
 }
 
 /// Test-only helpers for constructing a [`Config`] without env vars.
@@ -590,6 +579,7 @@ pub(crate) mod test_support {
             workspace_dir: "/tmp/workspace".to_string(),
             repo_dir: "/tmp/workspace/service".to_string(),
             data_dir: "/tmp/data".to_string(),
+            runtime_dir: "/tmp/run".to_string(),
             upload_dir: "/tmp/uploads".to_string(),
             log_level: "info".to_string(),
             backend_grpc_url: "http://backend:50051".to_string(),
@@ -679,17 +669,19 @@ fn parse_repo_config() -> ParsedRepoConfig {
 mod tests {
     use super::test_support::minimal_config;
     use super::{
-        env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
-        primary_checkout, InitialAuthTokenSource, PermissionMode,
+        PermissionMode, env_flag_value_enabled, is_safe_mount_name, parse_permission_mode,
+        parse_repo_checkouts, primary_checkout,
     };
 
-    /// Point both persisted-token dirs at empty temp dirs so resolution falls
+    /// Point the persisted-token dir at an empty temp dir so resolution falls
     /// through to the env-supplied tokens deterministically.
     fn config_without_persisted_token() -> (super::Config, tempfile::TempDir) {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut config = minimal_config();
         config.workspace_dir = tmp.path().display().to_string();
         config.data_dir = tmp.path().display().to_string();
+        // Per-test dir, so one test's persisted token cannot be read by another.
+        config.runtime_dir = tmp.path().display().to_string();
         (config, tmp)
     }
 
@@ -746,8 +738,8 @@ mod tests {
         config.bootstrap_token = Some("boot".to_string());
         config.user_auth_token = Some("legacy".to_string());
         assert_eq!(
-            config.resolve_initial_auth_token_with_source(),
-            Some(("legacy".to_string(), InitialAuthTokenSource::LegacyEnv))
+            config.resolve_initial_auth_token(),
+            Some("legacy".to_string())
         );
     }
 
@@ -758,50 +750,70 @@ mod tests {
         config.bootstrap_token = Some("boot".to_string());
         config.user_auth_token = None;
         assert_eq!(
-            config.resolve_initial_auth_token_with_source(),
-            Some(("boot".to_string(), InitialAuthTokenSource::Bootstrap))
+            config.resolve_initial_auth_token(),
+            Some("boot".to_string())
         );
     }
 
     #[test]
     fn resolve_initial_auth_token_prefers_persisted_file() {
-        // The persisted token lives under the PVC-backed workspace dir and wins
-        // over both the env token and the bootstrap token.
         let tmp = tempfile::TempDir::new().unwrap();
         let mut config = minimal_config();
-        config.workspace_dir = tmp.path().display().to_string();
-        config.data_dir = tmp.path().display().to_string();
+        config.workspace_dir = tmp.path().join("workspace").display().to_string();
+        config.data_dir = tmp.path().join("data").display().to_string();
+        config.runtime_dir = tmp.path().join("run").display().to_string();
         config.bootstrap_token = Some("boot".to_string());
         config.user_auth_token = Some("legacy".to_string());
         let path = config.persisted_user_token_path();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "persisted-tok\n").unwrap();
         assert_eq!(
-            config.resolve_initial_auth_token_with_source(),
-            Some((
-                "persisted-tok".to_string(),
-                InitialAuthTokenSource::Persisted
-            ))
+            config.resolve_initial_auth_token(),
+            Some("persisted-tok".to_string())
         );
     }
 
     #[test]
-    fn resolve_initial_auth_token_reads_legacy_data_dir_path() {
-        // A token persisted by an older sandbox build (under data_dir) is still
-        // honoured after an image upgrade that moved the primary path to the PVC.
-        let ws = tempfile::TempDir::new().unwrap();
-        let data = tempfile::TempDir::new().unwrap();
+    fn initial_auth_token_candidates_offers_every_token_once() {
+        let tmp = tempfile::TempDir::new().unwrap();
         let mut config = minimal_config();
-        config.workspace_dir = ws.path().display().to_string();
-        config.data_dir = data.path().display().to_string();
-        config.bootstrap_token = Some("boot".to_string());
-        std::fs::write(config.legacy_persisted_user_token_path(), "old-persisted\n").unwrap();
+        config.workspace_dir = tmp.path().join("workspace").display().to_string();
+        config.data_dir = tmp.path().join("data").display().to_string();
+        config.runtime_dir = tmp.path().join("run").display().to_string();
+        // The env and bootstrap tokens are minted together and can be equal;
+        // presenting the same rejected token twice would waste a retry.
+        config.user_auth_token = Some("same".to_string());
+        config.bootstrap_token = Some("same".to_string());
+        let path = config.persisted_user_token_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "persisted\n").unwrap();
+
         assert_eq!(
-            config.resolve_initial_auth_token_with_source(),
-            Some((
-                "old-persisted".to_string(),
-                InitialAuthTokenSource::Persisted
-            ))
+            config.initial_auth_token_candidates(),
+            vec!["persisted".to_string(), "same".to_string()]
+        );
+    }
+
+    #[test]
+    fn initial_auth_token_candidates_skips_an_empty_persisted_file() {
+        let (mut config, _tmp) = config_without_persisted_token();
+        std::fs::write(config.persisted_user_token_path(), "  \n").unwrap();
+        config.bootstrap_token = Some("boot".to_string());
+
+        assert_eq!(config.initial_auth_token_candidates(), vec!["boot"]);
+    }
+
+    #[test]
+    fn persisted_user_token_path_stays_off_the_workspace_tree() {
+        // The workspace tree is archived into the task snapshot and restored into
+        // replacement pods; a token kept there would outlive its pod.
+        let mut config = minimal_config();
+        config.workspace_dir = "/opt/moatless/workspace".to_string();
+        config.data_dir = "/opt/moatless/data".to_string();
+        assert!(
+            !config
+                .persisted_user_token_path()
+                .starts_with(&config.workspace_dir)
         );
     }
 

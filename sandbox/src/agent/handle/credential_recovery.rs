@@ -119,6 +119,7 @@ mod tests {
             workspace_dir: "/tmp/workspace".to_string(),
             repo_dir: "/tmp/workspace".to_string(),
             data_dir: "/tmp/data".to_string(),
+            runtime_dir: "/tmp/run".to_string(),
             upload_dir: "/tmp/uploads".to_string(),
             log_level: "info".to_string(),
             backend_grpc_url: "http://localhost:50051".to_string(),
