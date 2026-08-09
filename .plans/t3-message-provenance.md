@@ -48,9 +48,9 @@ are `soaplabs/t3code`. Both are ours.
 | `backend/src/adapters/providers/github_pr/webhook.rs:670` | `inbound_message` — `context.sender_login` is in scope and discarded |
 | `backend/src/adapters/providers/github_pr/text.rs:76` | `issue_comment_text` — where that login goes instead |
 | `backend/src/adapters/providers/github_pr/subject.rs:107` | `key()` → `owner/repo#42` |
-| `backend/src/adapters/providers/slack/auth.rs:19` | `SenderIdentity` — carries `handle` on `Rejected` only |
-| `backend/src/adapters/providers/slack/webhook.rs:377` | Where `SenderIdentity` is consumed and the handle is dropped |
-| `backend/src/adapters/providers/slack/subject.rs:64` | `subject_key` → `team:channel:thread_ts` |
+| `crates/adapter-slack/src/auth.rs:15` | `SenderIdentity` — carries `handle` on `Rejected` only |
+| `crates/adapter-slack/src/webhook.rs:415` | Where `SenderIdentity` is consumed and the handle is dropped |
+| `crates/adapter-slack/src/subject.rs:64` | `subject_key` → `team:channel:thread_ts` |
 | `backend/src/adapters/providers/telegram/webhook.rs:282` | Telegram's `InboundMessage` construction |
 | `backend/src/adapters/providers/linear/comments.rs:123` | Linear's comment ingress |
 | `backend/src/adapters/providers/linear/adapter.rs:295` | Where the Linear issue `url` and `identifier` are written to `destination_config` |
@@ -195,10 +195,10 @@ Actor: a T3 client older than the backend, or newer.
 - **Proposed responsibility** — record the author the external system knows, verbatim, alongside the
   resolved user rather than instead of it.
 - **Proposed change** — `InboundMessage` gains `author: Option<String>`, set at each construction
-  site. Slack's `SenderIdentity` (`slack/auth.rs:19`) gains the handle on its `Mapped` and `Unmapped`
+  site. Slack's `SenderIdentity` (`crates/adapter-slack/src/auth.rs:15`) gains the handle on its `Mapped` and `Unmapped`
   variants, which today carry it only on `Rejected`.
 - **Evidence** — `github_pr/webhook.rs:679` already has `context.sender_login` in scope;
-  `slack/auth.rs:49` already fetches `SlackUserInfo` and reads `info.handle` at `:60`;
+  `crates/adapter-slack/src/auth.rs:49` already fetches `SlackUserInfo` and reads `info.handle` at `:60`;
   `telegram/webhook.rs:282`; `linear/comments.rs:123`. The Webhook Adapter
   (`webhook/adapter.rs:193`) has no author and passes `None`.
 
@@ -431,7 +431,7 @@ without a spec update:
 - `ExternalOrigin` in `backend/src/message/send.rs`, grouping the six provenance values.
 - `InboundMessage.author` in `backend/src/adapters/models.rs`.
 - `SenderIdentity::Mapped { user_id, handle }` and `Unmapped { is_bot, email, handle }` in
-  `backend/src/adapters/providers/slack/auth.rs`.
+  `crates/adapter-slack/src/auth.rs`.
 - `TranscriptMessage`'s new fields and `binding_url` in `crates/t3code/src/dao.rs`.
 - `message_origin` in `crates/t3code/src/projection.rs`.
 - `resolveOriginPresentation` in `t3code/apps/web/src/components/chat/messageOrigin.ts`.
@@ -488,7 +488,7 @@ cold codegen of the whole graph, several minutes):
   a live Binding, one whose Binding was deleted, and one with two Bindings of different subject kinds,
   asserting the lateral join picks deterministically.
 - Adapter webhook tests already assert `InboundMessage` fields
-  (`github_pr/webhook_tests.rs:113`, `slack/ingress.rs:1150`, `telegram/webhook.rs`) — extend each to
+  (`github_pr/webhook_tests.rs:113`, `crates/adapter-slack/src/ingress.rs:1150`, `telegram/webhook.rs`) — extend each to
   assert `author`. Add a Slack case where the sender is `Unmapped` and the handle is still recorded.
 - `backend/src/adapters/inbound_delivery.rs:288` round-trips a persisted `InboundMessage`; extend it
   so the `#[serde(default)]` on `author` is exercised against a payload written without it.

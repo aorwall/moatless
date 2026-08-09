@@ -19,6 +19,7 @@ members = [
     "crates/sandbox-k8s",
     "crates/sandbox-docker",
     "crates/adapter-webhook",
+    "crates/adapter-slack",
     "crates/t3code",
     # "crates/codex-sdk",  # Excluded: built separately via its own workspace (codex dep graph)
     "tools/crate-census",

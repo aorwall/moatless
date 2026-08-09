@@ -9,11 +9,11 @@
 
 use tracing::{debug, info, warn};
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{
     AccessDecision, Audience, InboundMessage, LoopContext, MessageTrigger,
 };
-use crate::adapters::AdapterKind;
+use moatless_loops::adapters::AdapterKind;
 use moatless_core::db::DbPool;
 
 use super::access::enforce_slack_access;
@@ -468,7 +468,7 @@ pub(super) async fn normalize(
             user_id,
             author: sender_handle
                 .as_deref()
-                .and_then(crate::adapters::models::author_handle),
+                .and_then(moatless_loops::adapters::models::author_handle),
             text: clean_text,
             file_ids: vec![], // TODO: handle file attachments
             thread_properties: serde_json::json!({

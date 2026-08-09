@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::models::{LoopContext, MessageTrigger, SourceAccessPolicy};
+use moatless_loops::adapters::models::{LoopContext, MessageTrigger, SourceAccessPolicy};
 
 /// Typed representation of `adapter_config` JSONB for Slack channels.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -116,7 +116,7 @@ mod tests {
             source_id: "C123".into(),
             source_name: None,
             repository_id: "repo1".into(),
-            routing_mode: crate::adapters::models::RoutingMode::BySubject,
+            routing_mode: moatless_loops::adapters::models::RoutingMode::BySubject,
             prompt_template: None,
             active: true,
             allow_direct_send: false,

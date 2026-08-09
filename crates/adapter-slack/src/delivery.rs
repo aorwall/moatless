@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::adapters::delivery::AdapterDeliveryHandlers;
-use crate::adapters::inbound_delivery::InboundMessageHandler;
-use crate::bindings::runtime::RoutingService;
+use moatless_loops::adapters::delivery::AdapterDeliveryHandlers;
+use moatless_loops::adapters::inbound_delivery::InboundMessageHandler;
+use moatless_loops::bindings::runtime::RoutingService;
 
 /// Adapter name on `adapter_delivery` rows, metrics, and bindings.
 pub(crate) const ADAPTER: &str = "slack";

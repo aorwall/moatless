@@ -6,15 +6,15 @@
 
 use tracing::{debug, warn};
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::error::AdapterError;
-use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
-use crate::adapters::ingress::{IngressError, Outcome};
-use crate::adapters::models::{InboundMessage, LoopContext};
-use crate::adapters::{Adapter, BindingDestination};
-use crate::loops::dao::LoopDao;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
+use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_loops::adapters::models::{InboundMessage, LoopContext};
+use moatless_loops::adapters::{Adapter, BindingDestination};
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_core::db::DbPool;
 
 use super::adapter::{ResolvedSlackApp, SlackAdapter};
@@ -137,7 +137,7 @@ async fn resolve(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
-    let Some((connection, subscription)) = crate::bindings::runtime::resolve_chat_provider_event(
+    let Some((connection, subscription)) = moatless_loops::bindings::runtime::resolve_chat_provider_event(
         adapter_connections,
         loops,
         "slack",
@@ -190,7 +190,7 @@ async fn resolve(
         config: moatless_adapter_model::models::subscription_context(&subscription, "slack"),
         source_id: source_id.to_string(),
         connection_id: connection.id,
-        app_key: crate::adapter_apps::app_key_from_transport_config(&connection.transport_config)
+        app_key: moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config)
             .to_string(),
         subscription_id: subscription.id,
         destination,
@@ -307,7 +307,7 @@ pub(super) async fn receive(
     let routed = match verifiable {
         Verifiable::Challenge(challenge) => {
             let app = adapter
-                .app(crate::adapter_apps::DEFAULT_APP_KEY)
+                .app(moatless_identity::adapter_apps::DEFAULT_APP_KEY)
                 .await
                 .map_err(IngressError::Ingress)?;
             verify(&app, &request).map_err(IngressError::Ingress)?;
@@ -366,7 +366,7 @@ pub(super) async fn receive(
     // Slack as a failure so it re-delivers, and must never be swallowed into an
     // acknowledgment. The routing itself runs in the Adapter delivery worker,
     // which is also where the webhook outcome metric is recorded.
-    let admission = crate::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
+    let admission = moatless_loops::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
     debug!(
         source_id,
         event_id = %event_id,
@@ -391,15 +391,15 @@ mod characterization {
     use moatless_backend_core::scope::Scope;
     use sha2::Sha256;
 
-    use crate::adapters::AdapterKind;
-    use crate::adapters::error::{AdapterError, SharedAdapterError};
-    use crate::adapters::models::{Audience, InboundMessage, LoopContext, RoutingMode};
-    use crate::adapters::test_support::ProviderStub;
+    use moatless_loops::adapters::AdapterKind;
+    use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+    use moatless_loops::adapters::models::{Audience, InboundMessage, LoopContext, RoutingMode};
+    use moatless_loops::adapters::test_support::ProviderStub;
     use moatless_core::db::DbPool;
 
-    use super::super::adapter::SlackAdapter;
-    use super::super::api::SlackApi;
-    use super::super::webhook::Normalization;
+    use crate::adapter::SlackAdapter;
+    use crate::api::SlackApi;
+    use crate::webhook::Normalization;
     use super::{IngressError, WebhookRequest, challenge, normalize_and_apply, parse_body, verify};
 
     pub(super) const SIGNING_SECRET: &str = "8f742231b10e8888abcd99yez67676hg";
@@ -548,7 +548,7 @@ mod characterization {
     ) -> Result<Parsed, IngressError> {
         let payload = parse_body(body.as_bytes())?;
         let app = adapter
-            .app(crate::adapter_apps::DEFAULT_APP_KEY)
+            .app(moatless_identity::adapter_apps::DEFAULT_APP_KEY)
             .await
             .map_err(IngressError::Ingress)?;
         verify(&app, &request(headers, body.as_bytes())).map_err(IngressError::Ingress)?;
@@ -974,8 +974,8 @@ mod characterization {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterKind;
-    use crate::adapters::models::{Audience, InboundMessage};
+    use moatless_loops::adapters::AdapterKind;
+    use moatless_loops::adapters::models::{Audience, InboundMessage};
 
     use super::admission_event_id;
 
@@ -1050,8 +1050,8 @@ mod tests {
 mod characterization_db {
     use sqlx::PgPool;
 
-    use crate::adapters::AdapterKind;
-    use crate::adapters::models::Audience;
+    use moatless_loops::adapters::AdapterKind;
+    use moatless_loops::adapters::models::Audience;
 
     use super::IngressError;
     use super::characterization::{
@@ -1059,7 +1059,7 @@ mod characterization_db {
         slack_stub, trigger,
     };
 
-    fn message(result: Result<Parsed, IngressError>) -> crate::adapters::models::InboundMessage {
+    fn message(result: Result<Parsed, IngressError>) -> moatless_loops::adapters::models::InboundMessage {
         match result {
             Ok(Parsed::Message(message)) => *message,
             Ok(Parsed::Ignore(reason)) => panic!("expected Message, got {reason}"),

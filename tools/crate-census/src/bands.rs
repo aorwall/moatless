@@ -276,6 +276,13 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // into another adapter at the same band or into the server band — is never
         // caught. The arm ships in the same slice as the `git mv`.
         "adapter-webhook" => "adapter-webhook".to_string(),
+        // `adapter-slack` (10h) is a real band-9 crate
+        // (crates/adapter-slack), not the floor. Without the arm its files score
+        // as `floor:adapter-slack` (excluded from the graph) and its outgoing
+        // edges launder to downward-legal, so a future illegal edge out of it —
+        // into another adapter at the same band or into the server band — is never
+        // caught. The arm ships in the same slice as the `git mv`.
+        "adapter-slack" => "adapter-slack".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -365,6 +372,13 @@ pub fn external_crate(head: &str) -> Option<String> {
         // subtracted from the graph rather than scored. Mirrors `moatless_loops`
         // and is paired with the `floor_crate_of_dir("adapter-webhook")` arm above.
         "moatless_adapter_webhook" => "adapter-webhook",
+        // `moatless_adapter_slack` resolves to the band-9 Slack Adapter crate.
+        // Without this arm the head falls to `None` ("no census edge"), and every
+        // backend facade or server reference to the carved Adapter is silently
+        // subtracted from the graph rather than scored. Mirrors
+        // `moatless_adapter_webhook` and is paired with the
+        // `floor_crate_of_dir("adapter-slack")` arm above.
+        "moatless_adapter_slack" => "adapter-slack",
         _ => return None,
     };
     Some(id.to_string())
@@ -628,6 +642,40 @@ mod tests {
             band_of(&id),
             9,
             "moatless_adapter_webhook must resolve to band-9 adapter-webhook",
+        );
+    }
+
+    /// The 10h Slack Adapter carve must resolve `crates/adapter-slack` to the
+    /// band-9 adapter crate, not the `floor:adapter-slack` fallthrough (band 0,
+    /// excluded from scoring). Asserting the band turns the fallthrough into a
+    /// test failure rather than a silent whole-crate drop.
+    #[test]
+    fn adapter_slack_dir_resolves_to_the_band_9_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("adapter-slack"), "adapter-slack");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("adapter-slack")),
+            9,
+            "crates/adapter-slack must be the band-9 Slack Adapter crate, not floor band 0",
+        );
+        assert_eq!(band_of("floor:adapter-slack"), 0);
+    }
+
+    /// A backend reference to `moatless_adapter_slack::` must resolve to the
+    /// band-9 Slack Adapter crate so the facade edge is scored instead of
+    /// silently subtracted from the graph.
+    #[test]
+    fn moatless_adapter_slack_head_resolves_to_the_band_9_crate() {
+        assert_eq!(
+            external_crate("moatless_adapter_slack"),
+            Some("adapter-slack".to_string())
+        );
+        let Some(id) = external_crate("moatless_adapter_slack") else {
+            panic!("moatless_adapter_slack must be a known external head");
+        };
+        assert_eq!(
+            band_of(&id),
+            9,
+            "moatless_adapter_slack must resolve to band-9 adapter-slack",
         );
     }
 }

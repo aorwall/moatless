@@ -1,8 +1,8 @@
 //! Emoji reactions on a Slack message.
 
-use crate::adapters::AdapterReactions;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::BindingContext;
+use moatless_loops::adapters::AdapterReactions;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::BindingContext;
 
 use super::adapter::SlackAdapter;
 use super::subject;
@@ -31,7 +31,7 @@ impl AdapterReactions for SlackAdapter {
     ) -> Result<Option<String>, AdapterError> {
         let (channel, ts) = subject::reaction_target(binding, target_external_id)?;
         let name = normalize_emoji(emoji)?;
-        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
         app.api.add_reaction(&channel, name, ts).await?;
         Ok(None)
     }
@@ -44,19 +44,19 @@ impl AdapterReactions for SlackAdapter {
     ) -> Result<(), AdapterError> {
         let (channel, ts) = subject::reaction_target(binding, target_external_id)?;
         let name = normalize_emoji(emoji)?;
-        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
         app.api.remove_reaction(&channel, name, ts).await
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::AdapterReactions;
-    use crate::adapters::models::BindingContext;
-    use crate::adapters::test_support::ProviderStub;
+    use moatless_loops::adapters::AdapterReactions;
+    use moatless_loops::adapters::models::BindingContext;
+    use moatless_loops::adapters::test_support::ProviderStub;
 
-    use super::super::adapter::SlackAdapter;
-    use super::super::api::SlackApi;
+    use crate::adapter::SlackAdapter;
+    use crate::api::SlackApi;
     use super::normalize_emoji;
 
     async fn slack_stub() -> ProviderStub {

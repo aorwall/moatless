@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use tokio::sync::OnceCell;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::{Adapter, AdapterKind, AdapterOutboundContent, Adapters};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::{Adapter, AdapterKind, AdapterOutboundContent, Adapters};
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 
@@ -35,7 +35,7 @@ impl SlackAdapter {
     ///
     /// Construction lives at the composition root; the provider owns the
     /// mapping from itself to the capability surfaces it implements.
-    pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+    pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::Slack;
         adapters.register_trait_object(self.clone());
         adapters.register_binding_reply(self.clone());
@@ -102,7 +102,7 @@ impl SlackAdapter {
             .config
             .as_deref()
             .ok_or_else(|| SharedAdapterError::Internal("Slack Adapter missing config".into()))?;
-        let Some(app) = crate::adapter_apps::slack_app_config(db, config, app_key)
+        let Some(app) = moatless_identity::adapter_apps::slack_app_config(db, config, app_key)
             .await
             .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
         else {
@@ -122,7 +122,7 @@ impl SlackAdapter {
     pub(super) async fn ensure_workspace_id(&self) -> Result<String, AdapterError> {
         self.workspace_id
             .get_or_try_init(|| async {
-                let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+                let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
                 let info = app.api.auth_test().await?;
                 info.team_id.ok_or_else(|| {
                     SharedAdapterError::AdapterApi("Slack auth.test returned no team_id".into())

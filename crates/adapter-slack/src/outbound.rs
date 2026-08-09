@@ -3,11 +3,11 @@
 
 use tracing::warn;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{
     AdapterConnection, BindingContext, LoopContext, OutboundReply, SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::{
+use moatless_loops::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
     DestinationPostResult,
 };
@@ -41,7 +41,7 @@ impl AdapterBindingReply for SlackAdapter {
         _config: &LoopContext,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
         let coordinates = subject::thread_coordinates(&thread.destination_config);
         let channel = coordinates.channel.ok_or_else(|| {
             SharedAdapterError::Internal("No channel in thread properties".into())
@@ -70,7 +70,7 @@ impl AdapterBindingReply for SlackAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let app_key =
-            crate::adapter_apps::app_key_from_transport_config(&_connection.transport_config);
+            moatless_identity::adapter_apps::app_key_from_transport_config(&_connection.transport_config);
         let app = self.app(app_key).await?;
         let thread = moatless_adapter_model::models::binding_context(binding);
         let _config = rule.map_or_else(
@@ -83,7 +83,7 @@ impl AdapterBindingReply for SlackAdapter {
                     .to_string(),
                 source_name: None,
                 repository_id: String::new(),
-                routing_mode: crate::adapters::models::RoutingMode::BySubject,
+                routing_mode: moatless_loops::adapters::models::RoutingMode::BySubject,
                 prompt_template: None,
                 active: true,
                 allow_direct_send: false,
@@ -142,7 +142,7 @@ impl AdapterDirectDestination for SlackAdapter {
         destination: &str,
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
-        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
         let workspace_id = self.ensure_workspace_id().await?;
         let (channel, thread_ts) = subject::parse_destination(destination)?;
 
@@ -179,7 +179,7 @@ impl AdapterDirectMessage for SlackAdapter {
     /// Slack has to ask its API for the DM channel that pairs the bot with the
     /// user before anything can be posted there.
     async fn dm_destination(&self, provider_user_id: &str) -> Result<Option<String>, AdapterError> {
-        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
         let dm_channel = app.api.open_dm(provider_user_id).await?;
         Ok(Some(format!("dm:{dm_channel}")))
     }
@@ -187,17 +187,17 @@ impl AdapterDirectMessage for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::{
+    use moatless_loops::adapters::models::{
         BindingContext, LoopContext, OutboundFile, OutboundReply, RoutingMode,
     };
-    use crate::adapters::test_support::ProviderStub;
-    use crate::adapters::{
+    use moatless_loops::adapters::test_support::ProviderStub;
+    use moatless_loops::adapters::{
         AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage,
     };
     use moatless_backend_core::scope::Scope;
 
-    use super::super::adapter::SlackAdapter;
-    use super::super::api::SlackApi;
+    use crate::adapter::SlackAdapter;
+    use crate::api::SlackApi;
 
     /// A stub that answers every send endpoint the outbound paths use.
     async fn slack_stub() -> ProviderStub {
@@ -279,7 +279,7 @@ mod tests {
         }
     }
 
-    fn body(request: &crate::adapters::test_support::RecordedRequest) -> serde_json::Value {
+    fn body(request: &moatless_loops::adapters::test_support::RecordedRequest) -> serde_json::Value {
         serde_json::from_str(&request.body).expect("stub recorded a JSON body")
     }
 

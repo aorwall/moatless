@@ -6,7 +6,7 @@
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_core::db::DbPool;
 
 use super::api::{SlackApi, SlackUserInfo};
@@ -216,10 +216,10 @@ pub(super) async fn bot_user_id(api: &SlackApi, configured: Option<&str>) -> Opt
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::test_support::ProviderStub;
+    use moatless_loops::adapters::test_support::ProviderStub;
     use moatless_core::db::DbPool;
 
-    use super::super::api::SlackApi;
+    use crate::api::SlackApi;
     use super::{SenderIdentity, bot_user_id, resolve_inbound_sender};
 
     fn unreachable_pool() -> DbPool {
@@ -370,7 +370,7 @@ mod tests {
     #[tokio::test]
     async fn an_unreachable_slack_leaves_the_bot_unidentified() {
         let api =
-            SlackApi::with_base_url("xoxb-test", crate::adapters::test_support::UNREACHABLE_BASE);
+            SlackApi::with_base_url("xoxb-test", moatless_loops::adapters::test_support::UNREACHABLE_BASE);
         assert_eq!(bot_user_id(&api, None).await, None);
     }
 }

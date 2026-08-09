@@ -1,7 +1,7 @@
 //! Slack HMAC-SHA256 webhook signature verification.
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::signature::verify_hmac_sha256;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::signature::verify_hmac_sha256;
 
 /// Verify the Slack request signature.
 ///

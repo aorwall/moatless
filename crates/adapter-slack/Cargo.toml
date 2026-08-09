@@ -1,0 +1,38 @@
+[package]
+name = "moatless-adapter-slack"
+version = "0.1.0"
+edition = "2021"
+description = "Slack Adapter: Slack webhook handling, Web API, and outbound delivery for Moatless"
+
+[dependencies]
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+utoipa = { version = "5", features = ["axum_extras"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+moatless-adapter-model = { path = "../adapter-model" }
+moatless-backend-core = { path = "../backend-core", features = ["database"] }
+moatless-core = { path = "../core" }
+moatless-identity = { path = "../identity" }
+moatless-loops = { path = "../loops" }
+moatless-tasks = { path = "../tasks" }
+
+[features]
+db-tests = []
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hex = "0.4"
+hmac = "0.13"
+sha2 = "0.11"
+moatless-loops = { path = "../loops", features = ["test-support"] }

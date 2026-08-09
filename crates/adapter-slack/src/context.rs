@@ -1,9 +1,9 @@
 //! How a Slack thread is presented to the agent: the instructions and labels
 //! that frame an inbound message, and the thread history fetched alongside it.
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{BindingContext, InboundMessage, LoopContext};
-use crate::adapters::AdapterInboundPresentation;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{BindingContext, InboundMessage, LoopContext};
+use moatless_loops::adapters::AdapterInboundPresentation;
 
 use super::adapter::SlackAdapter;
 use super::config::SlackAdapterConfig;
@@ -68,7 +68,7 @@ impl AdapterInboundPresentation for SlackAdapter {
             .and_then(|v| v.as_str());
         let oldest = oldest_raw.map(|s| s.strip_prefix("slack:ts:").unwrap_or(s));
 
-        let app = self.app(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let app = self.app(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
         let replies = app
             .api
             .get_thread_replies(
@@ -115,15 +115,15 @@ impl AdapterInboundPresentation for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
-    use crate::adapters::models::{
+    use moatless_loops::adapters::models::{
         Audience, BindingContext, InboundMessage, LoopContext, RoutingMode,
     };
-    use crate::adapters::test_support::ProviderStub;
-    use crate::adapters::{AdapterInboundPresentation, AdapterKind};
+    use moatless_loops::adapters::test_support::ProviderStub;
+    use moatless_loops::adapters::{AdapterInboundPresentation, AdapterKind};
     use moatless_backend_core::scope::Scope;
 
-    use super::super::adapter::SlackAdapter;
-    use super::super::api::SlackApi;
+    use crate::adapter::SlackAdapter;
+    use crate::api::SlackApi;
 
     /// A thread of four messages: the parent, one before the cursor, and two
     /// after it.

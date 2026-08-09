@@ -6,13 +6,13 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use tracing::debug;
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::ingress::{IngressError, Outcome};
-use crate::adapters::metrics::record_webhook;
-use crate::loops::dao::LoopDao;
-use crate::task::binding_dao::TaskBindingDao;
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_loops::adapters::metrics::record_webhook;
+use moatless_loops::loops::dao::LoopDao;
+use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_core::db::DbPool;
 
 use super::adapter::SlackAdapter;
@@ -114,10 +114,10 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
 
-    use crate::adapters::delivery::AdmitError;
-    use crate::adapters::error::{AdapterError, SharedAdapterError};
-    use crate::adapters::ingress::IngressError;
-    use crate::adapters::test_support::response_snapshot;
+    use moatless_loops::adapters::delivery::AdmitError;
+    use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+    use moatless_loops::adapters::ingress::IngressError;
+    use moatless_loops::adapters::test_support::response_snapshot;
 
     /// The acknowledgment class of each failure the Slack webhook path raises.
     /// An ingress rejection and an admission failure both leave the request

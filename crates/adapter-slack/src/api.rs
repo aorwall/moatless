@@ -3,7 +3,7 @@
 use serde::Deserialize;
 use tracing::warn;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 
 /// Slack API client wrapping reqwest.
 #[derive(Clone)]
@@ -629,7 +629,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
+    use moatless_loops::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_slack_keeps_transport_source() {
