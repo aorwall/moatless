@@ -16,7 +16,6 @@ use tracing::warn;
 
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::metrics::record_webhook;
-use crate::state::AppState;
 
 use super::adapter::LinearAdapter;
 use super::ingress::{IngressError, Outcome};
@@ -29,7 +28,6 @@ use super::ingress::{IngressError, Outcome};
     responses((status = 200, description = "Webhook processed"))
 )]
 pub async fn linear_webhook(
-    State(state): State<AppState>,
     State(linear_provider): State<Option<Arc<LinearAdapter>>>,
     headers: HeaderMap,
     body: Bytes,
@@ -43,11 +41,11 @@ pub async fn linear_webhook(
         .unwrap_or("");
 
     match super::ingress::receive(
-        state.adapter_connections.as_ref(),
-        &state.loops,
-        &state.db,
-        &state.config,
-        &state.adapter_delivery,
+        linear_provider.require_adapter_connections()?,
+        linear_provider.require_loops()?,
+        linear_provider.db(),
+        linear_provider.require_config()?,
+        linear_provider.require_adapter_delivery()?,
         &linear_provider,
         signature,
         &body,

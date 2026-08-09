@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use tracing::warn;
 
+use crate::adapters::dao::AdapterConnectionDao;
+use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
     AdapterConnection, BindingContext, ExternalStatus, InboundMessage, LoopContext, OutboundReply,
@@ -17,6 +19,7 @@ use crate::adapters::{
     AdapterInboundPresentation, AdapterKind, AdapterMessageReply, AdapterOutboundContent,
     AdapterPostBindingFollowup, Adapters,
 };
+use crate::loops::dao::LoopDao;
 use crate::task::dao::TaskDao;
 use moatless_core::db::DbPool;
 
@@ -43,6 +46,19 @@ pub struct LinearAdapter {
     /// never drive the follow-up; the composition root injects it through
     /// [`with_tasks`](Self::with_tasks).
     tasks: Option<Arc<dyn TaskDao>>,
+    /// Ingress ports the webhook route reads through this adapter rather than an
+    /// `AppState`. Present on the composition-root instance (see
+    /// [`with_ingress_ports`](Self::with_ingress_ports)) and absent on the
+    /// test constructors, which never reach [`super::ingress::receive`].
+    adapter_connections: Option<Arc<dyn AdapterConnectionDao>>,
+    loops: Option<Arc<LoopDao>>,
+    adapter_delivery: Option<Arc<AdapterDeliveryStore>>,
+}
+
+/// The internal error for an ingress port read on an adapter that never
+/// received one — a composition-root bug, not a request fault.
+fn missing_port(name: &str) -> AdapterError {
+    SharedAdapterError::Internal(format!("Linear adapter missing {name} port")).into()
 }
 
 /// Build an outbound Linear comment body: the reply text followed by the
@@ -91,6 +107,9 @@ impl LinearAdapter {
             db,
             config: None,
             tasks: None,
+            adapter_connections: None,
+            loops: None,
+            adapter_delivery: None,
         }
     }
 
@@ -101,6 +120,9 @@ impl LinearAdapter {
             db,
             config: Some(config),
             tasks: None,
+            adapter_connections: None,
+            loops: None,
+            adapter_delivery: None,
         }
     }
 
@@ -110,6 +132,51 @@ impl LinearAdapter {
     pub fn with_tasks(mut self, tasks: Arc<dyn TaskDao>) -> Self {
         self.tasks = Some(tasks);
         self
+    }
+
+    /// Inject the ports [`super::ingress::receive`] reads. The composition root
+    /// calls this so the webhook route can read them off the adapter instead of
+    /// an `AppState`; test constructors leave them unset because no test drives
+    /// the webhook path. `db` and `config` already live on the adapter, so only
+    /// the three request-scoped ports are carried here.
+    pub fn with_ingress_ports(
+        mut self,
+        adapter_connections: Arc<dyn AdapterConnectionDao>,
+        loops: Arc<LoopDao>,
+        adapter_delivery: Arc<AdapterDeliveryStore>,
+    ) -> Self {
+        self.adapter_connections = Some(adapter_connections);
+        self.loops = Some(loops);
+        self.adapter_delivery = Some(adapter_delivery);
+        self
+    }
+
+    /// The connection store the webhook route hands [`super::ingress::receive`].
+    pub(super) fn require_adapter_connections(
+        &self,
+    ) -> Result<&dyn AdapterConnectionDao, AdapterError> {
+        self.adapter_connections
+            .as_deref()
+            .ok_or_else(|| missing_port("adapter_connections"))
+    }
+
+    /// The loop store the webhook route hands [`super::ingress::receive`].
+    pub(super) fn require_loops(&self) -> Result<&LoopDao, AdapterError> {
+        self.loops.as_deref().ok_or_else(|| missing_port("loops"))
+    }
+
+    /// The delivery store the webhook route hands [`super::ingress::receive`].
+    pub(super) fn require_adapter_delivery(&self) -> Result<&AdapterDeliveryStore, AdapterError> {
+        self.adapter_delivery
+            .as_deref()
+            .ok_or_else(|| missing_port("adapter_delivery"))
+    }
+
+    /// The runtime config the webhook route hands [`super::ingress::receive`].
+    /// Present on the DB-backed constructor ([`from_db`](Self::from_db)); the
+    /// composition root builds Linear that way.
+    pub(super) fn require_config(&self) -> Result<&moatless_core::config::Config, AdapterError> {
+        self.config.as_deref().ok_or_else(|| missing_port("config"))
     }
 
     /// Build a Linear Agents API client for the given workspace.

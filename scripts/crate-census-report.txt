@@ -3,12 +3,12 @@ files parsed: 683
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  3498  illegal   11
+CODE       legal  3506  illegal   10
 ATTRIBUTE  legal   274  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    50  illegal    0   (function-like macro-invocation token streams)
 DOC           47  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 947 point down into the existing crates/* floor
-TEST-CONTEXT 2144  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 2168  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
@@ -43,13 +43,13 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-docker  (0 files, 0 lines)
     (none)
 
-  loops  (47 files, 13284 lines)
+  loops  (47 files, 13290 lines)
     adapters/capabilities.rs adapters/common.rs adapters/delivery/ adapters/error.rs adapters/inbound_delivery.rs adapters/ingress.rs adapters/metrics.rs adapters/mod.rs adapters/providers/mod.rs adapters/registry/ adapters/self_echo.rs adapters/signature.rs adapters/subject_events.rs adapters/test_support.rs bindings/ loops/
 
   adapter-github-pr  (24 files, 10725 lines)
     adapters/providers/github_pr/
 
-  adapter-linear  (23 files, 9950 lines)
+  adapter-linear  (23 files, 10015 lines)
     adapters/providers/linear/
 
   adapter-slack  (18 files, 6080 lines)
@@ -61,7 +61,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 791 lines)
     adapters/providers/webhook/
 
-  server  (35 files, 12736 lines)
+  server  (35 files, 12746 lines)
     adapters/handlers.rs adapters/routes.rs bindings/ compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
@@ -70,7 +70,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 58047 lines
+  TOTAL backend/src: 58128 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (2 classes) ==
 
@@ -82,10 +82,9 @@ adapter-github-pr -> server   x6
     backend/src/adapters/providers/github_pr/routing.rs:17  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/github_pr/shell_reconcile.rs:46  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
-adapter-linear -> server   x5
+adapter-linear -> server   x4
     backend/src/adapters/providers/linear/api_routes.rs:34  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/delivery.rs:78  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/linear/handlers.rs:19  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/issues.rs:27  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
     backend/src/adapters/providers/linear/sessions.rs:30  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
 
@@ -115,7 +114,7 @@ adapter-linear -> server   x5
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
   loops              deps: identity, tasks, workspaces                  READY
   adapter-github-pr  deps: identity, loops, sandbox-control, tasks, workspaces BLOCKED — 6 illegal outgoing to server(x6)
-  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 5 illegal outgoing to server(x5)
+  adapter-linear     deps: identity, loops, sandbox-control, tasks      BLOCKED — 4 illegal outgoing to server(x4)
   adapter-slack      deps: identity, loops, tasks                       WAITING — no illegal outgoing, but its deps are not extracted yet
   adapter-telegram   deps: identity, loops                              WAITING — no illegal outgoing, but its deps are not extracted yet
   adapter-webhook    deps: loops                                        WAITING — no illegal outgoing, but its deps are not extracted yet

@@ -424,12 +424,22 @@ impl Adapters {
         // task store for the post-binding follow-up, which titles the
         // attachment it links back onto the issue.
         let task_dao = Arc::new(PgTaskDao(db.clone()));
+        // Linear carries its ingress ports (connections, loops, delivery) so its
+        // webhook route reads them through the adapter rather than an `AppState`,
+        // the same move as Telegram above.
+        let linear_connections: Arc<dyn AdapterConnectionDao> =
+            Arc::new(PgAdapterConnectionDao::new(db.clone()));
         let linear = Arc::new(
             crate::adapters::providers::linear::adapter::LinearAdapter::from_db(
                 Arc::new(config.clone()),
-                db,
+                db.clone(),
             )
-            .with_tasks(task_dao),
+            .with_tasks(task_dao)
+            .with_ingress_ports(
+                linear_connections,
+                Arc::new(LoopDao::new(db.clone())),
+                Arc::new(AdapterDeliveryStore::new(db)),
+            ),
         );
         linear.clone().register_into(&mut providers);
         tracing::info!("Linear adapter configured");

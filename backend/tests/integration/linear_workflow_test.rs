@@ -50,18 +50,21 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use sqlx::Row;
 
+use moatless_core::scope::Scope;
+use moatless_vibe_backend::adapters::dao::PgAdapterConnectionDao;
+use moatless_vibe_backend::adapters::delivery::AdapterDeliveryStore;
+use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
 use moatless_vibe_backend::adapters::providers::linear::adapter::LinearAdapter;
 use moatless_vibe_backend::adapters::providers::linear::handlers::linear_webhook;
-use moatless_vibe_backend::adapters::models::{RoutingMode, SubscriptionMatch, TaskBinding};
 use moatless_vibe_backend::adapters::test_support::ProviderStub;
+use moatless_vibe_backend::loops::dao::LoopDao;
 use moatless_vibe_backend::repository::dao as repository_dao;
-use moatless_core::scope::Scope;
 use moatless_vibe_backend::state::AppState;
 use moatless_vibe_backend::task::dao as task_dao;
 
 use common::{
-    drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
-    seed_linear_app, seed_team, test_app_state_with_linear, test_config, USER_1,
+    USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
+    seed_linear_app, seed_team, test_app_state_with_linear, test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -122,10 +125,20 @@ async fn linear_stub() -> ProviderStub {
 /// inside webhook and worker paths that hold only an `AppState` — there is no
 /// other seam through which a workflow's calls can be redirected, and a
 /// workflow that cannot be redirected cannot be budgeted.
+///
+/// The adapter carries the same ingress ports and `Config` the composition root
+/// gives it (`from_db` + `with_ingress_ports`), because the webhook route now
+/// reads them off the adapter rather than an `AppState`.
 fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), Some(stub.base_url()));
-    let linear = Arc::new(LinearAdapter::new(&config.linear, pool.clone()));
+    let linear = Arc::new(
+        LinearAdapter::from_db(Arc::new(config.clone()), pool.clone()).with_ingress_ports(
+            Arc::new(PgAdapterConnectionDao::new(pool.clone())),
+            Arc::new(LoopDao::new(pool.clone())),
+            Arc::new(AdapterDeliveryStore::new(pool.clone())),
+        ),
+    );
     test_app_state_with_linear(pool.clone(), linear, config)
 }
 
@@ -142,7 +155,6 @@ async fn deliver(state: &AppState, envelope: &serde_json::Value) -> StatusCode {
     headers.insert("linear-signature", signature.parse().expect("header value"));
 
     linear_webhook(
-        State(state.clone()),
         State(state.provider_handles.linear.clone()),
         headers,
         Bytes::from(body),

@@ -46,7 +46,13 @@ pub struct AdapterDeliveryStore {
 }
 
 impl AdapterDeliveryStore {
-    pub(crate) fn new(pool: DbPool) -> Self {
+    /// `pub` so a composition root outside this crate can build one: an adapter
+    /// that carries its own ingress ports (see
+    /// `linear::adapter::LinearAdapter::with_ingress_ports`) is wired at the
+    /// composition root, and the integration tests are composition roots too.
+    /// Its sibling ports (`PgAdapterConnectionDao::new`, `LoopDao::new`) are
+    /// already `pub` for the same reason.
+    pub fn new(pool: DbPool) -> Self {
         Self {
             pool,
             policy: AdapterDeliveryPolicy::default(),
