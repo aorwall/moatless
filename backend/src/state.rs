@@ -808,6 +808,12 @@ impl axum::extract::FromRef<AppState> for Arc<AdapterDeliveryStore> {
     }
 }
 
+impl axum::extract::FromRef<AppState> for Arc<RecentlySent> {
+    fn from_ref(state: &AppState) -> Self {
+        state.recently_sent.clone()
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<dyn MessageDao> {
     fn from_ref(state: &AppState) -> Self {
         state.messages.clone()

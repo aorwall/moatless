@@ -16,6 +16,8 @@
 //! is consulted, which is also what lets these routes reach a repository the
 //! task isn't bound to: the user's own access is the only thing that decides.
 
+use std::sync::Arc;
+
 use axum::Json;
 use axum::extract::{Path, State};
 use moatless_api_schemas::github::{
@@ -28,12 +30,26 @@ use tracing::{info, warn};
 use crate::adapters::common::ensure_task_access_with;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::footer::FOOTER_MARKER;
+use crate::adapters::AdapterDestinationBuilder;
+use crate::bindings::recently_sent::RecentlySent;
 use crate::extractors::AuthUser;
-use crate::state::AppState;
+use crate::task::dao::TaskDao;
 
+use super::adapter::GithubPrAdapter;
 use super::api::{GithubPrApi, MAX_COMMENT_LENGTH};
 use super::external_id;
 use super::shell_reconcile::compose_footer;
+
+/// Extract the configured GitHub PR adapter or answer "adapter not configured".
+///
+/// The typed API resolves credentials, the frontend-URL footer, and the binding
+/// Connector through this one provider handle rather than an `AppState`, mirroring
+/// [`super::handlers::github_webhook`].
+fn require_provider(
+    provider: Option<Arc<GithubPrAdapter>>,
+) -> Result<Arc<GithubPrAdapter>, AdapterError> {
+    provider.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("github_pr".into()).into())
+}
 
 #[utoipa::path(
     post,
@@ -52,17 +68,20 @@ use super::shell_reconcile::compose_footer;
     )
 )]
 pub async fn create_pr(
-    State(state): State<AppState>,
+    State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(recently_sent): State<Arc<RecentlySent>>,
     auth: AuthUser,
     Path((owner, repo)): Path<(String, String)>,
     Json(req): Json<GithubCreatePrRequest>,
 ) -> Result<Json<GithubCreatePrResponse>, AdapterError> {
+    let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
+    let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
@@ -71,7 +90,7 @@ pub async fn create_pr(
 
     let body = build_pr_body(
         req.body.as_deref().unwrap_or(""),
-        task_footer_url(&state, req.task_id.as_deref()).as_deref(),
+        task_footer_url(adapter.frontend_url(), req.task_id.as_deref()).as_deref(),
     );
 
     let created = match api
@@ -100,7 +119,7 @@ pub async fn create_pr(
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         let bid = bind_task_to_pr(
-            &state,
+            &adapter,
             &owner,
             &repo,
             created.number,
@@ -108,9 +127,7 @@ pub async fn create_pr(
             &auth.user_id.to_string(),
         )
         .await;
-        state
-            .recently_sent
-            .note(task_id, &external_id::pr_opened(created.number));
+        recently_sent.note(task_id, &external_id::pr_opened(created.number));
         bid
     } else {
         None
@@ -195,29 +212,36 @@ impl CreatedPr {
     )
 )]
 pub async fn post_comment(
-    State(state): State<AppState>,
+    State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(recently_sent): State<Arc<RecentlySent>>,
     auth: AuthUser,
     Path((owner, repo, number)): Path<(String, String, u64)>,
     Json(req): Json<GithubCommentRequest>,
 ) -> Result<Json<GithubCommentResponse>, AdapterError> {
+    let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
+    let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
 
-    let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
+    let body = body_with_task_footer(
+        tasks.as_ref(),
+        adapter.frontend_url(),
+        req.task_id.as_deref(),
+        &req.body,
+    )
+    .await;
     let comment_id = api.post_comment(&owner, &repo, number, &body).await?;
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         // Note the echo dedup BEFORE the (slower) binding upsert so the
         // inbound webhook can't race past it.
-        state
-            .recently_sent
-            .note(task_id, &external_id::issue_comment(comment_id));
+        recently_sent.note(task_id, &external_id::issue_comment(comment_id));
         bind_task_to_pr(
-            &state,
+            &adapter,
             &owner,
             &repo,
             number,
@@ -260,19 +284,28 @@ pub async fn post_comment(
     )
 )]
 pub async fn reply_to_review_comment(
-    State(state): State<AppState>,
+    State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(recently_sent): State<Arc<RecentlySent>>,
     auth: AuthUser,
     Path((owner, repo, number, comment_id)): Path<(String, String, u64, u64)>,
     Json(req): Json<GithubReplyRequest>,
 ) -> Result<Json<GithubCommentResponse>, AdapterError> {
+    let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
     }
 
-    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
+    let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
 
-    let body = body_with_task_footer(&state, req.task_id.as_deref(), &req.body).await;
+    let body = body_with_task_footer(
+        tasks.as_ref(),
+        adapter.frontend_url(),
+        req.task_id.as_deref(),
+        &req.body,
+    )
+    .await;
     let new_id = api
         .reply_to_review_comment(&owner, &repo, number, comment_id, &body)
         .await?;
@@ -280,11 +313,9 @@ pub async fn reply_to_review_comment(
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         // Note the echo dedup BEFORE the (slower) binding upsert so the
         // inbound webhook can't race past it.
-        state
-            .recently_sent
-            .note(task_id, &external_id::review_comment(new_id));
+        recently_sent.note(task_id, &external_id::review_comment(new_id));
         bind_task_to_pr(
-            &state,
+            &adapter,
             &owner,
             &repo,
             number,
@@ -322,22 +353,24 @@ pub async fn reply_to_review_comment(
     )
 )]
 pub async fn bind_pr(
-    State(state): State<AppState>,
+    State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
     auth: AuthUser,
     Path((owner, repo, number)): Path<(String, String, u64)>,
     Json(req): Json<GithubBindPrRequest>,
 ) -> Result<Json<GithubBindPrResponse>, AdapterError> {
+    let adapter = require_provider(github_pr_provider)?;
     let ctx = auth.scope_context();
-    ensure_task_access_with(state.tasks.as_ref(), &ctx, &req.task_id).await?;
+    ensure_task_access_with(tasks.as_ref(), &ctx, &req.task_id).await?;
 
-    let api = resolve_github_api(&state, &auth.user_id.to_string(), &owner, &repo).await?;
+    let api = resolve_github_api(&adapter, &auth.user_id.to_string(), &owner, &repo).await?;
     let pr = api.get_pr(&owner, &repo, number).await?;
     let html_url = pr
         .html_url
         .unwrap_or_else(|| format!("https://github.com/{owner}/{repo}/pull/{number}"));
 
     let binding_id = bind_task_to_pr(
-        &state,
+        &adapter,
         &owner,
         &repo,
         number,
@@ -361,42 +394,20 @@ pub async fn bind_pr(
 /// against `owner/repo_name`.
 ///
 /// `user_id` is the task's run-as identity — the sandbox's `X-User-Token` JWT
-/// and its `GITHUB_TOKEN` are cut from the same `grant.ctx.user_id` — so this
-/// is the same authority `resolve_repository_github_token_with` applies to the
-/// sandbox: their own row, no scope walk, no repository or global fallback.
-/// Holding no row is "this user cannot reach GitHub", not a reason to borrow
-/// someone else's token.
-///
-/// Which repository is requested therefore doesn't enter into it. A PR against
-/// a repo the task isn't bound to resolves exactly like one against its own;
-/// the task binding only decides where replies route back to.
+/// and its `GITHUB_TOKEN` are cut from the same `grant.ctx.user_id`. The
+/// run-as-only rule (own row, no scope walk, no repository or global fallback,
+/// fails closed) lives on `GithubPrAuth::client_for_run_as_user`; this wrapper
+/// just names the provider handle the route reaches it through.
 async fn resolve_github_api(
-    state: &AppState,
+    adapter: &GithubPrAdapter,
     user_id: &str,
     owner: &str,
     repo_name: &str,
 ) -> Result<GithubPrApi, AdapterError> {
-    let token = crate::auth::credentials::resolve_run_as_user_github_token(
-        state.provider_tokens.as_ref(),
-        Some(state.provider_token_auth.as_ref()),
-        state.github_app_service.as_deref(),
-        state.github_apps.as_ref(),
-        Some(state.secrets.as_ref()),
-        user_id,
-        owner,
-        repo_name,
-    )
-    .await
-    .map_err(|source| AdapterError::UserCredential {
-        user_id: user_id.to_string(),
-        source,
-    })?
-    .ok_or_else(|| {
-        SharedAdapterError::AdapterApi(format!(
-            "User {user_id} has no GitHub credential — connect GitHub to act on {owner}/{repo_name}"
-        ))
-    })?;
-    Ok(GithubPrApi::new(&token))
+    adapter
+        .auth()
+        .client_for_run_as_user(user_id, owner, repo_name)
+        .await
 }
 
 /// A pull request resolved for the T3 attach-PR dialog and the creation-time
@@ -415,7 +426,7 @@ pub(crate) struct DialogPullRequest {
 /// following an `owner/repo#N` or PR-URL reference to the repository it names.
 /// `Ok(None)` when the reference is not one this resolver understands.
 pub(crate) async fn resolve_reference_for_dialog(
-    state: &AppState,
+    adapter: &GithubPrAdapter,
     user_id: &str,
     repo_owner: &str,
     repo_name: &str,
@@ -426,7 +437,7 @@ pub(crate) async fn resolve_reference_for_dialog(
     else {
         return Ok(None);
     };
-    let api = resolve_github_api(state, user_id, &owner, &repo).await?;
+    let api = resolve_github_api(adapter, user_id, &owner, &repo).await?;
     let pr = api.get_pr(&owner, &repo, number).await?;
     Ok(Some(to_dialog_pull_request(&pr, &owner, &repo)))
 }
@@ -434,13 +445,13 @@ pub(crate) async fn resolve_reference_for_dialog(
 /// The open pull request whose head branch is `head`, for binding a Task created
 /// on a PR's head branch.
 pub(crate) async fn find_open_pull_request_for_head(
-    state: &AppState,
+    adapter: &GithubPrAdapter,
     user_id: &str,
     owner: &str,
     repo: &str,
     head: &str,
 ) -> Result<Option<DialogPullRequest>, AdapterError> {
-    let api = resolve_github_api(state, user_id, owner, repo).await?;
+    let api = resolve_github_api(adapter, user_id, owner, repo).await?;
     Ok(api
         .find_open_pr_for_head(owner, repo, head)
         .await?
@@ -511,9 +522,9 @@ fn to_dialog_pull_request(pr: &super::api::PrInfo, owner: &str, repo: &str) -> D
 
 /// Build the task URL for the PR-body footer. Returns `None` when no task is
 /// bound or the frontend URL isn't configured.
-fn task_footer_url(state: &AppState, task_id: Option<&str>) -> Option<String> {
+fn task_footer_url(frontend_url: &str, task_id: Option<&str>) -> Option<String> {
     let task_id = task_id?;
-    let frontend_url = state.config.auth.frontend_url.trim_end_matches('/');
+    let frontend_url = frontend_url.trim_end_matches('/');
     if frontend_url.is_empty() {
         return None;
     }
@@ -537,16 +548,14 @@ fn build_pr_body(body: &str, task_url: Option<&str>) -> String {
 /// Truncate a comment body to GitHub's limit and append the "view task" footer
 /// when a task is associated. The user body is truncated first, reserving room
 /// for the footer so the total stays within `MAX_COMMENT_LENGTH`.
-async fn body_with_task_footer(state: &AppState, task_id: Option<&str>, body: &str) -> String {
+async fn body_with_task_footer(
+    tasks: &dyn TaskDao,
+    frontend_url: &str,
+    task_id: Option<&str>,
+    body: &str,
+) -> String {
     let footer = match task_id {
-        Some(tid) => {
-            crate::bindings::footer::task_comment_footer(
-                state.tasks.as_ref(),
-                &state.config.auth.frontend_url,
-                tid,
-            )
-            .await
-        }
+        Some(tid) => crate::bindings::footer::task_comment_footer(tasks, frontend_url, tid).await,
         None => None,
     };
     match footer {
@@ -574,13 +583,24 @@ fn truncate_on_char_boundary(s: &str, max: usize) -> &str {
 /// comment already exists on GitHub, so the mutation must still succeed
 /// (mirrors the post-persist hooks behavior).
 async fn bind_task_to_pr(
-    state: &AppState,
+    adapter: &Arc<GithubPrAdapter>,
     owner: &str,
     repo: &str,
     pr_number: u64,
     task_id: &str,
     user_id: &str,
 ) -> Option<String> {
+    let (adapter_connections, loops, task_bindings) = match adapter.require_binding_ports() {
+        Ok(ports) => ports,
+        Err(error) => {
+            warn!(task_id, pr_number, error = %error, "GitHub PR adapter missing binding ports");
+            return None;
+        }
+    };
+    // The adapter is the concrete GitHub PR destination builder the Connector
+    // routes through — the same handle `ProviderHandles::github_destination_builder`
+    // hands the server-band callers, sourced here from the provider we already hold.
+    let github_destination: Arc<dyn AdapterDestinationBuilder> = adapter.clone();
     let source_id = format!("{owner}/{repo}");
     let thread_properties = json!({
         "owner": owner,
@@ -588,10 +608,10 @@ async fn bind_task_to_pr(
         "pr_number": pr_number,
     });
     match crate::loops::firing::listen::Connector::new(
-        state.provider_handles.github_destination_builder(),
-        state.adapter_connections.clone(),
-        state.loops.clone(),
-        state.task_bindings.clone(),
+        Some(github_destination),
+        adapter_connections,
+        loops,
+        task_bindings,
     )
     .connect_github_binding(&source_id, task_id, thread_properties, Some(user_id))
     .await

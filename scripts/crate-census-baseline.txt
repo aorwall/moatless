@@ -4,8 +4,7 @@
 # adds an edge fails the check until the edge is removed — or the ceiling is raised by
 # hand as a deliberate, reviewed decision. Doc paths are excluded (see the section
 # below). Regenerate with `cargo run -p crate-census`.
-# Illegal edge count: 10
-adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/api_routes.rs:32  crate::state::AppState
+# Illegal edge count: 9
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/merge_conflict.rs:8  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/post_merge.rs:10  crate::state::AppState
@@ -18,5 +17,5 @@ adapter-linear         -> server               [CODE] backend/src/adapters/provi
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---
 # Doc-path count (not in the illegal count above): 2
-adapter-github-pr      -> server               [DOC] backend/src/adapters/providers/github_pr/adapter.rs:95  crate::compose
+adapter-github-pr      -> server               [DOC] backend/src/adapters/providers/github_pr/adapter.rs:107  crate::compose
 adapter-telegram       -> server               [DOC] backend/src/adapters/providers/telegram/adapter.rs:80  crate::compose

@@ -113,8 +113,14 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         reference: &str,
     ) -> Result<ResolvedPullRequest, PullRequestError> {
         let (owner, repo) = self.github_owner_repo(viewer, repository_id).await?;
+        let adapter = self
+            .0
+            .provider_handles
+            .github_pr
+            .as_ref()
+            .ok_or(PullRequestError::NotFound)?;
         crate::adapters::providers::github_pr::api_routes::resolve_reference_for_dialog(
-            &self.0,
+            adapter,
             &viewer.user_id,
             &owner,
             &repo,
@@ -133,8 +139,9 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         head: &str,
     ) -> Option<ResolvedPullRequest> {
         let (owner, repo) = self.github_owner_repo(viewer, repository_id).await.ok()?;
+        let adapter = self.0.provider_handles.github_pr.as_ref()?;
         crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
-            &self.0,
+            adapter,
             &viewer.user_id,
             &owner,
             &repo,
@@ -273,9 +280,12 @@ async fn bind_thread_to_open_pr(
     else {
         return;
     };
+    let Some(adapter) = state.provider_handles.github_pr.as_ref() else {
+        return;
+    };
     let pr =
         match crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
-            state,
+            adapter,
             &viewer.user_id,
             &owner,
             &repo,

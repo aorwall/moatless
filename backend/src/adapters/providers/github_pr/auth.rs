@@ -164,6 +164,52 @@ impl GithubPrAuth {
         Ok(self.client(&token))
     }
 
+    /// Mint a GitHub client from `user_id`'s OWN GitHub row, scoped to
+    /// `owner`/`repo` — the `moat gh` typed-API path (SP-2457), where the
+    /// identity that pushed the branch is the identity that opens the PR or
+    /// posts the comment. Wraps
+    /// [`crate::auth::credentials::resolve_run_as_user_github_token`], which
+    /// reads only the user's own row keyed on `owner`+`repo`.
+    ///
+    /// What it deliberately does NOT do, unlike [`Self::client_for_user`]:
+    /// - no scope walk — the repository's persisted scope and the global row are
+    ///   never consulted;
+    /// - no `GITHUB_CHANNEL_TOKEN` bot-token fallback;
+    /// - it fails closed — a user with no matching row cannot reach GitHub here
+    ///   rather than silently acting as the bot.
+    ///
+    /// Which repository is named therefore only scopes the token, never whether
+    /// one is found: a PR against a repo the task isn't bound to resolves exactly
+    /// like one against its own.
+    pub(super) async fn client_for_run_as_user(
+        &self,
+        user_id: &str,
+        owner: &str,
+        repo: &str,
+    ) -> Result<GithubPrApi, AdapterError> {
+        let token = crate::auth::credentials::resolve_run_as_user_github_token(
+            self.provider_tokens.as_ref(),
+            self.provider_token_auth.as_deref(),
+            self.github_app_service.as_deref(),
+            self.github_apps.as_ref(),
+            self.secrets.as_deref(),
+            user_id,
+            owner,
+            repo,
+        )
+        .await
+        .map_err(|source| AdapterError::UserCredential {
+            user_id: user_id.to_string(),
+            source,
+        })?
+        .ok_or_else(|| {
+            SharedAdapterError::AdapterApi(format!(
+                "User {user_id} has no GitHub credential — connect GitHub to act on {owner}/{repo}"
+            ))
+        })?;
+        Ok(self.client(&token))
+    }
+
     async fn resolve_token_for_user(
         &self,
         user_id: &str,
