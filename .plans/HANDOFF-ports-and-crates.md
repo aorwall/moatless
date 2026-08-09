@@ -4,7 +4,7 @@
 > **Spec:** `.plans/backend-ports-and-crates.md` is authoritative for *what* to build. This file is
 > operational: where the work stands, how the lanes divide, and the rules that were learned the hard
 > way and are not derivable from the code.
-> **Updated:** 2026-08-09 · main at `4da92026d711`, census ceiling **0**. The first half is complete.
+> **Updated:** 2026-08-09 · main at `7603b7d02239`, census ceiling **0**. The first half is complete.
 
 ## What this program is
 
@@ -13,15 +13,16 @@ Two halves, in order:
 1. **Make the ports singular** — remove every illegal reference where a lower-band module reaches up
    into a higher band. Measured by `scripts/crate-census-baseline.txt`, a ratchet. Started at **83**.
    **Now 0. This half is done.**
-2. **Split the backend** — extract each band into its own crate. `moatless-loops` is the first and is
-   **merged** (#466). Providers follow, then server last. **This half is where the work now is.**
+2. **Split the backend** — extract each band into its own crate. `moatless-loops` went first (#466)
+   and **all five Adapters have followed**. `server` is what remains. **This half is where the work
+   now is.**
 
 The census only counts *production* reference edges (`CODE`/`ATTR`/`MACRO`). Doc paths and
 `#[cfg(test)]` edges are excluded by design — see "test-context" below.
 
 ## Where it stands
 
-**Main:** `4da92026d711`. **Ceiling: 0** — read from the baseline blob on `main`, not from a report.
+**Main:** `7603b7d02239`. **Ceiling: 0** — read from the baseline blob on `main`, not from a report.
 There are no illegal production edges left in the repository.
 
 A SHA here is a write-time snapshot and cannot include the change that records it, so treat it as
@@ -56,19 +57,22 @@ Each landed illegal-neutral against a ceiling of 0. The PR is the durable record
 | `moatless-adapter-webhook` | #476 | The provider recipe: facade at `providers/<name>.rs`, visibility priced by incoming callers, `providers/mod.rs` untouched. |
 | `moatless-adapter-slack` | #478 | Two `db-tests`-gated modules of its own, which is what exposed the CI gap fixed in #479. |
 | `moatless-adapter-telegram` | #480 | `db-tests` as a pure feature-forward with no gated modules. The census self-test became a synthetic fixture; the real-tree guard stayed real. |
+| `moatless-adapter-linear` | #484 | The external spelling. Five modules had to be re-exported on the strength of `backend/tests/integration/` alone, which an in-crate `crate::` sweep never sees. |
+| `moatless-adapter-github-pr` | #483 | The dead-manifest-dependency check, corrected twice — `src/` is not the crate, and a shared dependency is invisible to every carve but the last. |
+
+**All five Adapters are carved.** `backend/src/adapters/providers/` is now five facade files and
+`mod.rs`, with no provider directory left under it.
 
 ## What to do next
 
 1. ~~Backfill `external_crate("moatless_loops")`.~~ **Done — #471.** Kept in the list because the
    *reason* it mattered generalises to every future carve; see Known gaps.
-2. **The two remaining provider carves are in flight**, one task each, each rebasing on `main` as it
-   moves rather than pinned to a base:
-   `adapter-linear` (23 files) and `adapter-github-pr` (25 files). They are independent — neither
-   provider names the other — so the only contention is the shared mechanical surface (root
-   `Cargo.toml`/`Cargo.lock`, `backend/Cargo.toml`, `bands.rs`, the census report and baseline).
-   **`adapter-linear` merges first**; `adapter-github-pr` rebases onto it and re-compares the
-   baseline blob rather than inferring neutrality from an absent diff.
-3. **Then `server` last.** That order is the spec's, not a preference.
+2. ~~The five Adapter carves.~~ **Done — #476, #478, #480, #484, #483.**
+3. **`server` is what remains, and it is last by the spec's order rather than by preference.** It is
+   also unlike every carve before it: the five Adapters each left a facade behind *because the
+   backend is still the composition root and still owns the `providers/<name>` path*. There is no
+   outer crate to leave a facade in when the server itself moves, so the facade shape that carried
+   all five provider carves does not transfer. Re-read the recipe before assuming it does.
 4. **Carve by asking the census, not by eye.** It prints either
    `FRONTIER -> <crate>: READY now (no illegal outgoing; every crate it depends on is extracted).`
    or `FRONTIER -> <crate>: BLOCKED on <n> illegal outgoing.` (`main.rs:1081`), and the report's
