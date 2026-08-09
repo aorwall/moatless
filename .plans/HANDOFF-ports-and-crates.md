@@ -4,7 +4,7 @@
 > **Spec:** `.plans/backend-ports-and-crates.md` is authoritative for *what* to build. This file is
 > operational: where the work stands, how the lanes divide, and the rules that were learned the hard
 > way and are not derivable from the code.
-> **Updated:** 2026-08-09 · main at `3dc19c37f612`, census ceiling **0**. The first half is complete.
+> **Updated:** 2026-08-09 · main at `85dc81c92d82`, census ceiling **0**. The first half is complete.
 
 ## What this program is
 
@@ -21,12 +21,12 @@ The census only counts *production* reference edges (`CODE`/`ATTR`/`MACRO`). Doc
 
 ## Where it stands
 
-**Main:** `3dc19c37f612`. **Ceiling: 0** — read from the baseline blob on `main`, not from a report.
+**Main:** `85dc81c92d82`. **Ceiling: 0** — read from the baseline blob on `main`, not from a report.
 There are no illegal production edges left in the repository.
 
-What remains in the baseline file is 2 `[DOC]` intra-doc paths (`github_pr/adapter.rs:107`,
-`telegram/adapter.rs:80` → `crate::compose`). These are **not Cargo edges** and are not counted;
-they are cleaned as Step 8f carve work.
+**Doc-path count is also 0.** The two `[DOC]` intra-doc paths this section used to list
+(`github_pr/adapter.rs:107`, `telegram/adapter.rs:80` → `crate::compose`) are gone. They were never
+Cargo edges and were never counted; both cleared as their carves went through.
 
 **Do not read 0 as "nothing left to do."** It means the *ports* half is finished. The ratchet now has
 a new job: it stops the crate-splitting half from reintroducing what the first half removed. Every
@@ -42,18 +42,32 @@ each shape is what it is:
 | **github_pr** | **Done.** #457 (handlers ingress), #458 (Connector + dead registry teardown), #460 (api_routes), #463 (shell_reconcile), then #469 — the four-edge router slice that took 4 → 0. |
 | **loops carve** | **Done.** #466, the first crate this program split out. Landed illegal-neutral. |
 
-## What to do next
+### Crates carved so far
 
-In order. Nothing here is in flight; all three lanes stopped clean.
+Each landed illegal-neutral against a ceiling of 0. The PR is the durable record of the shape.
+
+| Crate | PR | What it added to the recipe |
+|---|---|---|
+| `moatless-loops` | #466 | The first split. Ambient context does not travel — five red runs on things the graph does not model. |
+| `moatless-adapter-webhook` | #476 | The provider recipe: facade at `providers/<name>.rs`, visibility priced by incoming callers, `providers/mod.rs` untouched. |
+| `moatless-adapter-slack` | #478 | Two `db-tests`-gated modules of its own, which is what exposed the CI gap fixed in #479. |
+| `moatless-adapter-telegram` | #480 | `db-tests` as a pure feature-forward with no gated modules. The census self-test became a synthetic fixture; the real-tree guard stayed real. |
+
+## What to do next
 
 1. ~~Backfill `external_crate("moatless_loops")`.~~ **Done — #471.** Kept in the list because the
    *reason* it mattered generalises to every future carve; see Known gaps.
-2. **Carve the next crate.** Ask the census which one rather than picking from the band table by eye.
-   It prints either `FRONTIER -> <crate>: READY now (no illegal outgoing; every crate it depends on
-   is extracted).` or `FRONTIER -> <crate>: BLOCKED on <n> illegal outgoing.` (`main.rs:1081`), and
-   the report's Tarjan SCC independently confirms it. Read the carve checklist first: the loops carve
-   was sound on the graph and still went red five times on things the graph does not model.
-3. **Providers, then `server` last.** That order is the spec's, not a preference.
+2. **The two remaining provider carves are in flight**, one task each, both based on `85dc81c92d82`:
+   `adapter-linear` (23 files) and `adapter-github-pr` (25 files). They are independent — neither
+   provider names the other — so the only contention is the shared mechanical surface (root
+   `Cargo.toml`/`Cargo.lock`, `backend/Cargo.toml`, `bands.rs`, the census report and baseline).
+   **`adapter-linear` merges first**; `adapter-github-pr` rebases onto it and re-compares the
+   baseline blob rather than inferring neutrality from an absent diff.
+3. **Then `server` last.** That order is the spec's, not a preference.
+4. **Carve by asking the census, not by eye.** It prints either
+   `FRONTIER -> <crate>: READY now (no illegal outgoing; every crate it depends on is extracted).`
+   or `FRONTIER -> <crate>: BLOCKED on <n> illegal outgoing.` (`main.rs:1081`), and the report's
+   Tarjan SCC independently confirms it. Read the carve checklist first.
 
 The ratchet is at 0, so any carve that introduces an illegal edge fails immediately — which is the
 point. The thing that does *not* fail is an edge the census never scored at all.
@@ -181,6 +195,16 @@ just "does it build".
   A carve that omits the second arm still measures ceiling-neutral on the day, because the only
   crates naming it are the ones that just moved. That is why it is easy to skip, why skipping it is
   invisible, and why the ceiling is the wrong place to look for it — check the **report** diff.
+- **Sweep the carved name in both spellings, and price the facade off the external one.** An
+  integration test under `backend/tests/` reaches the provider from outside the crate, so it spells
+  the path `moatless_vibe_backend::adapters::providers::<name>` where in-crate code spells it
+  `crate::adapters::providers::<name>`. A sweep keyed on the `crate::` prefix skips the external
+  spelling silently, and the omission compiles in-crate — it fails only in the integration-test
+  target. `linear` is the crate this bites hardest: `backend/tests/integration/` names
+  `linear::adapter`, `linear::delivery`, `linear::delivery::register`,
+  `linear::handlers::linear_webhook` and `linear::ingress`, so five modules must be re-exported by
+  the facade and `pub` in the new crate on the strength of tests alone. Grep both spellings across
+  `backend/`, `crates/` and `tests/`.
 - Test-context edges are **not** ratcheted. Pricing them would fire on every legal in-crate test and
   create pressure to weaken tests to satisfy a counter.
 
