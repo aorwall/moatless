@@ -21,7 +21,6 @@ backend/src/adapters/providers/github_pr/merge_conflict.rs
 backend/src/adapters/providers/github_pr/post_merge.rs
 backend/src/adapters/providers/github_pr/routing.rs
 backend/src/adapters/providers/github_pr/shell_reconcile.rs
-backend/src/adapters/providers/linear/api_routes.rs
 backend/src/adapters/providers/linear/delivery.rs
 backend/src/adapters/providers/linear/issues.rs
 backend/src/adapters/providers/linear/sessions.rs

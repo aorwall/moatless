@@ -14,6 +14,8 @@
 //! A raw GraphQL passthrough (`POST /api/v1/linear/graphql`) exists as the
 //! safety valve for operations not yet wrapped by a typed endpoint.
 
+use std::sync::Arc;
+
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use moatless_api_schemas::linear::{
@@ -29,12 +31,16 @@ use crate::adapters::AdapterKind;
 use crate::adapters::common::{ensure_task_access_with, resolve_connection};
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, TASK_OWNED_BINDING_ORIGIN};
+use crate::auth::users::UserDao;
 use crate::bindings::runtime::upsert_binding_into;
 use crate::extractors::AuthUser;
-use crate::state::AppState;
+use crate::task::binding_dao::TaskBindingDao;
+use crate::task::dao::TaskDao;
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::config::Config;
 
 use super::SUBJECT_KIND_ISSUE;
+use super::adapter::LinearAdapter;
 use super::agent_api::{LinearAgentApi, LookupKind};
 
 const LINEAR_PROVIDER: &str = "linear";
@@ -57,14 +63,15 @@ const LINEAR_PROVIDER: &str = "linear";
     )
 )]
 pub async fn get_issue(
-    State(state): State<AppState>,
+    State(linear): State<Option<Arc<LinearAdapter>>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<LinearConnectionParams>,
 ) -> Result<Json<LinearIssueResponse>, AdapterError> {
+    let linear = require_linear(linear)?;
     let ctx = auth.scope_context();
     let (_connection, api) =
-        resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
+        resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
     let data = api.get_issue(&id).await?;
     Ok(Json(LinearIssueResponse {
         data,
@@ -84,17 +91,21 @@ pub async fn get_issue(
     )
 )]
 pub async fn create_issue(
-    State(state): State<AppState>,
+    State(linear): State<Option<Arc<LinearAdapter>>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(users): State<Arc<dyn UserDao>>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     auth: AuthUser,
     Query(params): Query<LinearConnectionParams>,
     Json(req): Json<LinearIssueCreateRequest>,
 ) -> Result<Json<LinearIssueResponse>, AdapterError> {
+    let linear = require_linear(linear)?;
     let ctx = auth.scope_context();
     let (connection, api) =
-        resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
+        resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
     }
 
     // Resolve names → UUIDs.
@@ -112,7 +123,7 @@ pub async fn create_issue(
     // calling user's email (best-effort — never fails issue creation).
     let assignee_id = match req.assignee.as_deref() {
         Some(value) => Some(resolve_user_required(&api, value).await?.id),
-        None => default_assignee_from_caller(&state, &api, &auth.user_id.to_string()).await,
+        None => default_assignee_from_caller(users.as_ref(), &api, &auth.user_id.to_string()).await,
     };
     // Reporter (records who requested the issue) hard-fails on an explicit miss.
     let reporter = match req.reporter.as_deref() {
@@ -180,9 +191,16 @@ pub async fn create_issue(
     // Filing an issue records a traceability attachment but does not make it a
     // reply target unless the caller explicitly opts in with `bind = true`.
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        attach_moatless_task(&state, &api, &issue, task_id).await;
+        attach_moatless_task(
+            linear.require_config()?,
+            tasks.as_ref(),
+            &api,
+            &issue,
+            task_id,
+        )
+        .await;
         if req.bind == Some(true) {
-            Some(create_issue_binding(&state, &connection, task_id, &issue).await?)
+            Some(create_issue_binding(task_bindings.as_ref(), &connection, task_id, &issue).await?)
         } else {
             None
         }
@@ -211,15 +229,16 @@ pub async fn create_issue(
     )
 )]
 pub async fn update_issue(
-    State(state): State<AppState>,
+    State(linear): State<Option<Arc<LinearAdapter>>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<LinearConnectionParams>,
     Json(req): Json<LinearIssueUpdateRequest>,
 ) -> Result<Json<LinearIssueResponse>, AdapterError> {
+    let linear = require_linear(linear)?;
     let ctx = auth.scope_context();
     let (_connection, api) =
-        resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
+        resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
     // Resolve names. The team comes from the issue itself if a cycle is set.
     let state_id = resolve_optional(&api, LookupKind::State, req.state.as_deref()).await?;
@@ -316,18 +335,21 @@ pub async fn update_issue(
     )
 )]
 pub async fn create_comment(
-    State(state): State<AppState>,
+    State(linear): State<Option<Arc<LinearAdapter>>>,
+    State(tasks): State<Arc<dyn TaskDao>>,
+    State(task_bindings): State<Arc<dyn TaskBindingDao>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<LinearConnectionParams>,
     Json(req): Json<LinearCommentCreateRequest>,
 ) -> Result<Json<LinearIssueResponse>, AdapterError> {
+    let linear = require_linear(linear)?;
     let ctx = auth.scope_context();
     let (connection, api) =
-        resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
+        resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
     if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_with(state.tasks.as_ref(), &ctx, task_id).await?;
+        ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?;
     }
 
     // commentCreate requires the issue UUID, not the SP-123 identifier.
@@ -341,8 +363,8 @@ pub async fn create_comment(
     let body = match req.task_id.as_deref() {
         Some(task_id) => {
             match crate::bindings::footer::task_comment_footer(
-                state.tasks.as_ref(),
-                &state.config.auth.frontend_url,
+                tasks.as_ref(),
+                &linear.require_config()?.auth.frontend_url,
                 task_id,
             )
             .await
@@ -356,19 +378,25 @@ pub async fn create_comment(
     let comment = api.create_comment(&issue_uuid, &body).await?;
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        attach_moatless_task(&state, &api, &issue, task_id).await;
+        attach_moatless_task(
+            linear.require_config()?,
+            tasks.as_ref(),
+            &api,
+            &issue,
+            task_id,
+        )
+        .await;
 
         // A comment refreshes the binding when the issue is already a reply
         // target (the agent is continuing an established thread). A proactive
         // comment on an unbound issue only binds when the caller opts in.
-        let already_bound = state
-            .task_bindings
+        let already_bound = task_bindings
             .find_by_task_id_and_subject(task_id, LINEAR_PROVIDER, SUBJECT_KIND_ISSUE, &issue_uuid)
             .await?
             .is_some();
 
         if req.bind == Some(true) || already_bound {
-            Some(create_issue_binding(&state, &connection, task_id, &issue).await?)
+            Some(create_issue_binding(task_bindings.as_ref(), &connection, task_id, &issue).await?)
         } else {
             None
         }
@@ -397,15 +425,16 @@ pub async fn create_comment(
     )
 )]
 pub async fn mutate_label(
-    State(state): State<AppState>,
+    State(linear): State<Option<Arc<LinearAdapter>>>,
     auth: AuthUser,
     Path(id): Path<String>,
     Query(params): Query<LinearConnectionParams>,
     Json(req): Json<LinearLabelMutationRequest>,
 ) -> Result<Json<LinearOkResponse>, AdapterError> {
+    let linear = require_linear(linear)?;
     let ctx = auth.scope_context();
     let (_connection, api) =
-        resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
+        resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
     let issue = api.get_issue(&id).await?;
     let issue_uuid = issue
@@ -435,14 +464,15 @@ pub async fn mutate_label(
     responses((status = 200, description = "Raw GraphQL response", body = Object))
 )]
 pub async fn graphql_passthrough(
-    State(state): State<AppState>,
+    State(linear): State<Option<Arc<LinearAdapter>>>,
     auth: AuthUser,
     Query(params): Query<LinearConnectionParams>,
     Json(req): Json<LinearGraphqlRequest>,
 ) -> Result<Json<Value>, AdapterError> {
+    let linear = require_linear(linear)?;
     let ctx = auth.scope_context();
     let (_connection, api) =
-        resolve_linear_api(&state, &ctx, params.connection_id.as_deref()).await?;
+        resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
     // Callers (esp. agents) sometimes pass the full `{"query": ..., "variables": ...}`
     // envelope as the `query` field. Peel one layer so Linear doesn't see the
@@ -488,14 +518,15 @@ fn unwrap_graphql_envelope(raw: &str) -> (String, Option<Value>) {
     )
 )]
 pub async fn lookup(
-    State(state): State<AppState>,
+    State(linear): State<Option<Arc<LinearAdapter>>>,
     auth: AuthUser,
     Query(params): Query<LinearLookupParams>,
     Query(conn_params): Query<LinearConnectionParams>,
 ) -> Result<Json<LinearLookupResponse>, AdapterError> {
+    let linear = require_linear(linear)?;
     let ctx = auth.scope_context();
     let (_connection, api) =
-        resolve_linear_api(&state, &ctx, conn_params.connection_id.as_deref()).await?;
+        resolve_linear_api(&linear, &ctx, conn_params.connection_id.as_deref()).await?;
 
     let kind = LookupKind::parse(&params.kind).ok_or_else(|| {
         SharedAdapterError::BadRequest(format!(
@@ -522,26 +553,34 @@ pub async fn lookup(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Unwrap the composition-root-injected Linear adapter, or fail the request
+/// with the not-configured error the handlers used to raise from inside
+/// `resolve_linear_api`.
+fn require_linear(linear: Option<Arc<LinearAdapter>>) -> Result<Arc<LinearAdapter>, AdapterError> {
+    linear.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("linear".into()).into())
+}
+
 /// Resolve the caller's Linear connection (defaulting to the single
 /// accessible one) and build a [`LinearAgentApi`] for that workspace.
+///
+/// The adapter is handed in by the handler rather than looked up through
+/// `state.provider_handles.linear`: this file *is* the Linear provider, so
+/// reaching itself through the registry was self-resolution, and it dissolves
+/// once the route extracts `State<Option<Arc<LinearAdapter>>>`. The connection
+/// store rides on the adapter (its ingress ports), so no `AppState` is needed.
 async fn resolve_linear_api(
-    state: &AppState,
+    adapter: &LinearAdapter,
     ctx: &ScopeContext,
     connection_id: Option<&str>,
 ) -> Result<(AdapterConnection, LinearAgentApi), AdapterError> {
     let connection = resolve_connection(
-        state.adapter_connections.as_ref(),
+        adapter.require_adapter_connections()?,
         ctx,
         AdapterKind::Linear,
         connection_id,
     )
     .await?;
-    let linear = state
-        .provider_handles
-        .linear
-        .as_ref()
-        .ok_or_else(|| SharedAdapterError::AdapterNotConfigured("linear".into()))?;
-    let api = linear.agent_api_for_connection(&connection).await?;
+    let api = adapter.agent_api_for_connection(&connection).await?;
     Ok((connection, api))
 }
 
@@ -741,14 +780,14 @@ async fn resolve_assignee(
 /// file or the email doesn't match a Linear member — never fails issue
 /// creation.
 async fn default_assignee_from_caller(
-    state: &AppState,
+    users: &dyn UserDao,
     api: &LinearAgentApi,
     user_id: &str,
 ) -> Option<String> {
     let Ok(uid) = user_id.parse::<uuid::Uuid>() else {
         return None;
     };
-    let user = match state.users.get_user(&uid).await {
+    let user = match users.get_user(&uid).await {
         Ok(Some(u)) => u,
         Ok(None) => {
             warn!(
@@ -846,7 +885,7 @@ async fn resolve_cycle_id(
 /// Persist a `task_bindings` row pointing the given task at the Linear
 /// issue. Used for both create and comment auto-binding.
 async fn create_issue_binding(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
     connection: &AdapterConnection,
     task_id: &str,
     issue: &Value,
@@ -873,7 +912,7 @@ async fn create_issue_binding(
     }
 
     let binding = upsert_binding_into(
-        state.task_bindings.as_ref(),
+        task_bindings,
         connection,
         None,
         task_id,
@@ -903,7 +942,8 @@ async fn create_issue_binding(
 /// are logged and swallowed so they don't block the surrounding mutation
 /// (the issue is already created / commented on).
 pub(crate) async fn attach_moatless_task(
-    state: &AppState,
+    config: &Config,
+    tasks: &dyn TaskDao,
     api: &LinearAgentApi,
     issue: &Value,
     task_id: &str,
@@ -912,14 +952,7 @@ pub(crate) async fn attach_moatless_task(
         warn!(task_id = %task_id, "attach_moatless_task: issue missing id");
         return;
     };
-    super::issues::attach_parent_task_link(
-        &state.config,
-        state.tasks.as_ref(),
-        api,
-        issue_uuid,
-        task_id,
-    )
-    .await;
+    super::issues::attach_parent_task_link(config, tasks, api, issue_uuid, task_id).await;
 }
 
 #[cfg(test)]
