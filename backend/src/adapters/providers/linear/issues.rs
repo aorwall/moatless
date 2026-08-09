@@ -21,14 +21,20 @@ use std::fmt::Write as _;
 use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
+use moatless_core::db::DbPool;
+use moatless_core::events::EventPublisher;
 
-use crate::adapters::AdapterInboundPresentation;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
-use crate::state::AppState;
+use crate::message::send::MessageSendService;
+use crate::sandbox::lifecycle::Lifecycle;
+use crate::task::binding_dao::TaskBindingDao;
+use crate::task::creation::TaskCreationService;
 use crate::task::dao::TaskDao;
 use crate::task::models::Visibility;
+use crate::task::sandbox_waker::SandboxWaker;
 
+use super::active_turns::ActiveLinearTurns;
 use super::agent_api::LinearAgentApi;
 use super::close::close_active_bindings_for_issue;
 use super::config::LinearRuleConfig;
@@ -49,8 +55,24 @@ const ADAPTER_LABEL: &str = "linear";
 /// later returns to it, where nothing else about the two deliveries differs —
 /// while a retry of one change repeats it and is recognised as the same
 /// delivery.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a fan-out root dispatching to persist/notify/close/status-entry, \
+              whose width is the union of four independent jobs' ports; the only \
+              sub-threshold alternative is re-bagging them into the AppState we \
+              are un-bagging"
+)]
 pub(super) async fn handle_issue_update(
-    state: &AppState,
+    db: &DbPool,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
+    config: &Config,
+    sandbox: &Lifecycle,
+    events: Option<&dyn EventPublisher>,
+    sandbox_waker: &dyn SandboxWaker,
+    linear_active_turns: &ActiveLinearTurns,
+    task_creation: &TaskCreationService,
+    message_send: &MessageSendService,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
@@ -71,7 +93,7 @@ pub(super) async fn handle_issue_update(
 
     // Persist the new workflow state onto every binding for this issue — for
     // every transition, not just terminal ones. Best-effort.
-    persist_issue_status(state, connection, issue).await;
+    persist_issue_status(task_bindings, connection, issue).await;
 
     let Some(rule) = rules.first() else {
         debug!(issue = %issue.identifier, "No Linear rule found for team — ignoring update");
@@ -80,18 +102,26 @@ pub(super) async fn handle_issue_update(
     let rule_config = LinearRuleConfig::from_rule(rule);
 
     // Forward a state-change notification to every bound task (best-effort).
-    notify_bindings_of_state_change(state, connection, issue, delivered_at).await;
+    notify_bindings_of_state_change(
+        task_bindings,
+        message_send,
+        sandbox_waker,
+        connection,
+        issue,
+        delivered_at,
+    )
+    .await;
 
     if rule_config.close_task_on_close
         && rule_config.terminal_states.iter().any(|s| s == state_kind)
     {
         close_active_bindings_for_issue(
-            &state.db,
-            state.task_bindings.as_ref(),
-            state.tasks.as_ref(),
-            &state.config,
-            &state.sandbox,
-            state.events.as_deref(),
+            db,
+            task_bindings,
+            tasks,
+            config,
+            sandbox,
+            events,
             api,
             rule,
             issue,
@@ -103,7 +133,19 @@ pub(super) async fn handle_issue_update(
     // `create_on_status_entry` whose `trigger_states` include the new state.
     // Independent of the notify/close paths above (which only touch already-
     // bound tasks). Best-effort — failures are logged per rule.
-    create_tasks_for_status_entry(state, api, connection, rules, issue).await;
+    create_tasks_for_status_entry(
+        task_bindings,
+        tasks,
+        config,
+        linear_active_turns,
+        task_creation,
+        message_send,
+        api,
+        connection,
+        rules,
+        issue,
+    )
+    .await;
 
     Ok(())
 }
@@ -117,8 +159,20 @@ pub(super) async fn handle_issue_update(
 /// `get_issue` (skipped when the webhook already carries the project id and no
 /// rule filters on labels). A fetch failure logs and falls back to the
 /// webhook-carried project id with empty labels.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "forwards the six ports the per-rule provisioning path reads \
+              (bindings, tasks, config, active-turns, task-creation, \
+              message-send) inverted out of the single AppState; any narrower \
+              grouping is that AppState-shaped bag under a new name"
+)]
 async fn create_tasks_for_status_entry(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
+    config: &Config,
+    linear_active_turns: &ActiveLinearTurns,
+    task_creation: &TaskCreationService,
+    message_send: &MessageSendService,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
@@ -195,7 +249,21 @@ async fn create_tasks_for_status_entry(
             );
             continue;
         }
-        if let Err(e) = provision_issue_task(state, api, connection, rule, &cfg, issue).await {
+        if let Err(e) = provision_issue_task(
+            task_bindings,
+            tasks,
+            config,
+            linear_active_turns,
+            task_creation,
+            message_send,
+            api,
+            connection,
+            rule,
+            &cfg,
+            issue,
+        )
+        .await
+        {
             warn!(
                 issue = %issue.identifier,
                 subscription_id = %rule.id,
@@ -213,16 +281,27 @@ async fn create_tasks_for_status_entry(
 /// Idempotent per `(issue, trigger)`: if an active `linear_issue` binding for
 /// this issue already exists for this trigger+connection, returns early so a
 /// re-entry into the same state doesn't double-create.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the six downward ports one status-entry provisioning reads \
+              (bindings, tasks, config, active-turns, task-creation, \
+              message-send) inverted out of the single AppState; there is no \
+              narrower grouping that is not itself that AppState-shaped bag"
+)]
 async fn provision_issue_task(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
+    config: &Config,
+    linear_active_turns: &ActiveLinearTurns,
+    task_creation: &TaskCreationService,
+    message_send: &MessageSendService,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rule: &SubscriptionMatch,
     cfg: &LinearRuleConfig,
     issue: &IssuePayload,
 ) -> Result<(), AdapterError> {
-    let existing = state
-        .task_bindings
+    let existing = task_bindings
         .find_active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
         .await?;
     if existing
@@ -238,8 +317,14 @@ async fn provision_issue_task(
     }
 
     let preview = super::text::build_issue_inbound_text(issue);
-    let task_id = match insert_event_task(state, rule, &issue.identifier, &issue.title, &preview)
-        .await
+    let task_id = match insert_event_task(
+        task_creation,
+        rule,
+        &issue.identifier,
+        &issue.title,
+        &preview,
+    )
+    .await
     {
         Ok(id) => id,
         // Preflight failed: surface the reason as an issue comment (the
@@ -258,12 +343,12 @@ async fn provision_issue_task(
     };
     // Open the Linear turn gate so sandbox/agent events on this task surface in
     // Linear's UI. Provisioning already ran inside the creation service.
-    state.linear_active_turns.open(&task_id);
+    linear_active_turns.open(&task_id);
 
     let team_id = issue.resolved_team_id().unwrap_or_default().to_string();
     let destination_config = super::subject::issue_destination_config(issue, &team_id);
     let binding = crate::bindings::runtime::upsert_binding_into(
-        state.task_bindings.as_ref(),
+        task_bindings,
         connection,
         Some(rule),
         &task_id,
@@ -277,13 +362,10 @@ async fn provision_issue_task(
     .await?;
 
     // Link the Moatless task back onto the Linear issue.
-    let task_url = super::text::task_url(&state.config, &task_id);
-    let attachment_title = super::text::task_attachment_title(
-        state.tasks.as_ref(),
-        &task_id,
-        super::text::ATTACHMENT_TITLE_CHILD,
-    )
-    .await;
+    let task_url = super::text::task_url(config, &task_id);
+    let attachment_title =
+        super::text::task_attachment_title(tasks, &task_id, super::text::ATTACHMENT_TITLE_CHILD)
+            .await;
     if let Err(e) = api
         .attachment_link_url(&issue.id, &task_url, &attachment_title)
         .await
@@ -298,8 +380,7 @@ async fn provision_issue_task(
     // Forward the inbound prompt: issue link + read-the-ticket instructions.
     let inbound_text = super::text::build_issue_inbound_text(issue);
     let external_event_id = super::external_id::issue_created(&issue.id);
-    if let Err(e) = state
-        .message_send
+    if let Err(e) = message_send
         .send_message_flow(
             &task_id,
             &inbound_text,
@@ -412,11 +493,10 @@ pub(super) async fn transition_issue_state(
 /// `linear_agent_session` and `linear_issue` subject kinds). Writes the
 /// dedicated `external_status*` columns. Best-effort: failures are logged.
 async fn persist_issue_status(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
     connection: &AdapterConnection,
     issue: &IssuePayload,
 ) {
-    let repo = state.task_bindings.clone();
     let status = super::status::linear_external_status(
         issue.state_name(),
         issue.state_kind(),
@@ -426,7 +506,7 @@ async fn persist_issue_status(
 
     for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
         let bindings = match super::subject::active_bindings_on_issue(
-            state.task_bindings.as_ref(),
+            task_bindings,
             connection,
             subject_kind,
             &issue.id,
@@ -445,7 +525,7 @@ async fn persist_issue_status(
             }
         };
         for binding in bindings {
-            if let Err(e) = repo
+            if let Err(e) = task_bindings
                 .update_external_status(
                     &binding.id,
                     status.status.as_deref(),
@@ -474,13 +554,15 @@ async fn persist_issue_status(
 ///
 /// Best-effort: failures are logged so the close path still runs.
 async fn notify_bindings_of_state_change(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
+    message_send: &MessageSendService,
+    sandbox_waker: &dyn SandboxWaker,
     connection: &AdapterConnection,
     issue: &IssuePayload,
     delivered_at: i64,
 ) {
     let bindings = match super::subject::active_bindings_on_issue(
-        state.task_bindings.as_ref(),
+        task_bindings,
         connection,
         SUBJECT_KIND,
         &issue.id,
@@ -509,8 +591,7 @@ async fn notify_bindings_of_state_change(
 
     for binding in bindings {
         let external_event_id = super::external_id::issue_state(&issue.id, delivered_at);
-        if let Err(e) = state
-            .message_send
+        if let Err(e) = message_send
             .send_message_flow(
                 &binding.task_id,
                 &body,
@@ -543,7 +624,7 @@ async fn notify_bindings_of_state_change(
             continue;
         }
 
-        if let Err(e) = state.sandbox_waker.wake(&binding.task_id).await {
+        if let Err(e) = sandbox_waker.wake(&binding.task_id).await {
             warn!(
                 task_id = %binding.task_id,
                 issue = %issue.identifier,
@@ -559,7 +640,7 @@ async fn notify_bindings_of_state_change(
 /// event. Returns the new task id. Callers own subsequent provisioning,
 /// binding, and inbound-message delivery.
 pub(super) async fn insert_event_task(
-    state: &AppState,
+    task_creation: &TaskCreationService,
     rule: &SubscriptionMatch,
     identifier: &str,
     title: &str,
@@ -578,15 +659,8 @@ pub(super) async fn insert_event_task(
     // service's error event alone stays invisible there because no turn gate is
     // open for a task that never got a binding.
     let config = moatless_adapter_model::models::subscription_context(rule, ADAPTER_LABEL);
-    // Resolve this adapter's reply instructions from the registry and pass them
-    // to the firing entry point as a value.
-    let reply_instructions = state
-        .adapters
-        .as_ref()
-        .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind))
-        .and_then(AdapterInboundPresentation::reply_instructions);
     let outcome = crate::loops::firing::inbound::create_task_from_loop(
-        &state.task_creation,
+        task_creation,
         &config,
         crate::loops::firing::inbound::CreateTaskParams {
             name: rule
@@ -596,7 +670,9 @@ pub(super) async fn insert_event_task(
             description: crate::bindings::outbound::truncate_text(preview, 200),
             visibility: Visibility::Public,
             origin_prelude: None,
-            reply_instructions,
+            // This path is the Linear adapter, so it supplies its own reply
+            // guidance directly rather than resolving it through the registry.
+            reply_instructions: Some(super::adapter::REPLY_INSTRUCTIONS.to_string()),
             related_to: None,
             event_metadata: serde_json::json!({
                 "adapter": ADAPTER_LABEL,

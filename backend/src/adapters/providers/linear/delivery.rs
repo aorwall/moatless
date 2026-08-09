@@ -491,7 +491,16 @@ async fn execute_issue_update(
         .await
         .map_err(AdapterDeliveryFailure::from)?;
     super::issues::handle_issue_update(
-        &state,
+        &state.db,
+        state.task_bindings.as_ref(),
+        state.tasks.as_ref(),
+        &state.config,
+        &state.sandbox,
+        state.events.as_deref(),
+        state.sandbox_waker.as_ref(),
+        &state.linear_active_turns,
+        &state.task_creation,
+        &state.message_send,
         &api,
         &connection,
         &rules,

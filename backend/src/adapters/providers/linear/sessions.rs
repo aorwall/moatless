@@ -318,8 +318,14 @@ async fn provision_session_task(
     // `Open` event all run inside the service), then the peer relation and the
     // binding.
     let preview = super::text::build_inbound_text(session);
-    let task_id = match insert_event_task(state, rule, &issue.identifier, &issue.title, &preview)
-        .await
+    let task_id = match insert_event_task(
+        &state.task_creation,
+        rule,
+        &issue.identifier,
+        &issue.title,
+        &preview,
+    )
+    .await
     {
         Ok(id) => {
             info!(task_id = %id, subscription_id = %rule.id, "Created task from Linear AgentSession");

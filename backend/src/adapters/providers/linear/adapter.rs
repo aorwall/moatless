@@ -453,24 +453,29 @@ impl AdapterPostBindingFollowup for LinearAdapter {
     }
 }
 
+/// Reply guidance appended to a Linear-fired task's firing system prompt
+/// (posting and mention conventions). Held as a module constant because two
+/// callers reference the same text: the [`AdapterInboundPresentation`] impl
+/// below, and the issue status-entry firing path in [`issues`](super::issues),
+/// which is this adapter and so supplies its own guidance directly rather than
+/// through the adapter registry.
+pub(super) const REPLY_INSTRUCTIONS: &str = "## Linear Agent Notes\n\
+     - Intermediate progress (text + tool calls) is emitted automatically \
+       as ephemeral `thought` / `action` activities — you do not need to \
+       post status updates by hand.\n\
+     - Your final reply is posted as a comment on the Linear issue. The \
+       agent session is finalized automatically when the task completes, \
+       by emitting a `response` activity carrying your last assistant \
+       message — you do not need to do this by hand. Use \
+       `moat messages reply` once to post.\n\
+     - Markdown is supported. Linear URLs auto-render as mentions.\n\
+     - The Moatless task URL is already linked via the session's \
+       external URLs — no need to include it in the reply body.";
+
 #[async_trait::async_trait]
 impl AdapterInboundPresentation for LinearAdapter {
     fn reply_instructions(&self) -> Option<String> {
-        Some(
-            "## Linear Agent Notes\n\
-             - Intermediate progress (text + tool calls) is emitted automatically \
-               as ephemeral `thought` / `action` activities — you do not need to \
-               post status updates by hand.\n\
-             - Your final reply is posted as a comment on the Linear issue. The \
-               agent session is finalized automatically when the task completes, \
-               by emitting a `response` activity carrying your last assistant \
-               message — you do not need to do this by hand. Use \
-               `moat messages reply` once to post.\n\
-             - Markdown is supported. Linear URLs auto-render as mentions.\n\
-             - The Moatless task URL is already linked via the session's \
-               external URLs — no need to include it in the reply body."
-                .to_string(),
-        )
+        Some(REPLY_INSTRUCTIONS.to_string())
     }
 
     fn thread_reply_hint(&self, _msg: &InboundMessage) -> Option<String> {
