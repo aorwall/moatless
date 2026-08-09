@@ -6,7 +6,7 @@ parse failures: 0
 CODE       legal  3301  illegal    0
 ATTRIBUTE  legal   280  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    54  illegal    0   (function-like macro-invocation token streams)
-DOC           50  (intra-doc paths — never a Cargo edge, never illegal)
+DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 860 point down into the existing crates/* floor
 TEST-CONTEXT 2079  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)

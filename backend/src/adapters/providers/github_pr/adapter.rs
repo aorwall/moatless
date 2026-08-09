@@ -104,11 +104,11 @@ impl GithubPrAdapter {
     /// Attach the ingress ports the webhook route reaches through this adapter,
     /// so [`super::handlers::github_webhook`] takes no `AppState`.
     ///
-    /// Built at the composition root ([`crate::compose`]) from the pool it
-    /// already holds — the same local-construction move Telegram's
-    /// `with_ingress_ports` and `LinearAdapter::with_tasks` make. All five are
-    /// pool-wrapper DAOs the backend guidelines allow constructing locally
-    /// precisely because they stay stateless, so a per-provider instance is
+    /// Built by the composition root from the pool it already holds — the same
+    /// local-construction move Telegram's `with_ingress_ports` and
+    /// `LinearAdapter::with_tasks` make. All five are pool-wrapper DAOs the
+    /// backend guidelines allow constructing locally precisely because they
+    /// stay stateless, so a per-provider instance is
     /// interchangeable with the one `AppState` holds (`AdapterDeliveryStore`
     /// carries the one non-obvious case — policy state — and pins the invariant
     /// at its own definition).

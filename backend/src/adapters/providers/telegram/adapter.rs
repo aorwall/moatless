@@ -77,13 +77,13 @@ impl TelegramAdapter {
     /// Attach the ingress ports the webhook route and the poller reach through
     /// this adapter, so neither has to take an `AppState`.
     ///
-    /// Built at the composition root ([`crate::compose`]) from the pool it
-    /// already holds — the same local-construction move as
-    /// `LinearAdapter::with_tasks`. All three are pool-wrapper DAOs, which the
-    /// backend guidelines allow constructing locally precisely because they
-    /// stay stateless, so a per-provider instance is interchangeable with the
-    /// one `AppState` holds (`AdapterDeliveryStore` carries the one non-obvious
-    /// case — policy state — and pins the invariant at its own definition).
+    /// Built by the composition root from the pool it already holds — the same
+    /// local-construction move as `LinearAdapter::with_tasks`. All three are
+    /// pool-wrapper DAOs, which the backend guidelines allow constructing
+    /// locally precisely because they stay stateless, so a per-provider instance
+    /// is interchangeable with the one `AppState` holds (`AdapterDeliveryStore`
+    /// carries the one non-obvious case — policy state — and pins the invariant
+    /// at its own definition).
     pub fn with_ingress_ports(
         mut self,
         adapter_connections: Arc<dyn AdapterConnectionDao>,
