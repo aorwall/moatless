@@ -46,10 +46,8 @@ each shape is what it is:
 
 In order. Nothing here is in flight; all three lanes stopped clean.
 
-1. **Backfill `external_crate("moatless_loops")`** — one line in `bands.rs`, plus a regen. Ruled,
-   measured inert, details under Known gaps. Do this **before** the next carve, not as part of it.
-   Say in the PR body that it is measured-inert and closes an *unscored* path rather than fixing a
-   counted edge, so that a later reader does not see a zero-diff tool change and revert it as a no-op.
+1. ~~Backfill `external_crate("moatless_loops")`.~~ **Done — #471.** Kept in the list because the
+   *reason* it mattered generalises to every future carve; see Known gaps.
 2. **Carve the next crate.** Ask the census which one rather than picking from the band table by eye.
    It prints either `FRONTIER -> <crate>: READY now (no illegal outgoing; every crate it depends on
    is extracted).` or `FRONTIER -> <crate>: BLOCKED on <n> illegal outgoing.` (`main.rs:1081`), and
@@ -58,7 +56,7 @@ In order. Nothing here is in flight; all three lanes stopped clean.
 3. **Providers, then `server` last.** That order is the spec's, not a preference.
 
 The ratchet is at 0, so any carve that introduces an illegal edge fails immediately — which is the
-point, and also why step 1 matters: an unscored edge fails nothing.
+point. The thing that does *not* fail is an edge the census never scored at all.
 
 ## The slice that closed the ports half — github_pr four-edge router (#469)
 
@@ -175,31 +173,61 @@ just "does it build".
     The `main.rs` carved-but-unbanded backstop catches this one's absence, loudly.
   - `external_crate("moatless_<name>") => "<name>"`. **Nothing catches this one's absence.** With it
     missing, every `moatless_<name>::` reference from another crate resolves to `None` and is
-    **unscored** — so a future illegal edge into the carved crate is not reported as tolerated, it is
-    not reported at all, and the census prints a 0 that is false. `loops` shipped without it (see
-    Known gaps); `tasks` shipped without both at 10d and they were restored at 10e.
-  A carve that omits the second arm still measures neutral on the day, because the only crates naming
-  it are the ones that just moved. That is why it is easy to skip and why skipping it is invisible.
+    **unscored**: present edges vanish from the reported dependency lists, and a future illegal edge
+    into the carved crate is not reported as tolerated but not reported at all. `loops` shipped
+    without it and it was backfilled at #471; `tasks` shipped without both at 10d, restored at 10e.
+    **Add a `band_of` unit test pinning the head** in the same slice — without one, deleting the arm
+    later regenerates a byte-identical baseline and passes.
+  A carve that omits the second arm still measures ceiling-neutral on the day, because the only
+  crates naming it are the ones that just moved. That is why it is easy to skip, why skipping it is
+  invisible, and why the ceiling is the wrong place to look for it — check the **report** diff.
 - Test-context edges are **not** ratcheted. Pricing them would fire on every legal in-crate test and
   create pressure to weaken tests to satisfy a counter.
 
-## Known gaps — open, measured, deliberately not fixed in the PR that found them
+## Known gaps — measured, and deliberately not fixed in the PR that found them
 
-Each of these was found with a measurement, not a suspicion, and each was kept out of the PR that
-surfaced it. That separation is deliberate: a fix folded into the diff that tripped it is a fix
-nobody reviews.
+Each was found with a measurement, not a suspicion, and each was kept out of the PR that surfaced it.
+That separation is deliberate: a fix folded into the diff that tripped it is a fix nobody reviews.
+The first entry is now closed; it stays because how it was wrong generalises.
 
-**`external_crate("moatless_loops")` is missing from `bands.rs`.** The loops carve landed
-`floor_crate_of_dir("loops")` but not its pair, so it satisfied one of the two arms the carve rule
-requires. **Measured inert:** adding the arm and regenerating produced a zero-diff baseline — ceiling
-unchanged at the time, byte-identical. It is inert only because the sole crates naming
-`moatless_loops::` today are the three backend facades, whose edges are legal or unscored either way.
-The latent hole is a lower-band crate (`tasks`, `identity`, `workspaces`, `sandbox-*`) that later
-gains a `moatless-loops` dependency and names it upward: that edge resolves to `None` and is never
-counted. **Ruled: backfill it as its own one-line tool PR with a regen**, the way 10e restored
-`tasks`. Not as part of a carve — an instrument must be fixed *before* the thing it measures moves,
-or the first carve that exercises it changes the instrument and the subject in one step and there is
-no clean before.
+**`external_crate("moatless_loops")` was missing from `bands.rs` — closed by #471, and the way it
+was wrong is the part worth keeping.** The loops carve landed `floor_crate_of_dir("loops")` but not
+its pair, satisfying one of the carve rule's two arms.
+
+It was first reported as *measured inert*, on good evidence: adding the arm and regenerating produced
+a **zero-diff baseline**, ceiling unchanged, byte-identical. That evidence was real and the
+conclusion drawn from it was too narrow. The baseline was unchanged; the **report** was not. Ten
+lines moved, and they were a correction:
+
+```
+adapter-github-pr  deps: identity, tasks, workspaces        → identity, loops, tasks, workspaces
+adapter-linear     deps: identity, sandbox-control, tasks   → identity, loops, sandbox-control, tasks
+adapter-slack      deps: identity, tasks                    → identity, loops, tasks
+adapter-telegram   deps: identity                           → identity, loops
+adapter-webhook    deps: floor / adapter-model only         → loops
+```
+
+**The census was reporting five crates as not depending on `loops` when they do.** `adapter-webhook`
+printed as having no band dependencies at all. A missing `external_crate` arm does not merely fail to
+catch a *future* edge — it silently subtracts *present* ones from the reported graph.
+
+That matters because `READY`/`WAITING` is derived from exactly those dependency lists, and the
+frontier line is what tells you which crate to carve next. All five read `READY` both before and
+after, and correctly so — but only because `loops` was already `EXTRACTED`. Had the arm been missing
+while `loops` was un-extracted, the census would have printed five adapter crates as ready to carve
+while each depended on an unextracted crate. **The bug class is "the tool tells you it is safe to
+carve X", not "the tool fails to complain later."**
+
+Two rules came out of it, both general:
+
+- **Fix the instrument before the thing it measures moves.** Backfilled as its own one-line PR, the
+  way 10e restored `tasks` — never inside a carve, or that carve changes the instrument and the
+  subject in one step and there is no clean before.
+- **An inert change still needs a test.** #471 added `moatless_loops_head_resolves_to_the_band_8_crate`
+  (asserts the head resolves and `band_of == 8`) because without one, *removing* the arm again
+  regenerates a byte-identical baseline and passes. The silent-subtraction failure the arm closes was
+  itself unguarded. A change justified as "the ratchet does not move" is exactly the change the
+  ratchet cannot protect.
 
 **The bindings/adapters untangle invariant became intra-crate.** #466 put `bindings` and `adapters`
 in the same crate, so the baseline that tracks their separation now guards a within-crate boundary
