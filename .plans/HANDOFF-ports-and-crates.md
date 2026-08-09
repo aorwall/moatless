@@ -4,7 +4,7 @@
 > **Spec:** `.plans/backend-ports-and-crates.md` is authoritative for *what* to build. This file is
 > operational: where the work stands, how the lanes divide, and the rules that were learned the hard
 > way and are not derivable from the code.
-> **Updated:** 2026-08-09 · main at `85dc81c92d82`, census ceiling **0**. The first half is complete.
+> **Updated:** 2026-08-09 · main at `4da92026d711`, census ceiling **0**. The first half is complete.
 
 ## What this program is
 
@@ -21,8 +21,12 @@ The census only counts *production* reference edges (`CODE`/`ATTR`/`MACRO`). Doc
 
 ## Where it stands
 
-**Main:** `85dc81c92d82`. **Ceiling: 0** — read from the baseline blob on `main`, not from a report.
+**Main:** `4da92026d711`. **Ceiling: 0** — read from the baseline blob on `main`, not from a report.
 There are no illegal production edges left in the repository.
+
+A SHA here is a write-time snapshot and cannot include the change that records it, so treat it as
+"the state this file describes" rather than as today's `main`. What must stay true is that the two
+places naming it agree; the ceiling and the gates are what you actually verify against.
 
 **Doc-path count is also 0.** The two `[DOC]` intra-doc paths this section used to list
 (`github_pr/adapter.rs:107`, `telegram/adapter.rs:80` → `crate::compose`) are gone. They were never
@@ -57,7 +61,8 @@ Each landed illegal-neutral against a ceiling of 0. The PR is the durable record
 
 1. ~~Backfill `external_crate("moatless_loops")`.~~ **Done — #471.** Kept in the list because the
    *reason* it mattered generalises to every future carve; see Known gaps.
-2. **The two remaining provider carves are in flight**, one task each, both based on `85dc81c92d82`:
+2. **The two remaining provider carves are in flight**, one task each, each rebasing on `main` as it
+   moves rather than pinned to a base:
    `adapter-linear` (23 files) and `adapter-github-pr` (25 files). They are independent — neither
    provider names the other — so the only contention is the shared mechanical surface (root
    `Cargo.toml`/`Cargo.lock`, `backend/Cargo.toml`, `bands.rs`, the census report and baseline).
@@ -369,19 +374,62 @@ than retyping it. See "an empty result is not a finding" under the rules.
 volume. The checkout is ~176M, so effectively all of it is Rust `target/`, and this workspace has no
 `.cargo/config.toml` while the root `Cargo.toml` overrides only `[profile.release]` and
 `[profile.ci]` — nothing lowers `debug` for the dev or test profiles. Full debug info is usually the
-majority of target size, and `--all-targets --features db-tests` multiplies it. Two lanes were
-evicted mid-carve this way (`Usage of EmptyDir volume "workspace-data" exceeds the limit "10Gi"`).
+majority of target size, and `--all-targets --features db-tests` multiplies it. **Three** lanes have
+been evicted mid-carve this way (`Usage of EmptyDir volume "workspace-data" exceeds the limit
+"10Gi"`).
+
+**All three evictions were self-inflicted at task creation, and the fix is one flag.** The repo
+*does* size its workspace: the `moatless` entry in `.moatless/workspaces.json` sets
+`"storage": "20Gi"` with `"buildCacheMode": "node"` and `"buildCacheScope": "task"`, and
+`docs/sandbox-architecture.md:763-791` documents that block as the answer to this exact eviction for
+Rust-heavy repos. None of the evicted lanes were using it. A task created with `moat tasks create
+--repo moatless` lands on a synthesized per-repository workspace — its id is literally `ws_` + the
+repository id and its name is `null` — which carries no `resources` block at all and therefore gets
+the deployment default, not the 20Gi. Tasks created with `--workspace Moatless` land on
+`ws_a7a61c35…`, which has the block. **Create carve lanes with `--workspace Moatless`.** The
+protocol below still stands: it costs nothing on a correctly-sized workspace, and a lane can still
+find itself on a constrained one.
+
+**A residual gap, measured and deliberately not fixed here.** Even the `Moatless` workspace does not
+set `CARGO_TARGET_DIR` to the build cache, so `target/` rides the workspace volume rather than the
+node-backed cache that `buildCacheMode: "node"` provisions — the env block
+`docs/sandbox-architecture.md:783-786` recommends alongside it is absent, on all three Rust-capable
+workspaces. That makes 20Gi a larger ceiling rather than a different resource. Changing it touches
+every task on those workspaces, not just this program, so it is **tracked in
+`docs/deferred-changes.md`** under "Test and CI structure" with its anchor and entry condition, and
+only summarised here.
+
+**Push early, and push broken.** This is the rule that matters most and the one this section was
+missing through the first three evictions: it told you how to make eviction *less likely* and
+nothing about making it *cheap*. As soon as the `git mv` and the new `Cargo.toml` skeleton exist —
+before it compiles, before a gate runs — commit and push a WIP branch, and push again after every
+meaningful step. The third eviction cost an entire carve because nothing had been pushed; the first
+two cost minutes because something had. A branch that does not compile is not embarrassing, it is a
+backup.
+
+**Do not verify locally at full scale.** A workspace-wide `cargo test` or `clippy --all-targets` is
+what fills the volume. Run targeted checks locally — `cargo check -p <the-new-crate>`, then
+`cargo check -p moatless-vibe-backend` — and let CI carry `--all-targets` and the test run. CI is the
+actual gate and it has the disk. This changes what you may *claim*, not what gets checked: say which
+checks ran locally and which were left to CI, and never report a gate as passing on the assumption
+that CI will pass it.
 
 Export these before any cargo command:
 ```bash
+export CARGO_INCREMENTAL=0
 export CARGO_PROFILE_DEV_DEBUG=0
 export CARGO_PROFILE_TEST_DEBUG=0
 ```
+`CARGO_INCREMENTAL=0` is not an afterthought beside the two debug settings — incremental artifacts
+are gigabytes on a workspace this size, and they are pure rebuild-latency cache with no effect on
+any output a gate reads.
 They change nothing a gate measures — clippy lints, test outcomes and the census are identical; you
-lose line numbers in backtraces. Then prefer `cargo check` over `cargo build`, watch `du -sh target`
-between phases, and `cargo clean` past ~6G. A cold cache costs minutes; an eviction costs the
-sandbox. **If disk pressure forces you to skip a gate, push and let CI run it — but report it as
-"deferred to CI", never as green.** A gate not run and a gate that passed read identically.
+lose line numbers in backtraces. Then prefer `cargo check` over `cargo build`, check `du -sh target`
+after every cargo invocation rather than between phases, and `cargo clean` past ~5G — do not wait
+until it feels large, because the limit counts the whole workspace and not just `target/`. A cold
+cache costs minutes; an eviction costs the sandbox. **If disk pressure forces you to skip a gate,
+push and let CI run it — but report it as "deferred to CI", never as green.** A gate not run and a
+gate that passed read identically.
 
 **Formatting.** Do **not** run `cargo fmt`. The tree is not fmt-clean, CI has no `fmt --check`, and a
 run rewrites ~194 files and collides with every concurrent lane. Match neighbours by hand. Never run

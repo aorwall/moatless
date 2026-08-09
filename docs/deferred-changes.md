@@ -123,6 +123,24 @@ behaviour widens.
 | No `cargo fmt --all --check` gate | `ci.yml`; a standing diff in `adapters/providers/github_pr/api.rs` | Sweep and gate together, so the gate starts green |
 | Nothing alerts when `main` goes red | `ci.yml` | Pairs with a nightly build for the image tier |
 | A sandbox readiness test intermittently hangs to the CI timeout | `sandbox/src/init/replacement_test/readiness.rs::sustained_ack_failure_never_re_runs_and_aborts_on_shutdown` | When it fires a second time on `main`, or when anyone next works in `sandbox/src/init` |
+| Every Rust workspace provisions a node build cache nothing writes to | `.moatless/workspaces.json` — the `moatless`, `moatless-preview` and `moatless-fullstack` entries set `resources.buildCacheMode: "node"` with no `CARGO_TARGET_DIR` in `envVars` | When a task on one of these workspaces is next evicted on workspace storage, or alongside any change to their `resources`/`envVars` blocks |
+
+**The build cache no build writes to.** All three Rust-capable workspaces ask for
+a node-backed build cache and then leave `CARGO_TARGET_DIR` unset, so `target/`
+is written to the workspace volume anyway and the provisioned cache goes unused.
+`docs/sandbox-architecture.md`'s "Sizing Rust-heavy repos" pairs the `resources`
+block with a matching `envVars` block (`CARGO_TARGET_DIR` and `TMPDIR` under
+`/opt/moatless/build-cache`); only the first half is present here. The effect is
+that `storage: 20Gi` buys a larger ceiling rather than moving build artifacts off
+the volume, which is a real mitigation but not the documented one.
+
+Not fixed on discovery because it changes where every task on these workspaces
+writes its build output — a blast radius belonging to whoever owns sandbox
+resourcing, not to the carve that tripped over it. It was found by three lanes
+being evicted at the *deployment default*, having been created with
+`moat tasks create --repo` rather than `--workspace`, so they never reached these
+blocks at all; that half is fixed and recorded in
+`.plans/HANDOFF-ports-and-crates.md`.
 
 **Route literals.** The suite already imports generated *types* from
 `@moatless/api-client` (`tests/shared/types.ts`, `tests/shared/wait-helpers.ts`),
