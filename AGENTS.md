@@ -62,22 +62,23 @@ full build and between commits, and run `task rust:gc` when it tightens.
 recompiles every dependency into the same volume. Commit each logical change as
 it goes green rather than batching, so an eviction costs one commit.
 
-The backend's clippy line carries `--features db-tests` because 39 of the 40
-modules in `backend/tests/integration/` open with `#![cfg(feature = "db-tests")]`
-and compile to nothing without it — a signature they construct can change and a
-bare `--all-targets` run stays green. Clippy type-checks that tier without
-linking it, which is why the feature rides on a line you already run rather than
-a line of its own. `ci.yml` also links it with `cargo nextest run -p
-moatless-vibe-backend --features db-tests --no-run`; do not add that locally,
-because `cargo test` under a feature is a separate cargo unit and the first build
-of it recompiles the dependency graph again.
+The db-tests clippy matrix carries `--features db-tests` for every package that
+declares the feature because gated test modules compile to nothing without it —
+a signature they construct can change and a bare `--all-targets` run stays
+green. Clippy type-checks that tier without linking it, which is why the feature
+rides on lines you already run rather than a local command of its own. `ci.yml`
+also links selected DB-test packages with
+`cargo nextest run -p <package> --features db-tests --no-run`; do not add that
+locally, because `cargo test` under a feature is a separate cargo unit and the
+first build of it recompiles the dependency graph again.
 
-Those modules are one test target, `backend/tests/integration/main.rs`, not one
-target per file: each links the whole backend closure, so link time scales with
-the target count. A new integration test is a file in `backend/tests/integration/`
-plus a `mod` line in `main.rs`, and reaches the shared helpers through
-`use crate::common;`. nextest gives each test its own process, so a test may
-still set env vars without disturbing its neighbours.
+The backend integration modules are one test target,
+`backend/tests/integration/main.rs`, not one target per file: each links the
+whole backend closure, so link time scales with the target count. A new
+integration test is a file in `backend/tests/integration/` plus a `mod` line in
+`main.rs`, and reaches the shared helpers through `use crate::common;`. nextest
+gives each test its own process, so a test may still set env vars without
+disturbing its neighbours.
 
 `moatless-core` is linted twice for the same reason: its `openapi` feature gates
 real code (the `ToSchema` derives, the two `utoipa::path` attributes, and the tag

@@ -321,6 +321,12 @@ jobs:
           shared-key: rust-clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Install jq
+        run: |
+          .github/scripts/apt-https-mirrors.sh
+          apt-get update
+          apt-get install -y --no-install-recommends jq
+
       - name: Clippy (deny warnings)
         run: |
           # Floor: lint EVERY workspace member at --all-targets, so a new crate
@@ -347,10 +353,15 @@ jobs:
           # - moatless-backend-core with every feature on: `database` gates the
           #   DAO and pairing module, which the default (`[]`) floor run omits.
           cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
-          # - `--features db-tests` because 39 of the 40 files in `backend/tests`
-          #   open with `#![cfg(feature = "db-tests")]` and compile to nothing
-          #   without it.
-          cargo clippy -p moatless-vibe-backend --all-targets --features db-tests -- -D warnings
+          # - `--features db-tests` because db-gated tests compile to nothing
+          #   without it. Discover the packages from their manifests so a carved
+          #   crate keeps this coverage by declaring the feature, not by editing
+          #   a second hand-maintained CI list.
+          DB_TEST_PACKAGES=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.features["db-tests"] != null) | .name')
+          for package in $DB_TEST_PACKAGES; do
+            cargo clippy -p "$package" --all-targets --features db-tests -- -D warnings
+          done
 
       # Resolves a different graph (no sqlx/rustls), so it rebuilds the
       # closure. Guards that `database` stays droppable — manifest-only concern.
@@ -490,11 +501,20 @@ jobs:
           fi
 
           # Clippy type-checks the db-tests tier; this links it. No DB needed.
-          case "$PKGS" in
-            *moatless-vibe-backend*)
-              cargo nextest run -p moatless-vibe-backend --features db-tests --no-run
-              ;;
-          esac
+          # Keep the package set data-driven: a selected package that declares
+          # the feature gets linked, and unselected packages stay narrowed out.
+          DB_TEST_PACKAGES=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.features["db-tests"] != null) | .name')
+          for package in $DB_TEST_PACKAGES; do
+            case " $PKGS " in
+              *" -p ${package} "*)
+                cargo nextest run -p "$package" --features db-tests --no-run
+                ;;
+              *)
+                echo "::notice::Skipping ${package} db-tests no-run — package not selected"
+                ;;
+            esac
+          done
 
       - name: Upload test results
         if: always()
