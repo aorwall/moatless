@@ -5,8 +5,8 @@
 //! bag over as a `&serde_json::Value` (spec Open question 3); this module is
 //! where it stops being one.
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::{AdapterDestinationBuilder, BindingDestination};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::{AdapterDestinationBuilder, BindingDestination};
 
 use super::adapter::TelegramAdapter;
 

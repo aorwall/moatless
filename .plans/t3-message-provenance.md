@@ -51,7 +51,7 @@ are `soaplabs/t3code`. Both are ours.
 | `crates/adapter-slack/src/auth.rs:15` | `SenderIdentity` — carries `handle` on `Rejected` only |
 | `crates/adapter-slack/src/webhook.rs:415` | Where `SenderIdentity` is consumed and the handle is dropped |
 | `crates/adapter-slack/src/subject.rs:64` | `subject_key` → `team:channel:thread_ts` |
-| `backend/src/adapters/providers/telegram/webhook.rs:282` | Telegram's `InboundMessage` construction |
+| `crates/adapter-telegram/src/webhook.rs:282` | Telegram's `InboundMessage` construction |
 | `backend/src/adapters/providers/linear/comments.rs:123` | Linear's comment ingress |
 | `backend/src/adapters/providers/linear/adapter.rs:295` | Where the Linear issue `url` and `identifier` are written to `destination_config` |
 | `crates/adapter-webhook/src/adapter.rs:194` | The Webhook Adapter's `InboundMessage` |
@@ -199,7 +199,7 @@ Actor: a T3 client older than the backend, or newer.
   variants, which today carry it only on `Rejected`.
 - **Evidence** — `github_pr/webhook.rs:679` already has `context.sender_login` in scope;
   `crates/adapter-slack/src/auth.rs:49` already fetches `SlackUserInfo` and reads `info.handle` at `:60`;
-  `telegram/webhook.rs:282`; `linear/comments.rs:123`. The Webhook Adapter
+  `crates/adapter-telegram/src/webhook.rs:282`; `linear/comments.rs:123`. The Webhook Adapter
   (`webhook/adapter.rs:193`) has no author and passes `None`.
 
 #### `backend/src/message/send.rs`

@@ -2,12 +2,12 @@
 
 use std::fmt::Write;
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{
     AdapterConnection, BindingContext, LoopContext, OutboundReply, RoutingMode, SubscriptionMatch,
     TaskBinding,
 };
-use crate::adapters::{
+use moatless_loops::adapters::{
     AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
     DestinationPostResult,
 };
@@ -39,7 +39,7 @@ impl AdapterBindingReply for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let destination = TelegramDestination::from_thread_context(&thread.destination_config)?;
-        let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let api = self.app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
 
         api.send_message(
             destination.chat_id(),
@@ -60,7 +60,7 @@ impl AdapterBindingReply for TelegramAdapter {
     ) -> Result<Option<String>, AdapterError> {
         let thread = moatless_adapter_model::models::binding_context(binding);
         let app_key =
-            crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
+            moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config);
         let api = self.app_api(app_key).await?;
         let _config = rule.map_or_else(
             || LoopContext {
@@ -118,7 +118,7 @@ impl AdapterMessageReply for TelegramAdapter {
         let destination =
             TelegramDestination::from_destination_config(&binding.destination_config)?;
         let app_key =
-            crate::adapter_apps::app_key_from_transport_config(&connection.transport_config);
+            moatless_identity::adapter_apps::app_key_from_transport_config(&connection.transport_config);
         let api = self.app_api(app_key).await?;
 
         let new_id = api
@@ -141,7 +141,7 @@ impl AdapterDirectDestination for TelegramAdapter {
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError> {
         let chat_id = parse_direct_destination(destination)?;
-        let api = self.app_api(crate::adapter_apps::DEFAULT_APP_KEY).await?;
+        let api = self.app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY).await?;
 
         let message_id = api
             .send_message_returning_id(chat_id, &with_task_link(message), None, None)
@@ -173,12 +173,12 @@ impl AdapterDirectMessage for TelegramAdapter {
 mod tests {
     use axum::http::StatusCode;
 
-    use crate::adapters::test_support::stub_provider;
+    use moatless_loops::adapters::test_support::stub_provider;
 
     use super::super::api::TelegramApi;
     use super::super::test_support::{BotApiStub, bot_api_stub, test_loop_context};
     use super::*;
-    use crate::adapters::error::SharedAdapterError;
+    use moatless_loops::adapters::error::SharedAdapterError;
 
     /// A provider whose Bot API calls are recorded rather than sent.
     async fn provider_with_stub() -> (TelegramAdapter, BotApiStub) {

@@ -18,6 +18,7 @@ members = [
     "crates/sandbox-control",
     "crates/sandbox-k8s",
     "crates/sandbox-docker",
+    "crates/adapter-telegram",
     "crates/adapter-webhook",
     "crates/adapter-slack",
     "crates/t3code",

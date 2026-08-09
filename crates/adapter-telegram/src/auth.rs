@@ -2,7 +2,7 @@
 
 use tracing::{info, warn};
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_core::db::DbPool;
 
 /// The system user a Telegram sender is linked to, if any.

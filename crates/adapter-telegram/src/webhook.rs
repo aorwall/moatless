@@ -10,9 +10,9 @@
 
 use tracing::{debug, info};
 
-use crate::adapters::AdapterKind;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::models::{AccessDecision, Audience, InboundMessage, LoopContext};
+use moatless_loops::adapters::AdapterKind;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::models::{AccessDecision, Audience, InboundMessage, LoopContext};
 use moatless_core::db::DbPool;
 
 use super::access::{self, DmDecision, DmSender};
@@ -273,7 +273,7 @@ pub(super) async fn normalize(
     let author = from_username
         .map(|handle| format!("@{handle}"))
         .or_else(|| from_first_name.map(str::to_string))
-        .and_then(|handle| crate::adapters::models::author_handle(&handle));
+        .and_then(|handle| moatless_loops::adapters::models::author_handle(&handle));
 
     Ok(Normalization::Message {
         message: Box::new(InboundMessage {

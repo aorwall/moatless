@@ -2,13 +2,13 @@
 
 use std::sync::Arc;
 
-use crate::adapters::dao::AdapterConnectionDao;
-use crate::adapters::delivery::AdapterDeliveryStore;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::{
+use moatless_loops::adapters::dao::AdapterConnectionDao;
+use moatless_loops::adapters::delivery::AdapterDeliveryStore;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::{
     Adapter, AdapterInboundPresentation, AdapterKind, AdapterOutboundContent, Adapters,
 };
-use crate::loops::dao::LoopDao;
+use moatless_loops::loops::dao::LoopDao;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 
@@ -41,7 +41,7 @@ impl TelegramAdapter {
     ///
     /// Construction lives at the composition root; the provider owns the
     /// mapping from itself to the capability surfaces it implements.
-    pub(crate) fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
+    pub fn register_into(self: Arc<Self>, adapters: &mut Adapters) {
         let kind = AdapterKind::Telegram;
         adapters.register_trait_object(self.clone());
         adapters.register_binding_reply(self.clone());
@@ -50,7 +50,6 @@ impl TelegramAdapter {
         adapters.register_inbound_presentation(kind, self);
     }
 
-    #[cfg(test)]
     pub fn new(bot_token: &str) -> Self {
         Self {
             api: TelegramApi::new(bot_token),
@@ -130,7 +129,7 @@ impl TelegramAdapter {
     /// [`Self::new`] builds its client from a bot token, so a test that drives
     /// any path reaching the Bot API has nowhere to put a stub. Pair this with
     /// [`TelegramApi::with_base_url`] and
-    /// [`crate::adapters::test_support::stub_provider`]; no test reaches
+    /// [`moatless_loops::adapters::test_support::stub_provider`]; no test reaches
     /// api.telegram.org.
     #[cfg(test)]
     pub(super) const fn with_api(api: TelegramApi) -> Self {
@@ -157,7 +156,7 @@ impl TelegramAdapter {
         let config = self.config.as_deref().ok_or_else(|| {
             SharedAdapterError::Internal("Telegram Adapter missing config".into())
         })?;
-        let Some(app) = crate::adapter_apps::telegram_app_config(db, config, app_key)
+        let Some(app) = moatless_identity::adapter_apps::telegram_app_config(db, config, app_key)
             .await
             .map_err(|e| SharedAdapterError::AdapterApi(e.to_string()))?
         else {

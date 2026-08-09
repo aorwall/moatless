@@ -8,11 +8,11 @@
 
 use tracing::{debug, info};
 
-use crate::adapters::AdapterDestinationBuilder;
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
-use crate::adapters::ingress::{IngressError, Outcome};
-use crate::adapters::models::SubscriptionMatch;
+use moatless_loops::adapters::AdapterDestinationBuilder;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::inbound_delivery::{InboundDeliveryPayload, inbound_delivery_request};
+use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_loops::adapters::models::SubscriptionMatch;
 use moatless_core::db::DbPool;
 
 use super::adapter::TelegramAdapter;
@@ -95,7 +95,7 @@ pub(super) async fn receive(
     // a private chat — and verify that Subscription's secret, which is how an
     // update could route under a Subscription whose secret was never checked
     // (spec Decision 5).
-    let Some((connection, subscription)) = crate::bindings::runtime::resolve_chat_provider_event(
+    let Some((connection, subscription)) = moatless_loops::bindings::runtime::resolve_chat_provider_event(
         adapter
             .require_adapter_connections()
             .map_err(IngressError::Ingress)?,
@@ -124,7 +124,7 @@ pub(super) async fn receive(
     let tg_config = TelegramAdapterConfig::from_config(&config);
     let db = adapter.require_db().map_err(IngressError::Ingress)?;
     let api = adapter
-        .app_api(crate::adapter_apps::app_key_from_transport_config(
+        .app_api(moatless_identity::adapter_apps::app_key_from_transport_config(
             &connection.transport_config,
         ))
         .await
@@ -185,7 +185,7 @@ pub(super) async fn receive(
             // The routing runs in the Adapter delivery worker, which is also where
             // the webhook outcome metric is recorded. Failing here propagates:
             // nothing durable was written, so the caller must not acknowledge.
-            let admission = crate::adapters::ingress::admit_delivery(
+            let admission = moatless_loops::adapters::ingress::admit_delivery(
                 adapter
                     .require_adapter_delivery()
                     .map_err(IngressError::Ingress)?,

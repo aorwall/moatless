@@ -3,7 +3,7 @@
 use reqwest::Client;
 use tracing::warn;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 
 /// Maximum message length for Telegram's sendMessage API.
 const MAX_MESSAGE_LENGTH: usize = 4096;
@@ -406,7 +406,7 @@ mod error_source_tests {
     use axum::http::StatusCode;
 
     use super::*;
-    use crate::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
+    use moatless_loops::adapters::test_support::{UNREACHABLE_BASE, stub_provider};
 
     #[tokio::test]
     async fn unreachable_telegram_keeps_transport_source() {

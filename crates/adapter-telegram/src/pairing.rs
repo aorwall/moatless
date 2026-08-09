@@ -15,8 +15,8 @@ use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::loops::dao::LoopDao;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::loops::dao::LoopDao;
 use moatless_core::db::DbPool;
 
 use super::config::TelegramAdapterConfig;
@@ -274,7 +274,7 @@ mod error_source_tests {
     use axum::response::IntoResponse as _;
 
     use super::*;
-    use crate::adapters::test_support::response_snapshot;
+    use moatless_loops::adapters::test_support::response_snapshot;
 
     /// A pool pointed at a dead loopback port, with a short acquire timeout so
     /// the pairing queries fail fast instead of waiting out the default.

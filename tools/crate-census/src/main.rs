@@ -1429,6 +1429,8 @@ mod tests {
 
     #[test]
     fn carved_but_unbanded_fires_on_a_target_band_dir_that_still_scores_as_floor() {
+        use crate::bands::UNBANDED_TARGET_BAND_FIXTURE;
+
         let df = |source: &str| DiscoveredFile {
             abs: PathBuf::new(),
             rel: String::new(),
@@ -1436,29 +1438,24 @@ mod tests {
             scope: ScopeKind::Floor,
             source_crate: source.to_string(),
         };
-        // Synthetic omission tracking the current carve frontier: `adapter-telegram`
-        // (band 9) is a provider-band crate with no floor_crate_of_dir arm yet, so its
-        // dir resolves to floor:adapter-telegram. The guard MUST fire and name it.
-        // Constructed via floor_crate_of_dir so the day the provider slice adds the arm,
-        // source_crate becomes "adapter-telegram", this stops being a floor: id, and the
-        // test breaks loudly — repoint it to the next unbanded frontier (or drop it once
-        // none remain) rather than asserting a stale string. `tasks`,
-        // `sandbox-control`, `sandbox-k8s`, `sandbox-docker`, then `loops` were this
-        // example until their arms landed; the break is the forcing function that keeps
-        // the guard pointed at a real, current gap.
-        let missing = floor_crate_of_dir("adapter-telegram");
+        // Synthetic omission: the fixture is band 9 under cfg(test), but has no
+        // floor_crate_of_dir arm. That is the exact missing-arm shape the guard
+        // exists to surface, without tying the self-test to whichever real carve
+        // frontier has not landed yet.
+        let missing = floor_crate_of_dir(UNBANDED_TARGET_BAND_FIXTURE);
         assert_eq!(
-            missing, "floor:adapter-telegram",
+            missing,
+            format!("floor:{UNBANDED_TARGET_BAND_FIXTURE}"),
             "the omission this test simulates: no bands arm yet"
         );
         let files = vec![
-            df(&missing),                        // floor:adapter-telegram — band 9, unbanded: FIRES
+            df(&missing),                        // floor:<fixture> — band 9, unbanded: FIRES
             df(&floor_crate_of_dir("events")),   // floor:events — a real floor crate
             df(&floor_crate_of_dir("identity")), // "identity" — properly banded, extracted
         ];
         let unbanded = carved_but_unbanded(&files);
         assert!(
-            unbanded.contains("adapter-telegram"),
+            unbanded.contains(UNBANDED_TARGET_BAND_FIXTURE),
             "a target-band dir scoring as floor must be surfaced"
         );
         assert!(!unbanded.contains("events"), "a genuine floor crate (band 50) must not fire");

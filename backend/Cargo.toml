@@ -146,6 +146,9 @@ moatless-adapter-webhook = { path = "../crates/adapter-webhook" }
 # The Slack Adapter. Composed through the permanent facade at
 # src/adapters/providers/slack.rs while the backend stays the composition root.
 moatless-adapter-slack = { path = "../crates/adapter-slack" }
+# The Telegram Adapter. Composed through the permanent facade at
+# src/adapters/providers/telegram.rs while the backend stays the composition root.
+moatless-adapter-telegram = { path = "../crates/adapter-telegram" }
 # The sandbox subsystem, now three banded crates behind the permanent facade at
 # src/sandbox/mod.rs: control (band 6, provider-agnostic lifecycle/gRPC/secrets/
 # status) and the two runtime providers k8s/docker (band 7), which carry their

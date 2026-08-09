@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::models::{LoopContext, SourceAccessPolicy};
+use moatless_loops::adapters::models::{LoopContext, SourceAccessPolicy};
 
 /// Typed representation of `adapter_config` JSONB for Telegram channels.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -108,7 +108,7 @@ mod tests {
             source_id: "*".into(),
             source_name: None,
             repository_id: "repo1".into(),
-            routing_mode: crate::adapters::models::RoutingMode::BySubject,
+            routing_mode: moatless_loops::adapters::models::RoutingMode::BySubject,
             prompt_template: None,
             active: true,
             allow_direct_send: false,

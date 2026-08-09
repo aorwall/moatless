@@ -8,9 +8,9 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use tracing::{info, warn};
 
-use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::adapters::ingress::{IngressError, Outcome};
-use crate::adapters::metrics::record_webhook;
+use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
+use moatless_loops::adapters::ingress::{IngressError, Outcome};
+use moatless_loops::adapters::metrics::record_webhook;
 
 use super::adapter::TelegramAdapter;
 use super::ingress::{self, Transport};
@@ -76,10 +76,10 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
 
-    use crate::adapters::delivery::AdmitError;
-    use crate::adapters::error::SharedAdapterError;
-    use crate::adapters::ingress::IngressError;
-    use crate::adapters::test_support::response_snapshot;
+    use moatless_loops::adapters::delivery::AdmitError;
+    use moatless_loops::adapters::error::SharedAdapterError;
+    use moatless_loops::adapters::ingress::IngressError;
+    use moatless_loops::adapters::test_support::response_snapshot;
 
     use super::refusal;
 
@@ -89,7 +89,7 @@ mod tests {
     /// before the shared vocabulary landed: `receive` admitted through a helper
     /// that flattened `AdmitError` into `AdapterError` first, so a refused
     /// admission arrived as an ingress rejection. It now admits through
-    /// `crate::adapters::ingress::admit_delivery` — see the test beside that
+    /// `moatless_loops::adapters::ingress::admit_delivery` — see the test beside that
     /// function — and this pins that the class it produces is still refused
     /// rather than acknowledged, and with the same statuses the flattened one
     /// produced.

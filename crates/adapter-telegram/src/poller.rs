@@ -8,7 +8,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::adapters::ingress::IngressError;
+use moatless_loops::adapters::ingress::IngressError;
 
 use super::adapter::TelegramAdapter;
 use super::ingress::{self, Transport};
@@ -82,7 +82,7 @@ pub fn spawn_telegram_poller(
         info!("Telegram poller started");
 
         let api = match telegram_provider
-            .app_api(crate::adapter_apps::DEFAULT_APP_KEY)
+            .app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY)
             .await
         {
             Ok(api) => api,
@@ -105,7 +105,7 @@ pub fn spawn_telegram_poller(
 
         loop {
             let api = match telegram_provider
-                .app_api(crate::adapter_apps::DEFAULT_APP_KEY)
+                .app_api(moatless_identity::adapter_apps::DEFAULT_APP_KEY)
                 .await
             {
                 Ok(api) => api,
@@ -274,8 +274,8 @@ mod tests {
     /// wedges on it and everything queued behind it stops.
     #[test]
     fn only_a_fixable_failure_holds_the_offset_back() {
-        use crate::adapters::delivery::AdmitError;
-        use crate::adapters::error::SharedAdapterError;
+        use moatless_loops::adapters::delivery::AdmitError;
+        use moatless_loops::adapters::error::SharedAdapterError;
 
         assert!(is_worth_redelivering(&IngressError::NotAdmitted(
             AdmitError::AtCapacity { limit: 100 }

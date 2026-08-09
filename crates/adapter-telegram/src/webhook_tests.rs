@@ -13,9 +13,9 @@
 
 use axum::http::StatusCode;
 
-use crate::adapters::error::AdapterError;
-use crate::adapters::models::{InboundMessage, LoopContext};
-use crate::adapters::test_support::stub_provider;
+use moatless_loops::adapters::error::AdapterError;
+use moatless_loops::adapters::models::{InboundMessage, LoopContext};
+use moatless_loops::adapters::test_support::stub_provider;
 use moatless_core::db::DbPool;
 
 use super::adapter::TelegramAdapter;
@@ -454,8 +454,8 @@ async fn a_group_never_gets_a_pairing_code() {
 mod db_tests {
     use sqlx::PgPool;
 
-    use crate::adapters::models::Audience;
-    use crate::adapters::AdapterKind;
+    use moatless_loops::adapters::models::Audience;
+    use moatless_loops::adapters::AdapterKind;
 
     use super::super::test_support::OWNER;
     use super::*;
