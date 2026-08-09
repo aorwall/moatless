@@ -31,7 +31,9 @@ pub fn resolve_backend(tree: &Tree, from_mod: &ModPath, segs: &[String], depth: 
             walk(tree, from_mod, base, &segs[n..], depth)
         }
         "Self" => Resolution::Ignore,
-        "moatless_vibe_backend" => walk(tree, from_mod, Vec::new(), &segs[1..], depth),
+        "moatless_vibe_backend" | "moatless_backend" => {
+            walk(tree, from_mod, Vec::new(), &segs[1..], depth)
+        }
         _ => {
             if let Some(c) = external_crate(head) {
                 return Resolution::ExternalCrate(c);
@@ -76,7 +78,12 @@ fn resolve_bare(tree: &Tree, from_mod: &ModPath, segs: &[String], depth: u32) ->
         for prefix in globs {
             let anchored = prefix
                 .first()
-                .is_some_and(|h| matches!(h.as_str(), "crate" | "super" | "self" | "moatless_vibe_backend"));
+                .is_some_and(|h| {
+                    matches!(
+                        h.as_str(),
+                        "crate" | "super" | "self" | "moatless_vibe_backend" | "moatless_backend"
+                    )
+                });
             if !anchored {
                 continue; // external glob — only brings floor/std names (legal or ignore)
             }

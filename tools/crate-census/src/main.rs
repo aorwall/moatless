@@ -476,7 +476,8 @@ fn file_to_modpath(inner: &str) -> ModPath {
 /// file's real `use moatless_vibe_backend::...::X` at that key, and the test ref
 /// then resolved through the floor `super::` and stranded as `super-above-root`.
 /// Backend resolution never walks into these sentinel roots (floor refs resolve by
-/// external-crate head, and `crate::`/`moatless_vibe_backend::` anchor at `[]`), so
+/// external-crate head, and `crate::`/`moatless_vibe_backend::`/`moatless_backend::`
+/// anchor at `[]`), so
 /// isolating them changes no production edge — only the spurious unresolved count.
 fn synthetic_root(crate_tag: &str) -> String {
     format!("\u{0}{crate_tag}")

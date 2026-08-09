@@ -307,6 +307,12 @@ pub fn floor_crate_of_dir(dir_name: &str) -> String {
         // into another adapter at the same band or into the server band — is never
         // caught. The arm ships in the same slice as the `git mv`.
         "adapter-linear" => "adapter-linear".to_string(),
+        // `backend` is the physical directory for the band-10 server layer
+        // (crates/backend). The band id stays `server`: it is a layer name, not
+        // the package or directory name. Without this arm the final carved crate
+        // leaves the scored graph just as the ratchet reaches its last subject.
+        // The arm is measured before the move that creates crates/backend.
+        "backend" => "server".to_string(),
         other => format!("floor:{other}"),
     }
 }
@@ -424,6 +430,11 @@ pub fn external_crate(head: &str) -> Option<String> {
         // `moatless_adapter_slack` and is paired with the
         // `floor_crate_of_dir("adapter-github-pr")` arm above.
         "moatless_adapter_github_pr" => "adapter-github-pr",
+        // `moatless_backend` resolves to the band-10 server crate. It is the
+        // post-package-rename spelling of the backend crate root; without this
+        // arm every integration-test or intra-binary `moatless_backend::` head
+        // would fall to `None` and be silently unscored.
+        "moatless_backend" => "server",
         _ => return None,
     };
     Some(id.to_string())
@@ -823,6 +834,35 @@ mod tests {
             band_of(&id),
             9,
             "moatless_adapter_github_pr must resolve to band-9 adapter-github-pr",
+        );
+    }
+
+    /// The final backend directory must resolve to the band-10 server
+    /// crate, not the `floor:server` fallthrough (band 0, excluded from scoring).
+    #[test]
+    fn backend_dir_resolves_to_the_band_10_server_crate_not_the_floor() {
+        assert_eq!(floor_crate_of_dir("backend"), "server");
+        assert_eq!(
+            band_of(&floor_crate_of_dir("backend")),
+            10,
+            "crates/backend must be the band-10 server crate, not floor band 0",
+        );
+        assert_eq!(band_of("floor:backend"), 0);
+    }
+
+    /// A reference to the renamed backend root `moatless_backend::` must resolve
+    /// to the band-10 server crate so those heads stay scored after the package
+    /// move and rename.
+    #[test]
+    fn moatless_backend_head_resolves_to_the_band_10_crate() {
+        assert_eq!(external_crate("moatless_backend"), Some("server".to_string()));
+        let Some(id) = external_crate("moatless_backend") else {
+            panic!("moatless_backend must be a known external head");
+        };
+        assert_eq!(
+            band_of(&id),
+            10,
+            "moatless_backend must resolve to band-10 server",
         );
     }
 }

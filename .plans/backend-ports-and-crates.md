@@ -61,7 +61,7 @@ The crate already has ports — 87 traits when this program started. The problem
 - `backend/src/state.rs` — `AppState` stops being a type any handler names.
 - `backend/src/adapters/registry/mod.rs:43-46` — the four `Option<Arc<ConcreteAdapter>>` fields become `Arc<dyn>` and their typed accessors are deleted (7d). This is the edge that makes five provider crates possible.
 - `backend/src/task_connections/` — a cross-cutting admin view, already a top-level module in the server band. Done; it is listed here because the reasoning that placed it still governs the next one of its shape.
-- `backend/Cargo.toml` — the package stops being `moatless-vibe-backend`; the root is `crates/server`, package `moatless-server`.
+- `backend/Cargo.toml` — the package stops being `moatless-vibe-backend`; the root is `crates/backend`, package `moatless-backend`.
 - `sandbox/Cargo.toml` — the package becomes `moatless-sandbox-agent`, with the 26 `-p` flags, path dependencies and `Cargo.lock` entries that name it.
 - `AGENTS.md` and five workflows — the `-p` flags in the clippy and test blocks, rewritten in the same commit as each rename.
 - `backend/src/adapters/error.rs` — splits, once the prior question of whether `bindings` owns an error type is settled. Four deferrals hang off it; see the error/credential cluster under Step 8.
@@ -291,7 +291,7 @@ Delete `registry/mod.rs:207` `github_pr()`, `:212` `linear()`, `:217` `slack()`,
 | `moatless-adapter-slack` | The Slack Adapter. |
 | `moatless-adapter-telegram` | The Telegram Adapter. |
 | `moatless-adapter-webhook` | The Webhook Adapter. |
-| `moatless-server` | Composition root: routing, startup, supervisor, SSE, and the T3 compatibility surface. |
+| `moatless-backend` | Composition root: routing, startup, supervisor, SSE, and the T3 compatibility surface. |
 
 These descriptions become the crates' own doc comments, so they follow `CONTEXT.md` rather than this document's prose: an external-system integration is an **Adapter**, never a "provider", and the backend that runs Sandboxes is a **Sandbox runtime**, never a "sandbox provider". The surrounding prose in this plan predates that discipline and still says "provider" in about thirty places; the term is correct only in `Provider token`, `Git host`, and code identifiers such as `provider_settings`, `OutboundProviders` and the `providers/` directory.
 
@@ -449,7 +449,7 @@ The `Cargo.toml` files appear one band at a time, lowest first, because a crate 
 | 10f | `moatless-sandbox-k8s`, `moatless-sandbox-docker` | **Ruling B**, in the sibling direction: `sandbox-docker` reads three helpers out of `k8s/` and the same move fixes both. Edges: report |
 | 10g | `moatless-loops` | **9d** (server-band composition, below); `bindings` must not name `Adapters` (7d and the error split). Edges: report |
 | 10h | the five `moatless-adapter-*` | **Step 7d.** Edges: report |
-| 10i | `moatless-server` | everything above |
+| 10i | `moatless-backend` | everything above |
 
 The precondition column names **only the design work the census cannot compute**. It carries no edge counts, symbol lists or "requires Step N" that the tool already scores; "Edges: report" means the carve-readiness table is the current, machine-generated authority for what edge each carve must first drive to zero. Two hand-maintained copies of what the census computes would disagree eventually and the reader could not tell which is current.
 
@@ -591,7 +591,7 @@ The last row is the dangerous one, because it *removes* edges rather than adding
 
 At every point the workspace builds and the full gate runs. The crate count goes up and nothing else changes.
 
-After 10i, `backend/` no longer exists as a source directory. `backend/Cargo.toml` becomes `crates/server/Cargo.toml`; the workspace `members` list gains thirteen entries and loses one. `tools/crate-census` is deleted, because Cargo now enforces what it measured.
+After 10i, `backend/` no longer exists as a source directory. `backend/Cargo.toml` becomes `crates/backend/Cargo.toml`; the workspace `members` list gains thirteen entries and loses one. `tools/crate-census` is deleted, because Cargo now enforces what it measured.
 
 #### Step 11 — The two package renames
 
@@ -600,7 +600,7 @@ After 10i, `backend/` no longer exists as a source directory. `backend/Cargo.tom
 | # | Rename | Sites |
 |---|---|---|
 | 11a | `moatless-sandbox` → `moatless-sandbox-agent` | 26 — `-p` flags in `AGENTS.md` and five workflows, path dependencies, `Cargo.lock` |
-| 11b | `moatless-vibe-backend` → `moatless-server` | `AGENTS.md`'s clippy and test block, `ci.yml`, `scripts/shadow/up.sh:59`, `Cargo.lock` |
+| 11b | `moatless-vibe-backend` → `moatless-backend` | `AGENTS.md`'s clippy and test block, `ci.yml`, `scripts/shadow/up.sh:59`, `Cargo.lock` |
 
 `moatless-sandbox` is the in-container agent, so without 11a the three sandbox orchestration packages read as children of it and are not. Of 210 occurrences of that string in the repository, **182 are Docker image, pod and service names and only 26 are the Cargo package** — separate name spaces, so the rename touches no deployment artifact. It leaves the family reading correctly: `-agent` runs inside the sandbox, `-control` orchestrates from outside, `-k8s` and `-docker` are the two providers it dispatches to.
 
@@ -705,7 +705,7 @@ The program changes no runtime failure behaviour. The failure modes worth naming
 
 **Per-step gate.** `AGENTS.md`'s Rust command block, run verbatim, plus `task test:integration` — the real database tier. `cargo test` does not reach it and neither does CI: `ci.yml` links the `db-tests` targets with `cargo nextest run --features db-tests --no-run` and never executes them, so the only thing that runs the `#[sqlx::test]` tier is a real Postgres.
 
-`AGENTS.md` holds the single copy of those lines and this file does not restate them — each flag set keys a separate rustc incremental unit, so a drifting second copy costs a recompile rather than a stale sentence. **During Step 10 the gate grows one line per crate** — two where a feature gates real code, as `moatless-core`'s `openapi` does — in band order, and `AGENTS.md`'s block is extended in the same commit that adds the crate. The `-p moatless-vibe-backend` line becomes `-p moatless-server` at 11b.
+`AGENTS.md` holds the single copy of those lines and this file does not restate them — each flag set keys a separate rustc incremental unit, so a drifting second copy costs a recompile rather than a stale sentence. **During Step 10 the gate grows one line per crate** — two where a feature gates real code, as `moatless-core`'s `openapi` does — in band order, and `AGENTS.md`'s block is extended in the same commit that adds the crate. The `-p moatless-vibe-backend` line becomes `-p moatless-backend` at 11b.
 
 **The E2E suite has a measured baseline of 26 failures on `main`, all predating this program — compare against 26, not zero.** The first full run in repo history was 69 passed, 26 failed, 127 skipped; an identical-harness run on pre-stack `main` failed the same 26, name-for-name in both directions. They are three classes, all tracing to `06615c520`: 14 "Activating a Loop requires an explicit run-as user"; 6 "`moat repos create` … required arguments were not provided"; and 6 sandbox/workspace assertions (SANDBOX-01 ×2, SANDBOX-07, SERVER-02, WS-20, WS-30.1). A later step that changes this number owns the change.
 
@@ -935,7 +935,7 @@ Steps 8 and 10 are the two most mechanically risky and the cheapest to gate: bot
 **What only a person can judge**
 
 - Whether the ports a handler names in Step 5 are concepts or just the fields it used to reach through `state`. A signature listing six ports has made the coupling visible, not smaller; visible is the point, but six is still a question worth asking of that handler.
-- Whether each new port is a concept the lower crate genuinely owns, or a hole punched to make a build work. The test is whether the trait reads as something `moatless-tasks` needs, or as something `moatless-server` happens to provide.
+- Whether each new port is a concept the lower crate genuinely owns, or a hole punched to make a build work. The test is whether the trait reads as something `moatless-tasks` needs, or as something `moatless-backend` happens to provide.
 - Whether the groups are the right groups. Band convexity says which groupings are *legal*; it does not say which is best, and a legal grouping can still put two unrelated things together.
 
 ## Out of scope
