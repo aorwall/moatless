@@ -10,6 +10,7 @@ import {
   FileAttachments,
   Selectors,
   SendButton,
+  SkillChips,
 } from '@/features/tasks/components/chat/chat-input'
 import {
   type AgentType,
@@ -97,6 +98,8 @@ export function CreateCodeTask({
   // Skill suggestions for the "/" dropdown.
   const suggestions = skills.map((s) => ({ kind: 'skill' as const, ...s }))
 
+  const taskInputs = useTaskInputs()
+
   // Skill autocomplete hook
   const {
     inputRef: textareaRef,
@@ -107,14 +110,14 @@ export function CreateCodeTask({
     handleKeyDown: handleCommandKeyDown,
     selectCommand,
   } = useCommandAutocomplete({
+    value: message,
     onValueChange: setMessage,
+    onSelectSkill: taskInputs.handleAddSkill,
     suggestions,
     enabled: true,
   })
 
   const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
-
-  const taskInputs = useTaskInputs()
 
   const { data: workspaces } = useWorkspacesList()
   const { data: repositoryDetails } = useRepository(primaryRepoId ?? '', {
@@ -185,6 +188,7 @@ export function CreateCodeTask({
       message: message.trim() || undefined,
       model: isModelSelectorEnabled ? modelToApiValue(availableModel) : undefined,
       contexts: taskInputs.contextItems,
+      skills: taskInputs.selectedSkills,
       branch: branchSelector.value,
       onSubmitted: () => {
         setMessage('')
@@ -230,6 +234,8 @@ export function CreateCodeTask({
             )
           }
         >
+          <SkillChips skills={taskInputs.selectedSkills} onRemove={taskInputs.handleRemoveSkill} />
+
           {taskInputs.contextItems.length > 0 && (
             <ContextItems
               contexts={taskInputs.contextItems}

@@ -278,6 +278,8 @@ interface SendMessageVariables {
    * Per-message; the chat composer clears the toggle after each successful send.
    */
   startFresh?: boolean | undefined
+  /** Skill names to activate for this turn; the sandbox frontloads their bodies. */
+  skills?: string[] | undefined
 }
 
 export function useSendMessage(

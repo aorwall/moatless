@@ -22,6 +22,7 @@ function baseInput(overrides: Partial<CodeTaskSubmitInput> = {}): CodeTaskSubmit
     message: 'do the thing',
     model: undefined,
     contexts: [],
+    skills: [],
     branch: undefined,
     onSubmitted: vi.fn(),
     ...overrides,

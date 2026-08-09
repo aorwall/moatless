@@ -504,6 +504,7 @@ mod characterization {
             scope: Scope::Global,
             task_name: None,
             tag_ids: vec![],
+            skills: Vec::new(),
             run_as_user_id: Some(OWNER.into()),
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,

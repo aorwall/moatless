@@ -16,6 +16,8 @@ export interface CodeTaskSubmitInput {
   message: string | undefined
   model: string | undefined
   contexts: MessageContextInput[]
+  /** Skill names to activate for the first turn. */
+  skills: string[]
   branch: string | undefined
   /** Called after the task-create mutation succeeds (clear the composer). */
   onSubmitted: () => void
@@ -57,6 +59,7 @@ function buildTaskInput(input: CodeTaskSubmitInput): CreateTaskRequest {
     ...(input.message !== undefined && { message: input.message }),
     ...(input.model !== undefined && { model: input.model }),
     ...(input.contexts.length > 0 && { contexts: input.contexts }),
+    ...(input.skills.length > 0 && { skills: input.skills }),
     ...(input.branch !== undefined && { branch: input.branch }),
   }
 }

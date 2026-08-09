@@ -167,6 +167,10 @@ pub enum LoopsAction {
         tag_ids: Vec<String>,
         #[arg(long)]
         clear_tags: bool,
+        #[arg(long = "skill")]
+        skills: Vec<String>,
+        #[arg(long)]
+        clear_skills: bool,
         #[arg(long)]
         agent_type: Option<String>,
         #[arg(long, value_name = "DAYS")]
@@ -265,6 +269,10 @@ pub struct CreateConfigArgs {
     agent_type: String,
     #[arg(long = "tag")]
     tag_ids: Vec<String>,
+    /// Skills every task this loop spawns activates on each fresh agent
+    /// session. Repeat for several.
+    #[arg(long = "skill")]
+    skills: Vec<String>,
     /// Per-loop inactivity TTL in days. Tasks spawned by this loop
     /// auto-close after this many days of inactivity (0 = never close).
     /// Omit to inherit the platform-wide default (TASK_INACTIVE_TIMEOUT_DAYS).
@@ -365,6 +373,8 @@ pub async fn run_loops(
             clear_task_name,
             tag_ids,
             clear_tags,
+            skills,
+            clear_skills,
             agent_type,
             inactive_ttl_days,
             clear_inactive_ttl_days,
@@ -412,6 +422,8 @@ pub async fn run_loops(
                 clear_task_name,
                 tag_ids,
                 clear_tags,
+                skills,
+                clear_skills,
                 agent_type,
                 inactive_ttl_days,
                 clear_inactive_ttl_days,
@@ -494,6 +506,7 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         task_name: args.task_name,
         prompt: args.prompt,
         tag_ids: Some(args.tag_ids),
+        skills: Some(args.skills),
         run_as_user_id: args.run_as_user_id,
         agent_type: Some(args.agent_type),
         inactive_ttl_days: args.inactive_ttl_days,
@@ -514,11 +527,14 @@ fn update_config(
     clear_task_name: bool,
     tag_ids: Vec<String>,
     clear_tags: bool,
+    skills: Vec<String>,
+    clear_skills: bool,
     agent_type: Option<String>,
     inactive_ttl_days: Option<i32>,
     clear_inactive_ttl_days: bool,
 ) -> Result<Option<UpdateLoopConfig>, ClientError> {
-    let tag_ids = fold_tag_ids(tag_ids, clear_tags)?;
+    let tag_ids = fold_list(tag_ids, clear_tags, "tag", "clear-tags")?;
+    let skills = fold_list(skills, clear_skills, "skill", "clear-skills")?;
     let config = UpdateLoopConfig {
         repository_id,
         routing_mode,
@@ -526,6 +542,7 @@ fn update_config(
         prompt: fold_clearable(prompt, clear_prompt, "prompt")?,
         task_name: fold_clearable(task_name, clear_task_name, "task-name")?,
         tag_ids,
+        skills,
         agent_type,
         inactive_ttl_days: fold_clearable(
             inactive_ttl_days,
@@ -539,6 +556,7 @@ fn update_config(
         && config.prompt.is_none()
         && config.task_name.is_none()
         && config.tag_ids.is_none()
+        && config.skills.is_none()
         && config.agent_type.is_none()
         && config.inactive_ttl_days.is_none()
     {
@@ -764,12 +782,19 @@ fn fold_clearable<T>(
     }
 }
 
-fn fold_tag_ids(tag_ids: Vec<String>, clear: bool) -> Result<Option<Vec<String>>, ClientError> {
-    match (tag_ids.is_empty(), clear) {
-        (false, true) => Err(ClientError::Other(
-            "--tag and --clear-tags are mutually exclusive".to_string(),
-        )),
-        (false, false) => Ok(Some(tag_ids)),
+/// Fold a repeatable list flag and its `--clear-*` companion into the patch
+/// value: `None` leaves the field alone, `Some(vec![])` empties it.
+fn fold_list(
+    values: Vec<String>,
+    clear: bool,
+    value_flag: &str,
+    clear_flag: &str,
+) -> Result<Option<Vec<String>>, ClientError> {
+    match (values.is_empty(), clear) {
+        (false, true) => Err(ClientError::Other(format!(
+            "--{value_flag} and --{clear_flag} are mutually exclusive"
+        ))),
+        (false, false) => Ok(Some(values)),
         (true, true) => Ok(Some(vec![])),
         (true, false) => Ok(None),
     }

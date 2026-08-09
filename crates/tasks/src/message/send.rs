@@ -6,12 +6,12 @@ use super::models::{TaskMessage, TaskMessageContext};
 use crate::file_storage::dao::FileDao;
 use crate::message::dao::MessageDao;
 use crate::message::models::{MessageRole, MessageType, TOOL_RESPONSE_USER_TYPE};
-use moatless_core::shared_models::AgentMode;
 use crate::task::dao::{TaskDao, TaskPatch};
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use crate::task_activities::mapping::{ActivityStatus, ConversationWrite, ToolOutcome};
 use crate::task_turn::dao::TaskTurnDao;
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::shared_models::AgentMode;
 
 use super::contexts::message_context_input_to_row;
 use super::error::MessageError;
@@ -152,6 +152,9 @@ impl MessageSendService {
         origin: ExternalOrigin<'_>,
         start_fresh: bool,
         sent_by: Option<&str>,
+        // Skills the sandbox activates for this turn. Names only; the SKILL.md
+        // body is resolved from disk in the pod.
+        skills: &[String],
         // The Message's uuid, when the caller owns it. The T3 compatibility
         // surface mints a message id before it sends and keys its own optimistic
         // copy on it, so a server-minted uuid would leave that copy on screen
@@ -306,6 +309,7 @@ impl MessageSendService {
             agent_mode: agent_mode.cloned(),
             model: model.map(std::string::ToString::to_string),
             effort: effort.map(std::string::ToString::to_string),
+            skills: skills.to_vec(),
             resume,
             sent_at: None,
             created_at: None,
@@ -444,6 +448,7 @@ impl MessageSendService {
             agent_mode: None,
             model: None,
             effort: None,
+            skills: Vec::new(),
             resume: true,
             sent_at: None,
             created_at: None,
@@ -622,6 +627,7 @@ impl MessageSendService {
             agent_mode: None,
             model: None,
             effort: None,
+            skills: Vec::new(),
             resume: true,
             sent_at: None,
             created_at: None,
@@ -694,7 +700,7 @@ pub async fn settle_answered_prompt(
     tool_use_id: &str,
     carrier_uuid: &str,
 ) {
-    use crate::task_activities::mapping::{user_input_resolved, PLAN_TOOL, QUESTION_TOOL};
+    use crate::task_activities::mapping::{PLAN_TOOL, QUESTION_TOOL, user_input_resolved};
 
     let call = match messages.find_tool_call(task_id, tool_use_id).await {
         Ok(Some(call)) => call,

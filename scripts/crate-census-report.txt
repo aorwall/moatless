@@ -61,7 +61,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (1 files, 3 lines)
     adapters/providers/webhook.rs
 
-  server  (34 files, 12555 lines)
+  server  (34 files, 12559 lines)
     adapters/handlers.rs adapters/routes.rs compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
@@ -70,7 +70,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL crates/backend/src: 13169 lines
+  TOTAL crates/backend/src: 13173 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (0 classes) ==
 

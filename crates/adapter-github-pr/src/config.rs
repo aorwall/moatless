@@ -110,7 +110,11 @@ impl GithubPrRuleConfig {
     /// and does not name it. An empty `events_filter` means "all events".
     /// Both lists are compared case-insensitively.
     pub(super) fn event_filtered_out(&self, event: &str) -> bool {
-        if self.ignored_events.iter().any(|e| e.eq_ignore_ascii_case(event)) {
+        if self
+            .ignored_events
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(event))
+        {
             return true;
         }
         !self.events_filter.is_empty()
@@ -212,6 +216,7 @@ mod tests {
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],
+            skills: Vec::new(),
             run_as_user_id: None,
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,

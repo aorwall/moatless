@@ -211,6 +211,7 @@ impl ScheduleRunner {
                 },
                 false,
                 None,
+                &config.skills,
                 None,
             )
             .await?;
@@ -288,6 +289,7 @@ fn route_to_config(route: &LoopSpawnConfig, schedule: &Schedule) -> LoopContext 
         scope: route.scope,
         task_name: route.task_name.clone(),
         tag_ids: route.tag_ids.clone(),
+        skills: route.skills.clone(),
         run_as_user_id: schedule
             .run_as_user_id
             .clone()

@@ -228,9 +228,9 @@ mod tests {
     use serde_json::Value;
 
     use crate::message::models::{MessageRole, MessageType};
-    use moatless_core::shared_models::AgentType;
     use crate::task::models::{TaskStatus, Visibility};
     use crate::task_activities::mapping::ActivityStatus;
+    use moatless_core::shared_models::AgentType;
 
     fn task() -> Task {
         Task {
@@ -264,6 +264,7 @@ mod tests {
             loop_id: None,
             workspace_id: None,
             disabled_servers: None,
+            skills: Vec::new(),
         }
     }
 
@@ -305,6 +306,7 @@ mod tests {
             agent_mode: None,
             effort: None,
             model: None,
+            skills: Vec::new(),
             resume: true,
             sent_at: None,
             created_at: None,

@@ -18,11 +18,11 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 use super::models::{MessageType, TaskMessage, TaskMessageContext};
-use moatless_core::db::DbPool;
 use crate::task::dao as task_dao;
 use crate::task_activities;
 use crate::task_activities::dao::{self as activities, Activity};
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
+use moatless_core::db::DbPool;
 use moatless_core::task_listing;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
@@ -440,7 +440,7 @@ pub trait MessageDao: Send + Sync {
     /// sandbox `DownloadUpload` RPC to defense-in-depth the cross-task
     /// scope check.
     async fn file_id_used_in_task(&self, task_id: &str, file_id: &str)
-        -> Result<bool, sqlx::Error>;
+    -> Result<bool, sqlx::Error>;
 
     /// Locate the most recent user-turn that was acknowledged by the sandbox
     /// (`agent_session_id` set) but never reached a terminal `agent` event
@@ -502,13 +502,13 @@ impl MessageDao for PgMessageDao {
                 agent_mode, model, resume, external_event_id,
                 external_adapter, external_source_name, source_task_id,
                 start_fresh, sent_by, external_subject_key, assistant_usage,
-                tool_response, effort, external_author
+                tool_response, effort, external_author, skills
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
                 $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                $41, $42, $43, $44
+                $41, $42, $43, $44, $45
             )
             ON CONFLICT (uuid) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
@@ -577,6 +577,9 @@ impl MessageDao for PgMessageDao {
         .bind(&msg.tool_response)
         .bind(&msg.effort)
         .bind(&msg.external_author)
+        // Deliberately absent from the DO UPDATE SET above: that path is the
+        // per-block agent-message merge, and must not blank a user row's skills.
+        .bind(&msg.skills)
         .fetch_one(&mut *tx)
         .await?;
 

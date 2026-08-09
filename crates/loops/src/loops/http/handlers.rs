@@ -278,6 +278,7 @@ pub async fn create_loop(
                 prompt: req.config.prompt.clone(),
                 task_name: req.config.task_name.clone(),
                 tag_ids: req.config.tag_ids.clone().unwrap_or_default(),
+                skills: req.config.skills.clone().unwrap_or_default(),
                 run_as_user_id,
                 agent_type: req
                     .config
@@ -397,6 +398,7 @@ pub async fn update_loop(
         tag_ids: rule
             .tag_ids
             .unwrap_or_else(|| current.config.tag_ids.clone()),
+        skills: rule.skills.unwrap_or_else(|| current.config.skills.clone()),
         run_as_user_id: current.config.run_as_user_id.clone(),
         agent_type: rule
             .agent_type

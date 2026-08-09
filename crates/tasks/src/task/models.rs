@@ -81,6 +81,10 @@ pub struct Task {
     /// disabled. Stored per-task so it survives stop/start and never leaks to
     /// other tasks sharing the same repository.
     pub disabled_servers: Option<serde_json::Value>,
+    /// Skills every fresh agent session on this task activates. Set by the Loop
+    /// that spawned it; re-frontloaded after a restart or a start-fresh send,
+    /// because the transcript that carried them is gone.
+    pub skills: Vec<String>,
 }
 
 impl Task {

@@ -262,6 +262,7 @@ pub(super) async fn handle_session_prompted(
                 },
                 false,
                 None,
+                &[],
                 None,
             )
             .await
@@ -491,6 +492,7 @@ async fn provision_session_task(
             },
             false,
             session.creator.as_ref().map(|c| c.id.as_str()),
+            &[],
             None,
         )
         .await

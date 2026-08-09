@@ -28,6 +28,7 @@ fn fake_rule() -> SubscriptionMatch {
         prompt_template: None,
         task_name: None,
         tag_ids: vec![],
+        skills: Vec::new(),
         run_as_user_id: Some("alice".into()),
         agent_type: "claude-code".into(),
         inactive_ttl_days: None,

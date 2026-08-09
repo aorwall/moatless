@@ -25,6 +25,11 @@ pub struct LoopFrontmatter {
     /// Tag names resolved to ids for `loop_configs.tag_ids`.
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    /// Skill names every task this Loop spawns activates on each fresh agent
+    /// session (`loop_configs.skills`). Stored verbatim — a skill resolves on
+    /// the pod that runs the task, so there is nothing to look up here.
+    #[serde(default)]
+    pub skills: Option<Vec<String>>,
     /// Legacy Git field retained for compatibility. Sync reports and ignores
     /// it because only an administrator may approve the run-as identity.
     #[serde(default)]

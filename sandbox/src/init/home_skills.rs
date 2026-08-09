@@ -30,7 +30,7 @@ use super::dirs::copy_dir_contents;
 /// so a repo that authors its skills under `.agents/skills` is picked up whether
 /// or not it also exposes them via `.claude/skills` symlinks. Mirrors
 /// `WORKSPACE_SKILL_PREFIXES` in the backend's skill fetcher.
-const REPO_SKILL_ROOTS: [&str; 2] = [".claude/skills", ".agents/skills"];
+pub(crate) const REPO_SKILL_ROOTS: [&str; 2] = [".claude/skills", ".agents/skills"];
 
 /// Copy the repo's `<root>/<name>` skill subdirs — for each root in
 /// [`REPO_SKILL_ROOTS`] — into the home-level skill directories for Claude

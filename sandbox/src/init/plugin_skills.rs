@@ -16,6 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
+use moatless_api_schemas::plugin::PluginDelivery;
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
@@ -268,6 +269,38 @@ fn marketplace_local_path(source: &PluginMarketplaceSource, plugin_name: &str) -
     }
 }
 
+/// Every installed plugin's resolved `skills/` directory.
+///
+/// The staging above copies these into `/etc/codex/skills` for Codex only —
+/// Claude reads the plugins in place through its own `PluginConfig`. So this is
+/// the one place a plugin skill's `SKILL.md` is always found, whichever harness
+/// is running, and it is what `agent::skills` reads bodies from.
+///
+/// Blocking: reads plugin manifests. Call it off the async worker.
+pub(crate) fn plugin_skill_dirs(plugins: &[PluginDelivery]) -> Vec<PathBuf> {
+    plugin_skill_dirs_under(Path::new(PLUGINS_DIR), plugins)
+}
+
+fn plugin_skill_dirs_under(plugins_root: &Path, plugins: &[PluginDelivery]) -> Vec<PathBuf> {
+    if !plugins_root.is_dir() {
+        return Vec::new();
+    }
+    let mut dirs = Vec::new();
+    for plugin in plugins {
+        let path = plugins_root.join(&plugin.name);
+        if !path.is_dir() {
+            continue;
+        }
+        for (_, root) in plugin_components(&path, &plugin.name) {
+            let skills_dir = root.join(resolve_plugin_skills_subdir(&root));
+            if skills_dir.is_dir() {
+                dirs.push(skills_dir);
+            }
+        }
+    }
+    dirs
+}
+
 fn stage_plugin_component(
     plugin_path: &Path,
     plugin_name: &str,
@@ -437,6 +470,50 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
+    fn delivered(name: &str) -> PluginDelivery {
+        PluginDelivery {
+            name: name.to_string(),
+            git_url: format!("https://example.test/{name}.git"),
+            skill_names: vec!["picked".to_string()],
+        }
+    }
+
+    /// The dirs `agent::skills` reads plugin skill bodies from — the default
+    /// layout, a `plugin.json` custom path, and nothing for a plugin with no
+    /// skills dir at all.
+    #[test]
+    fn plugin_skill_dirs_resolves_default_and_custom_layouts() {
+        let root = tempdir().unwrap();
+        let plugins = root.path().join("plugins");
+        write(&plugins.join("plugin-a/skills/foo/SKILL.md"), "foo body");
+        write(
+            &plugins.join("plugin-b/.claude-plugin/plugin.json"),
+            r#"{"name":"plugin-b","skills":"./custom/skills/"}"#,
+        );
+        write(&plugins.join("plugin-b/custom/skills/baz/SKILL.md"), "baz");
+        fs::create_dir_all(plugins.join("plugin-c")).unwrap();
+
+        let dirs = plugin_skill_dirs_under(
+            &plugins,
+            &[delivered("plugin-b"), delivered("plugin-a")],
+        );
+        assert_eq!(
+            dirs,
+            vec![
+                plugins.join("plugin-b/custom/skills"),
+                plugins.join("plugin-a/skills"),
+            ]
+        );
+    }
+
+    #[test]
+    fn plugin_skill_dirs_is_empty_without_a_plugins_root() {
+        let root = tempdir().unwrap();
+        assert!(
+            plugin_skill_dirs_under(&root.path().join("nope"), &[delivered("plugin-a")]).is_empty()
+        );
+    }
+
     #[test]
     fn stages_default_and_custom_skills_paths_with_namespacing() {
         let root = tempdir().unwrap();
@@ -547,9 +624,11 @@ mod tests {
 
         let count = stage_plugin_skills_with_roots(&plugins, &codex);
         assert_eq!(count, 1);
-        assert!(codex
-            .join("moatless-skills--sample-skill/SKILL.md")
-            .is_file());
+        assert!(
+            codex
+                .join("moatless-skills--sample-skill/SKILL.md")
+                .is_file()
+        );
         assert!(!codex.join("remote-only--sample-skill/SKILL.md").exists());
     }
 
@@ -587,9 +666,11 @@ mod tests {
 
         let count = stage_plugin_skills_with_roots(&plugins, &codex);
         assert_eq!(count, 1);
-        assert!(codex
-            .join("moatless-skills--code-review/SKILL.md")
-            .is_file());
+        assert!(
+            codex
+                .join("moatless-skills--code-review/SKILL.md")
+                .is_file()
+        );
     }
 
     #[test]

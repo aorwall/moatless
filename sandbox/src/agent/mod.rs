@@ -10,5 +10,6 @@ pub mod options;
 pub mod permission_handler;
 pub mod prompt;
 pub mod scheduled_job;
+pub(crate) mod skills;
 pub mod types;
 pub mod wakeup_job;

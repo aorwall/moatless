@@ -3,37 +3,41 @@ import type React from 'react'
 import { useRef, useState } from 'react'
 
 /**
- * Entry in the "/" autocomplete dropdown. Skills come from `.claude/skills/` in
- * workspace + plugin repos and are passed through verbatim to the sandbox's
- * Claude Code CLI (invoked by typing `/skill` in the message).
+ * Entry in the "/" autocomplete dropdown. Skills come from `.claude/skills/` and
+ * `.agents/skills/` in workspace + plugin repos. Picking one activates it as a
+ * chip on the message rather than writing anything into the draft: the name
+ * travels as a structured field, and the sandbox frontloads the skill's body.
  */
 export type Suggestion = { kind: 'skill' } & SkillResponse
 
 interface UseCommandAutocompleteOptions {
+  /** Current draft text — the "/term" the dropdown was opened with is stripped on select. */
+  value: string
   onValueChange: (value: string) => void
+  onSelectSkill: (name: string) => void
   suggestions: Suggestion[]
   enabled?: boolean
-}
-
-interface SelectionKey {
-  kind: 'skill'
-  name: string
 }
 
 interface CommandAutocompleteState {
   isOpen: boolean
   searchTerm: string
   selectedIndex: number
-  /** The suggestion picked from the dropdown (command or skill). */
-  selection: SelectionKey | null
 }
 
-function suggestionKey(s: Suggestion): string {
-  return `${s.kind}:${s.name}`
+/** The draft with its leading "/term" trigger removed. */
+function stripTrigger(value: string): string {
+  if (!value.startsWith('/')) {
+    return value
+  }
+  const spaceIndex = value.indexOf(' ')
+  return spaceIndex === -1 ? '' : value.slice(spaceIndex + 1)
 }
 
 export function useCommandAutocomplete({
+  value,
   onValueChange,
+  onSelectSkill,
   suggestions,
   enabled = true,
 }: UseCommandAutocompleteOptions) {
@@ -41,7 +45,6 @@ export function useCommandAutocomplete({
     isOpen: false,
     searchTerm: '',
     selectedIndex: 0,
-    selection: null,
   })
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -67,61 +70,40 @@ export function useCommandAutocomplete({
 
     // Only activate when `/` is the very first character
     if (newValue.length === 0 || newValue[0] !== '/') {
-      if (state.selection) {
-        setState((prev) => ({ ...prev, selection: null, isOpen: false, searchTerm: '' }))
-      } else if (state.isOpen) {
-        setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
+      if (state.isOpen) {
+        setState({ isOpen: false, searchTerm: '', selectedIndex: 0 })
       }
       return
-    }
-
-    // If something was already selected, check if the prefix still matches
-    if (state.selection) {
-      const expectedPrefix = `/${state.selection.name} `
-      if (!newValue.startsWith(expectedPrefix)) {
-        // User edited the command portion — clear selection and re-open autocomplete
-        setState((prev) => ({ ...prev, selection: null }))
-        // Fall through to re-parse
-      } else {
-        // Prefix still intact, user is typing after the command — no autocomplete needed
-        return
-      }
     }
 
     // Extract search term: text between `/` and first space
     const spaceIndex = newValue.indexOf(' ')
-    const searchTerm = spaceIndex === -1 ? newValue.slice(1) : newValue.slice(1, spaceIndex)
 
-    // If there's a space, the user may have finished typing the command portion
-    // but didn't select from dropdown — keep autocomplete closed
+    // Past the first space the user is writing the message, not naming a skill.
     if (spaceIndex !== -1) {
-      setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
+      setState({ isOpen: false, searchTerm: '', selectedIndex: 0 })
       return
     }
 
+    const searchTerm = newValue.slice(1)
     setState((prev) => ({
       isOpen: true,
       searchTerm,
-      selection: prev.selection,
-      selectedIndex: prev.searchTerm !== searchTerm ? 0 : prev.selectedIndex,
+      selectedIndex: prev.searchTerm === searchTerm ? prev.selectedIndex : 0,
     }))
   }
 
   const selectSuggestion = (suggestion: Suggestion) => {
-    const newValue = `/${suggestion.name} `
-    onValueChange(newValue)
+    onSelectSkill(suggestion.name)
+    const remaining = stripTrigger(value)
+    onValueChange(remaining)
 
-    setState({
-      isOpen: false,
-      searchTerm: '',
-      selectedIndex: 0,
-      selection: { kind: suggestion.kind, name: suggestion.name },
-    })
+    setState({ isOpen: false, searchTerm: '', selectedIndex: 0 })
 
     // Move cursor to end
     setTimeout(() => {
       if (inputRef.current) {
-        const pos = newValue.length
+        const pos = remaining.length
         inputRef.current.setSelectionRange(pos, pos)
         inputRef.current.focus()
       }
@@ -174,21 +156,11 @@ export function useCommandAutocomplete({
     }
   }
 
-  /** The full suggestion record for the currently selected item, if any. */
-  const selectedItem = (() => {
-    if (!state.selection) {
-      return null
-    }
-    const key = `${state.selection.kind}:${state.selection.name}`
-    return suggestions.find((s) => suggestionKey(s) === key) ?? null
-  })()
-
   return {
     inputRef,
     isOpen: state.isOpen,
     filteredCommands: filteredSuggestions,
     selectedIndex: state.selectedIndex,
-    selectedItem,
     handleInputChange,
     handleKeyDown,
     selectCommand: selectSuggestion,

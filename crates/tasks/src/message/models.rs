@@ -82,6 +82,9 @@ pub struct TaskMessage {
     /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
     /// leaves the agent on its own default.
     pub effort: Option<String>,
+    /// Skills this send activates. Names only; the sandbox resolves each one's
+    /// `SKILL.md` on disk and frontloads its body ahead of the prompt text.
+    pub skills: Vec<String>,
     pub resume: bool,
     pub sent_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
@@ -152,6 +155,7 @@ impl TaskMessage {
             agent_mode: None,
             model: None,
             effort: None,
+            skills: Vec::new(),
             resume: true,
             sent_at: None,
             created_at: None,

@@ -379,6 +379,7 @@ mod tests {
             loop_id: None,
             workspace_id: None,
             disabled_servers: None,
+            skills: Vec::new(),
         }
     }
 

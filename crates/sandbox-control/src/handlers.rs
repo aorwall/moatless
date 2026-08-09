@@ -3,11 +3,11 @@
 //! Extracted from routes.rs for consistency with other modules
 //! (task/, message/, agent/, etc.).
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures::stream::{Stream, StreamExt};
 use serde::Deserialize;
 use tracing::{error, info, warn};
@@ -909,6 +909,7 @@ mod authz_tests {
             loop_id: None,
             workspace_id: None,
             disabled_servers: None,
+            skills: Vec::new(),
         }
     }
 
@@ -943,9 +944,11 @@ mod authz_tests {
     async fn read_allows_when_scoped_lookup_returns_task() {
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
         let scope = Some(ctx("owner", false));
-        assert!(authorize_task_read_inner(Some(&tasks), &scope, "task-1")
-            .await
-            .is_ok());
+        assert!(
+            authorize_task_read_inner(Some(&tasks), &scope, "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -972,9 +975,11 @@ mod authz_tests {
     async fn control_owner_of_user_task_allowed() {
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("owner"))));
         let scope = Some(ctx("owner", false));
-        assert!(authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-            .await
-            .is_ok());
+        assert!(
+            authorize_task_control_inner(Some(&tasks), &scope, "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -1005,9 +1010,11 @@ mod authz_tests {
         // A platform admin controls any task regardless of scope/owner.
         let tasks = tasks_returning(Some(task_fixture(Scope::User, Some("other-user"))));
         let scope = Some(ctx("root", true));
-        assert!(authorize_task_control_inner(Some(&tasks), &scope, "task-1")
-            .await
-            .is_ok());
+        assert!(
+            authorize_task_control_inner(Some(&tasks), &scope, "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

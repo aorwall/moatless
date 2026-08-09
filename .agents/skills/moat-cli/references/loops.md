@@ -13,10 +13,11 @@ name: Java Review        # required — what the loop is called in the UI and CL
 agentType: claude-code   # optional, default claude-code
 routingMode: by_subject  # optional, default by_subject
 tags: [review]           # optional
+skills: [java-review]    # optional — activated on every fresh agent session
 # optional: runAsUserId, sourceMatcher, teamId, eventFilter, adapterConfig, active, inactiveTtlDays
 ---
 
-Review this pull request using the java-review skill. Post inline comments.
+Review this pull request. Post inline comments.
 ```
 
 ```markdown
@@ -110,5 +111,11 @@ Notes:
   `moat triggers create-adapter-event --adapter linear --connection-id <id>
   --source-matcher <team-uuid> --adapter-config
   '{"create_on_status_entry":true,"trigger_states":["Ready"],"project_ids":["<proj>"],"start_state":"In Progress"}'`.
+- `skills` lists skill names by directory name under `.claude/skills/` or
+  `.agents/skills/`. Every task the loop spawns activates them: the sandbox reads
+  each `SKILL.md` and frontloads its body ahead of the prompt on each fresh agent
+  session, so a restart does not lose them. Names are not validated at sync time —
+  a skill exists on the pod that runs the task, not in the database — and one that
+  resolves nowhere is logged and skipped.
 - `runAsUserId` resolves: frontmatter → `MOATLESS_DEFAULT_RUN_AS_USER_ID` →
   repo owner → repo creator.

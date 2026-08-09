@@ -20,6 +20,8 @@ export interface UpdateLoopConfig {
   repositoryId?: string | null;
   routingMode?: null | RoutingMode;
   /** @nullable */
+  skills?: string[] | null;
+  /** @nullable */
   tagIds?: string[] | null;
   /** @nullable */
   taskName?: string | null;

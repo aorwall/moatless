@@ -719,6 +719,10 @@ impl RoutingService {
                 },
                 false,
                 Some(msg.user_id.as_str()),
+                // A `routing_mode: ongoing` Loop fires into a task that is already
+                // open, so the delivery resumes and the task's own skills are held
+                // back. The Loop still means them for every firing; send them here.
+                &config.skills,
                 None,
             )
             .await

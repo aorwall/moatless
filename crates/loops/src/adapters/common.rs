@@ -108,6 +108,7 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
             task_name: record.config.task_name.clone(),
             prompt: record.config.prompt.clone(),
             tag_ids: record.config.tag_ids.clone(),
+            skills: record.config.skills.clone(),
             run_as_user_id: record.config.run_as_user_id.clone(),
             agent_type: record.config.agent_type.clone(),
             inactive_ttl_days: record.config.inactive_ttl_days,

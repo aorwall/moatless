@@ -92,6 +92,8 @@ pub struct LoopConfig {
     pub task_name: Option<String>,
     pub prompt: Option<String>,
     pub tag_ids: Vec<String>,
+    /// Skills every task this Loop spawns activates on each fresh agent session.
+    pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
     /// Per-Loop inactivity TTL in days. `None` means "inherit the global
@@ -110,6 +112,7 @@ pub struct CreateLoopConfig {
     pub task_name: Option<String>,
     pub prompt: Option<String>,
     pub tag_ids: Option<Vec<String>>,
+    pub skills: Option<Vec<String>>,
     pub run_as_user_id: Option<String>,
     pub agent_type: Option<String>,
     pub inactive_ttl_days: Option<i32>,
@@ -125,6 +128,7 @@ pub struct UpdateLoopConfig {
     pub task_name: Option<Option<String>>,
     pub prompt: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
+    pub skills: Option<Vec<String>>,
     pub agent_type: Option<String>,
     pub inactive_ttl_days: Option<Option<i32>>,
 }

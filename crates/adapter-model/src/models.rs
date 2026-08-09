@@ -53,6 +53,9 @@ pub struct LoopContext {
     pub scope: Scope,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
+    /// Skills every task this Loop spawns activates on each fresh agent session.
+    /// Names only; the sandbox resolves each one's `SKILL.md` on disk.
+    pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
     /// Per-Loop inactivity TTL override (days). `None` means the reaper
@@ -137,6 +140,7 @@ pub struct LoopSpawnConfig {
     pub prompt_template: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
+    pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
     pub inactive_ttl_days: Option<i32>,
@@ -172,6 +176,7 @@ pub struct SubscriptionMatch {
     pub prompt_template: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
+    pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
     pub inactive_ttl_days: Option<i32>,
@@ -328,6 +333,7 @@ pub fn subscription_context(subscription: &SubscriptionMatch, adapter_label: &st
         scope: subscription.scope,
         task_name: subscription.task_name.clone(),
         tag_ids: subscription.tag_ids.clone(),
+        skills: subscription.skills.clone(),
         run_as_user_id: subscription.run_as_user_id.clone(),
         agent_type: subscription.agent_type.clone(),
         inactive_ttl_days: subscription.inactive_ttl_days,

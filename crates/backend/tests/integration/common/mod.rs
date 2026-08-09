@@ -517,6 +517,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         loop_id: None,
         workspace_id: None,
         disabled_servers: None,
+        skills: Vec::new(),
     }
 }
 
@@ -586,6 +587,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         model: None,
         effort: None,
         resume: true,
+        skills: Vec::new(),
         sent_at: None,
         created_at: None,
         external_event_id: None,

@@ -255,6 +255,7 @@ struct ResolvedLoop {
     agent_type: String,
     prompt: Option<String>,
     tag_ids: Vec<String>,
+    skills: Vec<String>,
     inactive_ttl_days: Option<i32>,
     adapter: Option<ResolvedAdapterSource>,
     schedule: Option<ResolvedScheduleSource>,
@@ -321,6 +322,10 @@ impl LoopSyncService {
                 .collect(),
             _ => Vec::new(),
         };
+
+        // Skill names are not resolved here: a skill exists on the pod that runs
+        // the task, not in this database.
+        let skills = fm.skills.clone().unwrap_or_default();
 
         let (kind, adapter, schedule) = match fm.on.trim() {
             "github_pr" => {
@@ -515,6 +520,7 @@ impl LoopSyncService {
             agent_type,
             prompt,
             tag_ids,
+            skills,
             inactive_ttl_days: fm.inactive_ttl_days,
             adapter,
             schedule,
@@ -564,6 +570,7 @@ fn managed_loop_input(
         routing_mode: resolved.routing_mode,
         prompt: resolved.prompt.clone(),
         tag_ids: resolved.tag_ids.clone(),
+        skills: resolved.skills.clone(),
         agent_type: resolved.agent_type.clone(),
         inactive_ttl_days: resolved.inactive_ttl_days,
         adapter,
@@ -676,6 +683,7 @@ mod tests {
             agent_type: None,
             routing_mode: None,
             tags: None,
+            skills: None,
             run_as_user_id: None,
             source_matcher: Some("team-uuid".to_string()),
             team_id: None,

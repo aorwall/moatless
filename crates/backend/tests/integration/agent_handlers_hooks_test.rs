@@ -68,6 +68,7 @@ async fn seed_github_trigger(pool: &PgPool, owner: &str, repo: &str, repository_
         prompt_template: None,
         task_name: None,
         tag_ids: vec![],
+        skills: Vec::new(),
         run_as_user_id: None,
         agent_type: "claude-code".to_string(),
         inactive_ttl_days: None,

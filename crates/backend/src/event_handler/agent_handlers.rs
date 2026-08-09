@@ -530,6 +530,7 @@ async fn notify_parent_task_of_child_error(state: &AppState, event: &AgentEvent,
             },
             false,
             None,
+            &[],
             None,
         )
         .await
@@ -886,6 +887,7 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
         // Effort is a choice on a person's turn; an agent-produced row carries
         // none, and nothing reads one off these rows.
         effort: None,
+        skills: Vec::new(),
         resume: true,
         sent_at: None,
         created_at: None,

@@ -32,6 +32,11 @@ export interface UseTaskInputsReturn {
   handleRemoveContext: (index: number) => void
   handleAddContext: (context: MessageContextInput) => void
 
+  // Skills activated for the next message (names only)
+  selectedSkills: string[]
+  handleAddSkill: (name: string) => void
+  handleRemoveSkill: (name: string) => void
+
   // Paste handling
   handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
 
@@ -119,6 +124,18 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     }
   }
 
+  // Skills picked from the "/" dropdown. Names only — the sandbox resolves each
+  // one's SKILL.md and frontloads its body.
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([])
+
+  const handleAddSkill = (name: string) => {
+    setSelectedSkills((prev) => (prev.includes(name) ? prev : [...prev, name]))
+  }
+
+  const handleRemoveSkill = (name: string) => {
+    setSelectedSkills((prev) => prev.filter((s) => s !== name))
+  }
+
   // Paste handling: images only
   const handlePaste = useImagePaste(uploadFile)
 
@@ -130,6 +147,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
   // Utility: Clear all state
   const clearAll = () => {
     setUploadedFiles([])
+    setSelectedSkills([])
     if (!useExternalContext) {
       setInternalContextItems([])
     } else if (onContextItemsChange) {
@@ -148,6 +166,11 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     contextItems,
     handleRemoveContext,
     handleAddContext,
+
+    // Skills
+    selectedSkills,
+    handleAddSkill,
+    handleRemoveSkill,
 
     // Paste handling
     handlePaste,

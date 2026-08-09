@@ -52,6 +52,7 @@ interface LoopFormState {
   prompt: string
   taskName: string
   tagIdsText: string
+  skillsText: string
   agentType: string
   adapter: AdapterKind
   connectionId: string
@@ -99,7 +100,8 @@ function stringifyJsonObject(value: JsonObject | null | undefined): string {
   return JSON.stringify(value ?? {}, null, 2)
 }
 
-function parseTags(value: string): string[] {
+/** Split a comma-separated list field into trimmed, non-empty entries. */
+function parseList(value: string): string[] {
   return value
     .split(',')
     .map((tag) => tag.trim())
@@ -121,6 +123,7 @@ function makeConfigFields(config: Loop['config'] | undefined) {
     prompt: config?.prompt ?? '',
     taskName: config?.taskName ?? '',
     tagIdsText: config?.tagIds.join(', ') ?? '',
+    skillsText: config?.skills.join(', ') ?? '',
     agentType: config?.agentType ?? 'claude-code',
   }
 }
@@ -193,7 +196,8 @@ function buildUpdateConfig(form: LoopFormState): NonNullable<UpdateLoopRequest['
     routingMode: form.routingMode,
     prompt: form.prompt.trim() || null,
     taskName: form.taskName.trim() || null,
-    tagIds: parseTags(form.tagIdsText),
+    tagIds: parseList(form.tagIdsText),
+    skills: parseList(form.skillsText),
     agentType: form.agentType.trim() || 'claude-code',
   }
 }
@@ -204,7 +208,8 @@ function buildCreateConfig(form: LoopFormState): CreateLoopRequest['config'] {
     routingMode: form.routingMode,
     prompt: form.prompt.trim() || null,
     taskName: form.taskName.trim() || null,
-    tagIds: parseTags(form.tagIdsText),
+    tagIds: parseList(form.tagIdsText),
+    skills: parseList(form.skillsText),
     runAsUserId: null,
     agentType: form.agentType.trim() || 'claude-code',
   }
@@ -554,6 +559,14 @@ function LoopFormFields({
             value={form.tagIdsText}
             onChange={(event) => setForm((prev) => ({ ...prev, tagIdsText: event.target.value }))}
             placeholder="tag-id-1, tag-id-2"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Skills</Label>
+          <Input
+            value={form.skillsText}
+            onChange={(event) => setForm((prev) => ({ ...prev, skillsText: event.target.value }))}
+            placeholder="e2e-testing, moat-cli"
           />
         </div>
       </div>

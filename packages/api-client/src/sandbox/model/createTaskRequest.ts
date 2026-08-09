@@ -43,6 +43,9 @@ one of `repository_id` / `workspace_id` is required.
    * @nullable
    */
   repositoryId?: string | null;
+  /** Skills to activate for the first turn. Names only — the sandbox resolves
+each one's `SKILL.md` on disk and frontloads its body ahead of the message. */
+  skills?: string[];
   /**
    * Explicit workspace to run the task in. When set, its repositories drive
 the task (workspace wins over `repository_id`). When unset, the task

@@ -91,6 +91,8 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
 
   const suggestions = skills.map((s) => ({ kind: 'skill' as const, ...s }))
 
+  const taskInputs = useTaskInputs()
+
   const {
     inputRef: textareaRef,
     isOpen: isCommandAutocompleteOpen,
@@ -100,14 +102,14 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
     handleKeyDown: handleCommandKeyDown,
     selectCommand,
   } = useCommandAutocomplete({
+    value: message,
     onValueChange: onMessageChange,
+    onSelectSkill: taskInputs.handleAddSkill,
     suggestions,
     enabled: true,
   })
 
   const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
-
-  const taskInputs = useTaskInputs()
 
   const { data: workspaces } = useWorkspacesList()
   const { data: repositoryDetails, error: repositoryError } = useRepository(primaryRepoId ?? '', {
@@ -207,6 +209,7 @@ export function useComposeTaskForm(args: UseComposeTaskFormArgs) {
         ...(submitMessage !== undefined && { message: submitMessage }),
         ...(modelValue !== undefined && { model: modelValue }),
         ...(taskInputs.contextItems.length > 0 && { contexts: taskInputs.contextItems }),
+        ...(taskInputs.selectedSkills.length > 0 && { skills: taskInputs.selectedSkills }),
         ...(branchSelector.value !== undefined && { branch: branchSelector.value }),
       },
       {

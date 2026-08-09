@@ -593,6 +593,8 @@ impl ThreadCommandSink for AppStateCommands {
             file_ids,
             parent_task_id: None,
             headless: Some(false),
+            // T3 has no skill picker of its own.
+            skills: vec![],
         };
 
         let mut intent = task_service::CreateTaskIntent::new(request);

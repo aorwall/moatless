@@ -184,6 +184,7 @@ mod tests {
             scope: Scope::Global,
             task_name: None,
             tag_ids: vec![],
+            skills: Vec::new(),
             run_as_user_id: None,
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,
@@ -239,10 +240,12 @@ mod tests {
 
     #[test]
     fn the_reply_instructions_name_the_bot() {
-        assert!(SlackAdapter::new("token", "secret", Some("U0BOT".into()))
-            .reply_instructions()
-            .expect("Slack always has instructions")
-            .contains("Slack user ID `U0BOT`"));
+        assert!(
+            SlackAdapter::new("token", "secret", Some("U0BOT".into()))
+                .reply_instructions()
+                .expect("Slack always has instructions")
+                .contains("Slack user ID `U0BOT`")
+        );
     }
 
     /// The budget: one `conversations.replies`. The cursor is sent bare, the

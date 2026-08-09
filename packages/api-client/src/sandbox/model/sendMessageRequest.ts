@@ -26,6 +26,9 @@ its own default.
   model?: string | null;
   /** @nullable */
   resume?: boolean | null;
+  /** Skills to activate for this turn. Names only — the sandbox resolves each
+one's `SKILL.md` on disk and frontloads its body ahead of the message. */
+  skills?: string[];
   /**
    * Task ID of the sender (set automatically when sent from within a sandbox).
    * @nullable

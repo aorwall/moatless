@@ -100,6 +100,7 @@ where
                 crate::message::send::ExternalOrigin::none(),
                 false,
                 fm.sent_by.as_deref(),
+                &fm.skills,
                 fm.message_uuid,
             )
             .await
@@ -280,6 +281,7 @@ pub async fn normalize(
         ttl_minutes: config.sandbox.idle_timeout_minutes as i32,
         inactive_ttl_days: config.sandbox.inactive_task_timeout_days as i32,
         tag_ids: vec![],
+        skills: req.skills.clone(),
         parent: req.parent_task_id.as_deref().map(|p| CreatedByParent {
             parent_task_id: p.to_string(),
             context: serde_json::json!({ "via": "create_task_request" }),
@@ -294,6 +296,7 @@ pub async fn normalize(
             contexts: req.contexts.clone(),
             sent_by: Some(user_id.to_string()),
             message_uuid: first_message_uuid,
+            skills: req.skills.clone(),
         }),
         task_id,
         provision,

@@ -41,7 +41,7 @@ use moatless_backend::state::AppState;
 use sqlx::{PgPool, Row};
 use tower::ServiceExt;
 
-use common::{make_repository_row, seed_team, test_app_state_with_adapters, test_config, USER_1};
+use common::{USER_1, make_repository_row, seed_team, test_app_state_with_adapters, test_config};
 
 const CONNECTION: &str = "conn-telegram-1";
 const TRIGGER: &str = "tt-telegram-1";
@@ -166,6 +166,7 @@ async fn seed_subscription(
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],
+            skills: Vec::new(),
             run_as_user_id: Some(USER_1.to_string()),
             agent_type: "claude-code".to_string(),
             inactive_ttl_days: None,

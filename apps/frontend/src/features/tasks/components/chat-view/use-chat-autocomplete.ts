@@ -14,6 +14,8 @@ interface UseChatAutocompleteOptions {
   suggestions: Suggestion[]
   /** Skill autocomplete is disabled while the agent is running. */
   commandsEnabled: boolean
+  /** Activate a skill picked from the "/" dropdown. */
+  onSelectSkill: (name: string) => void
 }
 
 /**
@@ -27,6 +29,7 @@ export function useChatAutocomplete({
   setMessage,
   suggestions,
   commandsEnabled,
+  onSelectSkill,
 }: UseChatAutocompleteOptions) {
   // File search mutation (task-specific)
   const fileSearchMutation = useFileSearch(taskId)
@@ -61,7 +64,9 @@ export function useChatAutocomplete({
     handleKeyDown: handleCommandKeyDown,
     selectCommand,
   } = useCommandAutocomplete({
+    value: message,
     onValueChange: setMessage,
+    onSelectSkill,
     suggestions,
     enabled: commandsEnabled,
   })

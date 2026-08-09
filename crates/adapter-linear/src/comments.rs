@@ -159,6 +159,7 @@ pub(super) async fn handle_comment_created(
                 },
                 false,
                 comment.user.as_ref().map(|u| u.id.as_str()),
+                &[],
                 None,
             )
             .await

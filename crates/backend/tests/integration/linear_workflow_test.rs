@@ -261,6 +261,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],
+            skills: Vec::new(),
             // A Subscription with no run-as user is invisible to every lookup
             // that resolves rules — `run_as_user_id IS NOT NULL` is in the
             // query. Without it the rule exists and matches nothing.

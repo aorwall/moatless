@@ -49,6 +49,7 @@ pub struct LoopConfigRow {
     pub prompt: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
+    pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
     pub inactive_ttl_days: Option<i32>,
@@ -116,6 +117,7 @@ struct JoinedLoopRecordRow {
     prompt: Option<String>,
     task_name: Option<String>,
     tag_ids: Vec<String>,
+    skills: Vec<String>,
     run_as_user_id: Option<String>,
     agent_type: String,
     inactive_ttl_days: Option<i32>,
@@ -163,6 +165,7 @@ impl JoinedLoopRecordRow {
             prompt: self.prompt,
             task_name: self.task_name,
             tag_ids: self.tag_ids,
+            skills: self.skills,
             run_as_user_id: self.run_as_user_id,
             agent_type: self.agent_type,
             inactive_ttl_days: self.inactive_ttl_days,
@@ -228,6 +231,7 @@ const LOOP_RECORD_SELECT: &str = r#"
            r.prompt,
            r.task_name,
            r.tag_ids,
+           r.skills,
            r.run_as_user_id,
            r.agent_type,
            r.inactive_ttl_days,
@@ -280,6 +284,7 @@ pub struct NewLoopConfig {
     pub prompt: Option<String>,
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
+    pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_type: String,
     pub inactive_ttl_days: Option<i32>,
@@ -349,6 +354,7 @@ pub struct ManagedLoopUpsert {
     pub routing_mode: RoutingMode,
     pub prompt: Option<String>,
     pub tag_ids: Vec<String>,
+    pub skills: Vec<String>,
     pub agent_type: String,
     pub inactive_ttl_days: Option<i32>,
     pub adapter: Option<NewAdapterEventSource>,
@@ -529,9 +535,10 @@ impl LoopDao {
                        prompt = $5,
                        task_name = $6,
                        tag_ids = $7,
-                       run_as_user_id = $8,
-                       agent_type = $9,
-                       inactive_ttl_days = $10
+                       skills = $8,
+                       run_as_user_id = $9,
+                       agent_type = $10,
+                       inactive_ttl_days = $11
                    WHERE loop_id = $1"#,
             )
             .bind(id)
@@ -541,6 +548,7 @@ impl LoopDao {
             .bind(&config.prompt)
             .bind(&config.task_name)
             .bind(&config.tag_ids)
+            .bind(&config.skills)
             .bind(&config.run_as_user_id)
             .bind(&config.agent_type)
             .bind(config.inactive_ttl_days)
@@ -898,8 +906,9 @@ impl LoopDao {
         sqlx::query(
             r#"INSERT INTO loop_configs
                (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
-                task_name, tag_ids, run_as_user_id, agent_type, inactive_ttl_days)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                task_name, tag_ids, skills, run_as_user_id, agent_type,
+                inactive_ttl_days)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                ON CONFLICT (loop_id) DO UPDATE
                SET repository_id     = EXCLUDED.repository_id,
                    routing_mode      = EXCLUDED.routing_mode,
@@ -907,6 +916,7 @@ impl LoopDao {
                    prompt            = EXCLUDED.prompt,
                    task_name         = EXCLUDED.task_name,
                    tag_ids           = EXCLUDED.tag_ids,
+                   skills            = EXCLUDED.skills,
                    run_as_user_id    = EXCLUDED.run_as_user_id,
                    agent_type        = EXCLUDED.agent_type,
                    inactive_ttl_days = EXCLUDED.inactive_ttl_days"#,
@@ -918,6 +928,7 @@ impl LoopDao {
         .bind(&row.prompt_template)
         .bind(&row.task_name)
         .bind(&row.tag_ids)
+        .bind(&row.skills)
         .bind(&row.run_as_user_id)
         .bind(&row.agent_type)
         .bind(row.inactive_ttl_days)
@@ -1305,6 +1316,7 @@ impl LoopDao {
                       r.prompt AS prompt_template,
                       r.task_name,
                       r.tag_ids,
+                      r.skills,
                       r.run_as_user_id,
                       r.agent_type,
                       r.inactive_ttl_days,
@@ -1356,6 +1368,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.prompt AS prompt_template,
            r.task_name,
            r.tag_ids,
+           r.skills,
            r.run_as_user_id,
            r.agent_type,
            r.inactive_ttl_days,
@@ -1437,6 +1450,7 @@ async fn replace_managed_loop_rows(
             prompt: input.prompt.clone(),
             task_name: None,
             tag_ids: input.tag_ids.clone(),
+            skills: input.skills.clone(),
             run_as_user_id: None,
             agent_type: input.agent_type.clone(),
             inactive_ttl_days: input.inactive_ttl_days,
@@ -1461,8 +1475,9 @@ async fn insert_config(
     sqlx::query(
         r#"INSERT INTO loop_configs
            (loop_id, repository_id, routing_mode, ongoing_task_id, prompt,
-            task_name, tag_ids, run_as_user_id, agent_type, inactive_ttl_days)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+            task_name, tag_ids, skills, run_as_user_id, agent_type,
+            inactive_ttl_days)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
     )
     .bind(loop_id)
     .bind(&config.repository_id)
@@ -1471,6 +1486,7 @@ async fn insert_config(
     .bind(&config.prompt)
     .bind(&config.task_name)
     .bind(&config.tag_ids)
+    .bind(&config.skills)
     .bind(&config.run_as_user_id)
     .bind(&config.agent_type)
     .bind(config.inactive_ttl_days)

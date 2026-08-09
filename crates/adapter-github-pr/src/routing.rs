@@ -62,6 +62,7 @@ pub(super) fn delivery_only_rule(
         prompt_template: None,
         task_name: None,
         tag_ids: Vec::new(),
+        skills: Vec::new(),
         run_as_user_id: connection.owner_user_id.clone(),
         agent_type: String::new(),
         inactive_ttl_days: None,
@@ -622,6 +623,7 @@ impl GithubPrInboundRouter {
                 },
                 false,
                 Some(msg.user_id.as_str()),
+                &[],
                 None,
             )
             .await

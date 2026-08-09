@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
 use super::contexts::task_message_context_to_input;
-use super::models::{TaskMessage, TaskMessageContext, TOOL_RESPONSE_USER_TYPE};
+use super::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
 use crate::file_storage::models::FileMetadata;
 use crate::message::models::MessageType;
 use crate::task::schemas::{FileContextData, MessageContextInput};
@@ -853,6 +853,7 @@ mod tests {
             agent_mode: None,
             effort: None,
             model: None,
+            skills: Vec::new(),
             resume: true,
             sent_at: None,
             created_at: None,

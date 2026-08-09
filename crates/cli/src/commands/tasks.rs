@@ -321,6 +321,7 @@ pub async fn run(
                 model,
                 effort: None,
                 headless: Some(headless),
+                skills: Vec::new(),
             };
             let created = client.api().create_task(&req).await?;
             if json {
@@ -852,7 +853,10 @@ async fn resolve_repo_id(client: &MoatClient, repo_arg: &str) -> Result<String, 
             ),
         }),
         _ => {
-            let names: Vec<_> = matches.iter().map(|r| format!("{} ({})", r.name, r.id)).collect();
+            let names: Vec<_> = matches
+                .iter()
+                .map(|r| format!("{} ({})", r.name, r.id))
+                .collect();
             Err(ClientError::Api {
                 status: 400,
                 body: format!(
@@ -887,7 +891,10 @@ async fn resolve_workspace_id(client: &MoatClient, ws_arg: &str) -> Result<Strin
             ),
         }),
         _ => {
-            let names: Vec<_> = matches.iter().map(|w| format!("{} ({})", w.name, w.id)).collect();
+            let names: Vec<_> = matches
+                .iter()
+                .map(|w| format!("{} ({})", w.name, w.id))
+                .collect();
             Err(ClientError::Api {
                 status: 400,
                 body: format!("Multiple workspaces match '{ws_arg}': {}", names.join(", ")),

@@ -145,15 +145,21 @@ pub async fn dispatch_pending_messages(state: SandboxState) {
     let effort = delivery.effort;
     let resume_session_id = delivery.resume_session_id;
     let start_fresh = delivery.start_fresh;
+    let skills = delivery.skills;
 
     if text.is_empty() {
         return;
     }
 
+    // After the emptiness gate: a preamble must not turn a delivery with nothing
+    // in it into a real turn.
+    let text = crate::agent::skills::frontload_skills(&state.config, &skills, &text).await;
+
     info!(
         message_count = uuids.len(),
         deferred_count = deferred,
         text_len = text.len(),
+        skill_count = skills.len(),
         model = ?model,
         agent_type = ?agent_type,
         agent_mode = ?agent_mode,

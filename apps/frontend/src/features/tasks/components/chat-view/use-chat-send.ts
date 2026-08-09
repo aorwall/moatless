@@ -95,6 +95,7 @@ export function useChatSend({
       contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
       agentMode: selectedAgentMode,
       startFresh: startFresh || undefined,
+      ...(taskInputs.selectedSkills.length > 0 && { skills: taskInputs.selectedSkills }),
     }
 
     sendMessage.mutate(messageData, {

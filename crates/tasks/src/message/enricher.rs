@@ -7,9 +7,9 @@ use serde_json::Value;
 
 use super::contexts::task_message_context_to_input;
 use super::models::{TaskMessage, TaskMessageContext};
-use moatless_core::config::Config;
 use crate::file_storage::dao::FileDao;
 use crate::task::schemas::MessageContextInput;
+use moatless_core::config::Config;
 
 /// Content block for agent request.
 #[derive(Debug, serde::Serialize)]
@@ -35,6 +35,9 @@ pub struct AgentDelivery {
     /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
     /// leaves the agent on its own default.
     pub effort: Option<String>,
+    /// Skills to frontload into this turn, in the order to apply them. Names
+    /// only — the sandbox resolves each one's `SKILL.md` on its own disk.
+    pub skills: Vec<String>,
     pub resume_session_id: Option<String>,
     pub resume: bool,
     pub start_fresh: bool,
@@ -95,6 +98,7 @@ pub struct AgentPromptBuilder<'a> {
     task_agent_type: String,
     task_model: Option<String>,
     task_resume_session_id: Option<String>,
+    task_skills: Vec<String>,
     sender_logins: &'a HashMap<String, String>,
 }
 
@@ -105,6 +109,7 @@ impl<'a> AgentPromptBuilder<'a> {
         task_agent_type: String,
         task_model: Option<String>,
         task_resume_session_id: Option<String>,
+        task_skills: Vec<String>,
         sender_logins: &'a HashMap<String, String>,
     ) -> Self {
         Self {
@@ -113,6 +118,7 @@ impl<'a> AgentPromptBuilder<'a> {
             task_agent_type,
             task_model,
             task_resume_session_id,
+            task_skills,
             sender_logins,
         }
     }
@@ -143,6 +149,15 @@ impl<'a> AgentPromptBuilder<'a> {
             && self.task_resume_session_id.as_ref().is_some()
             && rows.last().is_some_and(|row| row.resume);
 
+        // A fresh session has no transcript, so the task's own skills have to be
+        // activated again; a resumed one still carries them. Per-message skills
+        // ride on top either way, deduped and in the order they were asked for.
+        let mut skills = if resume {
+            Vec::new()
+        } else {
+            self.task_skills.clone()
+        };
+
         for row in rows {
             let mut text = self
                 .build_message_prompt(
@@ -171,6 +186,11 @@ impl<'a> AgentPromptBuilder<'a> {
                 agent_mode = row.agent_mode.as_ref().map(|mode| mode.0.clone());
             }
             effort = row.effort.clone().or(effort);
+            for name in &row.skills {
+                if !skills.iter().any(|seen| seen == name) {
+                    skills.push(name.clone());
+                }
+            }
         }
 
         if parts.is_empty() {
@@ -192,6 +212,7 @@ impl<'a> AgentPromptBuilder<'a> {
             agent_type: Some(self.task_agent_type.clone()),
             agent_mode,
             effort,
+            skills,
             resume_session_id: if resume {
                 self.task_resume_session_id.clone()
             } else {
@@ -445,12 +466,21 @@ mod tests {
         sender_logins: &HashMap<String, String>,
         resume_session_id: Option<String>,
     ) -> AgentPromptBuilder<'_> {
+        prompt_builder_with_task_skills(sender_logins, resume_session_id, Vec::new())
+    }
+
+    fn prompt_builder_with_task_skills(
+        sender_logins: &HashMap<String, String>,
+        resume_session_id: Option<String>,
+        task_skills: Vec<String>,
+    ) -> AgentPromptBuilder<'_> {
         AgentPromptBuilder::new(
             None,
             None,
             "claude-code".to_string(),
             None,
             resume_session_id,
+            task_skills,
             sender_logins,
         )
     }
@@ -548,6 +578,95 @@ mod tests {
             .build_pending_deliveries(&rows, &contexts)
             .await;
         assert_eq!(deliveries[0].effort, None);
+    }
+
+    /// A fresh session carries no transcript, so the task's skills have to be
+    /// activated again.
+    #[tokio::test]
+    async fn task_skills_ride_a_delivery_that_starts_a_fresh_session() {
+        let rows = vec![pending_message(1, "msg-1", "start")];
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries =
+            prompt_builder_with_task_skills(&logins, None, vec!["e2e-testing".to_string()])
+                .build_pending_deliveries(&rows, &contexts)
+                .await;
+        assert_eq!(deliveries[0].skills, vec!["e2e-testing".to_string()]);
+    }
+
+    /// A resumed session still has them, so re-sending the body would be waste.
+    #[tokio::test]
+    async fn task_skills_are_left_off_a_resumed_delivery() {
+        let rows = vec![pending_message(1, "msg-1", "carry on")];
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries = prompt_builder_with_task_skills(
+            &logins,
+            Some("session-1".to_string()),
+            vec!["e2e-testing".to_string()],
+        )
+        .build_pending_deliveries(&rows, &contexts)
+        .await;
+        assert!(deliveries[0].resume);
+        assert!(deliveries[0].skills.is_empty());
+    }
+
+    /// `start_fresh` cuts the session, which is exactly when they are needed.
+    #[tokio::test]
+    async fn task_skills_come_back_on_a_start_fresh_delivery() {
+        let mut fresh = pending_message(1, "msg-1", "from the top");
+        fresh.start_fresh = true;
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries = prompt_builder_with_task_skills(
+            &logins,
+            Some("session-1".to_string()),
+            vec!["e2e-testing".to_string()],
+        )
+        .build_pending_deliveries(&[fresh], &contexts)
+        .await;
+        assert_eq!(deliveries[0].skills, vec!["e2e-testing".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn message_skills_ride_even_a_resumed_delivery() {
+        let mut row = pending_message(1, "msg-1", "use this");
+        row.skills = vec!["rust-dev-guidelines".to_string()];
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries = prompt_builder(&logins, Some("session-1".to_string()))
+            .build_pending_deliveries(&[row], &contexts)
+            .await;
+        assert!(deliveries[0].resume);
+        assert_eq!(
+            deliveries[0].skills,
+            vec!["rust-dev-guidelines".to_string()]
+        );
+    }
+
+    /// Task skills lead, message skills follow, and a name asked for twice is
+    /// frontloaded once.
+    #[tokio::test]
+    async fn a_batched_delivery_unions_its_skills_in_order() {
+        let mut first = pending_message(1, "msg-1", "start on this");
+        first.skills = vec!["e2e-testing".to_string(), "moat-cli".to_string()];
+        let mut second = pending_message(2, "msg-2", "and this");
+        second.skills = vec!["moat-cli".to_string(), "shadow-dev".to_string()];
+
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries =
+            prompt_builder_with_task_skills(&logins, None, vec!["e2e-testing".to_string()])
+                .build_pending_deliveries(&[first, second], &contexts)
+                .await;
+        assert_eq!(
+            deliveries[0].skills,
+            vec![
+                "e2e-testing".to_string(),
+                "moat-cli".to_string(),
+                "shadow-dev".to_string()
+            ]
+        );
     }
 
     #[test]

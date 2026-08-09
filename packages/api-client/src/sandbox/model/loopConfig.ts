@@ -24,6 +24,8 @@ when this Loop spawns a task.
   routingMode: RoutingMode;
   /** @nullable */
   runAsUserId?: string | null;
+  /** Skills every task this Loop spawns activates on each fresh agent session. */
+  skills: string[];
   tagIds: string[];
   /** @nullable */
   taskName?: string | null;

@@ -400,6 +400,7 @@ async fn provision_issue_task(
             },
             false,
             None,
+            &[],
             None,
         )
         .await
@@ -611,6 +612,7 @@ async fn notify_bindings_of_state_change(
                 },
                 false,
                 None,
+                &[],
                 None,
             )
             .await

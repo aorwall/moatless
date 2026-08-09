@@ -21,6 +21,8 @@ export interface CreateLoopConfig {
   /** @nullable */
   runAsUserId?: string | null;
   /** @nullable */
+  skills?: string[] | null;
+  /** @nullable */
   tagIds?: string[] | null;
   /** @nullable */
   taskName?: string | null;

@@ -89,6 +89,7 @@ pub async fn run(
             tool_use_id: None,
             source_task_id: cfg.task_id().map(std::string::ToString::to_string),
             start_fresh: None,
+            skills: Vec::new(),
         };
         let resp = moat.api().send_message(&id, &req).await?;
         if json {

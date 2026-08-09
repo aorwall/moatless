@@ -56,6 +56,10 @@ pub struct CreateTaskRequest {
     pub parent_task_id: Option<String>,
     #[serde(default)]
     pub headless: Option<bool>,
+    /// Skills to activate for the first turn. Names only — the sandbox resolves
+    /// each one's `SKILL.md` on disk and frontloads its body ahead of the message.
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 /// Data for an element context (selected UI component).

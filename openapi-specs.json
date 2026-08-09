@@ -10302,6 +10302,15 @@
               "null"
             ]
           },
+          "skills": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
           "tagIds": {
             "type": [
               "array",
@@ -10668,6 +10677,13 @@
               "null"
             ],
             "description": "The repository to run the task against. Optional when `workspace_id` is\nsupplied — the workspace's primary repository is used instead. At least\none of `repository_id` / `workspace_id` is required."
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Skills to activate for the first turn. Names only — the sandbox resolves\neach one's `SKILL.md` on disk and frontloads its body ahead of the message."
           },
           "workspaceId": {
             "type": [
@@ -12392,6 +12408,7 @@
           "repositoryId",
           "routingMode",
           "tagIds",
+          "skills",
           "agentType"
         ],
         "properties": {
@@ -12429,6 +12446,13 @@
               "string",
               "null"
             ]
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Skills every task this Loop spawns activates on each fresh agent session."
           },
           "tagIds": {
             "type": "array",
@@ -14546,6 +14570,13 @@
               "boolean",
               "null"
             ]
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Skills to activate for this turn. Names only — the sandbox resolves each\none's `SKILL.md` on disk and frontloads its body ahead of the message."
           },
           "sourceTaskId": {
             "type": [
@@ -16675,6 +16706,15 @@
                 "$ref": "#/components/schemas/RoutingMode"
               }
             ]
+          },
+          "skills": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
           },
           "tagIds": {
             "type": [

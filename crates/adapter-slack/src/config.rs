@@ -125,6 +125,7 @@ mod tests {
             scope: moatless_backend_core::scope::Scope::User,
             task_name: None,
             tag_ids: vec![],
+            skills: Vec::new(),
             run_as_user_id: None,
             agent_type: "claude-code".into(),
             inactive_ttl_days: None,

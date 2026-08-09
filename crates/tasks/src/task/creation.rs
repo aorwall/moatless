@@ -33,15 +33,15 @@ use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
 use moatless_core::events::EventPublisher;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_workspaces::repository::models::Repository;
 use moatless_core::shared_models::{AgentMode, AgentType};
 use moatless_core::tag::dao::TagDao;
+use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_workspaces::repository::models::Repository;
 use crate::task::dao::TaskDao;
 use crate::task::error::TaskError;
 use crate::task::models::{Task, TaskStatus, Visibility};
 use crate::task::relations::{
-    record_created_by, record_related_to, CreatedByParent, RelatedTask, TaskRelationDao,
+    CreatedByParent, RelatedTask, TaskRelationDao, record_created_by, record_related_to,
 };
 use crate::task::schemas::MessageContextInput;
 
@@ -93,6 +93,9 @@ pub struct NewTaskRequest {
     /// Pre-resolved tag ids to attach (adapters pass their Loop's tag ids;
     /// the HTTP path passes none).
     pub tag_ids: Vec<String>,
+    /// Skills every fresh agent session on the task activates — a Loop's
+    /// `skills`, or those chosen when the task was created.
+    pub skills: Vec<String>,
     /// Optional `created_by` parent relation to record after insert.
     pub parent: Option<CreatedByParent>,
     /// Optional `related_to` peer relation to record after insert.
@@ -135,6 +138,8 @@ pub struct FirstMessage {
     /// The message's uuid when the caller owns it — see
     /// [`crate::message::send::MessageSendService::send_message_flow`].
     pub message_uuid: Option<String>,
+    /// Skills to activate for this first turn.
+    pub skills: Vec<String>,
 }
 
 /// Whether the best-effort provision step started the sandbox. Ticket 02's
@@ -285,6 +290,7 @@ impl TaskCreationService {
             loop_id: req.loop_id.clone(),
             workspace_id: req.workspace_id.clone(),
             disabled_servers: None,
+            skills: req.skills.clone(),
         };
 
         // Repo is needed for preflight. Reuse a caller-supplied one if present
@@ -503,6 +509,7 @@ mod tests {
             ttl_minutes: 15,
             inactive_ttl_days: 7,
             tag_ids: vec![],
+            skills: vec![],
             parent: None,
             related_to: None,
             first_message: None,
@@ -687,6 +694,7 @@ mod tests {
             contexts: vec![],
             sent_by: Some("user1".into()),
             message_uuid: None,
+            skills: vec![],
         });
 
         let message_order = Arc::clone(&order);

@@ -88,6 +88,7 @@ describe('loopsApi', () => {
         taskName: null,
         prompt: null,
         tagIds: [],
+        skills: [],
         runAsUserId: null,
         agentType: 'claude-code',
       },

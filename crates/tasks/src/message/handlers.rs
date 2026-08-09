@@ -72,6 +72,7 @@ pub async fn send_message(
             resume: req.resume.unwrap_or(true),
             source_task_id: req.source_task_id,
             start_fresh: req.start_fresh.unwrap_or(false),
+            skills: req.skills,
             message_uuid: None,
             tool_response,
         },
@@ -405,7 +406,7 @@ mod strip_heavy_fields_tests {
     use super::strip_heavy_fields;
     use moatless_api_schemas::enums::{MessageRole, MessageType};
     use moatless_api_schemas::message::{UiContentBlock, UiMessage};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     fn ui_message_with_tool_use(tool_name: &str, tool_input: Value) -> UiMessage {
         UiMessage {

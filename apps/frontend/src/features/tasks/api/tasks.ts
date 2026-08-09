@@ -166,6 +166,7 @@ export const tasksApi = {
       toolName?: 'AskUserQuestion' | 'ExitPlanMode' | undefined
       toolResponse?: unknown
       startFresh?: boolean | undefined
+      skills?: string[] | undefined
     },
   ): Promise<SendMessageResponse> {
     // fileUploads is a UI-only optimistic-render field and is dropped here.
@@ -189,6 +190,7 @@ export const tasksApi = {
         toolResponse: variables.toolResponse as SendMessageRequestToolResponse,
       }),
       ...(variables.startFresh !== undefined && { startFresh: variables.startFresh }),
+      ...(variables.skills !== undefined && { skills: variables.skills }),
     }
     return await unwrapResponse(sendMessageHandler(taskId, payload))
   },

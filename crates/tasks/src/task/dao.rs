@@ -301,12 +301,12 @@ impl TaskDao for PgTaskDao {
                 created_by, visibility, scope, owner_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 inactive_ttl_days, loop_id, disabled_servers, model,
-                workspace_id
+                workspace_id, skills
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, NOW(), $22, $23, $24, $25, $26,
-                $27, $28
+                $27, $28, $29
             )"#,
         )
         .bind(&row.task_id)
@@ -337,6 +337,7 @@ impl TaskDao for PgTaskDao {
         .bind(&row.disabled_servers)
         .bind(&row.model)
         .bind(&workspace_id)
+        .bind(&row.skills)
         .execute(&mut *tx)
         .await?;
 
@@ -407,6 +408,7 @@ impl TaskDao for PgTaskDao {
             inactive_ttl_days: Option<i32>,
             loop_id: Option<String>,
             disabled_servers: Option<serde_json::Value>,
+            skills: Option<Vec<String>>,
         }
 
         impl TaskPageRow {
@@ -452,6 +454,9 @@ impl TaskDao for PgTaskDao {
                     inactive_ttl_days: self.inactive_ttl_days?,
                     loop_id: self.loop_id,
                     disabled_servers: self.disabled_servers,
+                    // NOT NULL in `tasks`, so only the total-only row can be
+                    // NULL here — and that row is rejected before this point.
+                    skills: self.skills.unwrap_or_default(),
                 })
             }
         }
@@ -480,7 +485,7 @@ impl TaskDao for PgTaskDao {
                     t.model, t.created_by, t.visibility, t.scope, t.owner_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
-                    t.inactive_ttl_days, t.loop_id, t.disabled_servers
+                    t.inactive_ttl_days, t.loop_id, t.disabled_servers, t.skills
                 FROM tasks t
                 WHERE {}
                   AND ($3::text IS NULL OR t.status = $3)

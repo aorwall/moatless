@@ -35,6 +35,8 @@ pub struct UserMessage {
     pub resume: bool,
     pub source_task_id: Option<String>,
     pub start_fresh: bool,
+    /// Skills to activate for this turn.
+    pub skills: Vec<String>,
     /// The message's uuid when the caller owns it. See
     /// [`send::MessageSendService::send_message_flow`].
     pub message_uuid: Option<String>,
@@ -132,6 +134,7 @@ pub async fn send_user_message(
                     },
                     message.start_fresh,
                     Some(sender.user_id),
+                    &message.skills,
                     message.message_uuid,
                 )
                 .await?

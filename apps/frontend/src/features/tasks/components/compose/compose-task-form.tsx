@@ -1,6 +1,10 @@
 import type React from 'react'
 import { SettingsDialog } from '@/features/settings'
-import { ContextItems, FileAttachments } from '@/features/tasks/components/chat/chat-input'
+import {
+  ContextItems,
+  FileAttachments,
+  SkillChips,
+} from '@/features/tasks/components/chat/chat-input'
 import {
   AttachmentPopoverContent,
   BranchPopoverContent,
@@ -169,6 +173,15 @@ export function ComposeTaskForm(props: ComposeTaskFormProps) {
       </div>
 
       {/* Attachments + agent-unavailable hint */}
+      {form.taskInputs.selectedSkills.length > 0 && (
+        <div className="pb-2">
+          <SkillChips
+            skills={form.taskInputs.selectedSkills}
+            onRemove={form.taskInputs.handleRemoveSkill}
+          />
+        </div>
+      )}
+
       {form.taskInputs.contextItems.length > 0 && (
         <div className="pb-2">
           <ContextItems

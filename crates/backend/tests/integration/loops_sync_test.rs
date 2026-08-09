@@ -111,7 +111,7 @@ async fn insert_manual_trigger(pool: &PgPool, repo_id: &str) {
     .unwrap();
 }
 
-const GITHUB_LOOP: &str = "---\non: github_pr\nname: Java Review\nagentType: claude-code\ntags: [review]\n---\n\nReview this PR.\n";
+const GITHUB_LOOP: &str = "---\non: github_pr\nname: Java Review\nagentType: claude-code\ntags: [review]\nskills: [java-review, e2e-testing]\n---\n\nReview this PR.\n";
 const SCHEDULE_LOOP: &str = "---\non: schedule\nname: Daily Health Check\nschedule:\n  cron: \"0 0 6 * * MON-FRI *\"\n  timezone: Europe/Stockholm\n  message: \"Run the daily check.\"\n---\n\nDaily health check.\n";
 const SLACK_LOOP: &str = "---\non: slack\nname: E2E Triage\nsourceMatcher: C0000000001\nteamId: T0000000001\nroutingMode: ongoing\nadapterConfig:\n  allow_bot_messages: true\n  trigger: all_messages\n---\n\nTriage CI failures posted to #notifications-cicd.\n";
 const LINEAR_LOOP: &str = "---\non: linear\nname: Ready Pool\nsourceMatcher: team-uuid-eng\ntriggerStates: [Ready]\nprojectIds: [proj-launch]\nstartState: In Progress\n---\n\nPick up the Linear ticket and implement it.\n";
@@ -157,7 +157,8 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     // github_pr loop -> adapter_event trigger pointed at owner/repo.
     let gh = sqlx::query(
         "SELECT t.kind, t.name, t.active, t.config_source, t.source_config_path,
-                r.agent_type, r.prompt, r.run_as_user_id, aes.adapter_kind, aes.source_matcher \
+                r.agent_type, r.prompt, r.run_as_user_id, r.skills,
+                aes.adapter_kind, aes.source_matcher \
          FROM triggers t \
          JOIN loop_configs r ON r.loop_id = t.id \
          JOIN subscriptions aes ON aes.loop_id = t.id \
@@ -191,11 +192,17 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
         None,
         "Git cannot assign the execution user"
     );
+    assert_eq!(
+        gh.get::<Vec<String>, _>("skills"),
+        vec!["java-review".to_string(), "e2e-testing".to_string()],
+        "skill names are stored verbatim — they resolve on the pod, not here"
+    );
 
     // schedule loop -> schedule trigger with cron + message.
     let sched = sqlx::query(
-        "SELECT t.kind, sts.cron_expression, sts.timezone, sts.message_template \
+        "SELECT t.kind, r.skills, sts.cron_expression, sts.timezone, sts.message_template \
          FROM triggers t \
+         JOIN loop_configs r ON r.loop_id = t.id \
          JOIN schedules sts ON sts.loop_id = t.id \
          WHERE t.source_repository_id = $1 AND t.source_key = 'daily-health-check' AND t.config_source = 'git'",
     )
@@ -212,6 +219,10 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     assert_eq!(
         sched.get::<String, _>("message_template"),
         "Run the daily check."
+    );
+    assert!(
+        sched.get::<Vec<String>, _>("skills").is_empty(),
+        "a LOOP.md with no `skills` key stores an empty list, never NULL"
     );
 
     assert_eq!(
@@ -234,11 +245,13 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
         user_id: "admin-1".to_string(),
         is_admin: true,
     };
-    assert!(state
-        .loops
-        .activate(&schedule_id, "approved-user", &admin)
-        .await
-        .unwrap());
+    assert!(
+        state
+            .loops
+            .activate(&schedule_id, "approved-user", &admin)
+            .await
+            .unwrap()
+    );
 
     // Re-sync dropping the github_pr loop: it should be removed, schedule kept,
     // manual trigger still untouched.

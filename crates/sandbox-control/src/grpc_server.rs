@@ -855,6 +855,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             |t| t.agent_type.0.clone(),
         );
         let task_model = task.as_ref().and_then(|t| t.model.clone());
+        let task_skills = task.as_ref().map(|t| t.skills.clone()).unwrap_or_default();
 
         // Fetch pending user messages from DB
         let pending = messages.get_pending_user(&req.task_id).await.map_err(|e| {
@@ -972,6 +973,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             task_agent_type,
             task_model,
             task_resume_session_id,
+            task_skills,
             &login_cache,
         );
         let deliveries = builder
@@ -986,6 +988,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                 agent_type: delivery.agent_type,
                 agent_mode: delivery.agent_mode,
                 effort: delivery.effort,
+                skills: delivery.skills,
                 resume_session_id: delivery.resume_session_id,
                 resume: delivery.resume,
                 start_fresh: delivery.start_fresh,
@@ -1990,6 +1993,7 @@ mod tests {
             loop_id: None,
             workspace_id: None,
             disabled_servers: None,
+            skills: Vec::new(),
         }
     }
 
@@ -2075,11 +2079,12 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
             users_regular(),
         );
-        assert!(svc
-            .authorizer
-            .resolve_control(&claims_for("owner"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            svc.authorizer
+                .resolve_control(&claims_for("owner"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -2134,11 +2139,13 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::Global, None))),
             users_admin(),
         );
-        assert!(allowed
-            .authorizer
-            .resolve_control(&claims_for("admin"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            allowed
+                .authorizer
+                .resolve_control(&claims_for("admin"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -2148,11 +2155,12 @@ mod tests {
             tasks_returning(Some(task_fixture(Scope::User, Some("other-user")))),
             users_admin(),
         );
-        assert!(svc
-            .authorizer
-            .resolve_control(&claims_for("admin"), "task-1")
-            .await
-            .is_ok());
+        assert!(
+            svc.authorizer
+                .resolve_control(&claims_for("admin"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

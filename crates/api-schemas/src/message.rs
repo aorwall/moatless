@@ -363,6 +363,10 @@ pub struct SendMessageRequest {
     /// When true, the next agent run starts a fresh session instead of resuming.
     /// Per-message and cleared after send.
     pub start_fresh: Option<bool>,
+    /// Skills to activate for this turn. Names only — the sandbox resolves each
+    /// one's `SKILL.md` on disk and frontloads its body ahead of the message.
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -301,6 +301,14 @@ the same Repository can see different Skills, because that is what will reach
 their respective sandboxes. "Skill" unqualified means either; write the qualifier
 whenever the source is what makes the sentence true.
 
+A Skill reaches an agent as a name, never as text on the wire. `task_messages.skills`
+carries what one send activates, `tasks.skills` what every fresh agent session on
+the Task re-activates (a Loop's `skills`), and the backend unions the two onto
+`PendingAgentDelivery.skills`. Only the pod resolves the body: it reads the
+`SKILL.md` from the repo's own skill roots or the harness's installed home skills
+dir and prepends `Activated <root>/<name>:` plus that body to the turn
+(`sandbox/src/agent/skills.rs`).
+
 _Known debt_: the wire variant for a repository skill is `SkillSource::Workspace`,
 named before Repository and Workspace were separated. It means Repository. Rename
 it when the surrounding rename debt is paid.
@@ -311,6 +319,10 @@ or off — for everyone (`user_id IS NULL`, admins only) or for one person. A
 personal record beats a global one in both directions; clearing it hands the
 person back to the default, which is not the same as setting it off. Nothing is
 delivered without a record.
+
+An Activation decides whether a Plugin Skill is *available* at all. It is not what
+puts a Skill into a turn — that is the `skills` list above, and the pod's
+"Activated …" line names that, not this record.
 _Avoid_: scope (means tenancy elsewhere in this codebase), link, enable flag
 
 **Marketplace**:

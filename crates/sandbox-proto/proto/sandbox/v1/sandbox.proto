@@ -183,6 +183,10 @@ message PendingAgentDelivery {
   // ("low"/"medium"/"high"/"xhigh"/"max" for Claude, "minimal"/"low"/"medium"/
   // "high" for Codex). Absent means the agent's own default.
   optional string effort = 11;
+  // Skills to activate for this turn, in the order to frontload them. Names
+  // only: the sandbox resolves each one's SKILL.md against the repo's skill
+  // roots and the agent's installed home skills dir, so the body never travels.
+  repeated string skills = 12;
 }
 
 // An answer with its structure intact.

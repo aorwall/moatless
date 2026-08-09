@@ -9,6 +9,7 @@ import {
   ContextItems,
   FileAttachments,
   PlanApprovalInput,
+  SkillChips,
 } from '@/features/tasks/components/chat/chat-input'
 import {
   DEFAULT_AGENT_TYPE,
@@ -141,6 +142,7 @@ export function ChatInputSection({
     setMessage,
     suggestions,
     commandsEnabled: !isTaskRunning,
+    onSelectSkill: taskInputs.handleAddSkill,
   })
 
   // State for controlled selectors with defaults
@@ -258,6 +260,8 @@ export function ChatInputSection({
             )
           }
         >
+          <SkillChips skills={taskInputs.selectedSkills} onRemove={taskInputs.handleRemoveSkill} />
+
           {taskInputs.contextItems.length > 0 && (
             <ContextItems
               contexts={taskInputs.contextItems}

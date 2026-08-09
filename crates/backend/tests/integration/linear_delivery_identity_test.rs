@@ -230,6 +230,7 @@ async fn seed_rule(state: &AppState) {
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],
+            skills: Vec::new(),
             run_as_user_id: None,
             agent_type: "claude-code".to_string(),
             inactive_ttl_days: None,
