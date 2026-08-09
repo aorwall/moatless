@@ -1,8 +1,8 @@
 # Make the ports singular, then split the backend into crates
 
-> **Status:** in progress. Steps 1–4 and 6 **shipped**; Step 5 **in flight**; Steps 7–9 **partially shipped** — everything left of them is a named Step 10 precondition, so the Step 10 table is the one place they are listed; Steps 10–11 **not started** beyond 10a.
-> **Census baseline:** 179 illegal edges. `identity` and `workspaces` both have **zero illegal outgoing** — #364 cleared identity, #368 and #371 (9d, the router, 9c) cleared workspaces, which also left the SCC (12 crates → 11). Only `identity` reads **READY** — it depends on the floor alone. `workspaces` reads **WAITING**, because `identity` is still a module rather than a crate. **The next work is not another edge — it is 10b, one `Cargo.toml`.** See *The carve frontier*, which is what the next work is chosen against.
-> **Updated:** 2026-08-06
+> **Status:** carve complete. Steps 1–10 shipped; Step 11 is a record, with 11a dropped and the backend rename shipped inside 10i.
+> **Census baseline:** 0 illegal edges; doc-path count 0. `scripts/crate-census-report.txt` reports `FRONTIER -> complete: every carve-target crate is extracted`, with all thirteen carve targets `EXTRACTED`. See *The carve frontier* for the final graph context.
+> **Updated:** 2026-08-09
 > **Vocabulary:** CONTEXT.md
 > **Predecessors:** `.plans/backend-crate-split.md`, `.plans/backend-crate-hierarchy.md`
 > **Related:** `.plans/remaining-adapter-breakup.md` — runs after Step 4, see Out of scope.
@@ -20,8 +20,8 @@
 | 7 Untangle `bindings` and `adapters` | 7a, 7b shipped; **7c folded into the error split**; **7d open** |
 | 8 Placement moves | four shipped, four repriced or deferred into the error/credential cluster |
 | 9 Consumer-owned ports | one shipped (`AgentErrorSink`); five were phantom; 9d reopened against Step 10; 9e closed by placement in the Step 5 message slice |
-| 10 Carve the crates | **in progress** — 10a carved; the frontier is the report's |
-| 11 The two package renames | not started |
+| 10 Carve the crates | complete — FRONTIER reports every carve-target crate extracted |
+| 11 Package rename record | 11a dropped; backend rename shipped inside 10i |
 
 **The generated authorities.** Nothing in this document restates a number a tool computes.
 
@@ -62,7 +62,7 @@ The crate already has ports — 87 traits when this program started. The problem
 - `backend/src/adapters/registry/mod.rs:43-46` — the four `Option<Arc<ConcreteAdapter>>` fields become `Arc<dyn>` and their typed accessors are deleted (7d). This is the edge that makes five provider crates possible.
 - `backend/src/task_connections/` — a cross-cutting admin view, already a top-level module in the server band. Done; it is listed here because the reasoning that placed it still governs the next one of its shape.
 - `backend/Cargo.toml` — the package stops being `moatless-vibe-backend`; the root is `crates/backend`, package `moatless-backend`.
-- `sandbox/Cargo.toml` — the package becomes `moatless-sandbox-agent`, with the 26 `-p` flags, path dependencies and `Cargo.lock` entries that name it.
+- `sandbox/Cargo.toml` — the package keeps the `moatless-sandbox` name; Step 11a's proposed rename was refused.
 - `AGENTS.md` and five workflows — the `-p` flags in the clippy and test blocks, rewritten in the same commit as each rename.
 - `backend/src/adapters/error.rs` — splits, once the prior question of whether `bindings` owns an error type is settled. Four deferrals hang off it; see the error/credential cluster under Step 8.
 
@@ -75,7 +75,7 @@ The crate already has ports — 87 traits when this program started. The problem
 - `crates/claude-agent-sdk` and `crates/codex-sdk`, including their six internal traits.
 - The T3 client protocol — `crates/t3code`'s public surface and the UI-RPC methods it serves.
 - Sandbox provisioning, images, and the gRPC wire protocol between backend and sandbox.
-- Every Docker image name, Kubernetes pod name, Service name and label. The `moatless-sandbox` *package* is renamed; the 182 places that string names a deployment artifact are not.
+- Every Docker image name, Kubernetes pod name, Service name and label. The 182 deployment-artifact uses of `moatless-sandbox` are untouched, and the Cargo package keeps the same name.
 - `reconcile_shell_command` and the rest of `github_pr`'s 1,848 lines of behaviour; it is GitHub semantics, not a layering artifact, and does not move.
 - `backend/src/sandbox/error.rs`'s 22 variants and its axum `IntoResponse`. It stays as the sandbox module's HTTP error; only what the *ports* return is singular.
 
@@ -92,7 +92,7 @@ This program changes no observable behaviour. The acceptance statements are abou
 **As an operator**
 
 - **Given** a deployment on any supported sandbox provider, **when** the program completes, **then** every API response, event payload and adapter delivery is identical to before.
-- **Given** a running cluster, **when** the two package renames land, **then** no pod, image, Service or label name changes and no redeploy is required for them.
+- **Given** a running cluster, **when** the backend package rename lands, **then** no pod, image, Service or label name changes and no redeploy is required for it.
 
 **As a developer changing domain code**
 
@@ -389,7 +389,7 @@ band 8  server
 
 **Grouping does most of the work, and `adapters`↔`bindings` is the one exception.** Cargo rejects cycles between packages, not inside one, so most of the 45 mutually-referencing module pairs stop being constraints when both ends land in one crate. The 41/32 pair does not get grouped away: it is three separable faults, and the third — providers fetching themselves out of the registry — decides whether five provider crates are possible at all. Step 7 breaks it for that reason rather than for a packaging one.
 
-**Naming: the directory is bare, the package carries `moatless-`.** That is what eight of the eleven existing crates already do. `claude-agent-sdk` and `codex-sdk` are exceptions because they mirror upstream names; `sandbox-proto` is the only unexplained one and is not changed by this program; `moatless-vibe-backend` stops existing at Step 11.
+**Naming: the directory is bare, the package carries `moatless-`.** That is what eight of the eleven existing crates already do. `claude-agent-sdk` and `codex-sdk` are exceptions because they mirror upstream names; `sandbox-proto` is the only unexplained one and is not changed by this program; `moatless-vibe-backend` stopped existing when the backend rename shipped inside 10i.
 
 #### Step 8 — The placement moves
 
@@ -593,21 +593,34 @@ At every point the workspace builds and the full gate runs. The crate count goes
 
 After 10i, `backend/` no longer exists as a source directory. `backend/Cargo.toml` becomes `crates/backend/Cargo.toml`; the workspace `members` list gains thirteen entries and loses one. `tools/crate-census` is deleted, because Cargo now enforces what it measured.
 
-#### Step 11 — The remaining package rename
+#### Step 11 — Package rename record
 
-*Requires Step 10. Last, because each rewrites command lines rather than code.*
+Step 11 is empty. The backend package rename shipped inside 10i: physical directory
+`crates/backend`, Cargo package `moatless-backend`, Rust crate root
+`moatless_backend`, and produced binary `moatless-backend`. The census band id
+remains `server`; that is the layer name, not the directory, package, binary, or
+Rust crate head.
 
-| # | Rename | Sites |
-|---|---|---|
-| 11a | `moatless-sandbox` → `moatless-sandbox-agent` | 26 — `-p` flags in `AGENTS.md` and five workflows, path dependencies, `Cargo.lock` |
+**11a is dropped. `moatless-sandbox` keeps its name.** The crate runs the
+in-container sandbox process: it controls the Agent through the Agent harness
+inside the Sandbox. That is the glossary's **Sandbox** at `CONTEXT.md`, not the
+**Sandbox runtime**.
 
-`moatless-sandbox` is the in-container agent, so without 11a the three sandbox orchestration packages read as children of it and are not. Of 210 occurrences of that string in the repository, **182 are Docker image, pod and service names and only 26 are the Cargo package** — separate name spaces, so the rename touches no deployment artifact. It leaves the family reading correctly: `-agent` runs inside the sandbox, `-control` orchestrates from outside, `-k8s` and `-docker` are the two providers it dispatches to.
+**Why not the alternatives** (recorded so the name is not re-litigated):
 
-`AGENTS.md` is the file whose clippy block must stay runnable verbatim, so it is edited **in the same commit** as each rename, never after. A commit that renames a package and leaves `AGENTS.md` naming the old one hands the next agent a command that fails.
+| Candidate | Verdict |
+|---|---|
+| `moatless-sandbox` | Chosen. `CONTEXT.md` defines **Sandbox** as the container that runs the coding agent and its servers, which is what this crate implements from inside the container. |
+| `moatless-sandbox-agent` | Blocked. **Agent** is the coding-agent CLI process; "sandbox agent" already means that process in repository prose. This crate controls the Agent through the Agent harness; it is not the Agent. |
+| `moatless-sandbox-runtime` | Blocked. **Sandbox runtime** means the backend that runs Sandboxes — Kubernetes or Docker. That is the orchestration side, not this in-container crate. |
 
-The backend package rename ships with 10i: physical directory `crates/backend`, Cargo package `moatless-backend`, Rust crate root `moatless_backend`, and produced binary `moatless-backend`. The census band id remains `server`; that is the layer name, not the directory, package, binary, or Rust crate head.
-
-The backend rename is still not a repo-wide string sweep. Validated JWT issuer claims stay on their wire-contract values (`moatless-vibe-backend/v2` and `moatless-vibe-backend/ws-ticket`) unless a migration is deliberately designed. The GitHub User-Agent, Kubernetes field manager, Deployment name, Service name, OTel service name, and shadow deploy default are also operational contracts; none is renamed by changing the Cargo package or produced binary. Build, deploy, and CI references to the produced backend binary move with the package.
+The backend rename was not a repo-wide string sweep. Validated JWT issuer claims
+stay on their wire-contract values (`moatless-vibe-backend/v2` and
+`moatless-vibe-backend/ws-ticket`) unless a migration is deliberately designed.
+The GitHub User-Agent, Kubernetes field manager, Deployment name, Service name,
+OTel service name, and shadow deploy default are also operational contracts; none
+is renamed by changing the Cargo package or produced binary. Build, deploy, and
+CI references to the produced backend binary moved with the package.
 
 ### Data model
 
@@ -666,7 +679,7 @@ Two changes it needs:
 
 **External contracts — none change.** The HTTP API, the generated `@moatless/api-client` consumed by `apps/frontend`, the backend↔sandbox gRPC protocol, the T3 UI-RPC surface served by `crates/t3code`, every adapter's inbound webhook handling and outbound delivery, and every database schema are unchanged. This program is invisible from outside the process.
 
-**Operational names are also a contract, and are also unchanged.** Docker image names, Kubernetes pod, Service and PVC names, and every label are untouched by Step 11. The two things renamed are Cargo package identifiers, which appear only in `-p` flags, path dependencies and `Cargo.lock`.
+**Operational names are also a contract, and are also unchanged.** Docker image names, Kubernetes pod, Service and PVC names, and every label are untouched by the backend package rename. The renamed value was a Cargo package identifier, which appeared only in `-p` flags, path dependencies and `Cargo.lock`.
 
 **Internal interfaces.** Each is a proposed implementation boundary, not a promise; changing one later needs no spec update. Only the ones still ahead are listed.
 
@@ -695,7 +708,7 @@ The program changes no runtime failure behaviour. The failure modes worth naming
 | Step 10 extracts a crate whose band still has an upward edge | green | does not compile | the carve stalls mid-way | The carve-readiness frontier in the report. A band that will not extract means a placement or port item was missed, and the fix is that item, not a `Cargo.toml` workaround |
 | A carve is blocked by visibility rather than by an edge | green | does not compile | a `pub(crate)` item used outside the target crate | **Visibility is invisible to a reference census.** Each carve inventories its crate's restricted-visibility items used from outside and decides each — widen, or keep private and move the caller — before writing the `Cargo.toml` |
 | A carve lands without its crate in the gate | green | green | the crate is compiled as a dependency and never linted or tested | `AGENTS.md`'s block, `ci.yml`'s clippy step, and `ci.yml`'s `PKGS` candidate list all gain the crate in the same commit that creates it. CI selects packages from a hardcoded candidate list, so a crate absent from it can never be selected in its own right however correct the change-detection closure is |
-| Step 11 renames a package and leaves `AGENTS.md` stale | green | green | the next agent runs a `-p` flag that does not resolve | `AGENTS.md` and the workflows are edited in the same commit as each rename |
+| A package rename leaves `AGENTS.md` stale | green | green | the next agent runs a `-p` flag that does not resolve | `AGENTS.md` and the workflows are edited in the same commit as the rename |
 | A rebase against a moved `main` produces a diff against the wrong base | — | — | phantom deletions in review | Every step's review states its merge-base explicitly. This has produced three false findings in this engagement; it is the single most common review error here |
 
 **Recovery.** Every step is one branch, one PR, revertable independently. Step 10's per-band commits revert in reverse order; reverting 10a alone is not possible once 10b has landed.
@@ -946,7 +959,7 @@ Steps 8 and 10 are the two most mechanically risky and the cheapest to gate: bot
 - **Restructuring the inside of each adapter provider.** 10h gives each provider its own crate; it does not change what is in one. That is `.plans/remaining-adapter-breakup.md`'s territory.
 - **Renaming `adapters/providers/linear/agent_api.rs`'s `ActivityKind`.** It is Linear's wire vocabulary and correctly lives with Linear; only the name collides.
 - **`sandbox-proto`'s missing prefix.** The one existing crate whose name breaks the rule for no discoverable reason. A free consistency fix, and not this program's business.
-- **CONTEXT.md's "sandbox runtime" double meaning.** Step 11's naming works around the collision rather than resolving it; the glossary fix is a separate change.
+- **Further glossary cleanup beyond the Run/Sandbox-runtime correction.** This document now records why 11a was refused; broader vocabulary sweeps remain out of scope.
 - **`reconcile_shell_command` and `github_pr`'s 1,848 lines.** GitHub semantics, not layering. It does not move; only its call site inverts.
 - **Flipping `T3_UI_RPC_ENABLED` to default-on.** A product decision. It is named here rather than ignored because it lands on `router_from_env`'s fail-closed startup and the unauthenticated `/oauth/token` path — whether the flip keeps failing startup on incomplete configuration or degrades to not-mounted with a loud log belongs with the flip, not with the refactor.
 - **Raising the sandbox memory request.** Real, and orthogonal — an eviction problem, not an architecture one.

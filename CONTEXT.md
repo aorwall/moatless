@@ -74,9 +74,9 @@ One user-message-and-agent-response cycle within a Task — the authoritative,
 persisted lifecycle unit (`task_turns`). A Task has many Turns.
 
 **Run**:
-The sandbox runtime's name for a single Turn: the agent invocation the actor
+The in-container harness name for a single Turn: the agent invocation the actor
 mints a `run_id` for on each idle→running transition. One Run = one Turn — `Turn`
-is the product term, `Run` the runtime-internal twin.
+is the product term, `Run` the harness-internal twin.
 
 **Session**:
 The agent CLI's resumable conversation, resumed across Turns via `--resume`. A

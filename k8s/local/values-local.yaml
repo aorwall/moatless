@@ -4,7 +4,7 @@
 # Contains NO secrets — create Secret/moatless-vibe-secrets by hand (see README).
 #
 # The release name MUST be `moatless-vibe`: the backend hardcodes the sandbox
-# callback host as `moatless-vibe-backend` (backend/src/sandbox/k8s/pod_builder.rs),
+# callback host as `moatless-vibe-backend` (crates/sandbox-k8s/src/pod_builder.rs),
 # which is `{release}-backend` only when the release is `moatless-vibe`. Any other
 # release name leaves every sandbox unable to reach the backend (gRPC dns error).
 #

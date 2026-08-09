@@ -4,7 +4,7 @@
 > **Spec:** `.plans/backend-ports-and-crates.md` is authoritative for *what* to build. This file is
 > operational: where the work stands, how the lanes divide, and the rules that were learned the hard
 > way and are not derivable from the code.
-> **Updated:** 2026-08-09 · main at `7603b7d02239`, census ceiling **0**. The first half is complete.
+> **Updated:** 2026-08-09 · main at `299fca86dff9`, census ceiling **0**. The carve frontier is complete.
 
 ## What this program is
 
@@ -13,16 +13,15 @@ Two halves, in order:
 1. **Make the ports singular** — remove every illegal reference where a lower-band module reaches up
    into a higher band. Measured by `scripts/crate-census-baseline.txt`, a ratchet. Started at **83**.
    **Now 0. This half is done.**
-2. **Split the backend** — extract each band into its own crate. `moatless-loops` went first (#466)
-   and **all five Adapters have followed**. `server` is what remains. **This half is where the work
-   now is.**
+2. **Split the backend** — extract each band into its own crate. All thirteen carve-target crates
+   are extracted, including the backend/server crate. **This half is done.**
 
 The census only counts *production* reference edges (`CODE`/`ATTR`/`MACRO`). Doc paths and
 `#[cfg(test)]` edges are excluded by design — see "test-context" below.
 
 ## Where it stands
 
-**Main:** `7603b7d02239`. **Ceiling: 0** — read from the baseline blob on `main`, not from a report.
+**Main:** `299fca86dff9`. **Ceiling: 0** — read from the baseline blob on `main`, not from a report.
 There are no illegal production edges left in the repository.
 
 A SHA here is a write-time snapshot and cannot include the change that records it, so treat it as
@@ -33,10 +32,10 @@ places naming it agree; the ceiling and the gates are what you actually verify a
 (`github_pr/adapter.rs:107`, `telegram/adapter.rs:80` → `crate::compose`) are gone. They were never
 Cargo edges and were never counted; both cleared as their carves went through.
 
-**Do not read 0 as "nothing left to do."** It means the *ports* half is finished. The ratchet now has
-a new job: it stops the crate-splitting half from reintroducing what the first half removed. Every
-carve from here is measured against 0, and the interesting failure is no longer "an edge remains" but
-"an edge appeared and the census did not score it" — see the `external_crate` gap under Known gaps.
+**FRONTIER is complete.** The report says
+`FRONTIER -> complete: every carve-target crate is extracted.` All thirteen carve targets are
+extracted: identity, workspaces, tasks, sandbox-control, sandbox-k8s, sandbox-docker, loops, the five
+Adapters, and server. The backend carve landed in #487; `server` is now an extracted crate.
 
 **All three lanes are closed.** History, because the PR numbers are the only durable record of why
 each shape is what it is:
@@ -46,6 +45,7 @@ each shape is what it is:
 | **linear** | **Done.** #456 (L1 webhook) → #461 (L2 api_routes) → #464 (reshape) → #465 (L3 issues) → #467 (L4 delivery+sessions). Zero `adapter-linear` edges. |
 | **github_pr** | **Done.** #457 (handlers ingress), #458 (Connector + dead registry teardown), #460 (api_routes), #463 (shell_reconcile), then #469 — the four-edge router slice that took 4 → 0. |
 | **loops carve** | **Done.** #466, the first crate this program split out. Landed illegal-neutral. |
+| **backend carve** | **Done.** #487, the last carve. Landed with FRONTIER complete, ceiling 0, doc paths 0. |
 
 ### Crates carved so far
 
@@ -59,24 +59,26 @@ Each landed illegal-neutral against a ceiling of 0. The PR is the durable record
 | `moatless-adapter-telegram` | #480 | `db-tests` as a pure feature-forward with no gated modules. The census self-test became a synthetic fixture; the real-tree guard stayed real. |
 | `moatless-adapter-linear` | #484 | The external spelling. Five modules had to be re-exported on the strength of `backend/tests/integration/` alone, which an in-crate `crate::` sweep never sees. |
 | `moatless-adapter-github-pr` | #483 | The dead-manifest-dependency check, corrected twice — `src/` is not the crate, and a shared dependency is invisible to every carve but the last. |
+| `moatless-identity` | #387 | The base case: first real band crate, following #385's census precursor. |
+| `moatless-workspaces` | #390 | The first big visibility-price point; incoming edges stayed census-invariant while outgoing edges collapsed. |
+| `moatless-tasks` | #429 | The carve that exposed why the `floor_crate_of_dir` and `external_crate` arms must land with the move. |
+| `moatless-sandbox-control` | #435 | The control band separated from the runtime providers with the provider SDKs kept out of the control error surface. |
+| `moatless-sandbox-k8s` | #436 | Kubernetes runtime provider extracted together with the Docker provider. |
+| `moatless-sandbox-docker` | #436 | Docker runtime provider extracted and the sibling-provider edge cleared. |
+| `moatless-backend` | #487 | The final server/backend carve; `main` at `299fca86dff9` reports FRONTIER complete. |
 
-**All five Adapters are carved.** `backend/src/adapters/providers/` is now five facade files and
-`mod.rs`, with no provider directory left under it.
+**All thirteen carve targets are extracted.** `backend/src/adapters/providers/` is now five facade
+files and `mod.rs`, with no provider directory left under it; `server` is also carved.
 
 ## What to do next
 
 1. ~~Backfill `external_crate("moatless_loops")`.~~ **Done — #471.** Kept in the list because the
    *reason* it mattered generalises to every future carve; see Known gaps.
 2. ~~The five Adapter carves.~~ **Done — #476, #478, #480, #484, #483.**
-3. **`server` is what remains, and it is last by the spec's order rather than by preference.** It is
-   also unlike every carve before it: the five Adapters each left a facade behind *because the
-   backend is still the composition root and still owns the `providers/<name>` path*. There is no
-   outer crate to leave a facade in when the server itself moves, so the facade shape that carried
-   all five provider carves does not transfer. Re-read the recipe before assuming it does.
-4. **Carve by asking the census, not by eye.** It prints either
-   `FRONTIER -> <crate>: READY now (no illegal outgoing; every crate it depends on is extracted).`
-   or `FRONTIER -> <crate>: BLOCKED on <n> illegal outgoing.` (`main.rs:1081`), and the report's
-   Tarjan SCC independently confirms it. Read the carve checklist first.
+3. ~~The backend/server carve.~~ **Done — #487.**
+4. **Close the cleanup PRs.** The remaining work is documentation/tooling cleanup, not carve work:
+   make dead census defenses explicit or delete them, record the refused `moatless-sandbox` rename,
+   and report whether the planned `tools/crate-census` deletion would lose the band-order ratchet.
 
 The ratchet is at 0, so any carve that introduces an illegal edge fails immediately — which is the
 point. The thing that does *not* fail is an edge the census never scored at all.
