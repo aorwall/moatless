@@ -9,7 +9,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::adapters::common::next_fire_at;
 use crate::adapters::models::{Audience, InboundMessage, LoopContext, LoopSpawnConfig, Schedule};
-use crate::adapters::{AdapterKind, Adapters};
+use crate::adapters::{AdapterInboundPresentation, AdapterKind, Adapters};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::metrics::record_schedule_firing;
 use crate::message::send::MessageSendService;
@@ -229,12 +229,19 @@ impl ScheduleRunner {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Provisioning now happens inside the creation service. Preserve the
         // `provision_failed` metric using the provision outcome it reports back.
+        // Resolve the bound adapter's reply instructions from the registry and
+        // pass them to the firing entry point as a value.
+        let reply_instructions = self
+            .adapters
+            .as_ref()
+            .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind))
+            .and_then(AdapterInboundPresentation::reply_instructions);
         let outcome = match crate::loops::firing::inbound::create_task_for_external_message(
-            self.adapters.as_ref(),
             &self.task_creation,
             config,
             msg,
             None,
+            reply_instructions,
         )
         .await
         {

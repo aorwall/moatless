@@ -8,10 +8,10 @@
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/delivery.rs:75  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/merge_conflict.rs:8  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/post_merge.rs:10  crate::state::AppState
-adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/routing.rs:17  crate::state::AppState
+adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/routing.rs:18  crate::state::AppState
 adapter-github-pr      -> server               [CODE] backend/src/adapters/providers/github_pr/shell_reconcile.rs:46  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/delivery.rs:78  crate::state::AppState
-adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/issues.rs:27  crate::state::AppState
+adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/issues.rs:28  crate::state::AppState
 adapter-linear         -> server               [CODE] backend/src/adapters/providers/linear/sessions.rs:30  crate::state::AppState
 
 # --- intra-doc paths pointing up (NOT Cargo edges; carve work per Step 8f) ---

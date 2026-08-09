@@ -1,15 +1,12 @@
 //! Inbound message processing — unified message → task flow.
 
-use std::sync::Arc;
-
 use crate::adapters::models::LoopContext;
-use crate::adapters::Adapters;
-use moatless_core::shared_models::AgentType;
 use crate::task::creation::{
     FirstMessage, NewTaskRequest, TaskCreationError, TaskCreationOutcome, TaskCreationService,
 };
 use crate::task::models::Visibility;
 use crate::task::relations::RelatedTask;
+use moatless_core::shared_models::AgentType;
 
 use crate::adapters::models::InboundMessage;
 
@@ -20,18 +17,17 @@ use crate::adapters::models::InboundMessage;
 /// 1. `origin_prelude` — an optional origin-context line prepended ahead of
 ///    everything else.
 /// 2. `prompt_template` — the loop/subscription's own prompt template.
-/// 3. the reply instructions of the adapter named by `adapter_label` (e.g.
-///    mention syntax). The universal `moat messages reply --message <id>`
-///    guidance lives in the base sandbox-tools prompt — no per-adapter copy
-///    needed.
+/// 3. `reply_instructions` — the adapter-specific reply guidance (e.g. mention
+///    syntax) the caller resolves from its own adapter. The universal
+///    `moat messages reply --message <id>` guidance lives in the base
+///    sandbox-tools prompt — no per-adapter copy needed.
 ///
 /// Returns `None` when every source is absent, so a task with no configured
 /// prompt keeps a `None` append (rather than an empty string). This is the one
 /// firing-time prompt-assembly function shared by every Subscription firing
 /// path; a path opts into a prelude purely via the `origin_prelude` argument.
 pub(crate) fn assemble_firing_prompt(
-    adapters: Option<&Arc<Adapters>>,
-    adapter_label: &str,
+    reply_instructions: Option<&str>,
     prompt_template: Option<&str>,
     origin_prelude: Option<&str>,
 ) -> Option<String> {
@@ -42,12 +38,8 @@ pub(crate) fn assemble_firing_prompt(
     if let Some(tpl) = prompt_template {
         parts.push(tpl.to_string());
     }
-    if let Some(providers) = adapters {
-        if let Some(presentation) = providers.inbound_presentation_by_name(adapter_label) {
-            if let Some(extra) = presentation.reply_instructions() {
-                parts.push(extra);
-            }
-        }
+    if let Some(extra) = reply_instructions {
+        parts.push(extra.to_string());
     }
     if parts.is_empty() {
         None
@@ -70,6 +62,10 @@ pub(crate) struct CreateTaskParams<'a> {
     pub visibility: Visibility,
     /// Optional origin-context prelude for the system prompt.
     pub origin_prelude: Option<&'a str>,
+    /// Adapter-specific reply instructions appended to the firing system
+    /// prompt (e.g. mention syntax). The caller resolves these from its own
+    /// adapter and passes the value; `None` for adapters that supply none.
+    pub reply_instructions: Option<String>,
     /// Optional peer relation recorded by the creation service.
     pub related_to: Option<RelatedTask>,
     /// `adapter`/source metadata attached to the `Open` task event.
@@ -90,14 +86,12 @@ pub(crate) struct CreateTaskParams<'a> {
 ///
 /// [`TaskCreationService`]: crate::task::creation::TaskCreationService
 pub(crate) async fn create_task_from_loop(
-    adapters: Option<&Arc<Adapters>>,
     task_creation: &TaskCreationService,
     config: &LoopContext,
     params: CreateTaskParams<'_>,
 ) -> Result<TaskCreationOutcome, TaskCreationError> {
     let append_system_prompt = assemble_firing_prompt(
-        adapters,
-        &config.adapter_kind,
+        params.reply_instructions.as_deref(),
         config.prompt_template.as_deref(),
         params.origin_prelude,
     );
@@ -154,14 +148,13 @@ pub(crate) async fn create_task_from_loop(
 /// event metadata. `related_to` carries the optional peer relation the bindings
 /// path computes; the schedule runner passes `None`.
 pub(crate) async fn create_task_for_external_message(
-    adapters: Option<&Arc<Adapters>>,
     task_creation: &TaskCreationService,
     config: &LoopContext,
     msg: &InboundMessage,
     related_to: Option<RelatedTask>,
+    reply_instructions: Option<String>,
 ) -> Result<TaskCreationOutcome, TaskCreationError> {
     create_task_from_loop(
-        adapters,
         task_creation,
         config,
         CreateTaskParams {
@@ -170,6 +163,7 @@ pub(crate) async fn create_task_for_external_message(
             visibility: Visibility::Private,
             origin_prelude: None,
             related_to,
+            reply_instructions,
             event_metadata: serde_json::json!({
                 "adapter": config.adapter_kind,
                 "source_id": config.source_id,

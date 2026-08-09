@@ -22,6 +22,7 @@ use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
 
+use crate::adapters::AdapterInboundPresentation;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
 use crate::state::AppState;
@@ -577,8 +578,14 @@ pub(super) async fn insert_event_task(
     // service's error event alone stays invisible there because no turn gate is
     // open for a task that never got a binding.
     let config = moatless_adapter_model::models::subscription_context(rule, ADAPTER_LABEL);
+    // Resolve this adapter's reply instructions from the registry and pass them
+    // to the firing entry point as a value.
+    let reply_instructions = state
+        .adapters
+        .as_ref()
+        .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind))
+        .and_then(AdapterInboundPresentation::reply_instructions);
     let outcome = crate::loops::firing::inbound::create_task_from_loop(
-        state.adapters.as_ref(),
         &state.task_creation,
         &config,
         crate::loops::firing::inbound::CreateTaskParams {
@@ -589,6 +596,7 @@ pub(super) async fn insert_event_task(
             description: crate::bindings::outbound::truncate_text(preview, 200),
             visibility: Visibility::Public,
             origin_prelude: None,
+            reply_instructions,
             related_to: None,
             event_metadata: serde_json::json!({
                 "adapter": ADAPTER_LABEL,

@@ -5,12 +5,13 @@ use std::fmt::Write as _;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
+use crate::adapters::AdapterInboundPresentation;
+use crate::adapters::AdapterKind;
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{
-    AdapterConnection, Audience, InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
-    ADAPTER_EVENT_BINDING_ORIGIN, CONNECTED_THREAD_BINDING_ORIGIN,
+    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, Audience, CONNECTED_THREAD_BINDING_ORIGIN,
+    InboundMessage, RoutingMode, SubscriptionMatch, TaskBinding,
 };
-use crate::adapters::AdapterKind;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recently_sent::RecentlySent;
 use crate::sandbox::lifecycle::ArchiveRetention;
@@ -581,8 +582,14 @@ async fn create_provider_event_task(
     // after creation succeeds, and the first message is delivered through the
     // binding.
     let config = moatless_adapter_model::models::subscription_context(rule, ADAPTER_LABEL);
+    // Resolve this adapter's reply instructions from the registry and pass them
+    // to the firing entry point as a value.
+    let reply_instructions = state
+        .adapters
+        .as_ref()
+        .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind))
+        .and_then(AdapterInboundPresentation::reply_instructions);
     let outcome = crate::loops::firing::inbound::create_task_from_loop(
-        state.adapters.as_ref(),
         &state.task_creation,
         &config,
         crate::loops::firing::inbound::CreateTaskParams {
@@ -590,6 +597,7 @@ async fn create_provider_event_task(
             description: crate::bindings::outbound::truncate_text(&msg.text, 200),
             visibility: Visibility::Public,
             origin_prelude: Some(PR_ORIGIN_CONTEXT),
+            reply_instructions,
             related_to: None,
             event_metadata: serde_json::json!({
                 "adapter": ADAPTER_LABEL,
@@ -729,8 +737,8 @@ mod tests {
 
     mod push_claim {
         use super::super::task_that_pushed;
+        use crate::adapters::models::{CONNECTED_THREAD_BINDING_ORIGIN, TaskBinding};
         use crate::adapters::providers::github_pr::external_id;
-        use crate::adapters::models::{TaskBinding, CONNECTED_THREAD_BINDING_ORIGIN};
         use crate::bindings::recently_sent::RecentlySent;
         use chrono::Utc;
 

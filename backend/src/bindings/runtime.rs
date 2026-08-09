@@ -6,11 +6,11 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::{debug, info, warn};
 
+use crate::adapters::AdapterInboundPresentation;
 use crate::adapters::Adapters;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryFailure;
 use crate::adapters::error::{AdapterError, SharedAdapterError};
-use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::metrics::{inbound_reason, record_inbound};
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
@@ -18,6 +18,7 @@ use crate::loops::firing::inbound;
 use crate::loops::firing::receipts::EventReceiptDao;
 use crate::message::dao::MessageDao;
 use crate::message::send::MessageSendService;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::task::creation::{TaskCreationError, TaskCreationService};
 use crate::task::dao::TaskDao;
 use crate::task::models::TaskStatus;
@@ -267,14 +268,21 @@ impl RoutingService {
                     }),
                 });
             let config = subscription_context(subscription, adapter_label);
+            // Resolve the bound adapter's reply instructions from the registry
+            // and pass them to the firing entry point as a value.
+            let reply_instructions = self
+                .adapters
+                .as_ref()
+                .and_then(|providers| providers.inbound_presentation_by_name(&config.adapter_kind))
+                .and_then(AdapterInboundPresentation::reply_instructions);
             // The creation service records the `related_to` relation and provisions
             // the sandbox as part of the owned sequence.
             match inbound::create_task_for_external_message(
-                self.adapters.as_ref(),
                 &self.task_creation,
                 &config,
                 &msg,
                 related,
+                reply_instructions,
             )
             .await
             {
