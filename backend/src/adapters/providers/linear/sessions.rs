@@ -23,12 +23,21 @@
 
 use tracing::{info, warn};
 
+use moatless_core::config::Config;
+
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{
     ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch, TaskBinding,
 };
-use crate::state::AppState;
+use crate::loops::dao::LoopDao;
+use crate::message::send::MessageSendService;
+use crate::task::binding_dao::TaskBindingDao;
+use crate::task::creation::TaskCreationService;
+use crate::task::dao::TaskDao;
+use crate::task::relations::TaskRelationDao;
+use crate::task::sandbox_waker::SandboxWaker;
 
+use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::config::{LinearRuleConfig, rules_need_issue_fetch, select_spawn_rule};
 use super::issues::{insert_event_task, transition_issue_state};
@@ -68,8 +77,22 @@ pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, mess
 /// half of a `linear.session_provision` record. It is at-least-once, and it
 /// converges: the binding guard inside [`provision_session_task`] is what makes
 /// a second attempt a no-op rather than a second task.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the seven downward ports the session provisioning path reads \
+              (bindings, tasks, config, task-creation, task-relations, \
+              message-send, active-turns) inverted out of the single AppState; \
+              there is no narrower grouping that is not itself that \
+              AppState-shaped bag"
+)]
 pub(super) async fn provision_selected_session_task(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
+    config: &Config,
+    task_creation: &TaskCreationService,
+    task_relations: &dyn TaskRelationDao,
+    message_send: &MessageSendService,
+    linear_active_turns: &ActiveLinearTurns,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
@@ -95,7 +118,20 @@ pub(super) async fn provision_selected_session_task(
         return Ok(());
     };
 
-    provision_session_task(state, api, connection, &rule, session).await
+    provision_session_task(
+        task_bindings,
+        tasks,
+        config,
+        task_creation,
+        task_relations,
+        message_send,
+        linear_active_turns,
+        api,
+        connection,
+        &rule,
+        session,
+    )
+    .await
 }
 
 /// Project/label-aware spawn-rule selection for a mention/assignment session.
@@ -153,15 +189,25 @@ async fn select_session_spawn_rule(
 /// what the forwarded message is identified by downstream: it names *this*
 /// prompt, so a second prompt on the same session is a second message, and a
 /// Linear retry of one prompt repeats the id and is dropped as a duplicate.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the five downward ports the prompt-forwarding path reads (bindings, \
+              loops, active-turns, message-send, sandbox-waker) inverted out of \
+              the single AppState; there is no narrower grouping that is not \
+              itself that AppState-shaped bag"
+)]
 pub(super) async fn handle_session_prompted(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
+    loops: &LoopDao,
+    linear_active_turns: &ActiveLinearTurns,
+    message_send: &MessageSendService,
+    sandbox_waker: &dyn SandboxWaker,
     api: &LinearAgentApi,
     session_id: &str,
     activity_id: &str,
     body: &str,
 ) -> Result<(), AdapterError> {
-    let binding_repo = state.task_bindings.clone();
-    let bindings: Vec<TaskBinding> = binding_repo
+    let bindings: Vec<TaskBinding> = task_bindings
         .find_by_subject(ADAPTER, SUBJECT_KIND, session_id)
         .await?
         .into_iter()
@@ -187,15 +233,14 @@ pub(super) async fn handle_session_prompted(
         warn!(session_id, error = %e, "Failed to emit Linear prompted heartbeat");
     }
 
-    let rule = super::subject::rule_for_binding(&state.loops, &bindings[0]).await?;
+    let rule = super::subject::rule_for_binding(loops, &bindings[0]).await?;
 
     for binding in bindings {
         // Re-open the Linear turn gate for this follow-up prompt so the
         // next agent run's events flow through to Linear's UI.
-        state.linear_active_turns.open(&binding.task_id);
+        linear_active_turns.open(&binding.task_id);
         let external_event_id = super::external_id::prompt(activity_id);
-        if let Err(e) = state
-            .message_send
+        if let Err(e) = message_send
             .send_message_flow(
                 &binding.task_id,
                 body,
@@ -230,7 +275,7 @@ pub(super) async fn handle_session_prompted(
             continue;
         }
 
-        if let Err(e) = state.sandbox_waker.wake(&binding.task_id).await {
+        if let Err(e) = sandbox_waker.wake(&binding.task_id).await {
             warn!(
                 task_id = %binding.task_id,
                 error = %e,
@@ -242,8 +287,22 @@ pub(super) async fn handle_session_prompted(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the seven downward ports one session task's creation reads \
+              (bindings, tasks, config, task-creation, task-relations, \
+              message-send, active-turns) inverted out of the single AppState; \
+              there is no narrower grouping that is not itself that \
+              AppState-shaped bag"
+)]
 async fn provision_session_task(
-    state: &AppState,
+    task_bindings: &dyn TaskBindingDao,
+    tasks: &dyn TaskDao,
+    config: &Config,
+    task_creation: &TaskCreationService,
+    task_relations: &dyn TaskRelationDao,
+    message_send: &MessageSendService,
+    linear_active_turns: &ActiveLinearTurns,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rule: &SubscriptionMatch,
@@ -262,8 +321,7 @@ async fn provision_session_task(
     // what makes the *execution* converge. Return early rather than creating a
     // second task. Keyed on session id, so multiple *distinct* sessions on the
     // same issue still each get their own task.
-    match state
-        .task_bindings
+    match task_bindings
         .find_by_subject(ADAPTER, SUBJECT_KIND, &session.id)
         .await
     {
@@ -290,8 +348,7 @@ async fn provision_session_task(
     // The lookup uses destination_config.issue_id so it matches both
     // `linear_agent_session` and `linear_issue` bindings. The new task is
     // linked as `related_to` — a peer sharing the issue, not a child.
-    let related = match state
-        .task_bindings
+    let related = match task_bindings
         .find_active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
         .await
     {
@@ -319,7 +376,7 @@ async fn provision_session_task(
     // binding.
     let preview = super::text::build_inbound_text(session);
     let task_id = match insert_event_task(
-        &state.task_creation,
+        task_creation,
         rule,
         &issue.identifier,
         &issue.title,
@@ -352,11 +409,11 @@ async fn provision_session_task(
         Err(e) => return Err(e),
     };
     if let Some(ref r) = related {
-        crate::task::relations::record_related_to(state.task_relations.as_ref(), &task_id, r).await;
+        crate::task::relations::record_related_to(task_relations, &task_id, r).await;
     }
     // Open the Linear turn gate so subsequent sandbox lifecycle / agent events
     // on this task surface in Linear's UI.
-    state.linear_active_turns.open(&task_id);
+    linear_active_turns.open(&task_id);
 
     let team_id = issue
         .team_id
@@ -371,7 +428,7 @@ async fn provision_session_task(
         &team_id,
     );
     let binding = crate::bindings::runtime::upsert_binding_into(
-        state.task_bindings.as_ref(),
+        task_bindings,
         connection,
         Some(rule),
         &task_id,
@@ -385,13 +442,10 @@ async fn provision_session_task(
     .await?;
 
     // Update the session with an externalUrl pointing at the moatless task.
-    let task_url = super::text::task_url(&state.config, &task_id);
-    let attachment_title = super::text::task_attachment_title(
-        state.tasks.as_ref(),
-        &task_id,
-        super::text::ATTACHMENT_TITLE_CHILD,
-    )
-    .await;
+    let task_url = super::text::task_url(config, &task_id);
+    let attachment_title =
+        super::text::task_attachment_title(tasks, &task_id, super::text::ATTACHMENT_TITLE_CHILD)
+            .await;
     if let Err(e) = api
         .agent_session_update_external_urls(&session.id, &attachment_title, &task_url)
         .await
@@ -417,8 +471,7 @@ async fn provision_session_task(
     let inbound_text = super::text::build_inbound_text(session);
     let external_event_id = super::external_id::session_created(&session.id);
     let creator_handle = super::actor_handle(session.creator.as_ref());
-    if let Err(e) = state
-        .message_send
+    if let Err(e) = message_send
         .send_message_flow(
             &task_id,
             &inbound_text,

@@ -617,7 +617,25 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
 )]
 pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState) {
     let mut handlers = moatless_vibe_backend::adapters::delivery::AdapterDeliveryHandlers::new();
-    moatless_vibe_backend::adapters::providers::linear::delivery::register(&mut handlers, &worker_state);
+    let router = Arc::new(
+        moatless_vibe_backend::adapters::providers::linear::delivery::LinearInboundRouter::new(
+            worker_state.adapter_connections.clone(),
+            worker_state.db.clone(),
+            worker_state.config.clone(),
+            worker_state.loops.clone(),
+            worker_state.task_bindings.clone(),
+            worker_state.tasks.clone(),
+            worker_state.task_creation.clone(),
+            worker_state.task_relations.clone(),
+            worker_state.message_send.clone(),
+            worker_state.sandbox_waker.clone(),
+            worker_state.sandbox.clone(),
+            worker_state.events.clone(),
+            worker_state.linear_active_turns.clone(),
+            worker_state.routing.clone(),
+        ),
+    );
+    moatless_vibe_backend::adapters::providers::linear::delivery::register(&mut handlers, router);
 
     let cancel = tokio_util::sync::CancellationToken::new();
     let handle = moatless_vibe_backend::adapters::delivery::spawn_adapter_delivery_worker(
