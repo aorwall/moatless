@@ -7,7 +7,9 @@
 //! passed function to function. [`TaskCloser::close_for`] is the choiceless
 //! close the T3 compatibility surface makes; the HTTP `close_task` handler makes
 //! the cascade choice explicit and drives [`TaskCloser::close_single`] /
-//! [`TaskCloser::close_tree`].
+//! [`TaskCloser::close_tree`]. [`TaskCloser::close_with_event`] is the same close
+//! with a caller-shaped `Closed` event — the entry the provider webhooks use to
+//! carry their own `reason` + metadata (see [`CloseEvent`]).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -36,6 +38,53 @@ pub struct TaskCloser {
     pub(crate) events: Option<Arc<dyn EventPublisher>>,
 }
 
+/// The event-shaping overrides a caller layers onto a close.
+///
+/// The provider close paths (GitHub PR / Linear webhooks) publish an *enriched*
+/// `Closed` task event — a `reason` string the UI renders (`event-messages.ts`
+/// falls back to it as the event's message text) plus provider metadata — and
+/// record a fixed actor, while every other close wants the neutral shape. The
+/// payload is kept opaque: the caller builds a `serde_json::Value`, so provider
+/// specifics never reach this crate. Pass one to [`TaskCloser::close_with_event`];
+/// [`CloseEvent::neutral`] is what the plain closes use.
+pub struct CloseEvent {
+    /// Actor recorded on the `Closed` task event. `None` uses the task's own
+    /// `agent_type` — the neutral default.
+    pub actor: Option<String>,
+    /// Extra fields merged into the `Closed` task event payload. Empty (`{}`) in
+    /// the neutral shape.
+    pub payload: serde_json::Value,
+}
+
+impl CloseEvent {
+    /// The neutral close event: the task's own agent_type, empty payload — byte
+    /// for byte what every close published before the enriched entry existed.
+    /// Every non-provider close uses this.
+    pub fn neutral() -> Self {
+        Self {
+            actor: None,
+            payload: serde_json::json!({}),
+        }
+    }
+
+    /// An enriched provider close event: `actor` is recorded on the published
+    /// `Closed` event, and `payload` is merged into it verbatim.
+    ///
+    /// `tasks` does NOT interpret `payload` — the provider owns its shape and
+    /// this crate forwards it untouched, so provider specifics never travel down
+    /// into band 5. GitHub PR builds `{ "reason": "pr_closed", "pr_number": N }`;
+    /// Linear builds `{ "reason": "linear_state_terminal", "issue_identifier":
+    /// ..., "state_name": ... }`. The `reason` is what the frontend renders as
+    /// the event's message text (`event-messages.ts`); the rest rides wholesale
+    /// through the event sinks.
+    pub fn enriched(actor: impl Into<String>, payload: serde_json::Value) -> Self {
+        Self {
+            actor: Some(actor.into()),
+            payload,
+        }
+    }
+}
+
 impl TaskCloser {
     /// Wire the closer from the ports the backend composition root owns.
     pub fn new(
@@ -57,7 +106,11 @@ impl TaskCloser {
     }
 
     /// Close one task, leaving any children open.
-    pub(crate) async fn close_single(&self, task_id: &str) -> Result<(), TaskError> {
+    pub(crate) async fn close_single(
+        &self,
+        task_id: &str,
+        event: &CloseEvent,
+    ) -> Result<(), TaskError> {
         // reason: close cascade reaches child tasks owned by other users; system ctx
         // is required to traverse the full tree without re-checking per-child ownership.
         #[allow(clippy::disallowed_methods)]
@@ -98,12 +151,13 @@ impl TaskCloser {
         deactivate_task_bindings(self.task_bindings.as_ref(), task_id).await;
 
         if let Some(events) = self.events.as_deref() {
+            let actor = event.actor.as_deref().unwrap_or(row.agent_type.as_str());
             events
                 .publish_task_event(
                     task_id,
                     TaskSubType::Closed,
-                    Some(row.agent_type.as_str()),
-                    serde_json::json!({}),
+                    Some(actor),
+                    event.payload.clone(),
                 )
                 .await;
         }
@@ -148,8 +202,9 @@ impl TaskCloser {
             close_order.push(current_task_id);
         }
 
+        let neutral = CloseEvent::neutral();
         for current_task_id in close_order.into_iter().rev() {
-            self.close_single(&current_task_id).await?;
+            self.close_single(&current_task_id, &neutral).await?;
         }
 
         Ok(())
@@ -165,6 +220,26 @@ impl TaskCloser {
         scope_ctx: &ScopeContext,
         task_id: &str,
     ) -> Result<(), TaskError> {
+        self.close_with_event(scope_ctx, task_id, &CloseEvent::neutral())
+            .await?;
+        tracing::info!(task_id, user_id = %scope_ctx.user_id, "Task closed");
+        Ok(())
+    }
+
+    /// Close one task on `scope_ctx`'s behalf, publishing a caller-shaped
+    /// `Closed` event.
+    ///
+    /// The enriched entry the provider webhooks use: a GitHub PR / Linear close
+    /// carries its own `reason` + metadata and a fixed actor via [`CloseEvent`],
+    /// which this forwards verbatim to the event stream (the payload stays opaque
+    /// here). Authorization and termination are otherwise identical to
+    /// [`close_for`](Self::close_for) — the two differ only in the event shape.
+    pub async fn close_with_event(
+        &self,
+        scope_ctx: &ScopeContext,
+        task_id: &str,
+        event: &CloseEvent,
+    ) -> Result<(), TaskError> {
         let row = self
             .tasks
             .find_by_id(task_id, scope_ctx)
@@ -174,8 +249,6 @@ impl TaskCloser {
             return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
         }
 
-        self.close_single(task_id).await?;
-        tracing::info!(task_id, user_id = %scope_ctx.user_id, "Task closed");
-        Ok(())
+        self.close_single(task_id, event).await
     }
 }

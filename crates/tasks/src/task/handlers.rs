@@ -30,7 +30,7 @@ use moatless_core::tag::dao::TagDao;
 use crate::task::binding_dao::TaskBindingDao;
 use moatless_api_schemas::bindings::TaskBindingSummary;
 
-use super::closer::TaskCloser;
+use super::closer::{CloseEvent, TaskCloser};
 use super::error::TaskError;
 use super::presenter::{build_task_response, ResolvedNames, TaskPresenter};
 use super::schemas::*;
@@ -678,7 +678,9 @@ pub async fn close_task(
         let mut visited = HashSet::new();
         task_closer.close_tree(&task_id, &mut visited).await?;
     } else {
-        task_closer.close_single(&task_id).await?;
+        task_closer
+            .close_single(&task_id, &CloseEvent::neutral())
+            .await?;
     }
     tracing::info!(task_id = %task_id, user_id = %auth.user_id, "Task closed");
 

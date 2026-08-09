@@ -13,6 +13,7 @@ mod merge_conflict;
 mod outbound;
 mod post_merge;
 mod reactions;
+pub(crate) mod router;
 mod routing;
 pub(crate) mod shell_reconcile;
 mod signals;

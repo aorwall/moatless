@@ -7,8 +7,8 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
 use crate::adapters::AdapterKind;
-use crate::state::AppState;
 
+use super::router::GithubPrInboundRouter;
 use super::subject::GithubPrSubject;
 
 /// Parsed fields of a base-branch `workflow_run.completed` event.
@@ -128,108 +128,110 @@ pub(super) fn post_merge_ci_text(
     text
 }
 
-/// Post-merge CI notification: on a base-branch `workflow_run` completing,
-/// resolve the merged PR from the commit sha and notify every task still
-/// connected to that PR.
-///
-/// Runs as a `github.post_merge` Adapter delivery, so it is off GitHub's
-/// response deadline *and* survives a restart between acknowledgment and
-/// execution. Skips entirely when the run isn't on the repo's default branch,
-/// when no merged PR produced the commit, or when no active task is bound to
-/// the PR.
-///
-/// A skip is `Ok(())`; a failure that stopped the notice from being decided at
-/// all is an error, so the work is retried rather than silently dropped the way
-/// the spawned version dropped it.
-pub(super) async fn execute(
-    state: &AppState,
-    connection: &AdapterConnection,
-    rule: &SubscriptionMatch,
-    execution: &Execution,
-) -> Result<(), AdapterError> {
-    let Some(adapter) = state.provider_handles.github_pr.as_ref() else {
-        return Ok(());
-    };
+impl GithubPrInboundRouter {
+    /// Post-merge CI notification: on a base-branch `workflow_run` completing,
+    /// resolve the merged PR from the commit sha and notify every task still
+    /// connected to that PR.
+    ///
+    /// Runs as a `github.post_merge` Adapter delivery, so it is off GitHub's
+    /// response deadline *and* survives a restart between acknowledgment and
+    /// execution. Skips entirely when the run isn't on the repo's default branch,
+    /// when no merged PR produced the commit, or when no active task is bound to
+    /// the PR.
+    ///
+    /// A skip is `Ok(())`; a failure that stopped the notice from being decided at
+    /// all is an error, so the work is retried rather than silently dropped the way
+    /// the spawned version dropped it.
+    pub(super) async fn run_post_merge(
+        &self,
+        connection: &AdapterConnection,
+        rule: &SubscriptionMatch,
+        execution: &Execution,
+    ) -> Result<(), AdapterError> {
+        let Some(adapter) = self.adapter.as_ref() else {
+            return Ok(());
+        };
 
-    // Resolve the acting user + token the same way CI/merge-conflict paths do.
-    let authenticated = adapter
-        .auth()
-        .client_for_durable_work(&execution.sender_login, rule, &state.db, &execution.owner)
-        .await?;
-    let api = authenticated.api;
+        // Resolve the acting user + token the same way CI/merge-conflict paths do.
+        let authenticated = adapter
+            .auth()
+            .client_for_durable_work(&execution.sender_login, rule, &self.db, &execution.owner)
+            .await?;
+        let api = authenticated.api;
 
-    // Confirm the run is on the repo's default (base) branch — post-merge runs
-    // live there; runs on other branches are not merge results.
-    let default_branch = api
-        .get_repo_default_branch(&execution.owner, &execution.repo)
-        .await?;
-    if default_branch != execution.run.head_branch {
-        debug!(
-            head_branch = %execution.run.head_branch,
-            default_branch,
-            "Skipping post-merge CI: run not on default branch"
-        );
-        return Ok(());
+        // Confirm the run is on the repo's default (base) branch — post-merge runs
+        // live there; runs on other branches are not merge results.
+        let default_branch = api
+            .get_repo_default_branch(&execution.owner, &execution.repo)
+            .await?;
+        if default_branch != execution.run.head_branch {
+            debug!(
+                head_branch = %execution.run.head_branch,
+                default_branch,
+                "Skipping post-merge CI: run not on default branch"
+            );
+            return Ok(());
+        }
+
+        // Map the merge commit back to the PR it merged.
+        let pulls = api
+            .get_pulls_for_commit(&execution.owner, &execution.repo, &execution.run.head_sha)
+            .await?;
+        let Some(pr) = pulls.into_iter().find(super::api::CommitPr::is_merged) else {
+            debug!(
+                sha = %execution.run.head_sha,
+                "No merged PR for commit; skipping post-merge CI notice"
+            );
+            return Ok(());
+        };
+        let pr_number = pr.number;
+        let subject_key = GithubPrSubject::new(&execution.owner, &execution.repo, pr_number).key();
+
+        // Skip unless some active task is still connected to the PR.
+        if !self
+            .task_bindings
+            .find_by_subject("github", "github_pr", &subject_key)
+            .await?
+            .iter()
+            .any(|b| b.active)
+        {
+            debug!(
+                subject_key,
+                "No active bindings; skipping post-merge CI notice"
+            );
+            return Ok(());
+        }
+
+        let notice = InboundMessage {
+            adapter_kind: AdapterKind::GithubPr,
+            source_id: rule.source_matcher.clone(),
+            thread_id: Some(pr_number.to_string()),
+            message_thread_id: pr_number.to_string(),
+            user_id: authenticated.user_id,
+            author: None,
+            text: post_merge_ci_text(&execution.run, &execution.owner, &execution.repo, pr_number),
+            file_ids: vec![],
+            thread_properties: serde_json::json!({
+                "owner": execution.owner,
+                "repo": execution.repo,
+                "pr_number": pr_number,
+            }),
+            adapter_context: serde_json::json!({}),
+            external_event_id: Some(super::external_id::workflow_run(execution.run.run_id)),
+            source_task_id: None,
+            audience: Audience::SubjectProducer,
+        };
+
+        info!(subject_key, "Delivering post-merge CI notification");
+        if let Err(error) = self.route_event(connection, Some(rule), notice).await {
+            warn!(
+                subject_key,
+                %error,
+                "Failed to deliver post-merge CI notification"
+            );
+        }
+        Ok(())
     }
-
-    // Map the merge commit back to the PR it merged.
-    let pulls = api
-        .get_pulls_for_commit(&execution.owner, &execution.repo, &execution.run.head_sha)
-        .await?;
-    let Some(pr) = pulls.into_iter().find(super::api::CommitPr::is_merged) else {
-        debug!(
-            sha = %execution.run.head_sha,
-            "No merged PR for commit; skipping post-merge CI notice"
-        );
-        return Ok(());
-    };
-    let pr_number = pr.number;
-    let subject_key = GithubPrSubject::new(&execution.owner, &execution.repo, pr_number).key();
-
-    // Skip unless some active task is still connected to the PR.
-    if !state
-        .task_bindings
-        .find_by_subject("github", "github_pr", &subject_key)
-        .await?
-        .iter()
-        .any(|b| b.active)
-    {
-        debug!(
-            subject_key,
-            "No active bindings; skipping post-merge CI notice"
-        );
-        return Ok(());
-    }
-
-    let notice = InboundMessage {
-        adapter_kind: AdapterKind::GithubPr,
-        source_id: rule.source_matcher.clone(),
-        thread_id: Some(pr_number.to_string()),
-        message_thread_id: pr_number.to_string(),
-        user_id: authenticated.user_id,
-        author: None,
-        text: post_merge_ci_text(&execution.run, &execution.owner, &execution.repo, pr_number),
-        file_ids: vec![],
-        thread_properties: serde_json::json!({
-            "owner": execution.owner,
-            "repo": execution.repo,
-            "pr_number": pr_number,
-        }),
-        adapter_context: serde_json::json!({}),
-        external_event_id: Some(super::external_id::workflow_run(execution.run.run_id)),
-        source_task_id: None,
-        audience: Audience::SubjectProducer,
-    };
-
-    info!(subject_key, "Delivering post-merge CI notification");
-    if let Err(error) = super::routing::route_event(state, connection, Some(rule), notice).await {
-        warn!(
-            subject_key,
-            %error,
-            "Failed to deliver post-merge CI notification"
-        );
-    }
-    Ok(())
 }
 
 #[cfg(test)]

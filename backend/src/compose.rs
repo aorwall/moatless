@@ -230,7 +230,26 @@ pub fn register_builtin_delivery_handlers(
 ) {
     crate::adapters::providers::slack::delivery::register(handlers, state.routing.clone());
     crate::adapters::providers::telegram::delivery::register(handlers, state.routing.clone());
-    crate::adapters::providers::github_pr::delivery::register(handlers, state);
+    crate::adapters::providers::github_pr::delivery::register(
+        handlers,
+        std::sync::Arc::new(
+            crate::adapters::providers::github_pr::router::GithubPrInboundRouter::new(
+                state.adapter_connections.clone(),
+                state.loops.clone(),
+                state.task_bindings.clone(),
+                state.routing.clone(),
+                state.messages.clone(),
+                state.task_relations.clone(),
+                state.recently_sent.clone(),
+                state.tasks.clone(),
+                state.db.clone(),
+                state.task_creation.clone(),
+                state.message_send.clone(),
+                state.task_closer.clone(),
+                state.provider_handles.github_pr.clone(),
+            ),
+        ),
+    );
     let linear_router = std::sync::Arc::new(
         crate::adapters::providers::linear::delivery::LinearInboundRouter::new(
             state.adapter_connections.clone(),

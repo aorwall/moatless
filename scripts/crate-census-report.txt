@@ -1,13 +1,13 @@
 CRATE-CENSUS REPORT
-files parsed: 688
+files parsed: 689
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  2325  illegal    4
+CODE       legal  2331  illegal    0
 ATTRIBUTE  legal   274  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    41  illegal    0   (function-like macro-invocation token streams)
 DOC           32  (intra-doc paths — never a Cargo edge, never illegal)
-  of the legal CODE edges, 861 point down into the existing crates/* floor
+  of the legal CODE edges, 860 point down into the existing crates/* floor
 TEST-CONTEXT 1790  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
 
@@ -46,7 +46,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   loops  (5 files, 383 lines)
     adapters/mod.rs adapters/providers/mod.rs adapters/registry_matrix_tests.rs bindings.rs loops.rs
 
-  adapter-github-pr  (24 files, 10941 lines)
+  adapter-github-pr  (25 files, 11037 lines)
     adapters/providers/github_pr/
 
   adapter-linear  (23 files, 10311 lines)
@@ -61,7 +61,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (6 files, 791 lines)
     adapters/providers/webhook/
 
-  server  (34 files, 12535 lines)
+  server  (34 files, 12554 lines)
     adapters/handlers.rs adapters/routes.rs compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
@@ -70,15 +70,9 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL backend/src: 45522 lines
+  TOTAL backend/src: 45637 lines
 
-== ILLEGAL PRODUCTION EDGE CLASSES (1 classes) ==
-
-adapter-github-pr -> server   x4
-    backend/src/adapters/providers/github_pr/delivery.rs:75  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/github_pr/merge_conflict.rs:8  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/github_pr/post_merge.rs:10  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
-    backend/src/adapters/providers/github_pr/routing.rs:18  [CODE] crate::state::AppState   -> [Step 5 (AppState -> ports)]
+== ILLEGAL PRODUCTION EDGE CLASSES (0 classes) ==
 
 == UNPINNED ILLEGAL REFERENCES (headline) — 0 ==
   none
@@ -96,7 +90,7 @@ adapter-github-pr -> server   x4
   A crate with no illegal outgoing whose carve-target deps are all extracted reads
   READY; one still waiting on an un-extracted dep reads WAITING. Re-run after each
   carve; the frontier is the first crate below that is READY.
-  FRONTIER -> adapter-github-pr: BLOCKED on 4 illegal outgoing. No crate is carvable until it clears.
+  FRONTIER -> adapter-github-pr: READY now (no illegal outgoing; every crate it depends on is extracted).
 
   identity           deps: floor / adapter-model only                   EXTRACTED
   workspaces         deps: identity                                     EXTRACTED
@@ -105,7 +99,7 @@ adapter-github-pr -> server   x4
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           EXTRACTED
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
   loops              deps: identity, tasks, workspaces                  EXTRACTED
-  adapter-github-pr  deps: identity, sandbox-control, tasks, workspaces BLOCKED — 4 illegal outgoing to server(x4)
+  adapter-github-pr  deps: identity, tasks, workspaces                  READY
   adapter-linear     deps: identity, sandbox-control, tasks             READY
   adapter-slack      deps: identity, tasks                              READY
   adapter-telegram   deps: identity                                     READY
@@ -113,7 +107,7 @@ adapter-github-pr -> server   x4
   server             deps: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, identity, loops, sandbox-control, sandbox-docker, sandbox-k8s, tasks, workspaces WAITING — no illegal outgoing, but its deps are not extracted yet
 
 == TARJAN SCCs (production target-crate graph) ==
-  full graph (legal + illegal edges): CYCLE (2 crates) server <-> adapter-github-pr
+  full graph (legal + illegal edges): DAG — no multi-crate cycle
   legal edges only (illegal removed): DAG — no multi-crate cycle
 
 == macro_rules! INVENTORY (census scope) ==

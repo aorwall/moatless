@@ -62,6 +62,8 @@
 //! window, so this is a narrower failure than the one it replaces, but it is
 //! not zero.
 
+use std::sync::Arc;
+
 use moatless_backend_core::scope::ScopeContext;
 
 use tracing::info;
@@ -72,8 +74,8 @@ use crate::adapters::delivery::{
 };
 use crate::adapters::error::{AdapterError, SharedAdapterError};
 use crate::adapters::models::{AdapterConnection, InboundMessage, SubscriptionMatch};
-use crate::state::AppState;
 
+use super::router::GithubPrInboundRouter;
 use super::webhook::PrCloseInfo;
 
 /// Adapter name on every record this module admits. Matches the value used
@@ -100,22 +102,22 @@ pub(super) mod kind {
 /// One call from the composition root; the worker then claims exactly these
 /// kinds. A build without this call leaves GitHub records for a replica that
 /// has it, rather than failing them.
-pub fn register(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
+pub fn register(handlers: &mut AdapterDeliveryHandlers, router: Arc<GithubPrInboundRouter>) {
     register_typed_delivery::<PrMessageDelivery, _, _>(handlers, kind::PR_MESSAGE, {
-        let state = state.clone();
-        move |delivery, payload| execute_pr_message(state.clone(), delivery, payload)
+        let router = router.clone();
+        move |delivery, payload| execute_pr_message(router.clone(), delivery, payload)
     });
     register_typed_delivery::<CloseDelivery, _, _>(handlers, kind::CLOSE, {
-        let state = state.clone();
-        move |delivery, payload| execute_close(state.clone(), delivery, payload)
+        let router = router.clone();
+        move |delivery, payload| execute_close(router.clone(), delivery, payload)
     });
     register_typed_delivery::<PostMergeDelivery, _, _>(handlers, kind::POST_MERGE, {
-        let state = state.clone();
-        move |delivery, payload| execute_post_merge(state.clone(), delivery, payload)
+        let router = router.clone();
+        move |delivery, payload| execute_post_merge(router.clone(), delivery, payload)
     });
     register_typed_delivery::<MergeConflictDelivery, _, _>(handlers, kind::MERGE_CONFLICT, {
-        let state = state.clone();
-        move |delivery, payload| execute_merge_conflict(state.clone(), delivery, payload)
+        let router = router.clone();
+        move |delivery, payload| execute_merge_conflict(router.clone(), delivery, payload)
     });
 }
 
@@ -144,14 +146,14 @@ impl DeliveryContext {
     /// Load the connection and (optional) trigger this record was admitted for.
     async fn resolve(
         &self,
-        state: &AppState,
+        router: &GithubPrInboundRouter,
     ) -> Result<(AdapterConnection, Option<SubscriptionMatch>), AdapterDeliveryFailure> {
         // reason: a durable Adapter delivery runs in the worker with no user
         // session; the connection is named by an already-admitted record, not
         // by caller input.
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
-        let connection = state
+        let connection = router
             .adapter_connections
             .find_by_id(&self.connection_id, &sys_ctx)
             .await
@@ -165,7 +167,7 @@ impl DeliveryContext {
             })?;
 
         let trigger = match self.loop_id.as_deref() {
-            Some(id) => state
+            Some(id) => router
                 .loops
                 .find_runnable_subscription_by_id(id)
                 .await
@@ -256,22 +258,23 @@ pub(super) fn request(
 }
 
 async fn execute_pr_message(
-    state: AppState,
+    router: Arc<GithubPrInboundRouter>,
     _delivery: crate::adapters::delivery::AdapterDelivery,
     payload: PrMessageDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let (connection, trigger) = payload.context.resolve(&state).await?;
-    super::routing::route_event(&state, &connection, trigger.as_ref(), payload.message)
+    let (connection, trigger) = payload.context.resolve(&router).await?;
+    router
+        .route_event(&connection, trigger.as_ref(), payload.message)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
 
 async fn execute_close(
-    state: AppState,
+    router: Arc<GithubPrInboundRouter>,
     delivery: crate::adapters::delivery::AdapterDelivery,
     payload: CloseDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let (_connection, trigger) = payload.context.resolve(&state).await?;
+    let (_connection, trigger) = payload.context.resolve(&router).await?;
     // Auto-close only ever applied to trigger-created tasks. A trigger
     // deleted between admission and execution leaves nothing to close.
     let Some(trigger) = trigger else {
@@ -282,35 +285,38 @@ async fn execute_close(
         );
         return Ok(());
     };
-    super::routing::close_subject(&state, &trigger, &payload.close)
+    router
+        .close_subject(&trigger, &payload.close)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
 
 async fn execute_post_merge(
-    state: AppState,
+    router: Arc<GithubPrInboundRouter>,
     _delivery: crate::adapters::delivery::AdapterDelivery,
     payload: PostMergeDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let (connection, trigger) = payload.context.resolve(&state).await?;
+    let (connection, trigger) = payload.context.resolve(&router).await?;
     let rule = payload
         .context
         .rule_for_parse(&connection, trigger.as_ref());
-    super::post_merge::execute(&state, &connection, &rule, &payload.execution)
+    router
+        .run_post_merge(&connection, &rule, &payload.execution)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
 
 async fn execute_merge_conflict(
-    state: AppState,
+    router: Arc<GithubPrInboundRouter>,
     _delivery: crate::adapters::delivery::AdapterDelivery,
     payload: MergeConflictDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let (connection, trigger) = payload.context.resolve(&state).await?;
+    let (connection, trigger) = payload.context.resolve(&router).await?;
     let rule = payload
         .context
         .rule_for_parse(&connection, trigger.as_ref());
-    super::merge_conflict::execute(&state, &connection, &rule, &payload.execution)
+    router
+        .run_merge_conflict(&connection, &rule, &payload.execution)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }

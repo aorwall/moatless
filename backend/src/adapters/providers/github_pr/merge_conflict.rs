@@ -5,8 +5,8 @@ use tracing::{debug, info, warn};
 use crate::adapters::error::AdapterError;
 use crate::adapters::models::{AdapterConnection, Audience, InboundMessage, SubscriptionMatch};
 use crate::adapters::AdapterKind;
-use crate::state::AppState;
 
+use super::router::GithubPrInboundRouter;
 use super::signals::MergeableState;
 use super::subject::GithubPrSubject;
 use super::text::merge_conflict_text;
@@ -58,163 +58,165 @@ pub(super) fn candidate(event_type: &str, payload: &serde_json::Value) -> Option
     Some(Candidate { pr_number })
 }
 
-/// Execute one durable merge-conflict check.
-///
-/// Skips before authentication and GitHub access when no active Binding tracks
-/// the PR. Once active, failures that prevent the check are retryable to the
-/// delivery worker, while persistence and notification remain best-effort.
-pub(super) async fn execute(
-    state: &AppState,
-    connection: &AdapterConnection,
-    rule: &SubscriptionMatch,
-    execution: &Execution,
-) -> Result<(), AdapterError> {
-    let subject = GithubPrSubject::new(&execution.owner, &execution.repo, execution.pr_number);
-    let subject_key = subject.key();
+impl GithubPrInboundRouter {
+    /// Execute one durable merge-conflict check.
+    ///
+    /// Skips before authentication and GitHub access when no active Binding tracks
+    /// the PR. Once active, failures that prevent the check are retryable to the
+    /// delivery worker, while persistence and notification remain best-effort.
+    pub(super) async fn run_merge_conflict(
+        &self,
+        connection: &AdapterConnection,
+        rule: &SubscriptionMatch,
+        execution: &Execution,
+    ) -> Result<(), AdapterError> {
+        let subject = GithubPrSubject::new(&execution.owner, &execution.repo, execution.pr_number);
+        let subject_key = subject.key();
 
-    if !state
-        .task_bindings
-        .find_by_subject("github", "github_pr", &subject_key)
-        .await?
-        .iter()
-        .any(|binding| binding.active)
-    {
-        debug!(
-            subject_key,
-            "No active bindings; skipping merge-conflict check"
-        );
-        return Ok(());
+        if !self
+            .task_bindings
+            .find_by_subject("github", "github_pr", &subject_key)
+            .await?
+            .iter()
+            .any(|binding| binding.active)
+        {
+            debug!(
+                subject_key,
+                "No active bindings; skipping merge-conflict check"
+            );
+            return Ok(());
+        }
+
+        let Some(adapter) = self.adapter.as_ref() else {
+            return Ok(());
+        };
+
+        let authenticated = adapter
+            .auth()
+            .client_for_durable_work(&execution.sender_login, rule, &self.db, &execution.owner)
+            .await?;
+
+        let pr = authenticated
+            .api
+            .get_pr_mergeable(&execution.owner, &execution.repo, execution.pr_number)
+            .await?;
+
+        let mergeable = pr
+            .mergeable_state
+            .as_deref()
+            .map(MergeableState::from_github);
+        let Some(mergeable) = mergeable.filter(|mergeable| mergeable.is_settled()) else {
+            debug!(
+                subject_key,
+                mergeable_state = ?pr.mergeable_state,
+                "Mergeable state unresolved; skipping persist + notify"
+            );
+            return Ok(());
+        };
+
+        let pr_is_open = pr.state.eq_ignore_ascii_case("open");
+        let conflict_message = InboundMessage {
+            adapter_kind: AdapterKind::GithubPr,
+            source_id: rule.source_matcher.clone(),
+            thread_id: Some(execution.pr_number.to_string()),
+            message_thread_id: execution.pr_number.to_string(),
+            user_id: authenticated.user_id,
+            author: None,
+            text: merge_conflict_text(
+                &execution.owner,
+                &execution.repo,
+                execution.pr_number,
+                pr.html_url.as_deref().unwrap_or(""),
+            ),
+            file_ids: vec![],
+            thread_properties: serde_json::json!({
+                "owner": execution.owner,
+                "repo": execution.repo,
+                "pr_number": execution.pr_number,
+            }),
+            adapter_context: serde_json::json!({}),
+            external_event_id: Some(super::external_id::merge_conflict(
+                execution.pr_number,
+                &pr.head.sha,
+            )),
+            source_task_id: None,
+            audience: Audience::SubjectProducer,
+        };
+
+        self.record_state_and_notify(
+            connection,
+            rule,
+            &subject_key,
+            mergeable,
+            pr_is_open,
+            &conflict_message,
+        )
+        .await;
+        Ok(())
     }
 
-    let Some(adapter) = state.provider_handles.github_pr.as_ref() else {
-        return Ok(());
-    };
+    /// Persist mergeability and notify only on an open PR's transition to conflict.
+    ///
+    /// Both persistence and notification are deliberately best-effort. The
+    /// durable execution retries failures that prevent the check, not an FYI that
+    /// was already decided.
+    async fn record_state_and_notify(
+        &self,
+        connection: &AdapterConnection,
+        rule: &SubscriptionMatch,
+        subject_key: &str,
+        mergeable: MergeableState,
+        pr_is_open: bool,
+        conflict_message: &InboundMessage,
+    ) {
+        let binding_repo = self.task_bindings.clone();
+        let bindings = match binding_repo
+            .find_by_subject("github", "github_pr", subject_key)
+            .await
+        {
+            Ok(bindings) => bindings,
+            Err(error) => {
+                warn!(
+                    subject_key,
+                    %error,
+                    "Failed to load bindings for mergeable-state update"
+                );
+                return;
+            }
+        };
 
-    let authenticated = adapter
-        .auth()
-        .client_for_durable_work(&execution.sender_login, rule, &state.db, &execution.owner)
-        .await?;
+        let is_news = bindings.iter().any(|binding| {
+            binding.active && binding.external_mergeable_state.as_deref() != Some("dirty")
+        });
 
-    let pr = authenticated
-        .api
-        .get_pr_mergeable(&execution.owner, &execution.repo, execution.pr_number)
-        .await?;
+        for binding in &bindings {
+            if let Err(error) = binding_repo
+                .update_mergeable_state(&binding.id, Some(mergeable.as_str()))
+                .await
+            {
+                warn!(
+                    binding_id = %binding.id,
+                    %error,
+                    "Failed to persist mergeable state"
+                );
+            }
+        }
 
-    let mergeable = pr
-        .mergeable_state
-        .as_deref()
-        .map(MergeableState::from_github);
-    let Some(mergeable) = mergeable.filter(|mergeable| mergeable.is_settled()) else {
-        debug!(
-            subject_key,
-            mergeable_state = ?pr.mergeable_state,
-            "Mergeable state unresolved; skipping persist + notify"
-        );
-        return Ok(());
-    };
-
-    let pr_is_open = pr.state.eq_ignore_ascii_case("open");
-    let conflict_message = InboundMessage {
-        adapter_kind: AdapterKind::GithubPr,
-        source_id: rule.source_matcher.clone(),
-        thread_id: Some(execution.pr_number.to_string()),
-        message_thread_id: execution.pr_number.to_string(),
-        user_id: authenticated.user_id,
-        author: None,
-        text: merge_conflict_text(
-            &execution.owner,
-            &execution.repo,
-            execution.pr_number,
-            pr.html_url.as_deref().unwrap_or(""),
-        ),
-        file_ids: vec![],
-        thread_properties: serde_json::json!({
-            "owner": execution.owner,
-            "repo": execution.repo,
-            "pr_number": execution.pr_number,
-        }),
-        adapter_context: serde_json::json!({}),
-        external_event_id: Some(super::external_id::merge_conflict(
-            execution.pr_number,
-            &pr.head.sha,
-        )),
-        source_task_id: None,
-        audience: Audience::SubjectProducer,
-    };
-
-    record_state_and_notify(
-        state,
-        connection,
-        rule,
-        &subject_key,
-        mergeable,
-        pr_is_open,
-        &conflict_message,
-    )
-    .await;
-    Ok(())
-}
-
-/// Persist mergeability and notify only on an open PR's transition to conflict.
-///
-/// Both persistence and notification are deliberately best-effort. The
-/// durable execution retries failures that prevent the check, not an FYI that
-/// was already decided.
-async fn record_state_and_notify(
-    state: &AppState,
-    connection: &AdapterConnection,
-    rule: &SubscriptionMatch,
-    subject_key: &str,
-    mergeable: MergeableState,
-    pr_is_open: bool,
-    conflict_message: &InboundMessage,
-) {
-    let binding_repo = state.task_bindings.clone();
-    let bindings = match binding_repo
-        .find_by_subject("github", "github_pr", subject_key)
-        .await
-    {
-        Ok(bindings) => bindings,
-        Err(error) => {
-            warn!(
-                subject_key,
-                %error,
-                "Failed to load bindings for mergeable-state update"
-            );
+        if !(pr_is_open && mergeable.is_conflicted() && is_news) {
             return;
         }
-    };
 
-    let is_news = bindings.iter().any(|binding| {
-        binding.active && binding.external_mergeable_state.as_deref() != Some("dirty")
-    });
-
-    for binding in &bindings {
-        if let Err(error) = binding_repo
-            .update_mergeable_state(&binding.id, Some(mergeable.as_str()))
+        info!(subject_key, "Delivering merge-conflict notification");
+        if let Err(error) = self
+            .route_event(connection, Some(rule), conflict_message.clone())
             .await
         {
             warn!(
-                binding_id = %binding.id,
+                subject_key,
                 %error,
-                "Failed to persist mergeable state"
+                "Failed to deliver merge-conflict notification"
             );
         }
-    }
-
-    if !(pr_is_open && mergeable.is_conflicted() && is_news) {
-        return;
-    }
-
-    info!(subject_key, "Delivering merge-conflict notification");
-    if let Err(error) =
-        super::routing::route_event(state, connection, Some(rule), conflict_message.clone()).await
-    {
-        warn!(
-            subject_key,
-            %error,
-            "Failed to deliver merge-conflict notification"
-        );
     }
 }
 
