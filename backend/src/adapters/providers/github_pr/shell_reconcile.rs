@@ -36,14 +36,21 @@
 //! implementation.
 
 use std::fmt::Write;
+use std::sync::Arc;
 
 use serde_json::json;
 use tracing::{debug, info, warn};
 
+use super::adapter::GithubPrAdapter;
 use super::api::GithubPrApi;
 use crate::adapters::footer::FOOTER_MARKER;
 use crate::adapters::metrics::record_shell_claim;
-use crate::state::AppState;
+use crate::adapters::AdapterDestinationBuilder;
+use crate::bindings::recently_sent::RecentlySent;
+use crate::message::dao::MessageDao;
+use crate::repository::access::RepositoryTokenResolver;
+use crate::repository::dao::RepositoryDao;
+use crate::task::dao::TaskDao;
 use moatless_backend_core::scope::ScopeContext;
 
 /// Adapter label on claim metrics and on the tagged assistant row.
@@ -83,21 +90,57 @@ impl ParsedPr {
 ///
 /// Errors are logged and swallowed — the event handler loop is
 /// fire-and-forget.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "A dispatch over four unrelated shell-mutation shapes whose wide port \
+              surface belongs to exactly one arm — `gh pr create`, which binds, \
+              claims, and footers. The entry must still receive every port to hand \
+              it to that arm (thinning the entry only moves where they are unpacked, \
+              not how many it takes). The only two ways under the argument threshold \
+              are both worse: a context bag bundling the ports, which this program \
+              has refused; or hoisting the cmd-shape dispatch up into \
+              `agent_handlers.rs`, which would put `gh`-command parsing — provider \
+              domain knowledge — into the server band that only composes."
+)]
 pub(crate) async fn reconcile_shell_command(
-    state: &AppState,
+    adapter: Option<&Arc<GithubPrAdapter>>,
+    recently_sent: &RecentlySent,
+    messages: &dyn MessageDao,
+    tasks: &dyn TaskDao,
+    repositories: &dyn RepositoryDao,
+    repo_token_resolver: &RepositoryTokenResolver,
     task_id: &str,
     tool_use_id: &str,
     cmd: &str,
     result_text: &str,
 ) {
     if is_gh_pr_create(cmd) {
-        handle_gh_pr_create(state, task_id, tool_use_id, result_text).await;
+        handle_gh_pr_create(
+            adapter,
+            recently_sent,
+            messages,
+            tasks,
+            repositories,
+            repo_token_resolver,
+            task_id,
+            tool_use_id,
+            result_text,
+        )
+        .await;
     } else if is_gh_pr_comment(cmd) || is_gh_issue_comment(cmd) {
-        handle_gh_comment(state, task_id, tool_use_id, result_text).await;
+        handle_gh_comment(recently_sent, messages, task_id, tool_use_id, result_text).await;
     } else if let Some(created) = parse_gh_api_creation(cmd) {
-        handle_gh_api_creation(state, task_id, tool_use_id, &created, result_text).await;
+        handle_gh_api_creation(
+            recently_sent,
+            messages,
+            task_id,
+            tool_use_id,
+            &created,
+            result_text,
+        )
+        .await;
     } else if is_git_push(cmd) && !is_dry_run_push(cmd) {
-        handle_git_push(state, task_id, tool_use_id, result_text).await;
+        handle_git_push(recently_sent, messages, task_id, tool_use_id, result_text).await;
     }
 }
 
@@ -112,7 +155,8 @@ pub(crate) async fn reconcile_shell_command(
 /// `shape` is the fixed-vocabulary posting shape the command was recognised
 /// as; it labels the claim metric and the log lines.
 async fn record_claim(
-    state: &AppState,
+    recently_sent: &RecentlySent,
+    messages: &dyn MessageDao,
     task_id: &str,
     tool_use_id: &str,
     shape: &'static str,
@@ -121,9 +165,8 @@ async fn record_claim(
 ) {
     // Note the in-memory claim before the (slower) row tag so an inbound
     // webhook cannot race past both.
-    state.recently_sent.note(task_id, external_id);
-    match state
-        .messages
+    recently_sent.note(task_id, external_id);
+    match messages
         .claim_activity_external_source(
             task_id,
             tool_use_id,
@@ -182,8 +225,22 @@ fn claim_abandoned(task_id: &str, shape: &'static str, reason: &'static str, det
 // gh pr create
 // =============================================================================
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The one dispatch arm the entry's width exists for: `gh pr create` \
+              binds the task (the adapter is the destination builder, its binding \
+              ports come from `require_binding_ports`), claims the opened-PR event \
+              (`recently_sent` + `messages`), and appends the task footer (`tasks` \
+              + the repository ports). The other three shapes take only the two \
+              claim ports — see `reconcile_shell_command`."
+)]
 async fn handle_gh_pr_create(
-    state: &AppState,
+    adapter: Option<&Arc<GithubPrAdapter>>,
+    recently_sent: &RecentlySent,
+    messages: &dyn MessageDao,
+    tasks: &dyn TaskDao,
+    repositories: &dyn RepositoryDao,
+    repo_token_resolver: &RepositoryTokenResolver,
     task_id: &str,
     tool_use_id: &str,
     result_text: &str,
@@ -194,38 +251,55 @@ async fn handle_gh_pr_create(
     };
 
     let source_id = format!("{}/{}", pr.owner, pr.repo);
-    let thread_properties = json!({
-        "owner": pr.owner,
-        "repo": pr.repo,
-        "pr_number": pr.number,
-    });
 
-    match crate::loops::firing::listen::Connector::new(
-        state.provider_handles.github_destination_builder(),
-        state.adapter_connections.clone(),
-        state.loops.clone(),
-        state.task_bindings.clone(),
-    )
-    .connect_github_binding(&source_id, task_id, thread_properties, None)
-        .await
-    {
-        Ok((rule, binding)) => {
-            info!(
-                task_id,
-                pr_number = pr.number,
-                subscription_id = rule.as_ref().map_or("<none>", |r| r.id.as_str()),
-                binding_id = %binding.id,
-                "Auto-connected GitHub PR binding for PR created by agent"
-            );
-        }
-        Err(e) => {
-            warn!(task_id, pr_number = pr.number, error = %e, "Failed to auto-connect GitHub PR binding");
+    // Binding needs the adapter — it is the concrete destination builder the
+    // Connector routes through and holds the binding ports. With no adapter
+    // composed there is nothing to bind, but the claim below still runs: a claim
+    // no adapter can consume is inert, yet dropping it would be a silent
+    // behaviour change in that config. A binding failure is likewise logged and
+    // left behind — the claim and footer still run.
+    if let Some(adapter) = adapter {
+        let thread_properties = json!({
+            "owner": pr.owner,
+            "repo": pr.repo,
+            "pr_number": pr.number,
+        });
+        match adapter.require_binding_ports() {
+            Ok((adapter_connections, loops, task_bindings)) => {
+                let github_destination: Arc<dyn AdapterDestinationBuilder> = adapter.clone();
+                match crate::loops::firing::listen::Connector::new(
+                    Some(github_destination),
+                    adapter_connections,
+                    loops,
+                    task_bindings,
+                )
+                .connect_github_binding(&source_id, task_id, thread_properties, None)
+                .await
+                {
+                    Ok((rule, binding)) => {
+                        info!(
+                            task_id,
+                            pr_number = pr.number,
+                            subscription_id = rule.as_ref().map_or("<none>", |r| r.id.as_str()),
+                            binding_id = %binding.id,
+                            "Auto-connected GitHub PR binding for PR created by agent"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(task_id, pr_number = pr.number, error = %e, "Failed to auto-connect GitHub PR binding");
+                    }
+                }
+            }
+            Err(error) => {
+                warn!(task_id, pr_number = pr.number, error = %error, "GitHub PR adapter missing binding ports — skipping auto-connect");
+            }
         }
     }
 
     let external_id = super::external_id::pr_opened(pr.number);
     record_claim(
-        state,
+        recently_sent,
+        messages,
         task_id,
         tool_use_id,
         SHAPE_PR_CREATE,
@@ -234,11 +308,22 @@ async fn handle_gh_pr_create(
     )
     .await;
 
-    try_append_task_footer(state, task_id, &pr).await;
+    // The footer likewise needs the adapter (frontend_url + the credential path).
+    if let Some(adapter) = adapter {
+        try_append_task_footer(adapter, tasks, repositories, repo_token_resolver, task_id, &pr)
+            .await;
+    }
 }
 
-async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) {
-    let frontend_url = state.config.auth.frontend_url.trim_end_matches('/');
+async fn try_append_task_footer(
+    adapter: &GithubPrAdapter,
+    tasks: &dyn TaskDao,
+    repositories: &dyn RepositoryDao,
+    repo_token_resolver: &RepositoryTokenResolver,
+    task_id: &str,
+    pr: &ParsedPr,
+) {
+    let frontend_url = adapter.frontend_url().trim_end_matches('/');
     if frontend_url.is_empty() {
         debug!(task_id, "frontend_url empty — skipping PR body footer");
         return;
@@ -248,7 +333,7 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
     // reason: hook runs server-side after agent write; no user request context available.
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    let task = match state.tasks.find_by_id(task_id, &sys_ctx).await {
+    let task = match tasks.find_by_id(task_id, &sys_ctx).await {
         Ok(Some(t)) => t,
         Ok(None) => {
             warn!(task_id, "Task not found when appending PR footer");
@@ -260,7 +345,14 @@ async fn try_append_task_footer(state: &AppState, task_id: &str, pr: &ParsedPr) 
         }
     };
 
-    let token = match resolve_task_repository_github_token(state, &task, &pr.owner, &pr.repo).await
+    let token = match resolve_task_repository_github_token(
+        repositories,
+        repo_token_resolver,
+        &task,
+        &pr.owner,
+        &pr.repo,
+    )
+    .await
     {
         Ok(Some(t)) => t,
         Ok(None) => {
@@ -323,7 +415,13 @@ pub(crate) fn compose_footer(existing: &str, task_url: &str) -> String {
 // gh pr comment / gh issue comment
 // =============================================================================
 
-async fn handle_gh_comment(state: &AppState, task_id: &str, tool_use_id: &str, result_text: &str) {
+async fn handle_gh_comment(
+    recently_sent: &RecentlySent,
+    messages: &dyn MessageDao,
+    task_id: &str,
+    tool_use_id: &str,
+    result_text: &str,
+) {
     let Some(parsed) = parse_comment_id(result_text) else {
         claim_abandoned(task_id, SHAPE_COMMENT, "no_comment_url_in_output", "");
         return;
@@ -334,7 +432,8 @@ async fn handle_gh_comment(state: &AppState, task_id: &str, tool_use_id: &str, r
     let external_id = super::external_id::issue_comment(parsed.id);
     let source_name = format!("{}/{}", parsed.owner, parsed.repo);
     record_claim(
-        state,
+        recently_sent,
+        messages,
         task_id,
         tool_use_id,
         SHAPE_COMMENT,
@@ -402,7 +501,8 @@ impl GhApiCreated {
 }
 
 async fn handle_gh_api_creation(
-    state: &AppState,
+    recently_sent: &RecentlySent,
+    messages: &dyn MessageDao,
     task_id: &str,
     tool_use_id: &str,
     created: &GhApiCreation,
@@ -418,7 +518,8 @@ async fn handle_gh_api_creation(
 
     let external_id = created.kind.external_id(id);
     record_claim(
-        state,
+        recently_sent,
+        messages,
         task_id,
         tool_use_id,
         shape,
@@ -462,7 +563,13 @@ struct GitPushTarget {
 ///
 /// A push to a branch with no pull request produces no notification, so the
 /// claim simply expires unused — that is not a failure.
-async fn handle_git_push(state: &AppState, task_id: &str, tool_use_id: &str, result_text: &str) {
+async fn handle_git_push(
+    recently_sent: &RecentlySent,
+    messages: &dyn MessageDao,
+    task_id: &str,
+    tool_use_id: &str,
+    result_text: &str,
+) {
     let Some(target) = parse_git_push(result_text) else {
         // Also the ordinary shape of a rejected push, "Everything up-to-date"
         // and a non-GitHub remote: nothing reached a GitHub branch, so no
@@ -493,7 +600,7 @@ async fn handle_git_push(state: &AppState, task_id: &str, tool_use_id: &str, res
     // and matched by prefix (see [`RecentlySent::note_commit`]). That in-memory
     // claim is the whole of it — the row tag below only drives the chat's
     // source chip — so the claim outcome is recorded here, where it is decided.
-    if !state.recently_sent.note_commit(task_id, commit) {
+    if !recently_sent.note_commit(task_id, commit) {
         // The store refuses a sha too short or malformed to name one commit,
         // because such a prefix would suppress commits the task never pushed.
         claim_abandoned(
@@ -519,8 +626,7 @@ async fn handle_git_push(state: &AppState, task_id: &str, tool_use_id: &str, res
     // GitHub for the pull request number, which is exactly the round-trip this
     // path no longer makes.
     let external_id = super::external_id::pushed_commit(commit);
-    match state
-        .messages
+    match messages
         .claim_activity_external_source(
             task_id,
             tool_use_id,
@@ -547,7 +653,8 @@ async fn handle_git_push(state: &AppState, task_id: &str, tool_use_id: &str, res
 }
 
 async fn resolve_task_repository_github_token(
-    state: &AppState,
+    repositories: &dyn RepositoryDao,
+    repo_token_resolver: &RepositoryTokenResolver,
     task: &crate::task::models::Task,
     owner: &str,
     repo_name: &str,
@@ -556,8 +663,7 @@ async fn resolve_task_repository_github_token(
     // already resolved for this flow and the repo is its configured one.
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    let repository = state
-        .repositories
+    let repository = repositories
         .find_by_id(&task.repository_id, &sys_ctx)
         .await?
         .ok_or_else(|| {
@@ -580,10 +686,7 @@ async fn resolve_task_repository_github_token(
             "GitHub target does not match the task repository".to_string(),
         ));
     }
-    state
-        .repo_token_resolver
-        .resolve(&repository, remote_url)
-        .await
+    repo_token_resolver.resolve(&repository, remote_url).await
 }
 
 /// Extract the GitHub repository, remote branch and pushed commit from

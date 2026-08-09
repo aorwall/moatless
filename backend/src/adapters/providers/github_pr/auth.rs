@@ -181,6 +181,15 @@ impl GithubPrAuth {
     /// Which repository is named therefore only scopes the token, never whether
     /// one is found: a PR against a repo the task isn't bound to resolves exactly
     /// like one against its own.
+    ///
+    /// A third GitHub credential policy exists and deliberately does NOT live on
+    /// this struct: the repository-scoped one, keyed on the task's repository row
+    /// rather than on any user and deferring to `RepositoryTokenResolver` — see
+    /// `shell_reconcile::resolve_task_repository_github_token`. It stays with the
+    /// repository ports because it selects no identity; this method and
+    /// `client_for_user` are the two that answer "which identity acts", so a
+    /// reader meeting both here should know the identity-independent one is over
+    /// there.
     pub(super) async fn client_for_run_as_user(
         &self,
         user_id: &str,

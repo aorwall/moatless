@@ -986,9 +986,18 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
                 &content,
             )
             .await;
+            // The claim path (recently_sent + messages) runs for every shell
+            // mutation; only the adapter-dependent arms of `gh pr create` (bind,
+            // footer) short-circuit when the GitHub PR adapter is not composed,
+            // so it is passed as an Option rather than gating the whole loop.
             for target in reconcile_targets {
                 crate::adapters::providers::github_pr::shell_reconcile::reconcile_shell_command(
-                    state,
+                    state.provider_handles.github_pr.as_ref(),
+                    &state.recently_sent,
+                    state.messages.as_ref(),
+                    state.tasks.as_ref(),
+                    state.repositories.as_ref(),
+                    &state.repo_token_resolver,
                     &event.task_id,
                     &target.tool_use_id,
                     &target.cmd,
