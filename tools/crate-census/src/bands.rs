@@ -337,6 +337,21 @@ pub fn external_crate(head: &str) -> Option<String> {
         // this arm the head falls to `_ => None` ("no census edge") and the export
         // half of sandbox-docker leaves the census graph. Mirrors `moatless_sandbox_k8s`.
         "moatless_sandbox_docker" => "sandbox-docker",
+        // `moatless_loops` (the loops carve, #466) resolves to the band-8 loops
+        // crate. Mirrors the arms above. The carve landed `floor_crate_of_dir` but
+        // skipped this one, so it is a backfill like `tasks`' at 10e. It is
+        // measured-inert at backfill time — adding it moves neither the baseline nor
+        // the count (the only backend heads that name `moatless_loops::` today are
+        // the three facades `loops.rs`/`bindings.rs`/`adapters/mod.rs`, whose edges
+        // are legal-or-unscored) — and it lands anyway because inert means the fix is
+        // free, not that it is unnecessary. Without it the head falls to `_ => None`
+        // ("no census edge"), and the failure mode is the dangerous one: a future
+        // illegal edge INTO loops — a lower-band crate that gains a `moatless_loops`
+        // dep and names it upward — is not scored as illegal, it is not scored AT
+        // ALL, so the census would print a `0` that is false. Unscored is
+        // indistinguishable from legal in the output; this arm keeps the export half
+        // of loops in the graph so the ratchet can still see an edge into it.
+        "moatless_loops" => "loops",
         _ => return None,
     };
     Some(id.to_string())
@@ -546,6 +561,26 @@ mod tests {
             band_of(&id),
             7,
             "moatless_sandbox_docker must resolve to band-7 sandbox-docker"
+        );
+    }
+
+    /// A backend reference to `moatless_loops::` must resolve to the band-8 loops
+    /// crate (so it scores downward-legal), mirroring the arms above. The loops
+    /// carve (#466) landed the `floor_crate_of_dir` arm but not this one; without
+    /// it the head falls to `None` and every `moatless_loops::` reference is
+    /// silently subtracted from the graph — the failure this arm and this test
+    /// close, and the reason a regenerated zero-illegal report is not proof the
+    /// arm is present.
+    #[test]
+    fn moatless_loops_head_resolves_to_the_band_8_crate() {
+        assert_eq!(external_crate("moatless_loops"), Some("loops".to_string()));
+        let Some(id) = external_crate("moatless_loops") else {
+            panic!("moatless_loops must be a known external head");
+        };
+        assert_eq!(
+            band_of(&id),
+            8,
+            "moatless_loops must resolve to band-8 loops",
         );
     }
 }

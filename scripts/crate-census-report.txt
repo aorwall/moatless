@@ -3,12 +3,12 @@ files parsed: 689
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  2331  illegal    0
-ATTRIBUTE  legal   274  illegal    0   (utoipa/derive/etc. token streams)
-MACRO      legal    41  illegal    0   (function-like macro-invocation token streams)
-DOC           32  (intra-doc paths — never a Cargo edge, never illegal)
+CODE       legal  3301  illegal    0
+ATTRIBUTE  legal   280  illegal    0   (utoipa/derive/etc. token streams)
+MACRO      legal    54  illegal    0   (function-like macro-invocation token streams)
+DOC           50  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 860 point down into the existing crates/* floor
-TEST-CONTEXT 1790  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 2079  (backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (backend/src -> target crate; generated from bands.rs) ==
@@ -99,11 +99,11 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   sandbox-k8s        deps: sandbox-control, tasks, workspaces           EXTRACTED
   sandbox-docker     deps: sandbox-control, tasks, workspaces           EXTRACTED
   loops              deps: identity, tasks, workspaces                  EXTRACTED
-  adapter-github-pr  deps: identity, tasks, workspaces                  READY
-  adapter-linear     deps: identity, sandbox-control, tasks             READY
-  adapter-slack      deps: identity, tasks                              READY
-  adapter-telegram   deps: identity                                     READY
-  adapter-webhook    deps: floor / adapter-model only                   READY
+  adapter-github-pr  deps: identity, loops, tasks, workspaces           READY
+  adapter-linear     deps: identity, loops, sandbox-control, tasks      READY
+  adapter-slack      deps: identity, loops, tasks                       READY
+  adapter-telegram   deps: identity, loops                              READY
+  adapter-webhook    deps: loops                                        READY
   server             deps: adapter-github-pr, adapter-linear, adapter-slack, adapter-telegram, adapter-webhook, identity, loops, sandbox-control, sandbox-docker, sandbox-k8s, tasks, workspaces WAITING — no illegal outgoing, but its deps are not extracted yet
 
 == TARJAN SCCs (production target-crate graph) ==
