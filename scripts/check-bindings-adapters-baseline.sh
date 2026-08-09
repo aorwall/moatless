@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 #
-# Step 7 invariant — bindings does not reach up into adapters.
+# Step 7 invariant — bindings does not depend on the Adapter aggregate.
 #
-# The dependency Step 7 untangles is bindings->adapters: L1 `bindings` naming
-# types from L2 `adapters` is the upward edge of the cycle. Once a bindings file
-# stops naming `crate::adapters` it has been cut loose; this check enforces that
-# the set of files still naming it only ever shrinks.
+# The dependency Step 7 untangles is now intra-crate because `bindings` and the
+# shared Adapter core live together in `moatless-loops`. The invariant still
+# matters: bindings files must not newly reach into the Adapter registry,
+# Adapter-owned capabilities, or the Adapter error wrapper. Those remaining
+# references are Step 10g preconditions, not Cargo-edge counts.
 #
 # The baseline (scripts/bindings-adapters-baseline.txt) lists every file under
-# crates/loops/src/bindings/ that still names `crate::adapters` in non-test code. It
-# is a ratchet in the shape of the repo's lint baseline (AGENTS.md: "the
-# baseline only shrinks"): every slice deletes the entries it clears, a baseline
-# entry that no longer names `crate::adapters` is a failure (you cleared it — so
-# remove its line), and a bindings file that names `crate::adapters` without
-# being listed is a failure (a new up-edge). When the baseline is empty the
-# untangle is complete.
+# crates/loops/src/bindings/ that still names `crate::adapters` in non-test
+# code. It is a ratchet in the shape of the repo's lint baseline (AGENTS.md:
+# "the baseline only shrinks"): every slice deletes the entries it clears, a
+# baseline entry that no longer names `crate::adapters` is a failure (you cleared
+# it — so remove its line), and a bindings file that names `crate::adapters`
+# without being listed is a failure (a new Adapter-core dependency). When the
+# baseline is empty the untangle is complete.
 #
-# There is no permanent whitelist: the end state is zero. adapters depends down
-# on bindings (implementing the ports bindings declares), never the reverse.
+# There is no permanent whitelist: the end state is zero. The remaining
+# dependencies clear by relocation (`bindings/handlers.rs`) or by the error/port
+# split that lets bindings depend on lower shared vocabulary instead of the
+# Adapter aggregate.
 #
 # This is a syntactic check, not a Rust parser, but it tokenizes with the same
 # string/comment-blanking pass as check-appstate-composition-root.sh, so a
@@ -103,7 +106,7 @@ while IFS= read -r file; do
   [ "$names" = 1 ] || continue
   NAMED_NOW["$file"]=1
   if [ -z "${IN_BASELINE[$file]:-}" ]; then
-    echo "::error file=$file::$file names crate::adapters but is not in $BASELINE. bindings must not reach up into adapters; take the port adapters implements, or move the shared type down. See .plans/backend-ports-and-crates.md Step 7."
+    echo "::error file=$file::$file names crate::adapters but is not in $BASELINE. bindings must not add dependencies on the Adapter aggregate or Adapter-owned surface; take the lower/shared port or move the shared type down. See .plans/backend-ports-and-crates.md Step 7."
     violations=$((violations + 1))
   fi
 done < <(find "$DIR" -name '*.rs' -type f | sort)
@@ -121,7 +124,7 @@ done
 
 if [ "$violations" -gt 0 ]; then
   echo ""
-  echo "::error::bindings reaches up into adapters outside the baseline. See the messages above and .plans/backend-ports-and-crates.md Step 7."
+  echo "::error::bindings depends on the Adapter aggregate or Adapter-owned surface outside the baseline. See the messages above and .plans/backend-ports-and-crates.md Step 7."
   exit 1
 fi
 
