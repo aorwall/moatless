@@ -33,7 +33,17 @@ use sqlx::PgPool;
 use sqlx::Row;
 use tokio_util::sync::CancellationToken;
 
-use common::{test_app_state_with_adapters, test_config};
+use common::{seed_linear_app, test_app_state_with_adapters, test_config};
+
+/// Where a Linear API client would point if one of these handlers made a call.
+///
+/// Every Linear handler resolves its client from the `adapter_apps` row before
+/// it looks for work, so the row has to exist or the record retries forever on
+/// "linear app 'default' not configured". None of the records here has a
+/// binding to deliver to, so the client is built and never used — and this
+/// address, where nothing listens, is what makes that a fast failure rather
+/// than a hang if that ever stops being true.
+const UNREACHABLE_LINEAR_API: &str = "http://127.0.0.1:1";
 
 const CONNECTION_ID: &str = "conn-github-1";
 const LINEAR_CONNECTION_ID: &str = "conn-linear-1";
@@ -43,8 +53,9 @@ const GITHUB_CLOSE: &str = "github.close";
 const GITHUB_POST_MERGE: &str = "github.post_merge";
 const GITHUB_MERGE_CONFLICT: &str = "github.merge_conflict";
 
-/// One `adapter_connections` row — the only fixture every handler needs to
-/// get past its "does this tenant still exist?" guard.
+/// The tenant fixtures every handler needs to get past its "does this still
+/// exist?" guards: the `adapter_connections` row, plus — for Linear — the
+/// `adapter_apps` row its client is resolved from.
 async fn seed_connection(pool: &PgPool, id: &str, adapter_kind: &str, account: &str) {
     sqlx::query(
         // `owner_user_id` is not decoration: a user-scoped connection without
@@ -61,6 +72,10 @@ async fn seed_connection(pool: &PgPool, id: &str, adapter_kind: &str, account: &
     .execute(pool)
     .await
     .expect("seed integration connection");
+
+    if adapter_kind == "linear" {
+        seed_linear_app(pool, UNREACHABLE_LINEAR_API).await;
+    }
 }
 
 fn github_context(connection_id: &str) -> serde_json::Value {
@@ -78,7 +93,7 @@ fn github_context(connection_id: &str) -> serde_json::Value {
 fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterDeliveryRequest> {
     let mut pr_message = github_context(connection_id);
     pr_message["message"] = serde_json::json!({
-        "provider": "github_pr",
+        "adapter_kind": "github_pr",
         "source_id": "acme/widgets",
         "thread_id": "42",
         "message_thread_id": "42",
@@ -86,7 +101,7 @@ fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterDel
         "text": "a comment on the PR",
         "file_ids": [],
         "thread_properties": {"owner": "acme", "repo": "widgets", "pr_number": 42},
-        "provider_context": {},
+        "adapter_context": {},
         // Deliberately not a `pr:opened:` id: this asserts recovery, not task
         // creation, and a created task would drag a repository fixture in.
         "external_event_id": "github:ic:9001",
@@ -297,6 +312,60 @@ async fn status_of(
     })
 }
 
+/// Every record that has not reached a terminal state, with why it is stuck.
+///
+/// The "did they all finish?" assertions are a wait loop over several kinds, so
+/// a bare `false` names none of them. This turns the failure into the list of
+/// kinds still in flight and the last error each one recorded.
+async fn stuck(pool: &PgPool, kinds: &[(&'static str, String)]) -> String {
+    let mut lines = Vec::new();
+    for (kind, event_id) in kinds {
+        match status_of(pool, kind, event_id).await {
+            Some((status, _, _)) if status == "succeeded" || status == "failed" => {}
+            Some((status, attempts, last_error)) => lines.push(format!(
+                "{kind}/{event_id}: {status} after {attempts} attempt(s): {}",
+                last_error.unwrap_or_else(|| "no error recorded".to_string())
+            )),
+            None => lines.push(format!("{kind}/{event_id}: no record")),
+        }
+    }
+    lines.join("; ")
+}
+
+/// Serve every GitHub read as a repo whose default branch is `default_branch`.
+///
+/// `github.post_merge` is the one kind here that cannot decide anything
+/// locally: its work is keyed by a commit sha, and only GitHub can say which PR
+/// that sha merged, so it authenticates and reads the repo before any skip is
+/// available to it. With no credential and nowhere to send the read it fails
+/// *retryably* — a record that never settles, which in a test about reaching
+/// terminal states is a 30-second timeout.
+///
+/// The branch reported here is deliberately not the run's `head_branch`, which
+/// is the handler's documented "this run is not a merge result" skip: the read
+/// happens, the delivery succeeds on its first attempt, and nothing is posted.
+async fn default_branch_stub(default_branch: &'static str) -> (String, AbortOnDrop) {
+    let app = axum::Router::new().fallback(axum::routing::any(move || async move {
+        axum::Json(serde_json::json!({ "default_branch": default_branch }))
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind the GitHub stub");
+    let addr = listener.local_addr().expect("the stub reports its address");
+    let serving = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{addr}"), AbortOnDrop(serving))
+}
+
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 async fn count_records(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
     sqlx::query_scalar("SELECT COUNT(*) FROM adapter_delivery WHERE kind = $1 AND event_id = $2")
         .bind(kind)
@@ -314,6 +383,16 @@ async fn count_records(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
 /// of them.
 #[sqlx::test]
 async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_crash(pool: PgPool) {
+    let (base_url, _stub) = default_branch_stub("trunk").await;
+    let _github_api = common::github_api_base(&base_url).await;
+    // The token the post-merge read authenticates with. The other three GitHub
+    // kinds never get far enough to need one.
+    let credentialed = || {
+        let mut config = test_config();
+        config.github_pr.bot_token = Some("global-token".to_string());
+        config
+    };
+
     seed_connection(&pool, CONNECTION_ID, "github", "acme").await;
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
 
@@ -324,7 +403,7 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
         .collect();
 
     {
-        let admitting = test_app_state_with_adapters(pool.clone(), test_config());
+        let admitting = test_app_state_with_adapters(pool.clone(), credentialed());
         for request in requests {
             let kind = request.kind;
             assert_eq!(
@@ -341,7 +420,7 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
         // in memory survives; only the rows do.
     }
 
-    let recovering = test_app_state_with_adapters(pool.clone(), test_config());
+    let recovering = test_app_state_with_adapters(pool.clone(), credentialed());
     let pool_for_check = pool.clone();
     let kinds_for_check = kinds.clone();
     let finished = run_worker_until(&recovering, Duration::from_secs(30), async || {
@@ -355,7 +434,11 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
     })
     .await;
 
-    assert!(finished, "every admitted kind reached a terminal state");
+    assert!(
+        finished,
+        "every admitted kind reached a terminal state; still in flight: {}",
+        stuck(&pool, &kinds).await
+    );
     for (kind, event_id) in &kinds {
         let (status, attempts, last_error) = status_of(&pool, kind, event_id)
             .await
@@ -380,7 +463,7 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
 
     let mut message = github_context(CONNECTION_ID);
     message["message"] = serde_json::json!({
-        "provider": "github_pr",
+        "adapter_kind": "github_pr",
         "source_id": "acme/widgets",
         "thread_id": "42",
         "message_thread_id": "42",
@@ -388,7 +471,7 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
         "text": "a comment on the PR",
         "file_ids": [],
         "thread_properties": {"owner": "acme", "repo": "widgets", "pr_number": 42},
-        "provider_context": {},
+        "adapter_context": {},
         "external_event_id": "github:ic:9001",
         "source_task_id": serde_json::Value::Null,
     });
@@ -591,11 +674,10 @@ async fn a_permanently_failing_linear_kind_leaves_its_siblings_budget_alone(pool
         attempts, 1,
         "a permanent failure spends no budget on retrying"
     );
+    let last_error = last_error.unwrap_or_default();
     assert!(
-        last_error
-            .unwrap_or_default()
-            .contains("payload does not match its kind"),
-        "a terminal record says why it was abandoned"
+        last_error.contains("does not match its kind"),
+        "a terminal record says why it was abandoned: {last_error}"
     );
 
     let (status, attempts, last_error) = status_of(&pool, linear::delivery::COMMENT, event_id)
@@ -758,10 +840,9 @@ async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
     .expect("record");
     assert_eq!(status, "failed");
     assert_eq!(attempts, 1);
+    let last_error = last_error.unwrap_or_default();
     assert!(
-        last_error
-            .unwrap_or_default()
-            .contains("payload does not match its kind"),
-        "an unreadable payload is terminal, not a retry loop"
+        last_error.contains("does not match its kind"),
+        "an unreadable payload is terminal, not a retry loop: {last_error}"
     );
 }

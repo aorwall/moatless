@@ -44,7 +44,7 @@ use moatless_backend::task::dao as task_dao;
 
 use common::{
     USER_1, drain_linear_adapter_delivery, linear_config, make_repository_row, make_task_row,
-    seed_team, test_app_state_with_linear, test_config,
+    seed_linear_app, seed_team, test_app_state_with_linear, test_config,
 };
 
 const SECRET: &str = "linear-webhook-secret";
@@ -173,6 +173,12 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
     .execute(pool)
     .await
     .expect("seed Linear connection");
+    // Every Linear handler resolves its client from this row before it looks
+    // for work, so without it no delivery ever reaches the forward: the record
+    // fails on "linear app 'default' not configured" and retries. The address
+    // is one nothing listens on, which is the unreachable API this file is
+    // written against.
+    seed_linear_app(pool, "http://127.0.0.1:1").await;
 
     let binding = TaskBinding {
         id: "tb-linear-1".to_string(),
@@ -223,7 +229,11 @@ async fn seed_rule(state: &AppState) {
             task_name: None,
             tag_ids: vec![],
             skills: Vec::new(),
-            run_as_user_id: None,
+            // A Subscription with no run-as user is invisible to every lookup
+            // that resolves rules — `run_as_user_id IS NOT NULL` is in the
+            // query. Without it the rule exists and matches nothing, and the
+            // issue-update handler returns before it forwards anything.
+            run_as_user_id: Some(USER_1.to_string()),
             agent_type: "claude-code".to_string(),
             inactive_ttl_days: None,
             allow_direct_send: false,

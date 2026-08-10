@@ -1013,8 +1013,9 @@ async fn an_issue_transition_persists_status_and_forwards_without_fetching(pool:
     );
     assert_eq!(
         forwarded_ids(&pool).await,
-        vec![format!("linear:issue-state:{ISSUE}:1700000000003")],
-        "the state change is identified by the issue and Linear's delivery timestamp"
+        vec![format!("linear:issue-state:{ISSUE}:s0:s1:1700000000003")],
+        "the state change is identified by the issue and the transition it made — \
+         the two states, and Linear's delivery timestamp as the clock of last resort"
     );
 }
 

@@ -43,6 +43,7 @@ use moatless_t3code::{
 use moatless_t3code::{
     SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
 };
+use moatless_t3code::{UiRpcAuthIdentity, UserRole};
 use moatless_backend::auth::api_keys::PgApiKeyDao;
 use moatless_backend::auth::pairing::{
     DevicePairing, PgPairingApiKeyIssuer, PgPairingCodeDao,
@@ -96,6 +97,28 @@ fn conversation_write(
         },
         content,
     )
+}
+
+/// [`authed_request`] plus the identity the T3 handlers read.
+///
+/// The auth middleware inserts two extensions, not one: `AuthIdentity` for the
+/// Moatless handlers and `UiRpcAuthIdentity` for the T3 ones. This request
+/// bypasses that middleware, so a T3 route reached with only the first is a
+/// `500` on a missing extension rather than the response under test.
+fn ui_rpc_authed_request(
+    method: &str,
+    uri: &str,
+    user_id: &str,
+) -> axum::http::Request<axum::body::Body> {
+    let mut req = authed_request(method, uri, user_id);
+    req.extensions_mut().insert(UiRpcAuthIdentity {
+        user_id: user_id.parse().expect("USER_1 is a UUID"),
+        login: user_id.to_string(),
+        role: UserRole::User,
+        provider: "test".to_string(),
+        group_id: None,
+    });
+    req
 }
 
 fn viewer(user_id: &str) -> ScopeContext {
@@ -759,7 +782,11 @@ async fn the_mounted_route_returns_the_viewers_projects(pool: PgPool) {
         .expect("the compatibility routes are gated on");
 
     let response = router
-        .oneshot(authed_request("GET", "/api/orchestration/shell", USER_1))
+        .oneshot(ui_rpc_authed_request(
+            "GET",
+            "/api/orchestration/shell",
+            USER_1,
+        ))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -1953,7 +1980,7 @@ async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgP
     .expect_err("a conversation they do not follow is not theirs to read");
     assert_eq!(
         error.message(),
-        "This conversation's files are not available.",
+        "This conversation's workspace is not available.",
         "and it must not say whether the conversation exists"
     );
 }
@@ -1990,7 +2017,7 @@ async fn a_project_root_is_answered_as_a_conversation_with_no_sandbox(pool: PgPo
     .expect_err("a project has no files of its own");
     assert_eq!(
         error.message(),
-        "This conversation has no sandbox, so it has no files yet."
+        "This conversation has no sandbox, so it has no workspace yet."
     );
 }
 

@@ -22,7 +22,7 @@
 
 use crate::common;
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -43,7 +43,8 @@ use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
 use common::{
-    make_repository_row, make_task_row, seed_team, test_app_state_with_adapters, test_config,
+    github_api_base, make_repository_row, make_task_row, seed_team, test_app_state_with_adapters,
+    test_config,
 };
 
 const CONNECTION_ID: &str = "conn-github-redelivery";
@@ -66,25 +67,25 @@ struct RecordedGithubRequest {
     authorization: Option<String>,
 }
 
-static GITHUB_API_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
-    LazyLock::new(|| tokio::sync::Mutex::new(()));
-
-struct GithubApiBaseRestore(Option<std::ffi::OsString>);
-
-impl Drop for GithubApiBaseRestore {
-    fn drop(&mut self) {
-        if let Some(value) = self.0.take() {
-            std::env::set_var("GITHUB_API_BASE_URL", value);
-        } else {
-            std::env::remove_var("GITHUB_API_BASE_URL");
-        }
-    }
-}
-
 async fn request_counting_github_stub(
 ) -> (String, Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>) {
+    request_counting_github_stub_with_mergeable_state("dirty").await
+}
+
+/// The same stub, with the PR's `mergeable_state` chosen by the caller.
+///
+/// `dirty` is what every conflict-notification assertion below wants. A test
+/// that needs the check to *run and settle* without also posting a notice asks
+/// for `clean` instead: notification is gated on a conflict, so a clean PR
+/// spends the same request budget and leaves the task's messages alone.
+async fn request_counting_github_stub_with_mergeable_state(
+    mergeable_state: &'static str,
+) -> (String, Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>) {
     async fn handle(
-        State(requests): State<Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>>,
+        State((requests, mergeable_state)): State<(
+            Arc<tokio::sync::Mutex<Vec<RecordedGithubRequest>>>,
+            &'static str,
+        )>,
         request: axum::extract::Request,
     ) -> Response {
         let method = request.method().clone();
@@ -110,8 +111,8 @@ async fn request_counting_github_stub(
                 "body": "Body",
                 "state": "open",
                 "merged": false,
-                "mergeable": false,
-                "mergeable_state": "dirty",
+                "mergeable": mergeable_state == "clean",
+                "mergeable_state": mergeable_state,
                 "draft": false,
                 "html_url": "https://github.com/acme/widgets/pull/42",
                 "user": {"login": "octocat"},
@@ -145,7 +146,7 @@ async fn request_counting_github_stub(
     let addr = listener.local_addr().expect("GitHub stub address");
     let app = Router::new()
         .fallback(any(handle))
-        .with_state(requests.clone());
+        .with_state((requests.clone(), mergeable_state));
     tokio::spawn(async move {
         axum::serve(listener, app)
             .await
@@ -826,11 +827,8 @@ async fn inbound_sender_prefers_mapped_login_then_connection_owner(pool: PgPool)
 async fn partial_pr_payload_projects_status_before_current_acknowledged_no_effect_limit(
     pool: PgPool,
 ) {
-    let _env_lock = GITHUB_API_ENV_LOCK.lock().await;
     let (base_url, requests) = request_counting_github_stub().await;
-    let previous = std::env::var_os("GITHUB_API_BASE_URL");
-    std::env::set_var("GITHUB_API_BASE_URL", &base_url);
-    let _restore = GithubApiBaseRestore(previous);
+    let _github_api = github_api_base(&base_url).await;
 
     seed_fixtures(&pool, "task-partial-status").await;
     let state = registered_replica(&pool, None, Some("global-token")).await;
@@ -883,11 +881,8 @@ async fn partial_pr_payload_projects_status_before_current_acknowledged_no_effec
 async fn rejected_post_merge_candidate_spends_zero_github_calls_during_webhook_normalization(
     pool: PgPool,
 ) {
-    let _env_lock = GITHUB_API_ENV_LOCK.lock().await;
     let (base_url, requests) = request_counting_github_stub().await;
-    let previous = std::env::var_os("GITHUB_API_BASE_URL");
-    std::env::set_var("GITHUB_API_BASE_URL", &base_url);
-    let _restore = GithubApiBaseRestore(previous);
+    let _github_api = github_api_base(&base_url).await;
 
     seed_fixtures(&pool, "task-rejected-post-merge-webhook").await;
     let state = registered_replica(&pool, None, Some("global-token")).await;
@@ -916,11 +911,8 @@ async fn rejected_post_merge_candidate_spends_zero_github_calls_during_webhook_n
 
 #[sqlx::test]
 async fn build_result_routes_to_producer_then_shared_fallback(pool: PgPool) {
-    let _env_lock = GITHUB_API_ENV_LOCK.lock().await;
     let (base_url, requests) = request_counting_github_stub().await;
-    let previous = std::env::var_os("GITHUB_API_BASE_URL");
-    std::env::set_var("GITHUB_API_BASE_URL", &base_url);
-    let _restore = GithubApiBaseRestore(previous);
+    let _github_api = github_api_base(&base_url).await;
 
     let producer = "task-build-producer";
     let responder = "task-build-responder";
@@ -993,11 +985,8 @@ async fn build_result_routes_to_producer_then_shared_fallback(pool: PgPool) {
 
 #[sqlx::test]
 async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(pool: PgPool) {
-    let _env_lock = GITHUB_API_ENV_LOCK.lock().await;
     let (base_url, requests) = request_counting_github_stub().await;
-    let previous = std::env::var_os("GITHUB_API_BASE_URL");
-    std::env::set_var("GITHUB_API_BASE_URL", &base_url);
-    let _restore = GithubApiBaseRestore(previous);
+    let _github_api = github_api_base(&base_url).await;
 
     let producer = "task-pr-producer";
     let responder = "task-pr-responder";
@@ -1246,12 +1235,21 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
 /// the durable record is the recognition.
 #[sqlx::test]
 async fn a_redelivery_on_a_different_replica_does_no_second_effect(pool: PgPool) {
+    // The delivery plans a merge-conflict check as well as the comment, and
+    // that check authenticates before it reads the PR. Without a credential it
+    // is a *retryable* failure, so the record never settles and the "executes
+    // exactly once" assertion below has nothing to read. The PR the stub serves
+    // is clean, which keeps the check a no-op past the read: the one message on
+    // the task stays the comment.
+    let (base_url, _requests) = request_counting_github_stub_with_mergeable_state("clean").await;
+    let _github_api = github_api_base(&base_url).await;
+
     let task_id = "task-gh-redelivery";
     seed_fixtures(&pool, task_id).await;
 
     let payload = issue_comment_payload(9001, "octocat");
-    let state_a = replica(&pool).await;
-    let state_b = replica(&pool).await;
+    let state_a = registered_replica(&pool, None, Some("global-token")).await;
+    let state_b = registered_replica(&pool, None, Some("global-token")).await;
 
     let first = deliver(&state_a, "issue_comment", "delivery-1", &payload).await;
     let redelivery = deliver(&state_b, "issue_comment", "delivery-1", &payload).await;

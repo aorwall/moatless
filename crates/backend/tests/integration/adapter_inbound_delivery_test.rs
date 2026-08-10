@@ -37,16 +37,16 @@ const TELEGRAM_KIND: &str = "telegram.inbound_message";
 /// The payload shape the webhook handlers write, spelled out rather than built
 /// from the private struct: it is a wire contract between two processes and a
 /// silent change to it strands every record the previous build admitted.
-fn payload(connection_id: &str, rule_id: &str, provider: &str) -> serde_json::Value {
+fn payload(connection_id: &str, loop_id: &str, adapter_kind: &str) -> serde_json::Value {
     serde_json::json!({
         "connection_id": connection_id,
-        "rule_id": rule_id,
+        "loop_id": loop_id,
         "subject_kind": "slack_thread",
         "subject_key": "T1:C1:1700000000.000100",
         "destination_config": { "channel": "C1", "thread_ts": "1700000000.000100" },
         "event_type": "event_callback",
         "message": {
-            "provider": provider,
+            "adapter_kind": adapter_kind,
             "source_id": "C1",
             "thread_id": null,
             "message_thread_id": "1700000000.000100",
@@ -54,7 +54,7 @@ fn payload(connection_id: &str, rule_id: &str, provider: &str) -> serde_json::Va
             "text": "please look at this",
             "file_ids": [],
             "thread_properties": { "channel": "C1", "ts": "1700000000.000100" },
-            "provider_context": {},
+            "adapter_context": {},
             "external_event_id": "slack:ts:1700000000.000100",
             "source_task_id": null,
         },

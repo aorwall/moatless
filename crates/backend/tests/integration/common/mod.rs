@@ -164,6 +164,79 @@ pub async fn seed_linear_app(pool: &sqlx::PgPool, api_base_url: &str) {
     .expect("seed Linear adapter app");
 }
 
+/// The `adapter_apps` row every Telegram Bot API call resolves its client from.
+///
+/// Telegram credentials are DB-authoritative the same way Linear's are, but the
+/// bot token is a *secret*, so the row cannot be a plain `INSERT`: it has to go
+/// through [`upsert_adapter_app`], which encrypts it under the test config's
+/// `SECRETS_ENCRYPTION_KEY`. Unlike Linear's best-effort emitters, the Telegram
+/// ingress path resolves its client before it normalizes an update and turns a
+/// missing app into a `400`, so without this row every delivery is refused.
+///
+/// [`upsert_adapter_app`]: moatless_backend::adapter_apps::upsert_adapter_app
+#[allow(dead_code)]
+pub async fn seed_telegram_app(pool: &sqlx::PgPool, config: &Config, bot_token: &str) {
+    moatless_backend::adapter_apps::upsert_adapter_app(
+        pool,
+        &config.secrets,
+        moatless_backend::adapter_apps::AdapterAppInput {
+            adapter_kind: "telegram",
+            app_key: moatless_backend::adapter_apps::DEFAULT_APP_KEY.to_string(),
+            display_name: "Telegram (test)".to_string(),
+            config_json: serde_json::json!({ "mode": "webhook" }),
+            secrets: vec![moatless_backend::adapter_apps::AdapterAppSecretInput {
+                name: "bot_token",
+                plaintext: bot_token.to_string(),
+            }],
+        },
+        USER_1,
+    )
+    .await
+    .expect("seed Telegram adapter app");
+}
+
+/// Exclusive, restoring ownership of `GITHUB_API_BASE_URL` for the caller.
+///
+/// The GitHub REST base is resolved from that env var — `moatless_core::github`
+/// reads it on every client build — so pointing the backend at a stub means
+/// writing a process-global. It lives here rather than in one test file because
+/// the lock only serializes the tests that share *it*: two files each with their
+/// own mutex would take turns with themselves and race with each other, which
+/// under a runner that puts the whole binary in one process (plain `cargo test`)
+/// is one test's stub answering another test's calls.
+///
+/// Hold the returned guard for as long as the stub must stay addressable; the
+/// previous value is restored when it drops.
+#[allow(dead_code)]
+pub async fn github_api_base(base_url: &str) -> GithubApiBaseGuard {
+    static LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+        std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+    let guard = LOCK.lock().await;
+    let previous = std::env::var_os("GITHUB_API_BASE_URL");
+    std::env::set_var("GITHUB_API_BASE_URL", base_url);
+    GithubApiBaseGuard {
+        _lock: guard,
+        previous,
+    }
+}
+
+#[allow(dead_code)]
+pub struct GithubApiBaseGuard {
+    _lock: tokio::sync::MutexGuard<'static, ()>,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl Drop for GithubApiBaseGuard {
+    fn drop(&mut self) {
+        if let Some(value) = self.previous.take() {
+            std::env::set_var("GITHUB_API_BASE_URL", value);
+        } else {
+            std::env::remove_var("GITHUB_API_BASE_URL");
+        }
+    }
+}
+
 /// Minimal Config for tests — no env vars needed.
 #[allow(dead_code)]
 pub fn test_config() -> Config {

@@ -315,7 +315,10 @@ async fn an_issue_update_with_a_delivery_timestamp_is_admitted(pool: PgPool) {
         records(&pool).await,
         vec![(
             linear::delivery::ISSUE_UPDATE.to_string(),
-            format!("Issue:update:{ISSUE}:1700000000000"),
+            // The identity of an issue update is the transition, not the
+            // issue: the state it left, the state it entered, and — with no
+            // `updatedAt` in `data` — the delivery timestamp as the fallback.
+            format!("Issue:update:{ISSUE}:todo:in-progress:1700000000000"),
             "pending".to_string(),
         )]
     );

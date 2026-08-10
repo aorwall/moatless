@@ -14,12 +14,14 @@
 //! several backends run it at once.
 //!
 //! GitHub itself is stubbed through `GITHUB_API_BASE_URL`, the seam the E2E
-//! suite already uses. The variable is process-global, and every test in this
-//! binary points it at the same stub, so setting it is safe here and would not
-//! be if these tests shared a process with tests that call GitHub for real.
+//! suite already uses. The variable is process-global and other tests in this
+//! binary point it at stubs of their own, so it is taken through
+//! `common::github_api_base` — the one lock that makes those turns exclusive.
+
+use crate::common;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::routing::get;
 use axum::Json;
@@ -32,37 +34,58 @@ use moatless_backend::auth::github::service::GitHubAppService;
 use moatless_core::config::{GitHubAppConfig, SecretsConfig};
 use moatless_backend::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
 use sqlx::PgPool;
-use tokio::sync::OnceCell;
 
 /// A throwaway key, so a service built from a stored record is a real one.
 const TEST_PEM: &str =
     include_str!("../../../../crates/identity/src/auth/github/testdata/github_app_test_key.pem");
 
-static STUB: OnceCell<SocketAddr> = OnceCell::const_new();
+static STUB: OnceLock<SocketAddr> = OnceLock::new();
 
-/// Stand in for GitHub's `GET /app`, which is the whole of the proof call.
-async fn stub_github() -> SocketAddr {
-    *STUB
-        .get_or_init(|| async {
-            let app = axum::Router::new().route(
-                "/app",
-                get(|| async {
-                    Json(serde_json::json!({
-                        "id": 4242,
-                        "slug": "reviewer",
-                        "name": "Reviewer",
-                    }))
-                }),
-            );
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let addr = listener.local_addr().unwrap();
-            tokio::spawn(async move {
+/// Stand in for GitHub's `GET /app`, which is the whole of the proof call, and
+/// point the process at it for as long as the returned guard lives.
+///
+/// The env var is shared with every other test in the binary, so it is taken
+/// through [`common::github_api_base`] rather than written here: the guard is
+/// what keeps a concurrent test's stub from answering these calls, and these
+/// calls from outliving their own stub in that test's restore.
+///
+/// The address behind it is cached for the whole process, so the server has to
+/// outlive the test that happened to start it. It therefore gets a thread and a
+/// runtime of its own rather than a `tokio::spawn` onto the caller's: under a
+/// runner that gives each test its own runtime and drops it at the end (plain
+/// `cargo test`, one process, thread-per-test), spawning here would leave every
+/// later test holding the address of a listener that died with the first test's
+/// runtime.
+async fn stub_github() -> common::GithubApiBaseGuard {
+    common::github_api_base(&format!("http://{}", stub_github_addr())).await
+}
+
+fn stub_github_addr() -> SocketAddr {
+    *STUB.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let app = axum::Router::new().route(
+                    "/app",
+                    get(|| async {
+                        Json(serde_json::json!({
+                            "id": 4242,
+                            "slug": "reviewer",
+                            "name": "Reviewer",
+                        }))
+                    }),
+                );
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                tx.send(listener.local_addr().unwrap()).unwrap();
                 axum::serve(listener, app).await.unwrap();
             });
-            std::env::set_var("GITHUB_API_BASE_URL", format!("http://{addr}"));
-            addr
-        })
-        .await
+        });
+        rx.recv().expect("GitHub stub reports its address")
+    })
 }
 
 fn cipher() -> Arc<dyn SecretCipher> {
@@ -95,7 +118,7 @@ fn app_config(key: &str, app_id: u64) -> GitHubAppConfig {
 
 /// Prove and store an App the way the register handler does.
 async fn register(pool: &PgPool, key: &str, app_id: u64) -> GitHubAppRecord {
-    stub_github().await;
+    let _github_api = stub_github().await;
     let cipher = cipher();
     let proved = GitHubAppService::from_app_config(&app_config(key, app_id))
         .expect("key parses")
@@ -144,7 +167,7 @@ async fn a_proved_app_is_stored_with_the_identity_github_reported(pool: PgPool) 
 
 #[sqlx::test]
 async fn a_key_that_names_a_different_app_is_refused_and_nothing_is_stored(pool: PgPool) {
-    stub_github().await;
+    let _github_api = stub_github().await;
     // The stub always answers as App 4242; claiming 9999 is the "this key
     // belongs to a different App" case.
     let error = GitHubAppService::from_app_config(&app_config("review-bot", 9999))
@@ -270,7 +293,7 @@ async fn removing_an_app_stops_it_answering_everywhere(pool: PgPool) {
 
 #[sqlx::test]
 async fn the_carry_over_produces_one_record_when_several_backends_run_it(pool: PgPool) {
-    stub_github().await;
+    let _github_api = stub_github().await;
     let entries = vec![app_config("env-bot", 4242)];
 
     let backends: Vec<GitHubAppRegistry> = (0..3).map(|_| registry(&pool)).collect();
@@ -293,7 +316,7 @@ async fn the_carry_over_produces_one_record_when_several_backends_run_it(pool: P
 
 #[sqlx::test]
 async fn a_deleted_carried_over_app_is_not_resurrected_by_a_restart(pool: PgPool) {
-    stub_github().await;
+    let _github_api = stub_github().await;
     let entries = vec![app_config("env-bot", 4242)];
 
     registry(&pool).carry_over_env_apps(&entries).await;
@@ -312,7 +335,7 @@ async fn a_deleted_carried_over_app_is_not_resurrected_by_a_restart(pool: PgPool
         .unwrap()
         .is_none());
     let claimed: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM github_app_migrations WHERE name = $1")
+        sqlx::query_scalar("SELECT count(*) FROM adapter_app_migrations WHERE name = $1")
             .bind(ENV_CARRY_OVER)
             .fetch_one(&pool)
             .await
@@ -337,7 +360,7 @@ async fn administration_is_recorded_against_whoever_did_it(pool: PgPool) {
         .unwrap();
 
     let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT actor_id, action, result FROM github_app_audit_events WHERE app_key = $1",
+        "SELECT actor_id, action, result FROM adapter_app_audit_events WHERE app_key = $1",
     )
     .bind("review-bot")
     .fetch_all(&pool)

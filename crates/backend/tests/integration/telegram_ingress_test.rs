@@ -38,7 +38,10 @@ use moatless_backend::state::AppState;
 use sqlx::{PgPool, Row};
 use tower::ServiceExt;
 
-use common::{USER_1, make_repository_row, seed_team, test_app_state_with_adapters, test_config};
+use common::{
+    USER_1, make_repository_row, seed_team, seed_telegram_app, test_app_state_with_adapters,
+    test_config,
+};
 
 const CONNECTION: &str = "conn-telegram-1";
 const TRIGGER: &str = "tt-telegram-1";
@@ -47,12 +50,20 @@ const SECRET: &str = "telegram-secret";
 const WEBHOOK_PATH: &str = "/api/v1/adapters/telegram/webhook";
 
 /// A backend replica with the Telegram Adapter installed, built the way startup
-/// builds it. The bot token is never used: no update below reaches a Bot API
-/// call, and the config leaves Slack's token unset so registry construction
+/// builds it. The bot token is never *called*: no update below reaches a Bot
+/// API call, and the config leaves Slack's token unset so registry construction
 /// makes no network call either.
+///
+/// It still has to exist in `adapter_apps`, though. Telegram credentials are
+/// DB-authoritative, and the ingress path resolves its client before it
+/// normalizes an update — so an update that routes is a `400` without the row,
+/// rather than the ignored-or-admitted outcome these tests are about. Startup
+/// writes that row by carrying `config.telegram.bot_token` over into the DB;
+/// seeding it here is what stands in for that step.
 async fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.telegram.bot_token = Some("fake-token".to_string());
+    seed_telegram_app(pool, &config, "fake-token").await;
     test_app_state_with_adapters(pool.clone(), config)
 }
 
@@ -350,11 +361,11 @@ async fn the_admitted_payload_names_the_routing_subscription(pool: PgPool) {
             .unwrap();
 
     assert_eq!(payload["connection_id"], CONNECTION);
-    assert_eq!(payload["rule_id"], TRIGGER);
+    assert_eq!(payload["loop_id"], TRIGGER);
     assert_eq!(payload["subject_kind"], "telegram_thread");
     assert_eq!(payload["subject_key"], "-100123:thread:42");
     assert_eq!(payload["event_type"], "", "Telegram labels no event type");
-    assert_eq!(payload["message"]["provider"], "telegram");
+    assert_eq!(payload["message"]["adapter_kind"], "telegram");
     assert_eq!(payload["message"]["source_id"], CHAT);
     assert_eq!(payload["message"]["external_event_id"], "tg:m:42");
     assert_eq!(

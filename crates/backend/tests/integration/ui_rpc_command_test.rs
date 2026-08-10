@@ -753,6 +753,16 @@ async fn settling_twice_keeps_the_first_timestamp_and_records_one_change(pool: P
         .await
         .1
         .expect("first settle timestamp");
+    // Settling also releases the sandbox it was holding, and that intent move
+    // is a listing change of its own — a different axis, announced separately.
+    // So what the repeat must add is nothing, measured against where the first
+    // settle left the counter rather than against a fixed number of changes.
+    let after_first = listing_change_count(&pool, "t-settle-idempotent").await;
+    assert!(
+        after_first > before,
+        "the first settle is announced to the listing"
+    );
+
     sink.settle(&viewer(USER_1), "t-settle-idempotent")
         .await
         .expect("second settle is accepted");
@@ -764,7 +774,8 @@ async fn settling_twice_keeps_the_first_timestamp_and_records_one_change(pool: P
     assert_eq!(first, second);
     assert_eq!(
         listing_change_count(&pool, "t-settle-idempotent").await,
-        before + 1
+        after_first,
+        "a repeated settle changes nothing, so it announces nothing"
     );
 }
 

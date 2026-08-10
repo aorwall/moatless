@@ -6,9 +6,9 @@ parse failures: 0
 CODE       legal  2838  illegal    0
 ATTRIBUTE  legal   280  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    48  illegal    0   (function-like macro-invocation token streams)
-DOC           47  (intra-doc paths — never a Cargo edge, never illegal)
+DOC           49  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 848 point down into the existing crates/* floor
-TEST-CONTEXT 1958  (crates/backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 1973  (crates/backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (crates/backend/src -> target crate; generated from bands.rs) ==

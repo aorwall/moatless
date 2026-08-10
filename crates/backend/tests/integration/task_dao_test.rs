@@ -766,6 +766,9 @@ async fn list_tasks_followed_by_and_status_filters_count_tagged_task_once(pool: 
     for id in ["task-followed-open", "task-followed-closed"] {
         repo.follow_task(user, id).await.unwrap();
     }
+    // Insertion auto-follows the creator, so the third task has to be
+    // *unfollowed* to be the one this filter must leave out.
+    repo.unfollow_task(user, "task-unfollowed").await.unwrap();
 
     // followed_by alone: two followed tasks, each counted once despite tags.
     let filter = TaskFilter {

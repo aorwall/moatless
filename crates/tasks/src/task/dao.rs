@@ -684,8 +684,14 @@ impl TaskDao for PgTaskDao {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
         let ctrl = ctx.control_filter("", 3);
+        // `closed_at` is a fact of `status` — the same rule `update_task`
+        // applies. Without it this path leaves the two disagreeing: a task
+        // closed here would be archived with no time to show for it, and a
+        // reopen here would keep the old close time and stay in the archive.
         let sql = format!(
-            "UPDATE tasks SET status = $2, updated_at = NOW() \
+            "UPDATE tasks SET status = $2, \
+             closed_at = CASE WHEN $2 = 'closed' THEN COALESCE(closed_at, NOW()) ELSE NULL END, \
+             updated_at = NOW() \
              WHERE task_id = $1 AND status <> 'closed' AND {}",
             ctrl.sql()
         );

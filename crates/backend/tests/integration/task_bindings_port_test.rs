@@ -24,7 +24,7 @@ use moatless_backend::repository::dao as repository_dao;
 use moatless_core::scope::Scope;
 use moatless_backend::state::AppState;
 use moatless_backend::task::dao as task_dao;
-use moatless_backend::task::routes::task_router;
+use moatless_backend::task_connections::routes::task_connections_router;
 
 use common::{
     authed_request, body_json, make_repository_row, make_task_row, seed_team, test_app_state,
@@ -124,7 +124,9 @@ async fn task_connections_handler_reads_bindings_written_through_the_port(pool: 
         .await
         .expect("upsert binding through the port");
 
-    let (router, _api) = task_router(state);
+    // The endpoint lives in its own router, not the task router — the two are
+    // mounted side by side at startup and only share the `tasks` OpenAPI tag.
+    let (router, _api) = task_connections_router(state);
     let resp = router
         .oneshot(authed_request(
             "GET",

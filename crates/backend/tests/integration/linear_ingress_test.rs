@@ -572,7 +572,11 @@ async fn an_issue_update_with_no_timestamp_is_unidentifiable(pool: PgPool) {
     assert!(
         matches!(
             rejection.error,
-            IngressError::Unidentifiable("webhookTimestamp")
+            // The transition is what has to be identifiable; the timestamp is
+            // one of its three parts, and the only one this envelope omits.
+            IngressError::Unidentifiable(
+                "updatedFrom.stateId, data.state.id, and updatedAt or webhookTimestamp"
+            )
         ),
         "got {:?}",
         rejection.error
