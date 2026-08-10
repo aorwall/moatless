@@ -115,12 +115,12 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         let (owner, repo) = self.github_owner_repo(viewer, repository_id).await?;
         let adapter = self
             .0
-            .provider_handles
-            .github_pr
+            .adapter_installations
             .as_ref()
+            .map(|installations| installations.github_pr())
             .ok_or(PullRequestError::NotFound)?;
         crate::adapters::providers::github_pr::api_routes::resolve_reference_for_dialog(
-            adapter,
+            &adapter,
             &viewer.user_id,
             &owner,
             &repo,
@@ -139,9 +139,13 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
         head: &str,
     ) -> Option<ResolvedPullRequest> {
         let (owner, repo) = self.github_owner_repo(viewer, repository_id).await.ok()?;
-        let adapter = self.0.provider_handles.github_pr.as_ref()?;
+        let adapter = self
+            .0
+            .adapter_installations
+            .as_ref()
+            .map(|installations| installations.github_pr())?;
         crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
-            adapter,
+            &adapter,
             &viewer.user_id,
             &owner,
             &repo,
@@ -280,12 +284,16 @@ async fn bind_thread_to_open_pr(
     else {
         return;
     };
-    let Some(adapter) = state.provider_handles.github_pr.as_ref() else {
+    let Some(adapter) = state
+        .adapter_installations
+        .as_ref()
+        .map(|installations| installations.github_pr())
+    else {
         return;
     };
     let pr =
         match crate::adapters::providers::github_pr::api_routes::find_open_pull_request_for_head(
-            adapter,
+            &adapter,
             &viewer.user_id,
             &owner,
             &repo,
@@ -307,7 +315,10 @@ async fn bind_thread_to_open_pr(
         "pr_number": pr.number,
     });
     match crate::loops::firing::listen::Connector::new(
-        state.provider_handles.github_destination_builder(),
+        state
+            .adapter_installations
+            .as_ref()
+            .map(|installations| installations.github_destination_builder()),
         state.adapter_connections.clone(),
         state.loops.clone(),
         state.task_bindings.clone(),

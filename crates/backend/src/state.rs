@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::adapter_installations::AdapterInstallations;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
@@ -55,46 +56,6 @@ use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_core::tag::dao::TagDao;
 
-/// The concrete per-provider handles the composition root owns, projected to a
-/// provider's own handlers by `FromRef<AppState>`.
-///
-/// A provider's handlers need methods its concrete adapter has and the `Adapter`
-/// trait does not, so they take `State(p): State<Option<Arc<ConcreteAdapter>>>`
-/// off the root rather than reaching back through the registry that holds the
-/// trait object. Each is `Some` exactly when the registry has that provider;
-/// `from_config` fills all four, and a build with no adapters leaves all four
-/// `None`.
-///
-/// This lives in the server band, not the loops-band registry: naming a
-/// concrete provider type is the composition root's privilege, so the registry
-/// that holds only `dyn Adapter` never reaches up to a provider band.
-#[derive(Clone, Default)]
-pub struct ProviderHandles {
-    pub github_pr: Option<Arc<crate::adapters::providers::github_pr::adapter::GithubPrAdapter>>,
-    pub linear: Option<Arc<crate::adapters::providers::linear::adapter::LinearAdapter>>,
-    pub slack: Option<Arc<crate::adapters::providers::slack::adapter::SlackAdapter>>,
-    pub telegram: Option<Arc<crate::adapters::providers::telegram::adapter::TelegramAdapter>>,
-}
-
-impl ProviderHandles {
-    /// The concrete GitHub PR [`AdapterDestinationBuilder`], erased to the trait
-    /// object a loops-band binding connector wants.
-    ///
-    /// The coercion from the concrete `Arc<GithubPrAdapter>` to
-    /// `Arc<dyn AdapterDestinationBuilder>` belongs here, in the server band that
-    /// is allowed to name the provider type — so a caller below the provider band
-    /// receives the specific builder without ever asking the registry for it by
-    /// `AdapterKind` (which would launder a provider self-lookup as a legal port).
-    pub(crate) fn github_destination_builder(
-        &self,
-    ) -> Option<Arc<dyn crate::adapters::AdapterDestinationBuilder>> {
-        match &self.github_pr {
-            Some(adapter) => Some(adapter.clone()),
-            None => None,
-        }
-    }
-}
-
 /// Shared application state for task/message/agent/file routes.
 ///
 /// All fields are cheap to clone (Arc-wrapped or internally Arc'd).
@@ -137,13 +98,12 @@ pub struct AppState {
     pub events: Option<Arc<dyn EventPublisher>>,
     /// Optional S3 handle for file uploads/downloads.
     pub s3: Option<crate::file_storage::s3::S3Storage>,
-    /// Optional external adapters.
+    /// Optional capability registry derived from [`Self::adapter_installations`].
     pub adapters: Option<Arc<Adapters>>,
-    /// The concrete per-provider adapter handles, projected to each provider's
-    /// own handlers by `FromRef<AppState>`. Each field is `Some` exactly when
-    /// `adapters` holds that provider; all four are `None` when there are no
-    /// adapters. See [`ProviderHandles`].
-    pub provider_handles: ProviderHandles,
+    /// The process's one coherent installation of every external Adapter.
+    /// Construction, capability registration, delivery wiring, and concrete
+    /// handler access remain joined behind this value.
+    pub adapter_installations: Option<Arc<AdapterInstallations>>,
     /// Optional GitHub App service for installation tokens and user token refresh.
     ///
     /// Convenience handle to the default (user-auth) App. Equivalent to
@@ -267,14 +227,11 @@ impl AppState {
     /// handle — so they are assembled from `ports` rather than in it.
     #[expect(
         clippy::too_many_arguments,
-        reason = "nine independent infrastructure handles — ports, config, \
-                  lifecycle, connector, sandbox_notify, events, s3, adapters, \
-                  provider_handles — each wired in from the composition root; \
-                  bundling them behind a one-use struct only shuffles the same \
-                  fields. provider_handles is itself a bundle, but not that \
-                  shuffle: each of its four fields has a FromRef consumer that \
-                  takes exactly one, which earns it a struct where a \
-                  hypothetical AppStateNewArgs would not."
+        reason = "eight independent infrastructure handles — ports, config, \
+                  lifecycle, connector, sandbox_notify, events, s3, and \
+                  adapter_installations — each wired in from the composition \
+                  root; bundling them behind a one-use struct only shuffles the \
+                  same fields."
     )]
     pub fn new(
         ports: &Ports,
@@ -284,8 +241,7 @@ impl AppState {
         sandbox_notify: Arc<dyn NotifyPort>,
         events: Option<Arc<dyn EventPublisher>>,
         s3: Option<crate::file_storage::s3::S3Storage>,
-        adapters: Option<Arc<Adapters>>,
-        provider_handles: ProviderHandles,
+        adapter_installations: Option<Arc<AdapterInstallations>>,
     ) -> Self {
         let Ports {
             pool,
@@ -306,6 +262,7 @@ impl AppState {
             adapter_connections,
             event_receipts,
             ingress_outbox,
+            adapter_delivery,
             users,
             provider_tokens,
             provider_token_auth,
@@ -316,6 +273,10 @@ impl AppState {
             token_verifier,
             ..
         } = ports.clone();
+
+        let adapters = adapter_installations
+            .as_ref()
+            .map(|installations| installations.adapters());
 
         // Shared HTTP client for Codex token refresh — kept warm across calls.
         let codex_http = Arc::new(
@@ -557,7 +518,7 @@ impl AppState {
             task_presenter,
             task_closer,
             skills,
-            adapter_delivery: Arc::new(AdapterDeliveryStore::new(pool.clone())),
+            adapter_delivery,
             db: pool,
             config,
             auth_config,
@@ -570,7 +531,7 @@ impl AppState {
             events,
             s3,
             adapters,
-            provider_handles,
+            adapter_installations,
             github_app_service,
             github_apps,
             credential_sync,
@@ -870,40 +831,5 @@ impl axum::extract::FromRef<AppState> for Arc<TaskCloser> {
 impl axum::extract::FromRef<AppState> for DbPool {
     fn from_ref(state: &AppState) -> Self {
         state.db.clone()
-    }
-}
-
-// Concrete per-provider handles. Each provider's own handlers name the one they
-// need; `None` when there are no adapters, which those handlers answer with
-// `AdapterNotConfigured`.
-impl axum::extract::FromRef<AppState>
-    for Option<Arc<crate::adapters::providers::github_pr::adapter::GithubPrAdapter>>
-{
-    fn from_ref(state: &AppState) -> Self {
-        state.provider_handles.github_pr.clone()
-    }
-}
-
-impl axum::extract::FromRef<AppState>
-    for Option<Arc<crate::adapters::providers::linear::adapter::LinearAdapter>>
-{
-    fn from_ref(state: &AppState) -> Self {
-        state.provider_handles.linear.clone()
-    }
-}
-
-impl axum::extract::FromRef<AppState>
-    for Option<Arc<crate::adapters::providers::slack::adapter::SlackAdapter>>
-{
-    fn from_ref(state: &AppState) -> Self {
-        state.provider_handles.slack.clone()
-    }
-}
-
-impl axum::extract::FromRef<AppState>
-    for Option<Arc<crate::adapters::providers::telegram::adapter::TelegramAdapter>>
-{
-    fn from_ref(state: &AppState) -> Self {
-        state.provider_handles.telegram.clone()
     }
 }

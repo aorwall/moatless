@@ -10,9 +10,10 @@
 #
 # Where it must:
 #
-#   - crates/backend/src/{main,state,compose}.rs — the composition root: `state.rs`
-#     defines `AppState` and its `FromRef` impls, `compose.rs`/`main.rs` build and
-#     wire it.
+#   - crates/backend/src/{main,state,compose,adapter_installations}.rs — the
+#     composition root: `state.rs` defines `AppState`, `compose.rs` builds its
+#     ports, `adapter_installations.rs` assembles Adapter delivery handlers and
+#     concrete-handle projections, and `main.rs` wires them.
 #   - every `*/routes.rs` and `crates/backend/src/loops/http/mod.rs` — routing tables,
 #     but only while they still register a handler that names `AppState`. A
 #     router-assembly fn names `AppState` to hand it to the router:
@@ -63,7 +64,7 @@ BASELINE="scripts/appstate-composition-root-baseline.txt"
 # a precondition (no handler of its own), checked below.
 is_composition_root() {
   case "$1" in
-    "$SRC/main.rs" | "$SRC/state.rs" | "$SRC/compose.rs") return 0 ;;
+    "$SRC/main.rs" | "$SRC/state.rs" | "$SRC/compose.rs" | "$SRC/adapter_installations.rs") return 0 ;;
   esac
   return 1
 }

@@ -22,15 +22,12 @@
 
 use crate::common;
 
-use std::sync::Arc;
-
 use chrono::{Duration, Utc};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use sqlx::PgPool;
 
 use moatless_core::scope::Scope;
-use moatless_backend::adapters::providers::linear::adapter::LinearAdapter;
 use moatless_backend::adapters::providers::linear::delivery;
 use moatless_backend::adapters::providers::linear::ingress::{
     IngressError, Outcome, Rejection, reason, receive,
@@ -75,8 +72,7 @@ async fn linear_stub() -> ProviderStub {
 fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), Some(stub.base_url()));
-    let linear = Arc::new(LinearAdapter::new(&config.linear, pool.clone()));
-    test_app_state_with_linear(pool.clone(), linear, config)
+    test_app_state_with_linear(pool.clone(), config)
 }
 
 /// Call `receive` the way the route does, minus the route.
@@ -97,18 +93,18 @@ async fn deliver_signed_bytes(
     } else {
         String::new()
     };
-    let provider = state
-        .provider_handles
-        .linear
+    let linear_adapter = state
+        .adapter_installations
         .as_ref()
-        .expect("Linear adapter registered");
+        .expect("Linear Adapter installed")
+        .linear();
     receive(
         state.adapter_connections.as_ref(),
         &state.loops,
         &state.db,
         &state.config,
         &state.adapter_delivery,
-        provider,
+        &linear_adapter,
         &signature,
         &body,
     )
@@ -592,18 +588,18 @@ async fn a_bad_signature_is_an_ingress_rejection_naming_its_event_type(pool: PgP
     seed_connection(&pool, &stub).await;
 
     let body = serde_json::to_vec(&comment_envelope("create", "c-1")).expect("serialize");
-    let provider = state
-        .provider_handles
-        .linear
+    let linear_adapter = state
+        .adapter_installations
         .as_ref()
-        .expect("Linear adapter registered");
+        .expect("Linear Adapter installed")
+        .linear();
     let rejection = receive(
         state.adapter_connections.as_ref(),
         &state.loops,
         &state.db,
         &state.config,
         &state.adapter_delivery,
-        provider,
+        &linear_adapter,
         "00ff",
         &body,
     )

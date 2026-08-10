@@ -340,58 +340,26 @@ pub fn test_config() -> Config {
 /// Build an AppState with a real PgPool and mock sandbox capabilities.
 #[allow(dead_code)]
 pub fn test_app_state(pool: PgPool) -> AppState {
-    test_app_state_with_adapters(
-        pool,
-        None,
-        moatless_backend::state::ProviderHandles::default(),
-    )
+    test_app_state_with_config(pool, test_config(), false)
 }
 
-/// Build an AppState carrying an adapter registry, for tests that drive an
-/// inbound webhook route — the route resolves its provider through
-/// `state.adapters`, so a `None` registry rejects the delivery before any of
-/// the behaviour under test runs.
+/// Build an AppState with every external Adapter installed through the same
+/// seam production startup uses.
 #[allow(
     dead_code,
     reason = "this module is compiled into every test binary; each one uses a subset of it"
 )]
-pub fn test_app_state_with_adapters(
-    pool: PgPool,
-    adapters: Option<Arc<moatless_backend::adapters::Adapters>>,
-    provider_handles: moatless_backend::state::ProviderHandles,
-) -> AppState {
-    test_app_state_with_config(pool, adapters, provider_handles, test_config())
+pub fn test_app_state_with_adapters(pool: PgPool, config: Config) -> AppState {
+    test_app_state_with_config(pool, config, true)
 }
 
-/// Build an AppState carrying one Linear adapter, for tests that drive an
-/// inbound Linear route. The one `Arc` derives both places the adapter has to
-/// appear and be the same instance: the migrated webhook handler resolves it
-/// through the concrete handle (`state.provider_handles.linear`), and the
-/// delivery worker finds it as a trait object in `state.adapters`. Taking the
-/// `Arc` rather than a whole `ProviderHandles` is what makes the two agree by
-/// construction — there is no way to pass a handle the registry does not get.
-/// Linear is the only provider any test builds by hand; the rest reach the
-/// registry through `compose::from_config`.
+/// Build an AppState with the supplied Adapter configuration.
 #[allow(
     dead_code,
     reason = "this module is compiled into every test binary; each one uses a subset of it"
 )]
-pub fn test_app_state_with_linear(
-    pool: PgPool,
-    linear: Arc<moatless_backend::adapters::providers::linear::adapter::LinearAdapter>,
-    config: Config,
-) -> AppState {
-    let mut registry = moatless_backend::adapters::Adapters::new();
-    linear.clone().register_into(&mut registry);
-    test_app_state_with_config(
-        pool,
-        Some(Arc::new(registry)),
-        moatless_backend::state::ProviderHandles {
-            linear: Some(linear),
-            ..Default::default()
-        },
-        config,
-    )
+pub fn test_app_state_with_linear(pool: PgPool, config: Config) -> AppState {
+    test_app_state_with_adapters(pool, config)
 }
 
 /// [`test_app_state_with_adapters`] with the config chosen by the caller.
@@ -407,11 +375,15 @@ pub fn test_app_state_with_linear(
 )]
 pub fn test_app_state_with_config(
     pool: PgPool,
-    adapters: Option<Arc<moatless_backend::adapters::Adapters>>,
-    provider_handles: moatless_backend::state::ProviderHandles,
     config: Config,
+    install_adapters: bool,
 ) -> AppState {
     let ports = compose(pool.clone(), &config);
+    let adapter_installations = install_adapters.then(|| {
+        Arc::new(
+            moatless_backend::adapter_installations::AdapterInstallations::install(&config, &ports),
+        )
+    });
     let config = Arc::new(config);
     let connector: Arc<dyn SandboxConnector> = Arc::new(MockSandboxConnector);
     let lifecycle = ports.build_lifecycle(
@@ -437,8 +409,7 @@ pub fn test_app_state_with_config(
         Arc::new(MockNotify),
         None, // events
         None, // s3
-        adapters,
-        provider_handles,
+        adapter_installations,
     )
 }
 

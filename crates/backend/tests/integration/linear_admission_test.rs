@@ -20,8 +20,6 @@
 
 use crate::common;
 
-use std::sync::Arc;
-
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -30,13 +28,9 @@ use sha2::Sha256;
 use sqlx::PgPool;
 use sqlx::Row;
 
-use moatless_backend::adapters::dao::PgAdapterConnectionDao;
-use moatless_backend::adapters::delivery::AdapterDeliveryStore;
 use moatless_backend::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_backend::adapters::providers::linear;
-use moatless_backend::adapters::providers::linear::adapter::LinearAdapter;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
-use moatless_backend::loops::dao::LoopDao;
 use moatless_backend::state::AppState;
 
 use common::{
@@ -56,14 +50,7 @@ type HmacSha256 = Hmac<Sha256>;
 fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), None);
-    let linear = Arc::new(
-        LinearAdapter::from_db(Arc::new(config.clone()), pool.clone()).with_ingress_ports(
-            Arc::new(PgAdapterConnectionDao::new(pool.clone())),
-            Arc::new(LoopDao::new(pool.clone())),
-            Arc::new(AdapterDeliveryStore::new(pool.clone())),
-        ),
-    );
-    test_app_state_with_linear(pool.clone(), linear, config)
+    test_app_state_with_linear(pool.clone(), config)
 }
 
 /// Deliver a signed envelope the way Linear does, and return whatever the
@@ -83,7 +70,12 @@ async fn deliver(
     headers.insert("linear-signature", signature.parse().expect("header value"));
 
     linear_webhook(
-        State(state.provider_handles.linear.clone()),
+        State(
+            state
+                .adapter_installations
+                .as_ref()
+                .map(|installations| installations.linear()),
+        ),
         headers,
         Bytes::from(body),
     )

@@ -26,15 +26,12 @@
 
 use crate::common;
 
-use std::sync::Arc;
-
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use moatless_backend::adapters::models::{RoutingMode, SubscriptionMatch};
 use moatless_backend::adapters::routes::adapter_router;
-use moatless_backend::compose::compose;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_core::scope::Scope;
 use moatless_backend::state::AppState;
@@ -56,18 +53,7 @@ const WEBHOOK_PATH: &str = "/api/v1/adapters/telegram/webhook";
 async fn replica(pool: &PgPool) -> AppState {
     let mut config = test_config();
     config.telegram.bot_token = Some("fake-token".to_string());
-    let ports = compose(pool.clone(), &config);
-    let (adapters, handles) = moatless_backend::compose::from_config(
-        &config,
-        ports.pool.clone(),
-        ports.provider_tokens.clone(),
-        ports.provider_token_auth.clone(),
-        ports.github_apps.clone(),
-        ports.github_app_service.clone(),
-        ports.secrets.clone(),
-    )
-    .await;
-    test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)), handles)
+    test_app_state_with_adapters(pool.clone(), config)
 }
 
 /// Deliver one update the way Telegram does, and return the response status.

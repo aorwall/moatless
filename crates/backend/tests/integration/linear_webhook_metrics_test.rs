@@ -28,8 +28,6 @@
 
 use crate::common;
 
-use std::sync::Arc;
-
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -38,12 +36,8 @@ use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use sha2::Sha256;
 use sqlx::PgPool;
 
-use moatless_backend::adapters::dao::PgAdapterConnectionDao;
-use moatless_backend::adapters::delivery::AdapterDeliveryStore;
 use moatless_backend::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_backend::adapters::providers::linear::adapter::LinearAdapter;
 use moatless_backend::adapters::providers::linear::handlers::linear_webhook;
-use moatless_backend::loops::dao::LoopDao;
 use moatless_backend::state::AppState;
 
 use common::{USER_1, linear_config, test_app_state_with_linear, test_config};
@@ -73,14 +67,7 @@ fn replica(pool: &PgPool) -> AppState {
         Some(SECRET),
         Some(moatless_backend::adapters::test_support::UNREACHABLE_BASE),
     );
-    let linear = Arc::new(
-        LinearAdapter::from_db(Arc::new(config.clone()), pool.clone()).with_ingress_ports(
-            Arc::new(PgAdapterConnectionDao::new(pool.clone())),
-            Arc::new(LoopDao::new(pool.clone())),
-            Arc::new(AdapterDeliveryStore::new(pool.clone())),
-        ),
-    );
-    test_app_state_with_linear(pool.clone(), linear, config)
+    test_app_state_with_linear(pool.clone(), config)
 }
 
 async fn seed_connection(pool: &PgPool) {
@@ -125,7 +112,12 @@ async fn deliver_bytes(
         headers.insert("linear-signature", signature.parse().expect("header value"));
     }
     linear_webhook(
-        State(state.provider_handles.linear.clone()),
+        State(
+            state
+                .adapter_installations
+                .as_ref()
+                .map(|installations| installations.linear()),
+        ),
         headers,
         Bytes::from(body),
     )
@@ -483,7 +475,12 @@ async fn a_bad_signature_is_error_delivery_failed_with_its_event_type(pool: PgPo
         let mut headers = HeaderMap::new();
         headers.insert("linear-signature", "00ff".parse().expect("header value"));
         linear_webhook(
-            State(state.provider_handles.linear.clone()),
+            State(
+                state
+                    .adapter_installations
+                    .as_ref()
+                    .map(|installations| installations.linear()),
+            ),
             headers,
             Bytes::from(body),
         )

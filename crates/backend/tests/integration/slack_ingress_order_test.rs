@@ -22,8 +22,6 @@
 
 use crate::common;
 
-use std::sync::Arc;
-
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use hmac::{Hmac, KeyInit, Mac};
@@ -32,7 +30,6 @@ use sqlx::PgPool;
 use tower::ServiceExt as _;
 
 use moatless_backend::adapters::routes::adapter_router;
-use moatless_backend::compose::compose;
 use moatless_backend::state::AppState;
 
 use common::{test_app_state_with_adapters, test_config};
@@ -52,18 +49,7 @@ async fn replica(pool: &PgPool) -> AppState {
     config.slack.signing_secret = Some(SIGNING_SECRET.to_string());
     config.slack.bot_user_id = Some("U0BOT".to_string());
 
-    let ports = compose(pool.clone(), &config);
-    let (adapters, handles) = moatless_backend::compose::from_config(
-        &config,
-        ports.pool.clone(),
-        ports.provider_tokens.clone(),
-        ports.provider_token_auth.clone(),
-        ports.github_apps.clone(),
-        ports.github_app_service.clone(),
-        ports.secrets.clone(),
-    )
-    .await;
-    test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)), handles)
+    test_app_state_with_adapters(pool.clone(), config)
 }
 
 /// One message event for a channel this database has never heard of.

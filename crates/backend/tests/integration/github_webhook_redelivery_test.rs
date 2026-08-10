@@ -32,10 +32,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::{Json, Router};
 use moatless_backend::adapters::delivery::{
-    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
+    spawn_adapter_delivery_worker, AdapterDeliveryRequest, Admission,
 };
 use moatless_backend::adapters::routes::adapter_router;
-use moatless_backend::compose::compose;
 use moatless_backend::repository::dao as repository_dao;
 use moatless_backend::state::AppState;
 use moatless_backend::task::dao as task_dao;
@@ -174,18 +173,7 @@ async fn registered_replica(
     config.auth.frontend_url = "https://app.example.com".to_string();
     config.github_pr.webhook_secret = webhook_secret.map(str::to_string);
     config.github_pr.bot_token = bot_token.map(str::to_string);
-    let ports = compose(pool.clone(), &config);
-    let (adapters, handles) = moatless_backend::compose::from_config(
-        &config,
-        ports.pool.clone(),
-        ports.provider_tokens.clone(),
-        ports.provider_token_auth.clone(),
-        ports.github_apps.clone(),
-        ports.github_app_service.clone(),
-        ports.secrets.clone(),
-    )
-    .await;
-    test_app_state_with_adapters(pool.clone(), Some(Arc::new(adapters)), handles)
+    test_app_state_with_adapters(pool.clone(), config)
 }
 
 async fn seed_fixtures(pool: &PgPool, task_id: &str) {
@@ -533,8 +521,11 @@ async fn delivery_payload(pool: &PgPool, kind: &str, event_id: &str) -> Option<s
 
 /// Run the worker until `done` holds or the budget elapses, then cancel it.
 async fn run_worker_until(state: &AppState, budget: Duration, done: impl AsyncFn() -> bool) {
-    let mut handlers = AdapterDeliveryHandlers::new();
-    moatless_backend::compose::register_builtin_delivery_handlers(&mut handlers, state);
+    let handlers = state
+        .adapter_installations
+        .as_ref()
+        .expect("test state installs external Adapters")
+        .delivery_handlers(state);
     let cancel = CancellationToken::new();
     let handle = spawn_adapter_delivery_worker(
         state.adapter_delivery.clone(),

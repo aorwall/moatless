@@ -264,3 +264,14 @@ pub mod registry {
         adapters.outbound_for_message_reply_by_name(name)
     }
 }
+
+/// Test-context inspection of the kinds registered on the durable-delivery
+/// seam. The production collection stays private; installation contract tests
+/// need only its observable claim set.
+pub mod delivery {
+    use super::super::delivery::AdapterDeliveryHandlers;
+
+    pub fn kinds(handlers: &AdapterDeliveryHandlers) -> Vec<&'static str> {
+        handlers.kinds()
+    }
+}

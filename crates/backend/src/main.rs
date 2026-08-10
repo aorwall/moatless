@@ -11,13 +11,10 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use moatless_core::config::{Config, SandboxProviderType};
-use moatless_core::feature_flags;
-use moatless_core::leader::LeaderGuard;
-use moatless_core::tag;
+use moatless_backend::adapter_installations::AdapterInstallations;
 use moatless_backend::agent;
 use moatless_backend::auth;
-use moatless_backend::compose::{Ports, compose, from_config, register_builtin_delivery_handlers};
+use moatless_backend::compose::{Ports, compose};
 use moatless_backend::event_handler;
 use moatless_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
 use moatless_backend::sandbox;
@@ -30,6 +27,10 @@ use moatless_backend::{
     adapters, feedback, file_storage, loops, message, plugin, provider_settings, repository,
     repository_sync, secret, skill, t3code, task, task_connections, task_event, team, workspace,
 };
+use moatless_core::config::{Config, SandboxProviderType};
+use moatless_core::feature_flags;
+use moatless_core::leader::LeaderGuard;
+use moatless_core::tag;
 
 /// How long shutdown waits for supervised tasks to finish before giving up and
 /// naming the stragglers. Sits comfortably inside Kubernetes' default 30s
@@ -395,16 +396,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Domain routes (need DB)
     if let Some(ports) = ports {
-        let (adapter_registry, provider_handles) = from_config(
-            &config,
-            ports.pool.clone(),
-            ports.provider_tokens.clone(),
-            ports.provider_token_auth.clone(),
-            ports.github_apps.clone(),
-            ports.github_app_service.clone(),
-            ports.secrets.clone(),
-        )
-        .await;
+        let adapter_installations = Arc::new(AdapterInstallations::install(&config, &ports));
         // The shared lifecycle was built above; it is present whenever the DB is.
         let lifecycle = lifecycle
             .ok_or("lifecycle handle required to build AppState (missing database pool)")?;
@@ -424,8 +416,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_notify.clone(),
             event_publisher,
             s3_client,
-            Some(Arc::new(adapter_registry)),
-            provider_handles,
+            Some(adapter_installations.clone()),
         );
 
         // The browser tabs open on each Task. Built at the composition root
@@ -593,9 +584,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // worker is what makes that acknowledgment true. Handlers are
         // registered per Adapter — an empty registry simply means this build
         // claims no kinds.
-        let mut adapter_delivery_handlers = adapters::delivery::AdapterDeliveryHandlers::new();
-        register_builtin_delivery_handlers(&mut adapter_delivery_handlers, &app_state);
-        let adapter_delivery_handlers = Arc::new(adapter_delivery_handlers);
+        let adapter_delivery_handlers =
+            Arc::new(adapter_installations.delivery_handlers(&app_state));
         supervisor.supervise(
             "adapter-delivery-worker",
             // Readiness: what it owns is durable, so losing this worker
@@ -711,7 +701,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Telegram long-polling (when webhook mode is not available)
             if config.telegram.bot_token.is_some() && config.telegram.mode == "polling" {
-                if let Some(telegram) = app_state.provider_handles.telegram.clone() {
+                if let Some(telegram) = app_state
+                    .adapter_installations
+                    .as_ref()
+                    .map(|installations| installations.telegram())
+                {
                     supervisor.supervise(
                         "telegram-poller",
                         // Optional: losing it degrades the Telegram channel alone,

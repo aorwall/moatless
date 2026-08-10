@@ -33,7 +33,7 @@ use sqlx::PgPool;
 use sqlx::Row;
 use tokio_util::sync::CancellationToken;
 
-use common::test_app_state;
+use common::{test_app_state_with_adapters, test_config};
 
 const CONNECTION_ID: &str = "conn-github-1";
 const LINEAR_CONNECTION_ID: &str = "conn-linear-1";
@@ -239,9 +239,13 @@ fn every_kind(connection_id: &str, linear_connection_id: &str) -> Vec<AdapterDel
 
 /// The registry the running process builds, assembled the same way `main` does.
 fn registered_handlers(state: &AppState) -> Arc<AdapterDeliveryHandlers> {
-    let mut handlers = AdapterDeliveryHandlers::new();
-    moatless_backend::compose::register_builtin_delivery_handlers(&mut handlers, state);
-    Arc::new(handlers)
+    Arc::new(
+        state
+            .adapter_installations
+            .as_ref()
+            .expect("test state installs external Adapters")
+            .delivery_handlers(state),
+    )
 }
 
 /// Run the worker until `done` holds or `budget` elapses, then cancel it — the
@@ -320,7 +324,7 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
         .collect();
 
     {
-        let admitting = test_app_state(pool.clone());
+        let admitting = test_app_state_with_adapters(pool.clone(), test_config());
         for request in requests {
             let kind = request.kind;
             assert_eq!(
@@ -337,7 +341,7 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
         // in memory survives; only the rows do.
     }
 
-    let recovering = test_app_state(pool.clone());
+    let recovering = test_app_state_with_adapters(pool.clone(), test_config());
     let pool_for_check = pool.clone();
     let kinds_for_check = kinds.clone();
     let finished = run_worker_until(&recovering, Duration::from_secs(30), async || {
@@ -372,7 +376,7 @@ async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_cra
 #[sqlx::test]
 async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPool) {
     seed_connection(&pool, CONNECTION_ID, "github", "acme").await;
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
 
     let mut message = github_context(CONNECTION_ID);
     message["message"] = serde_json::json!({
@@ -474,7 +478,7 @@ async fn a_redelivered_github_webhook_produces_no_second_unit_of_work(pool: PgPo
 #[sqlx::test]
 async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPool) {
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
 
     let session_request = |session_id: &str| AdapterDeliveryRequest {
         adapter: linear::delivery::ADAPTER,
@@ -536,7 +540,7 @@ async fn a_redelivered_linear_session_produces_no_second_unit_of_work(pool: PgPo
 #[sqlx::test]
 async fn a_permanently_failing_linear_kind_leaves_its_siblings_budget_alone(pool: PgPool) {
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
     let event_id = "Comment:create:comment-1";
 
     // Written by a build that is gone: the payload has a connection but none of
@@ -617,7 +621,7 @@ async fn a_permanently_failing_linear_kind_leaves_its_siblings_budget_alone(pool
 #[sqlx::test]
 async fn a_linear_delivery_interrupted_mid_execution_is_retried(pool: PgPool) {
     seed_connection(&pool, LINEAR_CONNECTION_ID, "linear", "org-1").await;
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
     let event_id = "AgentSessionEvent:prompted:activity-1";
 
     state
@@ -680,7 +684,7 @@ async fn a_linear_delivery_interrupted_mid_execution_is_retried(pool: PgPool) {
 async fn work_that_can_never_succeed_stops_at_a_terminal_state(pool: PgPool) {
     // Deliberately no connection row: the tenant was deleted between the
     // acknowledgment and the execution.
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
 
     let mut orphaned = github_context("conn-that-was-deleted");
     orphaned["owner"] = serde_json::json!("acme");

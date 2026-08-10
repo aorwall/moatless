@@ -992,9 +992,13 @@ pub async fn handle_agent_message(state: &AppState, event: &AgentEvent) {
             // mutation; only the adapter-dependent arms of `gh pr create` (bind,
             // footer) short-circuit when the GitHub PR adapter is not composed,
             // so it is passed as an Option rather than gating the whole loop.
+            let github_pr = state
+                .adapter_installations
+                .as_ref()
+                .map(|installations| installations.github_pr());
             for target in reconcile_targets {
                 crate::adapters::providers::github_pr::shell_reconcile::reconcile_shell_command(
-                    state.provider_handles.github_pr.as_ref(),
+                    github_pr.as_ref(),
                     &state.recently_sent,
                     state.messages.as_ref(),
                     state.tasks.as_ref(),

@@ -25,11 +25,11 @@ use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 
 use moatless_backend::adapters::delivery::{
-    spawn_adapter_delivery_worker, AdapterDeliveryHandlers, AdapterDeliveryRequest, Admission,
+    spawn_adapter_delivery_worker, AdapterDeliveryRequest, Admission,
 };
 use moatless_backend::state::AppState;
 
-use common::test_app_state;
+use common::{test_app_state_with_adapters, test_config};
 
 const SLACK_KIND: &str = "slack.inbound_message";
 const TELEGRAM_KIND: &str = "telegram.inbound_message";
@@ -122,8 +122,11 @@ async fn run_worker_until_terminal(
     records: &[(&str, &str)],
     budget: Duration,
 ) {
-    let mut handlers = AdapterDeliveryHandlers::new();
-    moatless_backend::compose::register_builtin_delivery_handlers(&mut handlers, state);
+    let handlers = state
+        .adapter_installations
+        .as_ref()
+        .expect("test state installs external Adapters")
+        .delivery_handlers(state);
 
     let cancel = CancellationToken::new();
     let handle = spawn_adapter_delivery_worker(
@@ -154,7 +157,7 @@ async fn run_worker_until_terminal(
 /// five-minute in-process cache — is what makes the second one free.
 #[sqlx::test]
 async fn a_redelivered_slack_event_admits_one_unit_of_work(pool: PgPool) {
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
     let work = payload("pc_slack", "tt_slack", "slack");
 
     assert_eq!(
@@ -186,7 +189,7 @@ async fn a_redelivered_slack_event_admits_one_unit_of_work(pool: PgPool) {
 /// id and survives a re-delivery, which is why it is the admission key.
 #[sqlx::test]
 async fn a_redelivered_telegram_update_admits_one_unit_of_work(pool: PgPool) {
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
     let work = payload("pc_telegram", "tt_telegram", "telegram");
 
     assert_eq!(
@@ -214,7 +217,7 @@ async fn a_redelivered_telegram_update_admits_one_unit_of_work(pool: PgPool) {
 /// rather than fail silently seven more times.
 #[sqlx::test]
 async fn work_whose_trigger_was_deleted_goes_terminal_without_burning_the_budget(pool: PgPool) {
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
     seed_connection(&pool, "pc_slack", "slack", "T1").await;
 
     state
@@ -257,7 +260,7 @@ async fn work_whose_trigger_was_deleted_goes_terminal_without_burning_the_budget
 /// by the seam's own tests.
 #[sqlx::test]
 async fn claims_left_by_a_killed_worker_are_recovered_for_both_providers(pool: PgPool) {
-    let state = test_app_state(pool.clone());
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
 
     for (provider, kind, event_id, connection) in [
         ("slack", SLACK_KIND, "Ev-restart", "pc_slack"),
