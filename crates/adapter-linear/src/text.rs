@@ -109,9 +109,7 @@ pub(super) async fn task_attachment_title(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::webhook_payloads::{
-        AgentSessionComment, AgentSessionIssue, LinearActor,
-    };
+    use crate::webhook_payloads::{AgentSessionComment, AgentSessionIssue, LinearActor};
 
     fn issue() -> AgentSessionIssue {
         AgentSessionIssue {
@@ -182,6 +180,7 @@ mod tests {
             team: None,
             project_id: Some("proj-1".into()),
             project: None,
+            updated_at: None,
             state: None,
         };
         let from_issue = build_issue_inbound_text(&issue);

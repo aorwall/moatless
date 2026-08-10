@@ -464,7 +464,8 @@ async fn admit(
     event_id: &str,
 ) -> Result<(), IngressError> {
     let kind = request.kind;
-    let admission = moatless_loops::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
+    let admission =
+        moatless_loops::adapters::ingress::admit_delivery(adapter_delivery, request).await?;
     super::delivery::log_admission(kind, event_id, admission);
     Ok(())
 }
@@ -526,10 +527,12 @@ pub(super) async fn resolve_rules_for_team(
 ///   the prompt. Keying on `agentSession.id` collapses a second message to one
 ///   session into the first — the delivery a person is actively waiting on.
 /// - `AgentSessionEvent` (other actions) → `agentSession.id`
-/// - `Issue` → `data.id:webhookTimestamp`. Every update to one issue repeats
-///   that issue's id, so the id alone cannot tell two state changes apart;
-///   Linear resends `webhookTimestamp` unchanged on a retry, so a retry still
-///   collapses.
+/// - `Issue` → `data.id:updatedFrom.stateId:data.state.id:data.updatedAt`.
+///   Every update to one issue repeats that issue's id, so the id alone cannot
+///   tell two state changes apart. Linear can emit duplicate deliveries for one
+///   issue mutation with different webhook timestamps, so the issue's own
+///   updatedAt is preferred; webhookTimestamp is only the fallback when
+///   updatedAt is absent.
 /// - `Comment` → `data.id` (a comment id names one comment)
 /// - `AppUserNotification` → `notification.id`
 /// - fallback (unknown / missing) → `webhook_id:webhook_timestamp`
@@ -543,8 +546,7 @@ fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
             .as_ref()
             .map(|activity| activity.id.clone()),
         "AgentSessionEvent" => envelope.agent_session.as_ref().map(|s| s.id.clone()),
-        "Issue" => resource_uuid(envelope.data.as_ref())
-            .map(|id| format!("{id}:{}", delivery_timestamp(envelope))),
+        "Issue" => issue_transition_resource_id(envelope),
         "Comment" => resource_uuid(envelope.data.as_ref()),
         "AppUserNotification" => resource_uuid(envelope.notification.as_ref()),
         _ => None,
@@ -572,7 +574,35 @@ fn resource_uuid(payload: Option<&serde_json::Value>) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Linear's own delivery timestamp, which it repeats unchanged on a retry.
+fn issue_transition_resource_id(envelope: &LinearWebhookEnvelope) -> Option<String> {
+    let issue_id = resource_uuid(envelope.data.as_ref())?;
+    let transition_id = issue_state_transition_id(envelope)?;
+    Some(format!("{issue_id}:{transition_id}"))
+}
+
+pub(super) fn issue_state_transition_id(envelope: &LinearWebhookEnvelope) -> Option<String> {
+    let data = envelope.data.as_ref()?;
+    let previous_state_id = envelope
+        .updated_from
+        .as_ref()
+        .and_then(|v| v.get("stateId"))
+        .and_then(serde_json::Value::as_str)?;
+    let new_state_id = data
+        .get("state")
+        .and_then(|v| v.get("id"))
+        .and_then(serde_json::Value::as_str)?;
+    let event_clock = data
+        .get("updatedAt")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .or_else(|| envelope.webhook_timestamp.map(|ts| ts.to_string()))?;
+
+    Some(format!("{previous_state_id}:{new_state_id}:{event_clock}"))
+}
+
+/// Linear's own delivery timestamp. For issue updates this is only a fallback:
+/// Linear can send duplicate deliveries for one issue mutation with different
+/// webhook timestamps.
 fn delivery_timestamp(envelope: &LinearWebhookEnvelope) -> i64 {
     envelope.webhook_timestamp.unwrap_or(0)
 }
@@ -688,39 +718,78 @@ mod tests {
     /// keyed on it alone collided and the second was dropped.
     #[test]
     fn two_state_changes_on_one_issue_get_distinct_keys() {
-        let change = |timestamp: i64, state: &str| {
+        let change = |updated_at: &str, state: &str| {
+            envelope(serde_json::json!({
+                "action": "update",
+                "type": "Issue",
+                "webhookId": "9628c862-stable",
+                "updatedFrom": {"stateId": "todo"},
+                "data": {
+                    "id": "issue-1",
+                    "identifier": "ENG-7",
+                    "updatedAt": updated_at,
+                    "state": {"id": state}
+                }
+            }))
+        };
+        assert_ne!(
+            dedup_key(&change("2026-08-10T03:20:08.000Z", "in-progress")),
+            dedup_key(&change("2026-08-10T03:30:59.000Z", "in-review"))
+        );
+    }
+
+    /// Linear can duplicate one issue update with distinct webhook timestamps.
+    /// The issue's own `updatedAt` is the stable event clock in that case.
+    #[test]
+    fn duplicate_issue_update_with_different_webhook_timestamps_keeps_one_key() {
+        let delivery = |timestamp: i64| {
             envelope(serde_json::json!({
                 "action": "update",
                 "type": "Issue",
                 "webhookId": "9628c862-stable",
                 "webhookTimestamp": timestamp,
-                "data": {"id": "issue-1", "identifier": "ENG-7", "state": {"id": state}}
+                "updatedFrom": {"stateId": "todo"},
+                "data": {
+                    "id": "issue-1",
+                    "identifier": "ENG-7",
+                    "updatedAt": "2026-08-10T03:20:08.000Z",
+                    "state": {"id": "in-progress"}
+                }
             }))
         };
-        assert_ne!(
-            dedup_key(&change(1_700_000_000_000, "in-progress")),
-            dedup_key(&change(1_700_000_060_000, "in-review"))
+        assert_eq!(
+            dedup_key(&delivery(1_786_332_008_038)),
+            dedup_key(&delivery(1_786_332_008_046))
         );
     }
 
-    /// A Linear retry of one issue update repeats `webhookTimestamp`, so the
-    /// identity holds and the redelivery is still recognised as the same one.
+    /// If Linear omits `updatedAt`, webhookTimestamp is still the fallback that
+    /// tells two issue updates apart.
     #[test]
-    fn a_retried_issue_update_keeps_one_key() {
-        let delivery = || {
+    fn issue_update_without_updated_at_falls_back_to_webhook_timestamp() {
+        let delivery = |timestamp: i64| {
             envelope(serde_json::json!({
                 "action": "update",
                 "type": "Issue",
                 "webhookId": "9628c862-stable",
-                "webhookTimestamp": 1_700_000_000_000i64,
-                "data": {"id": "issue-1", "identifier": "ENG-7", "state": {"id": "in-progress"}}
+                "webhookTimestamp": timestamp,
+                "updatedFrom": {"stateId": "todo"},
+                "data": {
+                    "id": "issue-1",
+                    "identifier": "ENG-7",
+                    "state": {"id": "in-progress"}
+                }
             }))
         };
-        assert_eq!(dedup_key(&delivery()), dedup_key(&delivery()));
+        assert_ne!(
+            dedup_key(&delivery(1_700_000_000_000)),
+            dedup_key(&delivery(1_700_000_000_001))
+        );
     }
 
     /// Two issues moving at the same instant are still two deliveries — the
-    /// timestamp discriminates changes to one issue, it does not replace it.
+    /// transition clock discriminates changes to one issue, it does not replace
+    /// the issue id.
     #[test]
     fn two_issues_changing_at_the_same_instant_get_distinct_keys() {
         let change = |issue: &str| {
@@ -728,7 +797,12 @@ mod tests {
                 "action": "update",
                 "type": "Issue",
                 "webhookTimestamp": 1_700_000_000_000i64,
-                "data": {"id": issue}
+                "updatedFrom": {"stateId": "todo"},
+                "data": {
+                    "id": issue,
+                    "updatedAt": "2026-08-10T03:20:08.000Z",
+                    "state": {"id": "in-progress"}
+                }
             }))
         };
         assert_ne!(dedup_key(&change("issue-1")), dedup_key(&change("issue-2")));

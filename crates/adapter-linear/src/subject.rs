@@ -242,6 +242,7 @@ mod tests {
             team: None,
             project_id: None,
             project: None,
+            updated_at: None,
             state: None,
         };
         let config = issue_destination_config(&issue, "team-1");

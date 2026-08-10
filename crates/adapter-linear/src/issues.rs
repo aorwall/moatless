@@ -25,9 +25,11 @@ use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 
 use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
-use moatless_loops::adapters::models::{ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch};
-use moatless_tasks::message::send::MessageSendService;
+use moatless_loops::adapters::models::{
+    ADAPTER_EVENT_BINDING_ORIGIN, AdapterConnection, SubscriptionMatch,
+};
 use moatless_sandbox_control::lifecycle::Lifecycle;
+use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
@@ -50,11 +52,9 @@ const ADAPTER_LABEL: &str = "linear";
 /// state is in the rule's `terminal_states` and `close_task_on_close` is set,
 /// the existing close path also runs and terminates the task.
 ///
-/// `delivered_at` is Linear's own `webhookTimestamp`. It is what tells two
-/// changes to one issue apart — including an issue that leaves a state and
-/// later returns to it, where nothing else about the two deliveries differs —
-/// while a retry of one change repeats it and is recognised as the same
-/// delivery.
+/// `transition_id` is the semantic state transition carried through durable
+/// delivery. `delivered_at` remains as a fallback for older admitted records
+/// written before that field existed.
 #[expect(
     clippy::too_many_arguments,
     reason = "a fan-out root dispatching to persist/notify/close/status-entry, \
@@ -78,6 +78,7 @@ pub(super) async fn handle_issue_update(
     rules: &[SubscriptionMatch],
     envelope_updated_from: Option<&serde_json::Value>,
     issue: &IssuePayload,
+    transition_id: Option<&str>,
     delivered_at: i64,
 ) -> Result<(), AdapterError> {
     let state_kind = issue.state_kind();
@@ -108,6 +109,7 @@ pub(super) async fn handle_issue_update(
         sandbox_waker,
         connection,
         issue,
+        transition_id,
         delivered_at,
     )
     .await;
@@ -560,6 +562,7 @@ async fn notify_bindings_of_state_change(
     sandbox_waker: &dyn SandboxWaker,
     connection: &AdapterConnection,
     issue: &IssuePayload,
+    transition_id: Option<&str>,
     delivered_at: i64,
 ) {
     let bindings = match super::subject::active_bindings_on_issue(
@@ -590,8 +593,10 @@ async fn notify_bindings_of_state_change(
         let _ = write!(body, "\n\n{url}");
     }
 
+    let transition_id = transition_id.map_or_else(|| delivered_at.to_string(), str::to_string);
+    let external_event_id = super::external_id::issue_state(&issue.id, &transition_id);
+
     for binding in bindings {
-        let external_event_id = super::external_id::issue_state(&issue.id, delivered_at);
         if let Err(e) = message_send
             .send_message_flow(
                 &binding.task_id,

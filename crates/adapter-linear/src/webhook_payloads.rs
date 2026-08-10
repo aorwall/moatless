@@ -254,6 +254,11 @@ pub struct IssuePayload {
     /// Nested project object, when the webhook embeds it.
     #[serde(default)]
     pub project: Option<LinearProjectRef>,
+    /// Linear issue update timestamp. Duplicate webhook deliveries for one
+    /// persisted issue mutation can carry different webhook timestamps, but the
+    /// issue's own updatedAt remains the event identity.
+    #[serde(default, rename = "updatedAt")]
+    pub updated_at: Option<String>,
     #[serde(default)]
     pub state: Option<LinearWorkflowState>,
 }

@@ -43,15 +43,15 @@ use tracing::{debug, info, warn};
 
 use super::adapter::GithubPrAdapter;
 use super::api::GithubPrApi;
+use moatless_backend_core::scope::ScopeContext;
+use moatless_loops::adapters::AdapterDestinationBuilder;
 use moatless_loops::adapters::footer::FOOTER_MARKER;
 use moatless_loops::adapters::metrics::record_shell_claim;
-use moatless_loops::adapters::AdapterDestinationBuilder;
 use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_tasks::message::dao::MessageDao;
+use moatless_tasks::task::dao::TaskDao;
 use moatless_workspaces::repository::access::RepositoryTokenResolver;
 use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_tasks::task::dao::TaskDao;
-use moatless_backend_core::scope::ScopeContext;
 
 /// Adapter label on claim metrics and on the tagged assistant row.
 const ADAPTER_LABEL: &str = "github_pr";
@@ -258,7 +258,13 @@ async fn handle_gh_pr_create(
     // no adapter can consume is inert, yet dropping it would be a silent
     // behaviour change in that config. A binding failure is likewise logged and
     // left behind — the claim and footer still run.
-    if let Some(adapter) = adapter {
+    if moat_proxy_already_bound_task(result_text) {
+        debug!(
+            task_id,
+            pr_number = pr.number,
+            "Skipping GitHub PR auto-connect; moat gh proxy already bound the task"
+        );
+    } else if let Some(adapter) = adapter {
         let thread_properties = json!({
             "owner": pr.owner,
             "repo": pr.repo,
@@ -310,8 +316,15 @@ async fn handle_gh_pr_create(
 
     // The footer likewise needs the adapter (frontend_url + the credential path).
     if let Some(adapter) = adapter {
-        try_append_task_footer(adapter, tasks, repositories, repo_token_resolver, task_id, &pr)
-            .await;
+        try_append_task_footer(
+            adapter,
+            tasks,
+            repositories,
+            repo_token_resolver,
+            task_id,
+            &pr,
+        )
+        .await;
     }
 }
 
@@ -667,7 +680,9 @@ async fn resolve_task_repository_github_token(
         .find_by_id(&task.repository_id, &sys_ctx)
         .await?
         .ok_or_else(|| {
-            moatless_workspaces::repository::error::RepositoryError::NotFound(task.repository_id.clone())
+            moatless_workspaces::repository::error::RepositoryError::NotFound(
+                task.repository_id.clone(),
+            )
         })?;
     let remote_url = repository.remote_url.as_deref().ok_or_else(|| {
         moatless_workspaces::repository::error::RepositoryError::BadRequest(
@@ -682,9 +697,11 @@ async fn resolve_task_repository_github_token(
                 || !persisted_repo.eq_ignore_ascii_case(repo_name)
         })
     {
-        return Err(moatless_workspaces::repository::error::RepositoryError::BadRequest(
-            "GitHub target does not match the task repository".to_string(),
-        ));
+        return Err(
+            moatless_workspaces::repository::error::RepositoryError::BadRequest(
+                "GitHub target does not match the task repository".to_string(),
+            ),
+        );
     }
     repo_token_resolver.resolve(&repository, remote_url).await
 }
@@ -759,6 +776,16 @@ fn parse_pushed_commit(before_mapping: &str) -> Option<String> {
         .split_whitespace()
         .find(|tok| tok.contains(".."))?;
     Some(range.rsplit('.').next().unwrap_or("").to_string())
+}
+
+/// `moat gh pr create` binds through the typed backend route before the shell
+/// output is persisted. The generic shell reconciler still sees that output, so
+/// this marker keeps it from reconnecting the same PR with its weaker fallback
+/// user context.
+fn moat_proxy_already_bound_task(result_text: &str) -> bool {
+    result_text
+        .lines()
+        .any(|line| line.trim_start().starts_with("Bound to task via:"))
 }
 
 /// Decompose a GitHub remote URL into `(owner, repo)`. Supports HTTPS, SSH
@@ -1301,6 +1328,17 @@ mod tests {
         assert!(parse_pr_url("https://github.com/foo/bar/issues/42\n").is_none());
         assert!(parse_pr_url("https://github.com/foo/bar\n").is_none());
         assert!(parse_pr_url("plain text with no urls").is_none());
+    }
+
+    #[test]
+    fn moat_proxy_binding_marker_is_detected_from_pr_create_output() {
+        assert!(moat_proxy_already_bound_task(
+            "PR created: https://github.com/soaplabs/soap-backend/pull/1052\n\
+             Bound to task via: ts_79ada159-47ec-43b8-8a10-8c710e59b7d3\n"
+        ));
+        assert!(!moat_proxy_already_bound_task(
+            "https://github.com/soaplabs/soap-backend/pull/1052\n"
+        ));
     }
 
     #[test]
@@ -1922,11 +1960,13 @@ mod tests {
         );
         // The anchor must match the shape — a review submission's response
         // does not name a review comment.
-        assert!(parse_created_id(
-            "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
-            GhApiCreated::ReviewComment
-        )
-        .is_none());
+        assert!(
+            parse_created_id(
+                "\"html_url\":\"https://github.com/o/r/pull/42#pullrequestreview-555\"",
+                GhApiCreated::ReviewComment
+            )
+            .is_none()
+        );
     }
 
     #[test]

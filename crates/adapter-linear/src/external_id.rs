@@ -35,16 +35,19 @@ pub(super) fn prompt(activity_id: &str) -> String {
     format!("linear:prompt:{activity_id}")
 }
 
-/// An issue state change, named by the issue and Linear's own delivery
-/// timestamp — the same identity the dispatcher derives for the delivery (see
-/// `handlers::dedup_key`).
+/// An issue state change, named by the issue and the semantic state-transition
+/// identity the dispatcher derives for the delivery (see
+/// `ingress::dedup_key`).
 ///
 /// It used to name the state the issue moved *into*, which is not an identity:
 /// an issue that leaves a state and later returns to it produces two changes a
 /// person made separately under one id, and the second was dropped as a
-/// duplicate. A retry repeats the timestamp, so a redelivery still collapses.
-pub(super) fn issue_state(issue_id: &str, delivered_at: i64) -> String {
-    format!("linear:issue-state:{issue_id}:{delivered_at}")
+/// duplicate. It then used Linear's webhook timestamp, but Linear can deliver
+/// the same issue mutation twice with distinct webhook timestamps. The
+/// transition id is previous state, new state, and the issue's own updatedAt
+/// when Linear includes it, falling back to webhookTimestamp only when needed.
+pub(super) fn issue_state(issue_id: &str, transition_id: &str) -> String {
+    format!("linear:issue-state:{issue_id}:{transition_id}")
 }
 
 /// The inbound prompt of a task spawned from a mention or assignment.
@@ -71,8 +74,8 @@ mod tests {
         assert_eq!(comment("cmt-1"), "linear:comment:cmt-1");
         assert_eq!(prompt("act-1"), "linear:prompt:act-1");
         assert_eq!(
-            issue_state("issue-1", 1_700_000_000_000),
-            "linear:issue-state:issue-1:1700000000000"
+            issue_state("issue-1", "st-old:st-new:2026-08-10T03:20:08.000Z"),
+            "linear:issue-state:issue-1:st-old:st-new:2026-08-10T03:20:08.000Z"
         );
         assert_eq!(
             session_created("session-1"),
@@ -92,7 +95,7 @@ mod tests {
         let ids = [
             comment("x"),
             prompt("x"),
-            issue_state("x", 1),
+            issue_state("x", "from:to:1"),
             session_created("x"),
             issue_created("x"),
         ];

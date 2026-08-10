@@ -25,7 +25,7 @@
 
 use moatless_loops::adapters::delivery::AdapterDeliveryRequest;
 
-use super::ingress::{reason, IngressError};
+use super::ingress::{IngressError, reason};
 use super::webhook_payloads::LinearWebhookEnvelope;
 
 /// What one envelope means.
@@ -202,15 +202,14 @@ fn issue_event(
         });
     }
 
-    // An issue's id repeats on every update, so Linear's delivery timestamp is
-    // the whole of what tells two state changes on one issue apart — in the
-    // delivery identity and in the forwarded message's own id alike. Without it
-    // there is no identity to admit under, and substituting `0` would give
-    // every timestamp-less update on this issue the same one. Refuse instead:
-    // see `IngressError::Unidentifiable` for why that is the safer half of the
-    // trade.
-    let Some(delivered_at) = envelope.webhook_timestamp else {
-        return Err(IngressError::Unidentifiable("webhookTimestamp"));
+    // The issue-state notification is deduped on the semantic transition, not
+    // the webhook attempt. Linear can deliver the same issue mutation twice
+    // with different webhook timestamps, so `updatedAt` is the preferred clock
+    // and `webhookTimestamp` is only the fallback.
+    let Some(transition_id) = super::ingress::issue_state_transition_id(envelope) else {
+        return Err(IngressError::Unidentifiable(
+            "updatedFrom.stateId, data.state.id, and updatedAt or webhookTimestamp",
+        ));
     };
 
     Ok(admit(super::delivery::issue_update_request(
@@ -218,7 +217,8 @@ fn issue_event(
         connection_id,
         &issue,
         envelope.updated_from.as_ref(),
-        delivered_at,
+        &transition_id,
+        envelope.webhook_timestamp.unwrap_or(0),
     )?))
 }
 
@@ -370,11 +370,13 @@ mod tests {
             "action": action,
             "type": "Issue",
             "webhookTimestamp": 1_700_000_000_000i64,
+            "updatedFrom": {"stateId": "s0"},
             "data": {
                 "id": "issue-1",
                 "identifier": "ENG-7",
                 "title": "Fix it",
                 "teamId": "team-1",
+                "updatedAt": "2026-08-10T03:20:08.000Z",
                 "state": {"id": "s1", "name": "Done", "type": "completed"},
             },
         })
@@ -516,18 +518,27 @@ mod tests {
     // ---- the one refusal that is not an ignore ----
 
     #[test]
-    fn an_issue_update_with_no_timestamp_is_refused_rather_than_given_a_colliding_identity() {
-        let mut untimed = issue("update");
-        untimed
+    fn an_issue_update_with_no_event_clock_is_refused_rather_than_given_a_colliding_identity() {
+        let mut unclocked = issue("update");
+        unclocked
             .as_object_mut()
             .expect("object")
             .remove("webhookTimestamp");
+        unclocked["data"]
+            .as_object_mut()
+            .expect("data object")
+            .remove("updatedAt");
 
-        let error = normalize(&envelope(untimed), CONNECTION, EVENT_ID)
+        let error = normalize(&envelope(unclocked), CONNECTION, EVENT_ID)
             .err()
             .expect("refused");
         assert!(
-            matches!(error, IngressError::Unidentifiable("webhookTimestamp")),
+            matches!(
+                error,
+                IngressError::Unidentifiable(
+                    "updatedFrom.stateId, data.state.id, and updatedAt or webhookTimestamp"
+                )
+            ),
             "got {error:?}"
         );
     }

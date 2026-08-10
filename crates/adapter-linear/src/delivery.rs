@@ -63,9 +63,9 @@
 //! The other four kinds are at-least-once too, and each converges on an
 //! identity it does not invent: a prompt on `linear:prompt:{activity_id}`, a
 //! comment on `linear:comment:{comment_id}`, and an issue state change on
-//! `linear:issue-state:{issue_id}:{delivered_at}` — which is why the delivery
-//! timestamp is carried in the payload rather than re-read from a clock the
-//! worker would see differently on every attempt.
+//! `linear:issue-state:{issue_id}:{transition_id}` — which is why the
+//! transition id is carried in the payload rather than rebuilt later from a
+//! webhook attempt timestamp the worker cannot see.
 
 use std::sync::Arc;
 
@@ -84,8 +84,8 @@ use moatless_loops::adapters::error::{AdapterError, SharedAdapterError};
 use moatless_loops::adapters::models::AdapterConnection;
 use moatless_loops::bindings::runtime::RoutingService;
 use moatless_loops::loops::dao::LoopDao;
-use moatless_tasks::message::send::MessageSendService;
 use moatless_sandbox_control::lifecycle::Lifecycle;
+use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::task::binding_dao::TaskBindingDao;
 use moatless_tasks::task::creation::TaskCreationService;
 use moatless_tasks::task::dao::TaskDao;
@@ -299,11 +299,10 @@ impl ConnectionDeliveryPayload for SessionPromptDelivery {
 
 /// Everything the issue handler needs to act on one workflow state change.
 ///
-/// `delivered_at` is Linear's own `webhookTimestamp`. It is half of both the
-/// delivery identity and the forwarded message's
-/// `linear:issue-state:{issue}:{delivered_at}` id, and Linear repeats it
-/// unchanged on a retry — so it is carried rather than re-derived, which is
-/// what keeps a retried attempt from looking like a new state change.
+/// `transition_id` is the semantic state transition derived at ingress. It is
+/// half of both the delivery identity and the forwarded message's
+/// `linear:issue-state:{issue}:{transition_id}` id. Older admitted records only
+/// carried `delivered_at`, so the worker keeps that field as a fallback.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct IssueUpdateDelivery {
     pub(super) connection_id: String,
@@ -312,6 +311,8 @@ pub(super) struct IssueUpdateDelivery {
     /// state change cannot be recognised without it.
     #[serde(default)]
     pub(super) updated_from: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(super) transition_id: Option<String>,
     pub(super) delivered_at: i64,
 }
 
@@ -421,6 +422,7 @@ pub(super) fn issue_update_request(
     connection_id: &str,
     issue: &IssuePayload,
     updated_from: Option<&serde_json::Value>,
+    transition_id: &str,
     delivered_at: i64,
 ) -> Result<AdapterDeliveryRequest, AdapterError> {
     request(
@@ -430,6 +432,7 @@ pub(super) fn issue_update_request(
             connection_id: connection_id.to_string(),
             issue: issue.clone(),
             updated_from: updated_from.cloned(),
+            transition_id: Some(transition_id.to_string()),
             delivered_at,
         },
     )
@@ -611,6 +614,7 @@ impl LinearInboundRouter {
             &rules,
             payload.updated_from.as_ref(),
             &payload.issue,
+            payload.transition_id.as_deref(),
             payload.delivered_at,
         )
         .await
@@ -810,16 +814,17 @@ mod tests {
         assert_eq!(back.body, "please look again");
     }
 
-    /// Linear's delivery timestamp is half of the forwarded message's identity,
-    /// so it has to come back off the record exactly — an attempt that lost it
-    /// would look like a different state change to everything downstream.
+    /// The transition id is half of the forwarded message's identity, so it has
+    /// to come back off the record exactly — an attempt that lost it would look
+    /// like a different state change to everything downstream.
     #[test]
-    fn an_issue_payload_survives_the_round_trip_with_its_delivery_timestamp() {
+    fn an_issue_payload_survives_the_round_trip_with_its_transition_id() {
         let issue: IssuePayload = serde_json::from_value(serde_json::json!({
             "id": "issue-1",
             "identifier": "ENG-7",
             "title": "Fix the thing",
             "teamId": "team-1",
+            "updatedAt": "2026-08-10T03:20:08.000Z",
             "state": {"id": "s2", "name": "In Progress", "type": "started"}
         }))
         .expect("parse issue");
@@ -830,6 +835,7 @@ mod tests {
             "conn-1",
             &issue,
             Some(&updated_from),
+            "s1:s2:2026-08-10T03:20:08.000Z",
             1_700_000_000_000,
         )
         .expect("serialize");
@@ -848,6 +854,10 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("s1"),
             "without the diff the handler cannot tell a state change happened"
+        );
+        assert_eq!(
+            back.transition_id.as_deref(),
+            Some("s1:s2:2026-08-10T03:20:08.000Z")
         );
         assert_eq!(back.delivered_at, 1_700_000_000_000);
     }
