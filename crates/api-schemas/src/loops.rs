@@ -370,8 +370,6 @@ pub struct LoopSyncSummary {
     pub updated: u32,
     /// Loops removed because their directory is gone.
     pub removed: u32,
-    /// Existing Git-synced Loops whose approval was revoked.
-    pub approvals_revoked: u32,
     /// Manual overrides or deletion tombstones preserved during repository sync.
     pub overrides_skipped: u32,
     /// Loops that were present but not synced, with reasons.

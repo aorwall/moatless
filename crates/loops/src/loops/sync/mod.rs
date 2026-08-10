@@ -1,9 +1,14 @@
 //! Reconcile a repo's committed `.moatless/loops/` into the loop tables.
 //!
 //! A "loop" is an agent automation declared in git. Each `LOOP.md` maps to a
-//! row in the existing `loops` / `loop_configs` / source tables
-//! tables with Git configuration authority and stable repository provenance.
-//! Manual overrides retain that provenance so reconciliation can skip them.
+//! row in the existing `loops` / `loop_configs` / source tables with Git
+//! configuration authority and stable repository provenance. Manual overrides
+//! retain that provenance so reconciliation can skip them.
+//!
+//! Git owns configuration and nothing else. Execution is approved once in
+//! Moatless, by an administrator naming a run-as user, and that approval then
+//! survives every later re-sync — so a repository can keep its Loop
+//! declarations current without an administrator re-approving each change.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -111,8 +116,9 @@ impl LoopSyncService {
     /// Reset one overridden or deleted Loop to its current Git declaration.
     ///
     /// Unlike repository reconciliation this never considers sibling removals.
-    /// The existing row keeps its identity, becomes Git-owned, and returns to
-    /// awaiting approval.
+    /// The existing row keeps its identity and becomes Git-owned again; its
+    /// execution approval is untouched, so a deleted Loop comes back awaiting
+    /// approval and an overridden one keeps the run-as user it was given.
     pub async fn reset_repo_loop(
         &self,
         repo: &Repository,
@@ -224,7 +230,6 @@ impl LoopSyncService {
         summary.created = reconciled.created;
         summary.updated = reconciled.updated;
         summary.removed = reconciled.removed;
-        summary.approvals_revoked = reconciled.approvals_revoked;
         summary.overrides_skipped = reconciled.overrides_skipped;
         summary.skipped.extend(
         reconciled

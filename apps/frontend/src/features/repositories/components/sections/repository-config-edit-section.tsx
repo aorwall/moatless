@@ -52,7 +52,6 @@ function syncDescription(result: SyncConfigResponse): string {
   appendCount(messages, loops.created, 'Loop', 'Loops', 'created')
   appendCount(messages, loops.updated, 'Loop', 'Loops', 'updated')
   appendCount(messages, loops.removed, 'Loop', 'Loops', 'removed')
-  appendCount(messages, loops.approvalsRevoked, 'Loop approval', 'Loop approvals', 'revoked')
   appendCount(messages, loops.overridesSkipped, 'Loop override', 'Loop overrides', 'preserved')
   appendCount(messages, loops.skipped.length, 'Loop', 'Loops', 'skipped')
   appendCount(messages, loops.warnings.length, 'Loop warning', 'Loop warnings', 'reported')
@@ -293,8 +292,8 @@ export function RepositoryConfigEditSection({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                Synchronizes Loops and workspaces from Git. Loop approvals are revoked; Loop
-                overrides remain local.
+                Synchronizes Loops and workspaces from Git. Loop activation and run-as users are
+                kept; Loop overrides remain local.
               </TooltipContent>
             </Tooltip>
           )}
@@ -365,9 +364,9 @@ export function RepositoryConfigEditSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Synchronize configuration from Git?</AlertDialogTitle>
             <AlertDialogDescription>
-              Every Git-synced Loop will be paused and its run-as user cleared, even when its
-              committed configuration is unchanged. Loop overrides and deleted Loop tombstones are
-              preserved. Overridden workspaces are reset to Git.
+              Every Git-synced Loop takes its committed configuration. Activation and run-as users
+              are untouched, so an active Loop keeps running. Loop overrides and deleted Loop
+              tombstones are preserved. Overridden workspaces are reset to Git.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

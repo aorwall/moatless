@@ -174,7 +174,7 @@ sizeable and belongs on its own.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
-| `MOATLESS_DEFAULT_RUN_AS_USER_ID` is read by nothing | `config.rs::default_run_as_user_id` — declared, populated from env, never consumed | Decide whether it is an unfinished feature or removable |
+| 34 db-backed integration tests fail against a real Postgres, and nothing notices | `crates/backend/tests/integration/` — `github_app_registration_test`, `linear_delivery_identity_test`, `telegram_ingress_test`, `ui_rpc_shell_test`, `ui_rpc_command_test`, `task_dao_test`, `task_bindings_port_test`, `github_webhook_redelivery_test`. The db-tests CI leg is `cargo nextest run --no-run` and no job provides a database, so these compile and are never executed | Working in any of those areas, or standing up a Postgres service for the db-tests leg — which is the change that stops this recurring |
 | The `AdapterNewThread` outbound capability is dead in production, live in tests | `bindings/outbound.rs::direct_send_to_rule` (sole production caller) reaching `capabilities.rs::{AdapterNewThread::send_message, binding_destination_from_new_thread}`, `registry/mod.rs::{Registry::outbound_for_new_thread_by_name, OutboundOperation::NewThread}`, both impl'd by `providers/{slack,telegram}/outbound.rs` | Is subscription-based new-thread outbound being finished or abandoned? See below |
 | The sandbox images are documented as two products | `docs/docker-builds.md`, `docs/sandbox-architecture.md`, `docker-compose/README.md`, the `docker-install` and `docker-testing` skills, and the commented alternative in both `.env.example` files | Any pass over the sandbox image docs |
 

@@ -68,7 +68,6 @@ function syncResult(reclaimed = 0): SyncConfigResponse {
   return {
     repository: currentRepository,
     loops: {
-      approvalsRevoked: 0,
       created: 0,
       overridesSkipped: 0,
       removed: 0,
@@ -175,7 +174,6 @@ describe('RepositoryConfigEditSection', () => {
 
     const result = syncResult()
     result.loops = {
-      approvalsRevoked: 2,
       created: 1,
       overridesSkipped: 1,
       removed: 1,
@@ -187,7 +185,7 @@ describe('RepositoryConfigEditSection', () => {
     callbacks.onSuccess(result)
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Repository configuration synced from Git', {
       description:
-        '1 Loop created. 2 Loops updated. 1 Loop removed. 2 Loop approvals revoked. 1 Loop override preserved. 1 Loop skipped. 1 Loop warning reported.',
+        '1 Loop created. 2 Loops updated. 1 Loop removed. 1 Loop override preserved. 1 Loop skipped. 1 Loop warning reported.',
     })
   })
 

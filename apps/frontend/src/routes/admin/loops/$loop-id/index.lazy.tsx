@@ -369,7 +369,7 @@ function LoopDetailPage() {
     resetGitLoop.mutate(loop.id, {
       onSuccess: (result) => {
         if (result.resynced) {
-          toast.success('Loop reset to Git and returned to awaiting approval')
+          toast.success('Loop reset to its Git configuration')
         } else {
           toast.error('Loop was not reset', { description: result.error ?? undefined })
         }
@@ -432,7 +432,8 @@ function LoopDetailPage() {
         <div className="rounded-md border bg-muted p-4 text-sm">
           This Loop’s configuration is read-only because it is synchronized from{' '}
           <span className="font-medium">{loop.sourceConfigPath}</span>. Override it to edit locally.
-          Repository sync will preserve overrides until Reset to Git is chosen.
+          Repository sync will preserve overrides until Reset to Git is chosen, and never changes
+          activation or the run-as user.
         </div>
       ) : null}
 

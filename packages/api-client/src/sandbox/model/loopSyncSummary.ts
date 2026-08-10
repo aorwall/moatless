@@ -13,11 +13,6 @@ import type { LoopSyncWarning } from './loopSyncWarning';
  */
 export interface LoopSyncSummary {
   /**
-   * Existing Git-synced Loops whose approval was revoked.
-   * @minimum 0
-   */
-  approvalsRevoked: number;
-  /**
    * Loops inserted.
    * @minimum 0
    */

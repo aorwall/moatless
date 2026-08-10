@@ -22,7 +22,6 @@ const syncResponse: SyncConfigResponse = {
     scope: 'user',
   },
   loops: {
-    approvalsRevoked: 0,
     created: 0,
     overridesSkipped: 0,
     removed: 0,

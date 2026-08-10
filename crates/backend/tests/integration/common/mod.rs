@@ -329,7 +329,6 @@ pub fn test_config() -> Config {
             issuer: "https://auth.openai.com".into(),
             client_id: "test-client".into(),
         },
-        default_run_as_user_id: None,
         otel: OtelConfig {
             otlp_endpoint: None,
             sampling_ratio: 0.1,

@@ -14,7 +14,7 @@ agentType: claude-code   # optional, default claude-code
 routingMode: by_subject  # optional, default by_subject
 tags: [review]           # optional
 skills: [java-review]    # optional — activated on every fresh agent session
-# optional: runAsUserId, sourceMatcher, teamId, eventFilter, adapterConfig, active, inactiveTtlDays
+# optional: sourceMatcher, teamId, eventFilter, adapterConfig, inactiveTtlDays
 ---
 
 Review this pull request. Post inline comments.
@@ -83,9 +83,12 @@ Notes:
   Health Check`); for `linear`, what the loop picks up (`Ready Pool`). A name like
   `Slack C0000000001` is the one to avoid — it stutters against the line below it
   and goes stale the moment the channel changes.
-- Synced loops are tracked as triggers with `managed_by = 'repo_loop'`, keyed by
+- Synced loops are tracked with `config_source = 'git'`, keyed by
   `(repository, loop dir name)`. Re-running `sync-config` upserts them and removes
-  loops whose directory was deleted. Manually-created triggers are never touched.
+  loops whose directory was deleted. Manually-created loops are never touched, and
+  neither is a synced loop an administrator has **overridden** (`moat loops
+  override --id <id>`, or Override in the UI) — it keeps its local edits until someone
+  explicitly resets it to Git.
 - `github_pr` loops need a pre-existing GitHub **connection** for the org (it
   holds the webhook secret and can't be committed to git). With no connection the
   loop is **skipped** with a reason, not errored. Schedule loops need no connection.
@@ -117,5 +120,13 @@ Notes:
   session, so a restart does not lose them. Names are not validated at sync time —
   a skill exists on the pod that runs the task, not in the database — and one that
   resolves nowhere is logged and skipped.
-- `runAsUserId` resolves: frontmatter → `MOATLESS_DEFAULT_RUN_AS_USER_ID` →
-  repo owner → repo creator.
+- **A `LOOP.md` cannot make a loop run.** Git carries configuration only: a
+  synced loop lands inactive with no run-as user, and an administrator has to
+  activate it in Moatless (`moat loops activate --id <id> --run-as-user-id <user>`,
+  or Activate in the UI) naming the identity its tasks run as. `active` and
+  `runAsUserId` in the frontmatter are ignored, and `sync-config` reports each
+  one it saw as a warning.
+- That approval then **survives every later sync**. Once activated, a loop keeps
+  running as its approved user while `sync-config` keeps its configuration
+  current — re-approval is only needed for a loop nobody has activated yet, or
+  one whose tombstone an administrator restored from Git.

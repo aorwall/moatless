@@ -366,7 +366,6 @@ pub struct ManagedLoopReconcileSummary {
     pub created: u32,
     pub updated: u32,
     pub removed: u32,
-    pub approvals_revoked: u32,
     pub overrides_skipped: u32,
     pub skipped_overrides: Vec<ManagedLoopOverrideSkip>,
 }
@@ -1021,6 +1020,11 @@ impl LoopDao {
     /// distinction prevents a bad `LOOP.md` from being interpreted as removal.
     /// Manual overrides and deletion tombstones retain their Git provenance and
     /// are skipped until an administrator explicitly resets them.
+    ///
+    /// Configuration is the only thing Git owns: `active` and
+    /// `loop_configs.run_as_user_id` carry across a re-sync untouched, so a Loop
+    /// an administrator activated keeps running as its approved user while its
+    /// declaration keeps flowing from the repository.
     pub async fn reconcile_managed_loops(
         &self,
         source_repository_id: &str,
@@ -1036,9 +1040,8 @@ impl LoopDao {
         let mut summary = ManagedLoopReconcileSummary::default();
 
         for input in inputs {
-            let existing: Option<(String, String, bool, bool)> = sqlx::query_as(
-                "SELECT t.id, t.config_source, t.deleted,
-                        (t.active OR r.run_as_user_id IS NOT NULL) AS approved
+            let existing: Option<(String, String, bool)> = sqlx::query_as(
+                "SELECT t.id, t.config_source, t.deleted
                  FROM loops t
                  JOIN loop_configs r ON r.loop_id = t.id
                  WHERE t.source_repository_id = $1 AND t.source_key = $2
@@ -1050,7 +1053,7 @@ impl LoopDao {
             .await?;
 
             let loop_id = match existing {
-                Some((_, config_source, deleted, _)) if config_source == "manual" || deleted => {
+                Some((_, config_source, deleted)) if config_source == "manual" || deleted => {
                     summary.overrides_skipped += 1;
                     summary.skipped_overrides.push(ManagedLoopOverrideSkip {
                         source_key: input.source_key.clone(),
@@ -1058,10 +1061,10 @@ impl LoopDao {
                     });
                     continue;
                 }
-                Some((id, _, _, approved)) => {
+                Some((id, _, _)) => {
                     sqlx::query(
                         "UPDATE loops
-                         SET name = $2, kind = $3, active = false, scope = $4,
+                         SET name = $2, kind = $3, scope = $4,
                              owner_user_id = $5, source_config_path = $6,
                              deleted = false, updated_at = $7
                          WHERE id = $1",
@@ -1076,9 +1079,6 @@ impl LoopDao {
                     .execute(&mut *tx)
                     .await?;
                     summary.updated += 1;
-                    if approved {
-                        summary.approvals_revoked += 1;
-                    }
                     id
                 }
                 None => {
@@ -1145,6 +1145,10 @@ impl LoopDao {
 
     /// Force one override or tombstone back to its Git declaration. The caller
     /// must have fetched and resolved that exact source first.
+    ///
+    /// Only configuration is reclaimed. An override that was running keeps its
+    /// activation and run-as user; a tombstone was stripped of both when it was
+    /// deleted, so restoring one lands on awaiting-approval.
     pub async fn reset_managed_loop(&self, input: &ManagedLoopUpsert) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
@@ -1165,7 +1169,7 @@ impl LoopDao {
         };
         sqlx::query(
             "UPDATE loops
-             SET name = $2, kind = $3, active = false, scope = $4,
+             SET name = $2, kind = $3, scope = $4,
                  owner_user_id = $5, config_source = 'git',
                  source_config_path = $6, deleted = false, updated_at = now()
              WHERE id = $1",
@@ -1420,12 +1424,16 @@ async fn replace_managed_loop_rows(
     loop_id: &str,
     input: &ManagedLoopUpsert,
 ) -> Result<(), sqlx::Error> {
-    let ongoing_task_id: Option<String> =
-        sqlx::query_scalar("SELECT ongoing_task_id FROM loop_configs WHERE loop_id = $1")
-            .bind(loop_id)
-            .fetch_optional(&mut **tx)
-            .await?
-            .flatten();
+    // `ongoing_task_id` is runtime state set by firing and `run_as_user_id` is
+    // the administrator's activation decision. Neither is declared in Git, so
+    // both survive the delete-and-reinsert that replaces the Git-owned columns.
+    let carried: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT ongoing_task_id, run_as_user_id FROM loop_configs WHERE loop_id = $1",
+    )
+    .bind(loop_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let (ongoing_task_id, run_as_user_id) = carried.unwrap_or((None, None));
 
     sqlx::query("DELETE FROM loop_configs WHERE loop_id = $1")
         .bind(loop_id)
@@ -1451,7 +1459,7 @@ async fn replace_managed_loop_rows(
             task_name: None,
             tag_ids: input.tag_ids.clone(),
             skills: input.skills.clone(),
-            run_as_user_id: None,
+            run_as_user_id,
             agent_type: input.agent_type.clone(),
             inactive_ttl_days: input.inactive_ttl_days,
         },

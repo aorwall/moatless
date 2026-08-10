@@ -12580,18 +12580,11 @@
           "created",
           "updated",
           "removed",
-          "approvalsRevoked",
           "overridesSkipped",
           "skipped",
           "warnings"
         ],
         "properties": {
-          "approvalsRevoked": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Existing Git-synced Loops whose approval was revoked.",
-            "minimum": 0
-          },
           "created": {
             "type": "integer",
             "format": "int32",
