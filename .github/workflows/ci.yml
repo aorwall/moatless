@@ -285,12 +285,9 @@ jobs:
   # `rust-test` entry ever existed, every PR started from an empty `target/`,
   # and both jobs logged `No cache found`. Narrowing either condition again
   # without the other re-breaks it.
-  # rust-clippy, the serial feature/db clippy jobs and rust-test share the
-  # existing rust-test debug-profile cache. Only the two full-workspace jobs save
-  # it; feature/db clippy jobs are restore-only so a smaller package closure
-  # cannot win the first-writer race on a new lockfile/toolchain generation. The
-  # old rust-clippy generations are read no more and the main-branch pruner
-  # retires them.
+  # rust-clippy and rust-test share the existing rust-test debug-profile cache.
+  # Only those two full-workspace jobs save it. The old rust-clippy generations
+  # are read no more and the main-branch pruner retires them.
   rust-clippy:
     name: Rust clippy
     needs: detect-changes
@@ -352,16 +349,15 @@ jobs:
           # never compiled here at all.
           cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Clippy PR feature/db extras (deny warnings)
-        if: github.event_name == 'pull_request'
+      - name: Clippy feature/db extras (deny warnings)
         shell: bash
         env:
           CARGO_MANIFEST_CHANGED: ${{ needs.detect-changes.outputs.cargo-manifest }}
         run: |
           set -euo pipefail
-          # PRs keep one clippy job with one warm target directory. The extra
-          # feature graphs are serial because each resolves a distinct graph on
-          # top of the workspace floor.
+          # Keep the extra feature/db checks in this job: the workspace floor
+          # has already warmed target/, and splitting these into separate jobs
+          # makes each job rebuild the workspace closure.
           cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
           cargo clippy -p moatless-core --all-targets -- -D warnings
           cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
@@ -375,182 +371,6 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends jq
 
-          DB_TEST_ARGS=""
-          DB_TEST_FEATURES=""
-          while IFS= read -r package; do
-            [ -n "$package" ] || continue
-            DB_TEST_ARGS="$DB_TEST_ARGS -p $package"
-            if [ -n "$DB_TEST_FEATURES" ]; then
-              DB_TEST_FEATURES="$DB_TEST_FEATURES,$package/db-tests"
-            else
-              DB_TEST_FEATURES="$package/db-tests"
-            fi
-          done < <(
-            cargo metadata --no-deps --format-version 1 \
-              | jq -r '.packages[] | select(.features["db-tests"] != null) | .name' \
-              | sort
-          )
-          echo "PR db-tests packages: ${DB_TEST_ARGS:-<none>}"
-          if [ -z "$DB_TEST_ARGS" ]; then
-            echo "::error::cargo metadata found no packages declaring db-tests"
-            exit 1
-          fi
-          # shellcheck disable=SC2086
-          cargo clippy --all-targets $DB_TEST_ARGS --features "$DB_TEST_FEATURES" -- -D warnings
-
-      - name: sccache stats
-        if: always() && env.RUSTC_WRAPPER != ''
-        run: "$RUSTC_WRAPPER --show-stats || true"
-
-  rust-clippy-features:
-    name: Rust clippy feature graphs
-    needs:
-      - detect-changes
-      - rust-clippy
-      - build-rust
-    if: >-
-      always() &&
-      needs.rust-clippy.result == 'success' &&
-      (needs.build-rust.result == 'success' || needs.build-rust.result == 'skipped') &&
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    runs-on: staging-runners-large
-    container:
-      image: rust:1.97-bookworm
-    timeout-minutes: 30
-    env:
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
-      CARGO_PROFILE_TEST_DEBUG: 0
-      SCCACHE_S3_BUCKET: ${{ vars.SCCACHE_S3_BUCKET }}
-      SCCACHE_S3_REGION: ${{ vars.SCCACHE_S3_REGION }}
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Authenticate to AWS for sccache
-        if: vars.SCCACHE_S3_BUCKET != ''
-        continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
-        with:
-          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
-          aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
-
-      - name: Configure sccache
-        run: .github/scripts/setup-sccache.sh
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          workspaces: ". -> target"
-          shared-key: rust-test
-          save-if: false
-
-      - name: Measure restored Rust cache footprint
-        run: |
-          du -sh "${CARGO_HOME:-$HOME/.cargo}" 2>/dev/null || true
-          du -sh target 2>/dev/null || true
-          du -sh target/debug 2>/dev/null || true
-
-      - name: Clippy feature graphs (deny warnings)
-        shell: bash
-        env:
-          CARGO_MANIFEST_CHANGED: ${{ needs.detect-changes.outputs.cargo-manifest }}
-        run: |
-          set -euo pipefail
-          # Feature checks run on top of the floor. --workspace unifies each
-          # member's features to a single set, so the floor lints every crate at
-          # exactly ONE feature configuration: the union the graph resolves to.
-          # These `-p` runs cover feature off-states and alternate graphs the
-          # floor structurally cannot cover:
-          # - crates/backend/Cargo.toml pulls moatless-core with `features = ["openapi"]`,
-          #   so under --workspace the floor ALWAYS lints core openapi-ON. It thus
-          #   proves neither the openapi-off compile nor that the feature stays
-          #   droppable — only the default `-p` run below covers that graph. The
-          #   explicit openapi run pins the openapi-on paths (ToSchema derives,
-          #   utoipa::path attrs, tag routes module) in isolation from the graph's
-          #   unification.
-          cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
-          cargo clippy -p moatless-core --all-targets -- -D warnings
-          # - moatless-backend-core with every feature on: `database` gates the
-          #   DAO and pairing module, which the default (`[]`) floor run omits.
-          cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
-          # Resolves a different graph (no sqlx/rustls), so it rebuilds the
-          # closure. Guards that `database` stays droppable — manifest-only concern.
-          if [ "$CARGO_MANIFEST_CHANGED" = true ]; then
-            cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
-          else
-            echo "::notice::Skipping moatless-backend-core --no-default-features — cargo manifest did not change"
-          fi
-
-      - name: sccache stats
-        if: always() && env.RUSTC_WRAPPER != ''
-        run: "$RUSTC_WRAPPER --show-stats || true"
-
-  rust-clippy-db-tests:
-    name: Rust clippy db-tests
-    needs:
-      - detect-changes
-      - rust-clippy
-      - build-rust
-    if: >-
-      always() &&
-      needs.rust-clippy.result == 'success' &&
-      (needs.build-rust.result == 'success' || needs.build-rust.result == 'skipped') &&
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    runs-on: staging-runners-large
-    container:
-      image: rust:1.97-bookworm
-    timeout-minutes: 30
-    env:
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
-      CARGO_PROFILE_TEST_DEBUG: 0
-      SCCACHE_S3_BUCKET: ${{ vars.SCCACHE_S3_BUCKET }}
-      SCCACHE_S3_REGION: ${{ vars.SCCACHE_S3_REGION }}
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Authenticate to AWS for sccache
-        if: vars.SCCACHE_S3_BUCKET != ''
-        continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
-        with:
-          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
-          aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
-
-      - name: Configure sccache
-        run: .github/scripts/setup-sccache.sh
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          workspaces: ". -> target"
-          shared-key: rust-test
-          save-if: false
-
-      - name: Measure restored Rust cache footprint
-        run: |
-          du -sh "${CARGO_HOME:-$HOME/.cargo}" 2>/dev/null || true
-          du -sh target 2>/dev/null || true
-          du -sh target/debug 2>/dev/null || true
-
-      - name: Clippy db-tests packages (deny warnings)
-        shell: bash
-        run: |
-          set -euo pipefail
-          .github/scripts/apt-https-mirrors.sh
-          apt-get update
-          apt-get install -y --no-install-recommends jq
-
-          # `--features db-tests` because db-gated tests compile to nothing
-          # without it. Discover the packages from their manifests so a carved
-          # crate keeps this coverage by declaring the feature, not by editing
-          # a second hand-maintained CI list. Keep each package isolated: unified
-          # sibling features can mask a crate that only compiles when another
-          # package enables test-support.
           mapfile -t DB_TEST_PACKAGES < <(
             cargo metadata --no-deps --format-version 1 \
               | jq -r '.packages[] | select(.features["db-tests"] != null) | .name' \
@@ -561,9 +381,24 @@ jobs:
             echo "::error::cargo metadata found no packages declaring db-tests"
             exit 1
           fi
-          for package in "${DB_TEST_PACKAGES[@]}"; do
-            cargo clippy -p "$package" --all-targets --features db-tests -- -D warnings
-          done
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            DB_TEST_ARGS=""
+            DB_TEST_FEATURES=""
+            for package in "${DB_TEST_PACKAGES[@]}"; do
+              DB_TEST_ARGS="$DB_TEST_ARGS -p $package"
+              if [ -n "$DB_TEST_FEATURES" ]; then
+                DB_TEST_FEATURES="$DB_TEST_FEATURES,$package/db-tests"
+              else
+                DB_TEST_FEATURES="$package/db-tests"
+              fi
+            done
+            # shellcheck disable=SC2086
+            cargo clippy --all-targets $DB_TEST_ARGS --features "$DB_TEST_FEATURES" -- -D warnings
+          else
+            for package in "${DB_TEST_PACKAGES[@]}"; do
+              cargo clippy -p "$package" --all-targets --features db-tests -- -D warnings
+            done
+          fi
 
       - name: sccache stats
         if: always() && env.RUSTC_WRAPPER != ''
@@ -1518,8 +1353,6 @@ jobs:
     needs:
       - crate-census
       - rust-clippy
-      - rust-clippy-features
-      - rust-clippy-db-tests
       - rust-test
       - build-rust
     if: >-
