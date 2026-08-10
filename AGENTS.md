@@ -19,78 +19,39 @@ cd apps/frontend && bunx shadcn@latest add [component]
 ### Rust backend & sandbox
 ```bash
 cargo build -p moatless-backend        # or moatless-sandbox
+cargo clippy --workspace --all-targets -- -D warnings        # the floor: every member
 cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
 cargo clippy -p moatless-core --all-targets -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
-cargo clippy -p moatless-t3code --all-targets -- -D warnings
 cargo clippy -p moatless-backend --all-targets --features db-tests -- -D warnings
-cargo clippy -p moatless-sandbox -- -D warnings   # also claude-agent-sdk, moatless-events
-cargo clippy -p crate-census --all-targets -- -D warnings   # Step-10 cross-crate census tool; deleted at 10i
 cargo run -p crate-census                   # regenerate scripts/crate-census-{baseline,report}.txt
-cargo test -p moatless-backend         # or moatless-sandbox, claude-agent-sdk, moatless-events
-cargo test -p moatless-core
-cargo test -p moatless-backend-core
-cargo test -p moatless-t3code
+cargo test -p <crate>                       # scope to the crate you changed — never --workspace
 task rust:gc                                # reclaim target/debug/incremental
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
 ```
-Run those clippy lines verbatim — `--all-targets` on the three backend crates,
-plain on the sandbox and the SDKs — and do not vary them. The flag set, and
-`cargo check` vs `cargo clippy`, each key a separate fingerprint and a separate
-rustc incremental unit. Alternating forms recompiles all ~420 dependencies (~2
-min on a sandbox) and strands another 0.4–1 GB of incremental state that nothing
-reclaims, because cargo has no target-directory GC. `ci.yml` runs these same
-lines, so matching them keeps one warm cache instead of several cold ones. `task
-rust:gc` drops `incremental/` once it passes its threshold; compiled
-dependencies in `deps/` survive, so only the next build per configuration is
-non-incremental.
+Run those clippy lines verbatim. Do not vary them, and do not add a `-p` line
+for the crate you touched — the floor already lints every workspace member at
+`--all-targets`, so a narrower run finds nothing new and costs another
+incremental unit. `crates/codex-sdk` is the exception: it is excluded from the
+workspace, so the floor never reaches it and it is linted from its own
+directory. `ci.yml` runs this same set.
 
-The sandbox base image carries mold (as `/usr/bin/ld`, so nothing opts into it)
-and sccache. When the deployment sets `SCCACHE_S3_BUCKET`, the entrypoint points
-sccache at that bucket and exports `RUSTC_WRAPPER`, so a first build here reuses
-objects an earlier sandbox compiled. It shares nothing with CI: sccache keys on
-absolute paths and the two disagree on the checkout dir and `CARGO_HOME`. The
-cache is not a substitute for `target/` — cargo still relinks, and everything
-about the volume cap below still applies.
+Never run `cargo check` — `cargo clippy` already covers it and keys a separate
+set of incremental units. Scope every `cargo test` to the crate you changed for
+the same reason.
 
 In a sandbox the workspace volume is capped and overflowing it **evicts the
-pod** — the run dies and only committed work survives. `/opt/moatless` holds
-the checkout and `target/`, so check `df -h /opt/moatless` before the first
-full build and between commits, and run `task rust:gc` when it tightens.
-`cargo clean` is the wrong reflex: it discards `deps/` too, so the next build
-recompiles every dependency into the same volume. Commit each logical change as
-it goes green rather than batching, so an eviction costs one commit.
+pod** — the run dies and only committed work survives. `/opt/moatless` holds the
+checkout and `target/`, so check `df -h /opt/moatless` before the first full
+build and between commits, and run `task rust:gc` when it tightens. Commit each
+logical change as it goes green rather than batching, so an eviction costs one
+commit.
 
-The db-tests clippy matrix carries `--features db-tests` for every package that
-declares the feature because gated test modules compile to nothing without it —
-a signature they construct can change and a bare `--all-targets` run stays
-green. Clippy type-checks that tier without linking it, which is why the feature
-rides on lines you already run rather than a local command of its own. `ci.yml`
-also links selected DB-test packages with
-`cargo nextest run -p <package> --features db-tests --no-run`; do not add that
-locally, because `cargo test` under a feature is a separate cargo unit and the
-first build of it recompiles the dependency graph again.
-
-The backend integration modules are one test target,
-`crates/backend/tests/integration/main.rs`, not one target per file: each links the
-whole backend closure, so link time scales with the target count. A new
-integration test is a file in `crates/backend/tests/integration/` plus a `mod` line in
-`main.rs`, and reaches the shared helpers through `use crate::common;`. nextest
-gives each test its own process, so a test may still set env vars without
-disturbing its neighbours.
-
-`moatless-core` is linted twice for the same reason: its `openapi` feature gates
-real code (the `ToSchema` derives, the two `utoipa::path` attributes, and the tag
-`routes` module), so `--features openapi` is the only run that lints the gated code
-and the default run is what keeps the feature droppable — without which utoipa
-stops being off for the non-API consumers the feature exists to protect.
-
-`moatless-backend-core` is linted twice because its `database` feature gates the
-activity DAO and the whole pairing module: `--all-features` is the only run that
-lints them, and `--no-default-features` is what keeps the feature droppable, so
-the crate every backend crate depends on does not pull sqlx and rustls into
-builds that never open a connection.
+Why the set is shaped this way, what each invocation costs, how the db-tests
+tier and the single integration target work, and how to point rust-analyzer at
+the same units: `rust-dev-guidelines` skill, `references/build-costs.md` and
+`references/backend.md`. Read them before changing a cargo invocation.
 
 ### E2E (one suite, two profiles; details: e2e-testing skill)
 `tests/api` drives the product through the `moat` CLI, so the same chains run
@@ -112,15 +73,14 @@ git tag v0.1.21 && git push origin v0.1.21                      # triggers relea
 ```
 
 ## Verification (mandatory after changes)
-- Rust: the clippy line for that crate from the block above, verbatim, and `cargo test -p <crate>`
+- Rust: the floor line, plus any `-p` line above that names the crate you touched, verbatim — and `cargo test -p <crate>`
 - Frontend: `bun run type:check` and `bun run biome:check` (quick loop: `bun run post-edit-hook`)
 - Lint ratchet: `noFloatingPromises`, `noMisusedPromises`, `useExhaustiveSwitchCases` are baselined per file in `biome-baseline.json`. Touch a file with baselined violations → fix them, then `bun run lint:ratchet:update`. New files must be clean; the baseline only shrinks.
 
 ## Pragmatic coding
-- Minimum code that solves the problem — nothing speculative, no single-use abstractions, no unrequested flexibility or configuration.
-- Surgical changes: touch only what the task needs. Prefer deleting code. When the code you are changing sits in the wrong module, move it there first as its own commit, then change it.
 - No new trait/interface with a single implementation (a test mock counts only if a test uses it).
-- State assumptions when uncertain; define a verifiable success criterion (failing test, reproducible check) before starting.
+- When the code you are changing sits in the wrong module, move it there as its own commit, then change it.
+- Define a verifiable success criterion — a failing test or a reproducible check — before starting.
 
 ## Commits
 Conventional commits — `type(optional-scope): subject`, header ≤100 characters.
@@ -131,7 +91,9 @@ Conventional commits — `type(optional-scope): subject`, header ≤100 characte
 
 **The title check is advisory.** It is not in `main`'s required-status-check list, so a red title check does not block a merge; a reviewer has to notice it. Making it required is a repository setting.
 
-Pre-push runs `bun run test:fast`.
+Pre-push runs `bun check:pre-push`, which is Biome and type-check only — no
+tests. A push proves nothing about test state; run the verification commands
+above yourself.
 
 ## Architecture & conventions
 - Domain glossary: `CONTEXT.md`. Historical markdown specs and ADRs were removed because they were not maintained; use current code/tests as authority and docs only as routing aids. Read `.plans/` only when asked to implement or review that specific plan.
@@ -144,4 +106,4 @@ Pre-push runs `bun run test:fast`.
 - Rust conventions live in the model-invoked `rust-dev-guidelines` skill for
   `crates/backend/`, `sandbox/`, and `crates/`. Frontend baseline conventions live in
   `.agents/skills/frontend-dev-guidelines/SKILL.md` and its resources.
-- `routeTree.gen.ts` is generated — excluded from lint/format. File naming: kebab-case (frontend, enforced by Biome), snake_case (Rust).
+- `routeTree.gen.ts` is generated — excluded from lint/format. Edit the routes, not the tree.

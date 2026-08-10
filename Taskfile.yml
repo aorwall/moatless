@@ -331,7 +331,7 @@ tasks:
   # ── Rust build cache ───────────────────────────────────────────
 
   rust:gc:
-    desc: Reclaim target/debug/incremental once it passes CARGO_GC_THRESHOLD_MB (default 4096)
+    desc: Drop stale then least-recently-used incremental units once target/debug/incremental passes CARGO_GC_THRESHOLD_MB (default 4096)
     cmds:
       - ./scripts/cargo-gc.sh
 

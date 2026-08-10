@@ -6,8 +6,8 @@ Rust sandbox runtime for Moatless Vibe sandbox pods.
 
 ```bash
 cargo build -p moatless-sandbox
-cargo clippy -p moatless-sandbox -- -D warnings
 cargo test -p moatless-sandbox
+# Clippy: run the floor line from the root AGENTS.md — it covers this crate.
 
 # E2E tests (requires `claude` CLI + API key, costs ~$0.01-0.05 per test)
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture

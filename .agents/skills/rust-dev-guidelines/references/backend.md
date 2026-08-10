@@ -44,6 +44,18 @@ Apply this reference to Rust changes under `backend/`.
 - Patch semantics must distinguish omitted fields from explicit clearing where
   the API supports both.
 
+## Integration Tests
+
+- `crates/backend/tests/integration/` is one test target, `main.rs`, not one target per
+  file. Each target links the whole backend closure, so link time scales with
+  the target count — keep it at one.
+- A new integration test is a file in that directory plus a `mod` line in
+  `main.rs`, and reaches the shared helpers through `use crate::common;`.
+- Open the file with `#![cfg(feature = "db-tests")]`, as every module there but
+  `supervisor_test.rs` does.
+- nextest gives each test its own process, so a test may set env vars without
+  disturbing its neighbours.
+
 ## HTTP and Errors
 
 - Axum's body-consuming extractor is last. Non-body extractors have no

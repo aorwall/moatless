@@ -16,6 +16,8 @@ new conventions without checking that they remain sound.
    - `backend/` → [backend.md](references/backend.md)
    - `sandbox/` → [sandbox.md](references/sandbox.md)
    - `crates/` → [shared-crates.md](references/shared-crates.md)
+   - adding, varying, or removing a cargo invocation, or configuring an editor
+     against this workspace → [build-costs.md](references/build-costs.md)
 3. Define a failing test or reproducible check before implementation.
 4. For a new or materially changed module, interface, or dependency seam, use
    the `codebase-design` skill before settling the design.
@@ -86,7 +88,7 @@ Do not run `cargo fmt -p <crate>`. No crate here has a `rustfmt.toml`, and
 `edition = "2021"` — so `cargo fmt` formats them to the 2021 style edition,
 while newer modules inside them are written in the 2024 one. The two disagree on
 import ordering, so a crate-wide run rewrites unrelated files underneath your
-change. On `moatless-vibe-backend` today that is 249 diff hunks; one refactor
+change. On `moatless-backend` today that is 249 diff hunks; one refactor
 lost real time unpicking 72 rewritten files out of its diff.
 
 `crates/codex-sdk` is already `edition = "2024"` and does not have this split.

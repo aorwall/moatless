@@ -6,8 +6,8 @@ Rust SDK for spawning and communicating with the Claude Code CLI over NDJSON std
 
 ```bash
 cargo build -p claude-agent-sdk
-cargo clippy -p claude-agent-sdk -- -D warnings
 cargo test -p claude-agent-sdk
+# Clippy: run the floor line from the root AGENTS.md — it covers this crate.
 
 # E2E — subprocess backend (requires `claude` CLI + API key, ~$0.01-0.05/test)
 CLAUDE_SDK_E2E=1 cargo test -p claude-agent-sdk -- --ignored --nocapture

@@ -118,6 +118,12 @@ used_underscore_binding = "allow"
 # Or-pattern nesting style — both forms are readable
 unnested_or_patterns = "allow"
 
+# Dependencies carry no debuginfo: nobody steps into them, and their DWARF is
+# the bulk of target/debug. Workspace members keep theirs, so backtraces and
+# breakpoints in our own code are unaffected.
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 8
