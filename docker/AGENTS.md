@@ -7,7 +7,7 @@
 
 ```
 Dockerfile.sandbox-base ──> aorwall/moatless-sandbox-base ──┬─> Dockerfile.sandbox      (+ sandbox-js alias)
-                                                            ├─> Dockerfile.sandbox-java (matrix: 21, 25)
+                                                            ├─> recipes (docker/recipes/*.json, build-sandboxes.yml)
                                                             ├─> Dockerfile.sandbox-dev  (build-dev-image.yml, manual)
                                                             └─> Dockerfile.sandbox-full / -e2e / -crash (local)
 Dockerfile.sandbox-tools ─> entrypoint + moatless-git-cred, consumed by COPY --from
@@ -81,3 +81,30 @@ when you delete its consumer.
 
 `RUST_VERSION` in `Dockerfile.sandbox-base` must match `rust-toolchain.toml`;
 the `toolchain-drift` CI job fails when they diverge.
+
+## Recipes
+
+A recipe (`docker/recipes/<name>.json`) composes a base (`sandbox` or
+`sandbox-base`) with features (`docker/features/<id>/{feature.json,install.sh}`).
+`docker/generate-recipe.sh` turns one into a Dockerfile and a content-hash tag;
+`build-sandboxes.yml` builds only the recipes whose tag doesn't already
+exist in the registry and pushes both the immutable `:<hash12>` tag and a
+moving `:<recipe-filename>` alias (e.g. `aorwall/moatless-sandbox-recipe:soaplabs`).
+It is triggered by `ci.yml`'s completion (`workflow_run`, not an independent
+`push` trigger) so recipe discovery only ever runs after `ci.yml` has actually
+published a new `sandbox`/`sandbox-base` image — see the comment at the top of
+the workflow file for why an independent push trigger raced it.
+
+**A feature installs a tool and, if the sandbox process needs to see it at
+runtime, the environment it requires.** `install.sh` itself can't set `ENV` —
+it runs inside a `RUN`'d shell — so a feature declares runtime env vars in its
+`feature.json`'s `env` map instead; `generate-recipe.sh` emits them as real
+Dockerfile `ENV` instructions right after that feature's `RUN` step. No
+entrypoint changes beyond that — the base image (`sandbox-base`) still owns
+everything not specific to the feature's own tool.
+
+**The recipe's own JSON is not enough to make the tag content-addressed.**
+`generate-recipe.sh` folds in a hash of each feature's files and the resolved
+digest of the base, so an `install.sh` fix or a `sandbox`/`sandbox-base`
+rebuild produces a new tag instead of silently being skipped as "already
+built". See `.plans/custom-sandbox-images.md`.

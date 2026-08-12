@@ -17,7 +17,6 @@ env:
   IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-frontend
   SANDBOX_BASE_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox
   SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-js
-  SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-java
   BACKEND_IMAGE_NAME: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-backend
 
 jobs:
@@ -75,19 +74,6 @@ jobs:
             fi
           done
 
-          # Retag sandbox-java variants
-          for JAVA_VERSION in 21 25; do
-            IMAGE="${{ env.SANDBOX_JAVA_IMAGE }}"
-            SRC_TAG="${JAVA_VERSION}-${SHA_TAG}"
-            DST_TAG="${JAVA_VERSION}-${VERSION}"
-            echo "Retagging ${IMAGE}:${SRC_TAG} → ${IMAGE}:${DST_TAG}"
-            docker pull "${IMAGE}:${SRC_TAG}" || echo "Skipping ${IMAGE}:${SRC_TAG} (not found)"
-            if docker image inspect "${IMAGE}:${SRC_TAG}" >/dev/null 2>&1; then
-              docker tag "${IMAGE}:${SRC_TAG}" "${IMAGE}:${DST_TAG}"
-              docker push "${IMAGE}:${DST_TAG}"
-            fi
-          done
-
   # ── Helm chart + changelog ────────────────────────────────────
   publish-helm:
     needs: [version, retag-images]
@@ -138,7 +124,6 @@ jobs:
           echo "- **App:** \`${{ env.IMAGE_NAME }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Sandbox Base:** \`${{ env.SANDBOX_BASE_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Sandbox JS:** \`${{ env.SANDBOX_JS_IMAGE }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Sandbox Java:** \`${{ env.SANDBOX_JAVA_IMAGE }}:21-${{ needs.version.outputs.version }}\`, \`:25-${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend:** \`${{ env.BACKEND_IMAGE_NAME }}:${{ needs.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Helm Chart" >> $GITHUB_STEP_SUMMARY

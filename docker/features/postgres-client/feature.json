@@ -1,0 +1,7 @@
+{
+  "id": "postgres-client",
+  "name": "PostgreSQL client",
+  "description": "postgresql-client CLI (psql, pg_dump, pg_restore, etc.) via apt.",
+  "options": {},
+  "installsAfter": []
+}

@@ -44,7 +44,6 @@ env:
   # Minimal runtime sandbox = sandbox-base + scripts + Rust binaries.
   SANDBOX_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox
   SANDBOX_JS_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-js
-  SANDBOX_JAVA_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-java
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
   # A registry blip should cost a retry, not a red build.
@@ -82,7 +81,6 @@ jobs:
       sandbox-tools: ${{ steps.filter.outputs.sandbox-tools }}
       sandbox-base: ${{ steps.filter.outputs.sandbox-base }}
       sandbox-image: ${{ steps.filter.outputs.sandbox-image }}
-      sandbox-java: ${{ steps.filter.outputs.sandbox-java }}
       helm: ${{ steps.filter.outputs.helm }}
       cargo-manifest: ${{ steps.filter.outputs.cargo-manifest }}
       # Narrows rust-test's package set; no deep fetch needed.
@@ -146,9 +144,6 @@ jobs:
               - 'tsconfig.json'
             sandbox-image:
               - 'docker/Dockerfile.sandbox'
-              - '.github/workflows/ci.yml'
-            sandbox-java:
-              - 'docker/Dockerfile.sandbox-java'
               - '.github/workflows/ci.yml'
             helm:
               - 'k8s/helm/**'
@@ -1205,72 +1200,6 @@ jobs:
             binaries=/tmp/sandbox-binaries
           cache-from: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.SANDBOX_IMAGE }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
-
-  build-sandbox-java:
-    name: Build & push sandbox-java:${{ matrix.java-version }}
-    needs: [detect-changes, build-sandbox-tools]
-    if: >-
-      always() &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
-      (
-        needs.detect-changes.outputs.sandbox-tools == 'true' ||
-        needs.detect-changes.outputs.sandbox-java == 'true' ||
-        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
-      ) &&
-      (needs.build-sandbox-tools.result == 'success' || needs.build-sandbox-tools.result == 'skipped')
-    runs-on: staging-runners-large
-    strategy:
-      matrix:
-        java-version: [21, 25]
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Load CLI versions
-        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
-
-      - name: Compute short SHA
-        id: sha
-        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
-
-      - name: Compute tags
-        id: tags
-        run: |
-          {
-            echo "list<<EOF"
-            echo "${{ env.SANDBOX_JAVA_IMAGE }}:${{ matrix.java-version }}"
-            echo "${{ env.SANDBOX_JAVA_IMAGE }}:${{ matrix.java-version }}-sha-${{ steps.sha.outputs.short }}"
-            if [ "${{ matrix.java-version }}" = "25" ]; then
-              echo "${{ env.SANDBOX_JAVA_IMAGE }}:latest"
-            fi
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push sandbox-java:${{ matrix.java-version }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: docker/Dockerfile.sandbox-java
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.tags.outputs.list }}
-          build-args: |
-            BASE_IMAGE=eclipse-temurin:${{ matrix.java-version }}-jdk-noble
-            JAVA_VERSION=${{ matrix.java-version }}
-            CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
-          # One cache tag per matrix leg — the two Java versions share no layers
-          # past the base and would evict each other under a single ref.
-          cache-from: type=registry,ref=${{ env.SANDBOX_JAVA_IMAGE }}:buildcache-${{ matrix.java-version }}
-          cache-to: type=registry,ref=${{ env.SANDBOX_JAVA_IMAGE }}:buildcache-${{ matrix.java-version }},mode=min,image-manifest=true,oci-mediatypes=true
 
   # ── Publish dev Helm chart (push to main + manual dispatch) ──
   publish-helm-dev:

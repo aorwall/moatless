@@ -1,0 +1,127 @@
+name: Build sandboxes
+
+# Chained off ci.yml's own completion, not an independent push trigger.
+# ci.yml is what actually rebuilds and republishes moatless-sandbox(-base)
+# to Docker Hub; a recipe's tag pins the base's :latest digest at generation
+# time (see generate-recipe.sh), so discovering recipes before that publish
+# lands would resolve against a stale digest and could skip a build the
+# content hash actually needs. workflow_run only fires after the referenced
+# workflow's run has fully finished, which removes the race without needing
+# to duplicate ci.yml's own path filters here — any CI run that republishes
+# the base flows through automatically, recipes/features or not.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      build_all:
+        description: 'Rebuild every recipe, ignoring the "tag already exists" skip'
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-sandboxes-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY_ORG: ${{ vars.REGISTRY_ORG || 'aorwall' }}
+  SANDBOX_RECIPE_IMAGE: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-recipe
+
+jobs:
+  # ── Enumerate docker/recipes/*.json, skip the ones already built ──
+  discover:
+    name: Discover recipes needing a build
+    runs-on: staging-runners
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Discover
+        id: discover
+        run: |
+          set -euo pipefail
+          include="[]"
+          for recipe in docker/recipes/*.json; do
+            [ -e "$recipe" ] || continue
+            alias="$(basename "$recipe" .json)"
+            tag="$(docker/generate-recipe.sh tag "$recipe")"
+
+            build_it=false
+            if [ "${{ github.event_name == 'workflow_dispatch' && inputs.build_all }}" = "true" ]; then
+              build_it=true
+            elif docker buildx imagetools inspect "${{ env.SANDBOX_RECIPE_IMAGE }}:${tag}" >/dev/null 2>&1; then
+              echo "skip ${recipe} (${{ env.SANDBOX_RECIPE_IMAGE }}:${tag} already exists)"
+            else
+              build_it=true
+            fi
+
+            if [ "$build_it" = true ]; then
+              include="$(echo "$include" | jq -c --arg file "$recipe" --arg tag "$tag" --arg alias "$alias" \
+                '. + [{file: $file, tag: $tag, alias: $alias}]')"
+            fi
+          done
+          echo "matrix={\"include\":${include}}" >> "$GITHUB_OUTPUT"
+          echo "$include" | jq .
+
+  # ── Build the ones discover found, immutable hash tag + moving alias ──
+  build:
+    name: Build & push ${{ matrix.alias }}
+    needs: discover
+    if: needs.discover.outputs.matrix != '{"include":[]}'
+    runs-on: staging-runners-large
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # No current feature needs a pinned CLI version, but wired up the same
+      # way every other sandbox image job is so a future feature (e.g. one
+      # installing a CLI) can reference $CLAUDE_CLI_VERSION etc. for free.
+      - name: Load CLI versions
+        run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate Dockerfile
+        run: docker/generate-recipe.sh dockerfile "${{ matrix.file }}" /tmp/recipe.Dockerfile
+
+      - name: Build and push ${{ matrix.alias }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: /tmp/recipe.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.SANDBOX_RECIPE_IMAGE }}:${{ matrix.tag }}
+            ${{ env.SANDBOX_RECIPE_IMAGE }}:${{ matrix.alias }}
+          cache-from: type=registry,ref=${{ env.SANDBOX_RECIPE_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.SANDBOX_RECIPE_IMAGE }}:buildcache,mode=min,image-manifest=true,oci-mediatypes=true

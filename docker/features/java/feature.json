@@ -1,0 +1,17 @@
+{
+  "id": "java",
+  "name": "Java (Temurin JDK + Maven)",
+  "description": "Eclipse Temurin JDK and Maven, installed via the Adoptium apt repository.",
+  "options": {
+    "version": {
+      "type": "string",
+      "enum": ["21", "25"],
+      "description": "Temurin JDK major version. Must match a temurin-<version>-jdk apt package name."
+    }
+  },
+  "installsAfter": [],
+  "env": {
+    "JAVA_HOME": "/usr/lib/jvm/default-java",
+    "PATH": "/usr/lib/jvm/default-java/bin:$PATH"
+  }
+}

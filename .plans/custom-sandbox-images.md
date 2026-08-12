@@ -4,6 +4,42 @@
 > **Updated:** 2026-08-05
 > **Vocabulary:** CONTEXT.md
 
+## Progress
+
+- **2026-08-12 — soaplabs recipe shipped.** `docker/features/java`,
+  `docker/features/postgres-client`, `docker/recipes/soaplabs.json` and
+  `build-sandboxes.yml` replaced `Dockerfile.sandbox-java` and its CI matrix
+  job. One recipe, not a generic `java-21`/`java-25` pair: nothing needed
+  Java on its own in this fork. `postgresql-client` is its own feature rather
+  than folded into `java`'s `install.sh` — it's a separate tool with its own
+  apt package, useful to any recipe regardless of whether it also wants Java.
+  This is *not* the phase 1 "definition of done" below (`moatless-fullstack`
+  on a recipe, `Dockerfile.sandbox-full` deleted) — soaplabs was the concrete
+  near-term need; fullstack wasn't (nothing in `.moatless/workspaces.json`
+  references `sandbox-full` today). The recipe/feature machinery
+  (`docker/features/`, `docker/recipes/`, `docker/generate-recipe.sh`, the
+  discover/build workflow split) is the same machinery phase 1 describes;
+  phase 1 itself remains open.
+- AWS CLI was **not** moved out of `Dockerfile.sandbox-base` into a feature,
+  despite looking soap-specific at first glance (it backs the CodeArtifact
+  and sccache bootstrap hooks in `docker-entrypoint-sandbox.sh`). This repo's
+  own default workspaces (`moatless`, `moatless-preview` in
+  `.moatless/workspaces.json`) set `SCCACHE_S3_BUCKET` and run on the default
+  `sandbox` image with no `dockerImage` override — extracting AWS CLI to a
+  feature only Java recipes pull in silently broke sccache for every normal
+  task on this repo. It stays fork-wide infrastructure in the base image.
+- `build-sandboxes.yml` triggers on `workflow_run` off `ci.yml`'s completion
+  rather than its own `push` + path filter, so recipe discovery always runs
+  after `ci.yml` has actually published a new `sandbox`/`sandbox-base` image
+  — an independent push trigger could otherwise resolve a recipe's base-digest
+  pin against a stale `:latest` before `ci.yml`'s own publish jobs finished.
+- A feature's `feature.json` can declare a static `env` map; `generate-recipe.sh`
+  emits it as real Dockerfile `ENV` instructions after that feature's `RUN`
+  step. `install.sh` can't set `ENV` itself (it runs inside a `RUN`'d shell),
+  and the sandbox entrypoint execs the binary directly without sourcing
+  `/etc/profile`, so `ENV` is what the running process actually inherits —
+  an `/etc/profile` append alone (this doc's original sketch) is not enough.
+
 ## Current solution
 
 A workspace picks its sandbox image by name, and that image must already exist.
@@ -104,7 +140,7 @@ builder uses a registry cache, never `type=gha`.
 
 **Phase 1 — CI builds recipes, backend only reads them.**
 
-A `build-sandbox-recipes.yml` workflow that:
+A `build-sandboxes.yml` workflow that:
 
 1. Enumerates every recipe reachable from `.moatless/workspaces.json` across the
    synced repos, plus any recipe committed under `docker/recipes/*.json`.
@@ -114,10 +150,13 @@ A `build-sandbox-recipes.yml` workflow that:
 3. Builds the rest as a matrix, `cache-from`/`cache-to` a shared
    `:recipe-buildcache` registry ref so the shared prefixes actually hit.
 
-Triggered on changes to `docker/features/**`, `docker/recipes/**` and the base
-image build, plus `workflow_dispatch`. The backend does not participate: it
-resolves a recipe to a tag and uses it, and a missing tag is a startup failure
-it reports rather than repairs.
+Triggered on `ci.yml`'s completion (`workflow_run`, gated to successful pushes
+to `main`), not its own path-filtered `push` — a recipe pins its base image by
+resolved digest at generation time, so discovery has to run *after* `ci.yml`
+has actually republished `sandbox`/`sandbox-base`, not in parallel with it.
+Also `workflow_dispatch`. The backend does not participate: it resolves a
+recipe to a tag and uses it, and a missing tag is a startup failure it reports
+rather than repairs.
 
 **Definition of done:** `moatless-fullstack` runs on a recipe image with its
 `setupCommands` deleted, and `Dockerfile.sandbox-full` is gone.

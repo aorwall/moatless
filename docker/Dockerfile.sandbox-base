@@ -93,10 +93,13 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
-# Install AWS CLI v2 — used by the CodeArtifact bootstrap hook in
-# docker-entrypoint-sandbox.sh to mint a short-lived token (via the
-# moatless-sandbox Pod Identity) so in-task npm/pip/mvn installs resolve over the
-# CodeArtifact VPC endpoints instead of NAT. Arch-aware (amd64 + arm64).
+# Install AWS CLI v2 — used by the CodeArtifact bootstrap hook and the
+# sccache S3 credential export in docker-entrypoint-sandbox.sh (both gated on
+# env vars, no-op if unset). This is fork-wide infrastructure, not
+# soap/Java-specific: the default workspaces in .moatless/workspaces.json set
+# SCCACHE_S3_BUCKET and run on this image with no dockerImage override, so
+# they need it here rather than behind a feature only Java recipes pull in.
+# Arch-aware (amd64 + arm64).
 RUN ARCH=$(dpkg --print-architecture) && \
     AWS_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
     curl -sL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscliv2.zip && \

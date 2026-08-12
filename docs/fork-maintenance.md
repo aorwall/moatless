@@ -140,7 +140,7 @@ the same org as an OCI artifact. The deployment pulls from there —
 | `moatless-sandbox` (+ `-js` alias) | `docker/Dockerfile.sandbox` | push main, paths filter |
 | `moatless-sandbox-base` | `docker/Dockerfile.sandbox-base` | push main, paths filter |
 | `moatless-sandbox-tools` | `docker/Dockerfile.sandbox-tools` | push main, paths filter |
-| `moatless-sandbox-java:{21,25}` | `docker/Dockerfile.sandbox-java` | push main, paths filter |
+| `moatless-sandbox-recipe:<hash12>` (+ alias, e.g. `:soaplabs`) | generated from `docker/recipes/*.json` via `docker/generate-recipe.sh` (`build-sandboxes.yml`) | `workflow_run` off `ci.yml`'s completion (push to main), workflow_dispatch |
 
 ### Local sandbox build (for testing)
 
