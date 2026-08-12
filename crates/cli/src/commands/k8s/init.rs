@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use dialoguer::{theme::ColorfulTheme, Input, Select};
+use dialoguer::{Input, Select, theme::ColorfulTheme};
 use serde_json::json;
 
 use super::helpers::{DEFAULT_NAMESPACE, DEFAULT_VALUES_FILE};
@@ -86,7 +86,7 @@ struct ValuesInput<'a> {
 #[serde(rename_all = "lowercase")]
 enum AuthChoice {
     LocalPassword,
-    Github,
+    GithubApp,
     Auth0,
 }
 
@@ -98,10 +98,10 @@ impl AuthChoice {
             "" | "local" | "password" | "none" | "off" | "disabled" => {
                 Ok(AuthChoice::LocalPassword)
             }
-            "github" | "gh" => Ok(AuthChoice::Github),
+            "github_app" | "github-app" | "gh-app" => Ok(AuthChoice::GithubApp),
             "auth0" => Ok(AuthChoice::Auth0),
             other => Err(ClientError::Other(format!(
-                "Unknown auth provider '{other}'. Expected one of: local, github, auth0."
+                "Unknown auth provider '{other}'. Expected one of: local, github_app, auth0."
             ))),
         }
     }
@@ -111,7 +111,7 @@ fn resolve_auth(explicit: Option<String>) -> Result<AuthChoice, ClientError> {
     if let Some(s) = explicit {
         return AuthChoice::from_str(&s);
     }
-    let choices = ["local", "github", "auth0"];
+    let choices = ["local", "github_app", "auth0"];
     let idx = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Auth provider")
         .items(choices)
@@ -206,11 +206,11 @@ fn build_values(input: &ValuesInput<'_>) -> serde_json::Value {
         AuthChoice::LocalPassword => {
             auth_block["provider"] = json!("local");
         }
-        AuthChoice::Github => {
-            auth_block["provider"] = json!("github");
-            auth_block["github"] = json!({
+        AuthChoice::GithubApp => {
+            auth_block["provider"] = json!("github_app");
+            auth_block["githubApp"] = json!({
                 "enabled": true,
-                "callbackUrl": format!("https://{}/api/auth/github/callback", input.domain),
+                "callbackUrl": format!("https://{}/api/v1/auth/github-app/callback", input.domain),
             });
         }
         AuthChoice::Auth0 => {

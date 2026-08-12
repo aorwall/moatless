@@ -61,7 +61,7 @@ moat k8s init --provider <aks|eks|generic> --domain <app.example.com> --proxy-do
 Interactive prompts fill remaining fields (tag, auth provider, storage backend). Writes `values.local.yaml` to cwd. Before running:
 
 - Confirm the domain and proxy-domain with the user. The proxy domain must be a separate host (typically a wildcard) because sandbox preview URLs use `<taskId>--<port>.<proxy-domain>`.
-- If the user wants GitHub SSO, collect the OAuth app callback URL beforehand: `https://<app-domain>/api/auth/github/callback`.
+- If the user wants GitHub SSO, collect the GitHub App callback URL beforehand: `https://<app-domain>/api/v1/auth/github-app/callback`.
 
 After the file is written, skim `values.local.yaml` and call out anything the user should customise (resource sizes, sandbox storage, monitoring).
 

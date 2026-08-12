@@ -5585,78 +5585,6 @@
         }
       }
     },
-    "/api/v1/settings/github/oauth/token": {
-      "post": {
-        "tags": [
-          "provider-settings"
-        ],
-        "summary": "Exchange a GitHub OAuth authorization code for an access token.",
-        "operationId": "exchange_github_token",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ExchangeTokenRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Token exchanged",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExchangeTokenResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Exchange failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/settings/github/oauth/url": {
-      "get": {
-        "tags": [
-          "provider-settings"
-        ],
-        "summary": "Generate a GitHub OAuth authorization URL.",
-        "operationId": "get_github_oauth_url",
-        "responses": {
-          "200": {
-            "description": "OAuth URL",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OAuthUrlResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "GitHub OAuth not configured",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/settings/github/pat": {
       "put": {
         "tags": [
@@ -5701,7 +5629,7 @@
         "tags": [
           "provider-settings"
         ],
-        "summary": "Remove a PAT override for a GitHub-OAuth user, restoring the original OAuth token.",
+        "summary": "Remove a PAT override for a GitHub App user, restoring the App user token.",
         "operationId": "delete_github_pat_override",
         "responses": {
           "200": {
@@ -11004,40 +10932,6 @@
           "message"
         ]
       },
-      "ExchangeTokenRequest": {
-        "type": "object",
-        "required": [
-          "code"
-        ],
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "state": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "ExchangeTokenResponse": {
-        "type": "object",
-        "required": [
-          "connected"
-        ],
-        "properties": {
-          "connected": {
-            "type": "boolean"
-          },
-          "login": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "ExitPlanModeInput": {
         "type": "object",
         "description": "Input payload for the ExitPlanMode tool.",
@@ -11516,7 +11410,7 @@
               "boolean",
               "null"
             ],
-            "description": "True when a GitHub-OAuth user has an active PAT override."
+            "description": "True when a GitHub App user has an active PAT override."
           },
           "login": {
             "type": [
@@ -12842,17 +12736,6 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
-          }
-        }
-      },
-      "OAuthUrlResponse": {
-        "type": "object",
-        "required": [
-          "url"
-        ],
-        "properties": {
-          "url": {
-            "type": "string"
           }
         }
       },

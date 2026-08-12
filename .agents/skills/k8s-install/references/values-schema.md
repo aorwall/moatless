@@ -48,11 +48,12 @@ Preview URLs take the shape `<taskId>--<port>.<proxyDomain>`, so the proxy must 
 
 ```yaml
 auth:
-  provider: "" | github | auth0
+  provider: local | github_app | auth0
   frontendUrl: https://<domain>
-  github:
+  githubApp:
     enabled: true
-    callbackUrl: https://<domain>/api/auth/github/callback
+    callbackUrl: https://<domain>/api/v1/auth/github-app/callback
+    appId: "<github-app-id>"
   auth0:
     enabled: true
     callbackUrl: https://<domain>/api/auth/auth0/callback

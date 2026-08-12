@@ -32,15 +32,12 @@ import type {
   CodexDeviceCodePollResponse,
   CodexDeviceCodeStartResponse,
   ErrorBody,
-  ExchangeTokenRequest,
-  ExchangeTokenResponse,
   GitHubAppRegistrationResponse,
   GitHubAppsResponse,
   GitHubConfigResponse,
   GitHubInstallationBindingRequest,
   GitHubInstallationBindingResponse,
   GitnessConfigResponse,
-  OAuthUrlResponse,
   RegisterGitHubAppRequest,
   RemoveGitHubAppResponse,
   RotateGitHubAppKeyRequest,
@@ -2023,226 +2020,6 @@ export const useDeleteGithubConfig = <TError = ErrorType<ErrorBody>,
       return useMutation(getDeleteGithubConfigMutationOptions(options), queryClient);
     }
     /**
- * @summary Exchange a GitHub OAuth authorization code for an access token.
- */
-export type exchangeGithubTokenResponse200 = {
-  data: ExchangeTokenResponse
-  status: 200
-}
-
-export type exchangeGithubTokenResponse400 = {
-  data: ErrorBody
-  status: 400
-}
-    
-export type exchangeGithubTokenResponseSuccess = (exchangeGithubTokenResponse200) & {
-  headers: Headers;
-};
-export type exchangeGithubTokenResponseError = (exchangeGithubTokenResponse400) & {
-  headers: Headers;
-};
-
-export type exchangeGithubTokenResponse = (exchangeGithubTokenResponseSuccess | exchangeGithubTokenResponseError)
-
-export const getExchangeGithubTokenUrl = () => {
-
-
-  
-
-  return `/api/v1/settings/github/oauth/token`
-}
-
-export const exchangeGithubToken = async (exchangeTokenRequest: ExchangeTokenRequest, options?: RequestInit): Promise<exchangeGithubTokenResponse> => {
-  
-  return customInstance<exchangeGithubTokenResponse>(getExchangeGithubTokenUrl(),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      exchangeTokenRequest,)
-  }
-);}
-
-
-
-
-export const getExchangeGithubTokenMutationOptions = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exchangeGithubToken>>, TError,{data: ExchangeTokenRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof exchangeGithubToken>>, TError,{data: ExchangeTokenRequest}, TContext> => {
-
-const mutationKey = ['exchangeGithubToken'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof exchangeGithubToken>>, {data: ExchangeTokenRequest}> = (props) => {
-          const {data} = props ?? {};
-
-          return  exchangeGithubToken(data,requestOptions)
-        }
-
-
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ExchangeGithubTokenMutationResult = NonNullable<Awaited<ReturnType<typeof exchangeGithubToken>>>
-    export type ExchangeGithubTokenMutationBody = ExchangeTokenRequest
-    export type ExchangeGithubTokenMutationError = ErrorType<ErrorBody>
-
-    /**
- * @summary Exchange a GitHub OAuth authorization code for an access token.
- */
-export const useExchangeGithubToken = <TError = ErrorType<ErrorBody>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exchangeGithubToken>>, TError,{data: ExchangeTokenRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof exchangeGithubToken>>,
-        TError,
-        {data: ExchangeTokenRequest},
-        TContext
-      > => {
-      return useMutation(getExchangeGithubTokenMutationOptions(options), queryClient);
-    }
-    /**
- * @summary Generate a GitHub OAuth authorization URL.
- */
-export type getGithubOauthUrlResponse200 = {
-  data: OAuthUrlResponse
-  status: 200
-}
-
-export type getGithubOauthUrlResponse400 = {
-  data: ErrorBody
-  status: 400
-}
-    
-export type getGithubOauthUrlResponseSuccess = (getGithubOauthUrlResponse200) & {
-  headers: Headers;
-};
-export type getGithubOauthUrlResponseError = (getGithubOauthUrlResponse400) & {
-  headers: Headers;
-};
-
-export type getGithubOauthUrlResponse = (getGithubOauthUrlResponseSuccess | getGithubOauthUrlResponseError)
-
-export const getGetGithubOauthUrlUrl = () => {
-
-
-  
-
-  return `/api/v1/settings/github/oauth/url`
-}
-
-export const getGithubOauthUrl = async ( options?: RequestInit): Promise<getGithubOauthUrlResponse> => {
-  
-  return customInstance<getGithubOauthUrlResponse>(getGetGithubOauthUrlUrl(),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
-
-
-
-export const getGetGithubOauthUrlQueryKey = () => {
-    return [
-    `/api/v1/settings/github/oauth/url`
-    ] as const;
-    }
-
-    
-export const getGetGithubOauthUrlQueryOptions = <TData = Awaited<ReturnType<typeof getGithubOauthUrl>>, TError = ErrorType<ErrorBody>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetGithubOauthUrlQueryKey();
-
-  
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGithubOauthUrl>>> = ({ signal }) => getGithubOauthUrl({ signal, ...requestOptions });
-
-      
-
-      
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
-}
-
-export type GetGithubOauthUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getGithubOauthUrl>>>
-export type GetGithubOauthUrlQueryError = ErrorType<ErrorBody>
-
-
-export function useGetGithubOauthUrl<TData = Awaited<ReturnType<typeof getGithubOauthUrl>>, TError = ErrorType<ErrorBody>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getGithubOauthUrl>>,
-          TError,
-          Awaited<ReturnType<typeof getGithubOauthUrl>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useGetGithubOauthUrl<TData = Awaited<ReturnType<typeof getGithubOauthUrl>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getGithubOauthUrl>>,
-          TError,
-          Awaited<ReturnType<typeof getGithubOauthUrl>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-export function useGetGithubOauthUrl<TData = Awaited<ReturnType<typeof getGithubOauthUrl>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
-/**
- * @summary Generate a GitHub OAuth authorization URL.
- */
-
-export function useGetGithubOauthUrl<TData = Awaited<ReturnType<typeof getGithubOauthUrl>>, TError = ErrorType<ErrorBody>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient 
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
-
-  const queryOptions = getGetGithubOauthUrlQueryOptions(options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * @summary Generate a GitHub OAuth authorization URL.
- */
-export const prefetchGetGithubOauthUrlQuery = async <TData = Awaited<ReturnType<typeof getGithubOauthUrl>>, TError = ErrorType<ErrorBody>>(
- queryClient: QueryClient,  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getGithubOauthUrl>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-
-  ): Promise<QueryClient> => {
-
-  const queryOptions = getGetGithubOauthUrlQueryOptions(options)
-
-  await queryClient.prefetchQuery(queryOptions);
-
-  return queryClient;
-}
-
-
-
-/**
  * @summary Save a GitHub Personal Access Token after validating it.
  */
 export type saveGithubPatResponse200 = {
@@ -2332,7 +2109,7 @@ export const useSaveGithubPat = <TError = ErrorType<ErrorBody>,
       return useMutation(getSaveGithubPatMutationOptions(options), queryClient);
     }
     /**
- * @summary Remove a PAT override for a GitHub-OAuth user, restoring the original OAuth token.
+ * @summary Remove a PAT override for a GitHub App user, restoring the App user token.
  */
 export type deleteGithubPatOverrideResponse200 = {
   data: GitHubConfigResponse
@@ -2412,7 +2189,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteGithubPatOverrideMutationError = ErrorType<ErrorBody>
 
     /**
- * @summary Remove a PAT override for a GitHub-OAuth user, restoring the original OAuth token.
+ * @summary Remove a PAT override for a GitHub App user, restoring the App user token.
  */
 export const useDeleteGithubPatOverride = <TError = ErrorType<ErrorBody>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGithubPatOverride>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}

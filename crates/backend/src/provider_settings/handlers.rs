@@ -3,45 +3,45 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 
 use moatless_backend_core::scope::{Scope, ScopeContext};
 
 use crate::adapter_apps::dao::{AdapterAppDao, GitHubAppAuditEntry, GitHubAppRecord, NewGitHubApp};
 use crate::adapter_apps::{
-    delete_adapter_app, list_adapter_apps, upsert_adapter_app, AdapterAppInput,
-    AdapterAppSecretInput, DEFAULT_APP_KEY,
+    AdapterAppInput, AdapterAppSecretInput, DEFAULT_APP_KEY, delete_adapter_app, list_adapter_apps,
+    upsert_adapter_app,
 };
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::models::AdapterConnection;
+use crate::auth::codex_scope::CodexScope;
 use crate::auth::credentials::{
-    read_github_oauth_stash, stash_github_oauth_token, GITHUB_OAUTH_STASH_KEY,
+    GITHUB_OAUTH_STASH_KEY, read_github_oauth_stash, stash_github_oauth_token,
 };
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
+use crate::auth::github_scope::GitHubScope;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::{
     APP_INSTALLATION_TOKEN_PLACEHOLDER, AUTH_METHOD_APP_INSTALLATION, AUTH_METHOD_SECRET_REF,
     SECRET_REF_TOKEN_PLACEHOLDER,
 };
-use moatless_core::config::{AuthConfig, CodexOAuthConfig, SecretsConfig};
-use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
-use crate::auth::codex_scope::CodexScope;
-use crate::provider_settings::codex_save::save_codex_auth_for_scope;
-use crate::auth::github_scope::GitHubScope;
 use crate::credential_sync::CredentialSync;
-use moatless_core::db::DbPool;
+use crate::credentials::codex::oauth::{self as codex_oauth, PollStatus};
 use crate::extractors::AuthUser;
-use moatless_core::secret_keys::GITHUB_TOKEN;
+use crate::provider_settings::codex_save::save_codex_auth_for_scope;
 use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::{SecretCipher, SecretService};
+use moatless_core::config::{CodexOAuthConfig, SecretsConfig};
+use moatless_core::db::DbPool;
+use moatless_core::secret_keys::GITHUB_TOKEN;
 
 use super::error::ProviderSettingsError;
-use moatless_core::github_client;
 use super::gitness_client;
 use super::schemas::*;
+use moatless_core::github_client;
 
 /// Get current GitHub configuration for the user.
 #[utoipa::path(
@@ -61,7 +61,7 @@ pub async fn get_github_config(
         .find_provider_token_full(&auth.user_id.to_string(), "github")
         .await?;
 
-    let is_github_oauth_user = auth.provider.as_deref() == Some("github");
+    let is_github_app_user = auth.provider.as_deref() == Some("github_app");
 
     match token {
         Some(row) => {
@@ -72,7 +72,7 @@ pub async fn get_github_config(
                 .and_then(|v| v.as_str())
                 .map(std::string::ToString::to_string);
 
-            let has_pat_override = if is_github_oauth_user {
+            let has_pat_override = if is_github_app_user {
                 Some(row.token_type.as_deref() == Some("pat"))
             } else {
                 None
@@ -89,7 +89,7 @@ pub async fn get_github_config(
             connected: false,
             login: None,
             token_type: None,
-            has_pat_override: if is_github_oauth_user {
+            has_pat_override: if is_github_app_user {
                 Some(false)
             } else {
                 None
@@ -1039,8 +1039,8 @@ pub async fn save_github_pat(
 
     let mut metadata = serde_json::json!({ "login": login });
 
-    // For GitHub-OAuth users, preserve the original OAuth token so it can be restored later
-    if auth.provider.as_deref() == Some("github") {
+    // For GitHub App users, preserve the user access token so it can be restored later.
+    if auth.provider.as_deref() == Some("github_app") {
         if let Ok(Some(existing)) = provider_tokens
             .find_provider_token_full(&auth.user_id.to_string(), "github")
             .await
@@ -1116,128 +1116,13 @@ pub async fn save_github_pat(
         )
         .await?;
 
-    let is_github_oauth_user = auth.provider.as_deref() == Some("github");
+    let is_github_app_user = auth.provider.as_deref() == Some("github_app");
 
     Ok(Json(GitHubConfigResponse {
         connected: true,
         login: Some(login),
         token_type: Some("pat".to_string()),
-        has_pat_override: if is_github_oauth_user {
-            Some(true)
-        } else {
-            None
-        },
-    }))
-}
-
-/// Generate a GitHub OAuth authorization URL.
-#[utoipa::path(
-    get,
-    path = "/api/v1/settings/github/oauth/url",
-    tag = "provider-settings",
-    responses(
-        (status = 200, description = "OAuth URL", body = OAuthUrlResponse),
-        (status = 400, description = "GitHub OAuth not configured", body = moatless_core::error::ErrorBody)
-    )
-)]
-pub async fn get_github_oauth_url(
-    State(auth_config): State<Arc<AuthConfig>>,
-    _auth: AuthUser,
-) -> Result<Json<OAuthUrlResponse>, ProviderSettingsError> {
-    let client_id = auth_config.github_client_id.as_deref().ok_or_else(|| {
-        ProviderSettingsError::BadRequest(
-            "GitHub OAuth not configured (GITHUB_CLIENT_ID missing)".to_string(),
-        )
-    })?;
-
-    let default_callback = format!("{}/settings/github/callback", auth_config.frontend_url);
-    let callback_url = auth_config
-        .github_callback_url
-        .as_deref()
-        .unwrap_or(&default_callback);
-
-    let scope = &auth_config.github_oauth_scope;
-    let state_param = uuid::Uuid::new_v4().to_string();
-
-    let url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope={}&state={}",
-        urlencoding::encode(client_id),
-        urlencoding::encode(callback_url),
-        urlencoding::encode(scope),
-        urlencoding::encode(&state_param),
-    );
-
-    Ok(Json(OAuthUrlResponse { url }))
-}
-
-/// Exchange a GitHub OAuth authorization code for an access token.
-#[utoipa::path(
-    post,
-    path = "/api/v1/settings/github/oauth/token",
-    tag = "provider-settings",
-    request_body = ExchangeTokenRequest,
-    responses(
-        (status = 200, description = "Token exchanged", body = ExchangeTokenResponse),
-        (status = 400, description = "Exchange failed", body = moatless_core::error::ErrorBody)
-    )
-)]
-pub async fn exchange_github_token(
-    State(auth_config): State<Arc<AuthConfig>>,
-    State(provider_tokens): State<Arc<dyn ProviderTokenDao>>,
-    State(secrets): State<Arc<SecretService>>,
-    auth: AuthUser,
-    Json(req): Json<ExchangeTokenRequest>,
-) -> Result<Json<ExchangeTokenResponse>, ProviderSettingsError> {
-    let client_id = auth_config.github_client_id.as_deref().ok_or_else(|| {
-        ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
-    })?;
-
-    let client_secret = auth_config.github_client_secret.as_deref().ok_or_else(|| {
-        ProviderSettingsError::BadRequest("GitHub OAuth not configured".to_string())
-    })?;
-
-    let (access_token, token_type) =
-        github_client::exchange_github_oauth_code(client_id, client_secret, &req.code)
-            .await
-            .map_err(ProviderSettingsError::GitProvider)?;
-
-    // Validate the token to get the login
-    let login = github_client::validate_github_token(&access_token)
-        .await
-        .map_err(ProviderSettingsError::GitProvider)?;
-
-    let metadata = serde_json::json!({ "login": login });
-
-    // Set `auth_method` explicitly: this row now carries a real OAuth token, so
-    // a previous `secret_ref` marker must not survive and send the resolver
-    // looking for a stale secret.
-    provider_tokens
-        .upsert_token_with_auth_method(
-            &auth.user_id.to_string(),
-            "github",
-            "oauth",
-            &access_token,
-            None,
-            Some(&token_type),
-            Some(&metadata),
-        )
-        .await?;
-
-    for (key, kind) in [
-        (GITHUB_TOKEN, SecretKind::ProviderToken),
-        (GITHUB_OAUTH_STASH_KEY, SecretKind::Internal),
-    ] {
-        if let Err(e) = secrets
-            .delete_user_secret(&auth.user_id.to_string(), key, Some(kind))
-            .await
-        {
-            tracing::warn!(error = %e, user_id = %auth.user_id, key, "Failed to clean up secret on GitHub OAuth exchange");
-        }
-    }
-
-    Ok(Json(ExchangeTokenResponse {
-        connected: true,
-        login: Some(login),
+        has_pat_override: if is_github_app_user { Some(true) } else { None },
     }))
 }
 
@@ -1280,7 +1165,7 @@ pub async fn delete_github_config(
     }))
 }
 
-/// Remove a PAT override for a GitHub-OAuth user, restoring the original OAuth token.
+/// Remove a PAT override for a GitHub App user, restoring the App user token.
 #[utoipa::path(
     delete,
     path = "/api/v1/settings/github/pat",
@@ -1296,9 +1181,9 @@ pub async fn delete_github_pat_override(
     State(secrets): State<Arc<SecretService>>,
     auth: AuthUser,
 ) -> Result<Json<GitHubConfigResponse>, ProviderSettingsError> {
-    if auth.provider.as_deref() != Some("github") {
+    if auth.provider.as_deref() != Some("github_app") {
         return Err(ProviderSettingsError::BadRequest(
-            "PAT override removal is only available for GitHub-OAuth users".to_string(),
+            "PAT override removal is only available for GitHub App users".to_string(),
         ));
     }
 
@@ -1317,7 +1202,7 @@ pub async fn delete_github_pat_override(
         .await?
         .ok_or_else(|| {
             ProviderSettingsError::BadRequest(
-                "Cannot restore OAuth token — original token not preserved".to_string(),
+                "Cannot restore GitHub App token — original token not preserved".to_string(),
             )
         })?;
 
@@ -1328,20 +1213,19 @@ pub async fn delete_github_pat_override(
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
-    // Restore the branch the connection used before the override; plain OAuth
-    // is the fallback for rows stashed without one.
+    // Restore the App user authorization branch used before the override.
     let restored_auth_method = token
         .metadata
         .as_ref()
         .and_then(|m| m.get("oauth_auth_method"))
         .and_then(|v| v.as_str())
-        .unwrap_or("oauth")
+        .unwrap_or("github_app")
         .to_string();
 
     let login = oauth_login.unwrap_or_else(|| auth.login.clone());
     let metadata = serde_json::json!({ "login": login });
 
-    // Reset `auth_method` off `secret_ref` — the row carries a usable OAuth
+    // Reset `auth_method` off `secret_ref` — the row carries a usable App user
     // token again, so the resolver must stop looking for a secret.
     provider_tokens
         .upsert_token_with_auth_method(
@@ -1789,10 +1673,7 @@ pub async fn poll_codex_device_login(
             // `store(.., SandboxRotation)`, which dedups and does not
             // re-broadcast.
             credential_sync
-                .broadcast_codex_rotation(
-                    &CodexScope::user(auth.user_id.to_string()),
-                    &serialized,
-                )
+                .broadcast_codex_rotation(&CodexScope::user(auth.user_id.to_string()), &serialized)
                 .await;
 
             Ok(Json(CodexDeviceCodePollResponse::Success {

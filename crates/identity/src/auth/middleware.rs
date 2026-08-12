@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use axum::http::{Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -309,8 +309,6 @@ mod tests {
         assert!(is_exempt("/api/v1/auth/me"));
         assert!(is_exempt("/api/v1/auth/verify"));
         assert!(is_exempt("/api/v1/auth/login"));
-        assert!(is_exempt("/api/v1/auth/github"));
-        assert!(is_exempt("/api/v1/auth/github/callback"));
         assert!(is_exempt("/api/v1/auth/auth0"));
         assert!(is_exempt("/api/v1/auth/auth0/callback"));
         assert!(is_exempt("/api/v1/auth/logout"));

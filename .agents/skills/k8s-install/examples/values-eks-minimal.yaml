@@ -42,11 +42,11 @@ proxy:
   domain: preview.example.com
 
 auth:
-  provider: github
+  provider: github_app
   frontendUrl: https://vibe.example.com
-  github:
+  githubApp:
     enabled: true
-    callbackUrl: https://vibe.example.com/api/auth/github/callback
+    callbackUrl: https://vibe.example.com/api/v1/auth/github-app/callback
 
 database:
   external: true

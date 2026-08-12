@@ -25,7 +25,6 @@ import { Route as AdminTriggersIndexRouteImport } from './routes/admin/triggers/
 import { Route as TasksTaskIdPreviewRouteImport } from './routes/tasks/$task-id/preview'
 import { Route as TasksTaskIdKioskRouteImport } from './routes/tasks/$task-id/kiosk'
 import { Route as TasksTaskIdFileRouteImport } from './routes/tasks/$task-id/file'
-import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
 import { Route as AdminTriggersNewRouteImport } from './routes/admin/triggers/new'
 import { Route as AdminTriggersTriggerIdIndexRouteImport } from './routes/admin/triggers/$trigger-id/index'
 import { Route as AdminTriggersTriggerIdEditRouteImport } from './routes/admin/triggers/$trigger-id/edit'
@@ -341,11 +340,6 @@ const TasksTaskIdFileRoute = TasksTaskIdFileRouteImport.update({
   path: '/$task-id/file',
   getParentRoute: () => TasksRoute,
 } as any)
-const OauthGithubCallbackRoute = OauthGithubCallbackRouteImport.update({
-  id: '/oauth/github/callback',
-  path: '/oauth/github/callback',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminTriggersNewRoute = AdminTriggersNewRouteImport.update({
   id: '/triggers/new',
   path: '/triggers/new',
@@ -456,7 +450,6 @@ export interface FileRoutesByFullPath {
   '/tasks/': typeof TasksIndexRoute
   '/sandbox/': typeof SandboxIndexLazyRoute
   '/admin/triggers/new': typeof AdminTriggersNewRoute
-  '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
@@ -501,7 +494,6 @@ export interface FileRoutesByTo {
   '/tasks': typeof TasksIndexRoute
   '/sandbox': typeof SandboxIndexLazyRoute
   '/admin/triggers/new': typeof AdminTriggersNewRoute
-  '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
@@ -555,7 +547,6 @@ export interface FileRoutesById {
   '/tasks/': typeof TasksIndexRoute
   '/sandbox/': typeof SandboxIndexLazyRoute
   '/admin/triggers/new': typeof AdminTriggersNewRoute
-  '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/tasks/$task-id/file': typeof TasksTaskIdFileRoute
   '/tasks/$task-id/kiosk': typeof TasksTaskIdKioskRoute
   '/tasks/$task-id/preview': typeof TasksTaskIdPreviewRoute
@@ -611,7 +602,6 @@ export interface FileRouteTypes {
     | '/tasks/'
     | '/sandbox/'
     | '/admin/triggers/new'
-    | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/tasks/$task-id/preview'
@@ -656,7 +646,6 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/sandbox'
     | '/admin/triggers/new'
-    | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/tasks/$task-id/preview'
@@ -709,7 +698,6 @@ export interface FileRouteTypes {
     | '/tasks/'
     | '/sandbox/'
     | '/admin/triggers/new'
-    | '/oauth/github/callback'
     | '/tasks/$task-id/file'
     | '/tasks/$task-id/kiosk'
     | '/tasks/$task-id/preview'
@@ -754,7 +742,6 @@ export interface RootRouteChildren {
   SandboxLazyRoute: typeof SandboxLazyRouteWithChildren
   SecretsLazyRoute: typeof SecretsLazyRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
-  OauthGithubCallbackRoute: typeof OauthGithubCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1039,13 +1026,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksTaskIdFileRouteImport
       parentRoute: typeof TasksRoute
     }
-    '/oauth/github/callback': {
-      id: '/oauth/github/callback'
-      path: '/oauth/github/callback'
-      fullPath: '/oauth/github/callback'
-      preLoaderRoute: typeof OauthGithubCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin/triggers/new': {
       id: '/admin/triggers/new'
       path: '/triggers/new'
@@ -1322,7 +1302,6 @@ const rootRouteChildren: RootRouteChildren = {
   SandboxLazyRoute: SandboxLazyRouteWithChildren,
   SecretsLazyRoute: SecretsLazyRoute,
   AuthCallbackRoute: AuthCallbackRoute,
-  OauthGithubCallbackRoute: OauthGithubCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -342,10 +342,6 @@ pub fn test_config() -> Config {
         },
         auth: AuthConfig {
             provider: AuthProvider::Local,
-            github_client_id: None,
-            github_client_secret: None,
-            github_callback_url: None,
-            github_oauth_scope: String::new(),
             github_required_org: None,
             auth0_domain: None,
             auth0_client_id: None,

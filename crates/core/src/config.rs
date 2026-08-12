@@ -68,7 +68,6 @@ pub const MIN_ADMIN_PASSWORD_LEN: usize = 12;
 pub enum AuthProvider {
     #[default]
     Local,
-    GitHub,
     GitHubApp,
     Auth0,
 }
@@ -77,7 +76,6 @@ impl fmt::Display for AuthProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Local => write!(f, "local"),
-            Self::GitHub => write!(f, "github"),
             Self::GitHubApp => write!(f, "github_app"),
             Self::Auth0 => write!(f, "auth0"),
         }
@@ -98,7 +96,6 @@ impl FromStr for AuthProvider {
                 );
                 Ok(Self::Local)
             }
-            "github" => Ok(Self::GitHub),
             "github_app" | "github-app" => Ok(Self::GitHubApp),
             "auth0" => Ok(Self::Auth0),
             _ => Err(format!("unknown auth provider: {s}")),
@@ -544,14 +541,6 @@ pub struct AuthConfig {
     /// Active auth provider. Defaults to [`AuthProvider::Local`]
     /// (username/password against `user_credentials`).
     pub provider: AuthProvider,
-    /// GitHub OAuth client ID
-    pub github_client_id: Option<String>,
-    /// GitHub OAuth client secret
-    pub github_client_secret: Option<String>,
-    /// GitHub OAuth callback URL
-    pub github_callback_url: Option<String>,
-    /// GitHub OAuth scopes (default: "user:email repo")
-    pub github_oauth_scope: String,
     /// Required GitHub organization login. When set, only members of this org can log in.
     pub github_required_org: Option<String>,
     /// Auth0 domain (e.g., "myapp.us.auth0.com")
@@ -665,12 +654,6 @@ impl fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuthConfig")
             .field("provider", &self.provider)
-            .field("github_client_id", &self.github_client_id)
-            .field(
-                "github_client_secret",
-                &self.github_client_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("github_callback_url", &self.github_callback_url)
             .field("auth0_domain", &self.auth0_domain)
             .field("auth0_client_id", &self.auth0_client_id)
             .field(
@@ -1195,10 +1178,6 @@ impl Config {
                     Some(v) => v.parse().map_err(ConfigError::Invalid)?,
                     None => AuthProvider::default(),
                 },
-                github_client_id: env_opt("GITHUB_CLIENT_ID"),
-                github_client_secret: env_opt("GITHUB_CLIENT_SECRET"),
-                github_callback_url: env_opt("GITHUB_CALLBACK_URL"),
-                github_oauth_scope: env_str("GITHUB_OAUTH_SCOPE", "user:email repo"),
                 github_required_org: env_opt("GITHUB_REQUIRED_ORG"),
                 auth0_domain: env_opt("AUTH0_DOMAIN"),
                 auth0_client_id: env_opt("AUTH0_CLIENT_ID"),
@@ -1327,18 +1306,6 @@ impl Config {
         }
 
         // Validate auth provider config consistency
-        if self.auth.provider == AuthProvider::GitHub {
-            if self.auth.github_client_id.is_none() {
-                return Err(ConfigError::Invalid(
-                    "GITHUB_CLIENT_ID required when AUTH_PROVIDER=github".into(),
-                ));
-            }
-            if self.auth.github_client_secret.is_none() {
-                return Err(ConfigError::Invalid(
-                    "GITHUB_CLIENT_SECRET required when AUTH_PROVIDER=github".into(),
-                ));
-            }
-        }
         if self.auth.provider == AuthProvider::GitHubApp {
             if self.auth.github_app_client_id.is_none() {
                 return Err(ConfigError::Invalid(
@@ -1531,10 +1498,6 @@ impl Config {
             },
             auth: AuthConfig {
                 provider: AuthProvider::Local,
-                github_client_id: None,
-                github_client_secret: None,
-                github_callback_url: None,
-                github_oauth_scope: String::new(),
                 github_required_org: None,
                 auth0_domain: None,
                 auth0_client_id: None,
@@ -1615,19 +1578,8 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn auth_provider_from_str_github() {
-        assert_eq!(
-            "github".parse::<AuthProvider>().unwrap(),
-            AuthProvider::GitHub
-        );
-        assert_eq!(
-            "GitHub".parse::<AuthProvider>().unwrap(),
-            AuthProvider::GitHub
-        );
-        assert_eq!(
-            "GITHUB".parse::<AuthProvider>().unwrap(),
-            AuthProvider::GitHub
-        );
+    fn auth_provider_from_str_github_returns_error() {
+        assert!("github".parse::<AuthProvider>().is_err());
     }
 
     #[test]
@@ -1651,7 +1603,7 @@ mod tests {
 
     #[test]
     fn auth_provider_display() {
-        assert_eq!(AuthProvider::GitHub.to_string(), "github");
+        assert_eq!(AuthProvider::GitHubApp.to_string(), "github_app");
         assert_eq!(AuthProvider::Auth0.to_string(), "auth0");
     }
 
@@ -1809,9 +1761,10 @@ mod tests {
     fn validate_production_with_auth_provider_passes() {
         let mut config = minimal_config();
         config.auth.is_production = true;
-        config.auth.provider = AuthProvider::GitHub;
-        config.auth.github_client_id = Some("id".into());
-        config.auth.github_client_secret = Some("secret".into());
+        config.auth.provider = AuthProvider::GitHubApp;
+        config.auth.github_app_client_id = Some("id".into());
+        config.auth.github_app_client_secret = Some("secret".into());
+        config.auth.github_app_callback_url = Some("https://example.com/callback".into());
         config.sandbox.task_token_secret = Some("task-secret".into());
         assert!(config.validate().is_ok());
     }
@@ -1822,41 +1775,13 @@ mod tests {
         // signing secret the verification layer would fall back to its dev bypass.
         let mut config = minimal_config();
         config.auth.is_production = true;
-        config.auth.provider = AuthProvider::GitHub;
-        config.auth.github_client_id = Some("id".into());
-        config.auth.github_client_secret = Some("secret".into());
+        config.auth.provider = AuthProvider::GitHubApp;
+        config.auth.github_app_client_id = Some("id".into());
+        config.auth.github_app_client_secret = Some("secret".into());
+        config.auth.github_app_callback_url = Some("https://example.com/callback".into());
         config.sandbox.task_token_secret = None;
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("TASK_TOKEN_SECRET"));
-    }
-
-    #[test]
-    fn validate_github_missing_client_id_fails() {
-        let mut config = minimal_config();
-        config.auth.provider = AuthProvider::GitHub;
-        config.auth.github_client_id = None;
-        config.auth.github_client_secret = Some("secret".into());
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("GITHUB_CLIENT_ID"));
-    }
-
-    #[test]
-    fn validate_github_missing_client_secret_fails() {
-        let mut config = minimal_config();
-        config.auth.provider = AuthProvider::GitHub;
-        config.auth.github_client_id = Some("id".into());
-        config.auth.github_client_secret = None;
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("GITHUB_CLIENT_SECRET"));
-    }
-
-    #[test]
-    fn validate_github_complete_passes() {
-        let mut config = minimal_config();
-        config.auth.provider = AuthProvider::GitHub;
-        config.auth.github_client_id = Some("id".into());
-        config.auth.github_client_secret = Some("secret".into());
-        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -1942,7 +1867,7 @@ mod tests {
     fn auth_config_debug_redacts_secrets() {
         let config = minimal_config();
         let mut auth = config.auth;
-        auth.github_client_secret = Some("super_secret_123".into());
+        auth.github_app_client_secret = Some("super_secret_123".into());
         auth.auth0_client_secret = Some("another_secret".into());
         auth.test_api_key = Some(format!("mvk_{}", "x".repeat(32)));
         let debug = format!("{auth:?}");

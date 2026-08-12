@@ -97,7 +97,7 @@ pub struct InitArgs {
     #[arg(long)]
     pub tag: Option<String>,
 
-    /// Auth provider: none, github, auth0
+    /// Auth provider: local, github_app, auth0
     #[arg(long)]
     pub auth: Option<String>,
 

@@ -1,19 +1,15 @@
 import type { GitHubConfigResponse } from '@moatless/api-client/sandbox/model'
-import { useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, Loader2, LogOut, Plug } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Loader2, LogOut, Plug } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import { GitHubPatForm } from '@/features/settings/components/github-pat-form'
 import { GitHubPatHelp } from '@/features/settings/components/github-pat-help'
 import {
   useDisconnectGitHub,
-  useGetGitHubOAuthUrl,
   useGitHubConfig,
   useRemoveGitHubPATOverride,
   useSaveGitHubPAT,
 } from '@/features/settings/hooks/use-github-connection'
-import { queryKeys } from '@/lib/api/query-keys'
 import {
   ConfigurationGroup,
   ConfigurationItem,
@@ -24,8 +20,8 @@ import { Button } from '@/lib/components/ui/button'
 import { getErrorMessage } from '@/lib/utils/error'
 
 /**
- * PAT override section for GitHub-OAuth users.
- * Allows saving/updating/removing a PAT that takes precedence over the OAuth token.
+ * PAT override section for GitHub App users.
+ * Allows saving/updating/removing a PAT that takes precedence over the App user token.
  */
 function GitHubPATOverrideSection({
   githubConfig,
@@ -53,7 +49,7 @@ function GitHubPATOverrideSection({
   const handleRemovePATOverride = () => {
     removePATOverride.mutate(undefined, {
       onSuccess: () => {
-        toast.success('PAT override removed, reverted to OAuth token')
+        toast.success('PAT override removed, reverted to GitHub App token')
       },
       onError: (error) => {
         toast.error('Failed to remove PAT override', {
@@ -68,7 +64,7 @@ function GitHubPATOverrideSection({
   return (
     <ConfigurationItem
       label="Personal Access Token Override"
-      description="Used only for repositories persisted with User scope. A PAT overrides your OAuth token; Global repositories use their bound GitHub App installation."
+      description="Used only for repositories persisted with User scope. A PAT overrides your GitHub App user token; Global repositories use their bound GitHub App installation."
     >
       <div className="space-y-3">
         {hasOverride && (
@@ -76,7 +72,8 @@ function GitHubPATOverrideSection({
             <Plug className="h-4 w-4" />
             <AlertTitle>PAT Override Active</AlertTitle>
             <AlertDescription>
-              A Personal Access Token is being used instead of your OAuth token for git operations.
+              A Personal Access Token is being used instead of your GitHub App user token for git
+              operations.
               {githubConfig?.login && (
                 <>
                   {' '}
@@ -104,100 +101,6 @@ export function GitHubConfigurationSection() {
   const { data: githubConfig, isLoading: configLoading, error: githubError } = useGitHubConfig()
   const disconnectGitHub = useDisconnectGitHub()
   const savePAT = useSaveGitHubPAT()
-  const [isConnecting, setIsConnecting] = useState(false)
-  const queryClient = useQueryClient()
-  const popupRef = useRef<Window | null>(null)
-
-  // Fetch OAuth URL only when user clicks connect button
-  const { refetch: fetchOAuthUrl } = useGetGitHubOAuthUrl({
-    enabled: false,
-  })
-
-  // Listen for window focus to detect when OAuth popup closes
-  useEffect(() => {
-    if (!isConnecting) {
-      return
-    }
-
-    const handleFocus = () => {
-      queryClient
-        .invalidateQueries({ queryKey: queryKeys.settings.github() })
-        .then(() => {
-          const latestConfig = queryClient.getQueryData<GitHubConfigResponse>(
-            queryKeys.settings.github(),
-          )
-          if (latestConfig?.connected) {
-            setIsConnecting(false)
-            popupRef.current = null
-            toast.success('Successfully connected to GitHub!')
-          }
-        })
-        .catch(() => {
-          // The query exposes its own error state; focus detection is best-effort.
-        })
-    }
-
-    window.addEventListener('focus', handleFocus)
-
-    return () => {
-      window.removeEventListener('focus', handleFocus)
-    }
-  }, [isConnecting, queryClient])
-
-  // Poll to detect when popup window is closed
-  useEffect(() => {
-    if (!(isConnecting && popupRef.current)) {
-      return
-    }
-
-    const checkPopupClosed = setInterval(() => {
-      if (popupRef.current?.closed) {
-        clearInterval(checkPopupClosed)
-
-        if (!githubConfig?.connected) {
-          setIsConnecting(false)
-          toast.info('Authorization cancelled', {
-            description: 'You can try again or use a Personal Access Token instead',
-          })
-        }
-
-        popupRef.current = null
-      }
-    }, 500)
-
-    return () => {
-      clearInterval(checkPopupClosed)
-    }
-  }, [isConnecting, githubConfig?.connected])
-
-  const handleConnect = async () => {
-    setIsConnecting(true)
-    try {
-      const result = await fetchOAuthUrl()
-      if (result.data?.url) {
-        const width = 600
-        const height = 700
-        const left = window.screen.width / 2 - width / 2
-        const top = window.screen.height / 2 - height / 2
-
-        popupRef.current = window.open(
-          result.data.url,
-          'github-oauth',
-          `width=${width},height=${height},left=${left},top=${top}`,
-        )
-
-        toast.info('Continue in the new window to connect your GitHub account')
-      } else {
-        setIsConnecting(false)
-      }
-    } catch (error) {
-      toast.error('Failed to initiate GitHub OAuth', {
-        description: getErrorMessage(error),
-      })
-      setIsConnecting(false)
-    }
-  }
-
   const handleDisconnect = () => {
     disconnectGitHub.mutate(undefined, {
       onSuccess: () => {
@@ -243,20 +146,20 @@ export function GitHubConfigurationSection() {
     )
   }
 
-  // If user is authenticated via GitHub OAuth, show auth info + PAT override option
-  if (user?.provider === 'github') {
+  // GitHub App users can override their user access token with a PAT.
+  if (user?.provider === 'github_app') {
     return (
       <ConfigurationSectionWrapper>
         <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>
           <Alert>
-            <AlertTitle>Authenticated via GitHub OAuth</AlertTitle>
+            <AlertTitle>Authenticated via GitHub App</AlertTitle>
             <AlertDescription>
               <div className="space-y-2">
                 <p className="text-sm">
                   These credentials apply only to repositories with User scope that you own.
                   {githubConfig?.hasPatOverride
-                    ? ' Your Personal Access Token overrides OAuth.'
-                    : ' Your OAuth token is used because no PAT override is configured.'}
+                    ? ' Your Personal Access Token overrides the GitHub App user token.'
+                    : ' Your GitHub App user token is used because no PAT override is configured.'}
                 </p>
                 {user.name && (
                   <p className="text-sm">
@@ -281,16 +184,15 @@ export function GitHubConfigurationSection() {
     )
   }
 
-  // For non-GitHub authenticated users, show service connection UI
+  // Other auth providers can configure a PAT for user-scoped repositories.
   const isConnected = githubConfig?.connected ?? false
-  const hasOAuthEnabled = githubConfig?.tokenType === 'service-oauth'
 
   return (
     <ConfigurationSectionWrapper>
       <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>
         <p className="text-sm text-muted-foreground mb-4">
           Connect credentials for repositories with User scope that you own. A Personal Access Token
-          overrides OAuth; Global repositories use GitHub App installations.
+          is used for these repositories; Global repositories use GitHub App installations.
         </p>
 
         {/* Connection Status */}
@@ -299,10 +201,7 @@ export function GitHubConfigurationSection() {
             <Plug className="h-4 w-4" />
             <AlertTitle>Connected to GitHub</AlertTitle>
             <AlertDescription className="space-y-2">
-              <p className="text-sm">
-                Your GitHub account is connected via{' '}
-                {githubConfig?.tokenType === 'service-oauth' ? 'OAuth' : 'Personal Access Token'}.
-              </p>
+              <p className="text-sm">A Personal Access Token is configured.</p>
               {githubConfig?.login && (
                 <p className="text-sm">
                   <strong>Username:</strong> {githubConfig.login}
@@ -312,50 +211,12 @@ export function GitHubConfigurationSection() {
           </Alert>
         )}
 
-        {/* OAuth Connection (if enabled and not connected) */}
-        {!isConnected && hasOAuthEnabled && (
-          <div className="space-y-4">
-            <ConfigurationItem
-              label="OAuth Connection"
-              description="Connect using GitHub OAuth for seamless authentication"
-            >
-              <Button
-                onClick={handleConnect}
-                disabled={isConnecting}
-                variant="outline"
-                className="w-full sm:w-auto"
-              >
-                {isConnecting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    Connect with GitHub
-                  </>
-                )}
-              </Button>
-            </ConfigurationItem>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">Or</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PAT Input (always available when not connected) */}
+        {/* PAT input */}
         {!isConnected && (
           <div className="space-y-4">
             <ConfigurationItem
               label="Personal Access Token"
-              description="Alternatively, use a GitHub PAT for authentication"
+              description="Use a GitHub PAT for user-scoped repository access"
             >
               <GitHubPatForm hasToken={false} onSave={handleSavePAT} isSaving={savePAT.isPending} />
             </ConfigurationItem>

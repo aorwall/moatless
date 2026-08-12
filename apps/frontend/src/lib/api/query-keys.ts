@@ -49,11 +49,6 @@ export const queryKeys = {
     mode: () => [...queryKeys.auth.all, 'mode'] as const,
   },
 
-  oauth: {
-    all: ['oauth'] as const,
-    github: () => [...queryKeys.oauth.all, 'github'] as const,
-  },
-
   tags: {
     all: ['tags'] as const,
     list: () => [...queryKeys.tags.all, 'list'] as const,

@@ -1,8 +1,4 @@
-import type {
-  ExchangeTokenRequest,
-  GitHubConfigResponse,
-  SavePatRequest,
-} from '@moatless/api-client/sandbox/model'
+import type { GitHubConfigResponse, SavePatRequest } from '@moatless/api-client/sandbox/model'
 import {
   type UseMutationOptions,
   useMutation,
@@ -20,46 +16,6 @@ export function useGitHubConfig() {
   return useQuery({
     queryKey: queryKeys.settings.github(),
     queryFn: githubConnectionApi.getConfig,
-  })
-}
-
-/**
- * Get GitHub OAuth URL
- * This is a query but returns a new URL each time (with new state)
- */
-export function useGetGitHubOAuthUrl(options?: { enabled?: boolean }) {
-  return useQuery({
-    queryKey: queryKeys.oauth.github(),
-    queryFn: githubConnectionApi.getOAuthUrl,
-    enabled: options?.enabled ?? false,
-    // Don't cache OAuth URLs - they're single-use with unique state
-    gcTime: 0,
-    staleTime: 0,
-  })
-}
-
-/**
- * Exchange OAuth code for token
- */
-export function useExchangeGitHubToken(
-  options?: UseMutationOptions<
-    { success: boolean; message: string },
-    ApiError,
-    ExchangeTokenRequest
-  >,
-) {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: githubConnectionApi.exchangeToken,
-    onSuccess: () => {
-      // Invalidate GitHub config to refresh connection status
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
-      // Refresh the session so the top-bar reconnect indicator reflects the
-      // new provider state without requiring a full reload.
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.session() })
-    },
-    ...options,
   })
 }
 
@@ -106,7 +62,7 @@ export function useSaveGitHubPAT(
 }
 
 /**
- * Remove PAT override (restore OAuth token for GitHub-OAuth users)
+ * Remove a PAT override and restore the GitHub App user token.
  */
 export function useRemoveGitHubPATOverride(
   options?: UseMutationOptions<GitHubConfigResponse, ApiError>,

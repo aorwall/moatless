@@ -11,7 +11,7 @@ pub struct GitHubConfigResponse {
     pub login: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_type: Option<String>,
-    /// True when a GitHub-OAuth user has an active PAT override.
+    /// True when a GitHub App user has an active PAT override.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_pat_override: Option<bool>,
 }
@@ -200,31 +200,6 @@ pub enum CodexDeviceCodePollResponse {
         plan_type: Option<String>,
     },
     Expired,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct OAuthUrlResponse {
-    pub url: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ExchangeTokenRequest {
-    pub code: String,
-    #[serde(default)]
-    pub state: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ExchangeTokenResponse {
-    pub connected: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub login: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

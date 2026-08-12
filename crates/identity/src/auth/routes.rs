@@ -2,24 +2,24 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use axum::Json;
 use rand::RngExt;
 use tracing::{info, warn};
 use urlencoding;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use crate::secret::service::SecretService;
+use crate::setup::{SetupContext, evaluate_setup};
 use moatless_adapter_model::dao::AdapterConnectionDao;
+use moatless_backend_core::scope::ScopeContext;
 use moatless_core::config::{AuthProvider, Config};
 use moatless_core::db::DbPool;
 use moatless_core::error::ErrorBody;
-use crate::secret::service::SecretService;
-use crate::setup::{evaluate_setup, SetupContext};
-use moatless_backend_core::scope::ScopeContext;
 
 use super::api_key;
 use super::api_keys::ApiKeyDao;
@@ -41,12 +41,12 @@ use super::password::dao::UserCredentialDao;
 use super::password::hash;
 use super::password::throttle::LoginThrottle;
 use super::schemas::{
-    format_datetime, format_datetime_opt, AdminResetPasswordRequest, AdminUpdateUserRequest,
-    ApiKeyCreateResponse, ApiKeyListItem, AuthMode, AuthModeResponse, ChangePasswordRequest,
-    CliLoginQuery, CreateApiKeyRequest, CreatePairingCodeRequest, CreateUserRequest,
-    CreateUserResponse, MessageResponse, OAuthCallbackQuery, PairingCodeResponse,
-    PasswordLoginRequest, ProviderConnection, SessionResponse, TokenSessionResponse,
-    UpdateUserRequest, UserInfo, UserListItem, UserListResponse,
+    AdminResetPasswordRequest, AdminUpdateUserRequest, ApiKeyCreateResponse, ApiKeyListItem,
+    AuthMode, AuthModeResponse, ChangePasswordRequest, CliLoginQuery, CreateApiKeyRequest,
+    CreatePairingCodeRequest, CreateUserRequest, CreateUserResponse, MessageResponse,
+    OAuthCallbackQuery, PairingCodeResponse, PasswordLoginRequest, ProviderConnection,
+    SessionResponse, TokenSessionResponse, UpdateUserRequest, UserInfo, UserListItem,
+    UserListResponse, format_datetime, format_datetime_opt,
 };
 use super::session;
 use super::sessions::SessionDao;
@@ -55,7 +55,6 @@ use super::users::UserDao;
 /// Type-safe container for configured OAuth providers.
 #[derive(Clone, Default)]
 pub struct OAuthProviders {
-    pub github: Option<Arc<dyn OAuthProvider>>,
     pub github_app: Option<Arc<dyn OAuthProvider>>,
     pub auth0: Option<Arc<dyn OAuthProvider>>,
     /// Linear workspace install. Not used for user login — issued tokens are
@@ -68,10 +67,6 @@ impl OAuthProviders {
     ///
     /// Each provider is only created when its required env vars are set.
     pub fn from_config(config: &Config) -> Self {
-        let github = super::oauth::github::GitHubOAuthProvider::from_config(config).map(|p| {
-            tracing::info!("GitHub OAuth provider configured");
-            Arc::new(p) as Arc<dyn OAuthProvider>
-        });
         let github_app =
             super::oauth::github_app::GitHubAppOAuthProvider::from_config(config).map(|p| {
                 tracing::info!("GitHub App OAuth provider configured");
@@ -92,7 +87,6 @@ impl OAuthProviders {
             Arc::new(p)
         });
         Self {
-            github,
             github_app,
             auth0,
             linear,
@@ -104,7 +98,6 @@ impl OAuthProviders {
         match provider {
             // Local password auth has no OAuth provider.
             AuthProvider::Local => None,
-            AuthProvider::GitHub => self.github.as_ref(),
             AuthProvider::GitHubApp => self.github_app.as_ref(),
             AuthProvider::Auth0 => self.auth0.as_ref(),
         }
@@ -219,8 +212,6 @@ pub fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi)
     let oauth_router = axum::Router::new()
         .route("/api/v1/auth/login", get(login_handler))
         .route("/api/v1/auth/cli/login", get(cli_login_handler))
-        .route("/api/v1/auth/github", get(oauth_init_handler))
-        .route("/api/v1/auth/github/callback", get(github_callback_handler))
         .route("/api/v1/auth/github-app", get(github_app_init_handler))
         .route(
             "/api/v1/auth/github-app/callback",
@@ -282,7 +273,6 @@ async fn auth_mode_handler(State(state): State<AuthState>) -> Json<AuthModeRespo
     let provider = state.config.auth.provider;
     let (mode, login_url) = match provider {
         AuthProvider::Local => (AuthMode::Password, None),
-        AuthProvider::GitHub => (AuthMode::Oauth, Some("/api/v1/auth/github".to_string())),
         AuthProvider::GitHubApp => (AuthMode::Oauth, Some("/api/v1/auth/github-app".to_string())),
         AuthProvider::Auth0 => (AuthMode::Oauth, Some("/api/v1/auth/auth0".to_string())),
     };
@@ -780,8 +770,12 @@ async fn enforce_preview_access(
     scope_ctx: &ScopeContext,
     forwarded_host: Option<&str>,
 ) -> Result<(), AuthError> {
-    let Some(host) = forwarded_host else { return Ok(()) };
-    let Some(task_id) = extract_task_id_from_hostname(host) else { return Ok(()) };
+    let Some(host) = forwarded_host else {
+        return Ok(());
+    };
+    let Some(task_id) = extract_task_id_from_hostname(host) else {
+        return Ok(());
+    };
     if task_access.may_access_task(task_id, scope_ctx).await {
         Ok(())
     } else {
@@ -1056,7 +1050,6 @@ async fn login_handler(State(state): State<AuthState>) -> Result<Response, AuthE
         AuthProvider::Local => {
             Ok(Redirect::to(&format!("{}/login", state.config.auth.frontend_url)).into_response())
         }
-        AuthProvider::GitHub => Ok(Redirect::to("/api/v1/auth/github").into_response()),
         AuthProvider::GitHubApp => Ok(Redirect::to("/api/v1/auth/github-app").into_response()),
         AuthProvider::Auth0 => Ok(Redirect::to("/api/v1/auth/auth0").into_response()),
     }
@@ -1194,10 +1187,10 @@ async fn handle_oauth_callback(
     // Resolve JWT secret
     let jwt_secret = require_jwt_secret(&state.config)?;
 
-    // Resolve the internal user id from the provider identity (github/github_app
-    // share one key), or mint a fresh uuid for a first-time login.
+    // GitHub App login uses the stable `github` identity key shared with
+    // repository credentials.
     let provider_str = provider_id.to_string();
-    let provider_key = if provider_str == "github" || provider_str == "github_app" {
+    let provider_key = if provider_str == "github_app" {
         "github"
     } else {
         provider_str.as_str()
@@ -1293,29 +1286,6 @@ async fn handle_oauth_callback(
         [("Location", state.config.auth.frontend_url.as_str())],
     )
         .into_response())
-}
-
-// ============================================================================
-// GitHub OAuth
-// ============================================================================
-
-async fn oauth_init_handler(State(state): State<AuthState>) -> Result<Response, AuthError> {
-    initiate_oauth(&state, AuthProvider::GitHub).await
-}
-
-async fn github_callback_handler(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
-) -> Result<Response, AuthError> {
-    handle_oauth_callback(
-        &state,
-        AuthProvider::GitHub,
-        &query.code,
-        query.state.as_deref(),
-        &headers,
-    )
-    .await
 }
 
 // ============================================================================
@@ -2464,9 +2434,12 @@ mod tests {
     #[tokio::test]
     async fn preview_gate_denies_task_the_scope_cannot_see() {
         let access = FakeTaskAccess::new(false);
-        let result =
-            enforce_preview_access(&access, &scope_ctx(), Some("task-1--abc.preview.example.com"))
-                .await;
+        let result = enforce_preview_access(
+            &access,
+            &scope_ctx(),
+            Some("task-1--abc.preview.example.com"),
+        )
+        .await;
         assert!(matches!(result, Err(AuthError::Forbidden)));
         assert_eq!(access.calls.load(Ordering::SeqCst), 1);
     }
@@ -2474,9 +2447,12 @@ mod tests {
     #[tokio::test]
     async fn preview_gate_allows_task_the_scope_can_see() {
         let access = FakeTaskAccess::new(true);
-        let result =
-            enforce_preview_access(&access, &scope_ctx(), Some("task-1--abc.preview.example.com"))
-                .await;
+        let result = enforce_preview_access(
+            &access,
+            &scope_ctx(),
+            Some("task-1--abc.preview.example.com"),
+        )
+        .await;
         assert!(result.is_ok());
         assert_eq!(access.calls.load(Ordering::SeqCst), 1);
     }
@@ -2486,8 +2462,7 @@ mod tests {
         // A host with no `--` segment is not a preview URL; the gate must not
         // deny it and must not touch the port.
         let access = FakeTaskAccess::new(false);
-        let result =
-            enforce_preview_access(&access, &scope_ctx(), Some("app.example.com")).await;
+        let result = enforce_preview_access(&access, &scope_ctx(), Some("app.example.com")).await;
         assert!(result.is_ok());
         assert_eq!(access.calls.load(Ordering::SeqCst), 0);
     }

@@ -23,12 +23,12 @@ use super::provider_tokens::{
 };
 use super::token_refresh::ensure_fresh_token;
 use crate::auth::github_scope::GitHubScope;
-use moatless_core::secret_keys::GITHUB_TOKEN;
 use crate::secret::error::SecretError;
 use crate::secret::models::SecretKind;
 use crate::secret::schemas::PutSecretRequest;
 use crate::secret::service::SecretService;
 use moatless_backend_core::scope::{Scope, ScopeContext};
+use moatless_core::secret_keys::GITHUB_TOKEN;
 
 /// Resolve the GitHub token a given user should present to GitHub at this
 /// moment, from the user's own scope or the org-wide global one.
@@ -313,7 +313,7 @@ pub(crate) fn secret_scope_for(scope: &GitHubScope) -> (Scope, Option<&str>) {
     }
 }
 
-/// Key of the internal secret holding a GitHub-OAuth user's original access
+/// Key of the internal secret holding a GitHub App user's original access
 /// token while a PAT override is active, so removing the override can restore
 /// it. Encrypted and `internal`-kind, so it never reaches a sandbox.
 pub const GITHUB_OAUTH_STASH_KEY: &str = "GITHUB_OAUTH_ACCESS_TOKEN";
@@ -327,7 +327,7 @@ fn user_scope(user_id: &str) -> ScopeContext {
     }
 }
 
-/// Stash a GitHub-OAuth access token behind an active PAT override.
+/// Stash a GitHub App user access token behind an active PAT override.
 pub async fn stash_github_oauth_token(
     secrets: &SecretService,
     user_id: &str,
@@ -350,7 +350,7 @@ pub async fn stash_github_oauth_token(
         .map(|_| ())
 }
 
-/// Read the stashed GitHub-OAuth access token, if any.
+/// Read the stashed GitHub App user access token, if any.
 pub async fn read_github_oauth_stash(
     secrets: &SecretService,
     user_id: &str,

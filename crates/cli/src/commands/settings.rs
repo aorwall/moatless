@@ -13,7 +13,7 @@ pub enum SettingsAction {
         /// The GitHub PAT to save (omit to show current status)
         token: Option<String>,
 
-        /// Remove the PAT override (restores OAuth token for GitHub-OAuth users)
+        /// Remove the PAT override (restores the GitHub App user token)
         #[arg(long)]
         remove: bool,
     },

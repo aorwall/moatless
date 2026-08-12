@@ -39,17 +39,15 @@ By default the chart deploys a bundled first-party Redis (`redis.enabled: true`)
 | `S3_BUCKET`, `S3_REGION` | File storage (if external storage enabled) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Only if not using IRSA |
 
-## GitHub SSO (when `auth.provider=github`)
+## GitHub SSO (when `auth.provider=github_app`)
 
 | Key | Notes |
 |---|---|
-| `GITHUB_CLIENT_ID` | From a new OAuth App at https://github.com/settings/applications/new |
-| `GITHUB_CLIENT_SECRET` | Generated when you save the OAuth App |
-| `GITHUB_APP_CLIENT_ID` | GitHub App, if using app-style auth |
-| `GITHUB_APP_CLIENT_SECRET` | GitHub App |
-| `GITHUB_APP_PRIVATE_KEY` | PEM blob for the GitHub App |
+| `GITHUB_APP_CLIENT_ID` | Client ID from the GitHub App settings |
+| `GITHUB_APP_CLIENT_SECRET` | Client secret from the GitHub App settings |
+| `GITHUB_APP_PRIVATE_KEY` | Optional PEM blob for installation-token access |
 
-OAuth App callback URL: `https://<app-domain>/api/auth/github/callback`
+GitHub App callback URL: `https://<app-domain>/api/v1/auth/github-app/callback`
 
 ## Auth0 (when `auth.provider=auth0`)
 
@@ -69,8 +67,9 @@ Place in repo root as `.env.local` and `moat k8s secrets bootstrap` will offer t
 DATABASE_URL=postgres://user:pass@host:5432/db
 SECRETS_ENCRYPTION_KEY=<base64 of 32 random bytes — openssl rand -base64 32>
 TASK_TOKEN_SECRET=<64 hex chars>
-GITHUB_CLIENT_ID=Iv1.xxx
-GITHUB_CLIENT_SECRET=xxxxxxxx
+GITHUB_APP_CLIENT_ID=Iv1.xxx
+GITHUB_APP_CLIENT_SECRET=xxxxxxxx
+# GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 GITHUB_TOKEN=ghp_xxxxxxxx
 # Only when redis.enabled: false in values.local.yaml
 # REDIS_URL=redis://redis.example.com:6379/0

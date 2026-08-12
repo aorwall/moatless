@@ -170,9 +170,6 @@ sandbox-proto = { path = "../sandbox-proto" }
 tonic = "0.14"
 prost = "0.14"
 
-# URL encoding
-urlencoding = "2"
-
 [features]
 # Gate integration tests that need a running PostgreSQL (DATABASE_URL). Forwards
 # to core's test-support so the db-tests-gated `Config::test_minimal` caller

@@ -8,15 +8,15 @@ use std::fmt::Write as _;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use clap::Subcommand;
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password};
+use dialoguer::{Confirm, Input, Password, theme::ColorfulTheme};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::helpers::{
-    kubectl_json, kubectl_stdin, DEFAULT_NAMESPACE, PULL_SECRET_NAME, SECRET_NAME,
+    DEFAULT_NAMESPACE, PULL_SECRET_NAME, SECRET_NAME, kubectl_json, kubectl_stdin,
 };
 use crate::client::ClientError;
 use crate::output;
@@ -150,17 +150,23 @@ const EXTERNAL_REDIS_KEY: KeySpec = KeySpec {
     secret: true,
 };
 
-const GITHUB_AUTH_KEYS: &[KeySpec] = &[
+const GITHUB_APP_AUTH_KEYS: &[KeySpec] = &[
     KeySpec {
-        key: "GITHUB_CLIENT_ID",
+        key: "GITHUB_APP_CLIENT_ID",
         required: true,
-        hint: "OAuth App Client ID",
+        hint: "GitHub App Client ID",
         secret: false,
     },
     KeySpec {
-        key: "GITHUB_CLIENT_SECRET",
+        key: "GITHUB_APP_CLIENT_SECRET",
         required: true,
-        hint: "OAuth App Client Secret",
+        hint: "GitHub App Client Secret",
+        secret: true,
+    },
+    KeySpec {
+        key: "GITHUB_APP_PRIVATE_KEY",
+        required: false,
+        hint: "GitHub App private key PEM for installation access",
         secret: true,
     },
 ];
@@ -205,7 +211,7 @@ fn keys_for_values(values: Option<&serde_yaml::Value>) -> Vec<&'static KeySpec> 
         .and_then(serde_yaml::Value::as_str)
         .unwrap_or("");
     match auth_provider {
-        "github" => keys.extend(GITHUB_AUTH_KEYS.iter()),
+        "github_app" => keys.extend(GITHUB_APP_AUTH_KEYS.iter()),
         "auth0" => keys.extend(AUTH0_KEYS.iter()),
         _ => {}
     }
@@ -474,7 +480,9 @@ data:
             "Applied Secret/{PULL_SECRET_NAME} (dockerconfigjson) to {}.",
             args.namespace
         );
-        println!("Add `imagePullSecrets: [{{name: {PULL_SECRET_NAME}}}]` to values.local.yaml if not already set.");
+        println!(
+            "Add `imagePullSecrets: [{{name: {PULL_SECRET_NAME}}}]` to values.local.yaml if not already set."
+        );
     }
     Ok(())
 }
@@ -645,10 +653,11 @@ mod tests {
     }
 
     #[test]
-    fn keys_for_github() {
-        let v: serde_yaml::Value = serde_yaml::from_str("auth:\n  provider: github\n").unwrap();
+    fn keys_for_github_app() {
+        let v: serde_yaml::Value = serde_yaml::from_str("auth:\n  provider: github_app\n").unwrap();
         let keys = keys_for_values(Some(&v));
-        assert!(keys.iter().any(|k| k.key == "GITHUB_CLIENT_ID"));
+        assert!(keys.iter().any(|k| k.key == "GITHUB_APP_CLIENT_ID"));
+        assert!(keys.iter().any(|k| k.key == "GITHUB_APP_CLIENT_SECRET"));
         assert!(!keys.iter().any(|k| k.key == "AUTH0_DOMAIN"));
         assert!(!keys.iter().any(|k| k.key == "ANTHROPIC_API_KEY"));
     }
@@ -656,14 +665,18 @@ mod tests {
     #[test]
     fn redis_url_only_when_external() {
         let bundled: serde_yaml::Value = serde_yaml::from_str("redis:\n  enabled: true\n").unwrap();
-        assert!(!keys_for_values(Some(&bundled))
-            .iter()
-            .any(|k| k.key == "REDIS_URL"));
+        assert!(
+            !keys_for_values(Some(&bundled))
+                .iter()
+                .any(|k| k.key == "REDIS_URL")
+        );
 
         let external: serde_yaml::Value =
             serde_yaml::from_str("redis:\n  enabled: false\n").unwrap();
-        assert!(keys_for_values(Some(&external))
-            .iter()
-            .any(|k| k.key == "REDIS_URL"));
+        assert!(
+            keys_for_values(Some(&external))
+                .iter()
+                .any(|k| k.key == "REDIS_URL")
+        );
     }
 }

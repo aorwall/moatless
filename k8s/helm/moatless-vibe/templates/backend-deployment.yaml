@@ -283,32 +283,6 @@ spec:
             - name: NODE_ENV
               value: {{ .Values.env | default "production" | quote }}
             # OAuth credentials from secret
-            {{- if .Values.auth.github.enabled }}
-            - name: GITHUB_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "moatless-vibe.secretsName" . }}
-                  key: GITHUB_CLIENT_ID
-                  optional: true
-            - name: GITHUB_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "moatless-vibe.secretsName" . }}
-                  key: GITHUB_CLIENT_SECRET
-                  optional: true
-            {{- with .Values.auth.github.callbackUrl }}
-            - name: GITHUB_CALLBACK_URL
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.auth.github.requiredOrg }}
-            - name: GITHUB_REQUIRED_ORG
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.auth.github.oauthScope }}
-            - name: GITHUB_OAUTH_SCOPE
-              value: {{ . | quote }}
-            {{- end }}
-            {{- end }}
             {{- if .Values.auth.githubApp.enabled }}
             - name: GITHUB_APP_CLIENT_ID
               valueFrom:
@@ -330,6 +304,10 @@ spec:
                   optional: true
             {{- with .Values.auth.githubApp.callbackUrl }}
             - name: GITHUB_APP_CALLBACK_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.auth.githubApp.requiredOrg }}
+            - name: GITHUB_REQUIRED_ORG
               value: {{ . | quote }}
             {{- end }}
             {{- with .Values.auth.githubApp.appId }}

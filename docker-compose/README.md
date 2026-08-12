@@ -233,15 +233,15 @@ ADMIN_PASSWORD=choose-a-strong-password
 Sign in at `/login`. There is no unauthenticated mode — every API route
 requires a session cookie or an `mvk_` API key.
 
-Or enable GitHub OAuth:
+Or enable GitHub App login:
 ```bash
-AUTH_PROVIDER=github
-GITHUB_CLIENT_ID=your_client_id
-GITHUB_CLIENT_SECRET=your_client_secret
-GITHUB_CALLBACK_URL=http://localhost:8080/api/v1/auth/github/callback
+AUTH_PROVIDER=github_app
+GITHUB_APP_CLIENT_ID=your_client_id
+GITHUB_APP_CLIENT_SECRET=your_client_secret
+GITHUB_APP_CALLBACK_URL=http://localhost:8080/api/v1/auth/github-app/callback
 ```
 
-Create OAuth app at: https://github.com/settings/developers
+Create a GitHub App at: https://github.com/settings/apps/new
 
 Or enable Auth0:
 ```bash

@@ -39,8 +39,9 @@ pub async fn create_session(
     let expires_at = now + chrono::Duration::seconds(session_max_age_secs as i64);
     let user_id_str = user_id.to_string();
 
-    // `github` and `github_app` collapse to a single provider-identity key.
-    let provider_key = if provider_id == "github" || provider_id == "github_app" {
+    // GitHub App login uses the stable `github` identity key shared with
+    // repository credentials.
+    let provider_key = if provider_id == "github_app" {
         "github"
     } else {
         provider_id
@@ -112,9 +113,9 @@ pub async fn create_session(
     };
     sessions.insert_session(&session).await?;
 
-    // For GitHub providers, also persist to provider_tokens for cross-context access.
+    // Persist GitHub App user tokens for cross-context access.
     // If a PAT override is active, update the stashed OAuth token instead of overwriting.
-    let is_github_provider = provider_id == "github" || provider_id == "github_app";
+    let is_github_provider = provider_id == "github_app";
     if is_github_provider && !tokens.access_token.is_empty() {
         let existing_token_type = provider_tokens
             .find_token_type(&user_id_str, "github")
@@ -154,11 +155,7 @@ pub async fn create_session(
                 }
             }
         } else {
-            let auth_method = if provider_id == "github_app" {
-                "github_app"
-            } else {
-                "oauth"
-            };
+            let auth_method = "github_app";
             let pt = ProviderToken {
                 user_id: user_id_str.clone(),
                 provider: "github".to_string(),
