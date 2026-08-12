@@ -1,4 +1,4 @@
-//! The durable record that a Task's or Workspace's listing-visible state changed.
+//! The durable record that a Task's listing-visible state changed.
 //!
 //! The record is written by the code performing the mutation, in that
 //! mutation's own transaction, and its position is allocated there too — from
@@ -10,19 +10,15 @@
 //! position order the same order; what that costs callers is
 //! [`dao::record_change`]'s "call this last".
 //!
-//! No T3 vocabulary appears here — [`moatless_t3code`] turns the record into a
+//! No T3 vocabulary appears here — `moatless-t3code` turns the record into a
 //! shell event.
 
 pub mod dao;
 pub mod models;
 pub mod pruner;
 
-pub use dao::{
-    changes_after, current_head, current_position, prune_changes, record_change,
-    record_workspace_change,
-};
+pub use dao::{changes_after, current_head, current_position, prune_changes, record_change};
 pub use models::{
-    resume, ChangeSubject, EnvironmentIdentity, ListingChange, ListingHead, Resume, RESUME_WINDOW,
-    RETAINED_CHANGES,
+    resume, EnvironmentIdentity, ListingChange, ListingHead, Resume, RESUME_WINDOW, RETAINED_CHANGES,
 };
 pub use pruner::spawn_change_pruner;

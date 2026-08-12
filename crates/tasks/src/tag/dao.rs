@@ -3,12 +3,12 @@
 use async_trait::async_trait;
 
 use super::models::{Tag, TaskTag};
-use crate::db::DbPool;
 use crate::task_listing;
+use moatless_core::db::DbPool;
 
 /// DAO trait for tag persistence.
-// `MockTagDao` is consumed by the backend's task-creation tests, so the mock is
-// generated off `test-support` (not bare `cfg(test)`) to cross the crate boundary.
+// `MockTagDao` is consumed by task-creation tests and downstream backend test
+// tiers, so the mock is generated off `test-support` to cross that crate seam.
 #[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
 #[async_trait]
 pub trait TagDao: Send + Sync {

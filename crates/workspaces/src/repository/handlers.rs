@@ -1,8 +1,8 @@
 //! Repository HTTP handlers.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 
 use tracing::{debug, info, warn};
 
@@ -11,15 +11,15 @@ use moatless_api_schemas::workspace::WorkspaceSyncSummary;
 use std::sync::Arc;
 
 use moatless_backend_core::access_control::resolve_scope_for_create;
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_backend_core::scope::{Scope, ScopeContext};
 use moatless_core::db::DbPool;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::extractors::AuthUser;
 use moatless_identity::secret::models::looks_like_secret_key;
-use moatless_backend_core::scope::{Scope, ScopeContext};
 
-use super::access::{access_error_for, parse_github_owner_repo, RepositoryTokenResolver};
+use super::access::{RepositoryTokenResolver, access_error_for, parse_github_owner_repo};
 use super::config_reader::{
-    validate_repository_access_target, verify_repository_access, AccessStatus,
+    AccessStatus, validate_repository_access_target, verify_repository_access,
 };
 use super::dao::{RepositoryDao, RepositoryPatch};
 use super::error::RepositoryError;
@@ -460,35 +460,19 @@ pub async fn delete_repository(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Soft-delete every workspace a deleted repository declared in git, recording
-/// each one as a listing change.
-///
-/// One record per affected workspace, because `project-removed` carries one id
-/// and there is no bulk form; `RETURNING id` makes the record set exactly the
-/// mutated set. The volume is the entries in one `.moatless/workspaces.json` —
-/// single digits to tens — which matters because the hold on the counter is n
-/// allocations long rather than one. The records come **last**, after the
-/// `UPDATE` has taken every `workspaces` row lock: `record_change`'s "call this
-/// last".
+/// Soft-delete every workspace a deleted repository declared in git.
 async fn delete_declared_workspaces(
     db: &moatless_core::db::DbPool,
     repository_id: &str,
 ) -> Result<(), sqlx::Error> {
-    let mut tx = db.begin().await?;
-    let deleted: Vec<String> = sqlx::query_scalar(
+    sqlx::query(
         "UPDATE workspaces SET deleted = true, updated_at = now() \
          WHERE source_repository_id = $1 AND source = 'git' \
-           AND (deleted IS NULL OR deleted = false) \
-         RETURNING id",
+           AND (deleted IS NULL OR deleted = false)",
     )
     .bind(repository_id)
-    .fetch_all(&mut *tx)
+    .execute(db)
     .await?;
-
-    for workspace_id in &deleted {
-        moatless_core::task_listing::record_workspace_change(&mut tx, workspace_id).await?;
-    }
-    tx.commit().await?;
     Ok(())
 }
 

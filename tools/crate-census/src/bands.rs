@@ -95,10 +95,10 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
     let id = match top {
         // -- core is now the `moatless-core` crate (crates/core), no longer in
         // crates/backend/src. Its modules (config, db, error, events, feature_flags,
-        // git_provider, github_client, leader, metrics, scope, shared_models, tag,
-        // task_listing) are scored via `external_crate("moatless_core")`. The one
-        // former-core file that stays here is `test_support` (below); `""` is the
-        // backend lib root, which carves last as `server`. --
+        // git_provider, github_client, leader, metrics, scope, shared_models) are
+        // scored via `external_crate("moatless_core")`. The one former-core file
+        // that stays here is `test_support` (below); `""` is the backend lib root,
+        // which carves last as `server`. --
         "test_support" => return CrateAssignment::TestScaffold,
         // -- identity --
         // `secret` is core-clean storage/policy but its `handlers.rs` takes `AuthUser`,
@@ -120,7 +120,8 @@ pub fn crate_of_backend_mod(m: &ModPath) -> CrateAssignment {
         // and its sub-server callers (`sandbox/secrets`, `task/service`) would name it
         // upward — the trap this placement avoids.
         "task" | "message" | "task_activities" | "task_turn" | "agent" | "event_ingress"
-        | "feedback" | "agent_event" | "file_storage" | "task_event" | "credential_sync" => "tasks",
+        | "feedback" | "agent_event" | "file_storage" | "task_event" | "credential_sync"
+        | "tag" | "task_listing" => "tasks",
         // -- sandbox split --
         "sandbox" => match m.get(1).map(String::as_str) {
             Some("k8s") => "sandbox-k8s",
@@ -864,7 +865,10 @@ mod tests {
     /// move and rename.
     #[test]
     fn moatless_backend_head_resolves_to_the_band_10_crate() {
-        assert_eq!(external_crate("moatless_backend"), Some("server".to_string()));
+        assert_eq!(
+            external_crate("moatless_backend"),
+            Some("server".to_string())
+        );
         let Some(id) = external_crate("moatless_backend") else {
             panic!("moatless_backend must be a known external head");
         };

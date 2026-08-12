@@ -23,7 +23,7 @@ use crate::task_activities;
 use crate::task_activities::dao::{self as activities, Activity};
 use crate::task_activities::mapping::{ActivityKind, ConversationWrite};
 use moatless_core::db::DbPool;
-use moatless_core::task_listing;
+use crate::task_listing;
 
 /// The tool calls that hand a conversation back to a person. A sidebar shows
 /// whether one is outstanding, so the message that raises one moves a listing

@@ -98,12 +98,14 @@ activity (`crates/t3code/src/dao.rs:53`, `crates/t3code/src/dao.rs:183`).
 T3's shell client is sequence-based. Moatless therefore has a dedicated listing
 change record instead of trying to reuse `task_events`.
 
-`task_listing` owns the feed position. A Task or Workspace mutation records a
-listing-visible change in the same transaction as the mutation, allocating from
-one deployment-wide counter and calling the allocator last to avoid deadlocks
-(`backend/src/task_listing/mod.rs:1`, `backend/src/task_listing/dao.rs:8`).
+`task_listing` owns the feed position. A Task mutation records a listing-visible
+change in the same transaction as the mutation, allocating from one
+deployment-wide counter and calling the allocator last to avoid deadlocks.
+Workspace state is snapshot-owned: Workspace mutations do not advance this
+cursor, and clients observe them on their next snapshot or rebuild
+(`crates/tasks/src/task_listing/mod.rs:1`, `crates/tasks/src/task_listing/dao.rs:8`).
 
-The resume rule has three rebuild cases (`backend/src/task_listing/models.rs:66`):
+The resume rule has three rebuild cases (`crates/tasks/src/task_listing/models.rs:66`):
 
 | Case | Why rebuild |
 |---|---|
@@ -111,10 +113,10 @@ The resume rule has three rebuild cases (`backend/src/task_listing/models.rs:66`
 | Client cursor is ahead of the current head | No real change can carry that cursor. |
 | Client cursor is outside the resume window | The retained records may no longer cover the gap. |
 
-Live delivery is not a diff stream. `ShellFeed` reads recorded changes, coalesces
-multiple changes for the same subject, re-reads the whole current row through the
-same filters as the snapshot, and sends `thread-upserted`, `thread-removed`,
-`project-upserted`, `project-removed`, or a full `snapshot`
+Live delivery is Task-only and is not a diff stream. `ShellFeed` reads recorded
+changes, coalesces multiple changes for the same Task, re-reads the whole current
+row through the same filters as the snapshot, and sends `thread-upserted`,
+`thread-removed`, or a full `snapshot`
 (`crates/t3code/src/feed.rs:1`, `crates/t3code/src/feed.rs:100`).
 
 If a changed Thread enters a Project the client does not hold, the feed sends a

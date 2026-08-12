@@ -13,7 +13,7 @@
 //! an empty re-read, which on a shared deployment would disclose the id of every
 //! conversation unfollowed, made private or deleted (Decision 11).
 //!
-//! One case is not expressible as a delta: a conversation entering a project the
+//! One case is not expressible as a Task delta: a conversation entering a project the
 //! client does not hold needs both events, and two events at one position
 //! deliver one. Neither neighbour works either: `P - 1` has no room when the
 //! client already holds `P - 1`, and `P + 1` is unallocated, so the real change
@@ -27,7 +27,7 @@ use tracing::{debug, warn};
 use super::dao::ConversationDao;
 use super::{AgentModelDefaults, projection};
 use crate::data::T3WorkspaceDao;
-use crate::listing::{UiRpcChangeSubject, UiRpcEnvironmentIdentity};
+use crate::listing::UiRpcEnvironmentIdentity;
 use moatless_backend_core::activity::{self, ConversationChange, ConversationHead};
 use moatless_backend_core::scope::ScopeContext;
 
@@ -45,20 +45,13 @@ const CHANGES_PER_POLL: i64 = 500;
 /// identity travels with it because a cursor without one is a number naming a
 /// different change in every database. All four move together or not at all.
 ///
-/// # Why `grouped` is not the same set as `projects`
-///
-/// Two questions, and one set cannot answer both (Decision 11). *May this id be
-/// taken back?* Only ids a delivery put in `threads`/`projects`, or a removal
-/// names a row this client was never shown. *Can the client group this row?* It
-/// drops one whose project it has no group for, in silence, and guessing wrong
-/// there costs a snapshot rather than a disclosure. A resume can answer the
-/// second soundly and not the first, so `grouped` is seeded separately in
-/// [`shell_subscription`](super::shell_subscription). `projects ⊆ grouped`.
+/// `grouped` tracks the projects the client can group a changed Task under. The
+/// live feed carries only Task changes, so project membership itself changes
+/// only when a snapshot replaces the listing.
 pub struct ShellFeed {
     identity: UiRpcEnvironmentIdentity,
     cursor: i64,
     threads: HashSet<String>,
-    projects: HashSet<String>,
     grouped: HashSet<String>,
 }
 
@@ -66,8 +59,8 @@ impl ShellFeed {
     /// Start from the position a snapshot was read at, in the database it was
     /// read from, holding nothing.
     ///
-    /// The removable sets stay empty for the life of a resumed feed, and
-    /// deliberately: reconstructing them from what the viewer can read now is
+    /// The removable Task set stays empty for the life of a resumed feed, and
+    /// deliberately: reconstructing it from what the viewer can read now is
     /// wrong in the one direction that matters, since the rows missing are
     /// exactly the ones that left while the client was away (Decision 11).
     /// [`ShellFeed::grouping_by`] keeps that from also costing a snapshot per
@@ -77,29 +70,23 @@ impl ShellFeed {
             identity,
             cursor: position,
             threads: HashSet::new(),
-            projects: HashSet::new(),
             grouped: HashSet::new(),
         }
     }
 
-    /// Seed what the client holds, from the listing it was sent — both of the
-    /// struct's questions at once, which only a caller holding the snapshot can
-    /// answer.
+    /// Seed the Tasks the client holds and the projects it can group them under
+    /// from the listing it was sent.
     pub fn holding(mut self, threads: Vec<String>, projects: Vec<String>) -> Self {
         self.threads = threads.into_iter().collect();
-        self.projects = projects.into_iter().collect();
-        self.grouped = self.projects.clone();
+        self.grouped = projects.into_iter().collect();
         self
     }
 
-    /// Seed the projects the client can *group* by, without claiming this feed
-    /// sent them — the resume path's half of [`ShellFeed::holding`], and
-    /// deliberately the weaker half. These ids gate delta delivery and never
-    /// gate a removal, so a wrong one costs a row not rendered until the next
-    /// rebuild rather than a removal naming something never shown.
+    /// Seed the projects the client can group by. These ids gate Task delivery,
+    /// so a wrong one costs a row not rendered until the next rebuild rather
+    /// than disclosing a project the feed did not send.
     pub fn grouping_by(mut self, projects: Vec<String>) -> Self {
         self.grouped = projects.into_iter().collect();
-        self.grouped.extend(self.projects.iter().cloned());
         self
     }
 
@@ -143,84 +130,37 @@ impl ShellFeed {
         // past a batch that was never built is a batch nobody is told about.
         let batch_end = last.position;
 
-        // One delivery per subject, at the highest position its burst reached,
+        // One delivery per Task, at the highest position its burst reached,
         // re-sorted by the position each survivor kept.
-        let mut latest: HashMap<(bool, &str), i64> = HashMap::new();
+        let mut latest: HashMap<&str, i64> = HashMap::new();
         for change in &changes {
-            let key = match change.subject() {
-                Some(UiRpcChangeSubject::Task(task_id)) => (false, task_id),
-                Some(UiRpcChangeSubject::Workspace(workspace_id)) => (true, workspace_id),
-                None => {
-                    warn!(
-                        position = change.position,
-                        "Listing change names neither a task nor a workspace; skipping it"
-                    );
-                    continue;
-                }
-            };
             latest
-                .entry(key)
+                .entry(change.task_id.as_str())
                 .and_modify(|position| *position = (*position).max(change.position))
                 .or_insert(change.position);
         }
-        let mut coalesced: Vec<((bool, &str), i64)> = latest.into_iter().collect();
-        coalesced.sort_by_key(|((is_workspace, id), position)| (*position, *is_workspace, *id));
-        if coalesced.is_empty() {
-            // Every record named neither subject — unreachable under the CHECK
-            // and already warned about, so the cursor moves past them.
-            self.cursor = batch_end;
-            return Ok(Vec::new());
-        }
+        let mut coalesced: Vec<(&str, i64)> = latest.into_iter().collect();
+        coalesced.sort_by_key(|(id, position)| (*position, *id));
 
-        let task_ids: Vec<String> = coalesced
-            .iter()
-            .filter(|((is_workspace, _), _)| !is_workspace)
-            .map(|((_, id), _)| (*id).to_string())
-            .collect();
+        let task_ids: Vec<String> = coalesced.iter().map(|(id, _)| (*id).to_string()).collect();
         let rows = conversations
             .list_followed_by_ids(viewer, &task_ids)
             .await?;
 
-        // The ones these conversations reference, plus changed workspaces this
-        // client already holds — the second half lets a viewer who cannot *read*
-        // one still be told it was renamed, disclosing no id they lack.
-        let mut wanted: Vec<String> = rows
+        // The Workspaces these changed Tasks reference are still needed to
+        // project the Task rows and decide whether the client can group them.
+        let wanted: Vec<String> = rows
             .iter()
             .filter_map(|row| row.workspace_id.clone())
             .collect();
-        wanted.extend(
-            coalesced
-                .iter()
-                .filter(|((is_workspace, id), _)| *is_workspace && self.projects.contains(*id))
-                .map(|((_, id), _)| (*id).to_string()),
-        );
         let projects = workspaces.list_readable_including(viewer, &wanted).await?;
 
         let by_id: HashMap<&str, &_> = rows.iter().map(|row| (row.task_id.as_str(), row)).collect();
         let mut items = Vec::new();
         let mut delivered_threads: Vec<&str> = Vec::new();
-        let mut delivered_projects: Vec<&str> = Vec::new();
         let mut dropped_threads: Vec<&str> = Vec::new();
-        let mut dropped_projects: Vec<&str> = Vec::new();
 
-        for ((is_workspace, id), position) in coalesced {
-            if is_workspace {
-                match projects.iter().find(|project| project.workspace.id == id) {
-                    Some(project) => {
-                        items.push(projection::project_upserted(project, position));
-                        delivered_projects.push(id);
-                    }
-                    // Deleted, or no longer readable and no longer referenced.
-                    // Only a project this client was sent can be taken back.
-                    None if self.projects.contains(id) => {
-                        items.push(projection::project_removed(id, position));
-                        dropped_projects.push(id);
-                    }
-                    None => {}
-                }
-                continue;
-            }
-
+        for (id, position) in coalesced {
             let row = by_id.get(id);
             let project_id = row.and_then(|row| {
                 row.workspace_id
@@ -229,9 +169,7 @@ impl ShellFeed {
             });
             match (row, project_id) {
                 (Some(row), Some(project_id)) => {
-                    if !self.grouped.contains(project_id)
-                        && !delivered_projects.contains(&project_id)
-                    {
+                    if !self.grouped.contains(project_id) {
                         // Entered a project this client has no group for, and
                         // the pair cannot go out at one position.
                         return self
@@ -274,16 +212,8 @@ impl ShellFeed {
         for id in delivered_threads {
             self.threads.insert(id.to_string());
         }
-        for id in delivered_projects {
-            self.projects.insert(id.to_string());
-            self.grouped.insert(id.to_string());
-        }
         for id in dropped_threads {
             self.threads.remove(id);
-        }
-        for id in dropped_projects {
-            self.projects.remove(id);
-            self.grouped.remove(id);
         }
         // Last, with the items built and nothing fallible left between here and
         // the caller. See `batch_end`.
@@ -352,15 +282,10 @@ impl ShellFeed {
     /// over.
     ///
     /// Both callers replace what the client is looking at, so both replace
-    /// *everything this feed believes about it* — the id sets included. Leaving
-    /// those is silent both ways: a row the snapshot introduced is in no set and
-    /// is never removed, and one from the listing it replaced is still in one,
-    /// so a removal names a row the client does not have.
+    /// everything this feed believes about its Tasks and project grouping.
     fn adopt(&mut self, snapshot: super::ShellSnapshot, cursor: i64) -> Vec<Value> {
         self.threads = snapshot.thread_ids().into_iter().collect();
-        self.projects = snapshot.project_ids().into_iter().collect();
-        // The snapshot answers both questions, so a resuming feed stops guessing.
-        self.grouped = self.projects.clone();
+        self.grouped = snapshot.project_ids().into_iter().collect();
         self.identity = snapshot.identity;
         self.cursor = cursor;
         vec![json!({
@@ -760,7 +685,11 @@ mod tests {
     async fn a_poll_sends_events_rather_than_the_conversation_again() {
         let dao = a_dao(vec![change(9, Some("msg-a"))]);
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
-        let items = feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap().unwrap();
+        let items = feed
+            .poll(&dao, &viewer(), "http://localhost:3000")
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["kind"], "event");
@@ -782,7 +711,11 @@ mod tests {
         let dao = a_dao(vec![change(9, Some("msg-a"))]);
         let already = 9 * EVENTS_PER_CHANGE;
         let mut feed = ThreadFeed::resuming_from("task-a".into(), already);
-        let items = feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap().unwrap();
+        let items = feed
+            .poll(&dao, &viewer(), "http://localhost:3000")
+            .await
+            .unwrap()
+            .unwrap();
         assert!(
             items.is_empty(),
             "nothing above the client's position: {items:#?}"
@@ -800,7 +733,12 @@ mod tests {
         dao.expect_list_followed_by_ids()
             .returning(|_, _| Ok(Vec::new()));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
-        assert!(feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap().is_none());
+        assert!(
+            feed.poll(&dao, &viewer(), "http://localhost:3000")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// An idle conversation is not a gone one, and a subscription that ended on
@@ -813,7 +751,12 @@ mod tests {
         dao.expect_list_followed_by_ids()
             .returning(|_, _| Ok(vec![a_conversation()]));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
-        assert_eq!(feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap(), Some(Vec::new()));
+        assert_eq!(
+            feed.poll(&dao, &viewer(), "http://localhost:3000")
+                .await
+                .unwrap(),
+            Some(Vec::new())
+        );
         assert_eq!(feed.cursor, 9, "and the cursor stayed where it was");
     }
 
@@ -831,7 +774,10 @@ mod tests {
             .returning(|_, _| Ok(Vec::new()));
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
         assert!(
-            feed.poll(&dao, &viewer(), "http://localhost:3000").await.unwrap().is_none(),
+            feed.poll(&dao, &viewer(), "http://localhost:3000")
+                .await
+                .unwrap()
+                .is_none(),
             "a conversation that ended without recording a change still ends the subscription"
         );
     }
@@ -853,7 +799,11 @@ mod tests {
             .returning(|_, _, _| Err(sqlx::Error::PoolTimedOut));
 
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
-        assert!(feed.poll(&dao, &viewer(), "http://localhost:3000").await.is_err());
+        assert!(
+            feed.poll(&dao, &viewer(), "http://localhost:3000")
+                .await
+                .is_err()
+        );
         assert_eq!(
             feed.cursor, 9,
             "the next poll has to read change 9 again, or it is never sent"

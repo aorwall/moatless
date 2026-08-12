@@ -22,11 +22,31 @@ use std::time::{Duration, Instant};
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration as ChronoDuration, SubsecRound, Utc};
 use futures::future::BoxFuture;
+use moatless_backend::auth::api_keys::PgApiKeyDao;
+use moatless_backend::auth::pairing::{DevicePairing, PgPairingApiKeyIssuer, PgPairingCodeDao};
+use moatless_backend::message::dao::{MessageDao, PgMessageDao};
+use moatless_backend::message::models::{MessageType, TaskMessage};
+use moatless_backend::message::service as message_service;
+use moatless_backend::repository::dao as repository_dao;
+use moatless_backend::repository::routes::repository_router;
+use moatless_backend::t3code::backend as t3code_backend;
+use moatless_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
+use moatless_backend::task::models::{
+    SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility,
+};
+use moatless_backend::task_activities::mapping::{BlockContext, ConversationWrite, map_content};
+use moatless_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
+use moatless_backend::task_turn::models::classify_turn_transition;
+use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
 use moatless_backend_core::activity::{ConversationChange, ConversationHead};
 use moatless_backend_core::sandbox::{
     ClusterDiagnostics, LiveStatus, LogOptions, SandboxDiagnosticsEntry, SandboxError,
     SandboxStatusFullResponse, ServerLogStream,
 };
+use moatless_core::scope::{Scope, ScopeContext};
+use moatless_core::shared_models::AgentType;
+use moatless_backend::tag::dao::{PgTagDao, TagDao};
+use moatless_backend::task_listing::record_change;
 use moatless_t3code::dao::{
     Conversation, ConversationDao, ConversationMatch, InteractiveCall, PgConversationDao,
     Transcript,
@@ -44,30 +64,6 @@ use moatless_t3code::{
     SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter, SandboxStopper,
 };
 use moatless_t3code::{UiRpcAuthIdentity, UserRole};
-use moatless_backend::auth::api_keys::PgApiKeyDao;
-use moatless_backend::auth::pairing::{
-    DevicePairing, PgPairingApiKeyIssuer, PgPairingCodeDao,
-};
-use moatless_backend::message::dao::{MessageDao, PgMessageDao};
-use moatless_backend::message::models::{MessageType, TaskMessage};
-use moatless_backend::message::service as message_service;
-use moatless_backend::repository::dao as repository_dao;
-use moatless_backend::repository::routes::repository_router;
-use moatless_core::scope::{Scope, ScopeContext};
-use moatless_core::shared_models::AgentType;
-use moatless_backend::t3code::backend as t3code_backend;
-use moatless_core::tag::dao::{PgTagDao, TagDao};
-use moatless_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
-use moatless_backend::task::models::{
-    SandboxDesiredState, SandboxStopReason, Task, TaskStatus, Visibility,
-};
-use moatless_backend::task_activities::mapping::{
-    BlockContext, ConversationWrite, map_content,
-};
-use moatless_core::task_listing::record_change;
-use moatless_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
-use moatless_backend::task_turn::models::classify_turn_transition;
-use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
 use serde_json::{Value, json};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{AssertSqlSafe, PgPool};
@@ -2482,12 +2478,12 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
 
     // (2) The workspace read fails, one statement further on.
     let watched_from = head(&pool).await.position;
-    PgWorkspaceDao(pool.clone())
-        .update(
-            "ws-live",
-            &WorkspacePatch {
+    PgTaskDao(pool.clone())
+        .update_task(
+            "t-live",
+            &TaskPatch {
                 name: Some("Renamed".to_string()),
-                ..WorkspacePatch::default()
+                ..TaskPatch::default()
             },
             &viewer,
         )
@@ -2509,8 +2505,8 @@ async fn a_poll_that_fails_after_reading_its_changes_delivers_them_on_the_next_o
     );
 
     let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "project-upserted");
-    assert_eq!(item["project"]["title"], "Renamed");
+    assert_eq!(item["kind"], "thread-upserted");
+    assert_eq!(item["thread"]["title"], "Renamed");
     held.apply(&item);
 }
 
@@ -4324,13 +4320,14 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
 // -------------------------------------------------------------------------
 
 #[sqlx::test]
-async fn renaming_a_project_updates_it_in_a_watching_client(pool: PgPool) {
+async fn renaming_a_project_waits_for_the_next_snapshot(pool: PgPool) {
     seed_live_project(&pool).await;
     seed_task(&pool, "t-live", "user-1", Some("ws-live")).await;
 
     let viewer = viewer("user-1");
-    let (mut feed, mut held) = watcher(&pool, &viewer).await;
+    let (mut feed, held) = watcher(&pool, &viewer).await;
     assert_eq!(held.projects, ["ws-live"]);
+    let watched_from = head(&pool).await.position;
 
     assert!(
         PgWorkspaceDao(pool.clone())
@@ -4346,12 +4343,8 @@ async fn renaming_a_project_updates_it_in_a_watching_client(pool: PgPool) {
             .unwrap()
     );
 
-    let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "project-upserted");
-    assert_eq!(item["project"]["id"], "ws-live");
-    assert_eq!(item["project"]["title"], "Renamed project");
-    held.apply(&item);
-    assert_eq!(held.projects, ["ws-live"]);
+    assert_eq!(recorded_after(&pool, watched_from).await, 0);
+    assert!(delivered(&pool, &mut feed, &viewer).await.is_empty());
 
     // Durable, not just delivered: a client opening a fresh subscription reads
     // the same title out of the database.
@@ -4360,23 +4353,18 @@ async fn renaming_a_project_updates_it_in_a_watching_client(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn a_new_project_appears_and_a_deleted_one_goes(pool: PgPool) {
+async fn creating_and_deleting_a_project_waits_for_the_next_snapshot(pool: PgPool) {
     seed_live_project(&pool).await;
 
     let viewer = viewer("user-1");
-    let (mut feed, mut held) = watcher(&pool, &viewer).await;
+    let (mut feed, held) = watcher(&pool, &viewer).await;
     assert_eq!(held.projects, ["ws-live"]);
+    let watched_from = head(&pool).await.position;
 
     PgWorkspaceDao(pool.clone())
         .insert_workspace(&make_workspace_row("ws-new", "user-1"))
         .await
         .unwrap();
-
-    let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "project-upserted");
-    assert_eq!(item["project"]["id"], "ws-new");
-    held.apply(&item);
-    assert_eq!(held.projects, ["ws-live", "ws-new"]);
 
     assert!(
         PgWorkspaceDao(pool.clone())
@@ -4385,11 +4373,9 @@ async fn a_new_project_appears_and_a_deleted_one_goes(pool: PgPool) {
             .unwrap()
     );
 
-    let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "project-removed");
-    assert_eq!(item["projectId"], "ws-new");
-    held.apply(&item);
-    assert_eq!(held.projects, ["ws-live"]);
+    assert_eq!(recorded_after(&pool, watched_from).await, 0);
+    assert!(delivered(&pool, &mut feed, &viewer).await.is_empty());
+    assert_eq!(Held::opening(&pool, &viewer).await.projects, ["ws-live"]);
 }
 
 /// The second way a project leaves the listing, which recorded nothing.
@@ -4403,7 +4389,7 @@ async fn a_new_project_appears_and_a_deleted_one_goes(pool: PgPool) {
 /// with nobody told: the client kept rendering the group until something
 /// unrelated moved its listing.
 #[sqlx::test]
-async fn tombstoning_a_git_declared_project_removes_it_from_a_watching_client(pool: PgPool) {
+async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: PgPool) {
     let repo = PgWorkspaceDao(pool.clone());
     let mut declared = make_workspace_row("ws-git", "user-1");
     declared.source = "git".to_string();
@@ -4412,7 +4398,7 @@ async fn tombstoning_a_git_declared_project_removes_it_from_a_watching_client(po
     repo.insert_workspace(&declared).await.unwrap();
 
     let viewer = viewer("user-1");
-    let (mut feed, mut held) = watcher(&pool, &viewer).await;
+    let (mut feed, held) = watcher(&pool, &viewer).await;
     assert_eq!(held.projects, ["ws-git"]);
     let watched_from = head(&pool).await.position;
 
@@ -4423,29 +4409,23 @@ async fn tombstoning_a_git_declared_project_removes_it_from_a_watching_client(po
     );
     assert_eq!(
         recorded_after(&pool, watched_from).await,
-        1,
-        "the tombstone recorded no listing change, so nothing below can deliver one"
+        0,
+        "a Workspace tombstone advanced the Task listing"
     );
-
-    let item = one_item(&pool, &mut feed, &viewer).await;
-    assert_eq!(item["kind"], "project-removed");
-    assert_eq!(item["projectId"], "ws-git");
-    held.apply(&item);
-    assert!(held.projects.is_empty());
+    assert!(delivered(&pool, &mut feed, &viewer).await.is_empty());
+    assert!(Held::opening(&pool, &viewer).await.projects.is_empty());
 }
 
-/// The third way, and the one that takes several projects at once.
-///
 /// Deleting a repository bulk-deletes every workspace its git tree declared,
-/// because once the source repo is gone no future sync will prune them. Each of
-/// those is a group in somebody's sidebar and each has to be taken back
-/// individually — `project-removed` carries one id.
+/// because once the source repo is gone no future sync will prune them. The
+/// mutation is Workspace-only, so live clients retain their current groups
+/// until a later snapshot replaces the listing.
 ///
 /// Driven through the mounted HTTP route rather than the query underneath it:
 /// the statement lives in a handler, and a test that called the handler's
 /// helper directly would pass against a route that never reaches it.
 #[sqlx::test]
-async fn deleting_a_repository_removes_every_project_it_declared(pool: PgPool) {
+async fn deleting_a_repository_does_not_advance_the_task_listing(pool: PgPool) {
     seed_team(&pool, &format!("personal-{USER_1}")).await;
     repository_dao::insert(&pool, &make_repository_row("repo-gone", USER_1))
         .await
@@ -4484,29 +4464,20 @@ async fn deleting_a_repository_removes_every_project_it_declared(pool: PgPool) {
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     assert_eq!(
         recorded_after(&pool, watched_from).await,
-        2,
-        "one record per workspace the repository declared, and none for the \
-         one it did not"
+        0,
+        "repository-driven Workspace deletion advanced the Task listing"
     );
 
     let items = held.poll(&pool, &mut feed, &viewer).await;
-    let mut removed: Vec<&str> = items
-        .iter()
-        .filter(|item| item["kind"] == "project-removed")
-        .map(|item| item["projectId"].as_str().unwrap())
-        .collect();
-    removed.sort_unstable();
-    assert_eq!(
-        removed,
-        ["ws-api", "ws-web"],
-        "the repository's projects left the listing and the client was not \
-         told: {items:#?}"
+    assert!(
+        items.is_empty(),
+        "Workspace deletion emitted shell items: {items:#?}"
     );
-    assert_eq!(held.projects, ["ws-kept"]);
+    assert_eq!(held.projects, ["ws-api", "ws-kept", "ws-web"]);
+    assert_eq!(Held::opening(&pool, &viewer).await.projects, ["ws-kept"]);
 }
 
-/// The disclosure rule again, on the project half. A workspace someone else
-/// owns changes, and this client is told nothing about it — including its id.
+/// A Workspace someone else owns changes without entering the Task feed.
 #[sqlx::test]
 async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
     seed_workspaces(&pool).await;
@@ -4543,7 +4514,7 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
             .unwrap()
     );
 
-    assert_eq!(recorded_after(&pool, watched_from).await, 2);
+    assert_eq!(recorded_after(&pool, watched_from).await, 0);
     assert_eq!(
         delivered(&pool, &mut feed, &watcher_viewer).await,
         Vec::<Value>::new(),
@@ -4551,11 +4522,10 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
     );
 }
 
-/// A project a viewer cannot *read* but holds because they follow work inside
-/// it. The listing's widening half puts it on their screen, so its rename has
-/// to reach them too — and its deletion has to take it back off.
+/// A project a viewer cannot read but holds because they follow work inside it
+/// is still snapshot-owned. Its mutations emit no live project events.
 #[sqlx::test]
-async fn a_project_held_only_because_it_is_referenced_still_updates(pool: PgPool) {
+async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
     seed_workspaces(&pool).await;
     let mut theirs = make_task_row("t-theirs", "user-2");
     theirs.workspace_id = Some("ws-other".to_string());
@@ -4591,6 +4561,7 @@ async fn a_project_held_only_because_it_is_referenced_still_updates(pool: PgPool
         held.projects.contains(&"ws-other".to_string()),
         "the widening half put an unreadable project in their listing"
     );
+    let watched_from = head(&pool).await.position;
 
     assert!(
         PgWorkspaceDao(pool.clone())
@@ -4606,14 +4577,6 @@ async fn a_project_held_only_because_it_is_referenced_still_updates(pool: PgPool
             .unwrap()
     );
 
-    let item = one_item(&pool, &mut feed, &watcher_viewer).await;
-    assert_eq!(item["kind"], "project-upserted");
-    assert_eq!(item["project"]["title"], "Renamed elsewhere");
-    // The live half of the union is recomputed every poll, so the narrowing has
-    // to hold there too and not only in the opening snapshot.
-    assert_eq!(item["project"]["scripts"], json!([]));
-    held.apply(&item);
-
     assert!(
         PgWorkspaceDao(pool.clone())
             .soft_delete("ws-other", &viewer("user-2"))
@@ -4622,21 +4585,25 @@ async fn a_project_held_only_because_it_is_referenced_still_updates(pool: PgPool
     );
     let items = held.poll(&pool, &mut feed, &watcher_viewer).await;
     assert!(
-        items.iter().any(|item| item["kind"] == "project-removed"),
-        "the project went away and the client was not told: {items:#?}"
+        items.is_empty(),
+        "Workspace changes emitted shell items: {items:#?}"
     );
-    assert!(!held.projects.contains(&"ws-other".to_string()));
+    assert_eq!(recorded_after(&pool, watched_from).await, 0);
+    assert!(held.projects.contains(&"ws-other".to_string()));
+    assert!(
+        !Held::opening(&pool, &watcher_viewer)
+            .await
+            .projects
+            .contains(&"ws-other".to_string())
+    );
 }
 
 // =========================================================================
 // What survives the merge of 05 and 06
 // =========================================================================
 //
-// Both branches were correct alone. Together, `ShellFeed` has to answer two
-// questions that the opening snapshot answers at once and a resume does not:
-// *may this id be taken back*, and *can the client group this row*. Everything
-// below is one of those two questions asked on the resume and rebuild paths,
-// where the answers are not the same set.
+// The opening snapshot answers both which Tasks are held and which projects can
+// group them. A resumed feed reconstructs only the grouping half.
 
 /// A client that reconnects, catches up on nothing, and then watches one
 /// conversation change.
@@ -4935,8 +4902,8 @@ async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
 /// the feed believes about that listing too. Ticket 07 wrote it before ticket 05
 /// gave a feed any id sets to replace, and neither branch could see the other:
 /// left as it merges, `rebuild` moves the identity and the cursor into the new
-/// database and leaves `threads` and `projects` describing a listing that no
-/// longer exists anywhere.
+/// database and leaves `threads` and project grouping describing a listing that
+/// no longer exists anywhere.
 ///
 /// Both directions of that are silent, and both are asserted here against a real
 /// second database:
@@ -5019,7 +4986,7 @@ async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(po
     assert_eq!(items[0]["kind"], "thread-removed");
     assert_eq!(items[0]["threadId"], "t-restore-only");
 
-    // And the project half of the same set.
+    // Workspace removal is snapshot-owned and emits no live item.
     assert!(
         PgWorkspaceDao(restored.pool.clone())
             .soft_delete("ws-restore-only", &watcher_viewer)
@@ -5027,9 +4994,10 @@ async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(po
             .unwrap()
     );
     let items = delivered(&restored.pool, &mut feed, &watcher_viewer).await;
-    assert_eq!(items.len(), 1, "expected one removal, got {items:#?}");
-    assert_eq!(items[0]["kind"], "project-removed");
-    assert_eq!(items[0]["projectId"], "ws-restore-only");
+    assert!(
+        items.is_empty(),
+        "Workspace removal emitted shell items: {items:#?}"
+    );
 
     restored.discard().await;
 }

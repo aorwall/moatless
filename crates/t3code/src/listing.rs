@@ -49,27 +49,10 @@ pub fn resume(
     UiRpcResume::From(after)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UiRpcChangeSubject<'a> {
-    Task(&'a str),
-    Workspace(&'a str),
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct UiRpcListingChange {
     pub position: i64,
-    pub task_id: Option<String>,
-    pub workspace_id: Option<String>,
-}
-
-impl UiRpcListingChange {
-    pub fn subject(&self) -> Option<UiRpcChangeSubject<'_>> {
-        match (self.task_id.as_deref(), self.workspace_id.as_deref()) {
-            (Some(task_id), _) => Some(UiRpcChangeSubject::Task(task_id)),
-            (None, Some(workspace_id)) => Some(UiRpcChangeSubject::Workspace(workspace_id)),
-            (None, None) => None,
-        }
-    }
+    pub task_id: String,
 }
 
 pub async fn current_head(pool: &UiRpcDbPool) -> Result<UiRpcListingHead, sqlx::Error> {
@@ -95,7 +78,7 @@ pub async fn changes_after(
     limit: i64,
 ) -> Result<Vec<UiRpcListingChange>, sqlx::Error> {
     sqlx::query_as(
-        r#"SELECT position, task_id, workspace_id
+        r#"SELECT position, task_id
            FROM task_listing_changes
            WHERE position > $1
            ORDER BY position

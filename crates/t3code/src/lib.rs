@@ -1072,20 +1072,18 @@ pub async fn shell_subscription(
 /// This reads back the first half and not the second, and the asymmetry is the
 /// point:
 ///
-/// - A project the viewer may read now was in that snapshot unless it *became*
-///   readable in between — and becoming readable is a workspace mutation, which
-///   records its own listing change (`workspace/dao.rs`). The catch-up poll
-///   replays that record as a `project-upserted` before anything can be
-///   delivered into the project, so the client is given the group either way.
+/// - A project the viewer may read now was in that snapshot unless it became
+///   readable in between. A changed conversation entering such a project is
+///   handled by `ShellFeed::resynchronize`, which sends the whole listing.
 /// - A project held only because a conversation *references* it is deliberately
 ///   left out. That is precisely the case where a conversation can arrive under
 ///   a project the client has never been sent, and it is what
 ///   `ShellFeed::resynchronize` exists to answer with a whole listing.
 ///
 /// What this does not cover is the viewer's own scope widening between their
-/// snapshot request and their subscribe — no workspace changed, so no record
-/// exists. The window is one round trip, and the cost is one row not rendered
-/// until the next rebuild rather than anything disclosed.
+/// snapshot request and their subscribe. The window is one round trip, and the
+/// cost is one row not rendered until the next rebuild rather than anything
+/// disclosed.
 async fn resume_grouping(
     workspaces: &dyn T3WorkspaceDao,
     viewer: &ScopeContext,

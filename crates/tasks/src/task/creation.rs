@@ -34,7 +34,7 @@ use moatless_events::{SandboxEventPayload, SandboxStatus, TaskSubType};
 
 use moatless_core::events::EventPublisher;
 use moatless_core::shared_models::{AgentMode, AgentType};
-use moatless_core::tag::dao::TagDao;
+use crate::tag::dao::TagDao;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::repository::models::Repository;
 use crate::task::dao::TaskDao;
@@ -449,7 +449,7 @@ mod tests {
 
     use moatless_workspaces::repository::dao::MockRepositoryDao;
     use moatless_workspaces::repository::models::{Repository, RepositoryKind};
-    use moatless_core::tag::dao::MockTagDao;
+    use crate::tag::dao::MockTagDao;
     use crate::task::dao::MockTaskDao;
     use crate::task::relations::MockTaskRelationDao;
     use moatless_core::events::test_support::RecordingPublisher;

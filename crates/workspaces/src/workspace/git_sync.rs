@@ -28,22 +28,22 @@ use chrono::Utc;
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
-use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
-use moatless_core::db::DbPool;
-use moatless_identity::extractors::AuthUser;
-use crate::repository::access::{access_error_for, RepositoryTokenResolver};
+use crate::repository::access::{RepositoryTokenResolver, access_error_for};
 use crate::repository::config_reader::{
-    fetch_provider_file, verify_repository_access, AccessStatus,
+    AccessStatus, fetch_provider_file, verify_repository_access,
 };
 use crate::repository::dao::{RepositoryDao, RepositoryPatch};
-use crate::repository::error::{is_remote_url_conflict, RepositoryError};
+use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
-use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
 use crate::repository::models::ServerConfig;
-use crate::workspace::dao::{ensure_shadow_workspace, WorkspaceDao, WorkspacePatch};
+use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
+use crate::workspace::dao::{WorkspaceDao, WorkspacePatch, ensure_shadow_workspace};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
 use moatless_backend_core::scope::ScopeContext;
+use moatless_core::db::DbPool;
+use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
+use moatless_identity::extractors::AuthUser;
 
 // =============================================================================
 // `.moatless/` file schemas
@@ -731,22 +731,10 @@ impl GitSyncService {
         };
 
         // Un-delete if a prior reconcile soft-deleted this workspace (key re-added).
-        //
-        // This puts the project back into every listing that dropped it, so it
-        // records here — in its own transaction, guarded on the un-delete, and last.
-        // The patch below would record too, but the two are separate transactions,
-        // and a failure between them would leave the workspace visible again with
-        // nothing recorded.
-        let mut tx = self.db.begin().await?;
-        let reclaimed =
-            sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
-                .bind(&workspace_id)
-                .execute(&mut *tx)
-                .await?;
-        if reclaimed.rows_affected() > 0 {
-            moatless_core::task_listing::record_workspace_change(&mut tx, &workspace_id).await?;
-        }
-        tx.commit().await?;
+        sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
+            .bind(&workspace_id)
+            .execute(&self.db)
+            .await?;
 
         // Apply run-config + provenance + name/description + scope, idempotently.
         let patch = WorkspacePatch {

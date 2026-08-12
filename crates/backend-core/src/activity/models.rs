@@ -4,7 +4,7 @@
 /// How far behind a client watching one conversation may be and still be
 /// replayed rather than sent the transcript again.
 ///
-/// Positions rather than an age, as in [`task_listing`](crate::task_listing),
+/// Positions rather than an age, as in the Task listing feed,
 /// and larger than the shell's because a position here is one Message rather
 /// than one Task: an agent working for a few minutes spends thousands of them,
 /// and a client that reconnects across that has to be replayable or the

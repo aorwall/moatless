@@ -25,7 +25,7 @@ use moatless_workspaces::workspace::git_sync::GitSyncService;
 use moatless_backend_core::scope::{ScopeContext, ScopedResource};
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use moatless_core::tag::dao::TagDao;
+use crate::tag::dao::TagDao;
 
 use crate::task::binding_dao::TaskBindingDao;
 use moatless_api_schemas::bindings::TaskBindingSummary;

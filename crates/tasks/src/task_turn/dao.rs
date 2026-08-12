@@ -21,7 +21,7 @@ use super::models::{TurnStatus, TurnTransition, UnclosedTurn};
 use moatless_core::db::DbPool;
 use crate::task::dao as task_dao;
 use crate::task_activities;
-use moatless_core::task_listing;
+use crate::task_listing;
 
 /// A state-bearing event applied transactionally at the gRPC ingress.
 ///

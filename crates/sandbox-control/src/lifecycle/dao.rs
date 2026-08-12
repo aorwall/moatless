@@ -11,10 +11,10 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use moatless_tasks::task::models::{
-    sandbox_intent_epoch, SandboxDesiredState, SandboxStopReason, TaskStatus,
-};
 use moatless_core::db::DbPool;
+use moatless_tasks::task::models::{
+    SandboxDesiredState, SandboxStopReason, TaskStatus, sandbox_intent_epoch,
+};
 
 use super::events::LifecycleEvent;
 use super::orchestrator::{IntentWrite, LifecycleDao, StoreError, TaskIntent};
@@ -245,7 +245,7 @@ impl LifecycleDao for PgLifecycleDao {
             moatless_tasks::task_activities::record_session_change(&mut tx, task_id)
                 .await
                 .map_err(|e| StoreError::with_source("record conversation change for intent", e))?;
-            moatless_core::task_listing::record_change(&mut tx, task_id)
+            moatless_tasks::task_listing::record_change(&mut tx, task_id)
                 .await
                 .map_err(|e| StoreError::with_source("record listing change for intent", e))?;
         }
@@ -742,7 +742,7 @@ mod db_tests {
             IntentEffect::Changed
         );
 
-        let changes = moatless_core::task_listing::changes_after(&pool, 0, 10)
+        let changes = moatless_tasks::task_listing::changes_after(&pool, 0, 10)
             .await
             .unwrap();
         assert_eq!(
@@ -750,11 +750,8 @@ mod db_tests {
             1,
             "the session moved and nothing recorded it"
         );
-        assert_eq!(
-            changes[0].subject(),
-            Some(moatless_core::task_listing::ChangeSubject::Task("t1"))
-        );
-        let after_move = moatless_core::task_listing::current_position(&pool)
+        assert_eq!(changes[0].task_id, "t1");
+        let after_move = moatless_tasks::task_listing::current_position(&pool)
             .await
             .unwrap();
 
@@ -769,7 +766,7 @@ mod db_tests {
             IntentEffect::Unchanged
         );
         assert_eq!(
-            moatless_core::task_listing::current_position(&pool)
+            moatless_tasks::task_listing::current_position(&pool)
                 .await
                 .unwrap(),
             after_move,
@@ -824,7 +821,7 @@ mod db_tests {
         let mut unrelated = pool.begin().await.unwrap();
         tokio::time::timeout(
             Duration::from_secs(3),
-            moatless_core::task_listing::record_change(&mut unrelated, "t2"),
+            moatless_tasks::task_listing::record_change(&mut unrelated, "t2"),
         )
         .await
         .expect(

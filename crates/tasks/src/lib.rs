@@ -4,11 +4,11 @@
 
 //! Tasks band (band 5): task lifecycle (CRUD, close/reopen, reap), messages and
 //! tool responses, agent turns and activities, event ingress, feedback, task
-//! events, and file storage.
+//! events, tags, the Task listing feed, and file storage.
 //!
 //! The backend composes this crate through permanent facade modules
 //! (`backend/src/{task,message,agent,agent_event,credential_sync,event_ingress,
-//! feedback,file_storage,task_activities,task_event,task_turn}`) that re-export
+//! feedback,file_storage,tag,task_activities,task_event,task_listing,task_turn}`) that re-export
 //! these paths, so the higher bands still in the backend keep naming
 //! `crate::task::…` etc. The facade is not transitional: the backend stays the
 //! composition root that wires these ports into `AppState`. Every router here is
@@ -22,7 +22,9 @@ pub mod event_ingress;
 pub mod feedback;
 pub mod file_storage;
 pub mod message;
+pub mod tag;
 pub mod task;
 pub mod task_activities;
 pub mod task_event;
+pub mod task_listing;
 pub mod task_turn;

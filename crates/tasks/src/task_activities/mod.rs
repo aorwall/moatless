@@ -14,7 +14,7 @@
 //! that Task's own counter, in the mutation's own transaction, and a write that
 //! changed a Message also leaves a record at that position.
 //!
-//! [`task_listing`](moatless_core::task_listing) answers "which Tasks changed since
+//! [`task_listing`](crate::task_listing) answers "which Tasks changed since
 //! position N" for a sidebar. The log here answers "what changed *inside* this
 //! conversation since position N", which that feed cannot: only Turn transitions
 //! enter it, so a Message arriving is invisible there, and its counter is one row

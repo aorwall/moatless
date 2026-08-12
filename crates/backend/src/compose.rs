@@ -41,6 +41,7 @@ use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher, SecretServ
 use crate::task::binding_dao::TaskBindingDao;
 use crate::task::dao::{PgTaskDao, TaskDao};
 use crate::task::relations::{PgTaskRelationDao, TaskRelationDao};
+use crate::tag::dao::{PgTagDao, TagDao};
 use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
 use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
 use crate::team::dao::{PgTeamDao, TeamDao};
@@ -49,7 +50,6 @@ use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
-use moatless_core::tag::dao::{PgTagDao, TagDao};
 
 /// Bounded per-Task lock-acquire attempts before a lifecycle call surfaces
 /// `OperationInProgress`. The inline retry is only a latency fast path — the

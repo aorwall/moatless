@@ -92,34 +92,11 @@ pub fn resume(
     Resume::From(after)
 }
 
-/// What a recorded change names. A Workspace change is not expressible as a Task
-/// change: one being created has no Tasks, and the row carrying its title is the
-/// project row, which a Task change does not re-read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ChangeSubject<'a> {
-    Task(&'a str),
-    Workspace(&'a str),
-}
-
 /// One recorded change: what moved, and where it sits relative to every other.
-/// Exactly one id is set, by `task_listing_changes_names_one_subject`.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct ListingChange {
     pub position: i64,
-    pub task_id: Option<String>,
-    pub workspace_id: Option<String>,
-}
-
-impl ListingChange {
-    /// What this record names, or `None` for a row naming neither — unreachable
-    /// under the CHECK, and to be skipped rather than guessed at.
-    pub fn subject(&self) -> Option<ChangeSubject<'_>> {
-        match (self.task_id.as_deref(), self.workspace_id.as_deref()) {
-            (Some(task_id), _) => Some(ChangeSubject::Task(task_id)),
-            (None, Some(workspace_id)) => Some(ChangeSubject::Workspace(workspace_id)),
-            (None, None) => None,
-        }
-    }
+    pub task_id: String,
 }
 
 #[cfg(test)]

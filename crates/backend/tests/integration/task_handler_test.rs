@@ -145,11 +145,11 @@ async fn list_tasks_multiple_tags_counted_once(pool: PgPool) {
     }
 
     let names = ["bug".to_string(), "urgent".to_string(), "p1".to_string()];
-    let tags = moatless_core::tag::dao::find_or_create_tags(&pool, &names)
+    let tags = moatless_backend::tag::dao::find_or_create_tags(&pool, &names)
         .await
         .unwrap();
     let tag_ids: Vec<String> = tags.iter().map(|t| t.tag_id.clone()).collect();
-    moatless_core::tag::dao::set_task_tags(&pool, "task-tagged", &tag_ids)
+    moatless_backend::tag::dao::set_task_tags(&pool, "task-tagged", &tag_ids)
         .await
         .unwrap();
 

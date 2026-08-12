@@ -25,12 +25,12 @@ use moatless_backend::state::AppState;
 use moatless_backend::supervisor::{Criticality, Supervisor};
 use moatless_backend::{
     adapters, feedback, file_storage, loops, message, plugin, provider_settings, repository,
-    repository_sync, secret, skill, t3code, task, task_connections, task_event, team, workspace,
+    repository_sync, secret, skill, t3code, tag, task, task_connections, task_event, task_listing,
+    team, workspace,
 };
 use moatless_core::config::{Config, SandboxProviderType};
 use moatless_core::feature_flags;
 use moatless_core::leader::LeaderGuard;
-use moatless_core::tag;
 
 /// How long shutdown waits for supervised tasks to finish before giving up and
 /// naming the stragglers. Sits comfortably inside Kubernetes' default 30s
@@ -553,8 +553,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
 
-        // The listing feed's retention. `task_listing_changes` is written by
-        // Moatless mutations whether or not the T3 compatibility module is
+        // The Task listing feed's retention. `task_listing_changes` is written
+        // by Task mutations whether or not the T3 compatibility module is
         // enabled, so this is not gated on it. What it deletes is what
         // `task_listing::resume` already refuses to replay from, so falling
         // behind costs disk and nothing else.
@@ -564,7 +564,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // any client receives — `resume` refuses the same cursors either
             // way. Shedding traffic over it would be the larger outage.
             Criticality::Optional,
-            moatless_core::task_listing::spawn_change_pruner(app_state.db.clone(), cancel.clone()),
+            task_listing::spawn_change_pruner(app_state.db.clone(), cancel.clone()),
         );
 
         // The same job for the conversation feed, and Optional for the same

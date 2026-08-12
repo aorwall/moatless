@@ -1,14 +1,14 @@
 CRATE-CENSUS REPORT
-files parsed: 695
+files parsed: 697
 parse failures: 0
 
 == TOTALS (production, cross-crate) ==
-CODE       legal  2838  illegal    0
-ATTRIBUTE  legal   280  illegal    0   (utoipa/derive/etc. token streams)
+CODE       legal  2833  illegal    0
+ATTRIBUTE  legal   281  illegal    0   (utoipa/derive/etc. token streams)
 MACRO      legal    48  illegal    0   (function-like macro-invocation token streams)
-DOC           49  (intra-doc paths — never a Cargo edge, never illegal)
+DOC           48  (intra-doc paths — never a Cargo edge, never illegal)
   of the legal CODE edges, 848 point down into the existing crates/* floor
-TEST-CONTEXT 1973  (crates/backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
+TEST-CONTEXT 1969  (crates/backend/tests, crates/*/tests, #[cfg(test)] mods — dev-dep, not band-bound)
 UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
 
 == CRATE MEMBERSHIP (crates/backend/src -> target crate; generated from bands.rs) ==
@@ -31,8 +31,8 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   workspaces  (5 files, 45 lines)
     credentials.rs plugin.rs repository.rs skill.rs workspace.rs
 
-  tasks  (11 files, 90 lines)
-    agent.rs agent_event.rs credential_sync.rs event_ingress.rs feedback.rs file_storage.rs message.rs task.rs task_activities.rs task_event.rs task_turn.rs
+  tasks  (13 files, 96 lines)
+    agent.rs agent_event.rs credential_sync.rs event_ingress.rs feedback.rs file_storage.rs message.rs tag.rs task.rs task_activities.rs task_event.rs task_listing.rs task_turn.rs
 
   sandbox-control  (1 files, 24 lines)
     sandbox/mod.rs
@@ -61,7 +61,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   adapter-webhook  (1 files, 3 lines)
     adapters/providers/webhook.rs
 
-  server  (35 files, 12587 lines)
+  server  (35 files, 12589 lines)
     adapter_installations.rs adapters/handlers.rs adapters/routes.rs compose.rs event_handler/ lib.rs main.rs provider_settings/ repository_sync/ sse/ startup.rs state.rs supervisor.rs t3code/ task_connections/
 
   TEST-SCAFFOLD (cfg(test), not carved)  (0 files, 0 lines)
@@ -70,7 +70,7 @@ UNRESOLVED      0  (glob-through-facade / prelude / macro-var — audited below)
   UNASSIGNED  (0 files, 0 lines)
     (none)
 
-  TOTAL crates/backend/src: 13201 lines
+  TOTAL crates/backend/src: 13209 lines
 
 == ILLEGAL PRODUCTION EDGE CLASSES (0 classes) ==
 

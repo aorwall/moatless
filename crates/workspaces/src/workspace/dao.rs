@@ -4,9 +4,8 @@ use async_trait::async_trait;
 use sqlx::AssertSqlSafe;
 
 use super::models::{Workspace, WorkspaceRepo};
-use moatless_core::db::DbPool;
-use moatless_core::task_listing;
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
+use moatless_core::db::DbPool;
 
 const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR \
     (deleted = true AND source = 'manual' AND source_repository_id IS NOT NULL AND source_key IS NOT NULL))";
@@ -76,7 +75,7 @@ pub trait WorkspaceDao: Send + Sync {
     /// scope-filtered — the caller has already been authorized for the owning
     /// row. Missing or soft-deleted ids are simply absent from the result.
     async fn find_names_by_ids(&self, ids: &[String])
-        -> Result<Vec<(String, String)>, sqlx::Error>;
+    -> Result<Vec<(String, String)>, sqlx::Error>;
 
     /// Every non-deleted workspace the caller may read, plus every non-deleted
     /// workspace in `also_include` whether or not they may read it, ordered by
@@ -167,7 +166,7 @@ pub trait WorkspaceDao: Send + Sync {
     /// Recompute and persist the derived `kind` (`blank`/`single`/`multi`) from
     /// the current placement count.
     async fn refresh_kind(&self, workspace_id: &str, ctx: &ScopeContext)
-        -> Result<(), sqlx::Error>;
+    -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`WorkspaceDao`].
@@ -223,7 +222,6 @@ impl WorkspaceDao for PgWorkspaceDao {
     }
 
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error> {
-        let mut tx = self.0.begin().await?;
         sqlx::query(
             r#"INSERT INTO workspaces (
                    id, name, description, kind,
@@ -257,13 +255,8 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(&row.owner_user_id)
         .bind(&row.created_by)
         .bind(row.deleted)
-        .execute(&mut *tx)
+        .execute(&self.0)
         .await?;
-        // A project appearing is a listing change even before any conversation
-        // runs in it: the sidebar shows an empty group, and that group is how a
-        // person sees the shape of the deployment they work in.
-        task_listing::record_workspace_change(&mut tx, &row.id).await?;
-        tx.commit().await?;
         Ok(())
     }
 
@@ -392,7 +385,6 @@ impl WorkspaceDao for PgWorkspaceDao {
         );
 
         let now = chrono::Utc::now();
-        let mut tx = self.0.begin().await?;
         let mut q = sqlx::query(AssertSqlSafe(sql)).bind(id);
 
         macro_rules! bind_opt {
@@ -426,14 +418,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         q = q.bind(ctx.is_admin);
         q = q.bind(&ctx.user_id);
 
-        let result = q.execute(&mut *tx).await?;
-        // Renaming is the change this mechanism was built for: it used to leave
-        // its durable record to a relay that could drop it in silence. Last —
-        // `record_change`'s "call this last".
-        if result.rows_affected() > 0 {
-            task_listing::record_workspace_change(&mut tx, id).await?;
-        }
-        tx.commit().await?;
+        let result = q.execute(&self.0).await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -444,20 +429,13 @@ impl WorkspaceDao for PgWorkspaceDao {
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
             control.sql()
         );
-        let mut tx = self.0.begin().await?;
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
             .bind(chrono::Utc::now())
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&mut *tx)
+            .execute(&self.0)
             .await?;
-        // Guarded on the delete having happened: the statement already refuses
-        // an already-deleted row, and re-deleting must not advance the position.
-        if result.rows_affected() > 0 {
-            task_listing::record_workspace_change(&mut tx, id).await?;
-        }
-        tx.commit().await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -477,22 +455,13 @@ impl WorkspaceDao for PgWorkspaceDao {
                AND {}",
             control.sql()
         );
-        let mut tx = self.0.begin().await?;
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
             .bind(chrono::Utc::now())
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&mut *tx)
+            .execute(&self.0)
             .await?;
-        // A tombstone is excluded from `list_readable_including`, so this takes
-        // the project off every watching sidebar exactly as `soft_delete` does.
-        // The transaction exists so the record is atomic with the mutation; last
-        // in it, per `record_change`'s "call this last".
-        if result.rows_affected() > 0 {
-            task_listing::record_workspace_change(&mut tx, id).await?;
-        }
-        tx.commit().await?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -642,7 +611,7 @@ pub async fn ensure_shadow_workspace(
 ) -> Result<String, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    let created = sqlx::query(
+    sqlx::query(
         r#"INSERT INTO workspaces (
                id, name, description, kind,
                docker_image, docker_access, sandbox_service_account,
@@ -662,8 +631,7 @@ pub async fn ensure_shadow_workspace(
     )
     .bind(repository_id)
     .execute(&mut *tx)
-    .await?
-    .rows_affected();
+    .await?;
 
     sqlx::query(
         r#"INSERT INTO workspace_repos (
@@ -683,14 +651,7 @@ pub async fn ensure_shadow_workspace(
     .execute(&mut *tx)
     .await?;
 
-    // Only the first task in a repository creates the shadow workspace; every
-    // later one conflicts and changes nothing, so recording on the effect keeps
-    // task creation from advancing the position twice. Last — "call this last".
     let workspace_id = format!("ws_{repository_id}");
-    if created > 0 {
-        task_listing::record_workspace_change(&mut tx, &workspace_id).await?;
-    }
-
     tx.commit().await?;
     Ok(workspace_id)
 }

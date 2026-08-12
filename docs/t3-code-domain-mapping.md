@@ -338,7 +338,7 @@ That third option is what shipped, but **per deployment, not per Task** — this
 paragraph said "per-task counter" until implementation settled it the other way. The shell snapshot carries one `snapshotSequence` and the
 client keeps one cursor, so a per-Task counter produces many positions where the
 contract has room for one, and no way to order them against each other. The counter
-is `task_listing_position`; see `backend/src/task_listing.rs`.
+is `task_listing_position`; see `crates/tasks/src/task_listing`.
 
 Worth noting independently: today's SSE lag is *silent* — `sse/routes.rs` logs
 `SSE client lagged, skipping events` and drops frames with no way for the client

@@ -3,13 +3,13 @@ name = "moatless-core"
 version = "0.1.0"
 edition = "2021"
 authors = ["Moatless Team"]
-description = "Lowest-band backend crate: config, db, error, events, and the core-clean vocabularies (scope, shared_models, tag, task_listing)"
+description = "Lowest-band backend crate: config, db, error, events, and core-clean vocabularies"
 
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# HTTP (tag/metrics routers, error IntoResponse)
+# HTTP (metrics router, error IntoResponse)
 axum = { version = "0.8", features = ["macros"] }
 
 # Serialization
@@ -33,7 +33,6 @@ chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.13", features = ["json", "query", "form", "rustls"], default-features = false }
 
 # Crypto
-sha2 = "0.11"
 rand = "0.10"
 
 # Error handling
@@ -67,16 +66,10 @@ moatless-backend-core = { path = "../backend-core", features = ["database"] }
 # T3 compatibility feature flag (feature_flags::device_pairing)
 moatless-t3code = { path = "../t3code" }
 
-# Mock generation, enabled off the `test-support` feature so downstream test tiers
-# (backend unit tests via dev-dependency, db-tests via feature forwarding) can reach
-# the DAO mocks and Config::test_minimal without core's own cfg(test).
-mockall = { version = "0.15", optional = true }
-
 [features]
-# OpenAPI surface: utoipa derives, the tag OpenApiRouter, and the downstream
-# `openapi` features of the shared crates it composes. The backend (an API
-# consumer) enables it; a non-API consumer gets the config/db/event/scope/tag-DAO
-# types without utoipa.
+# OpenAPI surface: utoipa derives and the downstream `openapi` features of the
+# shared crates it composes. The backend (an API consumer) enables it; a non-API
+# consumer gets the config/db/event/scope types without utoipa.
 openapi = [
     "dep:utoipa",
     "dep:utoipa-axum",
@@ -84,13 +77,9 @@ openapi = [
     "moatless-api-schemas/openapi",
     "moatless-backend-core/openapi",
 ]
-# Exposes test-only constructors (Config::test_minimal) and DAO mocks (MockTagDao)
-# to downstream crates. No shipping build enables it, so those stay unreachable in
-# production, exactly as core's own `#[cfg(test)]` gate did before the carve.
-test-support = ["dep:mockall"]
-
-[dev-dependencies]
-mockall = "0.15"
+# Exposes test-only constructors such as `Config::test_minimal` to downstream
+# crates. No shipping build enables it, so those stay unreachable in production.
+test-support = []
 
 [lints]
 workspace = true

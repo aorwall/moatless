@@ -215,30 +215,6 @@ pub(super) fn thread_removed(task_id: &str, sequence: i64) -> Value {
     })
 }
 
-/// One project, re-read and sent whole, at the position that carried it.
-///
-/// The project half of the sidebar changes far less than the conversation half,
-/// but it changes visibly: a renamed project's group heading, a new project's
-/// empty group, a deleted project taking its conversations off the screen with
-/// it.
-pub(super) fn project_upserted(workspace: &UiRpcListedWorkspace, sequence: i64) -> Value {
-    json!({
-        "kind": "project-upserted",
-        "sequence": sequence,
-        "project": project(workspace)
-    })
-}
-
-/// One project leaving a viewer's listing. Same disclosure rule as
-/// [`thread_removed`]: only for a project the viewer was previously sent.
-pub(super) fn project_removed(workspace_id: &str, sequence: i64) -> Value {
-    json!({
-        "kind": "project-removed",
-        "sequence": sequence,
-        "projectId": workspace_id
-    })
-}
-
 /// One conversation, in the shape the shell listing carries.
 ///
 /// This is the contract's *shell* thread, not its full one: no messages, no

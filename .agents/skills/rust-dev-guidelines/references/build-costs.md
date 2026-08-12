@@ -65,9 +65,9 @@ graph. The `-p` lines exist only where that is structurally true:
 - **`moatless-core`, twice.** `crates/backend/Cargo.toml` pulls it with
   `features = ["openapi"]`, so the floor always lints it openapi-on. The
   `--features openapi` run pins the gated code (the `ToSchema` derives, the
-  `utoipa::path` attributes, the tag `routes` module) in isolation from that
-  unification; the default run is what keeps the feature droppable, without
-  which utoipa stops being off for the non-API consumers the feature protects.
+  `utoipa::path` attributes) in isolation from that unification; the default run
+  is what keeps the feature droppable, without which utoipa stops being off for
+  the non-API consumers the feature protects.
 - **`moatless-backend-core`, twice.** Its `database` feature gates the activity
   DAO and the whole pairing module, which the default floor run omits.
   `--all-features` is the only run that lints them; `--no-default-features`

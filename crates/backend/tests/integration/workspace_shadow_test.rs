@@ -17,11 +17,10 @@
 use crate::common;
 
 use moatless_backend::repository::dao as repository_dao;
-use moatless_core::scope::{Scope, ScopeContext};
 use moatless_backend::task::dao as task_dao;
-use moatless_backend::workspace::dao::{
-    ensure_shadow_workspace, PgWorkspaceDao, WorkspaceDao,
-};
+use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, ensure_shadow_workspace};
+use moatless_core::scope::{Scope, ScopeContext};
+use moatless_backend::task_listing::current_position;
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row};
@@ -65,6 +64,11 @@ async fn ensure_shadow_workspace_creates_shadow_and_primary_placement(pool: PgPo
     assert_eq!(p.repository_id, "repo-shadow");
     assert!(p.is_primary);
     assert_eq!(p.position, 0);
+    assert_eq!(
+        current_position(&pool).await.unwrap(),
+        0,
+        "creating a shadow Workspace advanced the Task listing"
+    );
 }
 
 #[sqlx::test]

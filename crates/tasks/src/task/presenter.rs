@@ -23,7 +23,7 @@ use crate::task::binding_summary::task_binding_summary_from_binding;
 use moatless_api_schemas::bindings::TaskBindingSummary;
 use crate::task::loop_reader::LoopSubscriptionReader;
 use moatless_workspaces::repository::dao::RepositoryDao;
-use moatless_core::tag::dao::TagDao;
+use crate::tag::dao::TagDao;
 use crate::task::dao::TaskDao;
 use crate::task::models::SandboxIntentView;
 use moatless_workspaces::workspace::dao::WorkspaceDao;

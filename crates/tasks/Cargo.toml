@@ -2,7 +2,7 @@
 name = "moatless-tasks"
 version = "0.1.0"
 edition = "2021"
-description = "Tasks band: task lifecycle, messages, agent turns, activities, ingress, and file storage for Moatless"
+description = "Tasks band: task lifecycle, messages, tags, listing feed, activities, ingress, and file storage for Moatless"
 
 [dependencies]
 async-trait = "0.1"
@@ -23,6 +23,7 @@ nanoid = "0.5"
 mockall = { version = "0.15", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11"
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
@@ -47,13 +48,12 @@ moatless-workspaces = { path = "../workspaces" }
 sandbox-proto = { path = "../sandbox-proto" }
 
 [features]
-# Exposes the `#[cfg(any(test, feature = "test-support"))]` `MockTaskDao` and the
-# `seed_bare_task` db-test seeder to other crates' test builds — the backend's
-# sandbox-control and server bands reach them across the facade. The gate keeps
-# the `test,` disjunct FIRST: the census keys on the substring "test" in the cfg
-# token stream (crate-census scan.rs), so items gated this way stay test-context
-# and are never scored as a production edge. No shipping build enables it.
-# `dep:mockall` provides the generator.
+# Exposes the `#[cfg(any(test, feature = "test-support"))]` DAO mocks and the
+# `seed_bare_task` db-test seeder to other crates' test builds. The gate keeps the
+# `test,` disjunct FIRST: the census keys on the substring "test" in the cfg token
+# stream (crate-census scan.rs), so items gated this way stay test-context and are
+# never scored as a production edge. No shipping build enables it. `dep:mockall`
+# provides the generators.
 test-support = ["dep:mockall"]
 # Gate the `#[sqlx::test]` blocks that need a running PostgreSQL (task/dao.rs and
 # message/dao.rs projections). Empty because those blocks reach the `seed_bare_task`

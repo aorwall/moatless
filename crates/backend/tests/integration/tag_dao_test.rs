@@ -9,7 +9,7 @@
 
 use crate::common;
 
-use moatless_core::tag::dao as tag_dao;
+use moatless_backend::tag::dao as tag_dao;
 use sqlx::PgPool;
 
 use common::{make_repository_row, make_task_row};

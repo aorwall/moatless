@@ -3,7 +3,7 @@
 use sqlx::PgConnection;
 
 use super::models::{EnvironmentIdentity, ListingChange, ListingHead, RETAINED_CHANGES};
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// Record that `task_id`'s listing-visible state changed, returning the position
 /// allocated for it. `tx` is the connection a transaction is running on — `&mut
@@ -22,27 +22,6 @@ use crate::db::DbPool;
 /// on: `the_counter_is_measured_under_concurrent_mutation` prices the same
 /// transaction both ways, and last runs about half again as fast.
 pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, sqlx::Error> {
-    allocate(tx, Some(task_id), None).await
-}
-
-/// Record that `workspace_id`'s listing-visible state changed — its name, its
-/// servers, its existence. Same allocator, same transaction rule, and same "call
-/// this last" invariant as [`record_change`].
-pub async fn record_workspace_change(
-    tx: &mut PgConnection,
-    workspace_id: &str,
-) -> Result<i64, sqlx::Error> {
-    allocate(tx, None, Some(workspace_id)).await
-}
-
-/// The one allocating statement, shared so the two subjects cannot drift into
-/// two different orderings of the same counter row. The `ON CONFLICT DO UPDATE`
-/// is the allocation, and it holds that row for the rest of the transaction.
-async fn allocate(
-    tx: &mut PgConnection,
-    task_id: Option<&str>,
-    workspace_id: Option<&str>,
-) -> Result<i64, sqlx::Error> {
     let (position,): (i64,) = sqlx::query_as(
         r#"WITH allocated AS (
                INSERT INTO task_listing_position (id, position) VALUES (TRUE, 1)
@@ -50,12 +29,11 @@ async fn allocate(
                  SET position = task_listing_position.position + 1
                RETURNING position
            )
-           INSERT INTO task_listing_changes (position, task_id, workspace_id)
-           SELECT position, $1, $2 FROM allocated
+           INSERT INTO task_listing_changes (position, task_id)
+           SELECT position, $1 FROM allocated
            RETURNING position"#,
     )
     .bind(task_id)
-    .bind(workspace_id)
     .fetch_one(tx)
     .await?;
     Ok(position)
@@ -107,7 +85,7 @@ pub async fn changes_after(
     limit: i64,
 ) -> Result<Vec<ListingChange>, sqlx::Error> {
     sqlx::query_as(
-        r#"SELECT position, task_id, workspace_id
+        r#"SELECT position, task_id
            FROM task_listing_changes
            WHERE position > $1
            ORDER BY position

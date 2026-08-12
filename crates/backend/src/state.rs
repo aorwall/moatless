@@ -44,6 +44,7 @@ use crate::task::creation::{PreflightPort, TaskCreationService};
 use crate::task::dao::TaskDao;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
+use crate::tag::dao::TagDao;
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
@@ -54,7 +55,6 @@ use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::{AuthConfig, CodexOAuthConfig, Config, S3Config, SecretsConfig};
 use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
-use moatless_core::tag::dao::TagDao;
 
 /// Shared application state for task/message/agent/file routes.
 ///

@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 
 use super::dao::prune_changes;
 use super::models::RETAINED_CHANGES;
-use crate::db::DbPool;
+use moatless_core::db::DbPool;
 
 /// How often the pruner deletes what has fallen out of the retention window.
 const PRUNE_INTERVAL: Duration = Duration::from_mins(5);

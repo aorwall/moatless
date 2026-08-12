@@ -13,7 +13,7 @@ use super::models::{
 use moatless_backend_core::scope::{Scope, ScopeContext, ScopedEntity};
 use moatless_core::db::DbPool;
 use moatless_core::shared_models::AgentType;
-use moatless_core::task_listing;
+use crate::task_listing;
 
 #[derive(sqlx::FromRow)]
 struct SandboxIntentViewRow {

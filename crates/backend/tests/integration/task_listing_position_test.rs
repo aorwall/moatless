@@ -25,22 +25,22 @@ use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
 use moatless_backend::message::dao::{MessageDao, PgMessageDao};
-use moatless_core::scope::ScopeContext;
-use moatless_core::tag::dao::{PgTagDao, TagDao};
 use moatless_backend::task::dao::{PgTaskDao, TaskDao, TaskPatch};
 use moatless_backend::task::models::{TaskStatus, Visibility};
 use moatless_backend::task_activities::mapping::ConversationWrite;
-use moatless_core::task_listing::{
-    changes_after, current_head, current_position, prune_changes, record_change, resume,
-    ChangeSubject, ListingHead, Resume, RESUME_WINDOW, RETAINED_CHANGES,
-};
 use moatless_backend::task_turn::dao::{PgTaskTurnDao, TaskTurnDao, TurnStateEvent};
 use moatless_backend::task_turn::models::{TurnStatus, TurnTransition};
 use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePatch};
-use sqlx::postgres::PgPoolOptions;
+use moatless_core::scope::ScopeContext;
+use moatless_backend::tag::dao::{PgTagDao, TagDao};
+use moatless_backend::task_listing::{
+    ListingHead, RESUME_WINDOW, RETAINED_CHANGES, Resume, changes_after, current_head,
+    current_position, prune_changes, record_change, resume,
+};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 
-use common::{make_message_row, make_task_row, make_workspace_row, USER_1};
+use common::{USER_1, make_message_row, make_task_row, make_workspace_row};
 
 /// Writers and mutations for the contention measurement at the end of the file.
 const WRITERS: usize = 32;
@@ -316,9 +316,83 @@ async fn a_committed_mutation_carries_its_record_with_it(pool: PgPool) {
 
     let changes = changes_after(&pool, 0, 10).await.unwrap();
     assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0].subject(), Some(ChangeSubject::Task("task-a")));
+    assert_eq!(changes[0].task_id, "task-a");
     assert_eq!(changes[0].position, 1);
     assert_eq!(current_position(&pool).await.unwrap(), 1);
+}
+
+/// Workspace state is snapshot-owned. Creating, updating, deleting, or
+/// tombstoning one must not consume a Task-listing position.
+#[sqlx::test]
+async fn workspace_mutations_do_not_advance_the_task_listing(pool: PgPool) {
+    let workspaces = PgWorkspaceDao(pool.clone());
+    let viewer = owner();
+
+    workspaces
+        .insert_workspace(&make_workspace_row("ws-manual", USER_1))
+        .await
+        .unwrap();
+    assert!(
+        workspaces
+            .update(
+                "ws-manual",
+                &WorkspacePatch {
+                    name: Some("Renamed".to_string()),
+                    ..WorkspacePatch::default()
+                },
+                &viewer,
+            )
+            .await
+            .unwrap()
+    );
+    assert!(workspaces.soft_delete("ws-manual", &viewer).await.unwrap());
+
+    let mut git = make_workspace_row("ws-git", USER_1);
+    git.source = "git".to_string();
+    git.source_repository_id = Some("repo-a".to_string());
+    git.source_key = Some("api".to_string());
+    workspaces.insert_workspace(&git).await.unwrap();
+    assert!(
+        workspaces
+            .soft_delete_git_origin("ws-git", &viewer)
+            .await
+            .unwrap()
+    );
+
+    assert_eq!(current_position(&pool).await.unwrap(), 0);
+    assert!(changes_after(&pool, 0, 10).await.unwrap().is_empty());
+}
+
+/// Migration 0130 contracts the record to exactly one non-null Task id while
+/// leaving the independently-owned position counter in place.
+#[sqlx::test]
+async fn the_task_only_schema_rejects_null_ids_and_preserves_counter_gaps(pool: PgPool) {
+    let columns: Vec<(String, String)> = sqlx::query_as(
+        "SELECT column_name, is_nullable FROM information_schema.columns \
+         WHERE table_schema = current_schema() AND table_name = 'task_listing_changes' \
+         ORDER BY ordinal_position",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(columns.contains(&("task_id".to_string(), "NO".to_string())));
+    assert!(!columns.iter().any(|(name, _)| name == "workspace_id"));
+
+    let null_insert =
+        sqlx::query("INSERT INTO task_listing_changes (position, task_id) VALUES (1, NULL)")
+            .execute(&pool)
+            .await;
+    assert!(null_insert.is_err(), "task_id unexpectedly accepted NULL");
+
+    sqlx::query("UPDATE task_listing_position SET position = 7 WHERE id = TRUE")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    assert_eq!(record_change(&mut tx, "task-after-gap").await.unwrap(), 8);
+    tx.commit().await.unwrap();
+    assert_eq!(current_position(&pool).await.unwrap(), 8);
+    assert_eq!(observed(&pool).await, vec![8]);
 }
 
 /// A client that has caught up asks from the position it holds and is told
@@ -565,7 +639,7 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
     // And the ingress still recorded its own change, after the rename let go.
     assert_eq!(current_position(&pool).await.unwrap(), 2);
     let changes = changes_after(&pool, 0, 10).await.unwrap();
-    assert_eq!(changes[1].subject(), Some(ChangeSubject::Task("task-a")));
+    assert_eq!(changes[1].task_id, "task-a");
     assert_eq!(changes[1].position, 2);
 }
 
@@ -600,13 +674,8 @@ struct Mutation {
     run: fn(PgPool, String) -> BoxFuture<'static, ()>,
 }
 
-/// A subject already in the deployment: one Task and one Workspace under the
-/// same id, both owned by the user the mutations run as.
+/// A Task already in the deployment, owned by the user the mutations run as.
 async fn seed_subject(pool: &PgPool, subject: &str) {
-    PgWorkspaceDao(pool.clone())
-        .insert_workspace(&make_workspace_row(subject, USER_1))
-        .await
-        .unwrap();
     PgTaskDao(pool.clone())
         .insert_task(&make_task_row(subject, USER_1))
         .await
@@ -623,7 +692,6 @@ fn owner() -> ScopeContext {
 /// The `tasks` row, taken outright — the lock every conversation mutation that
 /// rewrites the row itself contends for.
 const HOLD_TASK_ROW: &str = "SELECT task_id FROM tasks WHERE task_id = $1 FOR UPDATE";
-const HOLD_WORKSPACE_ROW: &str = "SELECT id FROM workspaces WHERE id = $1 FOR UPDATE";
 
 #[sqlx::test]
 async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgPool) {
@@ -692,10 +760,12 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
             hold: HOLD_TASK_ROW,
             run: |pool, subject| {
                 Box::pin(async move {
-                    assert!(PgTaskDao(pool)
-                        .delete_task(&subject, &owner())
-                        .await
-                        .unwrap());
+                    assert!(
+                        PgTaskDao(pool)
+                            .delete_task(&subject, &owner())
+                            .await
+                            .unwrap()
+                    );
                 })
             },
         },
@@ -771,48 +841,6 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
                         .unfollow_task(USER_1, &subject)
                         .await
                         .unwrap();
-                })
-            },
-        },
-        Mutation {
-            what: "a Workspace is created",
-            seed: None,
-            hold: "INSERT INTO workspaces (id, name, kind, source, scope, owner_user_id) \
-                   VALUES ($1 || '-new', 'held', 'blank', 'manual', 'user', 'user-x')",
-            run: |pool, subject| {
-                Box::pin(async move {
-                    let row = make_workspace_row(&format!("{subject}-new"), USER_1);
-                    PgWorkspaceDao(pool).insert_workspace(&row).await.unwrap();
-                })
-            },
-        },
-        Mutation {
-            what: "a Workspace is renamed",
-            seed: None,
-            hold: HOLD_WORKSPACE_ROW,
-            run: |pool, subject| {
-                Box::pin(async move {
-                    let patch = WorkspacePatch {
-                        name: Some("renamed".to_string()),
-                        ..WorkspacePatch::default()
-                    };
-                    assert!(PgWorkspaceDao(pool)
-                        .update(&subject, &patch, &owner())
-                        .await
-                        .unwrap());
-                })
-            },
-        },
-        Mutation {
-            what: "a Workspace is deleted",
-            seed: None,
-            hold: HOLD_WORKSPACE_ROW,
-            run: |pool, subject| {
-                Box::pin(async move {
-                    assert!(PgWorkspaceDao(pool)
-                        .soft_delete(&subject, &owner())
-                        .await
-                        .unwrap());
                 })
             },
         },

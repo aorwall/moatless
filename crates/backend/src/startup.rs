@@ -754,7 +754,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::sandbox::routes::SandboxApiDoc;
     use crate::secret::routes::SecretApiDoc;
     use crate::skill::routes::SkillApiDoc;
-    use moatless_core::tag::routes::TagApiDoc;
+    use crate::tag::routes::TagApiDoc;
     use crate::task::routes::TaskApiDoc;
     use crate::task_connections::routes::TaskConnectionsApiDoc;
     use crate::task_event::routes::TaskEventApiDoc;
