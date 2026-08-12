@@ -207,45 +207,6 @@ jobs:
       - name: Every plan-assert in .plans/ still describes the source
         run: ./scripts/check-plan-assertions.sh
 
-  # Step 10 invariant — the cross-crate reference census baseline is current.
-  # `crate-census` (tools/crate-census) resolves crate::/super::/self::/use and
-  # re-export chains to definition sites and lists the illegal edges that must
-  # reach zero before each carve. Shrinking baseline
-  # (scripts/crate-census-baseline.txt); deleted at 10i. Builds a small syn tool,
-  # not the backend closure.
-  crate-census:
-    name: cross-crate census baseline
-    # `staging-runners-large`, not the plain pool, because this is a container
-    # job: the check runs `cargo run -p crate-census`, so it needs the toolchain
-    # the container carries, and only the large pool provides the node externals
-    # a containerized `actions/checkout` mounts. The clippy/test jobs run here too.
-    runs-on: staging-runners-large
-    container:
-      image: rust:1.97-bookworm
-    steps:
-      # SHA-pinned for consistency with the other container jobs (clippy/test).
-      # The checkout failure this job hit was the runner pool, not the tag: the
-      # SHA-pinned checkout failed identically until it moved to the large pool
-      # (see the runs-on note above).
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      # A small syn tool (syn + walkdir), not the backend closure, so its own
-      # cache key keeps it off the multi-GB clippy/test entries.
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          workspaces: ". -> target"
-          shared-key: crate-census
-          cache-targets: false
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Measure restored Rust cache footprint
-        run: |
-          du -sh "${CARGO_HOME:-$HOME/.cargo}" 2>/dev/null || true
-          du -sh target 2>/dev/null || true
-      # `--check` regenerates in memory and compares against the committed files,
-      # so this job runs no git and needs no dubious-ownership exemption.
-      - name: Illegal cross-crate edges stay within the shrinking census baseline
-        run: ./scripts/check-crate-census.sh
-
   toolchain-drift:
     name: Sandbox toolchain drift
     runs-on: staging-runners
@@ -505,7 +466,7 @@ jobs:
           # selected package has no doctest target, and silently skips the
           # doctest-less ones otherwise — so restrict the doc run to packages
           # that actually carry doctests and skip it when none qualify (e.g. a
-          # PR touching only the bin-only crate-census tool). The predicate is
+          # PR touching only a bin-only crate). The predicate is
           # cargo metadata's per-target `doctest` flag — true for lib AND
           # proc-macro, false for bin/build-script — not "kind == lib", so a
           # future proc-macro crate's doctests still run. Queried from the
@@ -1280,7 +1241,6 @@ jobs:
   prune-rust-caches:
     name: Prune stale Rust cache generations
     needs:
-      - crate-census
       - rust-clippy
       - rust-test
       - build-rust
@@ -1306,7 +1266,6 @@ jobs:
           total_freed=0
 
           for spec in \
-            "crate-census 2" \
             "rust-clippy 0" \
             "rust-test 2" \
             "rust-ci 2"; do

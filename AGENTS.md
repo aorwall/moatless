@@ -25,7 +25,6 @@ cargo clippy -p moatless-core --all-targets -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-backend-core --all-targets --no-default-features -- -D warnings
 cargo clippy -p moatless-backend --all-targets --features db-tests -- -D warnings
-cargo run -p crate-census                   # regenerate scripts/crate-census-{baseline,report}.txt
 cargo test -p <crate>                       # scope to the crate you changed — never --workspace
 task rust:gc                                # reclaim target/debug/incremental
 CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
