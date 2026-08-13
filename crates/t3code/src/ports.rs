@@ -312,14 +312,4 @@ pub trait ThreadCommandSink: Send + Sync {
         viewer: &ScopeContext,
         answer: QuestionAnswer,
     ) -> Result<(), CommandRefusal>;
-
-    /// Record onto the Task the branch a git action created, closing the drift
-    /// between the checkout — moved to `t3/<slug>` — and the Task row, which
-    /// still names the branch the Task was created on.
-    async fn set_branch(
-        &self,
-        viewer: &ScopeContext,
-        task_id: &str,
-        branch: &str,
-    ) -> Result<(), CommandRefusal>;
 }

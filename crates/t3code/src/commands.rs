@@ -872,16 +872,6 @@ mod tests {
             });
             Ok(())
         }
-        async fn set_branch(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _branch: &str,
-        ) -> Result<(), CommandRefusal> {
-            // No command in this file records a branch; the relay path that
-            // calls this is exercised in `git_actions.rs`.
-            Ok(())
-        }
     }
 
     struct StubAgents;

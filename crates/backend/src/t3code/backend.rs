@@ -799,37 +799,6 @@ impl ThreadCommandSink for AppStateCommands {
         .map(|_| ())
         .map_err(|e| send_refusal(&answer.task_id, e))
     }
-
-    async fn set_branch(
-        &self,
-        viewer: &ScopeContext,
-        task_id: &str,
-        branch: &str,
-    ) -> Result<(), CommandRefusal> {
-        let patch = TaskPatch {
-            branch: Some(branch.to_string()),
-            ..Default::default()
-        };
-        let updated = self
-            .0
-            .tasks
-            .update_task(task_id, &patch, viewer)
-            .await
-            .map_err(|error| {
-                tracing::warn!(%error, task_id, "T3 branch update failed");
-                CommandRefusal::Failed {
-                    message: "Could not record the branch on that thread.".to_string(),
-                }
-            })?;
-        // The control filter is in the `WHERE`, so a viewer who may not control
-        // the Task gets a clean `false` rather than an error.
-        if !updated {
-            return Err(CommandRefusal::NotWritable {
-                task_id: task_id.to_string(),
-            });
-        }
-        Ok(())
-    }
 }
 
 /// The agent a thread created from T3 runs.

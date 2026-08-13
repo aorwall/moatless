@@ -1379,14 +1379,6 @@ impl RequestId {
     fn wire(&self) -> Value {
         self.wire.clone()
     }
-
-    #[cfg(test)]
-    fn for_test(text: &str) -> Self {
-        Self {
-            text: text.to_string(),
-            wire: Value::String(text.to_string()),
-        }
-    }
 }
 
 impl fmt::Display for RequestId {
@@ -2519,43 +2511,30 @@ impl ProtocolSession {
                 self.start_produced_stream(&id, None, producer)
             }
             "git.runStackedAction" => {
+                // The action is not run here or in the Sandbox: the button press
+                // becomes a message asking the Task's agent to do the git work.
+                // The client's contract is a stream, so it is answered with one
+                // `action_finished` chunk and a terminal success, the same shape
+                // a completed action produced.
                 let viewer = viewer_scope(identity);
-                let opened = match git_actions::open_stacked_action(
+                match git_actions::run_stacked_action(
                     state.conversations.as_ref(),
-                    state.sandboxes.as_ref(),
+                    state.commands.as_ref(),
                     &viewer,
                     &payload,
                 )
                 .await
                 {
-                    Ok(opened) => opened,
-                    Err(error) => return vec![git_action_failure_exit(&id, &error, identity)],
-                };
-                let request_id = id.clone();
-                let frames = self.frames.clone();
-                let commands = state.commands.clone();
-                let task_id = opened.task_id;
-                let stream = opened.stream;
-                let context = opened.context;
-                let producer = tokio::spawn(async move {
-                    let created_branch =
-                        git_actions::forward_action_stream(stream, context, request_id, frames)
-                            .await;
-                    // A feature branch moved the checkout to `t3/<slug>`; record
-                    // it on the Task so its row stops naming the branch it was
-                    // created on. Best-effort: the action already succeeded.
-                    if let Some(branch) = created_branch {
-                        if let Err(refusal) = commands.set_branch(&viewer, &task_id, &branch).await
-                        {
-                            warn!(
-                                reason = %refusal.message(),
-                                task_id = %task_id,
-                                "T3 git action could not record the branch it created"
-                            );
-                        }
-                    }
-                });
-                self.start_produced_stream(&id, None, producer)
+                    Ok(sent) => vec![
+                        json!({
+                            "_tag": "Chunk",
+                            "requestId": id.wire(),
+                            "values": [git_actions::asked_agent_event(&sent)],
+                        }),
+                        success_exit(&id, Value::Null),
+                    ],
+                    Err(error) => vec![git_action_failure_exit(&id, &error, identity)],
+                }
             }
             "git.resolvePullRequest" => {
                 match git_actions::resolve_pull_request(
@@ -3161,25 +3140,25 @@ fn review_failure_exit(
     )
 }
 
-/// Refuse a `git.runStackedAction` that could not be opened.
+/// Refuse a `git.runStackedAction` that could not be handed to the agent.
 ///
-/// A refusal the viewer caused — an unaddressable `cwd`, a sandbox that is not
-/// up, a malformed request — rather than a failure part-way through, which
-/// arrives as an `action_failed` frame on the stream instead. A rejected request
-/// is a `Die` (the client sent something it should not have); an access refusal
-/// carries the same `GitCommandError` shape the read path uses, so a stopped
-/// sandbox reads the same whether it is a status read or an action.
+/// A refusal the viewer caused — an unaddressable `cwd`, a Task they do not
+/// control, a malformed request — or the message failing to send after it was
+/// accepted. A rejected request is a `Die` (the client sent something it should
+/// not have); an access refusal or a failed send carries the same
+/// `GitCommandError` shape the read path uses, so it renders in the toolbar the
+/// same way a status read's failure does.
 fn git_action_failure_exit(
     request_id: &RequestId,
-    error: &git_actions::OpenError,
+    error: &git_actions::ActionError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
-    match error {
-        git_actions::OpenError::Rejected(message) => {
+    let detail = match error {
+        git_actions::ActionError::Rejected(message) => {
             debug!(%message, user_id = %identity.user_id, "T3 git action rejected");
-            failure_exit(request_id, message.clone())
+            return failure_exit(request_id, message.clone());
         }
-        git_actions::OpenError::Access(access) => {
+        git_actions::ActionError::Access(access) => {
             match access {
                 WorkspaceAccessError::Database(cause) => {
                     error!(%cause, user_id = %identity.user_id, "T3 git action failed");
@@ -3194,18 +3173,27 @@ fn git_action_failure_exit(
                     debug!(?access, user_id = %identity.user_id, "T3 git action refused");
                 }
             }
-            typed_failure_exit(
-                request_id,
-                json!({
-                    "_tag": "GitCommandError",
-                    "operation": "git.runStackedAction",
-                    "command": "sandbox.RunGitStackedAction",
-                    "cwd": "",
-                    "detail": access.message(),
-                }),
-            )
+            access.message()
         }
-    }
+        git_actions::ActionError::Send(refusal) => {
+            warn!(
+                reason = %refusal.message(),
+                user_id = %identity.user_id,
+                "T3 git action could not ask the agent"
+            );
+            refusal.message()
+        }
+    };
+    typed_failure_exit(
+        request_id,
+        json!({
+            "_tag": "GitCommandError",
+            "operation": "git.runStackedAction",
+            "command": "orchestration.sendMessage",
+            "cwd": "",
+            "detail": detail,
+        }),
+    )
 }
 
 /// Why a pull-request reference could not be resolved, as the failure both
@@ -3890,14 +3878,6 @@ mod tests {
             _answer: ports::QuestionAnswer,
         ) -> Result<(), ports::CommandRefusal> {
             unreachable!("no test in this file answers a question")
-        }
-        async fn set_branch(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _branch: &str,
-        ) -> Result<(), ports::CommandRefusal> {
-            unreachable!("no test in this file sets a branch")
         }
     }
 
