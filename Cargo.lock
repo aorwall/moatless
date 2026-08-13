@@ -3452,7 +3452,6 @@ dependencies = [
  "moatless-api-schemas",
  "moatless-backend-core",
  "moatless-events",
- "moatless-t3code",
  "rand 0.10.1",
  "redis",
  "reqwest",
@@ -3464,7 +3463,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "utoipa",
- "utoipa-axum",
  "uuid",
 ]
 

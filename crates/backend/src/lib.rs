@@ -25,6 +25,7 @@ pub mod event_handler;
 pub mod event_ingress;
 pub mod extractors;
 pub mod feedback;
+pub mod feature_flags;
 pub mod file_storage;
 pub mod loops;
 pub mod message;

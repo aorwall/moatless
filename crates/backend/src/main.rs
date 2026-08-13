@@ -17,6 +17,7 @@ use moatless_backend::auth;
 use moatless_backend::compose::{Ports, compose};
 use moatless_backend::event_handler;
 use moatless_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
+use moatless_backend::feature_flags;
 use moatless_backend::sandbox;
 use moatless_backend::sandbox::k8s::leader_election::K8sLeaderGuard;
 use moatless_backend::sse::routes::sse_router;
@@ -29,7 +30,7 @@ use moatless_backend::{
     team, workspace,
 };
 use moatless_core::config::{Config, SandboxProviderType};
-use moatless_core::feature_flags;
+use moatless_core::feature_flags::FeatureFlags;
 use moatless_core::leader::LeaderGuard;
 
 /// How long shutdown waits for supervised tasks to finish before giving up and
@@ -131,6 +132,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         config
     };
+    let feature_flags = FeatureFlags::from_env();
+    let slack_team_id = std::env::var("SLACK_TEAM_ID").ok();
+    let mut device_pairing = false;
     // The composition root: every port this process has, built once from the
     // pool and the configuration it just resolved. Everything downstream
     // receives ports from here rather than building its own.
@@ -505,6 +509,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?
         } {
             router = router.merge(t3code_router);
+            device_pairing = true;
         }
         info!("Domain routes registered");
 
@@ -724,10 +729,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Routes that don't require a database
-    router = router.route(
-        "/api/v1/feature-flags",
-        axum::routing::get(feature_flags::get_feature_flags),
-    );
+    let (feature_flags_router, feature_flags_api) =
+        feature_flags::feature_flags_router(feature_flags, slack_team_id, device_pairing);
+    router = router.merge(feature_flags_router);
+    api.merge(feature_flags_api);
     router = router.merge(sse_router(sse_state));
     info!("SSE routes registered");
 

@@ -539,34 +539,23 @@ impl UiRpcConfig {
     }
 }
 
-/// Whether this deployment mounts the T3 compatibility routes.
-///
-/// Read by anything that has to agree with [`router_from_env`] about that —
-/// the feature flag the settings dialog reads being the one, so that "pair a
-/// device" appears exactly when the endpoints it drives exist. It goes through
-/// the same parser rather than a second reading of the same variable, because
-/// a second one would disagree: `T3_UI_RPC_ENABLED=on` mounts the routes, and
-/// a stricter reader would hide the only way to use them.
-///
-/// A value that is neither is `false` here and a startup failure there. That
-/// asymmetry is fine: nothing reaches this if the process did not start.
-pub fn is_enabled() -> bool {
-    env_enabled("T3_UI_RPC_ENABLED").unwrap_or(false)
-}
-
 fn env_enabled(key: &str) -> Result<bool, UiRpcConfigError> {
     match env::var(key) {
         Err(env::VarError::NotPresent) => Ok(false),
         Err(error) => Err(UiRpcConfigError::Invalid(format!(
             "{key} could not be read: {error}"
         ))),
-        Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
-            "1" | "true" | "yes" | "on" => Ok(true),
-            "0" | "false" | "no" | "off" | "" => Ok(false),
-            _ => Err(UiRpcConfigError::Invalid(format!(
-                "{key} must be true or false"
-            ))),
-        },
+        Ok(value) => parse_enabled(key, &value),
+    }
+}
+
+fn parse_enabled(key: &str, value: &str) -> Result<bool, UiRpcConfigError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" | "" => Ok(false),
+        _ => Err(UiRpcConfigError::Invalid(format!(
+            "{key} must be true or false"
+        ))),
     }
 }
 
@@ -3442,6 +3431,31 @@ mod tests {
     /// is in `backend/tests/integration/ui_rpc_shell_test.rs`.
     fn stub_identity() -> UiRpcEnvironmentIdentity {
         UiRpcEnvironmentIdentity::new("7667539899605483559:16384")
+    }
+
+    #[test]
+    fn gate_parser_accepts_enabled_values() {
+        for value in ["1", "true", "TRUE", "yes", "on", " on "] {
+            assert!(parse_enabled("T3_UI_RPC_ENABLED", value).unwrap());
+        }
+    }
+
+    #[test]
+    fn gate_parser_accepts_disabled_values() {
+        for value in ["0", "false", "FALSE", "no", "off", "", "  "] {
+            assert!(!parse_enabled("T3_UI_RPC_ENABLED", value).unwrap());
+        }
+    }
+
+    #[test]
+    fn gate_parser_rejects_invalid_values() {
+        let error = parse_enabled("T3_UI_RPC_ENABLED", "sometimes").unwrap_err();
+
+        assert!(matches!(
+            error,
+            UiRpcConfigError::Invalid(message)
+                if message == "T3_UI_RPC_ENABLED must be true or false"
+        ));
     }
 
     /// A deployment whose Sandboxes are all unreachable.

@@ -742,7 +742,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::adapters::routes::AdapterApiDoc;
     use crate::agent::routes::AgentApiDoc;
     use crate::auth::routes::AuthApiDoc;
-    use moatless_core::feature_flags::{FeatureFlagsResponse, SlackConfig};
+    use crate::feature_flags::FeatureFlagsApiDoc;
     use crate::feedback::routes::FeedbackApiDoc;
     use crate::file_storage::routes::FileStorageApiDoc;
     use crate::loops::http::LoopsApiDoc;
@@ -804,13 +804,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     )]
     struct EventsApiDoc;
 
-    #[derive(OpenApi)]
-    #[openapi(
-        paths(moatless_core::feature_flags::get_feature_flags),
-        components(schemas(FeatureFlagsResponse, SlackConfig))
-    )]
-    struct FeatureFlagsApiDoc;
-
     let mut merged = SandboxApiDoc::openapi();
     merged.merge(AgentApiDoc::openapi());
     merged.merge(AuthApiDoc::openapi());
@@ -867,5 +860,26 @@ mod openapi_dump_tests {
                 "build_merged_openapi() is missing {p}; its ApiDoc is not merged into the dump builder"
             );
         }
+    }
+
+    #[test]
+    fn dump_includes_the_feature_flags_contract() {
+        let spec = serde_json::to_value(build_merged_openapi()).unwrap();
+
+        assert!(spec["paths"]["/api/v1/feature-flags"]["get"].is_object());
+        let schema = &spec["components"]["schemas"]["FeatureFlagsResponse"];
+        let properties = schema["properties"].as_object().unwrap();
+        assert_eq!(
+            properties.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec![
+                "device_pairing",
+                "gitlab_enabled",
+                "netlify_publish",
+                "show_claude_settings",
+                "show_codex_settings",
+                "show_model_selector",
+                "slack",
+            ]
+        );
     }
 }
