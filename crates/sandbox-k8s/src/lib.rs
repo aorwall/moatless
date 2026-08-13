@@ -12,6 +12,7 @@
 
 pub mod client;
 pub mod deployment;
+pub mod edge;
 pub mod fleet_observer;
 pub mod ingress;
 pub mod leader_election;

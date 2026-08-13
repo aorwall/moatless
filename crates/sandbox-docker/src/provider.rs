@@ -15,7 +15,7 @@ use bollard::query_parameters::{
 };
 use futures::stream::BoxStream;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::client::DockerClient;
 use super::container_builder;
@@ -646,6 +646,38 @@ impl core_sandbox::SandboxConnector for DockerSandboxAdapter {
         );
         SandboxClient::connect(&url)
             .map_err(|e| core_sandbox::SandboxError::GrpcClient(e.to_string()))
+    }
+}
+
+/// Docker mode cannot publish a port after the fact: the agent container fixes
+/// its published ports at creation (`container_builder.rs`) and publishes only
+/// the sandbox HTTP and gRPC ports, so a port a process binds later has no way
+/// out. `None` rather than an error — a Script still runs, it just gets no URL.
+///
+/// A reserved port is still refused, exactly as Kubernetes refuses it. Nothing
+/// is externally routable here, so this is not the escape the Kubernetes check
+/// prevents; it is the same rule giving the same answer in both runtimes, and a
+/// script binding the control port would collide with the sandbox's own
+/// listener inside the container regardless.
+#[async_trait]
+impl core_sandbox::SandboxPortPublisher for DockerSandboxAdapter {
+    async fn publish_port(
+        &self,
+        task_id: &str,
+        _name: &str,
+        port: u16,
+    ) -> Result<Option<String>, core_sandbox::SandboxError> {
+        if core_sandbox::is_reserved_sandbox_port(port, self.config.sandbox.grpc_port) {
+            return Err(core_sandbox::SandboxError::BadRequest(format!(
+                "Port {port} is reserved by the sandbox and cannot be exposed"
+            )));
+        }
+
+        debug!(
+            task_id,
+            port, "Docker mode does not publish sandbox ports; no preview URL"
+        );
+        Ok(None)
     }
 }
 

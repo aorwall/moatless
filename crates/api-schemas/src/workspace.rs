@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::enums::Scope;
-use crate::repository::{ResourceConfig, ServerConfig};
+use crate::repository::{ResourceConfig, ScriptConfig, ServerConfig};
 
 // =============================================================================
 // WorkspaceRepoInput — a repository placement in create/add requests
@@ -64,6 +64,8 @@ pub struct CreateWorkspaceRequest {
     #[serde(default)]
     pub servers: Option<Vec<ServerConfig>>,
     #[serde(default)]
+    pub scripts: Option<Vec<ScriptConfig>>,
+    #[serde(default)]
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
     pub network_profile: Option<String>,
@@ -94,6 +96,7 @@ pub struct UpdateWorkspaceRequest {
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
     pub servers: Option<Vec<ServerConfig>>,
+    pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
     pub network_profile: Option<String>,
 }
@@ -155,6 +158,8 @@ pub struct WorkspaceResponse {
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
     pub servers: Option<Vec<ServerConfig>>,
+    #[serde(default)]
+    pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
     pub network_profile: Option<String>,

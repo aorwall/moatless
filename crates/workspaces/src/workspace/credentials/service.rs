@@ -434,6 +434,7 @@ mod tests {
             setup_commands: None,
             env_vars: None,
             servers: None,
+            scripts: None,
             resources: None,
             network_profile: None,
             source: "manual".to_string(),

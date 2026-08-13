@@ -9,7 +9,7 @@ use utoipa::ToSchema;
 use moatless_backend_core::scope::Scope;
 
 pub use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider};
-pub use moatless_api_schemas::repository::ResourceConfig;
+pub use moatless_api_schemas::repository::{ResourceConfig, ScriptConfig};
 
 /// Per-server run configuration. Stored on the workspace's `servers` array and
 /// consumed by the sandbox providers to build containers/pods.

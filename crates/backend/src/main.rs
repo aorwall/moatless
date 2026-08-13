@@ -14,7 +14,7 @@ use tracing::{info, warn};
 use moatless_backend::adapter_installations::AdapterInstallations;
 use moatless_backend::agent;
 use moatless_backend::auth;
-use moatless_backend::compose::{Ports, compose};
+use moatless_backend::compose::{compose, Ports};
 use moatless_backend::event_handler;
 use moatless_backend::event_ingress::relay::{IngressRelay, IngressRelayHandle};
 use moatless_backend::feature_flags;
@@ -183,6 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox_observer: Arc<dyn sandbox::status_reader::SandboxStatusReader>;
     let sandbox_connector: Arc<dyn moatless_backend_core::sandbox::SandboxConnector>;
     let cluster_diagnostics: Arc<dyn moatless_backend_core::sandbox::ClusterDiagnostics>;
+    let sandbox_port_publisher: Arc<dyn moatless_backend_core::sandbox::SandboxPortPublisher>;
     let default_sandbox_image: String;
     let reaper_k8s: Option<sandbox::k8s::client::K8sClient>;
     let docker_watcher_client: Option<sandbox::docker::client::DockerClient>;
@@ -208,6 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
+            sandbox_port_publisher = adapter.clone();
             cluster_diagnostics = adapter;
             default_sandbox_image = config.sandbox.image.clone();
             sandbox_fleet_observer = Arc::new(sandbox::k8s::fleet_observer::K8sFleetObserver::new(
@@ -239,6 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sandbox_runtime = adapter.clone();
             sandbox_observer = adapter.clone();
             sandbox_connector = adapter.clone();
+            sandbox_port_publisher = adapter.clone();
             cluster_diagnostics = adapter;
             default_sandbox_image = config.docker.image.clone();
             sandbox_fleet_observer =
@@ -485,6 +488,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sandboxes: sandbox_connector.clone(),
                 observer: t3code::projection::contract_observer(sandbox_observer.clone()),
                 diagnostics: cluster_diagnostics.clone(),
+                ports: sandbox_port_publisher.clone(),
                 tasks: ui_rpc_conversations,
                 intent: app_state.sandbox.clone(),
                 starter: app_state.sandbox.clone(),

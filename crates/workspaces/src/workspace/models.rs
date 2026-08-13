@@ -27,6 +27,8 @@ pub struct Workspace {
     pub setup_commands: Option<serde_json::Value>,
     pub env_vars: Option<serde_json::Value>,
     pub servers: Option<serde_json::Value>,
+    /// Named commands run on demand in the sandbox — an array of `ScriptConfig`.
+    pub scripts: Option<serde_json::Value>,
     pub resources: Option<serde_json::Value>,
     /// Per-workspace network profile (parity with `repositories`). Selects a
     /// static NetworkPolicy via the pod label; grants nothing on its own.

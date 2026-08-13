@@ -47,6 +47,7 @@ mod projection;
 mod providers;
 mod review;
 mod sandbox;
+mod scripts;
 mod servers;
 mod terminal;
 pub mod workspace;
@@ -54,9 +55,10 @@ pub mod workspace;
 pub use auth::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use feed::{ShellFeed, ThreadFeed};
 pub use moatless_backend_core::pairing::DevicePairing;
+use moatless_backend_core::sandbox::SandboxError;
 pub use moatless_backend_core::sandbox::{
-    ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver, SandboxStarter,
-    SandboxStopper,
+    ClusterDiagnostics, SandboxConnector, SandboxIntentReader, SandboxObserver,
+    SandboxPortPublisher, SandboxStarter, SandboxStopper,
 };
 
 pub type UiRpcDbPool = sqlx::PgPool;
@@ -88,9 +90,10 @@ use crate::listing::{UiRpcEnvironmentIdentity, UiRpcResume};
 use crate::preview::{PreviewError, PreviewState};
 use crate::preview_tabs::PreviewTabDao;
 use crate::sandbox::{SandboxRpcError, SandboxState};
+use crate::scripts::{ScriptsError, ScriptsState};
 use crate::servers::{ServersError, ServersState};
 use crate::workspace::WorkspaceAccessError;
-use moatless_backend_core::activity::{ConversationHead, Resume, resume};
+use moatless_backend_core::activity::{resume, ConversationHead, Resume};
 use moatless_backend_core::scope::ScopeContext;
 
 /// The largest WebSocket message this socket reads or writes.
@@ -269,6 +272,10 @@ struct UiRpcState {
     /// What a Task's servers are doing. Distinct from `sandboxes`, which
     /// reaches *into* a Sandbox; this only observes one from outside.
     servers: ServersState,
+    /// Running a Workspace's declared Scripts: reads the scripts and publishes a
+    /// script's port. The terminal it runs in is reached through `conversations`,
+    /// `sandboxes` and `terminal`, the same handles `terminal.open` uses.
+    scripts: ScriptsState,
     /// What a Task's Sandbox lifecycle is doing, and lifecycle commands.
     sandbox: SandboxState,
     /// The browser tabs open on a Task, and the fan-out that tells every
@@ -339,6 +346,7 @@ pub async fn router_from_env(
         sandboxes,
         observer,
         diagnostics,
+        ports,
         tasks,
         intent,
         starter,
@@ -377,7 +385,7 @@ pub async fn router_from_env(
         frontend_url: Arc::from(frontend_url),
         session_jwt_secret: session_jwt_secret.map(Arc::from),
         pairing,
-        workspaces,
+        workspaces: workspaces.clone(),
         conversations,
         sandboxes,
         servers: ServersState {
@@ -385,6 +393,7 @@ pub async fn router_from_env(
             tasks: tasks.clone(),
             intent: intent.clone(),
         },
+        scripts: ScriptsState { workspaces, ports },
         sandbox: SandboxState {
             observer,
             tasks: tasks.clone(),
@@ -428,6 +437,10 @@ pub struct UiRpcDependencies {
     /// Fleet-wide Sandbox status and live resource usage, deployment-scoped
     /// rather than per-Task.
     pub diagnostics: Arc<dyn ClusterDiagnostics>,
+    /// Publishes a Script's port on a running Sandbox. The Kubernetes provider
+    /// patches the Service and creates the route; the Docker provider returns
+    /// `None` (no way out of the fixed-port agent container).
+    pub ports: Arc<dyn SandboxPortPublisher>,
     /// Authorizes every `servers.*`, `sandbox.*`, and `preview.*` call: a
     /// scoped read that finds nothing is the same answer as a Task that does
     /// not exist.
@@ -2004,6 +2017,22 @@ impl ProtocolSession {
                     Err(error) => vec![servers_failure_exit(&id, &error, identity)],
                 }
             }
+            "scripts.run" => {
+                let viewer = viewer_scope(identity);
+                match scripts::run(
+                    &state.scripts,
+                    state.conversations.as_ref(),
+                    state.sandboxes.as_ref(),
+                    &state.terminal,
+                    &viewer,
+                    &payload,
+                )
+                .await
+                {
+                    Ok(result) => vec![success_exit(&id, result)],
+                    Err(error) => vec![scripts_failure_exit(&id, &error, &payload, identity)],
+                }
+            }
             "sandbox.status" => {
                 let viewer = viewer_scope(identity);
                 let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
@@ -2892,7 +2921,14 @@ fn descriptor(config: &UiRpcConfig) -> Value {
             // Whether `sandbox.listDiagnostics` is understood. A client
             // cannot otherwise tell this server from one that answers
             // `UnsupportedMethodError`.
-            "sandboxDiagnostics": true
+            "sandboxDiagnostics": true,
+            // Whether `scripts.run` is understood. A workspace's scripts are
+            // still listed on the project without this — they are read out of
+            // the workspace either way — but a client only shows the control
+            // that runs one where the server can actually run it. T3's own
+            // server omits this key and answers `scripts.run` with
+            // `UnsupportedMethodError`.
+            "workspaceScripts": true
         }
     })
 }
@@ -3349,6 +3385,57 @@ fn servers_failure_exit(
     failure_exit(request_id, "Failed to read the conversation's servers")
 }
 
+/// How a failed `scripts.run` reaches the client.
+///
+/// A terminal failure is delegated to [`terminal_failure_exit`] so the person
+/// sees the same typed "not running" they would from `terminal.open` directly.
+/// A reserved-port refusal is a configuration mistake and its message is shown
+/// verbatim; a database error is logged here and generalised.
+fn scripts_failure_exit(
+    request_id: &RequestId,
+    error: &ScriptsError,
+    payload: &Value,
+    identity: &UiRpcAuthIdentity,
+) -> Value {
+    match error {
+        ScriptsError::Terminal(terminal_error) => {
+            // Reuse the terminal path's own logging and typed errors, addressed
+            // to the session the script would have run in.
+            let terminal_payload = json!({
+                "threadId": payload.get("threadId").and_then(Value::as_str).unwrap_or_default(),
+            });
+            terminal_failure_exit(request_id, &terminal_payload, terminal_error, identity)
+        }
+        ScriptsError::Port(SandboxError::NotReady(_)) => {
+            debug!(?error, user_id = %identity.user_id, "scripts.run refused: sandbox not running");
+            failure_exit(request_id, "The sandbox is not running.")
+        }
+        ScriptsError::Port(SandboxError::BadRequest(detail)) => {
+            debug!(%detail, user_id = %identity.user_id, "scripts.run refused a reserved port");
+            failure_exit(request_id, detail.clone())
+        }
+        ScriptsError::Port(cause) => {
+            warn!(%cause, user_id = %identity.user_id, "scripts.run could not publish the port");
+            failure_exit(request_id, "The script's port could not be published.")
+        }
+        ScriptsError::ScriptNotFound(name) => {
+            debug!(%name, user_id = %identity.user_id, "scripts.run: no such script");
+            failure_exit(request_id, format!("No script named \"{name}\"."))
+        }
+        ScriptsError::NotFound => {
+            debug!(user_id = %identity.user_id, "scripts.run: conversation not found");
+            failure_exit(request_id, "Conversation not found.")
+        }
+        ScriptsError::Malformed(field) => {
+            failure_exit(request_id, format!("scripts.run requires {field}"))
+        }
+        ScriptsError::Database(cause) => {
+            error!(%cause, user_id = %identity.user_id, "scripts.run failed to read the conversation");
+            failure_exit(request_id, "Failed to read the conversation.")
+        }
+    }
+}
+
 /// The client is told the sandbox status or command could not be answered; the
 /// cause is logged once here rather than shipped to the browser.
 fn sandbox_failure_exit(
@@ -3418,11 +3505,11 @@ mod tests {
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
     use moatless_backend_core::pairing::{
-        PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError, hash_key,
+        hash_key, PairedDevice, PairingApiKeyIssuer, PairingCode, PairingCodeDao, PairingError,
     };
     use moatless_backend_core::sandbox::{
         LiveStatus, LogOptions, SandboxDiagnosticsContainer, SandboxDiagnosticsEntry, SandboxError,
-        SandboxStatus, SandboxStatusFullResponse, ServerLogStream,
+        SandboxPortPublisher, SandboxStatus, SandboxStatusFullResponse, ServerLogStream,
     };
     use uuid::Uuid;
 
@@ -3487,6 +3574,18 @@ mod tests {
             &self,
             task_id: &str,
         ) -> Result<moatless_api_schemas::enums::SandboxDesiredState, SandboxError> {
+            Err(unreachable(task_id))
+        }
+    }
+
+    #[async_trait]
+    impl SandboxPortPublisher for UnreachableSandboxes {
+        async fn publish_port(
+            &self,
+            task_id: &str,
+            _name: &str,
+            _port: u16,
+        ) -> Result<Option<String>, SandboxError> {
             Err(unreachable(task_id))
         }
     }
@@ -3853,6 +3952,10 @@ mod tests {
                 observer: Arc::new(UnreachableSandboxes),
                 tasks: Arc::new(MockT3TaskDao::new()),
                 intent: Arc::new(UnreachableSandboxes),
+            },
+            scripts: ScriptsState {
+                workspaces: Arc::new(MockT3WorkspaceDao::new()),
+                ports: Arc::new(UnreachableSandboxes),
             },
             sandbox: SandboxState {
                 observer: Arc::new(UnreachableSandboxes),

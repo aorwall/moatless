@@ -209,6 +209,53 @@ pub trait SandboxConnector: Send + Sync {
     async fn sandbox_client(&self, task_id: &str) -> Result<SandboxClient, SandboxError>;
 }
 
+/// The sandbox's own HTTP control port.
+pub const SANDBOX_HTTP_PORT: u16 = 8001;
+/// The dind Docker socket inside the sandbox.
+pub const SANDBOX_DIND_PORT: u16 = 2375;
+
+/// Whether `port` belongs to the sandbox's own control plane rather than to
+/// anything a workspace may expose.
+///
+/// The rule lives beside `SandboxPortPublisher` because it is part of that
+/// trait's contract rather than any one runtime's: routing the authenticated
+/// preview edge onto the control port, the agent gRPC channel or the Docker
+/// socket would be a sandbox escape, and that is true of every runtime — the
+/// one that publishes nothing externally included, where the collision instead
+/// shadows the sandbox's own listener inside the container. Takes the gRPC port
+/// rather than a `Config` so the rule sits in the same band as the trait.
+#[must_use]
+pub fn is_reserved_sandbox_port(port: u16, grpc_port: u16) -> bool {
+    port == SANDBOX_HTTP_PORT || port == grpc_port || port == SANDBOX_DIND_PORT
+}
+
+/// Make one port on an already-running sandbox reachable from outside it.
+///
+/// Deliberately not a sixth verb on `SandboxRuntime`: that trait's verbs all
+/// move a sandbox through its desired-state machine and carry an operation
+/// generation. Publishing a port changes no desired state, bumps no generation,
+/// and is not something the reconciler drives — a Script asks for it as it
+/// starts.
+///
+/// Implementations must be idempotent: the same call for a port that is already
+/// published succeeds and returns the same URL, and must refuse a reserved port
+/// (`is_reserved_sandbox_port`) before doing anything else — see that function.
+#[async_trait]
+pub trait SandboxPortPublisher: Send + Sync {
+    /// Publish `port`, returning the external URL when the deployment has one.
+    ///
+    /// `Ok(None)` means the port is not externally addressable but nothing went
+    /// wrong that the caller must act on — no proxy domain is configured, the
+    /// runtime does not publish ports at all, or an edge write failed in a way
+    /// that costs only the URL. An `Err` means the caller should not proceed.
+    async fn publish_port(
+        &self,
+        task_id: &str,
+        name: &str,
+        port: u16,
+    ) -> Result<Option<String>, SandboxError>;
+}
+
 /// One container's state and live resource usage, in the fleet-wide read.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

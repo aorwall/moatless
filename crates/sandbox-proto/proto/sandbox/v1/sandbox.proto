@@ -451,6 +451,14 @@ message TerminalSessionSnapshot {
   string label = 10;
   string updated_at = 11;
   uint64 sequence = 12;
+  // Set only by TerminalOpen: true when this call started (or restarted) the
+  // session's process, false when it reused a session already running. The
+  // sandbox is the single owner of a task's terminals, so this answer holds
+  // regardless of which backend replica asked or whether one restarted —
+  // unlike a replica-local view of past opens. Absent on snapshots from any
+  // other path (events, attach, restart) and from a sandbox too old to report
+  // it; a caller that needs the distinction falls back to its own heuristic.
+  optional bool started_new_process = 13;
 }
 
 message TerminalStartedEvent {

@@ -31,6 +31,7 @@ use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::workspace::UiRpcListedWorkspace;
 use moatless_api_schemas::enums::{MessageRole, MessageType};
 use moatless_api_schemas::enums::{SandboxDesiredState, SandboxStopReason, TaskStatus};
+use moatless_api_schemas::repository::ScriptConfig;
 use moatless_api_schemas::shared::AgentType;
 use moatless_backend_core::activity::dao::Activity;
 use moatless_backend_core::activity::{ConversationChange, ConversationHead};
@@ -824,6 +825,38 @@ impl T3WorkspaceDao for PgConversationDao {
             .bind(&viewer.user_id)
             .fetch_optional(&self.pool)
             .await
+    }
+
+    async fn scripts_for_task(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<Option<Vec<ScriptConfig>>, sqlx::Error> {
+        // Joined and scoped on the Task, so a Task the viewer cannot be shown
+        // returns no row — the same "not found" the caller gets for a missing
+        // one. `COALESCE` so a workspace predating the scripts column reads as an
+        // empty list rather than a NULL that fails to decode.
+        let access = viewer.access_filter(ScopedEntity::Task, "t.", 2);
+        let sql = format!(
+            "SELECT COALESCE(w.scripts, '[]'::jsonb) \
+             FROM tasks t JOIN workspaces w ON w.id = t.workspace_id \
+             WHERE t.task_id = $1 \
+             AND (w.deleted IS NULL OR w.deleted = false) \
+             AND {}",
+            access.sql()
+        );
+        let raw = sqlx::query_scalar::<_, serde_json::Value>(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(raw) = raw else {
+            return Ok(None);
+        };
+        // A stored value that will not decode is reported as no scripts rather
+        // than failing the run — the same tolerance the projection applies.
+        Ok(Some(serde_json::from_value(raw).unwrap_or_default()))
     }
 }
 

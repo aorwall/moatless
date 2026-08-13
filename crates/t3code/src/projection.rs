@@ -47,19 +47,21 @@ impl UiRpcTurnStatus {
 }
 
 /// The fields a script is read out of, narrowed from the workspace's stored
-/// server config. Every field a workspace can omit is optional here too — the
-/// canonical `ServerConfig` defaults all of them, and one required field that is
-/// merely usually present costs the whole workspace its scripts.
+/// script config. Every field the canonical `ScriptConfig` defaults is optional
+/// here too — one required field that is merely usually present costs the whole
+/// workspace its scripts.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UiRpcServerConfig {
+struct UiRpcScriptConfig {
     name: String,
     #[serde(default)]
     label: Option<String>,
     #[serde(default)]
-    start_commands: Option<Vec<String>>,
+    command: String,
     #[serde(default)]
-    default: bool,
+    icon: Option<String>,
+    #[serde(default)]
+    port: Option<u16>,
 }
 
 /// Prefix of the nominal root path reported for each workspace.
@@ -76,14 +78,15 @@ struct UiRpcServerConfig {
 /// already reports.
 const NOMINAL_ROOT_PREFIX: &str = "/moatless/workspaces";
 
-/// The only icon a Moatless server can honestly claim.
+/// The icons the contract accepts, and the one anything else becomes.
 ///
-/// The contract's icon is a closed set — play, test, lint, configure, build,
-/// debug — and every Moatless server is a long-running process bound to a port,
-/// not a task runner. Reading `test` or `build` out of a server's name would be
-/// inferring intent from a free-text label that names the server rather than
-/// says what it does.
-const SCRIPT_ICON: &str = "play";
+/// The contract's icon is a closed set and an unknown value fails the whole
+/// listing to decode. A workspace is free to store any string, so the value is
+/// checked here rather than trusted: an unrecognized icon is reported as the
+/// default instead of refusing the script, because an icon is not worth losing
+/// a script over.
+const SCRIPT_ICONS: [&str; 6] = ["play", "test", "lint", "configure", "build", "debug"];
+const DEFAULT_SCRIPT_ICON: &str = "play";
 
 /// Prefix of the nominal worktree path reported for each conversation.
 ///
@@ -1555,60 +1558,67 @@ fn nominal_root(workspace_id: &str) -> String {
     format!("{NOMINAL_ROOT_PREFIX}/{workspace_id}")
 }
 
-/// The workspace's servers, as the scripts a person can run in the project.
+/// The workspace's declared Scripts.
 ///
-/// Setup commands are provisioning rather than scripts and are deliberately
-/// not mapped here.
+/// Only Scripts. The workspace's *servers* were mapped here once, which put a
+/// runnable-looking entry in the client's top bar for something the Sandbox
+/// already runs as a container — pressing it would have started a second
+/// process on a bound port. Setup commands are provisioning and are likewise
+/// not scripts.
 fn scripts(workspace: &Workspace) -> Vec<Value> {
-    let Some(servers) = workspace.servers.as_ref() else {
+    let Some(scripts) = workspace.scripts.as_ref() else {
         return Vec::new();
     };
-    let servers: Vec<UiRpcServerConfig> = match serde_json::from_value(servers.clone()) {
-        Ok(servers) => servers,
+    let scripts: Vec<UiRpcScriptConfig> = match serde_json::from_value(scripts.clone()) {
+        Ok(scripts) => scripts,
         Err(error) => {
             warn!(
                 %error,
                 workspace_id = %workspace.id,
-                "Workspace servers config is unreadable; reporting no scripts"
+                "Workspace scripts config is unreadable; reporting no scripts"
             );
             return Vec::new();
         }
     };
 
-    servers
+    scripts
         .iter()
-        .filter_map(|server| {
-            // Three of a script's fields are non-empty strings, and one script
+        .filter_map(|script| {
+            // Two of a script's fields are non-empty strings, and one script
             // the client cannot read takes the entire listing down with it. A
-            // server that cannot fill them is left out rather than emitted
-            // malformed. A server with no start commands is one of those: it
-            // runs its image's default command, so there is no command to name.
-            let id = non_empty(&server.name)?;
-            let command = non_empty(&server.start_commands.as_ref()?.join(" && "))?;
-            let name = server
+            // script that cannot fill them is left out rather than emitted
+            // malformed.
+            let id = non_empty(&script.name)?;
+            let command = non_empty(&script.command)?;
+            let name = script
                 .label
                 .as_deref()
                 .and_then(non_empty)
                 .unwrap_or_else(|| id.clone());
+            let icon = script
+                .icon
+                .as_deref()
+                .filter(|icon| SCRIPT_ICONS.contains(icon))
+                .unwrap_or(DEFAULT_SCRIPT_ICON);
             Some(json!({
-                // The server's name: stable across reads, and already unique
-                // within the workspace because it names a container in the pod.
+                // The script's name: stable across reads, and unique within the
+                // workspace. It is the identity rather than a generated id
+                // because it has to survive a git reconcile.
                 "id": id,
                 "name": name,
-                // Joined the same way the sandbox joins them when it starts the
-                // server.
                 "command": command,
-                "icon": SCRIPT_ICON,
+                "icon": icon,
                 // An instruction to the client, not a description of Moatless:
                 // it asks the client to run this command itself when it creates
-                // a working copy. A Moatless server is started by the Sandbox,
-                // which runs it as a container in the pod, so the client running
-                // it again would put a second process on the same bound port.
+                // a working copy. Moatless has no worktrees — a Sandbox is the
+                // isolation — and setup commands already own provisioning.
                 "runOnWorktreeCreate": false,
-                "autoOpenPreview": server.default
-                // `previewUrl` is omitted rather than guessed: Moatless stores a
-                // port, the contract wants a URL, and the published address only
-                // exists once a task has a sandbox serving that port.
+                // A script that serves a port is worth auto-opening a preview
+                // for; one that prints to a console is not.
+                "autoOpenPreview": script.port.is_some()
+                // `previewUrl` is omitted rather than guessed: the published
+                // address only exists once a task has a sandbox serving that
+                // port, and `scripts.run` returns the real one.
             }))
         })
         .collect()
@@ -2343,20 +2353,18 @@ mod tests {
     #[test]
     fn the_wire_shape_matches_the_contract_field_for_field() {
         let mut ws = workspace("ws-a", "Alpha");
-        ws.workspace.servers = Some(json!([{
+        ws.workspace.scripts = Some(json!([{
             "name": "dev",
-            "port": 3000,
-            "startCommands": ["bun run dev"],
-            "default": true
+            "command": "bun run dev",
+            "icon": "play",
+            "port": 3000
         }]));
 
         let snapshot = shell_snapshot(&[ws], &[], &AgentModelDefaults::default(), 0);
         assert_keys(&snapshot, "snapshot", SNAPSHOT_REQUIRED, SNAPSHOT_OPTIONAL);
-        assert!(
-            snapshot["snapshotSequence"]
-                .as_i64()
-                .is_some_and(|n| n >= 0)
-        );
+        assert!(snapshot["snapshotSequence"]
+            .as_i64()
+            .is_some_and(|n| n >= 0));
 
         let project = &snapshot["projects"][0];
         assert_keys(project, "project", PROJECT_REQUIRED, PROJECT_OPTIONAL);
@@ -2379,12 +2387,12 @@ mod tests {
     }
 
     #[test]
-    fn a_server_that_cannot_fill_the_required_fields_is_left_out() {
+    fn a_script_that_cannot_fill_the_required_fields_is_left_out() {
         let mut ws = workspace("ws-a", "Alpha");
-        ws.workspace.servers = Some(json!([
-            { "name": "  ", "port": 3000, "startCommands": ["bun run dev"] },
-            { "name": "blank-command", "port": 4000, "startCommands": ["  "] },
-            { "name": "empty-commands", "port": 5000, "startCommands": [] }
+        ws.workspace.scripts = Some(json!([
+            { "name": "  ", "command": "bun run dev" },
+            { "name": "blank-command", "command": "  " },
+            { "name": "no-command" }
         ]));
         assert!(project(&ws)["scripts"].as_array().unwrap().is_empty());
     }
@@ -2407,6 +2415,7 @@ mod tests {
                 setup_commands: None,
                 env_vars: None,
                 servers: None,
+                scripts: None,
                 resources: None,
                 network_profile: None,
                 source: "manual".to_string(),
@@ -2449,31 +2458,64 @@ mod tests {
     }
 
     #[test]
-    fn servers_become_scripts_and_setup_commands_do_not() {
+    fn declared_scripts_become_scripts_and_servers_do_not() {
         let mut ws = workspace("ws-a", "Alpha");
         ws.workspace.setup_commands = Some(json!(["bun install"]));
+        // Servers must no longer contribute a single script — the old fake did,
+        // and pressing one was a bug.
         ws.workspace.servers = Some(json!([
+            { "name": "dev", "port": 3000, "startCommands": ["bun run dev"], "default": true }
+        ]));
+        ws.workspace.scripts = Some(json!([
             {
-                "name": "dev",
-                "label": "Dev server",
-                "port": 3000,
-                "startCommands": ["bun install", "bun run dev"],
-                "default": true
+                "name": "test",
+                "label": "Run tests",
+                "command": "bun test",
+                "icon": "test"
             },
-            { "name": "no-command", "port": 4000 }
+            {
+                "name": "storybook",
+                "command": "bun run storybook",
+                "port": 6006
+            },
+            { "name": "no-command" }
         ]));
 
         let scripts = project(&ws)["scripts"].as_array().unwrap().clone();
 
-        assert_eq!(scripts.len(), 1, "a server with no command is not a script");
-        assert_eq!(scripts[0]["id"], "dev");
-        assert_eq!(scripts[0]["name"], "Dev server");
-        assert_eq!(scripts[0]["command"], "bun install && bun run dev");
-        assert_eq!(scripts[0]["autoOpenPreview"], true);
+        assert_eq!(
+            scripts.len(),
+            2,
+            "a script with no command is left out, and servers contribute none"
+        );
+        assert_eq!(scripts[0]["id"], "test");
+        assert_eq!(scripts[0]["name"], "Run tests");
+        assert_eq!(scripts[0]["command"], "bun test");
+        assert_eq!(scripts[0]["icon"], "test");
+        assert_eq!(
+            scripts[0]["autoOpenPreview"], false,
+            "a script with no port does not auto-open a preview"
+        );
+        assert_eq!(scripts[1]["id"], "storybook");
+        assert_eq!(scripts[1]["name"], "storybook", "name falls back to the id");
+        assert_eq!(
+            scripts[1]["autoOpenPreview"], true,
+            "a script with a port auto-opens its preview"
+        );
         assert!(
-            scripts[0].get("previewUrl").is_none(),
+            scripts[1].get("previewUrl").is_none(),
             "a bare port is not a URL, so the field is left out"
         );
+    }
+
+    #[test]
+    fn an_unknown_icon_falls_back_rather_than_failing_the_listing() {
+        let mut ws = workspace("ws-a", "Alpha");
+        ws.workspace.scripts = Some(json!([
+            { "name": "weird", "command": "echo hi", "icon": "rocket" }
+        ]));
+        let scripts = project(&ws)["scripts"].as_array().unwrap().clone();
+        assert_eq!(scripts[0]["icon"], "play");
     }
 
     /// The widened half of the project union carries what renders a group and
@@ -2486,15 +2528,14 @@ mod tests {
     /// whichever way it treats them.
     #[test]
     fn a_project_the_viewer_may_not_read_carries_no_scripts() {
-        let servers = json!([{
+        let scripts = json!([{
             "name": "dev",
-            "port": 3000,
-            "startCommands": ["bun run dev --config /home/them/secret.toml"]
+            "command": "bun run dev --config /home/them/secret.toml"
         }]);
         let mut readable = workspace("ws-a", "Alpha");
-        readable.workspace.servers = Some(servers.clone());
+        readable.workspace.scripts = Some(scripts.clone());
         let mut referenced = a_referenced_workspace("ws-a", "Alpha");
-        referenced.workspace.servers = Some(servers);
+        referenced.workspace.scripts = Some(scripts);
 
         assert_eq!(
             project(&readable)["scripts"][0]["command"],
@@ -2511,9 +2552,9 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_servers_config_reports_no_scripts() {
+    fn an_unreadable_scripts_config_reports_no_scripts() {
         let mut ws = workspace("ws-a", "Alpha");
-        ws.workspace.servers = Some(json!({ "not": "a list" }));
+        ws.workspace.scripts = Some(json!({ "not": "a list" }));
         assert!(project(&ws)["scripts"].as_array().unwrap().is_empty());
     }
 
@@ -3604,11 +3645,11 @@ mod tests {
         meter.message_uuid = None;
         meter.payload = json!({ "usedTokens": 1_000, "maxTokens": 200_000 });
 
-        let work =
-            detail(&transcript(Vec::new(), vec![asked, plan, meter, resolved]))["activities"]
-                .as_array()
-                .unwrap()
-                .clone();
+        let work = detail(&transcript(Vec::new(), vec![asked, plan, meter, resolved]))
+            ["activities"]
+            .as_array()
+            .unwrap()
+            .clone();
         let by_kind = |kind: &str| {
             work.iter()
                 .find(|row| row["kind"] == kind)
@@ -4177,18 +4218,16 @@ mod tests {
             sandbox_desired_state: None,
             ..running_conversation("task-a", "ws-a")
         };
-        assert!(
-            change_events(
-                &without,
-                &change(4, None),
-                &transcript(Vec::new(), Vec::new()),
-                &OriginContext {
-                    frontend_url: "http://localhost:3000",
-                    source_task_names: &HashMap::new(),
-                },
-            )
-            .is_empty()
-        );
+        assert!(change_events(
+            &without,
+            &change(4, None),
+            &transcript(Vec::new(), Vec::new()),
+            &OriginContext {
+                frontend_url: "http://localhost:3000",
+                source_task_names: &HashMap::new(),
+            },
+        )
+        .is_empty());
     }
 
     /// A message event carries the same values the snapshot's own bubble does,

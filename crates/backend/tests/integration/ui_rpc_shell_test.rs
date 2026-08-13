@@ -41,7 +41,7 @@ use moatless_backend::workspace::dao::{PgWorkspaceDao, WorkspaceDao, WorkspacePa
 use moatless_backend_core::activity::{ConversationChange, ConversationHead};
 use moatless_backend_core::sandbox::{
     ClusterDiagnostics, LiveStatus, LogOptions, SandboxDiagnosticsEntry, SandboxError,
-    SandboxStatusFullResponse, ServerLogStream,
+    SandboxPortPublisher, SandboxStatusFullResponse, ServerLogStream,
 };
 use moatless_core::scope::{Scope, ScopeContext};
 use moatless_core::shared_models::AgentType;
@@ -213,6 +213,18 @@ impl SandboxStopper for NoSandboxes {
     }
 }
 
+#[async_trait::async_trait]
+impl SandboxPortPublisher for NoSandboxes {
+    async fn publish_port(
+        &self,
+        task_id: &str,
+        _name: &str,
+        _port: u16,
+    ) -> Result<Option<String>, SandboxError> {
+        Err(SandboxError::NotReady(task_id.to_string()))
+    }
+}
+
 /// The compatibility router's dependencies, as `main` assembles them. Pairing
 /// itself is asserted in `crates/backend/tests/device_pairing_test.rs`; here it is
 /// wired only because the router carries it.
@@ -229,6 +241,8 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         sandboxes: Arc::new(NoSandboxes),
         observer: Arc::new(NoSandboxes),
         diagnostics: Arc::new(NoSandboxes),
+        // Nothing this suite drives publishes a Script's port.
+        ports: Arc::new(NoSandboxes),
         tasks: Arc::new(PgConversationDao::new(pool.clone())),
         intent: Arc::new(NoSandboxes),
         // Nothing this suite drives starts or stops a Sandbox.

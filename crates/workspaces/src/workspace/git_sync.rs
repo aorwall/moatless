@@ -28,16 +28,16 @@ use chrono::Utc;
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
-use crate::repository::access::{RepositoryTokenResolver, access_error_for};
+use crate::repository::access::{access_error_for, RepositoryTokenResolver};
 use crate::repository::config_reader::{
-    AccessStatus, fetch_provider_file, verify_repository_access,
+    fetch_provider_file, verify_repository_access, AccessStatus,
 };
 use crate::repository::dao::{RepositoryDao, RepositoryPatch};
-use crate::repository::error::{RepositoryError, is_remote_url_conflict};
+use crate::repository::error::{is_remote_url_conflict, RepositoryError};
 use crate::repository::handlers::{normalize_remote_url, validate_non_secret_env_vars};
-use crate::repository::models::ServerConfig;
 use crate::repository::models::{Repository, RepositoryKind, RepositoryProvider, ResourceConfig};
-use crate::workspace::dao::{WorkspaceDao, WorkspacePatch, ensure_shadow_workspace};
+use crate::repository::models::{ScriptConfig, ServerConfig};
+use crate::workspace::dao::{ensure_shadow_workspace, WorkspaceDao, WorkspacePatch};
 use crate::workspace::models::{Workspace, WorkspaceRepo};
 use moatless_api_schemas::workspace::{WorkspaceSyncSkip, WorkspaceSyncSummary};
 use moatless_backend_core::scope::ScopeContext;
@@ -56,6 +56,7 @@ pub struct MoatlessRepoConfig {
     pub docker_image: Option<String>,
     pub code_execution: Option<CodeExecution>,
     pub servers: Option<Vec<ServerConfig>>,
+    pub scripts: Option<Vec<ScriptConfig>>,
     pub system_prompt: Option<String>,
     pub resources: Option<ResourceConfig>,
     /// Per-repo Kubernetes ServiceAccount for this repo's sandboxes. Overrides the
@@ -100,6 +101,7 @@ pub struct MoatlessWorkspaceEntry {
     pub docker_access: Option<bool>,
     pub code_execution: Option<CodeExecution>,
     pub servers: Option<Vec<ServerConfig>>,
+    pub scripts: Option<Vec<ScriptConfig>>,
     pub system_prompt: Option<String>,
     pub resources: Option<ResourceConfig>,
     pub env_vars: Option<std::collections::HashMap<String, String>>,
@@ -514,6 +516,7 @@ struct RunConfig {
     setup_commands: Option<serde_json::Value>,
     env_vars: Option<serde_json::Value>,
     servers: Option<serde_json::Value>,
+    scripts: Option<serde_json::Value>,
     resources: Option<serde_json::Value>,
 }
 
@@ -576,6 +579,11 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> Result<RunConfig, se
             .as_ref()
             .map(serde_json::to_value)
             .transpose()?,
+        scripts: entry
+            .scripts
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
         resources: entry
             .resources
             .as_ref()
@@ -606,6 +614,11 @@ fn run_config_from_moatless_config(
         env_vars: None,
         servers: config
             .servers
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
+        scripts: config
+            .scripts
             .as_ref()
             .map(serde_json::to_value)
             .transpose()?,
@@ -711,6 +724,7 @@ impl GitSyncService {
                         setup_commands: desired.run.setup_commands.clone(),
                         env_vars: desired.run.env_vars.clone(),
                         servers: desired.run.servers.clone(),
+                        scripts: desired.run.scripts.clone(),
                         resources: desired.run.resources.clone(),
                         network_profile: desired.run.network_profile.clone(),
                         source: "git".to_string(),
@@ -750,6 +764,7 @@ impl GitSyncService {
             setup_commands: Some(desired.run.setup_commands.clone()),
             env_vars: Some(desired.run.env_vars.clone()),
             servers: Some(desired.run.servers.clone()),
+            scripts: Some(desired.run.scripts.clone()),
             resources: Some(desired.run.resources.clone()),
             network_profile: Some(desired.run.network_profile.clone()),
             source: Some("git".to_string()),
@@ -1113,6 +1128,7 @@ mod tests {
                 default: true,
                 ..Default::default()
             }]),
+            scripts: None,
             system_prompt: Some("Be helpful".to_string()),
             resources: None,
             sandbox_service_account: Some("moatless-dev".to_string()),
@@ -1145,6 +1161,7 @@ mod tests {
             docker_image: Some("myregistry/custom-sandbox:latest".to_string()),
             code_execution: None,
             servers: None,
+            scripts: None,
             system_prompt: Some("Be helpful".to_string()),
             resources: None,
             sandbox_service_account: Some("moatless-admin".to_string()),
@@ -1172,6 +1189,7 @@ mod tests {
             docker_image: None,
             code_execution: None,
             servers: None,
+            scripts: None,
             system_prompt: None,
             resources: None,
             sandbox_service_account: None,

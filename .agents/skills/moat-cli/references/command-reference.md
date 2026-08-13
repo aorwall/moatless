@@ -182,8 +182,17 @@ moat workspaces list --json | jq '.[] | {id, name, source, dockerAccess}'
 ```
 
 Structured fields on `create`/`update` take JSON strings: `--servers-json`,
-`--resources-json`, `--env-vars-json`, `--setup-commands-json`,
-`--plugins-json`, `--repos-json`.
+`--scripts-json`, `--resources-json`, `--env-vars-json`,
+`--setup-commands-json`, `--plugins-json`, `--repos-json`.
+
+`--scripts-json` is a JSON array of named commands the sandbox runs on
+demand — each `{"name","command"}`, optionally `"port"` (published and given a
+preview URL) and `"envVars"`. It replaces the whole scripts list, like
+`--servers-json`.
+
+```bash
+moat workspaces update ws_<id> --scripts-json '[{"name":"dev","command":"pnpm dev","port":3000}]'
+```
 
 ---
 

@@ -13,6 +13,7 @@
 
 use k8s_openapi::api::networking::v1::NetworkPolicy;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::api::{Api, PostParams};
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::{debug, info, warn};
@@ -167,6 +168,139 @@ pub async fn create_task_preview_network_policy(
     Ok(())
 }
 
+/// How many times [`admit_preview_port`] re-reads and retries when a concurrent
+/// writer changes the policy under it. Each loss is one other `scripts.run`
+/// widening the same policy; more than a few at once on one task is not a real
+/// workload, so a small bound is enough to converge without spinning.
+const MAX_WIDEN_ATTEMPTS: usize = 5;
+
+/// Widen the per-task preview NetworkPolicy to admit one more port.
+///
+/// [`create_task_preview_network_policy`] is create-only — a 409 reuses whatever
+/// is already there — because the declared ports are known in full at
+/// provisioning time. A Script's port is not: it is asked for while the sandbox
+/// runs, so the existing policy has to grow rather than be reused as-is.
+///
+/// The allowance is a single list that this read-modify-writes, and a
+/// NetworkPolicy's ingress rules are atomic — there is no per-port merge key, so
+/// a merge patch would replace the whole list and two concurrent widens would
+/// each drop the other's port. So the write is guarded instead: it carries the
+/// `resourceVersion` it read, and a concurrent change 409s rather than
+/// overwrites. On a 409 it re-reads — now seeing the other writer's port — and
+/// adds on top, up to [`MAX_WIDEN_ATTEMPTS`]. A no-op when the port is already
+/// admitted, so a script re-run costs one read.
+pub async fn admit_preview_port(
+    k8s: &K8sClient,
+    task_id: &str,
+    port: u16,
+    config: &Config,
+    owner: Option<&OwnerReference>,
+) -> Result<(), kube::Error> {
+    let api: Api<NetworkPolicy> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let name = generate_preview_network_policy_name(task_id);
+
+    for attempt in 0..MAX_WIDEN_ATTEMPTS {
+        let existing = match api.get(&name).await {
+            Ok(policy) => Some(policy),
+            Err(kube::Error::Api(ref e)) if e.code == 404 => None,
+            Err(ref e) if is_forbidden(e) => {
+                warn!(
+                    task_id,
+                    policy_name = %name,
+                    "Skipping preview NetworkPolicy widen: {MISSING_RBAC_HINT}"
+                );
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
+
+        let mut ports = existing.as_ref().map_or_else(BTreeSet::new, admitted_ports);
+        if !ports.insert(port) {
+            debug!(task_id, port, "Preview NetworkPolicy already admits port");
+            return Ok(());
+        }
+
+        let mut policy = build_preview_network_policy(
+            k8s.namespace(),
+            task_id,
+            &ports,
+            &config.proxy.traefik_ingress_namespaces,
+            owner,
+        )?;
+
+        let result = match &existing {
+            // A guarded replace: carrying the version we read makes a concurrent
+            // widen a 409 we retry, not a lost port.
+            Some(current) => {
+                policy.metadata.resource_version = current.metadata.resource_version.clone();
+                api.replace(&name, &PostParams::default(), &policy)
+                    .await
+                    .map(|_| ())
+            }
+            None => api
+                .create(&PostParams::default(), &policy)
+                .await
+                .map(|_| ()),
+        };
+
+        match result {
+            Ok(()) => {
+                info!(task_id, policy_name = %name, port, "Preview NetworkPolicy admits port");
+                return Ok(());
+            }
+            // Lost the race: another writer created or widened the policy between
+            // our read and write. Re-read their version and add on top.
+            Err(kube::Error::Api(ref e)) if e.code == 409 => {
+                debug!(
+                    task_id,
+                    port, attempt, "Preview NetworkPolicy changed under us; retrying widen"
+                );
+            }
+            Err(ref e) if is_forbidden(e) => {
+                warn!(
+                    task_id,
+                    policy_name = %name,
+                    "Skipping preview NetworkPolicy widen: {MISSING_RBAC_HINT}"
+                );
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    // Contention we could not win in a bounded number of tries. Like every other
+    // failure on this path it costs only reachability, so it is warned, not
+    // fatal — the caller has already published the Service port and route.
+    warn!(
+        task_id,
+        policy_name = %name,
+        port,
+        "Preview NetworkPolicy widen lost {MAX_WIDEN_ATTEMPTS} races; port may not be admitted"
+    );
+    Ok(())
+}
+
+/// The TCP ports a preview policy currently admits.
+fn admitted_ports(policy: &NetworkPolicy) -> BTreeSet<u16> {
+    policy
+        .spec
+        .as_ref()
+        .map(|spec| {
+            spec.ingress
+                .iter()
+                .flatten()
+                .filter_map(|rule| rule.ports.as_ref())
+                .flatten()
+                .filter_map(|p| p.port.as_ref())
+                .filter_map(|port| match port {
+                    IntOrString::Int(value) => u16::try_from(*value).ok(),
+                    IntOrString::String(_) => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Delete the per-task preview NetworkPolicy. Handles 404 and a missing
 /// NetworkPolicy grant (403) gracefully — see [`is_forbidden`].
 pub async fn delete_task_preview_network_policy(
@@ -318,6 +452,24 @@ mod tests {
             policy.metadata.name.as_deref(),
             Some("moatless-ws-task-1-preview-ingress")
         );
+    }
+
+    #[test]
+    fn admitted_ports_reads_back_every_port_the_policy_admits() {
+        // The widen loop reads the current ports, adds one, and rebuilds the
+        // whole policy. That only keeps concurrently-added ports if reading a
+        // built policy yields exactly the ports it was built from — otherwise a
+        // retry after a 409 would silently shed a port it meant to preserve.
+        let ports = BTreeSet::from([8080u16, 3000u16, 5733u16]);
+        let policy = build_preview_network_policy(
+            "moatless",
+            "task-1",
+            &ports,
+            &["moatless".to_string()],
+            Some(&owner()),
+        )
+        .expect("build should succeed");
+        assert_eq!(admitted_ports(&policy), ports);
     }
 
     fn api_error(code: u16) -> kube::Error {

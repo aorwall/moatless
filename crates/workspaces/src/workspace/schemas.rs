@@ -40,6 +40,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
             .and_then(|v| serde_json::from_value(v).ok()),
         env_vars: w.env_vars.and_then(|v| serde_json::from_value(v).ok()),
         servers: w.servers.and_then(|v| serde_json::from_value(v).ok()),
+        scripts: w.scripts.and_then(|v| serde_json::from_value(v).ok()),
         resources: w.resources.and_then(|v| serde_json::from_value(v).ok()),
         network_profile: w.network_profile,
         synced_from_git: w.source == "git",

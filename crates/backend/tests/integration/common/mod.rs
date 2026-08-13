@@ -795,6 +795,7 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         setup_commands: None,
         env_vars: None,
         servers: None,
+        scripts: None,
         resources: None,
         network_profile: None,
         source: "manual".to_string(),

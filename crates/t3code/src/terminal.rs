@@ -209,6 +209,29 @@ pub async fn open(
     viewer: &ScopeContext,
     payload: &Value,
 ) -> Result<Value, TerminalError> {
+    open_reporting_new_process(conversations, sandboxes, hub, viewer, payload)
+        .await
+        .map(|(snapshot, _)| snapshot)
+}
+
+/// `open`, plus whether this call is what started the session's current process.
+///
+/// `terminal.open` starts a shell or reuses the one already under that id, and
+/// a running snapshot looks the same either way. A caller that opens a terminal
+/// in order to *put a command in it* needs the difference: writing into a
+/// reused session types into whatever is already running there. `scripts.run`
+/// is that caller.
+///
+/// The answer comes from the sandbox, which owns the session and so can tell a
+/// fresh spawn from a reuse no matter which backend replica asks. Only a sandbox
+/// too old to report it falls back to the replica-local pid heuristic.
+pub async fn open_reporting_new_process(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    hub: &TerminalHub,
+    viewer: &ScopeContext,
+    payload: &Value,
+) -> Result<(Value, bool), TerminalError> {
     let request = TerminalOpenRequest {
         thread_id: required_string(payload, "threadId")?.to_string(),
         terminal_id: required_string(payload, "terminalId")?.to_string(),
@@ -228,7 +251,14 @@ pub async fn open(
         .await
         .map_err(|error| TerminalError::sandbox(classify_grpc_error(error, "terminal_open")))?;
     let previous = hub.observe_snapshot(&snapshot).await;
-    if snapshot_is_new_process(previous.as_ref(), &snapshot) {
+    // The sandbox owns the session and answers this authoritatively: its reply
+    // holds across replicas and restarts, where `previous` — this replica's
+    // memory of past opens — does not. The pid heuristic is the fallback for a
+    // sandbox too old to report the flag.
+    let is_new_process = snapshot
+        .started_new_process
+        .unwrap_or_else(|| snapshot_is_new_process(previous.as_ref(), &snapshot));
+    if is_new_process {
         let event = json!({
             "type": "started",
             "threadId": snapshot.thread_id,
@@ -238,7 +268,7 @@ pub async fn open(
         });
         let _ = hub.events.send(event);
     }
-    Ok(terminal_snapshot(&snapshot))
+    Ok((terminal_snapshot(&snapshot), is_new_process))
 }
 
 pub async fn attach(
@@ -814,6 +844,7 @@ mod tests {
             label: "Terminal 1".to_string(),
             updated_at: "2026-08-02T00:00:00.000Z".to_string(),
             sequence: 1,
+            started_new_process: None,
         }
     }
 

@@ -46,6 +46,7 @@ pub struct WorkspacePatch {
     pub setup_commands: Option<Option<serde_json::Value>>,
     pub env_vars: Option<Option<serde_json::Value>>,
     pub servers: Option<Option<serde_json::Value>>,
+    pub scripts: Option<Option<serde_json::Value>>,
     pub resources: Option<Option<serde_json::Value>>,
     pub network_profile: Option<Option<String>>,
     pub source: Option<String>,
@@ -229,12 +230,12 @@ impl WorkspaceDao for PgWorkspaceDao {
             r#"INSERT INTO workspaces (
                    id, name, description, kind,
                    docker_image, docker_access, sandbox_service_account,
-                   system_prompt, setup_commands, env_vars, servers, resources,
+                   system_prompt, setup_commands, env_vars, servers, scripts, resources,
                    network_profile, source, source_repository_id, source_key, source_config_path,
                    scope, owner_user_id, created_by, deleted
                ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                   $13, $14, $15, $16, $17, $18, $19, $20, $21
+                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
                )"#,
         )
         .bind(&row.id)
@@ -248,6 +249,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(&row.setup_commands)
         .bind(&row.env_vars)
         .bind(&row.servers)
+        .bind(&row.scripts)
         .bind(&row.resources)
         .bind(&row.network_profile)
         .bind(&row.source)
@@ -365,6 +367,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         push_set!(setup_commands);
         push_set!(env_vars);
         push_set!(servers);
+        push_set!(scripts);
         push_set!(resources);
         push_set!(network_profile);
         push_set!(source);
@@ -410,6 +413,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         bind_opt!(setup_commands);
         bind_opt!(env_vars);
         bind_opt!(servers);
+        bind_opt!(scripts);
         bind_opt!(resources);
         bind_opt!(network_profile);
         bind_opt!(source);

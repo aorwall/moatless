@@ -151,6 +151,40 @@ pub struct ServerConfig {
 }
 
 // =============================================================================
+// ScriptConfig
+// =============================================================================
+
+/// A named command someone runs on demand inside the sandbox, hosted by a
+/// terminal session rather than a supervised container.
+///
+/// Unlike a [`ServerConfig`] a script is not supervised, has no container of
+/// its own and is expected to exit. When it declares a `port`, the port is
+/// published at the task's preview hostname as the script starts.
+///
+/// `name` is the identity — it must survive a git round trip, so no id is
+/// allocated by the backend.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptConfig {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Written into the terminal verbatim, followed by a carriage return.
+    pub command: String,
+    /// One of `play`, `test`, `lint`, `configure`, `build`, `debug`. Anything
+    /// else is reported to clients as `play`.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// The port the script serves on, if any.
+    #[serde(default)]
+    pub port: Option<u16>,
+    /// Extra environment for the script's terminal session.
+    #[serde(default)]
+    pub env_vars: Option<HashMap<String, String>>,
+}
+
+// =============================================================================
 // CreateRepositoryRequest
 // =============================================================================
 

@@ -1553,15 +1553,19 @@ pub fn build_servers_map(plan: &ProvisionPlan) -> HashMap<String, u16> {
 }
 
 /// Docker-in-Docker daemon port; served in plaintext on the sandbox pod.
-const DIND_PORT: u16 = 2375;
+use moatless_backend_core::sandbox::SANDBOX_DIND_PORT as DIND_PORT;
 /// Sandbox HTTP control port.
-const SANDBOX_HTTP_PORT: u16 = 8001;
+use moatless_backend_core::sandbox::SANDBOX_HTTP_PORT;
 
 /// Ports the sandbox pod reserves for its control plane / infrastructure: the
 /// HTTP control port, the agent gRPC channel, and the dind Docker socket. A
 /// preview server declared on any of these must never be exposed — routing the
 /// authenticated preview edge to the Docker socket or the gRPC control plane
 /// would be a sandbox escape (see backend/src/sandbox/CLAUDE.md).
+///
+/// The rule itself is `moatless_backend_core::sandbox::is_reserved_sandbox_port`,
+/// which every runtime shares; this returns it as the array the declared-server
+/// filter below reads.
 pub fn reserved_sandbox_ports(config: &Config) -> [u16; 3] {
     [SANDBOX_HTTP_PORT, config.sandbox.grpc_port, DIND_PORT]
 }

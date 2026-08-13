@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use moatless_api_schemas::enums::TaskStatus;
+use moatless_api_schemas::repository::ScriptConfig;
 use moatless_backend_core::scope::ScopeContext;
 
 use crate::workspace::UiRpcListedWorkspace;
@@ -27,6 +28,16 @@ pub trait T3WorkspaceDao: Send + Sync {
         ctx: &ScopeContext,
         workspace_id: &str,
     ) -> Result<Option<String>, sqlx::Error>;
+
+    /// The Scripts declared by the Workspace a Task runs against, scoped to the
+    /// viewer. `None` when the Task is not readable or does not exist — the same
+    /// answer as everywhere else a scoped read finds nothing; `Some(vec)` (which
+    /// may be empty) when it is readable.
+    async fn scripts_for_task(
+        &self,
+        ctx: &ScopeContext,
+        task_id: &str,
+    ) -> Result<Option<Vec<ScriptConfig>>, sqlx::Error>;
 }
 
 #[cfg_attr(test, mockall::automock)]

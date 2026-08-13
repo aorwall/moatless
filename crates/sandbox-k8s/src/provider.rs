@@ -11,6 +11,7 @@ use tracing::{info, warn};
 
 use super::client::K8sClient;
 use super::deployment;
+use super::edge;
 use super::ingress;
 use super::naming::generate_service_name;
 use super::networkpolicy;
@@ -820,6 +821,37 @@ impl core_sandbox::SandboxConnector for K8sSandboxAdapter {
 }
 
 #[async_trait]
+impl core_sandbox::SandboxPortPublisher for K8sSandboxAdapter {
+    /// Publish one port on a running sandbox — the Script path into the same
+    /// edge provisioning builds for declared preview servers.
+    ///
+    /// Refuses a reserved infrastructure port before touching the cluster, for
+    /// the same reason `admitted_server_ports` filters the declared ones:
+    /// routing the authenticated preview edge onto the control plane, the gRPC
+    /// channel or the Docker socket would be a sandbox escape.
+    async fn publish_port(
+        &self,
+        task_id: &str,
+        name: &str,
+        port: u16,
+    ) -> Result<Option<String>, core_sandbox::SandboxError> {
+        if core_sandbox::is_reserved_sandbox_port(port, self.config.sandbox.grpc_port) {
+            return Err(core_sandbox::SandboxError::BadRequest(format!(
+                "Port {port} is reserved by the sandbox and cannot be exposed"
+            )));
+        }
+
+        self.require_sandbox_ready(task_id)
+            .await
+            .map_err(SandboxError::into_contract)?;
+
+        edge::publish_task_port(&self.k8s, task_id, name, port, &self.config)
+            .await
+            .map_err(|e| core_sandbox::SandboxError::Other(e.to_string()))
+    }
+}
+
+#[async_trait]
 impl core_sandbox::ClusterDiagnostics for K8sSandboxAdapter {
     async fn list_sandbox_diagnostics(
         &self,
@@ -917,6 +949,27 @@ impl K8sSandboxAdapter {
             &self.config,
             task_id,
         );
+
+        // The plan only knows the *declared* ports. A Script may have published
+        // one against the live sandbox, and its IngressRoute — a separate object
+        // that survived the missing Service — is the only record of it. Union
+        // those back into the Service, or the rebuilt Service drops the port and
+        // the route that outlived it starts pointing at nothing.
+        //
+        // Only into the Service and the policy: those routes still exist, and
+        // recreating them under a second name would give Traefik two rules for
+        // one hostname.
+        let declared: BTreeSet<u16> = server_ports.values().copied().collect();
+        let reserved = pod_builder::reserved_sandbox_ports(&self.config);
+        let mut service_ports = server_ports.clone();
+        for port in edge::published_task_ports(&self.k8s, task_id).await {
+            if declared.contains(&port) || reserved.contains(&port) {
+                continue;
+            }
+            info!(task_id = %task_id, port, "Preserving dynamically published port across network heal");
+            service_ports.insert(edge::script_port_name(port), port);
+        }
+
         let owner = match deployment::find_deployment(&self.k8s, task_id).await {
             Ok(Some(dep)) => dep
                 .metadata
@@ -929,7 +982,7 @@ impl K8sSandboxAdapter {
         if let Err(e) = service::create_sandbox_service(
             &self.k8s,
             task_id,
-            &server_ports,
+            &service_ports,
             self.config.sandbox.grpc_port,
             owner.as_ref(),
         )
@@ -951,7 +1004,7 @@ impl K8sSandboxAdapter {
             {
                 warn!(task_id = %task_id, error = %e, "Failed to recreate IngressRoutes");
             }
-            let preview_ports: BTreeSet<u16> = server_ports.values().copied().collect();
+            let preview_ports: BTreeSet<u16> = service_ports.values().copied().collect();
             if let Err(e) = networkpolicy::create_task_preview_network_policy(
                 &self.k8s,
                 task_id,

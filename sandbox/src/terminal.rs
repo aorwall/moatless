@@ -400,13 +400,20 @@ impl TerminalManager {
                 if session.cols != input.cols || session.rows != input.rows {
                     resize_session(session, input.cols, input.rows)?;
                 }
-                return Ok(snapshot(session));
+                // Reused a session already running: this open started nothing.
+                let mut reused = snapshot(session);
+                reused.started_new_process = Some(false);
+                return Ok(reused);
             }
         }
         drop(inner);
 
-        self.open_or_restart(input, TerminalStartKind::Started)
-            .await
+        // Fell through to a spawn: this open is what starts the process.
+        let mut started = self
+            .open_or_restart(input, TerminalStartKind::Started)
+            .await?;
+        started.started_new_process = Some(true);
+        Ok(started)
     }
 
     fn resolve_cwd(&self, requested: &str) -> TerminalResult<PathBuf> {
@@ -675,6 +682,9 @@ fn snapshot(session: &Session) -> TerminalSessionSnapshot {
         label: terminal_label(&session.terminal_id),
         updated_at: session.updated_at.clone(),
         sequence: session.sequence,
+        // Only the open path knows whether it started or reused; every other
+        // caller of this helper leaves the answer absent.
+        started_new_process: None,
     }
 }
 
@@ -814,6 +824,9 @@ mod tests {
         assert_eq!(snapshot.pid, Some(4242));
         assert_eq!(snapshot.history, "existing history");
         assert_eq!(snapshot.sequence, 7);
+        // The reuse the caller must be able to see: nothing was started, so
+        // scripts.run must not type its command into the running session.
+        assert_eq!(snapshot.started_new_process, Some(false));
 
         let inner = manager.inner.lock().await;
         let session = inner
@@ -825,6 +838,39 @@ mod tests {
             .expect("session remains registered");
         assert_eq!(session.cols, 120);
         assert_eq!(session.rows, 30);
+    }
+
+    #[tokio::test]
+    async fn open_of_a_fresh_id_reports_a_started_process() {
+        // No session under this id: the open spawns one, and must say so, so
+        // scripts.run knows this is the run that gets the command written to it.
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let manager = TerminalManager::new(tmp.path());
+
+        let snapshot = manager
+            .open(TerminalOpenRequest {
+                thread_id: "thread-1".to_string(),
+                terminal_id: "term-1".to_string(),
+                cwd: ".".to_string(),
+                worktree_path: None,
+                cols: 80,
+                rows: 24,
+                env: HashMap::new(),
+            })
+            .await
+            .expect("open starts a fresh session");
+
+        assert_eq!(snapshot.started_new_process, Some(true));
+        assert!(snapshot.pid.is_some());
+
+        manager
+            .close(TerminalCloseRequest {
+                thread_id: "thread-1".to_string(),
+                terminal_id: Some("term-1".to_string()),
+                delete_history: false,
+            })
+            .await
+            .expect("close fresh terminal");
     }
 
     #[tokio::test]
