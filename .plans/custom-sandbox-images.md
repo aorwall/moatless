@@ -33,6 +33,16 @@
   after `ci.yml` has actually published a new `sandbox`/`sandbox-base` image
   — an independent push trigger could otherwise resolve a recipe's base-digest
   pin against a stale `:latest` before `ci.yml`'s own publish jobs finished.
+- **2026-08-12 — dropped the `workflow_run.conclusion == 'success'` gate.**
+  The first real run after merge (#502) skipped entirely: `ci.yml`'s overall
+  conclusion was `failure` from the pre-existing, unrelated `cross-crate
+  census baseline` job, even though `build-sandbox-base` and `build-sandbox`
+  both succeeded and published fine. `ci.yml`'s publish jobs self-gate on
+  `(push && ref == main)` and don't depend on unrelated jobs, so the
+  `workflow_run` gate now only checks `event == 'push' && head_branch ==
+  'main'`. Worst case if a publish job itself fails: `generate-recipe.sh`
+  resolves the previous (still valid) `:latest` digest, same as if this
+  workflow hadn't fired at all.
 - A feature's `feature.json` can declare a static `env` map; `generate-recipe.sh`
   emits it as real Dockerfile `ENV` instructions after that feature's `RUN`
   step. `install.sh` can't set `ENV` itself (it runs inside a `RUN`'d shell),
@@ -150,13 +160,17 @@ A `build-sandboxes.yml` workflow that:
 3. Builds the rest as a matrix, `cache-from`/`cache-to` a shared
    `:recipe-buildcache` registry ref so the shared prefixes actually hit.
 
-Triggered on `ci.yml`'s completion (`workflow_run`, gated to successful pushes
-to `main`), not its own path-filtered `push` — a recipe pins its base image by
-resolved digest at generation time, so discovery has to run *after* `ci.yml`
-has actually republished `sandbox`/`sandbox-base`, not in parallel with it.
-Also `workflow_dispatch`. The backend does not participate: it resolves a
-recipe to a tag and uses it, and a missing tag is a startup failure it reports
-rather than repairs.
+Triggered on `ci.yml`'s completion (`workflow_run`, gated to pushes to `main`
+— not to `ci.yml`'s overall conclusion), not its own path-filtered `push` — a
+recipe pins its base image by resolved digest at generation time, so
+discovery has to run *after* `ci.yml` has actually republished
+`sandbox`/`sandbox-base`, not in parallel with it. Not gating on conclusion is
+deliberate: `ci.yml`'s publish jobs self-gate on `(push && ref == main)` and
+run independently of unrelated jobs elsewhere in that workflow, so requiring
+the whole run to be green would let one unrelated failure block every recipe
+rebuild. Also `workflow_dispatch`. The backend does not participate: it
+resolves a recipe to a tag and uses it, and a missing tag is a startup
+failure it reports rather than repairs.
 
 **Definition of done:** `moatless-fullstack` runs on a recipe image with its
 `setupCommands` deleted, and `Dockerfile.sandbox-full` is gone.

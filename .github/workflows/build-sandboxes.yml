@@ -9,6 +9,16 @@ name: Build sandboxes
 # workflow's run has fully finished, which removes the race without needing
 # to duplicate ci.yml's own path filters here — any CI run that republishes
 # the base flows through automatically, recipes/features or not.
+#
+# Deliberately does NOT gate on workflow_run.conclusion == 'success': ci.yml's
+# publish jobs (build-sandbox-base, build-sandbox) already self-gate on
+# `(push && ref == main)` and run independently of unrelated jobs elsewhere
+# in that same workflow (lints, the cross-crate census baseline, frontend
+# build, ...). Requiring the *whole* CI run to be green here meant one
+# unrelated failing job silently blocked every recipe rebuild indefinitely,
+# even on a run where the base/sandbox images published fine. If a publish
+# job itself fails, generate-recipe.sh's imagetools-inspect just resolves the
+# previous (still valid) :latest digest, which is a safe fallback.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -35,8 +45,7 @@ jobs:
     runs-on: staging-runners
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main')
     outputs:
       matrix: ${{ steps.discover.outputs.matrix }}
