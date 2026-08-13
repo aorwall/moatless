@@ -120,6 +120,37 @@ pub enum WorkspaceAction {
         #[arg(long)]
         yes: bool,
     },
+    /// Manage provider credentials pinned to a workspace. A workspace
+    /// credential (e.g. a GitHub PAT) overrides the global credential and the
+    /// run-as user's own, so every task on the workspace authenticates with it.
+    Credentials {
+        #[command(subcommand)]
+        action: CredentialAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CredentialAction {
+    /// List the credentials pinned to a workspace (metadata only; never values)
+    List { workspace_id: String },
+    /// Pin a provider credential to a workspace, replacing any current value
+    Set {
+        workspace_id: String,
+        /// Provider: github, gitlab, gitness, openai, or anthropic
+        provider: String,
+        /// Credential value (use "-" to read from stdin)
+        #[arg(long, short = 'v')]
+        value: Option<String>,
+        /// Read the value from a file instead of --value
+        #[arg(long, conflicts_with = "value")]
+        value_file: Option<String>,
+    },
+    /// Remove a pinned credential; the workspace falls back to the run-as user
+    Remove {
+        workspace_id: String,
+        /// Provider: github, gitlab, gitness, openai, or anthropic
+        provider: String,
+    },
 }
 
 pub async fn run(
@@ -325,8 +356,116 @@ pub async fn run(
                 println!("Deleted workspace {name} ({id})");
             }
         }
+        WorkspaceAction::Credentials { action } => {
+            run_credentials(client, action, json).await?;
+        }
     }
     Ok(())
+}
+
+async fn run_credentials(
+    client: &MoatClient,
+    action: CredentialAction,
+    json: bool,
+) -> Result<(), ClientError> {
+    match action {
+        CredentialAction::List { workspace_id } => {
+            let creds = client
+                .api()
+                .list_workspace_credentials(&workspace_id)
+                .await?;
+            if json {
+                output::print_json_typed(&creds);
+            } else if creds.is_empty() {
+                println!("No credentials pinned to workspace {workspace_id}.");
+            } else {
+                let rows: Vec<Vec<String>> = creds
+                    .iter()
+                    .map(|c| {
+                        vec![
+                            c.provider.to_string(),
+                            c.env_key.clone(),
+                            c.updated_by.clone(),
+                            c.updated_at.clone(),
+                        ]
+                    })
+                    .collect();
+                output::print_table(&["PROVIDER", "ENV KEY", "UPDATED BY", "UPDATED"], &rows);
+            }
+        }
+        CredentialAction::Set {
+            workspace_id,
+            provider,
+            value,
+            value_file,
+        } => {
+            let resolved = match value_file.as_deref() {
+                Some(path) => read_value_file(path)?,
+                None => read_value(value)?.ok_or_else(|| {
+                    ClientError::Other("Either --value or --value-file is required".into())
+                })?,
+            };
+            let stored = client
+                .api()
+                .set_workspace_credential(&workspace_id, &provider, &resolved)
+                .await?;
+            if json {
+                output::print_json_typed(&stored);
+            } else {
+                println!(
+                    "Pinned {} credential to workspace {} (delivered as {}).",
+                    stored.provider, workspace_id, stored.env_key
+                );
+            }
+        }
+        CredentialAction::Remove {
+            workspace_id,
+            provider,
+        } => {
+            client
+                .api()
+                .delete_workspace_credential(&workspace_id, &provider)
+                .await?;
+            if json {
+                output::print_json_typed(&serde_json::json!({
+                    "workspaceId": workspace_id,
+                    "provider": provider,
+                    "removed": true,
+                }));
+            } else {
+                println!("Removed {provider} credential from workspace {workspace_id}.");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read a credential value from `--value`, honouring `-` as "read stdin".
+fn read_value(value: Option<String>) -> Result<Option<String>, ClientError> {
+    use std::io::{IsTerminal, Read};
+    match value.as_deref() {
+        Some("-") => {
+            if std::io::stdin().is_terminal() {
+                return Err(ClientError::Other(
+                    "Cannot read from stdin in interactive mode. Pipe input or use --value directly."
+                        .into(),
+                ));
+            }
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map_err(|e| ClientError::Other(format!("Failed to read from stdin: {e}")))?;
+            Ok(Some(buf.trim_end_matches('\n').to_string()))
+        }
+        Some(v) => Ok(Some(v.to_string())),
+        None => Ok(None),
+    }
+}
+
+fn read_value_file(path: &str) -> Result<String, ClientError> {
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| ClientError::Other(format!("Failed to read value file '{path}': {e}")))?;
+    Ok(contents.trim_end_matches('\n').to_string())
 }
 
 fn parse_scope(s: &str) -> Option<Scope> {

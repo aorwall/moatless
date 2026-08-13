@@ -31,20 +31,23 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::warn;
 
+use crate::secrets::{
+    TaskCredentialInputs, resolve_task_github_token, resolve_workspace_credentials,
+};
 use moatless_backend_core::scope::{Scope, ScopeContext};
-use moatless_identity::auth::models::UserRole;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
+use moatless_identity::auth::models::UserRole;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
-use moatless_tasks::credential_sync::CredentialSync;
-use moatless_workspaces::repository::access::parse_github_owner_repo;
-use moatless_workspaces::repository::models::{Repository, RepositoryKind, RepositoryProvider};
-use crate::secrets::{resolve_task_github_token, TaskCredentialInputs};
 use moatless_identity::secret::service::SecretService;
+use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::task::creation::{PreflightPort, PreflightRejection};
 use moatless_tasks::task::models::Task;
+use moatless_workspaces::repository::access::parse_github_owner_repo;
+use moatless_workspaces::repository::models::{Repository, RepositoryKind, RepositoryProvider};
+use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
 
 /// The exact set of credential-resolution dependencies the preflight consumes.
 /// Assembled once at the composition root and consumed by `RealPreflight`,
@@ -60,6 +63,10 @@ pub struct PreflightCredentials {
     pub github_apps: Arc<GitHubAppRegistry>,
     pub users: Arc<dyn UserDao>,
     pub credential_sync: Arc<CredentialSync>,
+    /// Provider credentials pinned to the task's Workspace. Read here as well
+    /// as at runtime so preflight validates the token the sandbox will actually
+    /// be handed, not the one it would have had without the override.
+    pub workspace_credentials: Arc<WorkspaceCredentialService>,
 }
 
 /// Failure modes for the pre-flight check.
@@ -75,6 +82,12 @@ pub enum PreflightError {
 
     #[error("GitHub account not connected for user {user_id}")]
     NoGithubToken { user_id: String },
+
+    #[error("workspace {workspace_id} credentials could not be read: {reason}")]
+    WorkspaceCredentialsUnreadable {
+        workspace_id: String,
+        reason: String,
+    },
 
     #[error("GitHub token invalid: {reason}")]
     InvalidGithubToken { reason: String },
@@ -100,6 +113,11 @@ impl PreflightError {
             Self::NoGithubToken { .. } => "GitHub access is not configured for this repository \
                 scope. Configure it before starting this task."
                 .to_string(),
+            Self::WorkspaceCredentialsUnreadable { .. } => {
+                "This workspace pins its own provider credentials and they could not be read. \
+                Re-set them before starting this task."
+                    .to_string()
+            }
             Self::InvalidGithubToken { reason } => {
                 format!("GitHub token is invalid or expired: {reason}")
             }
@@ -222,6 +240,18 @@ pub async fn preflight_validate_github_token(
     }
 
     let user_id = task.created_by.as_deref().unwrap_or("system").to_string();
+    // Refusing to start beats starting as the wrong account: a workspace that
+    // pins a credential is asking for exactly one identity.
+    let workspace_credentials = resolve_workspace_credentials(
+        Some(&creds.workspace_credentials),
+        task.workspace_id.as_deref(),
+    )
+    .await
+    .map_err(|e| PreflightError::WorkspaceCredentialsUnreadable {
+        workspace_id: task.workspace_id.clone().unwrap_or_default(),
+        reason: truncate(&e.to_string(), 200),
+    })?;
+
     let token = resolve_task_github_token(TaskCredentialInputs {
         task_id: &task.task_id,
         user_id: &user_id,
@@ -235,6 +265,7 @@ pub async fn preflight_validate_github_token(
         repository: Some(repo),
         users: Some(&creds.users),
         credential_sync: Some(&creds.credential_sync),
+        workspace_credentials,
     })
     .await
     .ok_or_else(|| PreflightError::NoGithubToken {
@@ -451,9 +482,11 @@ mod tests {
         let users = users_with_role(UserRole::User);
         let task = task(Scope::User, Some("alice"), Some("bob"));
 
-        assert!(preflight_validate_task_control(&users, &task)
-            .await
-            .is_err());
+        assert!(
+            preflight_validate_task_control(&users, &task)
+                .await
+                .is_err()
+        );
     }
 
     /// Platform admin short-circuits `can_control`, so the gate would admit the
@@ -474,9 +507,11 @@ mod tests {
         users.expect_get_user().never();
         let task = task(Scope::User, None, None);
 
-        assert!(preflight_validate_task_control(&users, &task)
-            .await
-            .is_err());
+        assert!(
+            preflight_validate_task_control(&users, &task)
+                .await
+                .is_err()
+        );
     }
 
     #[test]

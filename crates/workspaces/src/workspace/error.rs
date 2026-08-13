@@ -23,6 +23,17 @@ pub enum WorkspaceError {
 
     #[error("Access denied: {0}")]
     Forbidden(String),
+
+    /// No `SECRETS_ENCRYPTION_KEY` is configured, so workspace credential
+    /// values can be neither stored nor read. A deployment gap rather than a
+    /// bad request, hence 503.
+    #[error("Secret encryption is not configured")]
+    EncryptionNotConfigured,
+
+    /// Envelope encryption or decryption of a workspace credential failed. The
+    /// cause is logged where it happens; the client sees nothing about it.
+    #[error("Credential encryption error")]
+    Crypto,
 }
 
 impl From<AccessControlError> for WorkspaceError {
@@ -48,6 +59,13 @@ impl IntoResponse for WorkspaceError {
                 )
             }
             WorkspaceError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
+            WorkspaceError::EncryptionNotConfigured => {
+                (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
+            }
+            WorkspaceError::Crypto => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error".to_string(),
+            ),
         };
 
         error_response(status, message)

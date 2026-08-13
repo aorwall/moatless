@@ -38,13 +38,15 @@ use crate::sandbox::lifecycle::{
 use crate::secret::audit::{PgSecretAuditDao, SecretAuditDao};
 use crate::secret::dao::{PgSecretDao, SecretDao};
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher, SecretService};
+use crate::tag::dao::{PgTagDao, TagDao};
 use crate::task::binding_dao::TaskBindingDao;
 use crate::task::dao::{PgTaskDao, TaskDao};
 use crate::task::relations::{PgTaskRelationDao, TaskRelationDao};
-use crate::tag::dao::{PgTagDao, TagDao};
 use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
 use crate::task_turn::dao::{PgTaskTurnDao, TaskTurnDao};
 use crate::team::dao::{PgTeamDao, TeamDao};
+use crate::workspace::credentials::dao::{PgWorkspaceCredentialDao, WorkspaceCredentialDao};
+use crate::workspace::credentials::service::WorkspaceCredentialService;
 use crate::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
 use moatless_backend_core::sandbox::SandboxConnector;
 use moatless_core::config::Config;
@@ -84,6 +86,9 @@ pub struct Ports {
     pub repositories: Arc<dyn RepositoryDao>,
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     pub workspaces: Arc<dyn WorkspaceDao>,
+    /// Provider credentials pinned to a Workspace (`workspace_credentials`).
+    /// The highest-precedence source of a sandbox's provider credentials.
+    pub workspace_credentials: Arc<WorkspaceCredentialService>,
     pub tags: Arc<dyn TagDao>,
     pub files: Arc<dyn FileDao>,
     pub teams: Arc<dyn TeamDao>,
@@ -147,6 +152,16 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         cipher.clone(),
     ));
 
+    let workspaces: Arc<dyn WorkspaceDao> = Arc::new(PgWorkspaceDao(pool.clone()));
+    let workspace_credential_records: Arc<dyn WorkspaceCredentialDao> =
+        Arc::new(PgWorkspaceCredentialDao(pool.clone()));
+    let workspace_credentials = Arc::new(WorkspaceCredentialService::new(
+        workspace_credential_records,
+        workspaces.clone(),
+        secret_audits.clone(),
+        cipher.clone(),
+    ));
+
     let api_keys: Arc<dyn ApiKeyDao> = Arc::new(PgApiKeyDao(pool.clone()));
     let pairing = Arc::new(DevicePairing::new(
         Arc::new(PgPairingCodeDao(pool.clone())),
@@ -170,7 +185,8 @@ pub fn compose(pool: DbPool, config: &Config) -> Ports {
         messages: Arc::new(PgMessageDao(pool.clone())),
         feedback: Arc::new(PgFeedbackDao(pool.clone())),
         repositories: Arc::new(PgRepositoryDao(pool.clone())),
-        workspaces: Arc::new(PgWorkspaceDao(pool.clone())),
+        workspaces,
+        workspace_credentials,
         tags: Arc::new(PgTagDao(pool.clone())),
         files: Arc::new(PgFileDao(pool.clone())),
         teams: Arc::new(PgTeamDao(pool.clone())),

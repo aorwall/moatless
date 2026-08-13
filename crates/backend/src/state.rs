@@ -7,16 +7,16 @@
 use std::sync::Arc;
 
 use crate::adapter_installations::AdapterInstallations;
+use crate::adapters::Adapters;
 use crate::adapters::dao::AdapterConnectionDao;
 use crate::adapters::delivery::AdapterDeliveryStore;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
-use crate::adapters::Adapters;
+use crate::adapters::self_echo::SelfEchoFilter;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 use crate::auth::provider_tokens::ProviderTokenAuthDao;
 use crate::auth::users::UserDao;
-use crate::task::binding_dao::TaskBindingDao;
 use crate::bindings::recently_sent::RecentlySent;
 use crate::compose::Ports;
 use crate::credential_sync::CredentialSync;
@@ -27,7 +27,6 @@ use crate::file_storage::dao::FileDao;
 use crate::loops::dao::LoopDao;
 use crate::loops::sync::LoopSyncService;
 use crate::message::dao::MessageDao;
-use crate::adapters::self_echo::SelfEchoFilter;
 use crate::message::send::MessageSendService;
 use crate::plugin::dao::PluginDao;
 use crate::plugin::sync::PluginSyncService;
@@ -39,16 +38,18 @@ use crate::secret::dao::SecretDao;
 use crate::secret::service::SecretService;
 use crate::skill::fetcher::{GitHubSkillFetcher, SkillFetcher};
 use crate::skill::service::SkillService;
+use crate::tag::dao::TagDao;
+use crate::task::binding_dao::TaskBindingDao;
 use crate::task::closer::TaskCloser;
 use crate::task::creation::{PreflightPort, TaskCreationService};
 use crate::task::dao::TaskDao;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelationDao;
-use crate::tag::dao::TagDao;
 use crate::task::sandbox_lifecycle::SandboxLifecycle;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::team::dao::TeamDao;
+use crate::workspace::credentials::service::WorkspaceCredentialService;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::git_sync::GitSyncService;
 use moatless_backend_core::sandbox::SandboxConnector;
@@ -194,6 +195,10 @@ pub struct AppState {
     /// Workspace composition + run-config (`workspaces` / `workspace_repos`).
     /// Provisioning resolves a task's repository composition through this.
     pub workspaces: Arc<dyn WorkspaceDao>,
+    /// Provider credentials pinned to a Workspace (`workspace_credentials`) —
+    /// the highest-precedence source of a sandbox's provider credentials, and
+    /// the port the CLI-only credential routes write through.
+    pub workspace_credentials: Arc<WorkspaceCredentialService>,
     /// Reconciles a repository's git-declared workspaces; holds the ports the
     /// reconcile tree would otherwise thread through every frame.
     pub git_sync: Arc<GitSyncService>,
@@ -254,6 +259,7 @@ impl AppState {
             feedback,
             repositories,
             workspaces,
+            workspace_credentials,
             tags,
             files,
             teams,
@@ -404,6 +410,7 @@ impl AppState {
                 github_apps: github_apps.clone(),
                 users: users.clone(),
                 credential_sync: credential_sync.clone(),
+                workspace_credentials: workspace_credentials.clone(),
             },
             Arc::new(RealGithubValidator),
         ));
@@ -512,6 +519,7 @@ impl AppState {
             plugins,
             plugin_sync,
             workspaces,
+            workspace_credentials,
             git_sync,
             loop_sync,
             message_send,
@@ -610,6 +618,12 @@ impl axum::extract::FromRef<AppState> for Arc<dyn TeamDao> {
 impl axum::extract::FromRef<AppState> for Arc<dyn WorkspaceDao> {
     fn from_ref(state: &AppState) -> Self {
         state.workspaces.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<WorkspaceCredentialService> {
+    fn from_ref(state: &AppState) -> Self {
+        state.workspace_credentials.clone()
     }
 }
 

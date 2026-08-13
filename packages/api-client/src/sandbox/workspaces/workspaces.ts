@@ -29,7 +29,9 @@ import type {
   CreateWorkspaceRequest,
   ErrorBody,
   ResetGitWorkspaceResponse,
+  SetWorkspaceCredentialRequest,
   UpdateWorkspaceRequest,
+  WorkspaceCredentialResponse,
   WorkspaceResponse
 } from '.././model';
 
@@ -545,6 +547,323 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getUpdateWorkspaceMutationOptions(options), queryClient);
+    }
+    export type listWorkspaceCredentialsResponse200 = {
+  data: WorkspaceCredentialResponse[]
+  status: 200
+}
+
+export type listWorkspaceCredentialsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type listWorkspaceCredentialsResponseSuccess = (listWorkspaceCredentialsResponse200) & {
+  headers: Headers;
+};
+export type listWorkspaceCredentialsResponseError = (listWorkspaceCredentialsResponse404) & {
+  headers: Headers;
+};
+
+export type listWorkspaceCredentialsResponse = (listWorkspaceCredentialsResponseSuccess | listWorkspaceCredentialsResponseError)
+
+export const getListWorkspaceCredentialsUrl = (workspaceId: string,) => {
+
+
+  
+
+  return `/api/v1/workspaces/${workspaceId}/credentials`
+}
+
+export const listWorkspaceCredentials = async (workspaceId: string, options?: RequestInit): Promise<listWorkspaceCredentialsResponse> => {
+  
+  return customInstance<listWorkspaceCredentialsResponse>(getListWorkspaceCredentialsUrl(workspaceId),
+  {      
+    ...options,
+    method: 'GET'
+    
+    
+  }
+);}
+
+
+
+
+
+export const getListWorkspaceCredentialsQueryKey = (workspaceId: string,) => {
+    return [
+    `/api/v1/workspaces/${workspaceId}/credentials`
+    ] as const;
+    }
+
+    
+export const getListWorkspaceCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError = ErrorType<ErrorBody>>(workspaceId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWorkspaceCredentialsQueryKey(workspaceId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWorkspaceCredentials>>> = ({ signal }) => listWorkspaceCredentials(workspaceId, { signal, ...requestOptions });
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(workspaceId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError, TData> & { queryKey: DataTag<QueryKey, TData> }
+}
+
+export type ListWorkspaceCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof listWorkspaceCredentials>>>
+export type ListWorkspaceCredentialsQueryError = ErrorType<ErrorBody>
+
+
+export function useListWorkspaceCredentials<TData = Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError = ErrorType<ErrorBody>>(
+ workspaceId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listWorkspaceCredentials>>,
+          TError,
+          Awaited<ReturnType<typeof listWorkspaceCredentials>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListWorkspaceCredentials<TData = Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError = ErrorType<ErrorBody>>(
+ workspaceId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listWorkspaceCredentials>>,
+          TError,
+          Awaited<ReturnType<typeof listWorkspaceCredentials>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+export function useListWorkspaceCredentials<TData = Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError = ErrorType<ErrorBody>>(
+ workspaceId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> }
+
+export function useListWorkspaceCredentials<TData = Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError = ErrorType<ErrorBody>>(
+ workspaceId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> } {
+
+  const queryOptions = getListWorkspaceCredentialsQueryOptions(workspaceId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const prefetchListWorkspaceCredentialsQuery = async <TData = Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, workspaceId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listWorkspaceCredentials>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getListWorkspaceCredentialsQueryOptions(workspaceId,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+export type setWorkspaceCredentialResponse200 = {
+  data: WorkspaceCredentialResponse
+  status: 200
+}
+
+export type setWorkspaceCredentialResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type setWorkspaceCredentialResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type setWorkspaceCredentialResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type setWorkspaceCredentialResponse503 = {
+  data: ErrorBody
+  status: 503
+}
+    
+export type setWorkspaceCredentialResponseSuccess = (setWorkspaceCredentialResponse200) & {
+  headers: Headers;
+};
+export type setWorkspaceCredentialResponseError = (setWorkspaceCredentialResponse400 | setWorkspaceCredentialResponse403 | setWorkspaceCredentialResponse404 | setWorkspaceCredentialResponse503) & {
+  headers: Headers;
+};
+
+export type setWorkspaceCredentialResponse = (setWorkspaceCredentialResponseSuccess | setWorkspaceCredentialResponseError)
+
+export const getSetWorkspaceCredentialUrl = (workspaceId: string,
+    provider: string,) => {
+
+
+  
+
+  return `/api/v1/workspaces/${workspaceId}/credentials/${provider}`
+}
+
+export const setWorkspaceCredential = async (workspaceId: string,
+    provider: string,
+    setWorkspaceCredentialRequest: SetWorkspaceCredentialRequest, options?: RequestInit): Promise<setWorkspaceCredentialResponse> => {
+  
+  return customInstance<setWorkspaceCredentialResponse>(getSetWorkspaceCredentialUrl(workspaceId,provider),
+  {      
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      setWorkspaceCredentialRequest,)
+  }
+);}
+
+
+
+
+export const getSetWorkspaceCredentialMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setWorkspaceCredential>>, TError,{workspaceId: string;provider: string;data: SetWorkspaceCredentialRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof setWorkspaceCredential>>, TError,{workspaceId: string;provider: string;data: SetWorkspaceCredentialRequest}, TContext> => {
+
+const mutationKey = ['setWorkspaceCredential'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setWorkspaceCredential>>, {workspaceId: string;provider: string;data: SetWorkspaceCredentialRequest}> = (props) => {
+          const {workspaceId,provider,data} = props ?? {};
+
+          return  setWorkspaceCredential(workspaceId,provider,data,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetWorkspaceCredentialMutationResult = NonNullable<Awaited<ReturnType<typeof setWorkspaceCredential>>>
+    export type SetWorkspaceCredentialMutationBody = SetWorkspaceCredentialRequest
+    export type SetWorkspaceCredentialMutationError = ErrorType<ErrorBody>
+
+    export const useSetWorkspaceCredential = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setWorkspaceCredential>>, TError,{workspaceId: string;provider: string;data: SetWorkspaceCredentialRequest}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setWorkspaceCredential>>,
+        TError,
+        {workspaceId: string;provider: string;data: SetWorkspaceCredentialRequest},
+        TContext
+      > => {
+      return useMutation(getSetWorkspaceCredentialMutationOptions(options), queryClient);
+    }
+    export type deleteWorkspaceCredentialResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteWorkspaceCredentialResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type deleteWorkspaceCredentialResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type deleteWorkspaceCredentialResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+    
+export type deleteWorkspaceCredentialResponseSuccess = (deleteWorkspaceCredentialResponse204) & {
+  headers: Headers;
+};
+export type deleteWorkspaceCredentialResponseError = (deleteWorkspaceCredentialResponse400 | deleteWorkspaceCredentialResponse403 | deleteWorkspaceCredentialResponse404) & {
+  headers: Headers;
+};
+
+export type deleteWorkspaceCredentialResponse = (deleteWorkspaceCredentialResponseSuccess | deleteWorkspaceCredentialResponseError)
+
+export const getDeleteWorkspaceCredentialUrl = (workspaceId: string,
+    provider: string,) => {
+
+
+  
+
+  return `/api/v1/workspaces/${workspaceId}/credentials/${provider}`
+}
+
+export const deleteWorkspaceCredential = async (workspaceId: string,
+    provider: string, options?: RequestInit): Promise<deleteWorkspaceCredentialResponse> => {
+  
+  return customInstance<deleteWorkspaceCredentialResponse>(getDeleteWorkspaceCredentialUrl(workspaceId,provider),
+  {      
+    ...options,
+    method: 'DELETE'
+    
+    
+  }
+);}
+
+
+
+
+export const getDeleteWorkspaceCredentialMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkspaceCredential>>, TError,{workspaceId: string;provider: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteWorkspaceCredential>>, TError,{workspaceId: string;provider: string}, TContext> => {
+
+const mutationKey = ['deleteWorkspaceCredential'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWorkspaceCredential>>, {workspaceId: string;provider: string}> = (props) => {
+          const {workspaceId,provider} = props ?? {};
+
+          return  deleteWorkspaceCredential(workspaceId,provider,requestOptions)
+        }
+
+
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteWorkspaceCredentialMutationResult = NonNullable<Awaited<ReturnType<typeof deleteWorkspaceCredential>>>
+    
+    export type DeleteWorkspaceCredentialMutationError = ErrorType<ErrorBody>
+
+    export const useDeleteWorkspaceCredential = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWorkspaceCredential>>, TError,{workspaceId: string;provider: string}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteWorkspaceCredential>>,
+        TError,
+        {workspaceId: string;provider: string},
+        TContext
+      > => {
+      return useMutation(getDeleteWorkspaceCredentialMutationOptions(options), queryClient);
     }
     /**
  * @summary Override a git-synced workspace. Sets `source = "manual"` so that git sync

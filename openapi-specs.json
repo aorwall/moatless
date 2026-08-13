@@ -8366,6 +8366,201 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspace_id}/credentials": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "list_workspace_credentials",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential metadata (never values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceCredentialResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/credentials/{provider}": {
+      "put": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "set_workspace_credential",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "github | gitlab | gitness | openai | anthropic",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWorkspaceCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Credential stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceCredentialResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown provider or empty value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No control access to the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Secret encryption is not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "delete_workspace_credential",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "github | gitlab | gitness | openai | anthropic",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Credential removed"
+          },
+          "400": {
+            "description": "Unknown provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No control access to the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/override": {
       "patch": {
         "tags": [
@@ -15021,6 +15216,19 @@
           }
         }
       },
+      "SetWorkspaceCredentialRequest": {
+        "type": "object",
+        "description": "`PUT /api/v1/workspaces/{id}/credentials/{provider}` body.",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "type": "string",
+            "description": "The credential value. Write-only — no read path ever returns it."
+          }
+        }
+      },
       "SetupAction": {
         "type": "object",
         "description": "A remediation step the frontend can offer. `target` is machine-readable:\na settings-section id, an in-app route, or an absolute URL, per `kind`.",
@@ -17392,6 +17600,54 @@
               "null"
             ],
             "description": "User identity override (defaults to config's default user_id)."
+          }
+        }
+      },
+      "WorkspaceCredentialProvider": {
+        "type": "string",
+        "description": "A provider whose credential can be pinned to a Workspace.\n\nOnly providers whose sandbox credential is a single static environment\nvariable are here. Codex (`CODEX_AUTH_JSON`) and the Claude OAuth token are\nrefreshed and written back against the connected user's own row, so a\nworkspace-level copy of either would go stale with nothing to rotate it.",
+        "enum": [
+          "github",
+          "gitlab",
+          "gitness",
+          "openai",
+          "anthropic"
+        ]
+      },
+      "WorkspaceCredentialResponse": {
+        "type": "object",
+        "description": "Metadata for one workspace credential. The value is deliberately absent.",
+        "required": [
+          "workspaceId",
+          "provider",
+          "envKey",
+          "createdBy",
+          "updatedBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "envKey": {
+            "type": "string",
+            "description": "The environment variable the sandbox receives this credential as."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/WorkspaceCredentialProvider"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
           }
         }
       },

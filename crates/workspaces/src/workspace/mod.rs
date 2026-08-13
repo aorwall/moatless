@@ -4,6 +4,7 @@
 //! (`workspace_repos`). A Repository is a reusable git pointer; a Task
 //! references a Workspace.
 
+pub mod credentials;
 pub mod dao;
 pub mod error;
 pub mod git_sync;

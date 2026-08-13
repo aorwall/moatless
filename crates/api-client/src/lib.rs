@@ -643,6 +643,46 @@ impl ApiClient {
             .await
     }
 
+    /// GET /api/v1/workspaces/{workspace_id}/credentials
+    ///
+    /// Metadata only — a credential value is never returned.
+    pub async fn list_workspace_credentials(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<moatless_api_schemas::workspace::WorkspaceCredentialResponse>, ApiError> {
+        self.get(&format!("/api/v1/workspaces/{workspace_id}/credentials"))
+            .await
+    }
+
+    /// PUT /api/v1/workspaces/{workspace_id}/credentials/{provider}
+    pub async fn set_workspace_credential(
+        &self,
+        workspace_id: &str,
+        provider: &str,
+        value: &str,
+    ) -> Result<moatless_api_schemas::workspace::WorkspaceCredentialResponse, ApiError> {
+        let req = moatless_api_schemas::workspace::SetWorkspaceCredentialRequest {
+            value: value.to_string(),
+        };
+        self.put(
+            &format!("/api/v1/workspaces/{workspace_id}/credentials/{provider}"),
+            &req,
+        )
+        .await
+    }
+
+    /// DELETE /api/v1/workspaces/{workspace_id}/credentials/{provider}
+    pub async fn delete_workspace_credential(
+        &self,
+        workspace_id: &str,
+        provider: &str,
+    ) -> Result<(), ApiError> {
+        self.delete_request(&format!(
+            "/api/v1/workspaces/{workspace_id}/credentials/{provider}"
+        ))
+        .await
+    }
+
     // ========================================================================
     // Messages
     // ========================================================================

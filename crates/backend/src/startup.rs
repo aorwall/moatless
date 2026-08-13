@@ -17,26 +17,26 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::FmtContext;
+use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 
-use crate::compose::{github_app_registry, Ports};
-use moatless_core::config::{Config, OtelConfig};
+use crate::compose::{Ports, github_app_registry};
 use crate::credential_sync::CredentialSync;
 use crate::credentials::CredentialService;
-use moatless_core::db::{self, DbPool};
-use moatless_core::events::{EventPublisher, RedisEventPublisher};
-use moatless_core::metrics;
 use crate::sandbox::grpc_server::BackendSandboxServiceImpl;
 use crate::sandbox::k8s::client::K8sClient;
 use crate::secret::service::LocalEnvelopeSecretCipher;
 use crate::sse::consumer::RedisStreamConsumer;
 use crate::sse::routes::SseState;
 use crate::task::dao::TaskDao;
+use moatless_core::config::{Config, OtelConfig};
+use moatless_core::db::{self, DbPool};
+use moatless_core::events::{EventPublisher, RedisEventPublisher};
+use moatless_core::metrics;
 
 // =========================================================================
 // Logging
@@ -480,6 +480,7 @@ pub fn spawn_grpc_server(
             credential_sync,
             repositories: p.repositories.clone(),
             workspaces: p.workspaces.clone(),
+            workspace_credentials: p.workspace_credentials.clone(),
             files: p.files.clone(),
             users: p.users.clone(),
         }
@@ -547,7 +548,7 @@ pub fn install_shutdown_handler(cancel: CancellationToken) -> JoinHandle<()> {
 
 #[cfg(unix)]
 async fn shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
 
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;

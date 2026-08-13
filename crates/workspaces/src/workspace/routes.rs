@@ -6,11 +6,13 @@ use axum::extract::FromRef;
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use super::credentials::handlers as credential_handlers;
+use super::credentials::service::WorkspaceCredentialService;
 use super::dao::WorkspaceDao;
 use super::git_sync::GitSyncService;
 use super::handlers;
-use moatless_identity::extractors::UserTokenVerifier;
 use crate::repository::dao::RepositoryDao;
+use moatless_identity::extractors::UserTokenVerifier;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -28,7 +30,15 @@ use crate::repository::dao::RepositoryDao;
         handlers::add_workspace_repo,
         handlers::remove_workspace_repo,
         handlers::set_workspace_primary_repo,
-    )
+        credential_handlers::list_workspace_credentials,
+        credential_handlers::set_workspace_credential,
+        credential_handlers::delete_workspace_credential,
+    ),
+    components(schemas(
+        moatless_api_schemas::workspace::WorkspaceCredentialProvider,
+        moatless_api_schemas::workspace::WorkspaceCredentialResponse,
+        moatless_api_schemas::workspace::SetWorkspaceCredentialRequest,
+    ))
 )]
 pub struct WorkspaceApiDoc;
 
@@ -45,6 +55,7 @@ where
     Arc<GitSyncService>: FromRef<S>,
     Arc<dyn RepositoryDao>: FromRef<S>,
     Arc<dyn WorkspaceDao>: FromRef<S>,
+    Arc<WorkspaceCredentialService>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(WorkspaceApiDoc::openapi())
@@ -62,6 +73,11 @@ where
         .routes(routes!(handlers::add_workspace_repo))
         .routes(routes!(handlers::remove_workspace_repo))
         .routes(routes!(handlers::set_workspace_primary_repo))
+        .routes(routes!(credential_handlers::list_workspace_credentials))
+        .routes(routes!(
+            credential_handlers::set_workspace_credential,
+            credential_handlers::delete_workspace_credential
+        ))
         .with_state(state)
         .split_for_parts();
 

@@ -55,6 +55,9 @@ pub struct WorkspacePatch {
 }
 
 /// DAO trait for workspace persistence.
+// reason: `credentials::service` gates its writes on the owning workspace row,
+// so its unit tests need a workspace read they can steer.
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait WorkspaceDao: Send + Sync {
     /// Fetch a single active workspace, or a deleted git-origin tombstone, by

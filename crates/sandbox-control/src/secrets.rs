@@ -13,13 +13,15 @@ use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
+use moatless_identity::secret::models::is_reserved_key;
+use moatless_identity::secret::service::SecretService;
 use moatless_tasks::credential_sync::CredentialSync;
+use moatless_tasks::task::dao::TaskDao;
 use moatless_workspaces::repository::access::resolve_repository_github_token_with;
 use moatless_workspaces::repository::dao::RepositoryDao;
 use moatless_workspaces::repository::models::Repository;
-use moatless_identity::secret::models::is_reserved_key;
-use moatless_identity::secret::service::SecretService;
-use moatless_tasks::task::dao::TaskDao;
+use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
+use moatless_workspaces::workspace::error::WorkspaceError;
 
 pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
 pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
@@ -47,15 +49,23 @@ pub struct TaskCredentialInputs<'a> {
     /// before handing the blob to the sandbox. When `None`, the codex branch
     /// falls back to a raw provider_tokens read.
     pub credential_sync: Option<&'a Arc<CredentialSync>>,
+    /// Provider credentials pinned to the task's Workspace, already decrypted
+    /// and keyed by environment variable — resolve them with
+    /// [`resolve_workspace_credentials`]. Highest precedence: every other
+    /// source below fills only the slots these leave empty.
+    pub workspace_credentials: HashMap<String, String>,
 }
 
 /// Resolve the credentials a task's sandbox needs.
 ///
 /// Priority order (most-specific wins):
-/// 1. Per-user `provider_tokens` (OAuth-managed, e.g. a freshly-issued
+/// 1. Credentials pinned to the task's Workspace. A Workspace credential names
+///    the account the Workspace runs as, so it outranks whoever started the
+///    task; without that it would not be an override.
+/// 2. Per-user `provider_tokens` (OAuth-managed, e.g. a freshly-issued
 ///    Codex `auth.json` from the device-code flow or a connected GitHub App
 ///    user-token).
-/// 2. Scoped secrets — the `SecretService` already resolves these with
+/// 3. Scoped secrets — the `SecretService` already resolves these with
 ///    user > global precedence internally; we only fill keys that
 ///    aren't already covered by a `provider_token`.
 ///
@@ -64,8 +74,13 @@ pub struct TaskCredentialInputs<'a> {
 /// fallback `CODEX_AUTH_JSON` set by an admin) must NOT shadow it, otherwise
 /// users who explicitly reconnect their account see no effect. Globals
 /// remain a useful bottom-most fallback for users who haven't connected.
+///
+/// The order is enforced structurally rather than by a comparison: the map
+/// starts as the workspace credentials and every `fill_*` below skips a key
+/// that is already present, so a new source cannot silently outrank an older
+/// one by being added in the wrong place.
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
-    let mut credentials: HashMap<String, String> = HashMap::new();
+    let mut credentials: HashMap<String, String> = input.workspace_credentials;
 
     fill_provider_tokens(
         &mut credentials,
@@ -92,8 +107,14 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
 /// Resolve only the GitHub token a task's sandbox would receive.
 ///
 /// Goes through the same run-as-user resolution as runtime credential
-/// delivery, so preflight and the sandbox never disagree.
+/// delivery, so preflight and the sandbox never disagree — including the
+/// workspace override, which is checked first here for the same reason
+/// [`resolve_task_credentials`] seeds its map with it.
 pub async fn resolve_task_github_token(input: TaskCredentialInputs<'_>) -> Option<String> {
+    if let Some(token) = input.workspace_credentials.get(GITHUB_TOKEN) {
+        return Some(token.clone());
+    }
+
     let provider_tokens = input.provider_tokens?;
     let mut credentials: HashMap<String, String> = HashMap::new();
 
@@ -178,23 +199,57 @@ pub async fn resolve_server_env(
     }
 }
 
-/// Resolve the persisted repository attached to a task.
-pub(crate) async fn resolve_task_repository(
+/// The two rows a task's credentials are resolved against: the repository whose
+/// owner/name a GitHub credential is minted for, and the workspace whose pinned
+/// credentials outrank everything else.
+#[derive(Default)]
+pub(crate) struct TaskCredentialTargets {
+    pub repository: Option<Repository>,
+    pub workspace_id: Option<String>,
+}
+
+/// Resolve the repository and workspace attached to a task, in one task read.
+pub(crate) async fn resolve_task_credential_targets(
     tasks: Option<&Arc<dyn TaskDao>>,
     repositories: Option<&Arc<dyn RepositoryDao>>,
     task_id: &str,
-) -> Option<Repository> {
-    let tasks = tasks?;
-    let repositories = repositories?;
+) -> TaskCredentialTargets {
+    let (Some(tasks), Some(repositories)) = (tasks, repositories) else {
+        return TaskCredentialTargets::default();
+    };
     // reason: repository lookup for sandbox provisioning is system-wide
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = moatless_backend_core::scope::ScopeContext::system();
-    let task = tasks.find_by_id(task_id, &sys_ctx).await.ok().flatten()?;
-    repositories
-        .find_by_id(&task.repository_id, &sys_ctx)
-        .await
-        .ok()
-        .flatten()
+    let Some(task) = tasks.find_by_id(task_id, &sys_ctx).await.ok().flatten() else {
+        return TaskCredentialTargets::default();
+    };
+    TaskCredentialTargets {
+        repository: repositories
+            .find_by_id(&task.repository_id, &sys_ctx)
+            .await
+            .ok()
+            .flatten(),
+        workspace_id: task.workspace_id,
+    }
+}
+
+/// Resolve the credentials pinned to a workspace, keyed by environment
+/// variable.
+///
+/// A task with no workspace, or a caller with no credential service wired,
+/// yields an empty map — the ordinary case, and the one every deployment
+/// without a single workspace credential takes. A workspace that *does* hold
+/// credentials whose values cannot be read is an error: falling back would run
+/// the task under a different identity than it was configured with. See
+/// [`WorkspaceCredentialService::resolve_env`].
+pub async fn resolve_workspace_credentials(
+    workspace_credentials: Option<&Arc<WorkspaceCredentialService>>,
+    workspace_id: Option<&str>,
+) -> Result<HashMap<String, String>, WorkspaceError> {
+    let (Some(service), Some(workspace_id)) = (workspace_credentials, workspace_id) else {
+        return Ok(HashMap::new());
+    };
+    service.resolve_env(workspace_id).await
 }
 
 async fn resolve_scoped_secrets(
@@ -557,6 +612,16 @@ mod tests {
         secrets: Option<&'a Arc<SecretService>>,
         repository: &'a Repository,
     ) -> TaskCredentialInputs<'a> {
+        workspace_github_inputs(provider_tokens, secrets, repository, HashMap::new())
+    }
+
+    /// The same, with credentials pinned to the task's workspace.
+    fn workspace_github_inputs<'a>(
+        provider_tokens: &'a Arc<dyn ProviderTokenDao>,
+        secrets: Option<&'a Arc<SecretService>>,
+        repository: &'a Repository,
+        workspace_credentials: HashMap<String, String>,
+    ) -> TaskCredentialInputs<'a> {
         TaskCredentialInputs {
             task_id: "t1",
             user_id: "u1",
@@ -568,7 +633,95 @@ mod tests {
             repository: Some(repository),
             users: None,
             credential_sync: None,
+            workspace_credentials,
         }
+    }
+
+    // --- workspace credentials outrank every other source ---
+
+    #[tokio::test]
+    async fn a_workspace_credential_beats_the_run_as_user_row() {
+        // The point of the feature: the workspace names the account, not
+        // whoever happened to start the task.
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
+            moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
+        )));
+        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let pinned = HashMap::from([(GITHUB_TOKEN.to_string(), "ghp_workspace".to_string())]);
+
+        let token =
+            resolve_task_github_token(workspace_github_inputs(&tokens, None, &repository, pinned))
+                .await;
+        assert_eq!(token, Some("ghp_workspace".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_workspace_credential_supplies_the_token_when_the_user_holds_none() {
+        // Without the override this user's task is refused by preflight
+        // (`a_run_as_user_with_no_row_never_reaches_the_global_token`).
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
+        let repository = github_repository(moatless_backend_core::scope::Scope::Global);
+        let pinned = HashMap::from([(GITHUB_TOKEN.to_string(), "ghp_workspace".to_string())]);
+
+        let token =
+            resolve_task_github_token(workspace_github_inputs(&tokens, None, &repository, pinned))
+                .await;
+        assert_eq!(token, Some("ghp_workspace".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_workspace_credential_for_another_provider_leaves_github_alone() {
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(Some(
+            moatless_identity::auth::test_support::github_row("oauth", "gho_from_user"),
+        )));
+        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
+
+        let token =
+            resolve_task_github_token(workspace_github_inputs(&tokens, None, &repository, pinned))
+                .await;
+        assert_eq!(token, Some("gho_from_user".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_pinned_credential_survives_the_whole_resolution_chain() {
+        // End to end through `resolve_task_credentials`: the workspace value
+        // must beat the user's provider_token *and* the scoped secret that
+        // would otherwise fill the same slot.
+        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(StubProviderTokens::with_user_row(None));
+        let secrets = Arc::new(service_with(vec![secret(
+            "user",
+            Some("u1"),
+            "env",
+            OPENAI_API_KEY,
+            "sk-from-secret",
+        )]));
+        let repository = github_repository(moatless_backend_core::scope::Scope::User);
+        let pinned = HashMap::from([
+            (GITHUB_TOKEN.to_string(), "ghp_workspace".to_string()),
+            (OPENAI_API_KEY.to_string(), "sk-workspace".to_string()),
+        ]);
+
+        let credentials = resolve_task_credentials(workspace_github_inputs(
+            &tokens,
+            Some(&secrets),
+            &repository,
+            pinned,
+        ))
+        .await;
+
+        assert_eq!(credentials[GITHUB_TOKEN], "ghp_workspace");
+        assert_eq!(credentials[OPENAI_API_KEY], "sk-workspace");
+    }
+
+    #[tokio::test]
+    async fn resolving_a_workspace_with_no_service_wired_yields_no_credentials() {
+        assert!(
+            resolve_workspace_credentials(None, Some("ws_1"))
+                .await
+                .expect("absent service is not an error")
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -632,10 +785,9 @@ mod tests {
         // even though the repository is Global-scoped and a global binding
         // exists. Without this the sandbox silently ran as the global App.
         let tokens: Arc<dyn ProviderTokenDao> = Arc::new(
-            StubProviderTokens::with_user_row(Some(moatless_identity::auth::test_support::github_row(
-                "oauth",
-                "gho_run_as_user",
-            )))
+            StubProviderTokens::with_user_row(Some(
+                moatless_identity::auth::test_support::github_row("oauth", "gho_run_as_user"),
+            ))
             .with_global_row(moatless_identity::auth::test_support::github_row(
                 "oauth",
                 "gho_global_binding",
@@ -708,10 +860,10 @@ mod tests {
 
     #[tokio::test]
     async fn global_github_token_does_not_backstop_user_scope() {
-        let tokens: Arc<dyn ProviderTokenDao> = Arc::new(
-            StubProviderTokens::default()
-                .with_global_row(moatless_identity::auth::test_support::github_row("manual", "ghp_org")),
-        );
+        let tokens: Arc<dyn ProviderTokenDao> =
+            Arc::new(StubProviderTokens::default().with_global_row(
+                moatless_identity::auth::test_support::github_row("manual", "ghp_org"),
+            ));
 
         let repository = github_repository(moatless_backend_core::scope::Scope::User);
         let token = resolve_task_github_token(github_inputs(&tokens, None, &repository)).await;

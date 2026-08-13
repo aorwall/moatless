@@ -25,36 +25,37 @@ use sandbox_proto::{
 
 use moatless_backend_core::scope::ScopeContext;
 
-use moatless_tasks::agent::prompt;
+use crate::event_dedup::Admission;
+use crate::jwt;
+use crate::secrets::{
+    TaskCredentialInputs, resolve_server_env, resolve_task_credential_targets,
+    resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
+};
+use moatless_core::config::Config;
+use moatless_core::events::EventPublisher;
+use moatless_core::shared_models::AgentType;
 use moatless_identity::auth::github::registry::GitHubAppRegistry;
 use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_identity::auth::models::UserRole;
 use moatless_identity::auth::provider_token_dao::ProviderTokenDao;
 use moatless_identity::auth::provider_tokens::ProviderTokenAuthDao;
 use moatless_identity::auth::users::UserDao;
-use moatless_core::config::Config;
+use moatless_identity::secret::service::SecretService;
+use moatless_tasks::agent::prompt;
 use moatless_tasks::credential_sync::CredentialSync;
-use moatless_workspaces::credentials::WriteSource;
 use moatless_tasks::event_ingress::outbox::IngressOutbox;
 use moatless_tasks::event_ingress::{AdmissionError, AdmissionRequest, EventAdmission};
-use moatless_core::events::EventPublisher;
 use moatless_tasks::file_storage::dao::FileDao;
 use moatless_tasks::file_storage::s3 as file_s3;
 use moatless_tasks::message::dao::MessageDao;
-use moatless_workspaces::repository::dao::RepositoryDao;
-use crate::event_dedup::Admission;
-use crate::jwt;
-use crate::secrets::{
-    resolve_server_env, resolve_task_credentials, resolve_task_repository, resolve_task_ssh_keys,
-    TaskCredentialInputs,
-};
-use moatless_identity::secret::service::SecretService;
-use moatless_core::shared_models::AgentType;
 use moatless_tasks::task::dao::TaskDao;
 use moatless_tasks::task::relations::TaskRelationDao;
 use moatless_tasks::task_event::dao::{InsertTaskEvent, TaskEventDao};
 use moatless_tasks::task_turn::dao::{TaskTurnDao, TurnStateEvent};
-use moatless_tasks::task_turn::models::{classify_turn_transition, TurnStatus};
+use moatless_tasks::task_turn::models::{TurnStatus, classify_turn_transition};
+use moatless_workspaces::credentials::WriteSource;
+use moatless_workspaces::repository::dao::RepositoryDao;
+use moatless_workspaces::workspace::credentials::WorkspaceCredentialService;
 use moatless_workspaces::workspace::dao::WorkspaceDao;
 
 /// Known credential env var names.
@@ -124,6 +125,9 @@ pub struct HandlerDbPorts {
     /// Workspace DAO — used to load the workspace's `system_prompt` and `servers`
     /// when assembling the agent's append system prompt.
     pub workspaces: Arc<dyn WorkspaceDao>,
+    /// Provider credentials pinned to a workspace — the highest-precedence
+    /// source in the credential set a sandbox is handed.
+    pub workspace_credentials: Arc<WorkspaceCredentialService>,
     /// File metadata repository — supplies filename and mime type when
     /// fulfilling `download_upload` requests.
     pub files: Arc<dyn FileDao>,
@@ -907,7 +911,8 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
                     None
                 }
                 Ok(Some(last_result))
-                    if last_result.message_type == moatless_tasks::message::models::MessageType::Error =>
+                    if last_result.message_type
+                        == moatless_tasks::message::models::MessageType::Error =>
                 {
                     debug!(
                         task_id = %req.task_id,
@@ -1097,9 +1102,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
 
     /// Return credentials for sandbox initialization.
     ///
-    /// Resolution chain:
-    /// 1. Scoped global/user secrets.
+    /// Resolution chain, most-specific first:
+    /// 1. Credentials pinned to the task's Workspace.
     /// 2. User-level provider_tokens.
+    /// 3. Scoped global/user secrets.
     #[tracing::instrument(
         skip_all,
         fields(
@@ -1131,12 +1137,31 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         );
 
         let handlers = self.handlers.as_ref();
-        let repository = resolve_task_repository(
+        let targets = resolve_task_credential_targets(
             handlers.map(|h| &h.tasks),
             handlers.map(|h| &h.repositories),
             &req.task_id,
         )
         .await;
+        // A workspace credential that cannot be read must not degrade into the
+        // run-as user's own token: the sandbox would come up authenticated as
+        // the wrong account. Fail the fetch instead — the pod retries, and the
+        // operator sees the cause in the backend log.
+        let workspace_credentials = resolve_workspace_credentials(
+            handlers.map(|h| &h.workspace_credentials),
+            targets.workspace_id.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            warn!(
+                error = %e,
+                task_id = %req.task_id,
+                workspace_id = ?targets.workspace_id,
+                "Failed to resolve workspace credentials"
+            );
+            Status::internal("Failed to resolve workspace credentials")
+        })?;
+        let workspace_credential_count = workspace_credentials.len();
         let mut credentials = resolve_task_credentials(TaskCredentialInputs {
             task_id: &req.task_id,
             user_id: &grant.ctx.user_id,
@@ -1145,9 +1170,10 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             github_app_service: self.github_app_service.as_ref(),
             provider_token_auth: handlers.map(|h| &h.provider_token_auth),
             github_apps: Some(&self.github_apps),
-            repository: repository.as_ref(),
+            repository: targets.repository.as_ref(),
             users: handlers.map(|h| &h.users),
             credential_sync: handlers.map(|h| &h.credential_sync),
+            workspace_credentials,
         })
         .await;
 
@@ -1175,6 +1201,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
             has_claude_oauth = credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN),
             server_env_count = server_env.len(),
             ssh_key_count = ssh_keys.len(),
+            workspace_credential_count,
             "Credentials resolved"
         );
 

@@ -4,4 +4,6 @@
 //! Re-exports the `workspace` submodules the backend composes; the census resolves
 //! `crate::workspace::<submodule>::…` through these explicit re-exports.
 
-pub use moatless_workspaces::workspace::{dao, error, git_sync, handlers, models, routes, schemas};
+pub use moatless_workspaces::workspace::{
+    credentials, dao, error, git_sync, handlers, models, routes, schemas,
+};
