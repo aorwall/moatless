@@ -29,6 +29,7 @@
 
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
+use tracing::warn;
 
 use moatless_backend_core::scope::ScopeContext;
 
@@ -41,14 +42,19 @@ use super::ports::{
 };
 use super::providers;
 use crate::agent::catalog;
-use moatless_tasks::task_activities::mapping;
+use crate::data::T3WorkspaceDao;
+use crate::scripts::{self, ScriptsWriteError};
 use moatless_backend_core::models::AgentMode;
+use moatless_tasks::task_activities::mapping;
 
 /// What the surface needs in order to answer a command.
 pub struct CommandContext<'a> {
     pub conversations: &'a dyn ConversationDao,
     pub agents: &'a dyn AgentCatalogSource,
     pub sink: &'a dyn ThreadCommandSink,
+    /// Reads and writes a Workspace's run config. Only `project.meta.update`
+    /// reaches it, and only for its `scripts`.
+    pub workspaces: &'a dyn T3WorkspaceDao,
 }
 
 /// Answer one dispatched command.
@@ -117,7 +123,8 @@ pub async fn dispatch(
                 reason: "Archive it instead, or delete it from the Moatless UI.".to_string(),
             });
         }
-        "project.create" | "project.meta.update" | "project.delete" => {
+        "project.meta.update" => project_meta_update(ctx, viewer, command).await?,
+        "project.create" | "project.delete" => {
             return Err(CommandRefusal::Unsupported {
                 command: tag,
                 reason: "Projects are Moatless workspaces and are managed there.".to_string(),
@@ -413,6 +420,75 @@ async fn meta_update(
         .await
 }
 
+/// The project fields this surface changes: its Workspace's Scripts, and
+/// nothing else.
+///
+/// `project.meta.update` is one command carrying seven optional fields, and
+/// only one of them names something a Workspace holds. The rest — the title,
+/// the root path, the default model, the favicon, the env mode — describe a T3
+/// project, which here is a *projection* of a Moatless Workspace: its title is
+/// the workspace's name, its root is synthesized from the id, and its model
+/// belongs to a Turn. Accepting the command wholesale and quietly dropping
+/// those would report a save that did not happen, so each is refused by name.
+async fn project_meta_update(
+    ctx: &CommandContext<'_>,
+    viewer: &ScopeContext,
+    command: &Value,
+) -> Result<(), CommandRefusal> {
+    let workspace_id = command
+        .get("projectId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| missing("projectId"))?;
+
+    if let Some(field) = PROJECT_FIELDS_MOATLESS_OWNS
+        .iter()
+        .find(|field| command.get(**field).is_some_and(|value| !value.is_null()))
+    {
+        return Err(CommandRefusal::Unsupported {
+            command: format!("project.meta.update ({field})"),
+            reason: "A project is a Moatless workspace; change it there.".to_string(),
+        });
+    }
+
+    let Some(scripts) = command.get("scripts") else {
+        // Nothing asked for. Not an error — the client folds unrelated project
+        // state into this command — and nothing to write.
+        return Ok(());
+    };
+
+    scripts::replace(ctx.workspaces, viewer, workspace_id, scripts)
+        .await
+        .map_err(|error| match error {
+            ScriptsWriteError::NotFound => CommandRefusal::Rejected {
+                message: "That project is not one you can change from here.".to_string(),
+            },
+            ScriptsWriteError::GitSynced => CommandRefusal::Rejected {
+                message: "This workspace is synced from Git. Edit \
+                          `.moatless/workspaces.json`, or override the workspace in Moatless."
+                    .to_string(),
+            },
+            ScriptsWriteError::Invalid(message) => CommandRefusal::Rejected { message },
+            ScriptsWriteError::Database(error) => {
+                warn!(%error, workspace_id, "Failed to write workspace scripts");
+                CommandRefusal::Failed {
+                    message: "The scripts could not be saved.".to_string(),
+                }
+            }
+        })
+}
+
+/// The `project.meta.update` fields that describe a Moatless Workspace rather
+/// than anything this surface may set.
+const PROJECT_FIELDS_MOATLESS_OWNS: [&str; 5] = [
+    "title",
+    "workspaceRoot",
+    "defaultModelSelection",
+    "defaultThreadEnvMode",
+    "faviconPath",
+];
+
 /// An answer to what the agent asked.
 ///
 /// `requestId` is the tool-use id of the call that asked — the panel is derived
@@ -678,6 +754,8 @@ fn missing(field: &str) -> CommandRefusal {
 mod tests {
     use super::*;
     use crate::dao::{InteractiveCall, MockConversationDao};
+    use crate::data::{MockT3WorkspaceDao, ScriptsWriteTarget};
+    use moatless_api_schemas::repository::ScriptConfig;
     use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
     use async_trait::async_trait;
     use moatless_backend_core::models::AgentType;
@@ -995,12 +1073,21 @@ mod tests {
         dao: MockConversationDao,
         command: Value,
     ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
+        dispatch_with_workspaces(dao, MockT3WorkspaceDao::new(), command).await
+    }
+
+    async fn dispatch_with_workspaces(
+        dao: MockConversationDao,
+        workspaces: MockT3WorkspaceDao,
+        command: Value,
+    ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
         let sink = RecordingSink::default();
         let agents = StubAgents;
         let ctx = CommandContext {
             conversations: &dao,
             agents: &agents,
             sink: &sink,
+            workspaces: &workspaces,
         };
         let result = dispatch(&ctx, &viewer(), &command).await;
         let calls = std::mem::take(&mut *sink.0.lock().unwrap());
@@ -1741,7 +1828,6 @@ mod tests {
         for tag in [
             "thread.delete",
             "project.create",
-            "project.meta.update",
             "project.delete",
             "thread.approval.respond",
             "thread.checkpoint.revert",
@@ -1758,6 +1844,209 @@ mod tests {
                 "{tag} was not refused"
             );
             assert!(calls.is_empty(), "{tag} reached the sink");
+        }
+    }
+
+    /// A `project.meta.update` carrying `scripts`, as the client's scripts menu
+    /// sends it — the whole list as it should now be.
+    fn scripts_update(scripts: Value) -> Value {
+        json!({
+            "type": "project.meta.update",
+            "commandId": "cmd-1",
+            "projectId": "ws-1",
+            "scripts": scripts
+        })
+    }
+
+    /// A workspaces DAO that answers the write path: `source` decides whether
+    /// git owns the run config, `stored` is what the Workspace declares today.
+    fn workspaces_dao(source: &str, stored: Vec<ScriptConfig>) -> MockT3WorkspaceDao {
+        let mut dao = MockT3WorkspaceDao::new();
+        let source = source.to_string();
+        dao.expect_scripts_write_target().returning(move |_, _| {
+            Ok(Some(ScriptsWriteTarget {
+                source: source.clone(),
+                scripts: stored.clone(),
+            }))
+        });
+        dao
+    }
+
+    /// A script as the client sends one back.
+    fn wire_script(id: &str, command: &str) -> Value {
+        json!({
+            "id": id,
+            "name": id,
+            "command": command,
+            "icon": "play",
+            "runOnWorktreeCreate": false
+        })
+    }
+
+    #[tokio::test]
+    async fn editing_a_manual_workspaces_scripts_writes_the_submitted_list() {
+        let mut workspaces = workspaces_dao("manual", Vec::new());
+        workspaces
+            .expect_replace_scripts()
+            .withf(|_, workspace_id, scripts| {
+                workspace_id == "ws-1"
+                    && scripts.len() == 1
+                    && scripts[0].name == "dev"
+                    && scripts[0].command == "pnpm dev"
+                    && scripts[0].port == Some(3000)
+            })
+            .returning(|_, _, _| Ok(true));
+
+        let mut script = wire_script("dev", "pnpm dev");
+        script["port"] = json!(3000);
+        let (result, calls) = dispatch_with_workspaces(
+            conversations(None),
+            workspaces,
+            scripts_update(json!([script])),
+        )
+        .await;
+
+        assert!(result.is_ok(), "{result:?}");
+        // Editing a project is not a write to any thread.
+        assert!(calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn deleting_a_script_is_the_list_arriving_without_it() {
+        // The client resolves add/edit/delete into one list, so a delete has no
+        // distinct shape here: `build` is simply absent from what it sends.
+        let stored = vec![stored_script("dev", None), stored_script("build", None)];
+        let mut workspaces = workspaces_dao("manual", stored);
+        workspaces
+            .expect_replace_scripts()
+            .withf(|_, _, scripts| scripts.len() == 1 && scripts[0].name == "dev")
+            .returning(|_, _, _| Ok(true));
+
+        let (result, _) = dispatch_with_workspaces(
+            conversations(None),
+            workspaces,
+            scripts_update(json!([wire_script("dev", "pnpm dev")])),
+        )
+        .await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn an_edit_keeps_the_environment_the_client_never_saw() {
+        // `envVars` is stored on a script and absent from T3's contract. Taking
+        // the submitted script at face value would clear it on every edit.
+        let mut env = std::collections::HashMap::new();
+        env.insert("PORT".to_string(), "3000".to_string());
+        let stored = vec![stored_script("dev", Some(env.clone()))];
+
+        let mut workspaces = workspaces_dao("manual", stored);
+        workspaces
+            .expect_replace_scripts()
+            .withf(move |_, _, scripts| {
+                scripts[0].env_vars.as_ref() == Some(&env) && scripts[0].command == "pnpm dev --host"
+            })
+            .returning(|_, _, _| Ok(true));
+
+        let (result, _) = dispatch_with_workspaces(
+            conversations(None),
+            workspaces,
+            scripts_update(json!([wire_script("dev", "pnpm dev --host")])),
+        )
+        .await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn a_git_synced_workspace_refuses_the_edit_rather_than_losing_it() {
+        // The next reconcile would overwrite it, so a save that "worked" would
+        // be a lie with a delay on it.
+        let mut workspaces = workspaces_dao("git", Vec::new());
+        workspaces.expect_replace_scripts().never();
+
+        let (result, _) = dispatch_with_workspaces(
+            conversations(None),
+            workspaces,
+            scripts_update(json!([wire_script("dev", "pnpm dev")])),
+        )
+        .await;
+
+        let Err(CommandRefusal::Rejected { message }) = result else {
+            panic!("expected a rejection, got {result:?}");
+        };
+        assert!(message.contains("workspaces.json"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn a_project_field_moatless_owns_is_refused_by_name() {
+        // Silently dropping the title would report a save that did not happen.
+        for field in ["title", "workspaceRoot", "faviconPath"] {
+            let mut command = scripts_update(json!([]));
+            command[field] = json!("something");
+            let (result, _) = dispatch_with_workspaces(
+            conversations(None),
+                MockT3WorkspaceDao::new(),
+                command,
+            )
+            .await;
+            assert!(
+                matches!(result, Err(CommandRefusal::Unsupported { .. })),
+                "{field} was not refused: {result:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_project_update_carrying_no_scripts_writes_nothing() {
+        // The client folds unrelated project state into this command; an update
+        // that asks for nothing is not an error.
+        let mut workspaces = MockT3WorkspaceDao::new();
+        workspaces.expect_scripts_write_target().never();
+        workspaces.expect_replace_scripts().never();
+
+        let command = json!({
+            "type": "project.meta.update",
+            "commandId": "cmd-1",
+            "projectId": "ws-1"
+        });
+        let (result, _) =
+            dispatch_with_workspaces(
+            conversations(None), workspaces, command).await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn a_list_naming_one_script_twice_is_refused() {
+        // The name is what `scripts.run` resolves, so a duplicate has no answer.
+        let mut workspaces = workspaces_dao("manual", Vec::new());
+        workspaces.expect_replace_scripts().never();
+
+        let (result, _) = dispatch_with_workspaces(
+            conversations(None),
+            workspaces,
+            scripts_update(json!([
+                wire_script("dev", "pnpm dev"),
+                wire_script("dev", "pnpm start")
+            ])),
+        )
+        .await;
+        assert!(
+            matches!(result, Err(CommandRefusal::Rejected { .. })),
+            "{result:?}"
+        );
+    }
+
+    /// A script as the Workspace stores one.
+    fn stored_script(
+        name: &str,
+        env_vars: Option<std::collections::HashMap<String, String>>,
+    ) -> ScriptConfig {
+        ScriptConfig {
+            name: name.to_string(),
+            label: None,
+            command: "pnpm dev".to_string(),
+            icon: None,
+            port: None,
+            env_vars,
         }
     }
 

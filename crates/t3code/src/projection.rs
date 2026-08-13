@@ -88,6 +88,16 @@ const NOMINAL_ROOT_PREFIX: &str = "/moatless/workspaces";
 const SCRIPT_ICONS: [&str; 6] = ["play", "test", "lint", "configure", "build", "debug"];
 const DEFAULT_SCRIPT_ICON: &str = "play";
 
+/// Whether the contract would accept this icon.
+///
+/// The read path tolerates anything and reports the default; the write path
+/// ([`scripts::replace`](crate::scripts::replace)) has to decide whether to
+/// *store* what it was handed, and stores nothing it could not read back.
+#[must_use]
+pub fn is_script_icon(icon: &str) -> bool {
+    SCRIPT_ICONS.contains(&icon)
+}
+
 /// Prefix of the nominal worktree path reported for each conversation.
 ///
 /// A conversation's checkout lives in its own Sandbox, at the sandbox image's
@@ -1548,9 +1558,28 @@ fn project(listed: &UiRpcListedWorkspace) -> Value {
         // Required by the contract, so the narrowed shape is an empty list
         // rather than an absent field.
         "scripts": if listed.readable { scripts(workspace) } else { Vec::new() },
+        // Whether this project's scripts can be edited from the client at all.
+        //
+        // Reported rather than left for the write to refuse, because the answer
+        // is a property of the Workspace and does not change with what somebody
+        // types: a git-synced run config is reconciled from
+        // `.moatless/workspaces.json`, so an edit here would be silently undone
+        // by the next sync. The client hides the controls instead of offering
+        // an action that can only fail. The widened half of the union is not
+        // editable either — it is projected without its scripts.
+        "scriptsEditable": listed.readable && !is_git_synced(workspace),
         "createdAt": timestamp(workspace.created_at),
         "updatedAt": timestamp(workspace.updated_at)
     })
+}
+
+/// Whether git owns this Workspace's run config.
+///
+/// The same string the REST surface's `ensure_workspace_mutable` tests, and the
+/// same rule: a git-synced Workspace is read-only everywhere, because the file
+/// it is reconciled from is the thing to edit.
+fn is_git_synced(workspace: &Workspace) -> bool {
+    workspace.source == "git"
 }
 
 /// A distinct, stable, nominal root path for one workspace.
@@ -1615,10 +1644,14 @@ fn scripts(workspace: &Workspace) -> Vec<Value> {
                 "runOnWorktreeCreate": false,
                 // A script that serves a port is worth auto-opening a preview
                 // for; one that prints to a console is not.
-                "autoOpenPreview": script.port.is_some()
-                // `previewUrl` is omitted rather than guessed: the published
-                // address only exists once a task has a sandbox serving that
-                // port, and `scripts.run` returns the real one.
+                "autoOpenPreview": script.port.is_some(),
+                // The port itself, so the client can show and edit it. This is
+                // the fork's stand-in for upstream's `previewUrl`, which a
+                // Moatless script cannot carry: the published address only
+                // exists once a Task has a sandbox serving that port, and
+                // `scripts.run` returns the real one. `previewUrl` is therefore
+                // omitted rather than guessed.
+                "port": script.port
             }))
         })
         .collect()
@@ -1844,10 +1877,15 @@ mod tests {
         "createdAt",
         "updatedAt",
     ];
-    const PROJECT_OPTIONAL: &[&str] = &["repositoryIdentity"];
+    // `scriptsEditable` is a fork addition to `OrchestrationProjectShell`: the
+    // client hides the script edit controls when it is false. Optional so an
+    // older web build ignores it.
+    const PROJECT_OPTIONAL: &[&str] = &["repositoryIdentity", "scriptsEditable"];
 
     const SCRIPT_REQUIRED: &[&str] = &["id", "name", "command", "icon", "runOnWorktreeCreate"];
-    const SCRIPT_OPTIONAL: &[&str] = &["previewUrl", "autoOpenPreview"];
+    // `port` is a fork addition to `ProjectScript`: it stands in for upstream's
+    // `previewUrl`, which a Moatless script cannot carry (see the projection).
+    const SCRIPT_OPTIONAL: &[&str] = &["previewUrl", "autoOpenPreview", "port"];
 
     /// Trimmed-non-empty strings in the transcribed types above. An empty value
     /// is refused by the contract exactly as a missing key would be.

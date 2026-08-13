@@ -26,7 +26,7 @@ use tracing::warn;
 use crate::UiRpcDbPool;
 use crate::activity_dao;
 use crate::activity_dao::SubagentUsage;
-use crate::data::{T3TaskDao, T3WorkspaceDao, TaskView};
+use crate::data::{ScriptsWriteTarget, T3TaskDao, T3WorkspaceDao, TaskView};
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::workspace::UiRpcListedWorkspace;
 use moatless_api_schemas::workspace::ScriptConfig;
@@ -905,6 +905,66 @@ impl T3WorkspaceDao for PgConversationDao {
         // A stored value that will not decode is reported as no scripts rather
         // than failing the run — the same tolerance the projection applies.
         Ok(Some(serde_json::from_value(raw).unwrap_or_default()))
+    }
+
+    async fn scripts_write_target(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<ScriptsWriteTarget>, sqlx::Error> {
+        let access = viewer.access_filter(ScopedEntity::Resource, "", 2);
+        let sql = format!(
+            "SELECT source, COALESCE(scripts, '[]'::jsonb) FROM workspaces \
+             WHERE id = $1 \
+             AND (deleted IS NULL OR deleted = false) \
+             AND {}",
+            access.sql()
+        );
+        let row = sqlx::query_as::<_, (String, serde_json::Value)>(AssertSqlSafe(sql))
+            .bind(workspace_id)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(row.map(|(source, scripts)| ScriptsWriteTarget {
+            source,
+            // Same tolerance as every other read of this column: a stored value
+            // that will not decode reads as no scripts. It costs the carry-over
+            // of fields the client does not send, which is the right price for
+            // still being able to write a readable list over an unreadable one.
+            scripts: serde_json::from_value(scripts).unwrap_or_default(),
+        }))
+    }
+
+    async fn replace_scripts(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+        scripts: &[ScriptConfig],
+    ) -> Result<bool, sqlx::Error> {
+        // Scoped in the statement rather than trusted from the read before it:
+        // the two are not one transaction, and an UPDATE that finds its row by
+        // id alone would write outside the viewer's scope if access changed in
+        // between. `source` is re-checked for the same reason.
+        let access = viewer.access_filter(ScopedEntity::Resource, "", 3);
+        let sql = format!(
+            "UPDATE workspaces SET scripts = $2, updated_at = NOW() \
+             WHERE id = $1 \
+             AND (deleted IS NULL OR deleted = false) \
+             AND source <> 'git' \
+             AND {}",
+            access.sql()
+        );
+        let scripts = serde_json::to_value(scripts).unwrap_or_else(|_| serde_json::json!([]));
+        let result = sqlx::query(AssertSqlSafe(sql))
+            .bind(workspace_id)
+            .bind(scripts)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 }
 

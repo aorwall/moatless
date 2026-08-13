@@ -1,10 +1,12 @@
-//! Running a workspace Script.
+//! Running and editing a workspace Script.
 //!
 //! A Script is declared on the Workspace ([`ScriptConfig`]) and listed on the
 //! T3 project by [`projection::scripts`](crate::projection). This module is the
-//! other half: the one write the listing implies. `scripts.run` resolves a
+//! other half: the two writes the listing implies. `scripts.run` resolves a
 //! Script for the viewer, publishes its port if it declares one, then hosts it
 //! in a named terminal session and runs the command as that session.
+//! [`replace`] is the editing half — the `project.meta.update` command's
+//! `scripts` field, written back to the Workspace the projection read it from.
 //!
 //! The terminal is not new machinery — it is the same PTY surface
 //! [`terminal`](crate::terminal) already exposes, addressed by the Task's
@@ -27,6 +29,7 @@ use crate::dao::ConversationDao;
 use crate::data::T3WorkspaceDao;
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
+use moatless_api_schemas::repository::ScriptConfig;
 use moatless_backend_core::sandbox::{SandboxConnector, SandboxError, SandboxPortPublisher};
 use moatless_backend_core::scope::ScopeContext;
 
@@ -176,6 +179,180 @@ pub async fn run(
 /// the command are escaped for the single-quoted argument they land in.
 fn exec_line(command: &str) -> String {
     format!("exec sh -c '{}'\r", command.replace('\'', r"'\''"))
+}
+
+/// Why a Scripts write could not be carried out.
+///
+/// Separate from [`ScriptsError`] because the two halves fail differently and
+/// answer to different callers: running is an RPC that fails, editing is a
+/// dispatched command that is *refused*, and the caller maps these onto the
+/// contract's refusal shapes.
+#[derive(Debug, thiserror::Error)]
+pub enum ScriptsWriteError {
+    /// The viewer cannot be shown this Workspace, or it does not exist. One
+    /// answer, as everywhere else a scoped read finds nothing.
+    #[error("workspace not found")]
+    NotFound,
+    /// The Workspace's run config is synced from git, so a write here would be
+    /// undone by the next reconcile. Refused rather than silently lost.
+    #[error("workspace is synced from Git")]
+    GitSynced,
+    /// The submitted list is not one this surface can store.
+    #[error("{0}")]
+    Invalid(String),
+    #[error("the workspace could not be written")]
+    Database(#[source] sqlx::Error),
+}
+
+impl From<sqlx::Error> for ScriptsWriteError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
+}
+
+/// Replace a Workspace's declared Scripts with the list the client submitted.
+///
+/// Wholesale, because that is how the client edits: adding, editing and
+/// deleting one Script are all the same `project.meta.update` carrying the list
+/// as it should now be. Reading the current list first is therefore not a
+/// read-modify-write of the *list* — the client already resolved that — but of
+/// each Script's fields the client never sees ([`carry_over_env`]).
+pub async fn replace(
+    workspaces: &dyn T3WorkspaceDao,
+    viewer: &ScopeContext,
+    workspace_id: &str,
+    submitted: &Value,
+) -> Result<(), ScriptsWriteError> {
+    let target = workspaces
+        .scripts_write_target(viewer, workspace_id)
+        .await?
+        .ok_or(ScriptsWriteError::NotFound)?;
+    if target.is_git_synced() {
+        return Err(ScriptsWriteError::GitSynced);
+    }
+
+    let next = script_configs(submitted, &target.scripts)?;
+    if !workspaces.replace_scripts(viewer, workspace_id, &next).await? {
+        // The row was there for the read and is not there for the write:
+        // deleted, unshared or git-synced in between. Same answer as the read
+        // finding nothing, because from here it is the same situation.
+        return Err(ScriptsWriteError::NotFound);
+    }
+    Ok(())
+}
+
+/// The submitted wire Scripts as stored [`ScriptConfig`]s, folded onto what the
+/// Workspace declares today.
+fn script_configs(
+    submitted: &Value,
+    existing: &[ScriptConfig],
+) -> Result<Vec<ScriptConfig>, ScriptsWriteError> {
+    let submitted = submitted
+        .as_array()
+        .ok_or_else(|| ScriptsWriteError::Invalid("`scripts` must be a list.".to_string()))?;
+
+    let mut next: Vec<ScriptConfig> = Vec::with_capacity(submitted.len());
+    for script in submitted {
+        let config = script_config(script, existing)?;
+        // The name is the identity — it is what `scripts.run` resolves and what
+        // has to survive a git round trip — so a list that names one twice has
+        // no single answer for either.
+        if next.iter().any(|kept| kept.name == config.name) {
+            return Err(ScriptsWriteError::Invalid(format!(
+                "Two scripts share the name `{}`.",
+                config.name
+            )));
+        }
+        next.push(config);
+    }
+    Ok(next)
+}
+
+/// One wire Script as a stored one.
+fn script_config(
+    script: &Value,
+    existing: &[ScriptConfig],
+) -> Result<ScriptConfig, ScriptsWriteError> {
+    // `id` is the stored name: the projection reports the name as the id
+    // precisely because a Script has no backend-allocated id to report.
+    let name = required_field(script, "id")?;
+    let command = required_field(script, "command")?;
+
+    // The display name, kept only when it says something the name does not.
+    // Writing it back unconditionally would give every Script a label equal to
+    // its name, which reads as deliberate and is not.
+    let label = script
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|label| !label.is_empty() && *label != name)
+        .map(str::to_string);
+
+    let icon = script
+        .get("icon")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|icon| projection::is_script_icon(icon))
+        .map(str::to_string);
+
+    Ok(ScriptConfig {
+        env_vars: carry_over_env(&name, existing),
+        port: port(script)?,
+        name,
+        label,
+        command,
+        icon,
+    })
+}
+
+/// A trimmed, non-empty string field, or the refusal that says which one.
+fn required_field(script: &Value, field: &str) -> Result<String, ScriptsWriteError> {
+    script
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| ScriptsWriteError::Invalid(format!("Every script needs a {field}.")))
+}
+
+/// The port a Script serves on, if it declares one.
+///
+/// Absent and null both mean "serves nothing", which is what a client clearing
+/// the field sends. Anything outside a port's range is refused rather than
+/// clamped: a mistyped port that silently became 65535 would publish a route to
+/// a port nothing is listening on.
+fn port(script: &Value) -> Result<Option<u16>, ScriptsWriteError> {
+    let Some(port) = script.get("port") else {
+        return Ok(None);
+    };
+    if port.is_null() {
+        return Ok(None);
+    }
+    port.as_u64()
+        .filter(|port| (1..=u64::from(u16::MAX)).contains(port))
+        .map(|port| Some(port as u16))
+        .ok_or_else(|| {
+            ScriptsWriteError::Invalid(format!(
+                "`{port}` is not a port. Use a number from 1 to 65535, or leave it empty."
+            ))
+        })
+}
+
+/// The environment a Script of this name already carried.
+///
+/// `envVars` is stored on a Script and is not on T3's wire — there is no field
+/// for it in the contract and no control for it in the client. A write that
+/// took the submitted Script at face value would therefore clear it every time
+/// somebody renamed a Script's command, so it is carried across by name.
+fn carry_over_env(
+    name: &str,
+    existing: &[ScriptConfig],
+) -> Option<std::collections::HashMap<String, String>> {
+    existing
+        .iter()
+        .find(|script| script.name == name)
+        .and_then(|script| script.env_vars.clone())
 }
 
 #[cfg(test)]

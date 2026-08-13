@@ -1714,6 +1714,7 @@ impl ProtocolSession {
                     conversations: state.conversations.as_ref(),
                     agents: state.agents.as_ref(),
                     sink: state.commands.as_ref(),
+                    workspaces: state.workspaces.as_ref(),
                 };
                 match commands::dispatch(&ctx, &viewer_scope(identity), &payload).await {
                     Ok(result) => vec![success_exit(&id, result)],
