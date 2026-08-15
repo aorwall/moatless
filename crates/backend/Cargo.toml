@@ -179,7 +179,7 @@ db-tests = [
     "moatless-identity/test-support",
     "moatless-tasks/test-support",
     # Forwards so the control crate's `for_ingress_tests` harness, reached from
-    # crates/backend/tests/integration, compiles with its DB-backed blocks.
+    # crates/backend/tests/integration_*, compiles with its DB-backed blocks.
     "moatless-sandbox-control/db-tests",
     # The `adapters::test_support` facade re-export is gated `#[cfg(any(test,
     # feature = "db-tests"))]`, so under db-tests it is part of the *library*, not
@@ -225,7 +225,7 @@ hmac = "0.13"
 sha2 = "0.11"
 # Thread-local recorder + snapshotter, so a test can assert what a code path
 # actually wrote to a counter rather than that it compiled. Used by
-# `tests/integration/telegram_ingress_test.rs`, which only builds under `db-tests`.
+# `tests/integration_adapters/telegram_ingress_test.rs`, which only builds under `db-tests`.
 metrics-util = { version = "0.20", features = ["debugging"], default-features = false }
 
 # In-memory span exporter, so ui_rpc::tests can assert a request's spans share

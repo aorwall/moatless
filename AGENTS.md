@@ -48,7 +48,7 @@ logical change as it goes green rather than batching, so an eviction costs one
 commit.
 
 Why the set is shaped this way, what each invocation costs, how the db-tests
-tier and the single integration target work, and how to point rust-analyzer at
+tier and the three integration targets work, and how to point rust-analyzer at
 the same units: `rust-dev-guidelines` skill, `references/build-costs.md` and
 `references/backend.md`. Read them before changing a cargo invocation.
 

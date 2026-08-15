@@ -74,11 +74,13 @@ graph. The `-p` lines exist only where that is structurally true:
   keeps the feature droppable, so the crate every backend crate depends on does
   not pull sqlx and rustls into builds that never open a connection.
 - **`moatless-backend` with `--features db-tests`.** Every module in
-  `crates/backend/tests/integration/` except `supervisor_test.rs` opens with
+  `crates/backend/tests/integration_*/` except `supervisor_test.rs` opens with
   `#![cfg(feature = "db-tests")]` and compiles to nothing without it, so a
   signature they construct can change while a bare `--all-targets` run stays
   green. Clippy type-checks that tier without linking it, which is why the
-  feature rides on a line already being run rather than one of its own.
+  feature rides on a line already being run rather than one of its own. It is
+  the most expensive line in the set and the one an edit under `crates/backend`
+  pays every time — 44s, against 5s for the floor.
 
 `ci.yml` runs this same set, and additionally links the db-tests tier with
 `cargo nextest run -p moatless-backend --features db-tests --no-run`. Do
@@ -87,6 +89,27 @@ its first build recompiles the dependency graph again.
 
 `crates/codex-sdk` is excluded from the workspace, so the floor never reaches
 it. It is linted from its own directory.
+
+## The integration test targets
+
+`crates/backend/tests/` is three targets rather than one because the db-tests
+clippy line is the edit loop's long pole and a target is a single rustc unit: a
+23.7k-line suite in one target type-checked in one 63s unit, so the line cost
+67s on every `crates/backend` edit no matter how many cores were idle. Split
+three ways it is 44s, measured as three alternating runs of each layout on
+8 cores (67/68/69s against 43/43/45s).
+
+Splitting trades CPU for wall clock — each target compiles `tests/common` and
+re-instantiates the generics it uses, so total CPU rose 67s → 77s. It does not
+trade against link time, which the one-target layout was chosen for: under mold
+three smaller links beat one large one, and `cargo test --features db-tests
+--no-run` after the same edit went 33s → 27s.
+
+Three is where the return stops. Two targets already give most of it (44s), and
+past that rustc's parallel frontend has the cores saturated — with three, the
+last target does not start until the first finishes. The floor is unaffected
+either way (5s), since without `db-tests` every module but `supervisor_test.rs`
+compiles to nothing.
 
 ## Sandbox builds
 

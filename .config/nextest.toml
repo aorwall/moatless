@@ -1,7 +1,7 @@
 # cargo-nextest configuration.
 #
-# Process-per-test is what lets `backend/tests/integration` be one binary
-# rather than 40: a test cannot observe another's `std::env::set_var`.
+# Process-per-test is what lets `backend/tests/integration_*` be three binaries
+# rather than 41: a test cannot observe another's `std::env::set_var`.
 
 [profile.default]
 # Surface a hang before the job timeout does; bounds a deadlock at 10 * 30s.

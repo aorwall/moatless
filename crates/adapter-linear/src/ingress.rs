@@ -33,7 +33,7 @@
 //! [`receive`] takes the downward ports it reads (adapter connections, loops,
 //! db, config, adapter delivery), an Adapter, a signature and a body. That is
 //! the seam: every decision below the route is drivable from a test that never
-//! builds a `Request`, and `backend/tests/integration/linear_ingress_test.rs` drives it.
+//! builds a `Request`, and `backend/tests/integration_adapters/linear_ingress_test.rs` drives it.
 
 use tracing::{info, warn};
 
